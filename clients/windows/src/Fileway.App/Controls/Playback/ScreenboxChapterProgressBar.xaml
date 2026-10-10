@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Screenbox ChapterProgressBar segmented ProgressBar structure (6870eb0, GPL-3.0).
+     Native WinUI 3 ProgressBar templates replace the UWP Progress.xaml template. -->
+<UserControl x:Class="Fileway.App.Controls.Playback.ScreenboxChapterProgressBar"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Height="3" IsHitTestVisible="False"
+    AutomationProperties.AccessibilityView="Raw">
+    <UserControl.Resources>
+        <ResourceDictionary>
+        <ResourceDictionary.ThemeDictionaries>
+            <ResourceDictionary x:Key="Default">
+                <SolidColorBrush x:Key="ChapterTrackBackground" Color="#55FFFFFF"/>
+                <SolidColorBrush x:Key="ChapterBufferedFill" Color="#70FFFFFF"/>
+                <SolidColorBrush x:Key="ChapterPlayedFill" Color="#69A8FF"/>
+            </ResourceDictionary>
+            <ResourceDictionary x:Key="HighContrast">
+                <StaticResource x:Key="ChapterTrackBackground" ResourceKey="SystemColorWindowTextColorBrush"/>
+                <StaticResource x:Key="ChapterBufferedFill" ResourceKey="SystemColorWindowTextColorBrush"/>
+                <StaticResource x:Key="ChapterPlayedFill" ResourceKey="SystemColorHighlightColorBrush"/>
+            </ResourceDictionary>
+        </ResourceDictionary.ThemeDictionaries>
+        <Style x:Key="BufferedChapterStyle" TargetType="ProgressBar">
+            <Setter Property="Height" Value="3"/><Setter Property="MinHeight" Value="3"/>
+            <Setter Property="CornerRadius" Value="1.5"/>
+            <Setter Property="Background" Value="{ThemeResource ChapterTrackBackground}"/>
+            <Setter Property="Foreground" Value="{ThemeResource ChapterBufferedFill}"/>
+        </Style>
+        <Style x:Key="PlayedChapterStyle" TargetType="ProgressBar" BasedOn="{StaticResource BufferedChapterStyle}">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{ThemeResource ChapterPlayedFill}"/>
+        </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Grid x:Name="Segments" ColumnSpacing="1"/>
+</UserControl>

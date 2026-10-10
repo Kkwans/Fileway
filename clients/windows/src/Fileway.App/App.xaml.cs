@@ -23,7 +23,7 @@ public partial class App : Application, IAsyncDisposable
 
     public App()
     {
-        UnhandledException += (_, args) => { if (_window is null) RecordStartupFailure(args.Exception); };
+        UnhandledException += (_, args) => RecordStartupFailure(args.Exception);
         InitializeComponent();
     }
 
@@ -51,8 +51,22 @@ public partial class App : Application, IAsyncDisposable
                 ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fileway", "Preview");
             var directory = Path.Combine(root, "diagnostics");
             Directory.CreateDirectory(directory);
-            // Startup occurs before connection input is available; never log runtime requests or media addresses.
-            File.WriteAllText(Path.Combine(directory, "startup.log"), exception.ToString());
+            // Method names and error codes diagnose native initialization without
+            // persisting exception text, arguments, file paths or capability URLs.
+            var failures = new List<object>();
+            for (Exception? current = exception; current is not null && failures.Count < 4; current = current.InnerException)
+            {
+                var methods = new System.Diagnostics.StackTrace(current, false).GetFrames()
+                    ?.Take(32).Select(frame => frame.GetMethod())
+                    .Select(method => method is null ? null : method.DeclaringType?.FullName + "." + method.Name).ToArray();
+                // This app loads only compiled, application-owned XAML; it never
+                // parses remote/user markup. Its bounded parser diagnostic helps
+                // identify a failing static resource or control constructor.
+                var markupDiagnostic = current is Microsoft.UI.Xaml.Markup.XamlParseException
+                    ? current.Message[..Math.Min(current.Message.Length, 1200)] : null;
+                failures.Add(new { type = current.GetType().FullName, current.HResult, methods, markupDiagnostic });
+            }
+            File.WriteAllText(Path.Combine(directory, "startup.log"), System.Text.Json.JsonSerializer.Serialize(failures));
         }
         catch (Exception) { }
     }
@@ -76,6 +90,7 @@ public partial class App : Application, IAsyncDisposable
         catch (OperationCanceledException) when (_closing) { }
         catch (Exception exception)
         {
+            RecordStartupFailure(exception);
             if (!_closing)
             {
                 var message = exception is FilewayException known

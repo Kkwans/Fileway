@@ -32,7 +32,9 @@ The EXE is produced under `<external-artifacts>\bin\Fileway.App\x64\Debug\net10.
 
 ## First local preview
 
-The first native preview supports password/noauth connections, directory browsing, sorting and filtering the current directory, file details, a native image window, and libmpv video playback with pause, seek and volume. The A/B/C appearance selector compares provisional visual directions inside the native app; it does not save a product-wide design decision.
+The native preview supports password/noauth connections, directory browsing, sorting and filtering the current directory, file details, a native image window, and libmpv video playback. Its native playback controls port parts of Screenbox's templates and interaction structure: pause, seek, volume/mute, precise speed, chapters, confirmed audio/subtitle track selection, local external-subtitle selection and format-aware subtitle settings. This is a source adaptation, not an embedded Screenbox application or its complete feature set. See [source attribution](licenses/screenbox-ui.md). Sprite and episode providers remain separate work. The file-browser A/B/C appearance selector compares provisional directions; it does not save a product-wide design decision.
+
+A complete local media file can also be opened offline by passing its absolute path as the sole argument to `Fileway.App.exe`. This does not acquire a remote media lease or require login.
 
 This preview uses explicit direct connections, including routes supplied by the system Tailscale installation. System/PAC proxies, embedded tsnet, persistent credentials, transfers, file mutations and external-player integration are not included in this first slice. They remain separate application work. The main interface contains no placeholder actions for those features.
 

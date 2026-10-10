@@ -30,10 +30,23 @@ The native engine must remain alive while an App-owned COM reference or callback
 
 ## Rendering and diagnosis
 
-The pinned mpv 0.41.0 exposes both HWND output and a D3D11 composition path with `display-swapchain`. They require separate native validation. The render API's OpenGL/SW backends do not describe every video-output capability. Production selection requires actual layer, input, resize, DPI, fullscreen and device-recovery evidence.
+The current path uses mpv `gpu-next` / D3D11 with an HWND video surface and an owned, transparent WinUI controls window. The App synchronizes owner, bounds, DPI, fullscreen and teardown. Opening controls must not hide the video. The controls window is not permanently topmost over other applications.
 
-In composition mode mpv owns presentation and buffer resizing. The App owns the WinUI attachment, valid physical viewport dimensions and monitor information. UI and engine must not independently overwrite swapchain color settings. Raw pointers have explicit reference ownership and never enter Core domain objects.
+The control window's native region is the union of the measured title and footer
+bounds in physical pixels. Window-level SDK acrylic is applied only after that
+region exists; the central movie area remains outside the material window.
+Layout, DPI and control visibility changes refresh the region. Errors are shown
+inside the footer so native clipping cannot hide them. Region failure hides the
+HUD instead of applying material across the whole movie. Focus changes preserve
+the visible chrome material; Windows transparency/accessibility policy still
+controls its supported fallback. No custom Win2D blur graph or WebView is used.
 
-Diagnostics separately represent source format, decode path, display capabilities and actual output. Unavailable information is null/unknown. HDR input metadata, a 10-bit buffer or a normal-looking SDR screenshot cannot prove HDR output. Subtitle controls reflect the selected format: text styles, script-preserving ASS with explicit override, or bitmap scale/position for PGS.
+The public libmpv render API provides OpenGL/SW backends, not a ready D3D11 WinUI surface. External swapchain injection is not used or verified by this implementation. Production acceptance requires actual layer, input, resize, DPI, fullscreen and device-recovery evidence. UI and engine must not independently overwrite video color settings; raw pointers never enter Core domain objects.
+
+Playback rate, volume, mute, chapters and buffered ranges come from native events. Missing reader timestamps or contiguous cache ranges leave the buffered range unknown. The UI requests a change and displays engine-confirmed state; it does not infer a successful change from a button click.
+
+Subtitle preferences and temporary control-bar clearance are separate. Text subtitles can rise above visible controls without changing the saved position. Script-preserving ASS keeps author geometry unless the user explicitly enables style overrides. A local subtitle picker is scoped to its playback generation; a late selection cannot attach to a closed or replaced session. Bitmap font/scale controls are disabled until their renderer behavior is implemented and verified.
+
+Diagnostics separately represent source format, decode path, display capabilities and actual output. Unavailable information is null/unknown. HDR input metadata, a 10-bit buffer or a normal-looking SDR screenshot cannot prove HDR output. Backdrop controller attachment and an enabled transparency setting likewise do not prove visible video-background blur; native visual acceptance remains required.
 
 Runtime packages require pinned hashes, actual configuration/nonfree checks, complete import/runtime closure, notices and corresponding source/build materials before distribution. Engine load success alone does not establish rendering, compatibility or redistribution readiness.

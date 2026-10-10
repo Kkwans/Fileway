@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Screenbox CompositeTrackPicker.xaml ListView/header/footer structure (6870eb0,
+     GPL-3.0), adapted to confirmed Fileway track records and native local picker. -->
+<UserControl x:Class="Fileway.App.Controls.Playback.ScreenboxTrackPicker"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" RequestedTheme="Dark">
+    <Grid Width="320">
+        <ListView x:Name="Tracks" MaxHeight="420" SelectionMode="Single" SingleSelectionFollowsFocus="False"
+                  SelectionChanged="Tracks_SelectionChanged" ItemContainerTransitions="{x:Null}">
+            <ListView.Header>
+                <Grid MinHeight="48" Margin="16,0">
+                    <TextBlock x:Name="Heading" VerticalAlignment="Center" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </Grid>
+            </ListView.Header>
+            <ListView.Footer>
+                <Button x:Name="AddSubtitleButton" Content="添加本地字幕…" Click="AddSubtitle_Click" Visibility="Collapsed"
+                        MinHeight="48" Padding="16,8" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                        BorderThickness="0" Background="Transparent" AutomationProperties.Name="添加本地字幕"/>
+            </ListView.Footer>
+        </ListView>
+    </Grid>
+</UserControl>
