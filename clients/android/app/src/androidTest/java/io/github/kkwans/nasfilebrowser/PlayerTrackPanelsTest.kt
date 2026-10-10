@@ -117,7 +117,9 @@ class PlayerTrackPanelsTest {
         }
         fun back(label: String) {
             OwnedUiTraceRule.trace("track-back=$label uptime=${SystemClock.uptimeMillis()}")
-            assertTrue("Real Back must be injected during $label", device.pressBack())
+            // pressBack() reports an accessibility event, which IME dismissal may not emit.
+            // Check actual key injection; the awaited UI state below verifies its effect.
+            assertTrue("Real Back must be injected during $label", device.pressKeyCode(android.view.KeyEvent.KEYCODE_BACK))
             OwnedUiTraceRule.trace("track-back-return=$label uptime=${SystemClock.uptimeMillis()}")
         }
         fun activePanelError(node: android.view.accessibility.AccessibilityNodeInfo): Pair<Boolean, Boolean> {
