@@ -10,12 +10,14 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import time
 import xml.etree.ElementTree as ET
 
 PACKAGE = "io.github.kkwans.nasfilebrowser"
 RESTART_PACKAGE = f"{PACKAGE}.hostrestart"
 RESTART_CLASSES = [f"{RESTART_PACKAGE}.ThemeRestartPrepareTest", f"{RESTART_PACKAGE}.ThemeRestartVerifyTest"]
 RUNNER = f"{PACKAGE}.test/androidx.test.runner.AndroidJUnitRunner"
+REMOTE_EVIDENCE = "/sdcard/Download/nfb-client-acceptance"
 # The growing ordinary suite was still executing tests when both API jobs hit
 # the previous 20-minute host limit. This aggregate budget does not change any
 # device test's startup, subtitle, pixel or interaction assertion/deadline.
@@ -128,6 +130,29 @@ def run_checks(component, serial, run=run_command, test_methods=""):
             first_failure = status
         return status
 
+    def export_evidence():
+        started = time.monotonic()
+        if not check("evidence-export", adb + ["pull", REMOTE_EVIDENCE, str(evidence)]):
+            return
+        # Preserve the original pull failure. These fixed-path, read-only
+        # receipts do not retry the transfer or inspect any parent directory.
+        for name, arguments in [("stat", ["stat", "--", REMOTE_EVIDENCE]),
+                                ("list", ["ls", "-lan", "--", REMOTE_EVIDENCE])]:
+            try:
+                remaining = 120 - (time.monotonic() - started)
+                if remaining <= 0:
+                    status, output = 124, "Diagnostic not attempted: existing export deadline exhausted\n"
+                else:
+                    status, output = run(adb + ["shell"] + arguments, component, remaining)
+            except Exception as error:
+                status, output = 1, f"Diagnostic unavailable: {type(error).__name__}\n"
+            print(f"evidence-export-{name}: exit {status}", flush=True)
+            try:
+                (evidence / f"evidence-export-{name}.txt").write_text(
+                    f"exit {status}\n" + output, encoding="utf-8")
+            except OSError as error:
+                print(f"evidence-export-{name}: receipt unavailable ({type(error).__name__})", flush=True)
+
     wrapper = "gradlew.bat" if os.name == "nt" else "./gradlew"
     command = [wrapper, ":app:connectedDebugAndroidTest", "--stacktrace",
           # AGP/UTP discovery did not preserve the second comma-separated notClass
@@ -143,7 +168,7 @@ def run_checks(component, serial, run=run_command, test_methods=""):
     if suite_status == 124:
         # Losing the Gradle observer does not prove device instrumentation ended.
         # Preserve evidence without racing another install/test against it.
-        check("evidence-export", adb + ["pull", "/sdcard/Download/nfb-client-acceptance", str(evidence)])
+        export_evidence()
         return first_failure
 
     contract_status, contract_output = suite_contract(component, selected_methods)
@@ -155,7 +180,7 @@ def run_checks(component, serial, run=run_command, test_methods=""):
     if selected_methods:
         # This batch proves only its exact selected methods. Do not repeat
         # unchanged host-managed restart tests or reinstall another package.
-        check("evidence-export", adb + ["pull", "/sdcard/Download/nfb-client-acceptance", str(evidence)])
+        export_evidence()
         return first_failure
 
     # No fresh install or data clearing: the restart gate must retain the saved
@@ -176,7 +201,7 @@ def run_checks(component, serial, run=run_command, test_methods=""):
             check("theme-restart-verify", adb + ["shell", "am", "instrument", "-w", "-r",
                   "-e", "class", RESTART_CLASSES[1], RUNNER], instrumentation=True)
 
-    check("evidence-export", adb + ["pull", "/sdcard/Download/nfb-client-acceptance", str(evidence)])
+    export_evidence()
     return first_failure
 
 

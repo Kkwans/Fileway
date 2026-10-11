@@ -6,6 +6,7 @@ import unittest
 import os
 import re
 import subprocess
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location("emulator_checks", Path(__file__).parents[1] / "run-emulator-checks.py")
 runner = importlib.util.module_from_spec(spec)
@@ -14,11 +15,14 @@ spec.loader.exec_module(runner)
 
 class EmulatorChecksTest(unittest.TestCase):
     def exercise(self, suite=0, prepare="OK (1 test)\n", verify="OK (1 test)\n", export=0, test_methods="",
-                 junit='<testsuites><testsuite><testcase classname="OwnedRuntimeTest" name="realCase"/></testsuite></testsuites>'):
+                 junit='<testsuites><testsuite><testcase classname="OwnedRuntimeTest" name="realCase"/></testsuite></testsuites>',
+                 diagnostic=0, diagnostic_exception=None):
         calls = []
+        timeouts = []
 
         def run(command, cwd, timeout):
             calls.append(command)
+            timeouts.append(timeout)
             if "getprop" in command:
                 return 0, "1\n"
             if command == ["adb", "devices"]:
@@ -33,10 +37,17 @@ class EmulatorChecksTest(unittest.TestCase):
                 return 0, prepare if runner.RESTART_CLASSES[0] in command else verify
             if "pull" in command:
                 return export, "export result\n"
+            if command[3:5] in [["shell", "stat"], ["shell", "ls"]]:
+                if diagnostic_exception is not None:
+                    raise diagnostic_exception
+                return diagnostic, "owned directory metadata\n"
             return 0, "Success\n"
 
         with tempfile.TemporaryDirectory(dir=os.environ.get("NFB_CHECK_TMP")) as root:
             result = runner.run_checks(Path(root), "emulator-5556", run, test_methods=test_methods)
+            self.evidence = {p.name: p.read_text(encoding="utf-8")
+                             for p in (Path(root) / "app/build/acceptance").glob("*.txt")}
+        self.command_timeouts = timeouts
         return result, calls
 
     def test_restart_gate_runs_in_two_invocations_with_stop_between(self):
@@ -81,7 +92,7 @@ class EmulatorChecksTest(unittest.TestCase):
         result, calls = self.exercise(suite=7, verify="FAILURES!!!\n", export=9)
         self.assertEqual(7, result)
         self.assertTrue(any(runner.RESTART_CLASSES[1] in c for c in calls))
-        self.assertEqual("pull", calls[-1][3])
+        self.assertEqual(1, sum("pull" in command for command in calls))
 
     def test_adb_zero_exit_is_not_a_passing_instrumentation_result(self):
         for result in ["FAILURES!!!\n", "INSTRUMENTATION_FAILED: process crashed\n", "OK (0 tests)\n", ""]:
@@ -93,6 +104,69 @@ class EmulatorChecksTest(unittest.TestCase):
     def test_evidence_export_failure_fails_an_otherwise_passing_run(self):
         result, _ = self.exercise(export=9)
         self.assertEqual(9, result)
+
+    def test_failed_export_collects_only_fixed_directory_metadata_once_after_pull(self):
+        cls = runner.PACKAGE + ".OwnedRuntimeTest"
+        junit = f'<testsuite><testcase classname="{cls}" name="actualCase"/></testsuite>'
+        for selection in ["", cls + "#actualCase"]:
+            for suite in [0, 7, 124]:
+                with self.subTest(selection=selection, suite=suite):
+                    result, calls = self.exercise(suite=suite, export=9, test_methods=selection, junit=junit)
+                    self.assertEqual(suite or 9, result)
+                    pull = [i for i, command in enumerate(calls) if "pull" in command]
+                    self.assertEqual(1, len(pull))
+                    self.assertEqual([
+                        ["adb", "-s", "emulator-5556", "shell", "stat", "--", runner.REMOTE_EVIDENCE],
+                        ["adb", "-s", "emulator-5556", "shell", "ls", "-lan", "--", runner.REMOTE_EVIDENCE],
+                    ], calls[pull[0] + 1:])
+                    for name in ["stat", "list"]:
+                        self.assertEqual("exit 0\nowned directory metadata\n", self.evidence[f"evidence-export-{name}.txt"])
+                    self.assertEqual("export result\n", self.evidence["evidence-export.txt"])
+
+    def test_export_diagnostic_failure_or_exception_cannot_replace_original_failure(self):
+        for suite in [0, 7, 124]:
+            for failure in [None, OSError("must not expose raw exception details")]:
+                with self.subTest(suite=suite, failure=type(failure).__name__):
+                    result, calls = self.exercise(suite=suite, export=9, diagnostic=23, diagnostic_exception=failure)
+                    self.assertEqual(suite or 9, result)
+                    self.assertEqual(1, sum("pull" in command for command in calls))
+                    for name in ["stat", "list"]:
+                        output = self.evidence[f"evidence-export-{name}.txt"]
+                        self.assertIn("exit 23\n" if failure is None else "Diagnostic unavailable: OSError\n", output)
+                        self.assertNotIn("must not expose", output)
+
+    def test_successful_export_does_not_run_metadata_diagnostics(self):
+        status, calls = self.exercise()
+        self.assertEqual(0, status)
+        self.assertFalse(any(command[3:5] in [["shell", "stat"], ["shell", "ls"]] for command in calls))
+        self.assertNotIn("evidence-export-stat.txt", self.evidence)
+        self.assertNotIn("evidence-export-list.txt", self.evidence)
+
+    def test_export_diagnostics_share_the_original_deadline_without_extending_it(self):
+        with mock.patch.object(runner.time, "monotonic", side_effect=[100, 120, 130]):
+            status, _ = self.exercise(export=9)
+        self.assertEqual(9, status)
+        self.assertEqual([120, 100, 90], self.command_timeouts[-3:])
+        with mock.patch.object(runner.time, "monotonic", side_effect=[100, 220, 221]):
+            status, calls = self.exercise(export=9)
+        self.assertEqual(9, status)
+        self.assertEqual("pull", calls[-1][3])
+        for name in ["stat", "list"]:
+            self.assertIn("exit 124\nDiagnostic not attempted", self.evidence[f"evidence-export-{name}.txt"])
+
+    def test_export_diagnostic_receipt_failure_cannot_replace_original_failure(self):
+        original = Path.write_text
+
+        def write(path, *args, **kwargs):
+            if path.name in ["evidence-export-stat.txt", "evidence-export-list.txt"]:
+                raise OSError("owned diagnostic storage unavailable")
+            return original(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "write_text", write):
+            status, calls = self.exercise(export=9)
+        self.assertEqual(9, status)
+        self.assertEqual(1, sum("pull" in command for command in calls))
+        self.assertEqual("export result\n", self.evidence["evidence-export.txt"])
 
     def test_observer_timeout_does_not_start_a_second_device_job(self):
         result, calls = self.exercise(suite=124)
