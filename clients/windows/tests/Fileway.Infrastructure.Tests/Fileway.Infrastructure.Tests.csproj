@@ -8,6 +8,7 @@
     <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\LocalSubtitlePolicy.cs" Link="Playback\LocalSubtitlePolicy.cs" />
     <PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" />
     <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.1" />
     <ProjectReference Include="..\..\src\Fileway.Core\Fileway.Core.csproj" />

@@ -11,14 +11,13 @@ using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 using Windows.Graphics;
 using Windows.System;
-using Windows.Storage.Pickers;
+using Microsoft.Windows.Storage.Pickers;
 
 namespace Fileway.App.MediaSurfaces;
 
 /// <summary>Native video owner and lifecycle; a separate owned WinUI window hosts the HUD.</summary>
 internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowControl
 {
-    private static readonly string[] SubtitleExtensions = [".srt", ".ass", ".ssa", ".vtt", ".sup", ".ttml", ".dfxp", ".smi", ".sami"];
     private readonly IPlaybackSession _session;
     private readonly CancellationTokenSource _watchCancellation = new();
     private readonly Grid _root = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Black), RequestedTheme = ElementTheme.Dark };
@@ -464,36 +463,45 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private void Overlay_AddSubtitleRequested(object? sender, EventArgs args) => _ = AddLocalSubtitleAsync();
 
     private bool IsCurrentSubtitleRequest(long generation, PlaybackSnapshot origin) =>
-        !_disposed && !_detached && !_closing && generation == Interlocked.Read(ref _subtitlePickerGeneration)
-        && _session.Snapshot is var current && current.SessionId == origin.SessionId && current.Generation == origin.Generation
-        && current.Status is not (PlaybackStatus.Closing or PlaybackStatus.Stopped);
+        !_disposed && !_detached && !_closing
+        && LocalSubtitlePolicy.IsCurrentRequest(generation, Interlocked.Read(ref _subtitlePickerGeneration),
+            origin, _session.Snapshot, _watchCancellation.IsCancellationRequested);
 
     private async Task AddLocalSubtitleAsync()
     {
-        if (_disposed || _detached || _closing || _subtitlePickerOpen) return;
+        if (_disposed || _detached || _closing || _subtitlePickerOpen || _watchCancellation.IsCancellationRequested) return;
         _subtitlePickerOpen = true;
         var generation = Interlocked.Increment(ref _subtitlePickerGeneration);
         var origin = _session.Snapshot;
         var cancellation = _watchCancellation.Token;
         try
         {
-            var picker = new FileOpenPicker
+            var picker = new FileOpenPicker(AppWindow.Id)
             {
+                Title = "添加本地字幕",
+                CommitButtonText = "添加字幕",
                 SuggestedStartLocation = PickerLocationId.VideosLibrary,
                 ViewMode = PickerViewMode.List,
             };
-            foreach (var extension in SubtitleExtensions) picker.FileTypeFilter.Add(extension);
-            WinRT.Interop.InitializeWithWindow.Initialize(picker, _window);
-            var file = await picker.PickSingleFileAsync();
+            foreach (var extension in LocalSubtitlePolicy.Extensions) picker.FileTypeFilter.Add(extension);
+            var file = await picker.PickSingleFileAsync().AsTask(cancellation);
             if (file is null || !IsCurrentSubtitleRequest(generation, origin)) return;
 
-            var properties = await file.GetBasicPropertiesAsync();
+            // Validate the path and format before filesystem I/O. The picker
+            // returns a path; only its metadata is inspected, never its bytes.
+            var rejection = LocalSubtitlePolicy.GetRejection(file.Path, 0);
+            (string Name, long Length) properties = ("", 0);
+            if (rejection is null)
+            {
+                properties = await Task.Run(() =>
+                {
+                    cancellation.ThrowIfCancellationRequested();
+                    var localFile = new FileInfo(file.Path);
+                    return (localFile.Name, localFile.Length);
+                }, cancellation);
+                rejection = LocalSubtitlePolicy.GetRejection(file.Path, properties.Length);
+            }
             if (!IsCurrentSubtitleRequest(generation, origin)) return;
-            string? rejection = properties.Size > 16UL * 1024 * 1024
-                ? "所选字幕超过 16 MiB 上限。"
-                : !SubtitleExtensions.Contains(Path.GetExtension(file.Name), StringComparer.OrdinalIgnoreCase)
-                    || !Path.IsPathFullyQualified(file.Path)
-                    ? "请选择可直接读取的本地字幕文件。" : null;
             if (rejection is not null)
             {
                 await OnUiAsync(() => { if (IsCurrentSubtitleRequest(generation, origin)) _overlay.ReportError(rejection); });
@@ -506,7 +514,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             await OnUiAsync(() =>
             {
                 if (IsCurrentSubtitleRequest(generation, origin))
-                    loading = _session.AddSubtitleAsync(new LocalPlaybackInput(file.Path, file.Name), cancellation);
+                    loading = _session.AddSubtitleAsync(new LocalPlaybackInput(file.Path, properties.Name), cancellation);
             });
             if (loading is not null) await loading;
         }
