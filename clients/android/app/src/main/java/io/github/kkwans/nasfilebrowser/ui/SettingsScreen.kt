@@ -1,5 +1,8 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
@@ -17,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -30,6 +34,7 @@ import io.github.kkwans.nasfilebrowser.app.ClientState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.data.AppTheme
 import io.github.kkwans.nasfilebrowser.data.ConnectionMode
+import io.github.kkwans.nasfilebrowser.update.UpdatePolicy
 import kotlinx.coroutines.launch
 
 /** Shared library and connection palette; the native player retains its dark theme. */
@@ -74,6 +79,8 @@ import kotlinx.coroutines.launch
 @Composable internal fun SettingsScreen(model: ClientModel, state: ClientState) {
     var profileDetails by remember { mutableStateOf(false) }
     var about by remember { mutableStateOf(false) }
+    var repositoryError by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
     var themeSheet by remember { mutableStateOf(false) }
     var networkDetails by remember { mutableStateOf(false) }
     val network by model.networkState.collectAsStateWithLifecycle()
@@ -146,7 +153,7 @@ import kotlinx.coroutines.launch
                     SettingsGroup("应用") {
                         SettingsAction("检查更新", "当前版本 ${BuildConfig.VERSION_NAME}", R.drawable.ic_download, action = model::openUpdates)
                         HorizontalDivider(Modifier.padding(start = 52.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                        SettingsAction("关于应用", BuildConfig.VERSION_NAME, R.drawable.ic_info) { about = true }
+                        SettingsAction("关于应用", BuildConfig.VERSION_NAME, R.drawable.ic_info) { repositoryError = null; about = true }
                     }
                 }
                 state.error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
@@ -177,7 +184,21 @@ import kotlinx.coroutines.launch
         }
     }, confirmButton = { TextButton(onClick = { profileDetails = false }) { Text("关闭") } })
     if (about) AlertDialog(onDismissRequest = { about = false }, title = { Text("栖卷 · Fileway") }, text = {
-        Text("版本 ${BuildConfig.VERSION_NAME}\n原生 Android 客户端\nGPL-3.0-or-later")
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("版本 ${BuildConfig.VERSION_NAME}\n原生 Android 客户端\nGPL-3.0-or-later")
+            TextButton(onClick = {
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UpdatePolicy.REPOSITORY))
+                        .addCategory(Intent.CATEGORY_BROWSABLE))
+                    repositoryError = null
+                } catch (_: ActivityNotFoundException) { repositoryError = "没有可打开链接的浏览器" }
+                catch (_: SecurityException) { repositoryError = "系统未允许打开浏览器，请稍后重试" }
+            }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .semantics { contentDescription = "打开 GitHub 仓库" }) {
+                Text("GitHub · Kkwans/Fileway")
+            }
+            repositoryError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        }
     }, confirmButton = { TextButton(onClick = { about = false }) { Text("关闭") } })
 }
 
