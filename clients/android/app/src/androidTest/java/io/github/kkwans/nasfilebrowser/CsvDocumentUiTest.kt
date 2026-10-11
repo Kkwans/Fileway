@@ -14,6 +14,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Configurator
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.ui.*
@@ -52,19 +54,40 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
         return nodes.filter { it.visible && it.enabled && it.clickable && it.bounds.contains(leaf.bounds) }
             .minByOrNull { it.bounds.width().toLong() * it.bounds.height() }
     }
-    private fun tapBounds(bounds: Rect) {
-        val driver = InstrumentationRegistry.getArguments().getString("nfbInputDriver", "automation")
-        require(driver == "automation" || driver == "shell")
-        OwnedUiTraceRule.trace("csv-tap phase=$phase driver=$driver bounds=$bounds t=${SystemClock.uptimeMillis()}")
-        if (driver == "shell") device.executeShellCommand("input touchscreen tap ${bounds.centerX()} ${bounds.centerY()}")
-        else OwnedTouchInput.tap(instrumentation, bounds, tracePrefix = "csv")
-        OwnedUiTraceRule.trace("csv-tap-returned phase=$phase t=${SystemClock.uptimeMillis()}")
+    private fun tapBounds(bounds: Rect, className: String) {
+        val packageName = instrumentation.targetContext.packageName
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: error("Missing owned CSV window")
+        val windowId: Int
+        val displayId: Int
+        try {
+            check(root.refresh() && root.packageName?.toString() == packageName)
+            windowId = root.windowId
+            val window = root.window
+            displayId = try { if (android.os.Build.VERSION.SDK_INT >= 30) window?.displayId ?: 0 else 0 }
+                finally { window?.recycle() }
+        } finally { root.recycle() }
+        check(requireNotNull(snapshot()).count { it.visible && it.enabled && it.clickable &&
+            it.bounds == bounds && it.className == className } == 1)
+        val configurator = Configurator.getInstance()
+        val previousIdle = configurator.waitForIdleTimeout
+        configurator.waitForIdleTimeout = 0
+        try {
+            val objects = device.findObjects(By.pkg(packageName).clazz(className).clickable(true).enabled(true))
+            try {
+                val owner = objects.filter { it.displayId == displayId && it.visibleBounds == bounds }.single()
+                val active = instrumentation.uiAutomation.rootInActiveWindow ?: error("Missing owned CSV window")
+                try { check(active.refresh() && active.windowId == windowId && active.packageName?.toString() == packageName) }
+                finally { active.recycle() }
+                // One AndroidX pointer click, with no fallback or rejected-click retry.
+                owner.click()
+            } finally { objects.forEach { it.recycle() } }
+        } finally { configurator.waitForIdleTimeout = previousIdle }
     }
     private fun click(label: String) {
         val nodes = await("enabled action $label") { target(it, label) != null }
         val bounds = target(nodes, label)!!.bounds
         assertTrue("$label must retain a 48dp touch target: $bounds", bounds.width() >= 48 * density - 1 && bounds.height() >= 48 * density - 1)
-        tapBounds(bounds)
+        tapBounds(bounds, requireNotNull(target(nodes, label)!!.className))
     }
     private fun checked(label: String, expected: Boolean) {
         await("$label checked=$expected") { nodes ->
@@ -161,7 +184,7 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
     private fun setInput(value: String) {
         val input = await("editable field") { nodes -> nodes.any { it.visible && it.enabled && it.className == "android.widget.EditText" } }
             .single { it.visible && it.enabled && it.className == "android.widget.EditText" }
-        tapBounds(input.bounds)
+        tapBounds(input.bounds, requireNotNull(input.className))
         assertTrue("Actual native text field must accept text", withTextNode(input.text.orEmpty()) { node ->
             node.className == "android.widget.EditText" && node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,
                 Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) })
