@@ -25,7 +25,12 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(AndroidJUnit4::class)
 internal class MarkdownNavigationUiTest : LibraryUiHarness() {
     private fun snapshot() = freshAccessibilityBounds(instrumentation, Rect(0, 0, device.displayWidth, device.displayHeight))
-    private suspend fun await(condition: () -> Boolean) = withTimeout(5000) {
+    private suspend fun <T> atStage(stage: String, block: suspend () -> T): T = try {
+        withTimeout(5000) { block() }
+    } catch (failure: TimeoutCancellationException) {
+        throw AssertionError("Markdown navigation stage=$stage timed out after 5000 ms", failure)
+    }
+    private suspend fun await(stage: String, condition: () -> Boolean) = atStage(stage) {
         while (!condition()) delay(25)
     }
     private fun visible(label: String) = snapshot()?.any { it.visible && it.text == label } == true
@@ -68,7 +73,7 @@ internal class MarkdownNavigationUiTest : LibraryUiHarness() {
         } finally { objects.filter { it !== retained }.forEach { it.recycle() } }
     }
 
-    private suspend fun tap(label: String, minimum48dp: Boolean = true) {
+    private suspend fun tap(stage: String, label: String, minimum48dp: Boolean = true) {
         val configuration = Configurator.getInstance()
         val oldIdle = configuration.waitForIdleTimeout
         var target: BoundTap? = null
@@ -76,7 +81,7 @@ internal class MarkdownNavigationUiTest : LibraryUiHarness() {
             // Pinned UiObject2 property reads otherwise add an implicit 10s idle
             // wait. Keep the existing 5s readiness budget and restore exactly.
             configuration.setWaitForIdleTimeout(0L)
-            val ready = withTimeout(5000) {
+            val ready = atStage("$stage-owner-ready") {
                 var result: BoundTap? = null
                 while (result == null) {
                     result = boundTap(label)
@@ -121,39 +126,39 @@ internal class MarkdownNavigationUiTest : LibraryUiHarness() {
                     DocumentPreviewScreen(controller, { closed.incrementAndGet() }, { error("No download action in navigation fixture") }, false)
                 } } }
             }
-            await {
+            await("portrait-ready") {
                 var portrait = false
                 activity.scenario.onActivity { portrait = it.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT &&
                     it.window.decorView.width < it.window.decorView.height }
                 portrait
             }
             main { controller.bind(owner); controller.open(fixture.file, owner.api.id) }
-            withTimeout(5000) { controller.state.first { !it.loading && it.text != null } }
-            await { visible("Start") }
+            atStage("document-read") { controller.state.first { !it.loading && it.text != null } }
+            await("initial-heading-visible") { visible("Start") }
             assertFalse(visible("Owned destination paragraph."))
-            tap("目录")
-            await { visibleDescription("关闭目录") }
-            tap("目录项 2，Target，1级标题")
-            await { !visibleDescription("关闭目录") && visible("Owned destination paragraph.") }
+            tap("open-outline-initial", "目录")
+            await("outline-initial-visible") { visibleDescription("关闭目录") }
+            tap("choose-target", "目录项 2，Target，1级标题")
+            await("target-visible-after-outline") { !visibleDescription("关闭目录") && visible("Owned destination paragraph.") }
             assertEquals(source, controller.state.value.text!!.text)
 
-            tap("目录")
-            await { visibleDescription("关闭目录") }
+            tap("open-outline-for-back", "目录")
+            await("outline-for-back-visible") { visibleDescription("关闭目录") }
             assertTrue(device.pressBack())
-            await { !visibleDescription("关闭目录") && visible("Owned destination paragraph.") }
+            await("outline-back-dismissed") { !visibleDescription("关闭目录") && visible("Owned destination paragraph.") }
             assertEquals(0, closed.get())
             assertNotNull(controller.state.value.file)
 
-            tap("目录")
-            await { visibleDescription("关闭目录") }
-            tap("目录项 1，Start，1级标题")
-            await { !visibleDescription("关闭目录") && visible("Jump owned") }
-            tap("Jump owned", minimum48dp = false)
-            await { visible("Owned destination paragraph.") }
+            tap("open-outline-for-start", "目录")
+            await("outline-for-start-visible") { visibleDescription("关闭目录") }
+            tap("choose-start", "目录项 1，Start，1级标题")
+            await("start-link-visible") { !visibleDescription("关闭目录") && visible("Jump owned") }
+            tap("internal-fragment", "Jump owned", minimum48dp = false)
+            await("target-visible-after-fragment") { visible("Owned destination paragraph.") }
             assertEquals(instrumentation.targetContext.packageName, device.currentPackageName)
 
             activity.scenario.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE }
-            await {
+            await("landscape-target-visible") {
                 var landscape = false
                 activity.scenario.onActivity { landscape = it.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
                     it.window.decorView.width > it.window.decorView.height }
@@ -162,7 +167,7 @@ internal class MarkdownNavigationUiTest : LibraryUiHarness() {
             assertTrue(fixture.writes.isEmpty())
             assertEquals(source, controller.state.value.text!!.text)
             assertTrue(device.pressBack())
-            await { controller.state.value.file == null }
+            await("document-closed") { controller.state.value.file == null }
             assertEquals(1, closed.get())
         } finally { withContext(NonCancellable) {
             try { main { controller.close() } } finally {

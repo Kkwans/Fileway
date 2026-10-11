@@ -84,7 +84,11 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
         } finally { configurator.waitForIdleTimeout = previousIdle }
     }
     private fun click(label: String) {
-        val nodes = await("enabled action $label") { target(it, label) != null }
+        val nodes = await("enabled action $label") { nodes ->
+            // Dropdown enter animation transforms bounds before its owner reaches full size.
+            val bounds = target(nodes, label)?.bounds
+            bounds != null && bounds.width() >= 48 * density - 1 && bounds.height() >= 48 * density - 1
+        }
         val bounds = target(nodes, label)!!.bounds
         assertTrue("$label must retain a 48dp touch target: $bounds", bounds.width() >= 48 * density - 1 && bounds.height() >= 48 * density - 1)
         tapBounds(bounds, requireNotNull(target(nodes, label)!!.className))
