@@ -7,3 +7,6 @@
 *.apk binary
 *.jar binary
 *.so binary
+# Retain the upstream Commons IO license verbatim, including its final blank line.
+clients/android/licenses/commons-io-LICENSE.txt whitespace=-blank-at-eof
+clients/android/app/src/main/assets/licenses/commons-io-LICENSE.txt whitespace=-blank-at-eof

@@ -110,6 +110,10 @@ import kotlin.math.roundToInt
 @Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
     val document = state.text ?: return
     val file = state.file ?: return
+    if (isCsvDocument(file)) {
+        DocumentCsvContent(controller, state)
+        return
+    }
     if (!isMarkdownDocument(file)) {
         DocumentSourceContent(controller, state)
         return
@@ -150,6 +154,27 @@ import kotlin.math.roundToInt
                     catch (_: Exception) { linkError = "没有可打开此链接的应用，可在源码中复制地址。" }
                 }, modifier = Modifier.weight(1f).fillMaxWidth())
             }
+        }
+    }
+}
+
+@Composable private fun ColumnScope.DocumentCsvContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
+    val document = state.text ?: return
+    val file = state.file ?: return
+    key(state.scope, file.mediaKey, document) {
+        var sourceMode by rememberSaveable { mutableStateOf(false) }
+        val tableState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(selected = !sourceMode, onClick = { sourceMode = false }, label = { Text("表格") }, modifier = Modifier.heightIn(min = 48.dp))
+            FilterChip(selected = sourceMode, onClick = { sourceMode = true }, label = { Text("源码") }, modifier = Modifier.heightIn(min = 48.dp))
+            if (!sourceMode) Text("${document.encoding} · 只读", Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (sourceMode) DocumentSourceContent(controller, state)
+        else tableState.SaveableStateProvider("csv-table") {
+            CsvReader(document, file.name, { sourceMode = true }, Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
