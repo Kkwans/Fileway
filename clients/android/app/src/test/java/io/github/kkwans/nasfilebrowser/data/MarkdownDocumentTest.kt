@@ -133,10 +133,10 @@ class MarkdownDocumentTest {
         assertTrue(markdownPreview(decodeDocumentText("- short\n".repeat(257).toByteArray())) is MarkdownPreview.SourceOnly)
     }
 
-    @Test fun unsupportedFootnotesTocAndYamlNeverDisappearFromReadingOutput() {
+    @Test fun footnotesTocAndYamlUseReadingWithoutChangingTheOriginalSource() {
         for (source in listOf("Footnote[^one]\n\n[^one]: Keep this body", "[TOC]\n\n# Heading", "---\ntitle: Owned\n---\n\n# Heading")) {
             val document = decodeDocumentText(source.toByteArray())
-            assertTrue(markdownPreview(document) is MarkdownPreview.SourceOnly)
+            assertTrue(markdownPreview(document) is MarkdownPreview.Reading)
             assertEquals(source, document.text)
         }
     }

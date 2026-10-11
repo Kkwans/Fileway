@@ -93,7 +93,8 @@ internal fun markdownTaskChecked(content: String, node: ASTNode): Boolean =
 
 /** The renderer's own parsed state, not an application-owned rendering tree. */
 internal data class MarkdownDocument(val state: State.Success, val hasImages: Boolean, val hasInactiveLinks: Boolean,
-    val hasLiteralHtml: Boolean, val hasLiteralMath: Boolean, val navigation: MarkdownNavigation)
+    val hasLiteralHtml: Boolean, val hasLiteralMath: Boolean, val navigation: MarkdownNavigation,
+    val extensions: MarkdownExtensions = MarkdownExtensions())
 internal sealed interface MarkdownPreview {
     data class Reading(val document: MarkdownDocument) : MarkdownPreview
     data class SourceOnly(val reason: String) : MarkdownPreview
@@ -133,17 +134,23 @@ internal fun markdownImageLabel(content: String, image: ASTNode): String {
 }
 
 /** Parse off-main, validate native layout budgets, then hand the same AST to the upstream renderer. */
-internal fun markdownPreview(document: DocumentText): MarkdownPreview {
+internal fun markdownPreview(document: DocumentText): MarkdownPreview = markdownPreview(document, true, MarkdownRenderBudget())
+
+private class MarkdownRenderBudget(var nodes: Int = 0)
+private fun markdownPreview(document: DocumentText, extended: Boolean, budget: MarkdownRenderBudget,
+    inheritedLinks: List<Pair<String, String>> = emptyList(), footnoteReferences: List<MarkdownSourceRange> = emptyList()): MarkdownPreview {
     if (maxOf(document.byteSize, document.text.length.toLong()) > MARKDOWN_READING_LIMIT)
         return MarkdownPreview.SourceOnly("Markdown 超过 2 MiB 阅读渲染上限，已显示完整源码；原文件未改变。")
     return try {
         val source = document.text
-        if ((source.startsWith("---\n") || source.startsWith("---\r\n")) &&
-            source.lineSequence().drop(1).take(100).any { it == "---" || it == "..." })
-            return MarkdownPreview.SourceOnly("此 Markdown 含暂未支持的 YAML 元数据，已显示完整源码；原文件未改变。")
-        val root = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(source)
+        val extensionInput = if (extended) markdownExtensionInput(source) else null
+        val projection = markdownFootnoteProjection(extensionInput?.projection ?: source,
+            extensionInput?.references?.filter { it.scope == null }?.map { it.range } ?: footnoteReferences)
+        val root = MarkdownParser(GFMFlavourDescriptor()).buildMarkdownTreeFromString(projection)
         val references = ReferenceLinkHandlerImpl()
-        var count = 0
+        val sharedLinks = extensionInput?.links ?: inheritedLinks
+        sharedLinks.forEach { (label, target) -> references.store(label,
+            target.takeIf { markdownInternalFragment(it) != null } ?: markdownExternalLink(target)) }
         var images = false
         var html = false
         var math = false
@@ -151,7 +158,7 @@ internal fun markdownPreview(document: DocumentText): MarkdownPreview {
         pending.addLast(root to 0)
         while (pending.isNotEmpty()) {
             val (node, depth) = pending.removeLast()
-            check(++count <= MAX_RENDER_NODES && depth <= 64)
+            check(++budget.nodes <= MAX_RENDER_NODES && depth <= 64)
             val type = node.type
             if (type == MarkdownElementTypes.PARAGRAPH || type == MarkdownElementTypes.CODE_FENCE ||
                 type == MarkdownElementTypes.CODE_BLOCK || type == MarkdownElementTypes.HTML_BLOCK ||
@@ -171,14 +178,11 @@ internal fun markdownPreview(document: DocumentText): MarkdownPreview {
                 check(node.children.count { it.type == GFMElementTypes.ROW } <= 64)
                 check((node.findChildOfType(GFMElementTypes.HEADER)?.children?.count { it.type == GFMTokenTypes.CELL } ?: 0) <= 16)
             }
-            if (type == MarkdownElementTypes.LINK_LABEL && node.getTextInNode(source).startsWith("[^"))
-                return MarkdownPreview.SourceOnly("此 Markdown 含暂未支持的脚注，已显示完整源码；原文件未改变。")
-            if (type == MarkdownElementTypes.LINK_LABEL && node.getTextInNode(source).toString().equals("[TOC]", ignoreCase = true))
-                return MarkdownPreview.SourceOnly("此 Markdown 含暂未支持的目录，已显示完整源码；原文件未改变。")
             if (type == MarkdownElementTypes.LINK_DEFINITION) {
                 val label = node.findChildOfType(MarkdownElementTypes.LINK_LABEL)?.getUnescapedTextInNode(source)
                 val target = node.findChildOfType(MarkdownElementTypes.LINK_DESTINATION)?.getUnescapedTextInNode(source)
-                if (label != null) references.store(label, target?.takeIf { markdownInternalFragment(it) != null } ?: target?.let(::markdownExternalLink))
+                if (label != null && sharedLinks.isEmpty()) references.store(label,
+                    target?.takeIf { markdownInternalFragment(it) != null } ?: target?.let(::markdownExternalLink))
             }
             if (type == MarkdownElementTypes.IMAGE) images = true
             if (type == MarkdownElementTypes.HTML_BLOCK || type.name == "HTML_TAG") html = true
@@ -196,7 +200,13 @@ internal fun markdownPreview(document: DocumentText): MarkdownPreview {
             }
             target != null && markdownExternalLink(target) == null && navigation.resolve(target) == null
         }
-        MarkdownPreview.Reading(MarkdownDocument(State.Success(root, source, true, references), images, inactive, html, math, navigation))
+        val extensions = extensionInput?.let { input -> buildMarkdownExtensions(input, root, navigation) { body, bodyReferences ->
+            (markdownPreview(decodeDocumentText(body.toByteArray(Charsets.UTF_8)), false, budget, sharedLinks, bodyReferences) as? MarkdownPreview.Reading)?.document
+        } } ?: MarkdownExtensions()
+        check(budget.nodes <= MAX_RENDER_NODES)
+        val bodies = extensions.footnotes.mapNotNull { it.body }
+        MarkdownPreview.Reading(MarkdownDocument(State.Success(root, source, true, references), images || bodies.any { it.hasImages },
+            inactive || bodies.any { it.hasInactiveLinks }, html || bodies.any { it.hasLiteralHtml }, math || bodies.any { it.hasLiteralMath }, navigation, extensions))
     } catch (error: Exception) {
         if (error is CancellationException) throw error
         MarkdownPreview.SourceOnly("此 Markdown 的结构暂不适合阅读渲染，已显示完整源码；原文件未改变。")

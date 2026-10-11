@@ -33,8 +33,8 @@ android {
         applicationId = "io.github.kkwans.nasfilebrowser"
         minSdk = 29
         targetSdk = 37
-        versionCode = 16
-        versionName = "0.7.6-preview"
+        versionCode = 17
+        versionName = "0.7.7-preview"
         buildConfigField("boolean", "NATIVE_VERBOSE", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // External control-plane acceptance runs explicitly through adb.
@@ -58,6 +58,7 @@ android {
         sourceSets.getByName("androidTest").kotlin.srcDir("src/realMediaProbeTest/java")
     }
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -83,6 +84,7 @@ android {
 }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation(platform("androidx.compose:compose-bom:2026.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -90,6 +92,7 @@ dependencies {
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("io.coil-kt.coil3:coil-gif:3.6.3")
+    implementation("io.coil-kt.coil3:coil-svg:3.6.3")
     implementation("me.saket.telephoto:zoomable-image-coil3:0.19.0")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
@@ -102,6 +105,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3-android:0.39.2")
+    implementation("org.commonmark:commonmark:0.30.1")
+    implementation("org.commonmark:commonmark-ext-footnotes:0.30.1")
+    implementation("org.commonmark:commonmark-ext-yaml-front-matter:0.30.1")
     implementation("io.noties:prism4j:2.0.0") {
         exclude(group = "org.jetbrains", module = "annotations-java5")
     }

@@ -111,11 +111,11 @@ class MarkdownNavigationTest {
         }
     }
 
-    @Test fun emptyDocumentsAndUnsupportedDocumentFallbackPreserveTheirExistingContracts() {
+    @Test fun emptyDocumentsAndExtendedSyntaxPreserveOriginalNavigationAndSavedBytes() {
         assertTrue(read("plain paragraph").second.headings.isEmpty())
         for (source in listOf("[TOC]\n\n# Title", "note[^a]\n\n[^a]: text", "---\ntitle: owned\n---\n# Title")) {
             val document = decodeDocumentText(source.toByteArray())
-            assertTrue(markdownPreview(document) is MarkdownPreview.SourceOnly)
+            assertTrue(markdownPreview(document) is MarkdownPreview.Reading)
             assertArrayEquals(source.toByteArray(), encodeEditedDocument(documentEditorText(document), document))
         }
     }

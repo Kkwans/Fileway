@@ -121,6 +121,7 @@ internal fun markdownNavigation(content: String, root: ASTNode): MarkdownNavigat
             val raw = body?.getTextInNode(content)?.toString().orEmpty().trim()
             val complex = raw.any { it in "&\\{}\r\n" } || node.markdownDescendants().any {
                 it.type == MarkdownElementTypes.CODE_SPAN || it.type == MarkdownElementTypes.IMAGE || it.type.name == "HTML_TAG" ||
+                    it.type == MarkdownElementTypes.LINK_LABEL && it.getTextInNode(content).startsWith("[^") ||
                     it.type == GFMElementTypes.INLINE_MATH || it.type == GFMElementTypes.BLOCK_MATH
             }
             if (complex) reliableNamespace = false
