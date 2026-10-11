@@ -21,6 +21,37 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 internal class MarkdownDocumentUiTest : LibraryUiHarness() {
+    private data class NativeWindowOwner(
+        val activity: Int, val decor: Int, val token: Int, val windowId: Int, val display: Int,
+        val attached: Boolean, val shown: Boolean, val focused: Boolean, val resumed: Boolean,
+        val callback: String?, val callbackIdentity: Int, val sampledAt: Long,
+    ) {
+        val ready get() = attached && shown && focused && resumed && windowId >= 0
+        fun sameWindow(other: NativeWindowOwner) = activity == other.activity && decor == other.decor &&
+            token == other.token && windowId == other.windowId && display == other.display
+    }
+    private data class OwnedButton(val bounds: Rect, val owner: NativeWindowOwner)
+    private var lastWindowOwner: NativeWindowOwner? = null
+
+    /** View.getAccessibilityWindowId is hidden. Create a local public node on main instead. */
+    private fun nativeWindowOwner(): NativeWindowOwner? {
+        var sampled: NativeWindowOwner? = null
+        activity.scenario.onActivity { host ->
+            val decor = host.window.decorView
+            val node = decor.createAccessibilityNodeInfo()
+            val windowId = try { node?.windowId ?: -1 } finally { node?.recycle() }
+            sampled = NativeWindowOwner(System.identityHashCode(host), System.identityHashCode(decor),
+                decor.windowToken?.let(System::identityHashCode) ?: 0, windowId, decor.display?.displayId ?: -1,
+                decor.isAttachedToWindow,
+                decor.isShown && decor.windowVisibility == android.view.View.VISIBLE && decor.width > 0 && decor.height > 0,
+                host.hasWindowFocus(), !host.isFinishing && !host.isDestroyed &&
+                    host.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED),
+                host.window.callback?.javaClass?.name, host.window.callback?.let(System::identityHashCode) ?: 0,
+                android.os.SystemClock.uptimeMillis())
+        }
+        lastWindowOwner = sampled
+        return sampled
+    }
     private var codeDiagnosticCount = 0
     private fun codeDiagnostic(value: MarkdownCodeDiagnostic) {
         if (codeDiagnosticCount++ >= 64) return
@@ -31,10 +62,13 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
     }
     /** One fresh unique title, then its closest actual clickable ancestor.
      * No cached node survives the query and no rejected tap is retried. */
-    private fun buttonBounds(label: String): Rect? {
+    private fun buttonBounds(label: String): OwnedButton? {
         val root = instrumentation.uiAutomation.rootInActiveWindow ?: return null
         val packageName = instrumentation.targetContext.packageName
+        if (!root.refresh() || root.packageName?.toString() != packageName) { root.recycle(); return null }
         val window = root.windowId
+        val native = try { nativeWindowOwner() } catch (failure: Throwable) { root.recycle(); throw failure }
+        if (native == null || !native.ready || native.windowId != window) { root.recycle(); return null }
         val matches = mutableListOf<AccessibilityNodeInfo>()
         fun collect(node: AccessibilityNodeInfo): Boolean {
             try {
@@ -49,7 +83,6 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             } finally { node.recycle() }
         }
         try {
-            if (root.packageName?.toString() != packageName) { root.recycle(); return null }
             if (!collect(root) || matches.size != 1) return null
             var current: AccessibilityNodeInfo? = matches.removeAt(0)
             var bounds: Rect? = null
@@ -69,28 +102,49 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
                 }
             } finally { current?.recycle() }
             val active = instrumentation.uiAutomation.rootInActiveWindow ?: return null
-            return try { bounds.takeIf { active.refresh() && active.windowId == window && active.packageName?.toString() == packageName } }
+            return try {
+                if (bounds == null || !active.refresh() || active.windowId != window || active.packageName?.toString() != packageName) null
+                else {
+                    val currentOwner = nativeWindowOwner()
+                    if (currentOwner != null && currentOwner.ready && native.sameWindow(currentOwner)) OwnedButton(bounds, currentOwner) else null
+                }
+            }
             finally { active.recycle() }
         } finally { matches.forEach { it.recycle() } }
     }
     private suspend fun click(label: String) {
         val driver = androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("nfbInputDriver") ?: "automation"
         require(driver in setOf("automation", "shell"))
-        val bounds = withTimeout(5000) {
-            var target: Rect? = null
+        lastWindowOwner = null
+        val target = try { withTimeout(5000) {
+            var target: OwnedButton? = null
             while (target == null) { target = buttonBounds(label); if (target == null) delay(25) }
             requireNotNull(target)
+        } } catch (failure: Throwable) {
+            OwnedUiTraceRule.trace("markdown-owner-not-ready label=$label last=$lastWindowOwner exception=${failure.javaClass.simpleName}")
+            throw failure
         }
+        val bounds = target.bounds
+        val density = instrumentation.targetContext.resources.displayMetrics.density
+        assertTrue("$label requires a 48dp actual clickable owner: $bounds",
+            bounds.width() >= 48 * density - 1 && bounds.height() >= 48 * density - 1)
         OwnedUiTraceRule.trace("markdown-control=$label driver=$driver bounds=$bounds")
-        if (androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("nfbMarkdownCodeDiagnostics") == "true") {
-            var owner = "unavailable"
-            activity.scenario.onActivity { host ->
-                owner = "callbackType=${host.window.callback?.javaClass?.name} focus=${host.hasWindowFocus()} shown=${host.window.decorView.isShown}"
+        val started = android.os.SystemClock.uptimeMillis()
+        OwnedUiTraceRule.trace("markdown-tap-start label=$label driver=$driver t=$started native=${target.owner}")
+        try {
+            if (driver == "shell") {
+                val output = device.executeShellCommand("input touchscreen tap ${bounds.centerX()} ${bounds.centerY()}")
+                OwnedUiTraceRule.trace("markdown-tap-return label=$label driver=shell start=$started end=${android.os.SystemClock.uptimeMillis()} " +
+                    "window=${target.owner.windowId} outputLength=${output.length} output=${output.take(256).replace('\n', ' ')} dispatch=unverified")
+            } else {
+                OwnedTouchInput.tap(instrumentation, bounds, tracePrefix = "markdown-$label")
+                OwnedUiTraceRule.trace("markdown-tap-return label=$label driver=automation start=$started end=${android.os.SystemClock.uptimeMillis()} " +
+                    "window=${target.owner.windowId} injectionChecked=true dispatch=unverified")
             }
-            instrumentation.sendStatus(2, android.os.Bundle().apply { putString("stream", "MARKDOWN_INPUT_OWNER $owner\n") })
+        } catch (failure: Throwable) {
+            OwnedUiTraceRule.trace("markdown-tap-error label=$label driver=$driver start=$started end=${android.os.SystemClock.uptimeMillis()} exception=${failure.javaClass.simpleName}")
+            throw failure
         }
-        if (driver == "shell") device.executeShellCommand("input touchscreen tap ${bounds.centerX()} ${bounds.centerY()}")
-        else OwnedTouchInput.tap(instrumentation, bounds, tracePrefix = "markdown-$label")
     }
     private fun ownedCapture(stage: String) {
         val packageName = instrumentation.targetContext.packageName
