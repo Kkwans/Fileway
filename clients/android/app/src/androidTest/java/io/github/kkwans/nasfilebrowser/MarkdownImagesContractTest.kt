@@ -163,6 +163,7 @@ internal class MarkdownImagesContractTest : LibraryUiHarness() {
         val bytes = "# Owned $label\n".toByteArray()
         val file = ResourceRef("/docs/README.md", "/docs/README.md", "README.md", false, "text", bytes.size.toLong(), label)
         var download = true
+        var imageModified = label
         var holdPreview: CompletableDeferred<Unit>? = null
         val previewEntered = CompletableDeferred<Unit>()
         val imageUrl = "http://127.0.0.1:12345/stream/image-$label"
@@ -183,7 +184,7 @@ internal class MarkdownImagesContractTest : LibraryUiHarness() {
                     if (image) { imageMetadata++; assertEquals("/docs/$imageName", wire) }
                     JSONObject().put("status", 200).put("body", JSONObject().put("path", wire).put("wirePath", wire)
                         .put("name", if (image) imageName else file.name).put("isDir", false).put("type", if (image) "image" else "text")
-                        .put("size", if (image) imageSize else bytes.size.toLong()).put("modified", label).toString())
+                        .put("size", if (image) imageSize else bytes.size.toLong()).put("modified", if (image) imageModified else label).toString())
                 }
                 "lease" -> if (command.getString("wirePath") == file.wirePath) "http://127.0.0.1:12345/stream/document-$label"
                     else { rawImageLeases++; imageUrl }
@@ -283,6 +284,51 @@ internal class MarkdownImagesContractTest : LibraryUiHarness() {
             assertNotNull(failure); assertEquals(0, authority.imageMetadata); assertEquals(0, authority.previews)
             assertEquals(authority.bytes.toString(Charsets.UTF_8), controller.state.value.text!!.text)
         } finally { withContext(NonCancellable) { main { controller.close() }; owner.api.close(); scope.cancel() } }
+    }
+
+    @Test fun sharedImageChecksEachReferencesPermissionAndVersionAndReleasesTheUnderlyingLeaseOnce(): Unit = runBlocking {
+        val authority = Authority("shared-image"); val owner = authority.session()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        val controller = DocumentPreviewController(instrumentation.targetContext, scope, { it === owner }, reader = authority.reader)
+        val gate = CompletableDeferred<Unit>(); authority.holdPreview = gate
+        try {
+            main { controller.bind(owner); controller.open(authority.file, owner.api.id) }; val state = loaded(controller)
+            val binding = withContext(Dispatchers.Main) { controller.imageBinding(state.file!!, state.text!!, state.scope)!! }
+            val cancelled = scope.async { binding.load("/docs/image.png") }
+            val waiting = scope.async { binding.load("/docs/image.png") }
+            withTimeout(5000) { authority.previewEntered.await() }
+            withTimeout(5000) { while (withContext(Dispatchers.Main) { authority.imageMetadata } < 2) delay(10) }
+            cancelled.cancel(); withTimeout(5000) { cancelled.join() }
+            assertFalse(waiting.isCompleted)
+            assertEquals(1, authority.previews)
+            assertEquals(0, synchronized(authority.revoked) { authority.revoked.count { it == authority.imageUrl } })
+            gate.complete(Unit)
+            val first = withTimeout(5000) { waiting.await() }
+            val second = withContext(Dispatchers.Main) { binding.load("/docs/image.png") }
+            assertEquals(first.lease.url, second.lease.url)
+            assertNotSame(first.lease, second.lease)
+            assertEquals(3, authority.imageMetadata); assertEquals(1, authority.previews)
+            main { authority.download = false }
+            assertNotNull(runCatching { withContext(Dispatchers.Main) { binding.load("/docs/image.png") } }.exceptionOrNull())
+            assertEquals(3, authority.imageMetadata); assertEquals(1, authority.previews)
+            main { authority.download = true; authority.imageModified = "shared-image-new-version" }
+            val replacement = withContext(Dispatchers.Main) { binding.load("/docs/image.png") }
+            assertEquals("shared-image-new-version", replacement.file.modified)
+            assertEquals(4, authority.imageMetadata); assertEquals(2, authority.previews)
+            binding.release(first.lease); binding.release(first.lease)
+            assertEquals(0, synchronized(authority.revoked) { authority.revoked.count { it == authority.imageUrl } })
+            binding.release(second.lease)
+            assertEquals(1, synchronized(authority.revoked) { authority.revoked.count { it == authority.imageUrl } })
+            assertEquals(authority.bytes.toString(Charsets.UTF_8), controller.state.value.text!!.text)
+            main { controller.close() }
+            withTimeout(5000) { while (synchronized(authority.revoked) { authority.revoked.count { it == authority.imageUrl } } < 2) delay(10) }
+            assertFalse(binding.current())
+            binding.release(replacement.lease); binding.release(replacement.lease)
+            assertEquals(2, synchronized(authority.revoked) { authority.revoked.count { it == authority.imageUrl } })
+        } finally { withContext(NonCancellable) {
+            gate.complete(Unit)
+            try { main { controller.close() }; owner.api.close() } finally { scope.cancel() }
+        } }
     }
 
     @Test fun lateLeaseAfterCloseCancellationOrNewOwnerIsRevokedOnceWithoutReplacingTheDocument(): Unit = runBlocking {

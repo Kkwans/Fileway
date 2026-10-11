@@ -278,7 +278,7 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
             if (document.hasImages && !canReadImages)
                 ReaderNotice("图片暂未加载，可切换源码查看地址。")
             if ((transformer as? NasMarkdownImageTransformer)?.limitReached == true)
-                ReaderNotice("GIF 超过 10 MiB，暂未加载；原文件未改变，可在源码中查看地址。")
+                ReaderNotice("图片超过读取上限（单张 GIF 10 MiB、原图合计 24 MiB），暂未加载；原文件未改变，可在源码中查看地址。")
             if (document.hasLiteralHtml) ReaderNotice("HTML 按原文显示，不执行脚本或加载其中资源。")
             if (document.hasLiteralMath) ReaderNotice("数学公式暂按源码显示。")
             SelectionContainer(Modifier.weight(1f).fillMaxWidth()) {

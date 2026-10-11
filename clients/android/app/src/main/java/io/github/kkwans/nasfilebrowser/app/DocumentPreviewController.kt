@@ -8,6 +8,8 @@ import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 data class DocumentPreviewState(val scope: String = "", val file: ResourceRef? = null, val kind: DocumentPreviewKind = DocumentPreviewKind.OTHER,
     val loading: Boolean = false, val error: String? = null, val text: DocumentText? = null, val query: String = "",
@@ -16,7 +18,7 @@ data class DocumentPreviewState(val scope: String = "", val file: ResourceRef? =
     val pageImage: DocumentPageBitmap? = null, val pageError: String? = null)
 
 internal class DocumentImageLease(val file: ResourceRef, val lease: PreviewLease, val data: ByteArray? = null)
-internal class DocumentImageLimitException : Exception("GIF 超过 10 MiB，暂未加载；原文件未改变。")
+internal class DocumentImageLimitException(message: String = "GIF 超过 10 MiB，暂未加载；原文件未改变。") : Exception(message)
 internal class DocumentImageBinding(val key: String, val accountKey: String, val current: () -> Boolean,
     val load: suspend (String) -> DocumentImageLease, val release: suspend (PreviewLease) -> Unit)
 
@@ -36,60 +38,73 @@ class DocumentPreviewController internal constructor(private val context: Contex
     private var bitmap: DocumentPageBitmap? = null
     private var width = 1080
     private var opened = false
-    private val imageLeases = mutableSetOf<PreviewLease>()
-    private fun releaseImages() {
-        val retired = imageLeases.toList()
-        imageLeases.clear()
-        retired.forEach { lease -> cleanup.launch { runCatching { lease.release() } } }
-    }
+    private val cleanup = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val imageResources = DocumentImageResourcePool(scope, cleanup)
+    private val imageMetadataSlots = Semaphore(2)
+    private fun releaseImages() = imageResources.retire()
     /** Capture the document's actual owner/revision, never the current account
      * from a thumbnail callback which might now belong to another document. */
     internal fun imageBinding(file: ResourceRef, document: DocumentText, sourceScope: String): DocumentImageBinding? {
         val owner = bound ?: return null
         val epoch = revision
+        val imageGeneration = imageResources.generation()
+        val documentKey = owner.owner + "/" + epoch
         fun same(): Boolean = current(owner, epoch) && localSource == null && borrowedAsset == null &&
             mutable.value.scope == sourceScope && mutable.value.file == file && mutable.value.text === document && !mutable.value.loading
         if (!same()) return null
-        return DocumentImageBinding(owner.owner + "/" + epoch, owner.account.key, ::same, load = { wire ->
-            check(same()) { "文档来源已切换" }
-            resourceWireBytes(wire)
-            check(owner.api.permissions().download) { "当前账号没有读取图片权限" }
-            check(same()) { "文档来源已切换" }
-            val row = owner.api.request("GET", "/api/resources$wire?metadata=1")
-            check(same()) { "文档来源已切换" }
-            val actualWire = row.optString("wirePath").ifEmpty { SearchResult.encodePath(row.getString("path")) }
-            check(!row.getBoolean("isDir") && resourceWireBytes(actualWire).contentEquals(resourceWireBytes(wire))) { "图片来源已变化" }
-            val image = ResourceRef(row.getString("path"), wire, row.getString("name"), false, row.optString("type"),
-                row.getLong("size"), row.optString("modified"))
-            check(image.size >= 0 && (image.type == "image" || FileCategory.IMAGE.matches(image.name, false))) { "此资源不是可预览图片" }
+        return DocumentImageBinding(documentKey, owner.account.key, ::same, load = { wire ->
+            // Every reference checks its current authority and version before
+            // joining a shared read, including a ready entry.
+            val image = imageMetadataSlots.withPermit {
+                check(same()) { "文档来源已切换" }
+                resourceWireBytes(wire)
+                check(owner.api.permissions().download) { "当前账号没有读取图片权限" }
+                check(same()) { "文档来源已切换" }
+                val row = owner.api.request("GET", "/api/resources$wire?metadata=1")
+                check(same()) { "文档来源已切换" }
+                val actualWire = row.optString("wirePath").ifEmpty { SearchResult.encodePath(row.getString("path")) }
+                check(!row.getBoolean("isDir") && resourceWireBytes(actualWire).contentEquals(resourceWireBytes(wire))) { "图片来源已变化" }
+                ResourceRef(row.getString("path"), wire, row.getString("name"), false, row.optString("type"),
+                    row.getLong("size"), row.optString("modified")).also {
+                    check(it.size >= 0 && (it.type == "image" || FileCategory.IMAGE.matches(it.name, false))) { "此资源不是可预览图片" }
+                }
+            }
             val gif = image.name.substringAfterLast('.').equals("gif", ignoreCase = true)
             if (gif && image.size > DOCUMENT_TEXT_LIMIT) throw DocumentImageLimitException()
             check(!gif || image.size > 0) { "GIF 文件为空，暂未加载" }
-            val lease = if (gif) owner.api.image(image.path, image.wirePath, ImageQuality.ORIGINAL)
-                else owner.api.preview(image.path, image.wirePath, contain = true)
+            val shared = imageResources.acquire(imageGeneration, documentKey, image, if (gif) image.size else 0) {
+                check(same()) { "文档来源已切换" }
+                val lease = if (gif) owner.api.image(image.path, image.wirePath, ImageQuality.ORIGINAL)
+                    else owner.api.preview(image.path, image.wirePath, contain = true)
+                try {
+                    currentCoroutineContext().ensureActive()
+                    check(same() && lease.scope == owner.api.id) { "文档来源已切换" }
+                    val address = java.net.URI(lease.url)
+                    check(address.scheme == "http" && address.host == "127.0.0.1" && address.port > 0 && address.rawUserInfo == null &&
+                        address.rawQuery == null && address.rawFragment == null && address.path?.startsWith("/stream/") == true) { "图片预览来源无效" }
+                    val bytes = if (gif) NativeDocumentReader.text(lease, image.size) else null
+                    currentCoroutineContext().ensureActive()
+                    check(same()) { "文档来源已切换" }
+                    DocumentImageLease(image, lease, bytes)
+                } catch (error: Throwable) {
+                    withContext(NonCancellable) { runCatching { lease.release() }.onFailure { error.addSuppressed(it) } }
+                    throw error
+                }
+            }
             try {
                 currentCoroutineContext().ensureActive()
-                check(same() && lease.scope == owner.api.id) { "文档来源已切换" }
-                val address = java.net.URI(lease.url)
-                check(address.scheme == "http" && address.host == "127.0.0.1" && address.port > 0 && address.rawUserInfo == null &&
-                    address.rawQuery == null && address.rawFragment == null && address.path?.startsWith("/stream/") == true) { "图片预览来源无效" }
-                imageLeases.add(lease)
-                val bytes = if (gif) NativeDocumentReader.text(lease, image.size) else null
-                currentCoroutineContext().ensureActive()
                 check(same()) { "文档来源已切换" }
-                DocumentImageLease(image, lease, bytes)
+                shared
             } catch (error: Throwable) {
-                imageLeases.remove(lease)
-                withContext(NonCancellable) { runCatching { lease.release() }.onFailure { error.addSuppressed(it) } }
+                withContext(NonCancellable) { runCatching { shared.lease.release() }.onFailure { error.addSuppressed(it) } }
                 throw error
             }
-        }, release = { lease -> imageLeases.remove(lease); lease.release() })
+        }, release = { lease -> lease.release() })
     }
     private data class BorrowedAsset(val owner: SessionContext, val lease: PreviewLease)
     private var borrowedAsset: BorrowedAsset? = null
     private data class LocalSource(val id: String, val uri: String, val generation: Long)
     private var localSource: LocalSource? = null
-    private val cleanup = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val memoryClass = context.getSystemService(ActivityManager::class.java).memoryClass
     private fun current(owner: SessionContext, epoch: Long) = bound === owner && isCurrent(owner) && revision == epoch
     private fun currentSource(owner: SessionContext?, local: LocalSource?, epoch: Long) = revision == epoch &&
