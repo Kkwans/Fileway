@@ -14,10 +14,12 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
@@ -35,7 +37,10 @@ import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.DocumentPreviewController
 import io.github.kkwans.nasfilebrowser.app.DocumentPreviewState
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
+import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.data.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable internal fun DocumentPreviewScreen(controller: DocumentPreviewController, onClose: () -> Unit,
@@ -90,6 +95,53 @@ import kotlin.math.roundToInt
 }
 
 @Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
+    val document = state.text ?: return
+    val file = state.file ?: return
+    if (!isMarkdownDocument(file)) {
+        DocumentSourceContent(controller, state)
+        return
+    }
+    // Re-key the entire reading tree so no old account/file result is displayed
+    // while cancellation of an earlier parse is still propagating.
+    key(state.scope, file.mediaKey, document) {
+        var sourceMode by rememberSaveable { mutableStateOf(false) }
+        val preview by produceState<MarkdownPreview?>(null) {
+            value = withContext(Dispatchers.Default) { markdownPreview(document) }
+        }
+        val fallback = preview as? MarkdownPreview.SourceOnly
+        val showSource = sourceMode || fallback != null
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = !showSource, onClick = { sourceMode = false }, enabled = fallback == null, label = { Text("阅读") })
+            FilterChip(selected = showSource, onClick = { sourceMode = true }, label = { Text("源码") })
+            if (!showSource) Text("${document.encoding} · 阅读 · 只读", Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        fallback?.let { Text(it.reason, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (showSource) DocumentSourceContent(controller, state)
+        else {
+            val reading = preview as? MarkdownPreview.Reading
+            if (reading == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+            } else {
+                val context = LocalContext.current
+                var linkError by remember { mutableStateOf<String?>(null) }
+                linkError?.let { Text(it, Modifier.padding(horizontal = 16.dp),
+                    color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                MarkdownBody(reading.document, onOpenLink = { destination ->
+                    val intent = markdownExternalIntent(destination)
+                    if (intent == null) linkError = "此链接暂不支持打开。"
+                    else try { context.startActivity(intent); linkError = null }
+                    catch (_: Exception) { linkError = "没有可打开此链接的应用，可在源码中复制地址。" }
+                }, modifier = Modifier.weight(1f).fillMaxWidth())
+            }
+        }
+    }
+}
+
+@Composable private fun ColumnScope.DocumentSourceContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
     val document = state.text ?: return
     val clipboard = LocalClipboardManager.current
     var copied by remember(document) { mutableStateOf(false) }

@@ -11,7 +11,8 @@ const val DOCUMENT_TEXT_LIMIT = 10L * 1024 * 1024
 const val DOCUMENT_PDF_LIMIT = 64L * 1024 * 1024
 enum class DocumentPreviewKind { TEXT, PDF, OTHER }
 data class DocumentTextBlock(val start: Int, val text: String)
-data class DocumentText(val text: String, val encoding: String, val blocks: List<DocumentTextBlock>, val bom: Boolean = false)
+data class DocumentText(val text: String, val encoding: String, val blocks: List<DocumentTextBlock>, val bom: Boolean = false,
+    val byteSize: Long = text.length.toLong())
 data class DocumentTextMatch(val start: Int, val end: Int)
 data class DocumentTextSearch(val matches: List<DocumentTextMatch>, val truncated: Boolean)
 
@@ -70,7 +71,7 @@ fun decodeDocumentText(bytes: ByteArray): DocumentText {
         blocks.add(DocumentTextBlock(start, text.substring(start, end)))
         start = end
     }
-    return DocumentText(text, encoding, blocks, bom = skip > 0)
+    return DocumentText(text, encoding, blocks, bom = skip > 0, byteSize = bytes.size.toLong())
 }
 
 fun searchDocumentText(text: String, query: String): DocumentTextSearch {

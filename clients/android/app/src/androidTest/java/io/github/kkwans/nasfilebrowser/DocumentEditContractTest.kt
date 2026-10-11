@@ -15,9 +15,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.IOException
 
-internal class DocumentEditFixture(bytes: ByteArray = "old\r\n".toByteArray(), modify: Boolean = true, create: Boolean = true, download: Boolean = true) {
+internal class DocumentEditFixture(bytes: ByteArray = "old\r\n".toByteArray(), modify: Boolean = true, create: Boolean = true, download: Boolean = true,
+    private val name: String = "notes.txt") {
     val parent = DirectoryCrumb("原目录", "/�", "/%FF")
-    val sourceWire = "/%FF/notes.txt"
+    val sourceWire = "/%FF/${SearchResult.encodePath(name)}"
     val files = linkedMapOf(sourceWire to bytes)
     var version = "2026-10-09T10:00:00Z"
     var supported = true
@@ -31,7 +32,7 @@ internal class DocumentEditFixture(bytes: ByteArray = "old\r\n".toByteArray(), m
     var contentReads = 0
     private val leases = mutableMapOf<String, String>()
     private val token = "owned." + Base64.encodeToString("{\"user\":{\"id\":1,\"username\":\"fixture\",\"perm\":{\"modify\":$modify,\"create\":$create,\"download\":$download}}}".toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP) + ".fixture"
-    val file get() = ResourceRef("/�/notes.txt", sourceWire, "notes.txt", false, "text", files.getValue(sourceWire).size.toLong(), version)
+    val file get() = ResourceRef("/�/$name", sourceWire, name, false, "text", files.getValue(sourceWire).size.toLong(), version)
     val reader = object : DocumentPreviewReader {
         override suspend fun text(lease: PreviewLease, expected: Long): ByteArray {
             contentReads++
@@ -92,6 +93,34 @@ class DocumentEditContractTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private suspend fun main(action: () -> Unit) = withContext(Dispatchers.Main) { action() }
     private suspend fun settled(controller: DocumentEditController) = withTimeout(5000) { controller.state.first { !it.saving && !it.loading } }
+
+    @Test fun markdownReadingKeepsOriginalBomConditionalSaveAndOpaqueWirePath(): Unit = runBlocking {
+        for ((encoding, bom) in listOf("UTF-8" to byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte()),
+            "UTF-16LE" to byteArrayOf(0xFF.toByte(), 0xFE.toByte()), "UTF-16BE" to byteArrayOf(0xFE.toByte(), 0xFF.toByte()))) {
+            val initial = bom + "# 原文\r\n\r\n**保留格式**\r\n".toByteArray(charset(encoding))
+            val fixture = DocumentEditFixture(initial, name = "README.md")
+            val owner = fixture.session("markdown-$encoding")
+            val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            val preview = DocumentPreviewController(context, scope, { it === owner }, reader = fixture.reader)
+            val editor = DocumentEditController(context, scope, { it === owner }, reader = fixture.reader)
+            try {
+                main { preview.bind(owner); editor.bind(owner); preview.open(fixture.file, owner.api.id) }
+                val opened = withTimeout(5000) { preview.state.first { !it.loading && it.text != null } }
+                assertTrue(isMarkdownDocument(opened.file!!))
+                assertTrue(markdownPreview(opened.text!!) is MarkdownPreview.Reading)
+                assertArrayEquals(initial, encodeEditedDocument(documentEditorText(opened.text!!), opened.text!!))
+                main { editor.open(opened.file!!, opened.text!!, owner.api.id); editor.edit("# 新文\n\n**仍是源码**\n"); editor.save() }
+                settled(editor)
+                assertNull(editor.state.value.error)
+                assertEquals(1, fixture.writes.size)
+                val write = fixture.writes.single()
+                assertEquals("PUT", write.getString("method"))
+                assertEquals("/api/resources/%FF/README.md", write.getString("endpoint").substringBefore('?'))
+                assertEquals("true", Uri.parse(write.getString("endpoint")).getQueryParameter("conditional"))
+                assertArrayEquals(bom + "# 新文\r\n\r\n**仍是源码**\r\n".toByteArray(charset(encoding)), fixture.files.getValue(fixture.sourceWire))
+            } finally { main { preview.close(); editor.close(discard = true) }; scope.cancel() }
+        }
+    }
     private fun beginCallbackWrite(controller: DocumentEditController, fixture: DocumentEditFixture, owner: SessionContext, creating: Boolean) {
         controller.bind(owner)
         if (creating) {
