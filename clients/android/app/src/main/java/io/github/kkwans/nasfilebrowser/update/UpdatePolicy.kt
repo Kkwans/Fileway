@@ -20,17 +20,23 @@ internal data class AppUpdate(val release: AppRelease, val asset: UpdateAsset)
 
 /** Public Android release contract. Never send server credentials to GitHub. */
 internal object UpdatePolicy {
-    const val RELEASES = "https://api.github.com/repos/Kkwans/fileway/releases?per_page=100"
+    const val REPOSITORY = "https://github.com/Kkwans/Fileway"
+    const val RELEASES = "https://api.github.com/repos/Kkwans/Fileway/releases?per_page=100"
     const val MAX_APK_BYTES = 512L * 1024 * 1024
     private val tagPattern = Regex("^android-(?:preview-)?(\\d+\\.\\d+(?:\\.\\d+)?)(?:-[0-9a-f]{7,40})?$")
     fun tagVersion(tag: String): String? = tagPattern.matchEntire(tag)?.groupValues?.get(1)?.takeIf { AppVersion.parse(it) != null }
     fun trusted(asset: UpdateAsset, tag: String): Boolean = runCatching {
         val uri = URI(asset.url)
+        val path = uri.rawPath?.split('/').orEmpty()
         asset.id > 0 && asset.size in 1..MAX_APK_BYTES && tagVersion(tag) != null &&
             Regex("[A-Za-z0-9._-]+\\.apk").matches(asset.name) &&
             uri.scheme == "https" && uri.host == "github.com" && uri.port in listOf(-1, 443) &&
             uri.rawUserInfo == null && uri.rawQuery == null && uri.rawFragment == null &&
-            uri.rawPath == "/Kkwans/fileway/releases/download/$tag/${asset.name}"
+            // GitHub owner/repository names are case insensitive. Release tags
+            // and asset names retain their exact identity; never lowercase the URL.
+            path.size == 7 && path[0].isEmpty() &&
+            path[1].equals("Kkwans", ignoreCase = true) && path[2].equals("Fileway", ignoreCase = true) &&
+            path.drop(3) == listOf("releases", "download", tag, asset.name)
     }.getOrDefault(false)
 
     fun compatible(release: AppRelease, abis: List<String>): UpdateAsset? {

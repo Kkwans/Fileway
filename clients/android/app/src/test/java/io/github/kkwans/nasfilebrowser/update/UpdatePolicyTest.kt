@@ -53,4 +53,29 @@ class UpdatePolicyTest {
         assertFalse(UpdatePolicy.trusted(asset.copy(id = 0), item.tag))
         assertNull(UpdatePolicy.compatible(item.copy(assets = listOf(asset.copy(name = "server.exe"))), listOf("arm64-v8a")))
     }
+    @Test fun published075CanonicalRepositoryCaseMatchesBothDeviceAbis() {
+        val tag = "android-preview-0.7.5-65fdfb4"
+        val name = "fileway-android-0.7.5-preview.apk"
+        val asset = UpdateAsset(628678327, name, "https://github.com/Kkwans/Fileway/releases/download/$tag/$name", 65471469)
+        val published = AppRelease(tag, "0.7.5", "", true, listOf(asset))
+        assertTrue(UpdatePolicy.trusted(asset, tag))
+        for (abis in listOf(listOf("arm64-v8a", "armeabi-v7a"), listOf("x86_64"))) {
+            assertEquals(asset, UpdatePolicy.compatible(published, abis))
+            assertEquals(asset, UpdatePolicy.latest(listOf(published), "0.7.4-preview", abis)?.asset)
+            assertNull(UpdatePolicy.latest(listOf(published), "0.7.5-preview", abis))
+        }
+        assertTrue(UpdatePolicy.trusted(asset.copy(url = asset.url.replace("Kkwans/Fileway", "kkwans/fileway")), tag))
+    }
+    @Test fun repositoryCaseToleranceDoesNotRelaxTagAssetOrPathIdentity() {
+        val item = release("0.7.0"); val asset = item.assets.single()
+        for (url in listOf(
+            asset.url.replace("Kkwans/fileway", "Kkwans/fileway-other"),
+            asset.url.replace("Kkwans/fileway", "other/fileway"),
+            asset.url.replace("Kkwans/fileway", "Kkwans/%66ileway"),
+            asset.url.replace("Kkwans/fileway", "Kkwans/Fileway/.."),
+            asset.url.replace("releases/download", "Releases/download"),
+            asset.url.replace(item.tag, item.tag.uppercase()),
+            asset.url.replace(asset.name, asset.name.uppercase()),
+        )) assertFalse(url, UpdatePolicy.trusted(asset.copy(url = url), item.tag))
+    }
 }
