@@ -2,7 +2,7 @@ package bridge
 
 import (
 	"encoding/json"
-	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -13,11 +13,12 @@ import (
 )
 
 func TestSearchControlSurvivesCallReturnAndCancelsBeforeWorker(t *testing.T) {
+	const expectedWire = "/%E7%94%B5%E5%BD%B1%F0%9F%8E%AC.mkv"
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		w.Header().Set("Content-Type", "application/x-ndjson")
-		fmt.Fprint(w, `{"type":"result","item":{"path":"电影🎬.mkv","name":"电影🎬.mkv"}}`+"\n"+`{"type":"summary","reason":"completed","count":1}`)
+		_, _ = io.WriteString(w, `{"type":"result","item":{"path":"电影🎬.mkv","name":"电影🎬.mkv","wirePath":"`+expectedWire+`","pathVerified":true}}`+"\n"+`{"type":"summary","reason":"completed","count":1}`)
 	}))
 	defer server.Close()
 	e := &Engine{}
@@ -39,6 +40,11 @@ func TestSearchControlSurvivesCallReturnAndCancelsBeforeWorker(t *testing.T) {
 			t.Fatal(out)
 		}
 		received += len(batch.Items)
+		for _, item := range batch.Items {
+			if item.WirePath != expectedWire || !item.PathVerified {
+				t.Fatal("bridge lost additive verified wire metadata", item)
+			}
+		}
 		if batch.Done {
 			if received != 1 || batch.State != "finished" {
 				t.Fatal("JNI call completion canceled the stream", batch, received)

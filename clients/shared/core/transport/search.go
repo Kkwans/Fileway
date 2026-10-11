@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const searchQueueSize = 64
@@ -21,12 +22,14 @@ const searchRecordLimit = 64 << 10
 // SearchItem is service metadata, not media bytes. NAS paths are relative to
 // the search directory; they are not Android local filesystem paths.
 type SearchItem struct {
-	Directory bool   `json:"dir"`
-	Path      string `json:"path"`
-	Name      string `json:"name"`
-	Size      int64  `json:"size"`
-	Modified  string `json:"modified"`
-	RiskLevel string `json:"riskLevel"`
+	Directory    bool   `json:"dir"`
+	Path         string `json:"path"`
+	Name         string `json:"name"`
+	Size         int64  `json:"size"`
+	Modified     string `json:"modified"`
+	RiskLevel    string `json:"riskLevel"`
+	WirePath     string `json:"wirePath,omitempty"`
+	PathVerified bool   `json:"pathVerified,omitempty"`
 }
 
 type SearchSummary struct {
@@ -49,6 +52,8 @@ type SearchBatch struct {
 
 type searchStream struct {
 	session *Session
+	base    string // Original bytes, decoded once from the submitted base wire.
+	scope   string
 	ctx     context.Context
 	cancel  context.CancelFunc
 	mu      sync.Mutex
@@ -72,6 +77,9 @@ func SearchEndpoint(path, wirePath, query, scope string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if _, err := searchWireIdentity(strings.TrimPrefix(raw, "/api/raw")); err != nil {
+		return "", err
+	}
 	return "/api/search" + strings.TrimPrefix(raw, "/api/raw") + "?" + url.Values{"query": {query}, "scope": {scope}}.Encode(), nil
 }
 
@@ -90,12 +98,14 @@ func (b *Broker) StartSearch(command context.Context, sessionID, path, wirePath,
 	if _, err := Endpoint(s.base, endpoint); err != nil {
 		return "", err
 	}
+	raw, _ := RawEndpoint(path, wirePath) // SearchEndpoint already validated it.
+	base, _ := searchWireIdentity(strings.TrimPrefix(raw, "/api/raw"))
 	id, err := randomID()
 	if err != nil {
 		return "", err
 	}
 	ctx, cancel := context.WithTimeout(s.ctx, 45*time.Second)
-	stream := &searchStream{session: s, ctx: ctx, cancel: cancel, room: make(chan struct{}, 1), state: "running"}
+	stream := &searchStream{session: s, base: base, scope: scope, ctx: ctx, cancel: cancel, room: make(chan struct{}, 1), state: "running"}
 	b.mu.Lock()
 	if err := command.Err(); err != nil {
 		b.mu.Unlock()
@@ -261,7 +271,7 @@ func (s *searchStream) read(endpoint string) {
 		}
 		switch event.Type {
 		case "result":
-			if event.Item == nil || !validSearchItem(*event.Item) {
+			if event.Item == nil || !s.validItem(*event.Item) {
 				s.finish("failed", "invalid search resource", res.StatusCode, nil)
 				return
 			}
@@ -305,13 +315,71 @@ func (s *searchStream) read(endpoint string) {
 }
 
 func validSearchItem(item SearchItem) bool {
-	if item.Path == "" || item.Name == "" || strings.HasPrefix(item.Path, "/") || strings.ContainsRune(item.Path, 0) {
+	if item.Path == "" || item.Name == "" || item.Size < 0 || strings.HasPrefix(item.Path, "/") || strings.ContainsRune(item.Path, 0) {
 		return false
 	}
-	for _, part := range strings.Split(item.Path, "/") {
+	parts := strings.Split(item.Path, "/")
+	for _, part := range parts {
 		if part == "" || part == "." || part == ".." {
 			return false
 		}
 	}
+	return item.Name == parts[len(parts)-1]
+}
+
+func (s *searchStream) validItem(item SearchItem) bool {
+	if !validSearchItem(item) || s.scope == "current" && strings.Contains(item.Path, "/") {
+		return false
+	}
+	if item.WirePath == "" && !item.PathVerified {
+		return true // Legacy relative display metadata remains source compatible.
+	}
+	if item.WirePath == "" || !item.PathVerified {
+		return false
+	}
+	identity, err := searchWireIdentity(item.WirePath)
+	prefix := strings.TrimSuffix(s.base, "/") + "/"
+	if err != nil || identity == s.base || !strings.HasPrefix(identity, prefix) {
+		return false
+	}
+	rawParts := strings.Split(strings.TrimPrefix(identity, prefix), "/")
+	displayParts := strings.Split(item.Path, "/")
+	if len(rawParts) != len(displayParts) || s.scope == "current" && len(rawParts) != 1 {
+		return false
+	}
+	for index, part := range rawParts {
+		// Opaque bytes may have a lossy display name; a valid UTF-8 segment
+		// must still agree with its literal display metadata byte for byte.
+		if utf8.ValidString(part) && part != displayParts[index] {
+			return false
+		}
+	}
 	return true
+}
+
+// A wire path is absolute within the user's scope. Decoding happens exactly
+// once per segment; '+' and literal percent escapes retain their identity.
+func searchWireIdentity(wire string) (string, error) {
+	invalid := errors.New("invalid search wire path")
+	if wire == "" || !strings.HasPrefix(wire, "/") || !utf8.ValidString(wire) || strings.ContainsAny(wire, "?#\\") {
+		return "", invalid
+	}
+	for _, value := range wire {
+		if value < 32 || value == 127 {
+			return "", invalid
+		}
+	}
+	if wire == "/" {
+		return "/", nil
+	}
+	var identity strings.Builder
+	for _, part := range strings.Split(wire[1:], "/") {
+		decoded, err := url.PathUnescape(part)
+		if err != nil || decoded == "" || decoded == "." || decoded == ".." || strings.ContainsAny(decoded, "/\x00") {
+			return "", invalid
+		}
+		identity.WriteByte('/')
+		identity.WriteString(decoded)
+	}
+	return identity.String(), nil
 }

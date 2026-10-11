@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/Kkwans/nas-file-browser/backend/risk"
 	"github.com/Kkwans/nas-file-browser/backend/search"
 )
@@ -36,12 +37,14 @@ var excludedSearchDirectories = map[string]struct{}{
 }
 
 type searchResult struct {
-	Dir       bool       `json:"dir"`
-	Path      string     `json:"path"`
-	Name      string     `json:"name"`
-	Size      int64      `json:"size"`
-	Modified  string     `json:"modified"`
-	RiskLevel risk.Level `json:"riskLevel"`
+	Dir          bool       `json:"dir"`
+	Path         string     `json:"path"`
+	Name         string     `json:"name"`
+	Size         int64      `json:"size"`
+	Modified     string     `json:"modified"`
+	RiskLevel    risk.Level `json:"riskLevel"`
+	WirePath     string     `json:"wirePath,omitempty"`
+	PathVerified bool       `json:"pathVerified,omitempty"`
 }
 
 type searchStreamEvent struct {
@@ -141,10 +144,15 @@ var searchHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *dat
 		Limit:               limit,
 		ExcludedDirectories: excludedSearchDirectories,
 	}, func(foundPath string, file os.FileInfo) error {
+		// Both values still contain the original filesystem bytes here. Never
+		// derive the address from JSON's display-safe replacement characters.
+		absolutePath := path.Join(scopePath, foundPath)
 		result := searchResult{
 			Dir: file.IsDir(), Path: foundPath, Name: file.Name(), Size: file.Size(),
-			Modified:  file.ModTime().UTC().Format(time.RFC3339),
-			RiskLevel: risk.Classify(path.Join(scopePath, foundPath)),
+			Modified:     file.ModTime().UTC().Format(time.RFC3339),
+			RiskLevel:    risk.Classify(absolutePath),
+			WirePath:     files.EncodeWirePath(absolutePath),
+			PathVerified: true,
 		}
 		results = append(results, result)
 		select {
