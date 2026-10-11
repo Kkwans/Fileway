@@ -8,7 +8,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.Executors
-import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 class TransportException(message: String) : Exception(message)
@@ -36,17 +35,13 @@ object NativeTransport {
                 val envelope = JSONObject(bytes.toString(Charsets.UTF_8))
                 if (!envelope.optBoolean("ok")) throw TransportException(envelope.optString("error", "连接失败"))
                 val result = envelope.opt("result").takeUnless { it == JSONObject.NULL }
-                if (!continuation.isActive && result is String) {
-                    val cleanup = when (request.optString("op")) {
-                        "open" -> JSONObject().put("op", "close_session").put("session", result)
-                        "lease", "asset", "preview", "upload_lease" -> JSONObject().put("op", "revoke").put("url", result)
-                        "search_start" -> JSONObject().put("op", "search_cancel").put("session", request.optString("session")).put("search", result)
-                        "command_start" -> JSONObject().put("op", "command_cancel").put("session", request.optString("session")).put("commandHandle", result)
-                        else -> null
+                continuation.resumeNativeResult(request.optString("op"), request.optString("session"), result) { cleanup ->
+                    cancellations.execute {
+                        val command = JSONObject().put("op", cleanup.operation).put(cleanup.argument, cleanup.value)
+                        cleanup.session?.let { command.put("session", it) }
+                        nativeCall(command.toString().toByteArray(Charsets.UTF_8))
                     }
-                    cleanup?.let { nativeCall(it.toString().toByteArray(Charsets.UTF_8)) }
                 }
-                continuation.resume(result)
             } catch (error: Exception) {
                 continuation.resumeWithException(error)
             }
