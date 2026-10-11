@@ -3,14 +3,15 @@
  <Grid x:Name="Shell" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="244"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Grid x:Name="Sidebar" Padding="20,24,16,20" Background="{ThemeResource LayerFillColorDefaultBrush}">
-   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="0"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <StackPanel Spacing="6"><TextBlock x:Name="BrandName" Text="栖卷" FontSize="24" FontWeight="SemiBold"/><TextBlock Text="文件 · 图片 · 影音" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-   <StackPanel Grid.Row="1" Margin="0,32,0,0" Spacing="12">
+   <ScrollViewer Grid.Row="1" Margin="0,24,0,16" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="12">
     <TextBlock Text="工作空间" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="Root_Click" AutomationProperties.Name="我的文件根目录"><StackPanel Orientation="Horizontal" Spacing="10"><FontIcon Glyph="&#xE8B7;" FontSize="18"/><TextBlock Text="我的文件"/></StackPanel></Button>
     <TextBlock x:Name="ConnectionLabel" Text="尚未连接" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     <Button x:Name="ConnectionButton" Content="连接服务器" HorizontalAlignment="Stretch" Click="Connection_Click"/>
-   </StackPanel>
+    <Button x:Name="LogoutButton" Content="退出登录" HorizontalAlignment="Stretch" Visibility="Collapsed" Click="Logout_Click"/>
+   </StackPanel></ScrollViewer>
    <StackPanel Grid.Row="3" Spacing="10">
     <TextBlock Text="主题" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     <ComboBox x:Name="ThemeBox" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Theme_Changed" AutomationProperties.Name="界面主题"><ComboBoxItem Content="跟随系统"/><ComboBoxItem Content="浅色"/><ComboBoxItem Content="深色"/></ComboBox>
@@ -19,38 +20,71 @@
   <Grid x:Name="Workspace" Grid.Column="1" Padding="28,24,28,18" RowSpacing="16" SizeChanged="Workspace_SizeChanged">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <Grid ColumnSpacing="16"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-    <StackPanel Spacing="4"><TextBlock x:Name="Heading" Text="我的文件" FontSize="28" FontWeight="SemiBold"/><TextBlock x:Name="Subheading" Text="连接你的服务器，继续浏览。" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
+    <StackPanel Spacing="4"><TextBlock x:Name="Heading" Text="我的文件" FontSize="28" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/><TextBlock x:Name="Subheading" Text="连接你的服务器，继续浏览。" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/></StackPanel>
     <AutoSuggestBox x:Name="SearchBox" Grid.Column="1" Width="240" PlaceholderText="搜索本目录" TextChanged="Search_Changed" AutomationProperties.Name="搜索本目录" VerticalAlignment="Center"/>
    </Grid>
-   <Grid Grid.Row="1" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-    <CommandBar x:Name="NavigationCommands" DefaultLabelPosition="Collapsed" Background="Transparent" IsEnabled="False"><AppBarButton x:Name="BackButton" Icon="Back" Label="返回" Click="Back_Click"/><AppBarButton x:Name="UpButton" Icon="Up" Label="上一级" Click="Up_Click"/><AppBarButton Icon="Refresh" Label="刷新" Click="Refresh_Click"/><AppBarButton Icon="View" Label="详情" Click="Details_Click"/></CommandBar>
-    <TextBox x:Name="PathBox" Grid.Column="1" IsReadOnly="True" Text="尚未连接" VerticalAlignment="Center" AutomationProperties.Name="当前目录路径"/>
-    <ComboBox x:Name="SortBox" Grid.Column="2" SelectedIndex="0" VerticalAlignment="Center" SelectionChanged="Sort_Changed" AutomationProperties.Name="文件排序"><ComboBoxItem Content="名称 ↑"/><ComboBoxItem Content="名称 ↓"/><ComboBoxItem Content="修改时间 ↓"/><ComboBoxItem Content="大小 ↓"/><ComboBoxItem Content="类型 ↑"/></ComboBox>
+   <Grid Grid.Row="1" ColumnSpacing="12" RowSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <CommandBar x:Name="NavigationCommands" DefaultLabelPosition="Collapsed" Background="Transparent" IsEnabled="False" HorizontalAlignment="Left"><AppBarButton x:Name="BackButton" Icon="Back" Label="返回" Click="Back_Click"/><AppBarButton x:Name="UpButton" Icon="Up" Label="上一级" Click="Up_Click"/><AppBarButton Icon="Refresh" Label="刷新" Click="Refresh_Click"/><AppBarButton Icon="View" Label="详情" Click="Details_Click"/></CommandBar>
+    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+     <ComboBox x:Name="SortBox" SelectedIndex="0" MinWidth="112" SelectionChanged="Sort_Changed" AutomationProperties.Name="文件排序"><ComboBoxItem Content="名称 ↑"/><ComboBoxItem Content="名称 ↓"/><ComboBoxItem Content="修改时间 ↓"/><ComboBoxItem Content="大小 ↓"/><ComboBoxItem Content="类型 ↑"/></ComboBox>
+     <ToggleButton x:Name="ListModeButton" IsChecked="True" Width="36" Height="36" Padding="0" Click="ViewMode_Click" AutomationProperties.Name="列表视图" ToolTipService.ToolTip="列表视图"><SymbolIcon Symbol="List"/></ToggleButton>
+     <ToggleButton x:Name="GridModeButton" Width="36" Height="36" Padding="0" Click="ViewMode_Click" AutomationProperties.Name="网格视图" ToolTipService.ToolTip="网格视图"><FontIcon Glyph="&#xE80A;" FontSize="16"/></ToggleButton>
+    </StackPanel>
+    <TextBox x:Name="PathBox" Grid.Row="1" Grid.ColumnSpan="2" IsReadOnly="True" Text="尚未连接" AutomationProperties.Name="当前目录路径"/>
    </Grid>
    <InfoBar x:Name="Notice" Grid.Row="2" IsOpen="True" IsClosable="False" Severity="Informational" Title="正在启动" Message="正在准备本地核心服务…"/>
-   <Grid Grid.Row="3">
-    <ListView x:Name="FileList" SelectionMode="Extended" DoubleTapped="FileList_DoubleTapped" KeyDown="FileList_KeyDown" SelectionChanged="FileList_SelectionChanged" HorizontalContentAlignment="Stretch" AutomationProperties.Name="文件列表">
-     <ListView.ItemTemplate><DataTemplate x:DataType="local:FileRow"><Grid Padding="8,10" ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="90"/><ColumnDefinition Width="142"/></Grid.ColumnDefinitions>
+   <Grid x:Name="BrowserBody" Grid.Row="3" SizeChanged="BrowserBody_SizeChanged">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="DetailsColumn" Width="0"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition x:Name="DetailsRow" Height="0"/></Grid.RowDefinitions>
+    <Grid x:Name="FilesArea"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Grid x:Name="ListHeader" Padding="66,0,20,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions><TextBlock Text="名称" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Grid.Column="1" Text="大小 / 修改时间" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></Grid>
+    <ListView x:Name="FileList" Grid.Row="1" SelectionMode="Extended" DoubleTapped="FileList_DoubleTapped" KeyDown="FileList_KeyDown" SelectionChanged="FileList_SelectionChanged" HorizontalContentAlignment="Stretch" AutomationProperties.Name="文件列表">
+     <ListView.ItemTemplate><DataTemplate x:DataType="local:FileRow"><Grid Padding="8,10" ColumnSpacing="14"><Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
       <FontIcon Glyph="{x:Bind Glyph}" FontSize="22" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
       <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center"><TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold"/><TextBlock Text="{x:Bind Kind}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-      <TextBlock Grid.Column="2" Text="{x:Bind Size}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Grid.Column="3" Text="{x:Bind Modified}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+      <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="3"><TextBlock Text="{x:Bind Size}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind Modified}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
      </Grid></DataTemplate></ListView.ItemTemplate>
     </ListView>
-    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="420"><FontIcon Glyph="&#xE8B7;" FontSize="42" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="你的文件，在这里相遇" FontSize="22" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyDescription" Text="连接服务器后即可浏览文件、打开图片和播放视频。" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextAlignment="Center" TextWrapping="Wrap"/></StackPanel>
-    <ProgressRing x:Name="LoadingRing" IsActive="False" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    <GridView x:Name="FileGrid" Grid.Row="1" Visibility="Collapsed" SelectionMode="Extended" DoubleTapped="FileList_DoubleTapped" KeyDown="FileList_KeyDown" SelectionChanged="FileList_SelectionChanged" AutomationProperties.Name="文件网格" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto">
+     <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" ItemWidth="176" ItemHeight="160"/></ItemsPanelTemplate></GridView.ItemsPanel>
+     <GridView.ItemTemplate><DataTemplate x:DataType="local:FileRow"><Grid Padding="12" RowSpacing="10"><Grid.RowDefinitions><RowDefinition Height="64"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <FontIcon Glyph="{x:Bind Glyph}" FontSize="42" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+      <TextBlock Grid.Row="1" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" FontWeight="SemiBold" ToolTipService.ToolTip="{x:Bind Name}"/>
+      <TextBlock Grid.Row="2" Text="{x:Bind Summary}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+     </Grid></DataTemplate></GridView.ItemTemplate>
+    </GridView>
+    <StackPanel x:Name="EmptyState" Grid.RowSpan="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="420" Margin="16"><FontIcon Glyph="&#xE8B7;" FontSize="42" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="你的文件，在这里相遇" FontSize="22" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyDescription" Text="连接服务器后即可浏览文件、打开图片和播放视频。" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextAlignment="Center" TextWrapping="Wrap"/><Button x:Name="RetryLoadButton" Content="重新加载" Click="Refresh_Click" Visibility="Collapsed" HorizontalAlignment="Center"/></StackPanel>
+    <ProgressRing x:Name="LoadingRing" Grid.RowSpan="2" IsActive="False" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    </Grid>
+    <Border x:Name="DetailsPanel" Grid.Column="1" Visibility="Collapsed" Padding="20,12,16,16" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0" KeyDown="DetailsPanel_KeyDown">
+     <Grid RowSpacing="16"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="详细信息" FontWeight="SemiBold" VerticalAlignment="Center"/><Button Grid.Column="1" Click="CloseDetails_Click" Width="32" Height="32" Padding="0" AutomationProperties.Name="关闭详细信息" ToolTipService.ToolTip="关闭详细信息"><FontIcon Glyph="&#xE8BB;" FontSize="12"/></Button></Grid>
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="16">
+       <TextBlock x:Name="DetailsName" Text="选择一个项目" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+       <TextBlock x:Name="DetailsMetadata" Text="查看文件或目录的详细信息。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsTextSelectionEnabled="True"/>
+       <TextBlock x:Name="DetailsPath" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+       <Button x:Name="DetailsOpenButton" Content="打开" Click="DetailsOpen_Click" IsEnabled="False" HorizontalAlignment="Left"/>
+      </StackPanel></ScrollViewer>
+     </Grid>
+    </Border>
    </Grid>
    <Grid Grid.Row="4"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="StatusText" Text="本次预览：连接、文件浏览、图片与视频" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/><Button x:Name="CancelButton" Grid.Column="1" Content="取消加载" Visibility="Collapsed" Click="Cancel_Click"/></Grid>
   </Grid>
   <ScrollViewer x:Name="ConnectionPanel" Grid.Column="1" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="32" VerticalScrollBarVisibility="Auto">
-   <StackPanel MaxWidth="440" Spacing="20" HorizontalAlignment="Center" Margin="0,36,0,20">
+   <StackPanel MaxWidth="440" Spacing="20" HorizontalAlignment="Stretch" Margin="0,12,0,20">
     <FontIcon Glyph="&#xE968;" FontSize="40" HorizontalAlignment="Left" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
-    <StackPanel Spacing="8"><TextBlock Text="连接你的文件空间" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Text="首预览直连（包括系统 Tailscale 路由）。密码仅用于本次连接，不会保存。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel Spacing="8"><TextBlock Text="连接你的文件空间" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Text="连接信息保存在本机。保持登录会加密保存会话，密码不会保存。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel x:Name="SavedConnectionsPanel" Spacing="10" Visibility="Collapsed">
+     <ComboBox x:Name="SavedConnectionBox" Header="已保存连接" DisplayMemberPath="Label" HorizontalAlignment="Stretch" SelectionChanged="SavedConnection_Changed" AutomationProperties.Name="已保存连接"/>
+     <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="RestoreSavedButton" Content="恢复已保存登录" Click="RestoreSaved_Click" HorizontalAlignment="Stretch"/><Button x:Name="ForgetSavedButton" Grid.Column="1" Content="忘记连接" Click="ForgetSaved_Click"/></Grid>
+    </StackPanel>
+    <TextBox x:Name="ConnectionNameBox" Header="连接名称（可选）" PlaceholderText="例如：家里的文件空间"/>
     <TextBox x:Name="ServerBox" Header="服务器地址" PlaceholderText="https://your-server" TextChanged="Server_Changed" InputScope="Url"/>
     <ComboBox x:Name="AuthenticationBox" Header="认证方式" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Authentication_Changed"><ComboBoxItem Content="账号密码"/><ComboBoxItem Content="无需认证"/></ComboBox>
     <StackPanel x:Name="CredentialFields" Spacing="20"><TextBox x:Name="UsernameBox" Header="用户名" PlaceholderText="服务器用户名"/><PasswordBox x:Name="PasswordBox" Header="密码" PasswordRevealMode="Peek"/></StackPanel>
+    <CheckBox x:Name="KeepSignedInBox" Content="保持登录（仅在本机加密保存会话）"/>
     <CheckBox x:Name="HttpConsent" Content="我了解 HTTP 会明文传输凭据和文件内容" Visibility="Collapsed"/>
     <InfoBar x:Name="LoginNotice" IsOpen="True" IsClosable="False" Severity="Informational" Message="正在准备本地核心服务…"/>
-    <StackPanel Orientation="Horizontal" Spacing="12"><Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource AccentButtonStyle}" Click="Connect_Click" IsEnabled="False"/><Button x:Name="DismissConnection" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click"/></StackPanel>
+    <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource AccentButtonStyle}" Click="Connect_Click" IsEnabled="False" HorizontalAlignment="Stretch"/><Button x:Name="CancelConnectionButton" Grid.Column="1" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click"/><Button x:Name="DismissConnection" Grid.Column="2" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click"/></Grid>
    </StackPanel>
   </ScrollViewer>
  </Grid>

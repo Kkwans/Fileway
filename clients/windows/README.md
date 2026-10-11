@@ -36,7 +36,19 @@ The maintained [product roadmap](docs/product-roadmap.md) assigns Web/Android
 feature parity to concrete Windows milestones. The accepted Screenbox player is
 the baseline; acceptance of that player does not approve all other application UI.
 
-The native preview supports password/noauth connections, directory browsing, sorting and filtering the current directory, file details, a native image window, and libmpv video playback. Its native playback controls port parts of Screenbox's templates and interaction structure: pause, seek, volume/mute, precise speed, chapters, confirmed audio/subtitle track selection, local external-subtitle selection and format-aware subtitle settings. This is a source adaptation, not an embedded Screenbox application or its complete feature set. See [source attribution](licenses/screenbox-ui.md). Sprite and episode providers remain separate work. The file-browser A/B/C appearance selector compares provisional directions; it does not save a product-wide design decision.
+The native preview supports password/noauth connections, directory browsing, sorting and filtering the current directory, file details, a native image window, and libmpv video playback. Its native playback controls port parts of Screenbox's templates and interaction structure: pause, seek, volume/mute, precise speed, chapters, confirmed audio/subtitle track selection, local external-subtitle selection and format-aware subtitle settings. This is a source adaptation, not an embedded Screenbox application or its complete feature set. See [source attribution](licenses/screenbox-ui.md). Sprite and episode providers remain separate work.
+
+The file browser uses the selected clear Fluent direction. The 0.2 preview adds
+virtualized list/grid views, selection-preserving view switching and a responsive
+details pane; grid items currently use file-type icons, not remote thumbnails.
+Other visual directions remain later theme work. Native browser acceptance is
+still distinct from the previously accepted playback surface.
+
+Connection profiles now persist in SQLite. Keep signed in stores a DPAPI-encrypted
+session token, never the password; restore verifies current account permissions.
+Saved HTTPS connections can restore at startup. HTTP requires acknowledgement
+for that connection attempt. Logout removes saved authentication while retaining
+the profile; Forget removes both. See [local data and recovery](docs/local-data.md).
 
 A complete local media file can also be opened offline by passing its absolute path as the sole argument to `Fileway.App.exe`. This does not acquire a remote media lease or require login.
 
@@ -56,7 +68,8 @@ This is a platform adaptation of the same brand, not a separate logo.
 Application windows use a shared frameless caption for the main and image
 windows; playback retains its accepted native window. Normal move/resize,
 maximize/restore, system close and theme behavior remain part of native acceptance.
-The initial 0.2 preview is a window/branding slice, not the completed 0.2 feature milestone.
+0.2.0-preview.1 contains the window/branding slice; preview.2 adds saved connections
+and the browser slice. Neither marks the complete 0.2 feature milestone finished.
 
 The installer offers a destination folder and a desktop shortcut selected by
 default. Chinese Windows UI or China region defaults to **栖卷**; other preferences
@@ -64,7 +77,7 @@ default to **Fileway**, with an explicit installation language choice taking
 priority. Internal executable names and data paths stay stable. This naming
 policy is separate from future complete UI localization.
 
-This preview uses explicit direct connections, including routes supplied by the system Tailscale installation. System/PAC proxies, embedded tsnet, persistent credentials, transfers, file mutations and external-player integration are not included in this first slice. They remain separate application work. The main interface contains no placeholder actions for those features.
+This preview uses explicit direct connections, including routes supplied by the system Tailscale installation. System/PAC proxies, embedded tsnet, transfers, file mutations and external-player integration remain separate application work. The main interface contains no placeholder actions for those features.
 
 The Go auxiliary process is managed by the app: it starts locally, uses private inherited control pipes, and exits with the parent. Process management prevents orphan processes and supports crash recovery. Server authorization continues to enforce the existing account permissions.
 

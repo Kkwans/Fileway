@@ -3,6 +3,8 @@ using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Fileway.Infrastructure.Ipc;
 using Fileway.Infrastructure.Services;
+using Fileway.Infrastructure.Persistence;
+using Fileway.Infrastructure.Credentials;
 using Fileway.Playback;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -16,6 +18,7 @@ public partial class App : Application, IAsyncDisposable
     private GoHostClient? _host;
     private FilewayClientServices? _services;
     private MpvPlaybackService? _playback;
+    private FileStream? _dataDirectoryLock;
     private Task _startup = Task.CompletedTask;
     private Task? _shutdown;
     private bool _closing;
@@ -47,8 +50,7 @@ public partial class App : Application, IAsyncDisposable
     {
         try
         {
-            var root = Environment.GetEnvironmentVariable("FILEWAY_WINDOWS_DATA_ROOT")
-                ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fileway", "Preview");
+            var root = DataDirectory();
             var directory = Path.Combine(root, "diagnostics");
             Directory.CreateDirectory(directory);
             // Method names and error codes diagnose native initialization without
@@ -76,15 +78,30 @@ public partial class App : Application, IAsyncDisposable
         try
         {
             var directory = AppContext.BaseDirectory;
+            var dataDirectory = DataDirectory();
+            Directory.CreateDirectory(dataDirectory);
+            try
+            {
+                // All versions sharing this private data root must have one writer.
+                // File sharing is enforced across processes and Windows sessions.
+                _dataDirectoryLock = new FileStream(Path.Combine(dataDirectory, ".client.lock"), FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException)
+            {
+                throw new FilewayException(new ErrorInfo(ErrorCode.Busy, "已有栖卷窗口使用此数据目录。请使用现有窗口，或关闭它后重新打开。"));
+            }
             _host = await GoHostClient.StartAsync(new HostClientOptions(
                 Path.Combine(directory, "fileway-host.exe"),
                 Path.Combine(directory, "host-build.json")), _lifetime.Token);
             _lifetime.Token.ThrowIfCancellationRequested();
-            _services = new FilewayClientServices(_host);
+            _services = new FilewayClientServices(_host,
+                new SqliteProfileStore(Path.Combine(dataDirectory, "client.db")),
+                new DpapiCredentialVault(Path.Combine(dataDirectory, "credentials")));
             _playback = new MpvPlaybackService(_services,
                 new PlaybackWindowFactory(_window!.DispatcherQueue),
                 Path.Combine(directory, "media"), _services);
-            _window.SetServices(_services, _services, _services, _playback);
+            await _window.SetServicesAsync(_services, _services, _services, _playback, _services);
             await OpenLaunchFileAsync();
         }
         catch (OperationCanceledException) when (_closing) { }
@@ -135,7 +152,9 @@ public partial class App : Application, IAsyncDisposable
     {
         _closing = true;
         _lifetime.Cancel();
+        _window?.RequestShutdown();
         await _startup;
+        if (_window is not null) await _window.WaitForConnectionAsync();
         // Stop native readers before revoking their HTTP resource leases and the Host.
         try { if (_playback is not null) await _playback.DisposeAsync(); }
         catch (Exception) { /* The Host Job Object still bounds process lifetime. */ }
@@ -143,6 +162,10 @@ public partial class App : Application, IAsyncDisposable
         catch (Exception) { }
         try { if (_host is not null) await _host.DisposeAsync(); }
         catch (Exception) { }
+        _dataDirectoryLock?.Dispose();
         _lifetime.Dispose();
     }
+
+    private static string DataDirectory() => Environment.GetEnvironmentVariable("FILEWAY_WINDOWS_DATA_ROOT")
+        ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fileway", "Preview");
 }

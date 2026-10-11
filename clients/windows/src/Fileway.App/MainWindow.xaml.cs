@@ -25,8 +25,10 @@ public sealed partial class MainWindow : Window, IDisposable
         RootFrame.Navigate(typeof(MainPage));
         Closed += (_, _) => Dispose();
     }
-    public void SetServices(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback)
-        => ((MainPage)RootFrame.Content).SetServices(connection, files, images, playback);
+    public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog)
+        => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog);
+    public void RequestShutdown() => ((MainPage)RootFrame.Content).Shutdown();
+    public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);
     public void Dispose()
     {
