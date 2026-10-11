@@ -406,7 +406,7 @@ public sealed class OperationJournalTests
         using var writer = Database(directory.DatabasePath);
         using (var downgrade = writer.CreateCommand())
         {
-            downgrade.CommandText = "DROP TABLE operation_journal_items; DROP TABLE operation_journal; " +
+            downgrade.CommandText = "DROP TABLE transfer_tasks; DROP TABLE operation_journal_items; DROP TABLE operation_journal; " +
                 (version < 4 ? "DROP TABLE browser_preferences; " : "") +
                 (version < 3 ? "DROP TABLE cache_roots; " : "") +
                 (version < 2 ? "DROP TABLE client_storage_settings; " : "") +
@@ -439,7 +439,7 @@ public sealed class OperationJournalTests
         Assert.Equal("ok", check.ExecuteScalar());
         using var current = writer.CreateCommand();
         current.CommandText = "PRAGMA user_version";
-        Assert.Equal(5L, current.ExecuteScalar());
+        Assert.Equal(6L, current.ExecuteScalar());
     }
 
     [Fact]
@@ -451,7 +451,7 @@ public sealed class OperationJournalTests
         using (var downgrade = database.CreateCommand())
         {
             // Deliberately collide with the child-table name after the parent-table creation.
-            downgrade.CommandText = "DROP TABLE operation_journal_items; DROP TABLE operation_journal; CREATE TABLE operation_journal_items (marker TEXT); PRAGMA user_version = 4;";
+            downgrade.CommandText = "DROP TABLE transfer_tasks; DROP TABLE operation_journal_items; DROP TABLE operation_journal; CREATE TABLE operation_journal_items (marker TEXT); PRAGMA user_version = 4;";
             downgrade.ExecuteNonQuery();
         }
         var failure = await Assert.ThrowsAsync<FilewayException>(() => Store(true, directory).CreateIntentAsync(Intent(), Token));

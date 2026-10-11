@@ -3,7 +3,7 @@ using Fileway.Core.Contracts;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Process-local store for callers that do not opt into persistence.</summary>
-public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore
+public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore, ITransferTaskStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, SavedConnection> _saved = [];
@@ -31,9 +31,17 @@ public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettin
         {
             ProfileStoreValidation.Validate(connection);
             if (_pending.Contains(connection.Account)) throw ProfileStoreValidation.Unavailable();
-            if (_saved.TryGetValue(connection.Profile.Id, out var previous) && previous.Account != connection.Account &&
-                _operations.Values.Any(record => record.Intent.Reference.Account == previous.Account && OperationJournalValidation.IsUnresolved(record)))
-                throw OperationJournalValidation.UnresolvedConflict();
+            GuardTransferRouteIdentity(connection);
+            if (_saved.TryGetValue(connection.Profile.Id, out var previous))
+            {
+                TransferTaskValidation.RouteIdentity(previous, connection);
+                if (previous.Account != connection.Account)
+                {
+                    if (_operations.Values.Any(record => record.Intent.Reference.Account == previous.Account && OperationJournalValidation.IsUnresolved(record)))
+                        throw OperationJournalValidation.UnresolvedConflict();
+                    if (HasProtectedTransfers(previous.Account)) throw TransferTaskValidation.ProtectedConflict();
+                }
+            }
             _saved[connection.Profile.Id] = connection;
         }
         return Task.CompletedTask;
@@ -47,6 +55,7 @@ public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettin
         {
             if (_operations.Values.Any(record => record.Intent.Reference.Account == account && OperationJournalValidation.IsUnresolved(record)))
                 throw OperationJournalValidation.UnresolvedConflict();
+            if (HasProtectedTransfers(account)) throw TransferTaskValidation.ProtectedConflict();
             if (_saved.TryGetValue(account.ProfileId, out var connection) && connection.Account == account)
                 _saved.Remove(account.ProfileId);
             foreach (var key in _browserPreferences.Keys.Where(key => key.Account == account).ToArray())

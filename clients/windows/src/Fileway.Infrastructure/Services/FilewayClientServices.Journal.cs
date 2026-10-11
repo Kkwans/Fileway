@@ -144,5 +144,8 @@ public sealed partial class FilewayClientServices
         if (_profiles is IOperationJournalStore store &&
             await StorageAsync(() => store.HasUnresolvedOperationsAsync(account, cancellationToken)).ConfigureAwait(false))
             throw Safe(ErrorCode.Conflict, "此连接还有待核实操作，请先核实，或新建独立连接；当前档案尚未遗忘或覆盖。");
+        if (_profiles is ITransferTaskStore transfers &&
+            await StorageAsync(() => transfers.HasProtectedTransfersAsync(account, cancellationToken)).ConfigureAwait(false))
+            throw Safe(ErrorCode.Conflict, "此连接仍有正在运行或待核实的传输，请先暂停并核实；当前档案尚未遗忘或覆盖。");
     }
 }

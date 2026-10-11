@@ -138,7 +138,7 @@ Delete 显式使用回收站语义；服务端和本地任务分别管理，取�
 | 浏览/视图/远端搜索/收藏/标签/最近 | 浏览与收藏/标签已有；0.2.4 远端搜索核心专项及隔离真实服务通过，UI/原生待验收；最近访问服务专项与隔离真实服务已通过，页面/成功打开接入待补 | Web `views/files/FileListing.vue`、`SearchPage.vue`、`components/Sidebar.vue`；Android `BrowserScreen.kt`、`SearchScreen.kt`、`ClientApp.kt` |
 | 新建/批量重命名/复制移动 | 0.2.4 零字节文件/目录、单项/批量重命名、复制移动任务提交核心已实现且集中验证通过；UI/真实旅程待测 | Web `api/files.ts`；Android `FileActions.kt`、`BrowserScreen.kt`；Windows `FilewayClientServices.Files.cs` |
 | 回收站/任务/操作历史 | 0.2.4 own-only 恢复/任务与持久操作核实核心专项通过，UI/真实旅程待测；完整删除管理 0.3 | Web `api/trash.ts`、`api/tasks.ts`、`api/transfers.ts`；Android `DownloadsScreen.kt`、`UploadsScreen.kt` |
-| 上传下载/归档下载/恢复/离线 | TUS 上传通道专项及隔离真实换会话恢复通过；持久任务/上传下载页面/完整恢复与离线索引仍属 0.3；完整本地媒体启动已有，边下载边播放 0.4 | Web `components/prompts/Download.vue`、`api/tus.ts`；Android upload/download runtimes；shared/core `transport/upload.go`；Windows [传输通道](transfer-transport.md) |
+| 上传下载/归档下载/恢复/离线 | TUS 上传通道及隔离真实换会话恢复通过；schema 6 持久任务/领取/检查点与迁移兼容已验证；调度器、实际文件执行、上传下载页面、完整恢复与离线索引仍属 0.3；完整本地媒体启动已有，边下载边播放 0.4 | Web `components/prompts/Download.vue`、`api/tus.ts`；Android upload/download runtimes；shared/core `transport/upload.go`；Windows [传输通道](transfer-transport.md)、[任务状态](transfer-state.md) |
 | 图片/音频 | 图片基础查看已有；扩展图片与原生音频 0.4 | Web `ExtendedImage.vue`、`GlobalAudioPlayer.vue`；Android `ImageScreen.kt`、`AudioScreen.kt` |
 | 缓存/预加载 | 0.2.1 视频磁盘缓存、区间/速度、目录与 5 GB 总预算；0.2.2 缩略图/图片原图及缓存管理 | Windows `LocalStorageSettingsService.cs`、`PlaybackCacheState.cs`；shared/core `transport/cache.go`；Android `ui/CacheSettingsPanel.kt` |
 | 视频/字幕/倍速/进度 | Screenbox 原生基础已有；远端字幕/样式完善/偏好 0.4 | Web `components/files/ArtPlayerVideo.vue`；Android `PlayerScreen.kt`；Windows `ScreenboxPlayerControls.xaml.cs` |

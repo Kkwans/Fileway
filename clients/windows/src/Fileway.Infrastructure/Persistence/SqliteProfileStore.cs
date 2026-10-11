@@ -6,9 +6,9 @@ using Microsoft.Data.Sqlite;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Versioned, credential-free profile storage with durable logout intent.</summary>
-public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore
+public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore, ITransferTaskStore
 {
-    private const int SchemaVersion = 5;
+    private const int SchemaVersion = 6;
     private const int BusyTimeoutSeconds = 3;
     private const string Columns = "profile_id, source_revision, display_name, base_address, network_mode, proxy_mode, proxy_address, authentication_mode, username, server_user_id, keep_signed_in, last_connected_at";
     private const string AccountPredicate = "profile_id = $profile AND source_revision = $revision AND server_user_id = $user";
@@ -55,6 +55,7 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         // An immediate transaction makes the pending check and upsert indivisible across instances.
         using var transaction = database.BeginTransaction(deferred: false);
         GuardJournalAccountReplacement(database, transaction, connection.Account);
+        GuardTransferAccountReplacement(database, transaction, connection);
         using (var pending = Command(database, "SELECT 1 FROM pending_logouts WHERE " + AccountPredicate, transaction))
         {
             BindAccount(pending, connection.Account);
@@ -95,6 +96,7 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         ProfileStoreValidation.Validate(account);
         using var transaction = connection.BeginTransaction(deferred: false);
         if (HasUnresolvedOperations(connection, transaction, account)) throw OperationJournalValidation.UnresolvedConflict();
+        if (HasProtectedTransfers(connection, transaction, account)) throw TransferTaskValidation.ProtectedConflict();
         using var command = Command(connection, "DELETE FROM saved_connections WHERE " + AccountPredicate, transaction);
         BindAccount(command, account);
         command.ExecuteNonQuery();
@@ -249,7 +251,7 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         Directory.CreateDirectory(Path.GetDirectoryName(_databasePath)!);
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = _databasePath,
+            DataSource = SqliteDataSourcePath(_databasePath),
             Mode = SqliteOpenMode.ReadWriteCreate,
             DefaultTimeout = BusyTimeoutSeconds,
             Pooling = false,
@@ -343,6 +345,7 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
                 migrate.ExecuteNonQuery();
             }
             if (version < 5) CreateOperationJournal(connection, transaction);
+            if (version < 6) CreateTransferTasks(connection, transaction);
             if (version < SchemaVersion) CheckIntegrity(connection, transaction);
             transaction.Commit();
             using var journal = Command(connection, "PRAGMA journal_mode = WAL");
@@ -365,13 +368,20 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    private static string SqliteDataSourcePath(string path)
+    {
+        // Keep .NET paths and backup names unchanged; the native Windows VFS needs the extended prefix.
+        if (!OperatingSystem.IsWindows() || path.StartsWith(@"\\?\", StringComparison.Ordinal)) return path;
+        return path.StartsWith(@"\\", StringComparison.Ordinal) ? @"\\?\UNC\" + path[2..] : @"\\?\" + path;
+    }
+
     private void BackupBeforeMigration(SqliteConnection source, long version)
     {
         // BackupDatabase includes committed WAL contents. Never copy the .db file in isolation.
         string backupPath = _databasePath + ".schema" + version.ToString(CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N") + ".backup";
         using var backup = new SqliteConnection(new SqliteConnectionStringBuilder
         {
-            DataSource = backupPath,
+            DataSource = SqliteDataSourcePath(backupPath),
             Mode = SqliteOpenMode.ReadWriteCreate,
             DefaultTimeout = BusyTimeoutSeconds,
             Pooling = false,
