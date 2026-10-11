@@ -18,7 +18,13 @@ public sealed class ServerTaskTests
             Dispatch = (_, _) => Task.FromResult(CoreReadHost.Http(new
             {
                 items = new[] { CoreReadHost.TaskRow(type: "future.task", status: "future-state") }, nextCursor = cursor,
-                total = 9, counts = new { running = 4, future = 5 }, categoryCounts = new { file = 7, background = 2 },
+                total = 9, counts = new { all = 9, active = 4, attention = 1, canceled = 0, completed = 5, archived = 0, future = 3 },
+                categoryCounts = new
+                {
+                    file = new { all = 7, active = 3, attention = 1, canceled = 0, completed = 4, archived = 0, future = 2 },
+                    background = new { all = 2, active = 1, attention = 0, canceled = 0, completed = 1, archived = 0 },
+                    futureCategory = new { all = 0, future = 0 },
+                },
             })),
         };
         await using var services = new FilewayClientServices(host);
@@ -33,7 +39,14 @@ public sealed class ServerTaskTests
         Assert.Equal("future.task", task.RawType);
         Assert.Equal(cursor, page.NextCursor);
         Assert.Equal(9, page.Total);
-        Assert.Equal(7, page.CategoryCounts["file"]);
+        Assert.Equal(9, page.Counts["all"]);
+        Assert.Equal(4, page.Counts["active"]);
+        Assert.Equal(3, page.Counts["future"]);
+        Assert.Equal(7, page.CategoryCounts["file"]["all"]);
+        Assert.Equal(3, page.CategoryCounts["file"]["active"]);
+        Assert.Equal(2, page.CategoryCounts["file"]["future"]);
+        Assert.Equal(2, page.CategoryCounts["background"]["all"]);
+        Assert.Equal(0, page.CategoryCounts["futureCategory"]["future"]);
         string endpoint = CoreReadHost.Endpoint(Assert.Single(host.Calls, call => call.Operation == "request" &&
             CoreReadHost.Endpoint(call).StartsWith("/api/tasks?", StringComparison.Ordinal)));
         var query = endpoint.Split('?')[1].Split('&').Select(pair => pair.Split('=', 2))
@@ -42,6 +55,31 @@ public sealed class ServerTaskTests
         Assert.Equal(cursor, query["cursor"]);
         Assert.Equal("x + &", query["text"]);
         Assert.Equal("running", query["status"]);
+    }
+
+    [Theory]
+    [InlineData("{\"file\":7}")]
+    [InlineData("{\"file\":{\"all\":-1}}")]
+    [InlineData("{\"file\":{\"all\":0},\"file\":{\"all\":0}}")]
+    [InlineData("{\"file\":{\"all\":0,\"all\":0}}")]
+    public async Task CategoryCountsRejectFlatNegativeOrDuplicateWireValues(string categoryCountsJson)
+    {
+        using var categories = JsonDocument.Parse(categoryCountsJson);
+        await using var host = new CoreReadHost
+        {
+            Dispatch = (_, _) => Task.FromResult(CoreReadHost.Http(new
+            {
+                items = Array.Empty<object>(), total = 0,
+                counts = new { all = 0, active = 0, attention = 0, canceled = 0, completed = 0, archived = 0 },
+                categoryCounts = categories.RootElement,
+            })),
+        };
+        await using var services = new FilewayClientServices(host);
+        var session = await services.ConnectAsync(CoreReadHost.Profile(), CoreReadHost.Login, Token);
+
+        var error = await Assert.ThrowsAsync<FilewayException>(() => services.ListTasksAsync(session.Account, new ServerTaskQuery(), Token));
+
+        Assert.Equal(ErrorCode.ProtocolMismatch, error.Error.Code);
     }
 
     [Theory]

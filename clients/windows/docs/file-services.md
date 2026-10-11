@@ -38,6 +38,10 @@ Windows 服务端会过滤无法安全映射到 Windows 文件名的非 UTF-8 �
 传递，不推算页数；未来未知 type/status 可展示但不能当作完成。归档及取消同样有业务确认
 和操作记录。管理员跨用户管理属于后续产品范围。
 
+任务列表的 `Counts` 是摘要计数，`CategoryCounts` 则按 file/background 等分类各保存一组
+摘要计数，包含 all、active、attention、canceled、completed、archived。分类值不是单个总数；
+未知分类/计数键保留，负值、重复键或错误结构拒绝，不把分类总数与当前页项目数混淆。
+
 删除始终显式指定回收站模式。`ITrashService` 按 owned ID 恢复，支持四种冲突策略，
 保留 `skipped` 与服务端返回的显示路径。该响应没有可信 wire 身份，不能凭显示路径
 伪造可操作资源。永久删除、清空与撤销窗口不在本模块中增加入口。

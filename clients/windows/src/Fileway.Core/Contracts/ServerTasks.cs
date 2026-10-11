@@ -23,7 +23,7 @@ public sealed record ServerTaskQuery(IReadOnlyList<ServerTaskStatus>? Statuses =
     public override string ToString() => "ServerTaskQuery (filter redacted)";
 }
 public sealed record ServerTaskPage(IReadOnlyList<ServerTask> Items, string? NextCursor, long Total,
-    IReadOnlyDictionary<string, long> Counts, IReadOnlyDictionary<string, long> CategoryCounts);
+    IReadOnlyDictionary<string, long> Counts, IReadOnlyDictionary<string, IReadOnlyDictionary<string, long>> CategoryCounts);
 public sealed record ServerTaskSubmissionResult(ServerTaskSubmissionOutcome Outcome, ServerTask? AcceptedTask = null,
     OperationReceipt? Receipt = null, ErrorInfo? Error = null);
 public sealed record ServerTaskActionResult(OperationOutcome Outcome, ServerTaskActionKind Kind,

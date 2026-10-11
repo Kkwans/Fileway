@@ -23,7 +23,7 @@ public sealed partial class FilewayClientServices
                 throw InvalidResponse();
             EnsureActive(state);
             return new ServerTaskPage(items, OptionalText(body, "nextCursor"), total,
-                ParseTaskCounts(body.GetProperty("counts")), ParseTaskCounts(body.GetProperty("categoryCounts")));
+                ParseTaskCounts(body.GetProperty("counts")), ParseTaskCategoryCounts(body.GetProperty("categoryCounts")));
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException or ArgumentOutOfRangeException)
         { throw InvalidResponse(); }
@@ -170,6 +170,16 @@ public sealed partial class FilewayClientServices
             if (count < 0 || !counts.TryAdd(property.Name, count)) throw InvalidResponse();
         }
         return counts;
+    }
+
+    private static Dictionary<string, IReadOnlyDictionary<string, long>> ParseTaskCategoryCounts(JsonElement value)
+    {
+        var categories = new Dictionary<string, IReadOnlyDictionary<string, long>>(StringComparer.Ordinal);
+        foreach (var property in value.EnumerateObject())
+        {
+            if (!categories.TryAdd(property.Name, ParseTaskCounts(property.Value))) throw InvalidResponse();
+        }
+        return categories;
     }
 
     private static string TaskEndpoint(string id) => "/api/tasks/" + Uri.EscapeDataString(ServiceRecordId(id));
