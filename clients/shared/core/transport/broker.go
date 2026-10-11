@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,13 +29,14 @@ type Response struct {
 }
 
 type Session struct {
-	base    *url.URL
-	client  *http.Client
-	ctx     context.Context
-	cancel  context.CancelFunc
-	mu      sync.RWMutex
-	token   string
-	renewMu sync.Mutex
+	base      *url.URL
+	client    *http.Client
+	ctx       context.Context
+	cancel    context.CancelFunc
+	mu        sync.RWMutex
+	token     string
+	principal uint64
+	renewMu   sync.Mutex
 }
 
 type Lease struct {
@@ -113,7 +115,7 @@ func (b *Broker) Open(baseURL, token string, client *http.Client) (string, error
 		cancel()
 		return "", errors.New("transport closed")
 	}
-	b.sessions[id] = &Session{base: base, client: &copyClient, token: token, ctx: ctx, cancel: cancel}
+	b.sessions[id] = &Session{base: base, client: &copyClient, token: token, principal: tokenPrincipal(token), ctx: ctx, cancel: cancel}
 	return id, nil
 }
 
@@ -134,6 +136,42 @@ func combined(parent, root context.Context) (context.Context, func()) {
 }
 
 func (s *Session) currentToken() string { s.mu.RLock(); defer s.mu.RUnlock(); return s.token }
+
+// This is an identity fence, not signature validation. The server authenticates
+// JWTs; a renewal must never rebind a previously identified source session.
+func tokenPrincipal(token string) uint64 {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return 0
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return 0
+	}
+	var claims struct {
+		User struct {
+			ID uint64 `json:"id"`
+		} `json:"user"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return 0
+	}
+	return claims.User.ID
+}
+
+func (s *Session) replaceToken(token string) error {
+	principal := tokenPrincipal(token)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.principal != 0 && principal != s.principal {
+		return errors.New("session account changed; sign in again")
+	}
+	s.token = token
+	if principal != 0 {
+		s.principal = principal
+	}
+	return nil
+}
 
 func (s *Session) do(ctx context.Context, method, endpoint string, body []byte, headers http.Header) (*http.Response, error) {
 	u, err := Endpoint(s.base, endpoint)
@@ -198,9 +236,9 @@ func (b *Broker) Login(ctx context.Context, sessionID, username, password string
 		if strings.Count(token, ".") != 2 {
 			return Response{}, errors.New("login did not return a JWT text token")
 		}
-		s.mu.Lock()
-		s.token = token
-		s.mu.Unlock()
+		if err := s.replaceToken(token); err != nil {
+			return Response{}, err
+		}
 	}
 	return response, nil
 }
@@ -227,10 +265,7 @@ func (s *Session) renew(ctx context.Context, previous string) error {
 	if r.Status != http.StatusOK || strings.Count(strings.TrimSpace(r.Body), ".") != 2 {
 		return errors.New("session expired; sign in again")
 	}
-	s.mu.Lock()
-	s.token = strings.TrimSpace(r.Body)
-	s.mu.Unlock()
-	return nil
+	return s.replaceToken(strings.TrimSpace(r.Body))
 }
 
 func (b *Broker) Request(ctx context.Context, id, method, endpoint string, body []byte) (Response, error) {
