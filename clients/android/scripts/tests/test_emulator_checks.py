@@ -4,6 +4,8 @@ from pathlib import Path
 import tempfile
 import unittest
 import os
+import re
+import subprocess
 
 spec = importlib.util.spec_from_file_location("emulator_checks", Path(__file__).parents[1] / "run-emulator-checks.py")
 runner = importlib.util.module_from_spec(spec)
@@ -48,6 +50,7 @@ class EmulatorChecksTest(unittest.TestCase):
         suite = next(c for c in calls if ":app:connectedDebugAndroidTest" in c)
         self.assertIn("-Pandroid.testInstrumentationRunnerArguments.notPackage=" + runner.RESTART_PACKAGE, suite)
         self.assertFalse(any("notClass=" in arg for arg in suite))
+        self.assertFalse(any("tests_regex=" in arg or "nfbTraceUi=" in arg for arg in suite))
         for command in calls:
             if command[0] == "adb" and command != ["adb", "devices"]:
                 self.assertEqual(["-s", "emulator-5556"], command[1:3])
@@ -149,7 +152,9 @@ class EmulatorChecksTest(unittest.TestCase):
         self.assertEqual(0, status)
         commands = [c for c in calls if ":app:connectedDebugAndroidTest" in c]
         self.assertEqual(1, len(commands))
-        self.assertIn("-Pandroid.testInstrumentationRunnerArguments.class=" + first + "," + second, commands[0])
+        self.assertIn("-Pandroid.testInstrumentationRunnerArguments.tests_regex='" + runner.test_methods_regex((first, second)) + "'", commands[0])
+        self.assertIn("-Pandroid.testInstrumentationRunnerArguments.nfbTraceUi=true", commands[0])
+        self.assertFalse(any(arg.startswith("-Pandroid.testInstrumentationRunnerArguments.class=") for arg in commands[0]))
         self.assertFalse(any("install" in c or "instrument" in c or "force-stop" in c for c in calls))
         self.assertEqual("pull", calls[-1][3])
 
@@ -192,6 +197,56 @@ class EmulatorChecksTest(unittest.TestCase):
             self.assertEqual(0, status)
             self.assertIn("NOT a full-suite result", output)
             self.assertIn("restart gates were not rerun", output)
+
+    def test_selected_regex_survives_the_pinned_agp_comma_key_value_codec(self):
+        methods = runner.parse_test_methods(runner.PACKAGE + ".OwnedTest#first," + runner.PACKAGE + ".OtherTest#second")
+        pattern = runner.test_methods_regex(methods)
+        self.assertNotIn(",", pattern)
+        junit = f'<testsuite><testcase classname="{runner.PACKAGE}.OwnedTest" name="first"/>' + \
+                f'<testcase classname="{runner.PACKAGE}.OtherTest" name="second"/></testsuite>'
+        status, calls = self.exercise(test_methods=",".join(methods), junit=junit)
+        self.assertEqual(0, status)
+        command = next(c for c in calls if ":app:connectedDebugAndroidTest" in c)
+        prefix = "-Pandroid.testInstrumentationRunnerArguments."
+        arguments = dict(arg.removeprefix(prefix).split("=", 1) for arg in command if arg.startswith(prefix))
+        self.assertNotIn("class", arguments)
+        self.assertEqual("'" + pattern + "'", arguments["tests_regex"])
+        self.assertEqual("true", arguments["nfbTraceUi"])
+        # AGP9.4.1 UtpTestUtils:98 / AndroidTestEngineConfigurer:96 encode
+        # entries this way. Engine1.0.1 AndroidTestConfiguration:105-112
+        # splits by comma and drops entries without '='. Exercise that boundary.
+        def roundtrip(values):
+            encoded = ",".join(f"{key}={value}" for key, value in values.items())
+            pairs = [item.split("=", 1) for item in encoded.split(",")]
+            return {pair[0].strip(): pair[1].strip() for pair in pairs if len(pair) == 2}
+        self.assertEqual(arguments, roundtrip(arguments))
+        # Engine1.0.1 AmInstrumentCommandBuilder forwards raw argv, and AOSP
+        # adb shell joins them into a command. Execute only printf on the host
+        # to prove that this second shell parse preserves the actual pattern.
+        result = subprocess.run(["sh", "-c", "printf '%s' " + roundtrip(arguments)["tests_regex"]],
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(pattern, result.stdout)
+        # This control reproduces the actual previous loss, rather than merely
+        # asserting that a new flag was added to an argv list.
+        self.assertEqual(methods[0], roundtrip({"class": ",".join(methods)})["class"])
+
+    def test_selected_regex_matches_only_complete_selected_class_and_method_identities(self):
+        methods = runner.parse_test_methods(runner.PACKAGE + ".OwnedTest#first," + runner.PACKAGE + ".nested.OtherTest#second")
+        pattern = runner.test_methods_regex(methods)
+        self.assertTrue(pattern.startswith(r"\A(?:") and pattern.endswith(r")\z"))
+        # Pinned Java Pattern \z and Python3.11 \Z both mean absolute end;
+        # translate only that anchor for this host contract. The actual runner
+        # uses matcher.find(), so search(), not fullmatch(), is required here.
+        host_pattern = re.compile(pattern[:-2] + r"\Z")
+        for method in methods:
+            self.assertIsNotNone(host_pattern.search(method))
+            for other in ("prefix" + method, method + "Suffix", method + "\n", method + "\r\n",
+                          method.replace(".", "X", 1), method.replace("#", "Other#"), method.upper()):
+                with self.subTest(other=other):
+                    self.assertIsNone(host_pattern.search(other))
+        self.assertIsNone(host_pattern.search(runner.PACKAGE + ".UnselectedTest#first"))
+        self.assertIsNone(host_pattern.search(runner.PACKAGE + ".OwnedTest#second"))
 
 
 if __name__ == "__main__":

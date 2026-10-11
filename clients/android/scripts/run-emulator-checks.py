@@ -39,6 +39,15 @@ def parse_test_methods(value):
     return tuple(methods)
 
 
+def test_methods_regex(methods):
+    # AGP 9.4.1 serializes runner arguments as comma-separated key=value;
+    # android-test-engine 1.0.1 drops bare comma-separated values. Pinned
+    # AndroidJUnitRunner 1.7.0 supports tests_regex on package.Class#method.
+    # Canonical identifiers contain no regex metacharacters except dots.
+    # Java's absolute anchors also reject a final newline with matcher.find().
+    return r"\A(?:" + "|".join(method.replace(".", r"\.") for method in methods) + r")\z"
+
+
 def suite_contract(component, selected_methods=()):
     scope = "Affected-method batch" if selected_methods else "Full suite"
     reports = list((component / "app/build/outputs/androidTest-results/connected").rglob("TEST-*.xml"))
@@ -125,7 +134,11 @@ def run_checks(component, serial, run=run_command, test_methods=""):
           # exclusion. A dedicated package is one unambiguous argument value.
           "-Pandroid.testInstrumentationRunnerArguments.notPackage=" + RESTART_PACKAGE]
     if selected_methods:
-        command.append("-Pandroid.testInstrumentationRunnerArguments.class=" + ",".join(selected_methods))
+        # The engine passes this value to adb shell without shell quoting.
+        # A generated canonical regex has no quotes; protect its backslashes,
+        # parentheses and alternation through the device shell's second parse.
+        command.extend(["-Pandroid.testInstrumentationRunnerArguments.tests_regex='" + test_methods_regex(selected_methods) + "'",
+                        "-Pandroid.testInstrumentationRunnerArguments.nfbTraceUi=true"])
     suite_status = check("affected-method-batch" if selected_methods else "connected-suite", command, CONNECTED_SUITE_TIMEOUT_SECONDS)
     if suite_status == 124:
         # Losing the Gradle observer does not prove device instrumentation ended.
