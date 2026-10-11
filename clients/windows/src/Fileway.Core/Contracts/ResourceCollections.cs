@@ -30,7 +30,8 @@ public sealed record ResourceCollectionsSnapshot(
     IReadOnlyList<ResourceTag> Tags);
 
 /// <summary>Unknown writes must be refreshed and explained; never automatically replayed. RecordId is supplied only by a confirmed server acknowledgement.</summary>
-public sealed record CollectionWriteResult(OperationOutcome Outcome, string? RecordId = null, ErrorInfo? Error = null);
+public sealed record CollectionWriteResult(OperationOutcome Outcome, string? RecordId = null, ErrorInfo? Error = null,
+    OperationReceipt? Receipt = null);
 
 /// <summary>Server-owned user metadata, separate from filesystem Create/Rename/Delete permissions. Every operation stays bound to its active account.</summary>
 public interface IResourceCollectionsService

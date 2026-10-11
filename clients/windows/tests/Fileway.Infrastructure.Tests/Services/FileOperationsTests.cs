@@ -134,7 +134,7 @@ public sealed class FileOperationsTests
         OperationOutcome expected, FileOperationItemOutcome expectedItem)
     {
         await using var fixture = new HttpFixture(request => request.Method == "DELETE"
-            ? new FixtureResponse(status, JsonSerializer.SerializeToUtf8Bytes(new { id = "fixture-trash", status = "available" }))
+            ? new FixtureResponse(status, JsonSerializer.SerializeToUtf8Bytes(new { id = "fixture-trash", userId = 7, status = "available" }))
             : AccountResponse(request));
         await using var host = await GoHostClient.StartAsync(HarnessFixture.RealOptions, Token);
         await using var services = new FilewayClientServices(host);
@@ -235,7 +235,7 @@ public sealed class FileOperationsTests
         new(200, JsonSerializer.SerializeToUtf8Bytes(value), Headers: headers);
 
     private static FixtureResponse TrashAvailable(IReadOnlyDictionary<string, string>? headers = null) =>
-        Json(new { id = "fixture-trash", status = "available" }, headers);
+        Json(new { id = "fixture-trash", userId = 7, status = "available" }, headers);
 
     private static object FileMetadata(string name, string wirePath, bool isDirectory = false) => new
     {
@@ -265,7 +265,7 @@ public sealed class FileOperationsTests
     private static Dictionary<string, string> ParseQuery(string query) => query.Split('&').Select(part => part.Split('=', 2))
         .ToDictionary(part => part[0], part => Uri.UnescapeDataString(part[1]), StringComparer.Ordinal);
 
-    private sealed class FailingSaveStore : IProfileStore
+    private sealed class FailingSaveStore : IProfileStore, IOperationJournalStore
     {
         private readonly InMemoryProfileStore _inner = new();
         internal bool FailSave { get; set; }
@@ -277,5 +277,14 @@ public sealed class FileOperationsTests
         public Task<IReadOnlyList<AccountKey>> ListPendingLogoutsAsync(CancellationToken cancellationToken) => _inner.ListPendingLogoutsAsync(cancellationToken);
         public Task BeginLogoutAsync(AccountKey account, CancellationToken cancellationToken) => _inner.BeginLogoutAsync(account, cancellationToken);
         public Task CompleteLogoutAsync(AccountKey account, CancellationToken cancellationToken) => _inner.CompleteLogoutAsync(account, cancellationToken);
+        public bool IsPersistent => _inner.IsPersistent;
+        public Task<bool> HasUnresolvedOperationsAsync(AccountKey account, CancellationToken cancellationToken) => _inner.HasUnresolvedOperationsAsync(account, cancellationToken);
+        public Task<OperationRecord> CreateIntentAsync(OperationIntent intent, CancellationToken cancellationToken) => _inner.CreateIntentAsync(intent, cancellationToken);
+        public Task<OperationRecord> MarkDispatchAsync(OperationRef operation, long revision, CancellationToken cancellationToken) => _inner.MarkDispatchAsync(operation, revision, cancellationToken);
+        public Task<OperationRecord> RecordAckAsync(OperationRef operation, long revision, OperationAcknowledgement acknowledgement, CancellationToken cancellationToken) => _inner.RecordAckAsync(operation, revision, acknowledgement, cancellationToken);
+        public Task<OperationRecord> RecordRejectedOrUnknownAsync(OperationRef operation, long revision, OperationPhase phase, ErrorInfo? error, CancellationToken cancellationToken) => _inner.RecordRejectedOrUnknownAsync(operation, revision, phase, error, cancellationToken);
+        public Task<OperationPage> ListOperationsAsync(AccountKey account, string? cursor, int limit, CancellationToken cancellationToken) => _inner.ListOperationsAsync(account, cursor, limit, cancellationToken);
+        public Task<OperationRecord?> GetOperationAsync(OperationRef operation, CancellationToken cancellationToken) => _inner.GetOperationAsync(operation, cancellationToken);
+        public Task<OperationRecord> SaveReconciliationAsync(OperationRef operation, long revision, OperationReconciliation reconciliation, CancellationToken cancellationToken) => _inner.SaveReconciliationAsync(operation, revision, reconciliation, cancellationToken);
     }
 }

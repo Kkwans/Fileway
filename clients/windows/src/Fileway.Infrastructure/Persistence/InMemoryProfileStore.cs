@@ -3,7 +3,7 @@ using Fileway.Core.Contracts;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Process-local store for callers that do not opt into persistence.</summary>
-public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore
+public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, SavedConnection> _saved = [];
@@ -31,6 +31,9 @@ public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettin
         {
             ProfileStoreValidation.Validate(connection);
             if (_pending.Contains(connection.Account)) throw ProfileStoreValidation.Unavailable();
+            if (_saved.TryGetValue(connection.Profile.Id, out var previous) && previous.Account != connection.Account &&
+                _operations.Values.Any(record => record.Intent.Reference.Account == previous.Account && OperationJournalValidation.IsUnresolved(record)))
+                throw OperationJournalValidation.UnresolvedConflict();
             _saved[connection.Profile.Id] = connection;
         }
         return Task.CompletedTask;
@@ -42,6 +45,8 @@ public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettin
         ProfileStoreValidation.Validate(account);
         lock (_gate)
         {
+            if (_operations.Values.Any(record => record.Intent.Reference.Account == account && OperationJournalValidation.IsUnresolved(record)))
+                throw OperationJournalValidation.UnresolvedConflict();
             if (_saved.TryGetValue(account.ProfileId, out var connection) && connection.Account == account)
                 _saved.Remove(account.ProfileId);
             foreach (var key in _browserPreferences.Keys.Where(key => key.Account == account).ToArray())

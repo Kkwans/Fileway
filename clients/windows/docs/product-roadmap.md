@@ -58,6 +58,18 @@ DPAPI 保持登录、恢复/退出/遗忘，以及列表/图标网格切换和�
 当前目录筛选，并按账号/原始目录保存视图和排序。扩大本地字幕上限至 500 MB。
 服务/数据专项及构建已通过，纠正版原生验收仍待完成；随后继续清单其余项目，不能等待用户逐项提醒。
 
+0.2.4 独立核心切片已实现：服务端当前/递归搜索与 additive opaque wire 结果、零字节文件、
+批量重命名预览/执行、服务端复制移动任务、当前账号的任务分页/取消/重试/归档、owned ID 回收恢复、
+四算法主动校验及 schema 5 SQLite 操作 journal。核心与专项构建 0 warnings / 0 errors；首次集中运行
+234 项，修复后仅复测 6 个直接受影响模块的 116 项，全部通过且无 failure/error/skip，其他 118 项
+沿用同轮未受影响的通过结果。搜索的严格 UTF-8 旧端兼容不替代 opaque 身份支持；任务提交接受与完成
+分开，未知写入持久记录、重启只核实不重放。UI 集成、原生验收、真实服务器新旅程及 Android JNI
+仍待验证；本切片不扩管理员他人管理或永久删除，完整 0.2 与 G 门槛保持。
+
+现有浏览器框架正在执行用户已授权的十项重构，覆盖 40 DIP 布局、面包屑、可调整区域尺寸、侧栏、
+上下文菜单与名称裁切等。该工作限定现有切片，仍在实施且原生验收待测；搜索/写操作/任务等新服务
+的 UI 集成另行完成，不能把框架重构或核心专项通过算作完整浏览器旅程已验收。
+
 0.2.1 已接入共享 Go 分块磁盘缓存/相邻块预取/租约统计、mpv 有界内存预读；时间轴保留
 seekable-ranges 的起点与多个区间，速度只统计主视频上游字节增量。设置页区分当前与待生效
 目录，缓存设为 0 时禁用磁盘部分；默认下载目录暂仅保存，下载旅程仍属 0.3。
@@ -68,7 +80,7 @@ seekable-ranges 的起点与多个区间，速度只统计主视频上游字节�
 | 版本 | 产品结果与明确范围 | 发布门槛与依赖 |
 | --- | --- | --- |
 | **0.1.1** 安装修复 | 可选安装目录、记住成功安装位置、默认可取消的桌面快捷方式；中文语言或中国地区默认“栖卷”，其他地区“Fileway”，允许安装时改语言；保留已验收播放器 | 实际中英安装、自选目录、勾选/取消快捷方式、同版本保护、旧版共存与卸载保留；不把 NSIS 编译当安装通过 |
-| **0.2** 日常浏览与文件管理 | 连接档案/保持登录/显式退出；SQLite 与 DPAPI；文件浏览器代表性切片、列表/网格/紧凑模式/图标尺寸/类型筛选/缩略图/路径导航/排序持久化；服务器搜索、收藏分组、标签与最近访问；基础详情与主动 MD5/SHA1/SHA256 文件校验；新建文件/目录、重命名/批量预览、复制/移动、回收站基本旅程、服务端任务可解释结果；通用键鼠操作 | 先验收文件管理原生切片，再铺开页面；固定账号归属、opaque 路径与权限契约；完成“重新启动仍可连接→搜索→批量操作→回收恢复”，未知写入不重放 |
+| **0.2** 日常浏览与文件管理 | 连接档案/保持登录/显式退出；SQLite 与 DPAPI；文件浏览器代表性切片、列表/网格/紧凑模式/图标尺寸/类型筛选/缩略图/路径导航/排序持久化；服务器搜索、收藏分组、标签与最近访问；基础详情与主动 MD5/SHA1/SHA256/SHA512 文件校验；新建文件/目录、重命名/批量预览、复制/移动、回收站基本旅程、服务端任务可解释结果；通用键鼠操作 | 先验收文件管理原生切片，再铺开页面；固定账号归属、opaque 路径与权限契约；完成“重新启动仍可连接→搜索→批量操作→回收恢复”，未知写入不重放 |
 | **0.3** 可靠传输与离线 | 文件/文件夹拖入上传，单/批/目录下载，服务端提供的 ZIP/TAR 及压缩变体；暂停/恢复、应用/核心重启恢复、确认偏移、源版本/摘要校验、本地名称映射、覆盖冲突；完整下载离线打开；本地/服务器任务与历史、取消/部分成功；回收站统计/清空/永久删除及撤销窗口 | 依赖 0.2 身份/数据库/操作结果；断网、丢 ACK、磁盘满、源改变和发布中断不损坏目标，不重复已完成项；动态归档恢复明确从头生成 |
 | **0.4** 完整影音体验 | 在现有播放器上补服务器/同目录外挂字幕、雪碧图预览、目录/搜索/下载来源的播放队列与选集、最近播放列表/清除/定位、音频与图片旋转/原图策略、媒体信息及偏好保存；Web 兼容 HLS/实际画质切换、后台转码任务；按住加速/恢复原倍速、画中画/小窗、Windows 媒体键；支持有网络的边下载边播放 | 依赖 0.2 资源身份/偏好与 0.3 下载生命周期；切画质保留确认进度并正确映射轨道；新媒体先释放旧租约；缺雪碧图可退化；无真实输出证据不标 HDR 通过 |
 | **0.5** 网络与首版完整性 | Windows 系统代理/PAC、手动代理和明确直连；内嵌 tsnet 授权/状态/退出、严格路由；profile 证书信任与变更、休眠换网恢复；外置播放器/PotPlayer、托盘继续、缓存/诊断、手动检查更新；真实 HDR10/SDR 映射/DV及HDR10+兼容边界、多屏/DPI/设备恢复 | 通过原首版范围的 G1—G5，包括标准用户组网、禁止静默直连回退、媒体/外置租约撤销、真实显示链路、迁移/安装升级；仍不代表后续 Web 全功能已对齐 |
@@ -120,9 +132,9 @@ Delete 显式使用回收站语义；服务端和本地任务分别管理，取�
 | 能力域 | Windows 当前状态 / 版本归属 | 对齐入口（仓库相对路径） |
 | --- | --- | --- |
 | 登录/档案/会话/注册 | 档案/DPAPI/恢复/注销已有；组网/代理 0.5，条件注册/代理认证 0.8 | `server/frontend/src/views/Login.vue`、`utils/auth.ts`；Android `ui/ConnectionScreen.kt`、`NetworkSection.kt` |
-| 浏览/视图/远端搜索/收藏/标签/最近 | 列表/本目录过滤已有；完整能力 0.2 | Web `views/files/FileListing.vue`、`SearchPage.vue`、`components/Sidebar.vue`；Android `BrowserScreen.kt`、`SearchScreen.kt`、`ClientApp.kt` |
-| 新建/批量重命名/复制移动 | 新建目录/单项重命名/回收删除已有服务与专项测试，尚无界面入口；复制移动未接入；其余 0.2 | Web `api/files.ts`；Android `FileActions.kt`、`BrowserScreen.kt`；Windows `FilewayClientServices.Files.cs` |
-| 回收站/任务/操作历史 | 基本操作 0.2，完整任务与删除管理 0.3 | Web `api/trash.ts`、`api/tasks.ts`、`api/transfers.ts`；Android `DownloadsScreen.kt`、`UploadsScreen.kt` |
+| 浏览/视图/远端搜索/收藏/标签/最近 | 浏览与收藏/标签已有；0.2.4 远端搜索核心专项通过，UI/原生及真实旅程待测；最近访问仍欠缺 | Web `views/files/FileListing.vue`、`SearchPage.vue`、`components/Sidebar.vue`；Android `BrowserScreen.kt`、`SearchScreen.kt`、`ClientApp.kt` |
+| 新建/批量重命名/复制移动 | 0.2.4 零字节文件/目录、单项/批量重命名、复制移动任务提交核心已实现且集中验证通过；UI/真实旅程待测 | Web `api/files.ts`；Android `FileActions.kt`、`BrowserScreen.kt`；Windows `FilewayClientServices.Files.cs` |
+| 回收站/任务/操作历史 | 0.2.4 own-only 恢复/任务与持久操作核实核心专项通过，UI/真实旅程待测；完整删除管理 0.3 | Web `api/trash.ts`、`api/tasks.ts`、`api/transfers.ts`；Android `DownloadsScreen.kt`、`UploadsScreen.kt` |
 | 上传下载/归档下载/恢复/离线 | 完整本地媒体启动已有；传输和离线索引 0.3，边下载边播放 0.4 | Web `components/prompts/Download.vue`、`api/tus.ts`；Android upload/download runtimes；shared/core `transport/upload.go` |
 | 图片/音频 | 图片基础查看已有；扩展图片与原生音频 0.4 | Web `ExtendedImage.vue`、`GlobalAudioPlayer.vue`；Android `ImageScreen.kt`、`AudioScreen.kt` |
 | 缓存/预加载 | 0.2.1 视频磁盘缓存、区间/速度、目录与 5 GB 总预算；0.2.2 缩略图/图片原图及缓存管理 | Windows `LocalStorageSettingsService.cs`、`PlaybackCacheState.cs`；shared/core `transport/cache.go`；Android `ui/CacheSettingsPanel.kt` |

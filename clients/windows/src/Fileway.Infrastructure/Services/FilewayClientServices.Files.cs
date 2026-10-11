@@ -27,7 +27,9 @@ public sealed partial class FilewayClientServices
                 // The existing server uses MkdirAll. This precheck prevents a
                 // known conflict; a concurrent creator can still win the race.
                 // A 200 acknowledges that the target directory now exists.
-            }, ConfirmSynchronousFileWrite, cancellationToken).ConfigureAwait(false);
+            }, ConfirmSynchronousFileWrite, OperationKind.CreateDirectory,
+            [new OperationItem(0, Target: new OperationResourceSnapshot(target))],
+            cancellationToken, new OperationOptions(Name: normalizedName)).ConfigureAwait(false);
     }
 
     public async Task<FileOperationResult> RenameAsync(RemoteResourceRef resource, string name, CancellationToken cancellationToken)
@@ -39,14 +41,22 @@ public sealed partial class FilewayClientServices
         // Only the new UTF-8 name is encoded. The server-issued parent bytes
         // remain opaque, including non-UTF-8 names and literal percent signs.
         string targetWire = resource.WirePath[..resource.WirePath.LastIndexOf('/')] + "/" + Uri.EscapeDataString(normalizedName);
+        var target = new RemoteResourceRef(resource.Account, targetWire, normalizedName,
+            resource.DisplayPath[..Math.Max(0, resource.DisplayPath.LastIndexOf('/'))] + "/" + normalizedName);
+        RemoteFile? captured = null;
         string endpoint = "/api/resources" + resource.WirePath + "?action=rename&destinationWirePath=" +
             Uri.EscapeDataString(targetWire) + "&override=false&rename=false";
         return await FileWriteAsync(state, resource, "PATCH", endpoint, permissions => permissions.Rename, async token =>
         {
             var source = await FileMetadataAsync(state, resource, false, token).ConfigureAwait(false);
-            if (StringComparer.Ordinal.Equals(source!.Resource.DisplayName, normalizedName))
+            captured = source;
+            if (FileOperationWireIdentity(source!.Resource.WirePath, false) == FileOperationWireIdentity(targetWire, false))
                 throw Safe(ErrorCode.InvalidRequest, "名称没有变化。");
-        }, ConfirmSynchronousFileWrite, cancellationToken).ConfigureAwait(false);
+        }, ConfirmSynchronousFileWrite, OperationKind.Rename,
+            [new OperationItem(0, new OperationResourceSnapshot(resource), new OperationResourceSnapshot(target))],
+            cancellationToken, new OperationOptions(Name: normalizedName), captureItems: () =>
+                [new OperationItem(0, captured is null ? new OperationResourceSnapshot(resource) : FileSnapshot(captured),
+                    new OperationResourceSnapshot(target))]).ConfigureAwait(false);
     }
 
     public async Task<FileOperationResult> TrashAsync(IReadOnlyList<RemoteResourceRef> resources, CancellationToken cancellationToken)
@@ -68,6 +78,7 @@ public sealed partial class FilewayClientServices
         }
 
         var results = new List<FileOperationItemResult>(snapshot.Length);
+        Guid batchId = Guid.NewGuid();
         ErrorInfo? stopped = null;
         bool unknown = false;
         foreach (var resource in snapshot)
@@ -81,14 +92,17 @@ public sealed partial class FilewayClientServices
             {
                 var result = await FileWriteAsync(state!, resource, "DELETE", "/api/resources" + resource.WirePath + "?mode=trash",
                     permissions => permissions.Delete, _ => Task.CompletedTask,
-                    ConfirmTrashWrite, cancellationToken).ConfigureAwait(false);
+                    ConfirmTrashWrite, OperationKind.Trash,
+                    [new OperationItem(0, new OperationResourceSnapshot(resource))], cancellationToken, new OperationOptions(BatchId: batchId)).ConfigureAwait(false);
                 if (result.Outcome == OperationOutcome.Confirmed)
-                    results.Add(new FileOperationItemResult(resource, FileOperationItemOutcome.Confirmed));
+                    results.Add(new FileOperationItemResult(resource, FileOperationItemOutcome.Confirmed, Receipt: result.Receipt));
                 else
                 {
-                    unknown = true;
+                    unknown |= result.Outcome == OperationOutcome.OutcomeUnknown;
                     stopped = result.Error ?? new ErrorInfo(ErrorCode.OutcomeUnknown, Message(ErrorCode.OutcomeUnknown));
-                    results.Add(new FileOperationItemResult(resource, FileOperationItemOutcome.OutcomeUnknown, stopped));
+                    var itemOutcome = result.Items?[0].Outcome ?? (result.Outcome == OperationOutcome.OutcomeUnknown
+                        ? FileOperationItemOutcome.OutcomeUnknown : FileOperationItemOutcome.Failed);
+                    results.Add(new FileOperationItemResult(resource, itemOutcome, stopped, result.Receipt));
                 }
             }
             catch (FilewayException error)
@@ -106,9 +120,24 @@ public sealed partial class FilewayClientServices
     private async Task<FileOperationResult> FileWriteAsync(SessionState state, RemoteResourceRef resource,
         string method, string endpoint, Func<PermissionSet, bool> permitted,
         Func<CancellationToken, Task> prepare, Action<JsonElement> confirm,
-        CancellationToken cancellationToken)
+        OperationKind kind, IReadOnlyList<OperationItem> journalItems, CancellationToken cancellationToken,
+        OperationOptions? journalOptions = null, Func<IReadOnlyList<OperationItem>>? captureItems = null)
     {
-        bool sending = false;
+        AccountKey capturedAccount = resource.Account;
+        var journal = PrepareJournalContext(state, kind, journalItems, response =>
+        {
+            confirm(response);
+            string? recordId = null;
+            if (kind == OperationKind.Trash)
+            {
+                using var document = ParseBody(response);
+                var item = document.RootElement;
+                recordId = RequiredText(item.GetProperty("id"));
+                if (ServiceOwner(item) != capturedAccount.ServerUserId) throw InvalidResponse();
+            }
+            return new OperationAcknowledgement(OperationAckKind.FileWriteConfirmed, RecordId: recordId,
+                Items: (captureItems?.Invoke() ?? journalItems).Select(item => item with { Outcome = FileOperationItemOutcome.Confirmed }).ToArray());
+        }, journalOptions, captureItems);
         try
         {
             _ = await SessionRequestAsync(state, new { method, endpoint }, requireDownload: false,
@@ -118,22 +147,18 @@ public sealed partial class FilewayClientServices
                     await prepare(token).ConfigureAwait(false);
                     token.ThrowIfCancellationRequested();
                     EnsureActive(state);
-                }, confirmResponse: confirm, authorizeSend: () =>
+                }, authorizeSend: () =>
                 {
                     RequireFileWrite(state, permitted(state.Session.Permissions));
-                    sending = true;
-                }).ConfigureAwait(false);
+                }, journal: journal).ConfigureAwait(false);
             return new FileOperationResult(OperationOutcome.Confirmed,
-                Items: [new FileOperationItemResult(resource, FileOperationItemOutcome.Confirmed)]);
+                Items: [new FileOperationItemResult(resource, FileOperationItemOutcome.Confirmed, Receipt: journal.Receipt)], Receipt: journal.Receipt);
         }
-        catch (FilewayException error) when (error.Error.Code == ErrorCode.OutcomeUnknown || sending &&
-            (error.Error.HttpStatus is >= 500 or 408 || error.Error.HttpStatus is null &&
-                error.Error.Code is (ErrorCode.NetworkUnavailable or ErrorCode.Timeout or ErrorCode.ResponseTooLarge
-                    or ErrorCode.ProtocolMismatch or ErrorCode.HostExited)))
+        catch (FilewayException error) when (IsUncertainJournalFailure(error, journal))
         {
             var unknown = new ErrorInfo(ErrorCode.OutcomeUnknown, Message(ErrorCode.OutcomeUnknown), error.Error.HttpStatus);
             return new FileOperationResult(OperationOutcome.OutcomeUnknown, Error: unknown,
-                Items: [new FileOperationItemResult(resource, FileOperationItemOutcome.OutcomeUnknown, unknown)]);
+                Items: [new FileOperationItemResult(resource, FileOperationItemOutcome.OutcomeUnknown, unknown, journal.Receipt)], Receipt: journal.Receipt);
         }
     }
 

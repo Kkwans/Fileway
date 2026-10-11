@@ -41,11 +41,12 @@ public sealed partial class FilewayClientServices
         body["groupId"] = group;
         return CollectionWriteAsync(state, "POST", "/api/favorites", body, response =>
         {
-            var saved = ParseFavorite(response, state);
+            var saved = ParseFavoriteAcknowledgement(response, resource.Account);
             if (saved.Name != label || (saved.GroupId ?? "") != group || saved.Reference.Resource is not { } acknowledged ||
                 CollectionWireIdentity(acknowledged.WirePath) != CollectionWireIdentity(resource.WirePath)) throw InvalidResponse();
             return saved.Id;
-        }, cancellationToken, resource, group);
+        }, cancellationToken, resource, group, journalKind: OperationKind.AddFavorite,
+            journalOptions: new OperationOptions(Name: label, GroupId: group));
     }
 
     public Task<CollectionWriteResult> UpdateFavoriteAsync(AccountKey account, string id, string name, string? groupId, CancellationToken cancellationToken)
@@ -56,15 +57,17 @@ public sealed partial class FilewayClientServices
         string endpoint = "/api/favorites/" + CollectionId(id);
         return CollectionWriteAsync(state, "PUT", endpoint, new { name = label, groupId = group }, response =>
         {
-            var saved = ParseFavorite(response, state);
+            var saved = ParseFavoriteAcknowledgement(response, account);
             if (saved.Id != id || saved.Name != label || (saved.GroupId ?? "") != group) throw InvalidResponse();
             return saved.Id;
-        }, cancellationToken, groupId: group);
+        }, cancellationToken, groupId: group, journalKind: OperationKind.UpdateFavorite,
+            journalOptions: new OperationOptions(RecordId: id, Name: label, GroupId: group));
     }
 
     public Task<CollectionWriteResult> RemoveFavoriteAsync(AccountKey account, string id, CancellationToken cancellationToken) =>
         CollectionWriteAsync(GetState(account), "DELETE", "/api/favorites/" + CollectionId(id), null, _ => id,
-            cancellationToken, jsonAcknowledgement: false);
+            cancellationToken, jsonAcknowledgement: false, journalKind: OperationKind.RemoveFavorite,
+            journalOptions: new OperationOptions(RecordId: id));
 
     public Task<CollectionWriteResult> CreateFavoriteGroupAsync(AccountKey account, string name, string? color, CancellationToken cancellationToken) =>
         SaveFavoriteGroupAsync(account, null, name, color, cancellationToken);
@@ -83,20 +86,23 @@ public sealed partial class FilewayClientServices
                 var saved = ParseFavoriteGroup(response, account);
                 if (id is not null && saved.Id != id || saved.Name != label || (saved.Color ?? "") != shade) throw InvalidResponse();
                 return saved.Id;
-            }, cancellationToken);
+            }, cancellationToken, journalKind: id is null ? OperationKind.CreateFavoriteGroup : OperationKind.UpdateFavoriteGroup,
+                journalOptions: new OperationOptions(RecordId: id, Name: label, Color: shade));
     }
 
     public Task<CollectionWriteResult> RemoveFavoriteGroupAsync(AccountKey account, string id, CancellationToken cancellationToken) =>
         CollectionWriteAsync(GetState(account), "DELETE", "/api/favorites/groups/" + CollectionId(id), null, _ => id,
-            cancellationToken, jsonAcknowledgement: false);
+            cancellationToken, jsonAcknowledgement: false, journalKind: OperationKind.RemoveFavoriteGroup,
+            journalOptions: new OperationOptions(RecordId: id));
 
     public Task<CollectionWriteResult> ReorderFavoritesAsync(AccountKey account, IReadOnlyList<string> ids, CancellationToken cancellationToken) =>
-        ReorderCollectionAsync(account, "/api/favorites/reorder", ids, cancellationToken);
+        ReorderCollectionAsync(account, "/api/favorites/reorder", ids, OperationKind.ReorderFavorites, cancellationToken);
 
     public Task<CollectionWriteResult> ReorderFavoriteGroupsAsync(AccountKey account, IReadOnlyList<string> ids, CancellationToken cancellationToken) =>
-        ReorderCollectionAsync(account, "/api/favorites/groups/reorder", ids, cancellationToken);
+        ReorderCollectionAsync(account, "/api/favorites/groups/reorder", ids, OperationKind.ReorderFavoriteGroups, cancellationToken);
 
-    private Task<CollectionWriteResult> ReorderCollectionAsync(AccountKey account, string endpoint, IReadOnlyList<string> ids, CancellationToken cancellationToken)
+    private Task<CollectionWriteResult> ReorderCollectionAsync(AccountKey account, string endpoint, IReadOnlyList<string> ids,
+        OperationKind kind, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(ids);
         var snapshot = ids.ToArray();
@@ -107,7 +113,8 @@ public sealed partial class FilewayClientServices
             if (!seen.Add(id)) throw Safe(ErrorCode.InvalidRequest, "排序中包含重复记录，请刷新后重试。");
         }
         return CollectionWriteAsync(GetState(account), "PUT", endpoint, new { ids = snapshot }, _ => null,
-            cancellationToken, jsonAcknowledgement: false);
+            cancellationToken, jsonAcknowledgement: false, journalKind: kind,
+            journalOptions: new OperationOptions(RecordIds: snapshot));
     }
 
     public Task<CollectionWriteResult> CreateTagAsync(AccountKey account, string name, string color, CancellationToken cancellationToken) =>
@@ -124,15 +131,17 @@ public sealed partial class FilewayClientServices
         string endpoint = "/api/tags" + (id is null ? "" : "/" + CollectionId(id));
         return CollectionWriteAsync(state, id is null ? "POST" : "PUT", endpoint, new { name = label, color = shade }, response =>
         {
-            var saved = ParseCollectionTag(response, state);
+            var saved = ParseCollectionTagAcknowledgement(response, account);
             if (id is not null && saved.Id != id || saved.Name != label || saved.Color != shade) throw InvalidResponse();
             return saved.Id;
-        }, cancellationToken);
+        }, cancellationToken, journalKind: id is null ? OperationKind.CreateTag : OperationKind.UpdateTag,
+            journalOptions: new OperationOptions(RecordId: id, Name: label, Color: shade));
     }
 
     public Task<CollectionWriteResult> RemoveTagAsync(AccountKey account, string id, CancellationToken cancellationToken) =>
         CollectionWriteAsync(GetState(account), "DELETE", "/api/tags/" + CollectionId(id), null, _ => id,
-            cancellationToken, jsonAcknowledgement: false);
+            cancellationToken, jsonAcknowledgement: false, journalKind: OperationKind.RemoveTag,
+            journalOptions: new OperationOptions(RecordId: id));
 
     public Task<CollectionWriteResult> AddTagResourceAsync(string tagId, RemoteResourceRef resource, CancellationToken cancellationToken) =>
         ChangeTagResourceAsync(tagId, resource, adding: true, cancellationToken);
@@ -149,18 +158,19 @@ public sealed partial class FilewayClientServices
         string identity = CollectionWireIdentity(resource.WirePath);
         return CollectionWriteAsync(state, adding ? "POST" : "DELETE", endpoint, body, response =>
         {
-            var saved = ParseCollectionTag(response, state);
+            var saved = ParseCollectionTagAcknowledgement(response, resource.Account);
             bool present = saved.Resources.Any(reference => reference.Resource is { } item && CollectionWireIdentity(item.WirePath) == identity);
             if (saved.Id != tagId || present != adding) throw InvalidResponse();
             return saved.Id;
-        }, cancellationToken, resource);
+        }, cancellationToken, resource, journalKind: adding ? OperationKind.AddTagResource : OperationKind.RemoveTagResource,
+            journalOptions: new OperationOptions(RecordId: tagId));
     }
 
     private async Task<CollectionWriteResult> CollectionWriteAsync(SessionState state, string method, string endpoint, object? body,
         Func<JsonElement, string?> acknowledge, CancellationToken cancellationToken, RemoteResourceRef? pathResource = null,
-        string? groupId = null, bool jsonAcknowledgement = true)
+        string? groupId = null, bool jsonAcknowledgement = true, OperationKind? journalKind = null, OperationOptions? journalOptions = null)
     {
-        bool sending = false;
+        if (journalKind is null) throw Safe(ErrorCode.InvalidRequest, "收藏或标签操作缺少业务记录类型，尚未发送。");
         string? recordId = null;
         bool compatible = pathResource is null || CollectionLegacyPath(pathResource.WirePath) is not null;
         void Authorize()
@@ -172,12 +182,31 @@ public sealed partial class FilewayClientServices
             if (!compatible && !state.Session.Capabilities.ResourceWireOperations)
                 throw Safe(ErrorCode.CapabilityMissing, "服务器尚不支持此原始路径的收藏或标签操作，请升级服务器后重试。");
         }
+        OperationItem[] items = pathResource is null ? [] : [new OperationItem(0, new OperationResourceSnapshot(pathResource))];
+        var journal = PrepareJournalContext(state, journalKind.Value, items, response =>
+        {
+            ConfirmSynchronousFileWrite(response);
+            try
+            {
+                if (jsonAcknowledgement)
+                {
+                    using var document = ParseBody(response);
+                    recordId = acknowledge(document.RootElement);
+                }
+                else recordId = acknowledge(default);
+            }
+            catch (Exception error) when (error is FilewayException || CollectionFormatError(error))
+            { throw Safe(ErrorCode.OutcomeUnknown, "服务器尚未确认收藏或标签结果，请刷新核实后再操作。"); }
+            return new OperationAcknowledgement(OperationAckKind.MetadataConfirmed, RecordId: recordId,
+                Items: items.Select(item => item with { Outcome = FileOperationItemOutcome.Confirmed }).ToArray());
+        }, journalOptions);
         try
         {
             await SessionRequestAsync(state, new { method, endpoint, body }, requireDownload: false, HostCallSafety.Mutation,
-                cancellationToken, beforeSend: string.IsNullOrEmpty(groupId) ? null : async token =>
+                cancellationToken, beforeSend: async token =>
                 {
                     Authorize();
+                    if (string.IsNullOrEmpty(groupId)) return;
                     using var groups = ParseBody(await RequestAsync(state.CoreSession, "/api/favorites/groups", token).ConfigureAwait(false));
                     try
                     {
@@ -185,40 +214,36 @@ public sealed partial class FilewayClientServices
                             throw Safe(ErrorCode.Conflict, "所选分组已不可用，请刷新后重新选择。");
                     }
                     catch (Exception error) when (CollectionFormatError(error)) { throw InvalidResponse(); }
-                }, confirmResponse: response =>
-                {
-                    ConfirmSynchronousFileWrite(response);
-                    try
-                    {
-                        if (jsonAcknowledgement)
-                        {
-                            using var document = ParseBody(response);
-                            recordId = acknowledge(document.RootElement);
-                        }
-                        else recordId = acknowledge(default);
-                    }
-                    catch (Exception error) when (error is FilewayException || CollectionFormatError(error))
-                    { throw Safe(ErrorCode.OutcomeUnknown, "服务器尚未确认收藏或标签结果，请刷新核实后再操作。"); }
-                }, authorizeSend: () => { Authorize(); sending = true; }).ConfigureAwait(false);
-            return new CollectionWriteResult(OperationOutcome.Confirmed, recordId);
+                }, authorizeSend: Authorize, journal: journal).ConfigureAwait(false);
+            return new CollectionWriteResult(OperationOutcome.Confirmed, recordId, Receipt: journal.Receipt);
         }
-        catch (FilewayException error) when (error.Error.Code == ErrorCode.OutcomeUnknown || sending &&
-            (error.Error.HttpStatus is >= 500 or 408 || error.Error.HttpStatus is null &&
-                error.Error.Code is (ErrorCode.NetworkUnavailable or ErrorCode.Timeout or ErrorCode.ResponseTooLarge or ErrorCode.ProtocolMismatch or ErrorCode.HostExited)))
+        catch (FilewayException error) when (IsUncertainJournalFailure(error, journal))
         {
             return new CollectionWriteResult(OperationOutcome.OutcomeUnknown, Error: new ErrorInfo(ErrorCode.OutcomeUnknown,
-                "收藏或标签操作结果尚未确认，请刷新核实；不要直接重复提交。", error.Error.HttpStatus));
+                "收藏或标签操作结果尚未确认，请刷新核实；不要直接重复提交。", error.Error.HttpStatus), Receipt: journal.Receipt);
         }
     }
 
-    private ResourceFavorite ParseFavorite(JsonElement row, SessionState state) => new(state.Session.Account,
+    private ResourceFavorite ParseFavorite(JsonElement row, SessionState state)
+    {
+        var parsed = ParseFavoriteAcknowledgement(row, state.Session.Account);
+        return parsed with { Reference = BindCollectionResource(parsed.Reference, state) };
+    }
+
+    private static ResourceFavorite ParseFavoriteAcknowledgement(JsonElement row, AccountKey account) => new(account,
         RequiredText(row.GetProperty("id")), CollectionText(row, "name"), CollectionOptionalText(row, "groupId"),
-        row.GetProperty("order").GetInt32(), CollectionTimestamp(row, "addedAt"), ParseCollectionResource(row, state));
+        row.GetProperty("order").GetInt32(), CollectionTimestamp(row, "addedAt"), ParseCollectionResourceAcknowledgement(row, account));
 
     private static FavoriteGroup ParseFavoriteGroup(JsonElement row, AccountKey account) => new(account,
         RequiredText(row.GetProperty("id")), CollectionText(row, "name"), CollectionOptionalText(row, "color"), row.GetProperty("order").GetInt32());
 
     private ResourceTag ParseCollectionTag(JsonElement row, SessionState state)
+    {
+        var parsed = ParseCollectionTagAcknowledgement(row, state.Session.Account);
+        return parsed with { Resources = parsed.Resources.Select(reference => BindCollectionResource(reference, state)).ToArray() };
+    }
+
+    private static ResourceTag ParseCollectionTagAcknowledgement(JsonElement row, AccountKey account)
     {
         var references = new List<CollectionResource>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -228,15 +253,15 @@ public sealed partial class FilewayClientServices
             {
                 // pathRefs is authoritative and includes mandatory provenance.
                 _ = reference.GetProperty("pathVerified").GetBoolean();
-                Add(ParseCollectionResource(reference, state));
+                Add(ParseCollectionResourceAcknowledgement(reference, account));
             }
         }
         else
         {
             foreach (var path in row.GetProperty("paths").EnumerateArray())
-                Add(ParseCollectionResource(RequiredText(path), null, null, state));
+                Add(ParseCollectionResourceAcknowledgement(RequiredText(path), null, null, account));
         }
-        return new ResourceTag(state.Session.Account, RequiredText(row.GetProperty("id")), CollectionText(row, "name"),
+        return new ResourceTag(account, RequiredText(row.GetProperty("id")), CollectionText(row, "name"),
             CollectionText(row, "color"), CollectionTimestamp(row, "createdAt"), references.ToArray());
 
         void Add(CollectionResource reference)
@@ -245,13 +270,16 @@ public sealed partial class FilewayClientServices
         }
     }
 
-    private CollectionResource ParseCollectionResource(JsonElement row, SessionState state)
+    private static CollectionResource ParseCollectionResourceAcknowledgement(JsonElement row, AccountKey account)
     {
         bool? verified = row.TryGetProperty("pathVerified", out var provenance) ? provenance.GetBoolean() : null;
-        return ParseCollectionResource(RequiredText(row.GetProperty("path")), CollectionOptionalText(row, "wirePath"), verified, state);
+        return ParseCollectionResourceAcknowledgement(RequiredText(row.GetProperty("path")), CollectionOptionalText(row, "wirePath"), verified, account);
     }
 
-    private CollectionResource ParseCollectionResource(string displayPath, string? wirePath, bool? verified, SessionState state)
+    private CollectionResource BindCollectionResource(CollectionResource reference, SessionState state) =>
+        reference.Resource is { } resource ? reference with { Resource = BindResource(resource, state) } : reference;
+
+    private static CollectionResource ParseCollectionResourceAcknowledgement(string displayPath, string? wirePath, bool? verified, AccountKey account)
     {
         // Historical display text may itself be noncanonical. It is still a
         // visible metadata row; only a trusted identity needs path validation.
@@ -268,7 +296,7 @@ public sealed partial class FilewayClientServices
         string? decoded = CollectionLegacyPath(wirePath);
         if (decoded is not null && decoded != path) throw InvalidResponse();
         string name = path == "/" ? "根目录" : path[(path.LastIndexOf('/') + 1)..];
-        return new CollectionResource(displayPath, BindResource(new RemoteResourceRef(state.Session.Account, wirePath, name, path), state));
+        return new CollectionResource(displayPath, new RemoteResourceRef(account, wirePath, name, path));
     }
 
     private static Dictionary<string, string> CollectionPathBody(RemoteResourceRef resource)

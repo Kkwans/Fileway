@@ -6,9 +6,9 @@ using Microsoft.Data.Sqlite;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Versioned, credential-free profile storage with durable logout intent.</summary>
-public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore
+public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore
 {
-    private const int SchemaVersion = 4;
+    private const int SchemaVersion = 5;
     private const int BusyTimeoutSeconds = 3;
     private const string Columns = "profile_id, source_revision, display_name, base_address, network_mode, proxy_mode, proxy_address, authentication_mode, username, server_user_id, keep_signed_in, last_connected_at";
     private const string AccountPredicate = "profile_id = $profile AND source_revision = $revision AND server_user_id = $user";
@@ -54,6 +54,7 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         ProfileStoreValidation.Validate(connection);
         // An immediate transaction makes the pending check and upsert indivisible across instances.
         using var transaction = database.BeginTransaction(deferred: false);
+        GuardJournalAccountReplacement(database, transaction, connection.Account);
         using (var pending = Command(database, "SELECT 1 FROM pending_logouts WHERE " + AccountPredicate, transaction))
         {
             BindAccount(pending, connection.Account);
@@ -93,6 +94,7 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
     {
         ProfileStoreValidation.Validate(account);
         using var transaction = connection.BeginTransaction(deferred: false);
+        if (HasUnresolvedOperations(connection, transaction, account)) throw OperationJournalValidation.UnresolvedConflict();
         using var command = Command(connection, "DELETE FROM saved_connections WHERE " + AccountPredicate, transaction);
         BindAccount(command, account);
         command.ExecuteNonQuery();
@@ -257,12 +259,12 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
             connection.Open();
             long initialVersion = ReadVersion(connection);
             if (initialVersion is < 0 or > SchemaVersion) throw ProfileStoreValidation.Unavailable();
-            if (initialVersion is 1 or 2 or 3) BackupBeforeMigration(connection, initialVersion);
+            if (initialVersion is >= 1 and < SchemaVersion) BackupBeforeMigration(connection, initialVersion);
             using var transaction = connection.BeginTransaction(deferred: false);
             // Another instance may have upgraded while the consistent backup was being taken.
             long version = ReadVersion(connection, transaction);
             if (version is < 0 or > SchemaVersion) throw ProfileStoreValidation.Unavailable();
-            if ((version is 1 or 2 or 3) && initialVersion is not (1 or 2 or 3)) throw ProfileStoreValidation.Unavailable();
+            if (version is >= 1 and < SchemaVersion && initialVersion is not (>= 1 and < SchemaVersion)) throw ProfileStoreValidation.Unavailable();
             if (version == 0)
             {
                 using var existing = Command(connection, "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'", transaction);
@@ -340,6 +342,8 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
                     """, transaction);
                 migrate.ExecuteNonQuery();
             }
+            if (version < 5) CreateOperationJournal(connection, transaction);
+            if (version < SchemaVersion) CheckIntegrity(connection, transaction);
             transaction.Commit();
             using var journal = Command(connection, "PRAGMA journal_mode = WAL");
             if (!string.Equals(journal.ExecuteScalar() as string, "wal", StringComparison.OrdinalIgnoreCase))
@@ -374,6 +378,15 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         }.ToString());
         backup.Open();
         source.BackupDatabase(backup);
+        CheckIntegrity(backup);
+    }
+
+    private static void CheckIntegrity(SqliteConnection connection, SqliteTransaction? transaction = null)
+    {
+        using var integrity = Command(connection, "PRAGMA integrity_check", transaction);
+        using var reader = integrity.ExecuteReader();
+        if (!reader.Read() || !string.Equals(reader.GetString(0), "ok", StringComparison.Ordinal) || reader.Read())
+            throw ProfileStoreValidation.Unavailable();
     }
 
     private static SqliteCommand Command(SqliteConnection connection, string sql, SqliteTransaction? transaction = null)

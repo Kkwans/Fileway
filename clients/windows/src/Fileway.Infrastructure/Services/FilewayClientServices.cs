@@ -12,6 +12,7 @@ namespace Fileway.Infrastructure.Services;
 
 /// <summary>Typed, account-bound application services over the supervised Go Host.</summary>
 public sealed partial class FilewayClientServices : IConnectionService, IConnectionCatalog, IFileRepository, IImageContentService, IResourceCollectionsService, IBrowserPreferencesService,
+    IServerSearchService, IFileManagementService, IServerTaskService, ITrashService, IFileChecksumService, IOperationHistoryService,
     IResourceLeaseProvider, IPlaybackProgressStore, IAsyncDisposable
 {
     private const long MaximumImageBytes = 64L * 1024 * 1024;
@@ -232,6 +233,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             {
                 var saved = await StorageAsync(() => _profiles.GetAsync(profileId, cancellationToken)).ConfigureAwait(false);
                 if (saved is null) return;
+                await EnsureOperationHistoryResolvedAsync(saved.Account, cancellationToken).ConfigureAwait(false);
                 await LogoutCoreAsync(saved.Account, cancellationToken).ConfigureAwait(false);
                 await StorageAsync(() => _profiles.ForgetAsync(saved.Account, cancellationToken)).ConfigureAwait(false);
             }
@@ -494,6 +496,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         var previous = await StorageAsync(() => _profiles.GetAsync(saved.Profile.Id, cancellationToken)).ConfigureAwait(false);
         if (previous is not null && previous.Account != saved.Account)
         {
+            await EnsureOperationHistoryResolvedAsync(previous.Account, cancellationToken).ConfigureAwait(false);
             await StorageAsync(() => _profiles.BeginLogoutAsync(previous.Account, cancellationToken)).ConfigureAwait(false);
             // A disconnected old cache root belongs to the old full AccountKey.
             // Once its session and vault token are retired, keep its cleanup intent
@@ -830,8 +833,9 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
     private async Task<JsonElement> SessionRequestAsync(SessionState state, object parameters, bool requireDownload,
         HostCallSafety safety, CancellationToken cancellationToken, string operation = "request",
         Func<CancellationToken, Task>? beforeSend = null, Action<JsonElement>? confirmResponse = null,
-        Action? authorizeSend = null)
+        Action? authorizeSend = null, JournalContext? journal = null)
     {
+        if (journal is not null) ValidateJournalRequest(operation, parameters, safety);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         bool entered = false;
         bool confirmed = false;
@@ -861,13 +865,18 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
                 EnsureActive(state);
                 checkingSession = false;
             }
+            if (journal is not null) await MarkJournalDispatchAsync(state, journal, linked.Token).ConfigureAwait(false);
             authorizeSend?.Invoke();
             linked.Token.ThrowIfCancellationRequested();
             EnsureActive(state);
+            if (journal is not null) journal.CallStarted = true;
             response = await CallAsync(operation, parameters, state.CoreSession, linked.Token, safety).ConfigureAwait(false);
             if (operation == "request") _ = HttpBody(response);
             confirmResponse?.Invoke(response);
+            var acknowledgement = journal is null ? null : CaptureJournalAcknowledgement(journal, response);
             confirmed = true;
+            if (journal is not null && acknowledgement is not null)
+                await RecordJournalAcknowledgementAsync(journal, acknowledgement).ConfigureAwait(false);
             checkingSession = true;
             updated = await RefreshSessionCoreAsync(state, safety == HostCallSafety.Mutation ? state.LifetimeToken : linked.Token)
                 .ConfigureAwait(false) ?? updated;
@@ -883,12 +892,24 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             failure = error;
             invalidate = checkingSession && error.Error.Code != ErrorCode.Canceled || error.Error.Code == ErrorCode.AuthenticationExpired;
         }
-        finally { if (entered) state.Operations.Release(); }
+        finally
+        {
+            if (entered) state.Operations.Release();
+            if (journal is not null && failure is null) _activeJournalOperations.TryRemove(journal.Intent.Reference.Id, out _);
+        }
 
         // No event callback runs under a session/persistence mutex. A subscriber can
         // safely start another operation without changing the confirmed result.
         if (failure is not null)
         {
+            try
+            {
+                if (journal is not null && !confirmed) await RecordJournalFailureAsync(journal, failure.Error).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (journal is not null) _activeJournalOperations.TryRemove(journal.Intent.Reference.Id, out _);
+            }
             if (invalidate || confirmed && safety == HostCallSafety.Mutation)
             {
                 try
@@ -909,12 +930,14 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         return response;
     }
 
-    private async Task<JsonElement> CallAsync(string operation, object parameters, string? session, CancellationToken cancellationToken, HostCallSafety? safety = null)
+    private async Task<JsonElement> CallAsync(string operation, object parameters, string? session, CancellationToken cancellationToken,
+        HostCallSafety? safety = null, TimeSpan? timeout = null)
     {
         try
         {
             var reply = await _host.CallAsync(new HostCall(operation, JsonSerializer.SerializeToElement(parameters), session,
-                Safety: safety ?? (operation is "open" or "close_session" or "revoke" ? HostCallSafety.Control : HostCallSafety.ReadOnly)), cancellationToken).ConfigureAwait(false);
+                Safety: safety ?? (operation is "open" or "close_session" or "revoke" ? HostCallSafety.Control : HostCallSafety.ReadOnly),
+                Timeout: timeout), cancellationToken).ConfigureAwait(false);
             if (!reply.IsSuccess)
             {
                 if (reply.Error?.HttpStatus is { } status) CheckStatus(status);

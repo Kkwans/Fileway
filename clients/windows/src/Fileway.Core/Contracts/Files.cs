@@ -44,13 +44,15 @@ public enum FileOperationItemOutcome
 public sealed record FileOperationItemResult(
     RemoteResourceRef Resource,
     FileOperationItemOutcome Outcome,
-    ErrorInfo? Error = null);
+    ErrorInfo? Error = null,
+    OperationReceipt? Receipt = null);
 
 public sealed record FileOperationResult(
     OperationOutcome Outcome,
     string? ServerTaskId = null,
     ErrorInfo? Error = null,
-    IReadOnlyList<FileOperationItemResult>? Items = null);
+    IReadOnlyList<FileOperationItemResult>? Items = null,
+    OperationReceipt? Receipt = null);
 
 public enum AuthenticationMode
 {
