@@ -32,25 +32,178 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
     }
     private data class OwnedButton(val bounds: Rect, val owner: NativeWindowOwner)
     private var lastWindowOwner: NativeWindowOwner? = null
+    private val inspectDownRequested = androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("nfbInspectDown") == "true"
+    private var downInspectionTaken = false
+    private var associatedActivity: java.lang.ref.WeakReference<MainActivity>? = null
+
+    private fun sampleNativeWindow(host: MainActivity): NativeWindowOwner {
+        val decor = host.window.decorView
+        val node = decor.createAccessibilityNodeInfo()
+        val windowId = try { node?.windowId ?: -1 } finally { node?.recycle() }
+        return NativeWindowOwner(System.identityHashCode(host), System.identityHashCode(decor),
+            decor.windowToken?.let(System::identityHashCode) ?: 0, windowId, decor.display?.displayId ?: -1,
+            decor.isAttachedToWindow,
+            decor.isShown && decor.windowVisibility == android.view.View.VISIBLE && decor.width > 0 && decor.height > 0,
+            host.hasWindowFocus(), !host.isFinishing && !host.isDestroyed &&
+                host.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED),
+            host.window.callback?.javaClass?.name, host.window.callback?.let(System::identityHashCode) ?: 0,
+            android.os.SystemClock.uptimeMillis())
+    }
 
     /** View.getAccessibilityWindowId is hidden. Create a local public node on main instead. */
     private fun nativeWindowOwner(): NativeWindowOwner? {
         var sampled: NativeWindowOwner? = null
         activity.scenario.onActivity { host ->
-            val decor = host.window.decorView
-            val node = decor.createAccessibilityNodeInfo()
-            val windowId = try { node?.windowId ?: -1 } finally { node?.recycle() }
-            sampled = NativeWindowOwner(System.identityHashCode(host), System.identityHashCode(decor),
-                decor.windowToken?.let(System::identityHashCode) ?: 0, windowId, decor.display?.displayId ?: -1,
-                decor.isAttachedToWindow,
-                decor.isShown && decor.windowVisibility == android.view.View.VISIBLE && decor.width > 0 && decor.height > 0,
-                host.hasWindowFocus(), !host.isFinishing && !host.isDestroyed &&
-                    host.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED),
-                host.window.callback?.javaClass?.name, host.window.callback?.let(System::identityHashCode) ?: 0,
-                android.os.SystemClock.uptimeMillis())
+            if (inspectDownRequested) associatedActivity = java.lang.ref.WeakReference(host)
+            sampled = sampleNativeWindow(host)
         }
         lastWindowOwner = sampled
         return sampled
+    }
+
+    /** Output only allowlisted route fields; no raw dump or unknown window titles are persisted. */
+    private fun inputRouteSummary(raw: String, bounds: Rect): List<String> {
+        val lines = raw.lineSequence().take(12000).toList()
+        val packageName = instrumentation.targetContext.packageName
+        val ownPid = android.os.Process.myPid()
+        fun hash(value: String) = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray()).take(6).joinToString("") { "%02x".format(it.toInt() and 255) }
+        fun name(value: String): String {
+            val component = Regex(Regex.escape(packageName) + "(?:\\.test)?/[A-Za-z0-9_.$]+")
+                .find(value)?.value ?: "<redacted>"
+            return "nameHash=${hash(value)} component=$component sink=${value.contains("InputSink", ignoreCase = true)} target=${value.contains(packageName)}"
+        }
+        fun field(line: String, key: String): String? =
+            Regex("(?:^|,\\s*)" + Regex.escape(key) + "=([^,\\n]+)").find(line)?.groupValues?.get(1)?.trim()?.take(160)
+                ?.takeIf { Regex("[A-Za-z0-9_<>|+ .():\\[\\]{}x-]+").matches(it) }
+        fun quoted(line: String, key: String): String? =
+            Regex(Regex.escape(key) + "='([^']*)'").find(line)?.groupValues?.get(1)
+        fun section(title: String): List<String> {
+            val start = lines.indexOfFirst { it.trim().startsWith("$title:") }
+            if (start < 0) return emptyList()
+            val indent = lines[start].indexOfFirst { !it.isWhitespace() }
+            return listOf(lines[start]) + lines.drop(start + 1).takeWhile {
+                it.isBlank() || it.indexOfFirst { char -> !char.isWhitespace() } > indent
+            }.take(160)
+        }
+        val output = mutableListOf<String>()
+        val relatedNames = mutableSetOf<String>()
+        for (key in listOf("DispatchEnabled", "DispatchFrozen", "InputFilterEnabled", "FocusedDisplayId")) {
+            val line = lines.firstOrNull { it.trim().startsWith("$key:") }
+            output += "$key=${line?.substringAfter(':')?.trim()?.take(64) ?: "unavailable"}"
+        }
+        for (title in listOf("FocusedApplications", "FocusedWindows", "FocusRequests")) {
+            val part = section(title)
+            output += "$title sectionPresent=${part.isNotEmpty()}"
+            part.filter { Regex("\\bdisplayId=0(?:,|\\s|$)").containsMatchIn(it) }.take(4).forEach { line ->
+                quoted(line, "name")?.let { value ->
+                    relatedNames += value
+                    output += "$title display0 ${name(value)} result=${quoted(line, "result")?.take(64)}"
+                }
+            }
+        }
+        val touch = section("TouchStatesByDisplay")
+        output += "TouchStatesByDisplay sectionPresent=${touch.isNotEmpty()} noDisplaysTouched=${touch.firstOrNull()?.contains("<no displays touched>") == true} sectionCapped=${touch.size >= 161}"
+        var touchDisplay: Int? = null
+        var touched = 0
+        touch.forEach { line ->
+            Regex("^\\s*(\\d+)\\s*:\\s*(?:Windows:.*)?$").find(line)?.let { touchDisplay = it.groupValues[1].toIntOrNull() }
+            Regex("^\\s*DisplayId:\\s*(\\d+)").find(line)?.let { touchDisplay = it.groupValues[1].toIntOrNull() }
+            if (touchDisplay == 0) quoted(line, "name")?.let { value ->
+                relatedNames += value
+                if (touched++ < 8) output += "TOUCHED display0 ${name(value)} targetFlags=${field(line, "targetFlags")} forwardingToken=${field(line, "forwardingWindowToken")} deviceStates=${line.substringAfter("mDeviceStates=", "unavailable").take(240)}"
+            }
+        }
+        output += "display0TouchedRows=$touched (only explicit touch-state rows identify routes; candidates are not delivery proof)"
+        val rectangle = Regex("\\[(-?\\d+),(-?\\d+)\\]\\[(-?\\d+),(-?\\d+)\\]")
+        var display: Int? = null
+        var selectedWindows = 0
+        lines.forEach { line ->
+            Regex("^\\s*Display:\\s*(\\d+)\\s*$").find(line)?.let { display = it.groupValues[1].toIntOrNull() }
+            if (display == 0 && Regex("^\\s*\\d+:\\s*name=").containsMatchIn(line) && line.contains(", id=")) {
+                val value = line.substringAfter("name=").substringBefore(", id=").trim().removeSurrounding("'")
+                val region = line.substringAfter("touchableRegion=", "").substringBefore(", ownerPid=")
+                val rects = rectangle.findAll(region).toList()
+                val hit = when {
+                    region == "<empty>" -> "false"
+                    rects.isEmpty() -> "unavailable"
+                    else -> rects.any { match ->
+                        val v = match.groupValues.drop(1).map(String::toInt)
+                        Rect(v[0], v[1], v[2], v[3]).contains(bounds.centerX(), bounds.centerY())
+                    }.toString()
+                }
+                val own = value.contains(packageName) && field(line, "ownerPid")?.toIntOrNull() == ownPid
+                val sinkCandidate = value.contains("InputSink", ignoreCase = true) && (hit == "true" || value.contains(packageName))
+                if ((own || sinkCandidate || value in relatedNames) && selectedWindows++ < 12) {
+                    val safeRegion = if (region == "<empty>") region else rects.take(8).joinToString("|") { it.value }
+                    val safeFrame = rectangle.find(line.substringAfter("frame=", ""))?.value ?: "unavailable"
+                    output += "WINDOW display0 zIndex=${line.trim().substringBefore(':')} ${name(value)} inputWindowId=${field(line, "id")} ownerPid=${field(line, "ownerPid")} ownerUid=${field(line, "ownerUid")} systemToken=${field(line, "token")} inputConfig=${field(line, "inputConfig")} alpha=${field(line, "alpha")} touchOcclusion=${field(line, "touchOcclusionMode")} frame=$safeFrame pointInTouchableRegion=$hit region=$safeRegion regionCapped=${rects.size > 8}"
+                }
+            }
+        }
+        output += "selectedWindowRows=$selectedWindows linesCapped=${lines.size == 12000} (AX windowId/local token hash are NOT InputDispatcher identifiers)"
+        var selectedConnection = false
+        var connections = 0
+        section("Connections").forEach { line ->
+            val channel = quoted(line, "channelName")
+            if (channel != null) {
+                selectedConnection = channel in relatedNames || channel.contains(packageName)
+                if (selectedConnection && connections++ < 8) output += "CONNECTION ${name(channel)} status=${field(line, "status")} monitor=${field(line, "monitor")} responsive=${field(line, "responsive")}"
+            } else if (selectedConnection && connections <= 8 && Regex("^\\s*(OutboundQueue|WaitQueue):").containsMatchIn(line)) {
+                output += line.trim().take(100)
+            }
+        }
+        return (output.take(63) + "routeSummaryLinesCapped=${output.size > 63}").map {
+            if (it.length > 550) it.take(550) + " [lineCapped=true]" else it
+        }
+    }
+
+    /** Timing-invasive diagnosis only. Never block main or let a diagnostic error skip primitive UP. */
+    private fun inspectAcceptedDown(target: OwnedButton) {
+        val begin = android.os.SystemClock.uptimeMillis()
+        val active = java.util.concurrent.atomic.AtomicBoolean(true)
+        val current = java.util.concurrent.atomic.AtomicReference<NativeWindowOwner?>()
+        val nativeError = java.util.concurrent.atomic.AtomicReference<String?>()
+        val activityContext = java.util.concurrent.atomic.AtomicReference<String?>()
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val sample = Runnable { if (active.get()) associatedActivity?.get()?.let { host ->
+            runCatching {
+                val sampled = sampleNativeWindow(host)
+                if (active.get()) activityContext.set("component=${host.componentName.flattenToShortString()} task=${host.taskId} windowType=${host.window.attributes.type} flags=${host.window.attributes.flags}")
+                sampled
+            }.onSuccess { if (active.get()) current.set(it) }
+                .onFailure { if (active.get()) nativeError.set(it.javaClass.simpleName) }
+        } }
+        val queued = main.post(sample) // No onActivity/waitForIdleSync while a pointer is held.
+        val bytes = java.io.ByteArrayOutputStream()
+        val limit = 2 * 1024 * 1024
+        var truncated = false
+        try {
+            // Public UiAutomation shell API; dumpsys -T bounds this one service dump to500ms.
+            val fd = instrumentation.uiAutomation.executeShellCommand("dumpsys -T 500 input")
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).use { input ->
+                val buffer = ByteArray(4096)
+                while (bytes.size() <= limit) {
+                    val count = input.read(buffer, 0, minOf(buffer.size, limit + 1 - bytes.size()))
+                    if (count < 0) break
+                    bytes.write(buffer, 0, count)
+                }
+                truncated = bytes.size() > limit
+            }
+        } finally { active.set(false); main.removeCallbacks(sample) }
+        val end = android.os.SystemClock.uptimeMillis()
+        val raw = bytes.toString("UTF-8")
+        val header = listOf("DIAGNOSTIC_ONLY functionalAcceptance=false acceptedDown=true begin=$begin end=$end rawBytes=${bytes.size()} rawTruncated=$truncated dumpTimeout=${raw.contains("DUMP TIMEOUT")}",
+            "package=${instrumentation.targetContext.packageName} pid=${android.os.Process.myPid()} uid=${android.os.Process.myUid()} bounds=${target.bounds} point=${target.bounds.centerX()},${target.bounds.centerY()}",
+            "associatedBeforeDown=${target.owner}", "nativeDuringHeldPointer=${current.get()} context=${activityContext.get()} queued=$queued error=${nativeError.get()} (null means no nonblocking main sample; not a readiness verdict)")
+        val selected = (header + inputRouteSummary(raw, target.bounds)).joinToString("\n")
+        val report = "summaryTruncated=${selected.length > 12288}\n" + selected.take(12288) + "\n"
+        val file = java.io.File(instrumentation.targetContext.cacheDir, "markdown-owned-after-down-$begin.txt")
+        file.writeText(report)
+        instrumentation.sendStatus(2, android.os.Bundle().apply { putString("stream", "MARKDOWN_AFTER_DOWN_DIAGNOSTIC_ONLY path=${file.absolutePath} bytes=${file.length()}\n") })
+        report.lineSequence().take(69).forEach { line -> instrumentation.sendStatus(2, android.os.Bundle().apply {
+            putString("stream", "MARKDOWN_AFTER_DOWN ${line.take(600)}\n")
+        }) }
     }
     private var codeDiagnosticCount = 0
     private fun codeDiagnostic(value: MarkdownCodeDiagnostic) {
@@ -115,6 +268,7 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
     private suspend fun click(label: String) {
         val driver = androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("nfbInputDriver") ?: "automation"
         require(driver in setOf("automation", "shell"))
+        require(!inspectDownRequested || driver == "automation") { "after-DOWN inspection requires the preselected automation driver" }
         lastWindowOwner = null
         val target = try { withTimeout(5000) {
             var target: OwnedButton? = null
@@ -137,7 +291,16 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
                 OwnedUiTraceRule.trace("markdown-tap-return label=$label driver=shell start=$started end=${android.os.SystemClock.uptimeMillis()} " +
                     "window=${target.owner.windowId} outputLength=${output.length} output=${output.take(256).replace('\n', ' ')} dispatch=unverified")
             } else {
-                OwnedTouchInput.tap(instrumentation, bounds, tracePrefix = "markdown-$label")
+                OwnedTouchInput.tap(instrumentation, bounds, tracePrefix = "markdown-$label", afterDown = {
+                    if (inspectDownRequested && !downInspectionTaken) {
+                        downInspectionTaken = true
+                        runCatching { inspectAcceptedDown(target) }.onFailure { failure ->
+                            runCatching { instrumentation.sendStatus(2, android.os.Bundle().apply {
+                                putString("stream", "MARKDOWN_AFTER_DOWN_DIAGNOSTIC_ONLY unavailable=${failure.javaClass.simpleName} functionalAcceptance=false\n")
+                            }) }
+                        }
+                    }
+                })
                 OwnedUiTraceRule.trace("markdown-tap-return label=$label driver=automation start=$started end=${android.os.SystemClock.uptimeMillis()} " +
                     "window=${target.owner.windowId} injectionChecked=true dispatch=unverified")
             }
