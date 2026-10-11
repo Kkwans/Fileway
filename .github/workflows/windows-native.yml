@@ -2,15 +2,17 @@ name: Windows native client
 on:
   push:
     branches: [main, codex/windows-native-client]
-    paths: ['clients/windows/**', 'clients/shared/core/**', '.github/workflows/windows-native.yml']
+    paths: ['clients/windows/src/**', 'clients/windows/host/**', 'clients/windows/tests/**', 'clients/windows/eng/**', 'clients/windows/Directory.*', 'clients/windows/global.json', 'clients/shared/core/**', '.github/workflows/windows-native.yml']
   pull_request:
-    paths: ['clients/windows/**', 'clients/shared/core/**', '.github/workflows/windows-native.yml']
+    paths: ['clients/windows/src/**', 'clients/windows/host/**', 'clients/windows/tests/**', 'clients/windows/eng/**', 'clients/windows/Directory.*', 'clients/windows/global.json', 'clients/shared/core/**', '.github/workflows/windows-native.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   windows:
     runs-on: windows-2025
+    outputs:
+      host: ${{ steps.scope.outputs.host }}
     timeout-minutes: 30
     defaults:
       run:
@@ -18,6 +20,34 @@ jobs:
         working-directory: clients/windows
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 2
+      - name: Select validation by changed module
+        id: scope
+        env:
+          FILEWAY_SCOPE_BASE: ${{ github.event.before }}
+        run: |
+          $all = $env:GITHUB_EVENT_NAME -ne 'push' -or $env:GITHUB_REF -eq 'refs/heads/main'
+          $changed = @()
+          if (-not $all) {
+            $base = $env:FILEWAY_SCOPE_BASE
+            if ($base -notmatch '^[0-9a-f]{40}$') { $all = $true }
+            else {
+              git cat-file -e "$base^{commit}" 2>$null
+              if ($LASTEXITCODE -ne 0) { $all = $true }
+              else {
+                $changed = @(git diff --name-only $base $env:GITHUB_SHA)
+                if ($LASTEXITCODE -ne 0) { throw 'Cannot determine validation scope.' }
+              }
+            }
+          }
+          $workflow = [bool]($changed -match '^\.github/workflows/windows-native\.yml$')
+          $sharedScope = $all -or $workflow -or [bool]($changed -match '^clients/shared/core/')
+          $hostScope = $all -or $workflow -or $sharedScope -or [bool]($changed -match '^clients/windows/(host/|eng/Build-GoHost\.ps1$)')
+          $dotnetScope = $all -or $hostScope -or $sharedScope -or [bool]($changed -match '^clients/windows/(src/Fileway\.(Core|Infrastructure|Playback)/|src/Fileway.App/MediaSurfaces/LocalSubtitlePolicy\.cs$|tests/|eng/Test-Windows\.ps1$|Directory\.|global\.json$)')
+          "host=$($hostScope.ToString().ToLowerInvariant())" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "dotnet=$($dotnetScope.ToString().ToLowerInvariant())" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          exit 0
       - name: Configure isolated paths
         run: |
           @(
@@ -27,10 +57,13 @@ jobs:
           ) | Add-Content -LiteralPath $env:GITHUB_ENV
       - name: Install isolated, hash-verified toolchains
         run: ./eng/Install-WindowsTools.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT
-      - name: Test Host and shared core
+      - name: Test Go Host integration
+        if: steps.scope.outputs.host == 'true'
         run: |
           . ./eng/Use-WindowsEnvironment.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES
           $env:CGO_ENABLED = '0'
+          # Native core tests/race have one owner: native-core.yml.
+          # Shared changes still exercise this Host consumer on Windows/Linux.
           Push-Location host
           try {
             go test -count=1 -timeout=120s ./...
@@ -38,16 +71,10 @@ jobs:
             go vet ./...
             if ($LASTEXITCODE -ne 0) { throw 'Host vet failed' }
           } finally { Pop-Location }
-          Push-Location ../shared/core
-          try {
-            go test -count=1 -timeout=120s ./transport ./bridge ./tailnet
-            if ($LASTEXITCODE -ne 0) { throw 'Shared core tests failed' }
-            go vet ./transport ./bridge ./tailnet
-            if ($LASTEXITCODE -ne 0) { throw 'Shared core vet failed' }
-          } finally { Pop-Location }
       - name: Compile native x64 application
         run: ./eng/Build-Windows.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES -Configuration Release
       - name: Test Windows infrastructure
+        if: steps.scope.outputs.dotnet == 'true'
         run: ./eng/Test-Windows.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES -Configuration Release
       - name: Preserve build diagnostics
         if: always()
@@ -59,6 +86,8 @@ jobs:
             ${{ runner.temp }}/Fileway-windows-artifacts/host/Release/host-build.json
           if-no-files-found: ignore
   host-race:
+    needs: windows
+    if: needs.windows.outputs.host == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     defaults:
