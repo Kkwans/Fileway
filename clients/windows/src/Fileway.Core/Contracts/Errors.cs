@@ -17,6 +17,8 @@ public enum ErrorCode
     ProtocolMismatch,
     InvalidRequest,
     Busy,
+    CredentialsUnavailable,
+    LocalStorageUnavailable,
 }
 
 /// <summary>Safe to present or export. It must not contain credentials, leases or private URLs/paths.</summary>

@@ -5,18 +5,23 @@ using System.Text;
 using System.Text.Json;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
+using Fileway.Infrastructure.Credentials;
+using Fileway.Infrastructure.Persistence;
 
 namespace Fileway.Infrastructure.Services;
 
 /// <summary>Typed, account-bound application services over the supervised Go Host.</summary>
-public sealed class FilewayClientServices : IConnectionService, IFileRepository, IImageContentService,
+public sealed class FilewayClientServices : IConnectionService, IConnectionCatalog, IFileRepository, IImageContentService,
     IResourceLeaseProvider, IPlaybackProgressStore, IAsyncDisposable
 {
     private const long MaximumImageBytes = 64L * 1024 * 1024;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private readonly IHostControlClient _host;
+    private readonly IProfileStore _profiles;
+    private readonly ICredentialVault _credentials;
     private readonly object _gate = new();
     private readonly SemaphoreSlim _connections = new(1, 1);
+    private readonly SemaphoreSlim _persistence = new(1, 1);
     private readonly Dictionary<AccountKey, SessionState> _sessions = [];
     private readonly ConditionalWeakTable<RemoteResourceRef, SessionState> _playbackOwners = new();
     private readonly HttpClient _images = new(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false });
@@ -24,37 +29,67 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
 
     private sealed class SessionState
     {
-        internal SessionState(string coreSession, ConnectionSession session, ResumePreferences preferences)
+        internal SessionState(string coreSession, VerifiedConnection verified, SavedConnection saved)
         {
             CoreSession = coreSession;
-            Session = session;
+            Session = verified.Session;
+            VerifiedToken = verified.Token;
+            Saved = saved;
             LifetimeToken = Lifetime.Token;
-            Preferences = preferences;
+            Preferences = verified.Preferences;
         }
         internal string CoreSession { get; }
-        internal ConnectionSession Session { get; }
+        internal ConnectionSession Session { get; set; }
+        internal SavedConnection Saved { get; set; }
+        internal string VerifiedToken { get; set; }
         internal CancellationTokenSource Lifetime { get; } = new();
         internal CancellationToken LifetimeToken { get; }
         internal HashSet<ResourceLease> Leases { get; } = [];
-        internal SemaphoreSlim PlaybackMutations { get; } = new(1, 1);
+        internal SemaphoreSlim Operations { get; } = new(1, 1);
+        internal SemaphoreSlim Refresh { get; } = new(1, 1);
+        internal TaskCompletionSource<ErrorInfo?> Retirement { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal ResumePreferences Preferences { get; set; }
         internal bool Active { get; set; } = true;
     }
 
     private readonly record struct ResumePreferences(PlaybackResumeMode Mode, TimeSpan MinimumPosition);
 
-    public FilewayClientServices(IHostControlClient host) => _host = host ?? throw new ArgumentNullException(nameof(host));
+    private sealed class VerifiedConnection(ConnectionSession session, ResumePreferences preferences, string token)
+    {
+        internal ConnectionSession Session { get; } = session;
+        internal ResumePreferences Preferences { get; } = preferences;
+        internal string Token { get; } = token;
+        public override string ToString() => "VerifiedConnection (credentials redacted)";
+    }
+
+    public event EventHandler<ConnectionSession>? SessionUpdated;
+    public event EventHandler<ConnectionIssue>? ConnectionIssue;
+
+    public FilewayClientServices(IHostControlClient host) : this(host, new InMemoryProfileStore(), new InMemoryCredentialVault()) { }
+
+    public FilewayClientServices(IHostControlClient host, IProfileStore profiles, ICredentialVault credentials)
+    {
+        _host = host ?? throw new ArgumentNullException(nameof(host));
+        _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
+        _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
+    }
 
     public async Task<ConnectionSession> ConnectAsync(ConnectionProfile profile, LoginInput login, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(login);
-        ValidateProfile(profile, login);
         await _connections.WaitAsync(cancellationToken).ConfigureAwait(false);
         string? coreSession = null;
         try
         {
             lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
+            await CompletePendingLogoutsAsync(cancellationToken).ConfigureAwait(false);
+            ValidateProfile(profile, login);
+            var previous = await StorageAsync(() => _profiles.GetAsync(profile.Id, cancellationToken)).ConfigureAwait(false);
+            if (previous is not null && previous.Profile.SourceRevision == profile.SourceRevision &&
+                (!StringComparer.Ordinal.Equals(previous.Profile.BaseAddress.AbsoluteUri, profile.BaseAddress.AbsoluteUri) ||
+                    previous.Profile.Network != profile.Network || previous.Profile.Proxy != profile.Proxy))
+                throw Safe(ErrorCode.SourceChanged, "服务器地址或安全路由已变化，请使用新的连接来源。");
             await RetireAllAsync().ConfigureAwait(false);
             var opened = await CallAsync("open", new { baseUrl = profile.BaseAddress.AbsoluteUri, network = "direct", token = "" }, null, cancellationToken).ConfigureAwait(false);
             coreSession = RequiredText(opened);
@@ -63,31 +98,23 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
                 username = login.Mode == AuthenticationMode.Password ? login.Username : "",
                 password = login.Mode == AuthenticationMode.Password ? login.Password : "",
             }, coreSession, cancellationToken).ConfigureAwait(false);
-            string token = HttpBody(authenticated);
+            string token = HttpBody(authenticated).Trim();
             string userId = ReadTokenUserId(token);
-            using var accountBody = ParseBody(await RequestAsync(coreSession, "/api/users/" + userId, cancellationToken).ConfigureAwait(false));
-            var user = accountBody.RootElement;
-            if (ReadUserId(user) != userId) throw InvalidResponse();
-            using var capabilityBody = ParseBody(await RequestAsync(coreSession, "/api/client-capabilities", cancellationToken).ConfigureAwait(false));
-            var capabilities = capabilityBody.RootElement;
-            string authMethod = RequiredText(capabilities.GetProperty("authMethod"));
-            if (authMethod != (login.Mode == AuthenticationMode.NoAuthentication ? "noauth" : "json"))
-                throw Safe(ErrorCode.CapabilityMissing, "服务器认证方式与所选登录方式不一致，请确认后重新连接。");
-            var permissions = user.GetProperty("perm");
-            var session = new ConnectionSession(Guid.NewGuid(), new AccountKey(profile.Id, profile.SourceRevision, userId),
-                OptionalText(user, "username") ?? profile.DisplayName,
-                new PermissionSet(Flag(permissions, "download"), Flag(permissions, "create"), Flag(permissions, "rename"),
-                    Flag(permissions, "modify"), Flag(permissions, "delete"), Flag(permissions, "execute")),
-                new ServerCapabilities(Flag(capabilities, "resourcePaginationV1"), Flag(capabilities, "conditionalDownloadV1"),
-                    Flag(capabilities, "searchWirePathV1"), Flag(capabilities, "resourceWireOperations")));
+            var verified = await VerifyConnectionAsync(coreSession, profile, login.Mode, userId, Guid.NewGuid(), token,
+                cancellationToken).ConfigureAwait(false);
+            var saved = new SavedConnection(profile, login.Mode, verified.Session.DisplayName, userId,
+                login.KeepSignedIn, DateTimeOffset.UtcNow);
+            await _persistence.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try { await SaveConnectionAsync(saved, verified.Token, cancellationToken).ConfigureAwait(false); }
+            finally { _persistence.Release(); }
             cancellationToken.ThrowIfCancellationRequested();
             lock (_gate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                _sessions.Add(session.Account, new SessionState(coreSession, session, ParseResumePreferences(user)));
+                _sessions.Add(saved.Account, new SessionState(coreSession, verified, saved));
             }
             coreSession = null;
-            return session;
+            return verified.Session;
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         {
@@ -95,21 +122,127 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         }
         finally
         {
-            if (coreSession is not null) await CloseCoreAsync(coreSession).ConfigureAwait(false);
-            _connections.Release();
+            try { if (coreSession is not null) await CloseCoreAsync(coreSession).ConfigureAwait(false); }
+            finally { _connections.Release(); }
         }
     }
 
     public Task DisconnectAsync(AccountKey account, CancellationToken cancellationToken) => RetireAccountAsync(account, cancellationToken);
-    public Task LogoutAsync(AccountKey account, CancellationToken cancellationToken) => RetireAccountAsync(account, cancellationToken);
 
-    public Task<RemoteResourceRef> GetRootAsync(ConnectionSession session, CancellationToken cancellationToken)
+    public async Task<ConnectionSession> RestoreAsync(Guid profileId, CancellationToken cancellationToken)
+    {
+        await _connections.WaitAsync(cancellationToken).ConfigureAwait(false);
+        string? coreSession = null;
+        try
+        {
+            lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
+            await CompletePendingLogoutsAsync(cancellationToken).ConfigureAwait(false);
+            var saved = await StorageAsync(() => _profiles.GetAsync(profileId, cancellationToken)).ConfigureAwait(false)
+                ?? throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
+            ValidateProfile(saved.Profile, new LoginInput(saved.AuthenticationMode, saved.Username), restoring: true);
+            string token = "";
+            if (saved.AuthenticationMode == AuthenticationMode.Password)
+            {
+                if (!saved.KeepSignedIn) throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
+                token = await CredentialsAsync(() => _credentials.ReadTokenAsync(saved.Account, cancellationToken)).ConfigureAwait(false) ?? "";
+                if (string.IsNullOrWhiteSpace(token)) throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
+                RequireTokenAccount(token, saved.ServerUserId);
+            }
+            await RetireAllAsync().ConfigureAwait(false);
+            coreSession = RequiredText(await CallAsync("open", new
+            {
+                baseUrl = saved.Profile.BaseAddress.AbsoluteUri, network = "direct", token,
+            }, null, cancellationToken).ConfigureAwait(false));
+            if (saved.AuthenticationMode == AuthenticationMode.NoAuthentication)
+                token = HttpBody(await CallAsync("login", new { username = "", password = "" }, coreSession,
+                    cancellationToken).ConfigureAwait(false)).Trim();
+            var verified = await VerifyConnectionAsync(coreSession, saved.Profile, saved.AuthenticationMode,
+                saved.ServerUserId, Guid.NewGuid(), token, cancellationToken).ConfigureAwait(false);
+            saved = saved with { Username = verified.Session.DisplayName, LastConnectedAt = DateTimeOffset.UtcNow };
+            await _persistence.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try { await SaveConnectionAsync(saved, verified.Token, cancellationToken).ConfigureAwait(false); }
+            finally { _persistence.Release(); }
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _sessions.Add(saved.Account, new SessionState(coreSession, verified, saved));
+            }
+            coreSession = null;
+            return verified.Session;
+        }
+        finally
+        {
+            try { if (coreSession is not null) await CloseCoreAsync(coreSession).ConfigureAwait(false); }
+            finally { _connections.Release(); }
+        }
+    }
+
+    public async Task<IReadOnlyList<SavedConnection>> ListAsync(CancellationToken cancellationToken)
+    {
+        await _connections.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
+            await CompletePendingLogoutsAsync(cancellationToken).ConfigureAwait(false);
+            return await StorageAsync(() => _profiles.ListAsync(cancellationToken)).ConfigureAwait(false);
+        }
+        finally { _connections.Release(); }
+    }
+
+    public async Task<SavedConnection?> GetAsync(Guid profileId, CancellationToken cancellationToken)
+    {
+        await _connections.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
+            await CompletePendingLogoutsAsync(cancellationToken).ConfigureAwait(false);
+            return await StorageAsync(() => _profiles.GetAsync(profileId, cancellationToken)).ConfigureAwait(false);
+        }
+        finally { _connections.Release(); }
+    }
+
+    public async Task LogoutAsync(AccountKey account, CancellationToken cancellationToken)
+    {
+        await _connections.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
+            await _persistence.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try { await LogoutCoreAsync(account, cancellationToken).ConfigureAwait(false); }
+            finally { _persistence.Release(); }
+        }
+        finally { _connections.Release(); }
+    }
+
+    public async Task ForgetAsync(Guid profileId, CancellationToken cancellationToken)
+    {
+        await _connections.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
+            await CompletePendingLogoutsAsync(cancellationToken).ConfigureAwait(false);
+            await _persistence.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                var saved = await StorageAsync(() => _profiles.GetAsync(profileId, cancellationToken)).ConfigureAwait(false);
+                if (saved is null) return;
+                await LogoutCoreAsync(saved.Account, cancellationToken).ConfigureAwait(false);
+                await StorageAsync(() => _profiles.ForgetAsync(saved.Account, cancellationToken)).ConfigureAwait(false);
+            }
+            finally { _persistence.Release(); }
+        }
+        finally { _connections.Release(); }
+    }
+
+    public async Task<RemoteResourceRef> GetRootAsync(ConnectionSession session, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(session);
         cancellationToken.ThrowIfCancellationRequested();
         var state = GetState(session.Account);
         if (state.Session.Id != session.Id) throw Safe(ErrorCode.SourceChanged, "此账户会话已更换，请重新打开目录。");
-        return Task.FromResult(BindResource(new RemoteResourceRef(session.Account, "/", "根目录", "/"), state));
+        await RefreshSessionAsync(state, cancellationToken).ConfigureAwait(false);
+        return BindResource(new RemoteResourceRef(session.Account, "/", "根目录", "/"), state);
     }
 
     public async Task<DirectoryPage> ListAsync(RemoteResourceRef directory, DirectoryQuery query, CancellationToken cancellationToken)
@@ -157,7 +290,7 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
     {
         ArgumentNullException.ThrowIfNull(resource);
         ValidateWirePath(resource.WirePath);
-        var state = GetPlaybackState(resource);
+        var state = await GetPlaybackStateAsync(resource, cancellationToken).ConfigureAwait(false);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         try
         {
@@ -165,19 +298,24 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
             // last verified account preferences when that read is unavailable.
             try
             {
-                using var userBody = ParseBody(await RequestAsync(state.CoreSession,
-                    "/api/users/" + state.Session.Account.ServerUserId, linked.Token).ConfigureAwait(false));
+                string preferenceToken = state.VerifiedToken;
+                using var userBody = ParseBody(await RequestAsync(state,
+                    "/api/users/" + state.Session.Account.ServerUserId, linked.Token, requireDownload: true).ConfigureAwait(false));
                 if (ReadUserId(userBody.RootElement) != state.Session.Account.ServerUserId) throw InvalidResponse();
                 var preferences = ParseResumePreferences(userBody.RootElement);
-                lock (_gate) { EnsureActive(state); state.Preferences = preferences; }
+                lock (_gate)
+                {
+                    EnsureActive(state);
+                    if (StringComparer.Ordinal.Equals(preferenceToken, state.VerifiedToken)) state.Preferences = preferences;
+                }
             }
             catch (FilewayException error) when (!linked.IsCancellationRequested)
             {
                 Trace.TraceWarning("Fileway playback preference refresh failed ({0}); using verified account policy.", error.Error.Code);
             }
 
-            using var document = ParseBody(await RequestAsync(state.CoreSession,
-                PlaybackEndpoint(resource), linked.Token).ConfigureAwait(false));
+            using var document = ParseBody(await RequestAsync(state,
+                PlaybackEndpoint(resource), linked.Token, requireDownload: true).ConfigureAwait(false));
             var value = document.RootElement;
             bool exists = value.GetProperty("exists").GetBoolean();
             string identity = RequiredText(value.GetProperty("identity"));
@@ -201,46 +339,24 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         ArgumentNullException.ThrowIfNull(resource);
         if (confirmedPosition < TimeSpan.Zero || duration < TimeSpan.Zero)
             throw Safe(ErrorCode.InvalidRequest, "播放位置和时长不能为负数。");
-        var state = GetPlaybackState(resource);
+        var state = GetResourceState(resource);
         string path = PlaybackJsonPath(resource);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
-        await state.PlaybackMutations.WaitAsync(linked.Token).ConfigureAwait(false);
-        try
+        _ = await SessionRequestAsync(state, new
         {
-            EnsureActive(state);
-            var response = await CallAsync("request", new
-            {
-                method = "PUT",
-                endpoint = "/api/media/playback",
-                // The bridge forwards body as json.RawMessage. CallAsync owns
-                // its single JSON encoding, so retain the object here.
-                body = new { path, position = confirmedPosition.TotalSeconds, duration = duration?.TotalSeconds ?? 0 },
-            }, state.CoreSession, linked.Token, HostCallSafety.Mutation).ConfigureAwait(false);
-            // A confirmed 2xx response remains success even if logout wins a
-            // later race. No request or response body is retained or logged.
-            _ = HttpBody(response);
-        }
-        catch (FilewayException error) when (error.Error.Code == ErrorCode.Canceled && state.LifetimeToken.IsCancellationRequested)
-        { throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged)); }
-        finally { state.PlaybackMutations.Release(); }
+            method = "PUT", endpoint = "/api/media/playback",
+            // The bridge forwards body as json.RawMessage. Keep its single JSON
+            // encoding here; confirmed mutations are never replayed.
+            body = new { path, position = confirmedPosition.TotalSeconds, duration = duration?.TotalSeconds ?? 0 },
+        }, requireDownload: true, HostCallSafety.Mutation, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task ClearAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(resource);
-        var state = GetPlaybackState(resource);
+        var state = GetResourceState(resource);
         string endpoint = PlaybackEndpoint(resource);
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
-        await state.PlaybackMutations.WaitAsync(linked.Token).ConfigureAwait(false);
-        try
-        {
-            EnsureActive(state);
-            _ = HttpBody(await CallAsync("request", new { method = "DELETE", endpoint },
-                state.CoreSession, linked.Token, HostCallSafety.Mutation).ConfigureAwait(false));
-        }
-        catch (FilewayException error) when (error.Error.Code == ErrorCode.Canceled && state.LifetimeToken.IsCancellationRequested)
-        { throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged)); }
-        finally { state.PlaybackMutations.Release(); }
+        _ = await SessionRequestAsync(state, new { method = "DELETE", endpoint },
+            requireDownload: true, HostCallSafety.Mutation, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IResourceLease> AcquireAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
@@ -248,9 +364,8 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         ArgumentNullException.ThrowIfNull(resource);
         ValidateWirePath(resource.WirePath);
         var state = GetResourceState(resource);
-        if (!state.Session.Permissions.Download) throw Safe(ErrorCode.PermissionDenied, "此账户没有读取文件内容的权限。");
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
-        var result = await CallAsync("lease", new { wirePath = resource.WirePath }, state.CoreSession, linked.Token).ConfigureAwait(false);
+        var result = await SessionRequestAsync(state, new { wirePath = resource.WirePath },
+            requireDownload: true, HostCallSafety.ReadOnly, cancellationToken, operation: "lease").ConfigureAwait(false);
         string address = RequiredText(result);
         if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp ||
             uri.Host != "127.0.0.1" || uri.Port <= 0 || uri.IsDefaultPort || uri.UserInfo.Length != 0 ||
@@ -287,6 +402,8 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
                 await content.WriteAsync(buffer.AsMemory(0, count), linked.Token).ConfigureAwait(false);
             }
             content.Position = 0;
+            await RefreshSessionAsync(lease.State, linked.Token).ConfigureAwait(false);
+            RequireDownload(lease.State);
             var image = new ImageContent(resource, content, response, lease);
             lease.Attach(image);
             EnsureActive(lease.State);
@@ -316,7 +433,212 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         finally { _connections.Release(); }
     }
 
-    private static void ValidateProfile(ConnectionProfile profile, LoginInput login)
+    private async Task<VerifiedConnection> VerifyConnectionAsync(string coreSession, ConnectionProfile profile,
+        AuthenticationMode mode, string userId, Guid sessionId, string token, CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Verification reads can themselves renew a token. Accept metadata
+            // only when the token is stable across the entire verification.
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                RequireTokenAccount(token, userId);
+                using var userBody = ParseBody(await RequestAsync(coreSession, "/api/users/" + userId,
+                    cancellationToken).ConfigureAwait(false));
+                var user = userBody.RootElement;
+                if (ReadUserId(user) != userId) throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
+                using var capabilityBody = ParseBody(await RequestAsync(coreSession, "/api/client-capabilities",
+                    cancellationToken).ConfigureAwait(false));
+                var capabilities = capabilityBody.RootElement;
+                if (RequiredText(capabilities.GetProperty("authMethod")) !=
+                    (mode == AuthenticationMode.NoAuthentication ? "noauth" : "json"))
+                    throw Safe(ErrorCode.CapabilityMissing, "服务器认证方式与保存的登录方式不一致，请确认后重新连接。");
+                string currentToken = await ReadCoreTokenAsync(coreSession, cancellationToken).ConfigureAwait(false);
+                RequireTokenAccount(currentToken, userId);
+                if (!StringComparer.Ordinal.Equals(token, currentToken))
+                {
+                    token = currentToken;
+                    continue;
+                }
+                var permissions = user.GetProperty("perm");
+                var session = new ConnectionSession(sessionId, new AccountKey(profile.Id, profile.SourceRevision, userId),
+                    OptionalText(user, "username") ?? profile.DisplayName,
+                    new PermissionSet(Flag(permissions, "download"), Flag(permissions, "create"), Flag(permissions, "rename"),
+                        Flag(permissions, "modify"), Flag(permissions, "delete"), Flag(permissions, "execute")),
+                    new ServerCapabilities(Flag(capabilities, "resourcePaginationV1"), Flag(capabilities, "conditionalDownloadV1"),
+                        Flag(capabilities, "searchWirePathV1"), Flag(capabilities, "resourceWireOperations")));
+                return new VerifiedConnection(session, ParseResumePreferences(user), currentToken);
+            }
+            throw Safe(ErrorCode.AuthenticationExpired, "登录状态在核验期间持续变化，请重新连接。");
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
+        { throw InvalidResponse(); }
+    }
+
+    private async Task<string> ReadCoreTokenAsync(string coreSession, CancellationToken cancellationToken) =>
+        RequiredText(await CallAsync("token", new { }, coreSession, cancellationToken).ConfigureAwait(false)).Trim();
+
+    private static void RequireTokenAccount(string token, string userId)
+    {
+        if (ReadTokenUserId(token) != userId)
+            throw Safe(ErrorCode.AuthenticationExpired, "登录状态与所选账户不一致，请重新登录。");
+    }
+
+    // Callers hold _persistence. Every token write shares this gate with the
+    // durable logout intent, so an in-flight refresh cannot resurrect a logout.
+    private async Task SaveConnectionAsync(SavedConnection saved, string token, CancellationToken cancellationToken)
+    {
+        var previous = await StorageAsync(() => _profiles.GetAsync(saved.Profile.Id, cancellationToken)).ConfigureAwait(false);
+        if (previous is not null && previous.Account != saved.Account)
+            await LogoutCoreAsync(previous.Account, cancellationToken).ConfigureAwait(false);
+        if (saved.KeepSignedIn)
+            await CredentialsAsync(() => _credentials.WriteTokenAsync(saved.Account, token, cancellationToken)).ConfigureAwait(false);
+        else
+            await CredentialsAsync(() => _credentials.DeleteTokenAsync(saved.Account, cancellationToken)).ConfigureAwait(false);
+        await StorageAsync(() => _profiles.SaveAsync(saved, cancellationToken)).ConfigureAwait(false);
+    }
+
+    private async Task CompletePendingLogoutsAsync(CancellationToken cancellationToken)
+    {
+        await _persistence.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var pending = await StorageAsync(() => _profiles.ListPendingLogoutsAsync(cancellationToken)).ConfigureAwait(false);
+            foreach (var account in pending)
+            {
+                await RetireExactAccountAsync(account).ConfigureAwait(false);
+                await CredentialsAsync(() => _credentials.DeleteTokenAsync(account, cancellationToken)).ConfigureAwait(false);
+                await StorageAsync(() => _profiles.CompleteLogoutAsync(account, cancellationToken)).ConfigureAwait(false);
+            }
+        }
+        finally { _persistence.Release(); }
+    }
+
+    private async Task LogoutCoreAsync(AccountKey account, CancellationToken cancellationToken)
+    {
+        await StorageAsync(() => _profiles.BeginLogoutAsync(account, cancellationToken)).ConfigureAwait(false);
+        // Intent has committed. Caller cancellation must not leave this process
+        // using a logged-out token; deletion may still leave durable pending work.
+        await RetireExactAccountAsync(account).ConfigureAwait(false);
+        await CredentialsAsync(() => _credentials.DeleteTokenAsync(account, cancellationToken)).ConfigureAwait(false);
+        await StorageAsync(() => _profiles.CompleteLogoutAsync(account, cancellationToken)).ConfigureAwait(false);
+    }
+
+    private async Task RefreshSessionAsync(SessionState state, CancellationToken cancellationToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        ConnectionSession? updated = null;
+        FilewayException? failure = null;
+        bool entered = false;
+        try
+        {
+            await state.Operations.WaitAsync(linked.Token).ConfigureAwait(false);
+            entered = true;
+            updated = await RefreshSessionCoreAsync(state, linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) { failure = SessionCanceled(state, cancellationToken); }
+        catch (FilewayException error) { failure = error; }
+        finally { if (entered) state.Operations.Release(); }
+        if (failure is not null)
+        {
+            if (failure.Error.Code != ErrorCode.Canceled && await RetireAsync(state).ConfigureAwait(false))
+                PublishConnectionIssue(state, failure.Error);
+            throw failure;
+        }
+        PublishSessionUpdated(state, updated);
+    }
+
+    private async Task<ConnectionSession?> RefreshSessionCoreAsync(SessionState state, CancellationToken cancellationToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        bool entered = false;
+        try
+        {
+            await state.Refresh.WaitAsync(linked.Token).ConfigureAwait(false);
+            entered = true;
+            EnsureActive(state);
+            string token = await ReadCoreTokenAsync(state.CoreSession, linked.Token).ConfigureAwait(false);
+            if (StringComparer.Ordinal.Equals(token, state.VerifiedToken)) return null;
+            var verified = await VerifyConnectionAsync(state.CoreSession, state.Saved.Profile, state.Saved.AuthenticationMode,
+                state.Session.Account.ServerUserId, state.Session.Id, token, linked.Token).ConfigureAwait(false);
+            await _persistence.WaitAsync(linked.Token).ConfigureAwait(false);
+            try
+            {
+                EnsureActive(state);
+                var current = await StorageAsync(() => _profiles.GetAsync(state.Session.Account.ProfileId, linked.Token)).ConfigureAwait(false);
+                if (current is null || current.Account != state.Session.Account)
+                    throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged));
+                var saved = current with { Username = verified.Session.DisplayName };
+                EnsureActive(state);
+                await SaveConnectionAsync(saved, verified.Token, linked.Token).ConfigureAwait(false);
+                lock (_gate)
+                {
+                    EnsureActive(state);
+                    state.Saved = saved;
+                    state.VerifiedToken = verified.Token;
+                    state.Preferences = verified.Preferences;
+                    state.Session = verified.Session;
+                }
+                return verified.Session;
+            }
+            finally { _persistence.Release(); }
+        }
+        catch (OperationCanceledException)
+        {
+            var code = state.LifetimeToken.IsCancellationRequested ? ErrorCode.SourceChanged : ErrorCode.Canceled;
+            throw Safe(code, Message(code));
+        }
+        finally { if (entered) state.Refresh.Release(); }
+    }
+
+    private static FilewayException SessionCanceled(SessionState state, CancellationToken cancellationToken)
+    {
+        var code = state.LifetimeToken.IsCancellationRequested ? ErrorCode.SourceChanged :
+            cancellationToken.IsCancellationRequested ? ErrorCode.Canceled : ErrorCode.Timeout;
+        return Safe(code, Message(code));
+    }
+
+    private void PublishSessionUpdated(SessionState state, ConnectionSession? updated)
+    {
+        if (updated is null) return;
+        lock (_gate) if (!state.Active || _disposed || !ReferenceEquals(state.Session, updated)) return;
+        PublishEvent(SessionUpdated, updated);
+    }
+
+    private void PublishConnectionIssue(SessionState state, ErrorInfo error) =>
+        PublishEvent(ConnectionIssue, new ConnectionIssue(state.Session.Account, state.Session.Id,
+            new ErrorInfo(error.Code, Message(error.Code), error.HttpStatus, error.Retryable), true));
+
+    private void PublishEvent<T>(EventHandler<T>? handlers, T value)
+    {
+        if (handlers is null) return;
+        foreach (EventHandler<T> handler in handlers.GetInvocationList())
+        {
+            try { handler(this, value); }
+            catch (Exception) { Trace.TraceWarning("Fileway connection event handler failed ({0}).", ErrorCode.Unknown); }
+        }
+    }
+
+    private static Task<T> StorageAsync<T>(Func<Task<T>> operation) => LocalAsync(operation, ErrorCode.LocalStorageUnavailable);
+    private static Task<T> CredentialsAsync<T>(Func<Task<T>> operation) => LocalAsync(operation, ErrorCode.CredentialsUnavailable);
+    private static Task StorageAsync(Func<Task> operation) => LocalAsync(operation, ErrorCode.LocalStorageUnavailable);
+    private static Task CredentialsAsync(Func<Task> operation) => LocalAsync(operation, ErrorCode.CredentialsUnavailable);
+
+    private static async Task LocalAsync(Func<Task> operation, ErrorCode code)
+    {
+        await LocalAsync(async () => { await operation().ConfigureAwait(false); return true; }, code).ConfigureAwait(false);
+    }
+
+    private static async Task<T> LocalAsync<T>(Func<Task<T>> operation, ErrorCode code)
+    {
+        try { return await operation().ConfigureAwait(false); }
+        catch (OperationCanceledException) { throw Safe(ErrorCode.Canceled, Message(ErrorCode.Canceled)); }
+        catch (FilewayException error) when (error.Error.Code == ErrorCode.Canceled)
+        { throw Safe(ErrorCode.Canceled, Message(ErrorCode.Canceled)); }
+        catch (Exception) { throw Safe(code, Message(code)); }
+    }
+
+    private static void ValidateProfile(ConnectionProfile profile, LoginInput login, bool restoring = false)
     {
         if (profile.Id == Guid.Empty || profile.SourceRevision == Guid.Empty || !profile.BaseAddress.IsAbsoluteUri ||
             profile.BaseAddress.Scheme is not ("http" or "https") || profile.BaseAddress.UserInfo.Length != 0 ||
@@ -328,7 +650,7 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
             throw Safe(ErrorCode.CapabilityMissing, "首预览尚未接入系统或手动代理，请明确选择直接连接。");
         if (login.Mode is not (AuthenticationMode.Password or AuthenticationMode.NoAuthentication))
             throw Safe(ErrorCode.InvalidRequest, "请选择受支持的登录方式。");
-        if (login.Mode == AuthenticationMode.Password && (string.IsNullOrWhiteSpace(login.Username) || string.IsNullOrEmpty(login.Password)))
+        if (!restoring && login.Mode == AuthenticationMode.Password && (string.IsNullOrWhiteSpace(login.Username) || string.IsNullOrEmpty(login.Password)))
             throw Safe(ErrorCode.InvalidRequest, "请输入用户名和密码。");
     }
 
@@ -341,11 +663,18 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         throw Safe(ErrorCode.SourceChanged, "账户连接已失效，请重新连接。");
     }
 
-    private SessionState GetPlaybackState(RemoteResourceRef resource)
+    private async Task<SessionState> GetPlaybackStateAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
     {
         var state = GetResourceState(resource);
-        if (!state.Session.Permissions.Download) throw Safe(ErrorCode.PermissionDenied, Message(ErrorCode.PermissionDenied));
+        await RefreshSessionAsync(state, cancellationToken).ConfigureAwait(false);
+        RequireDownload(state);
         return state;
+    }
+
+    private void RequireDownload(SessionState state)
+    {
+        EnsureActive(state);
+        if (!state.Session.Permissions.Download) throw Safe(ErrorCode.PermissionDenied, Message(ErrorCode.PermissionDenied));
     }
 
     private SessionState GetResourceState(RemoteResourceRef resource)
@@ -385,9 +714,7 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         await _connections.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            SessionState? state;
-            lock (_gate) _sessions.Remove(account, out state);
-            if (state is not null) await RetireAsync(state).ConfigureAwait(false);
+            await RetireExactAccountAsync(account).ConfigureAwait(false);
         }
         finally { _connections.Release(); }
     }
@@ -395,37 +722,156 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
     private async Task RetireAllAsync()
     {
         SessionState[] states;
-        lock (_gate) { states = [.. _sessions.Values]; _sessions.Clear(); }
+        lock (_gate) states = [.. _sessions.Values];
         foreach (var state in states) await RetireAsync(state).ConfigureAwait(false);
     }
 
-    private async Task RetireAsync(SessionState state)
+    private async Task RetireExactAccountAsync(AccountKey account)
     {
-        ResourceLease[] leases;
-        lock (_gate) { state.Active = false; leases = [.. state.Leases]; }
-        await state.Lifetime.CancelAsync().ConfigureAwait(false);
-        foreach (var lease in leases) await lease.DisposeAsync().ConfigureAwait(false);
-        await CloseCoreAsync(state.CoreSession).ConfigureAwait(false);
-        state.Lifetime.Dispose();
+        SessionState? state;
+        lock (_gate) _sessions.TryGetValue(account, out state);
+        if (state is not null) await RetireAsync(state).ConfigureAwait(false);
+    }
+
+    private async Task<bool> RetireAsync(SessionState state)
+    {
+        ResourceLease[]? leases = null;
+        lock (_gate)
+        {
+            if (state.Active)
+            {
+                state.Active = false;
+                leases = [.. state.Leases];
+            }
+        }
+        if (leases is null)
+        {
+            var cleanupError = await state.Retirement.Task.ConfigureAwait(false);
+            if (cleanupError is not null) throw new FilewayException(cleanupError);
+            return false;
+        }
+        FilewayException? failure = null;
+        try
+        {
+            try { await state.Lifetime.CancelAsync().ConfigureAwait(false); }
+            catch (Exception) { Trace.TraceWarning("Fileway session cancellation failed ({0}).", ErrorCode.Unknown); }
+            foreach (var lease in leases)
+            {
+                try { await lease.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception) { Trace.TraceWarning("Fileway lease retirement failed ({0}).", ErrorCode.Unknown); }
+            }
+            await CloseCoreAsync(state.CoreSession).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            failure = CleanupFailed();
+            throw failure;
+        }
+        finally
+        {
+            state.Lifetime.Dispose();
+            lock (_gate)
+            {
+                if (failure is null && _sessions.TryGetValue(state.Session.Account, out var current) && ReferenceEquals(current, state))
+                    _sessions.Remove(state.Session.Account);
+            }
+            // Keep failed, inactive states reachable so later logout/cleanup
+            // callers also fail instead of clearing durable logout intent.
+            state.Retirement.TrySetResult(failure?.Error);
+        }
+        return true;
     }
 
     private async Task CloseCoreAsync(string coreSession)
     {
         try { await CallAsync("close_session", new { }, coreSession, CancellationToken.None).ConfigureAwait(false); }
-        catch (FilewayException) { /* Host exit already invalidates the entire session. */ }
+        catch (Exception)
+        {
+            try { await _host.ShutdownAsync(CancellationToken.None).ConfigureAwait(false); }
+            catch (Exception) { throw CleanupFailed(); }
+        }
     }
 
     private async Task<JsonDocument> ResourceDocumentAsync(SessionState state, RemoteResourceRef resource, bool metadata, CancellationToken cancellationToken)
     {
         ValidateWirePath(resource.WirePath);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
-        var response = await RequestAsync(state.CoreSession, "/api/resources" + resource.WirePath + (metadata ? "?metadata=1" : ""), linked.Token).ConfigureAwait(false);
+        var response = await RequestAsync(state, "/api/resources" + resource.WirePath + (metadata ? "?metadata=1" : ""), linked.Token).ConfigureAwait(false);
         EnsureActive(state);
         return ParseBody(response);
     }
 
     private Task<JsonElement> RequestAsync(string session, string endpoint, CancellationToken cancellationToken) =>
         CallAsync("request", new { method = "GET", endpoint }, session, cancellationToken);
+
+    private Task<JsonElement> RequestAsync(SessionState state, string endpoint, CancellationToken cancellationToken,
+        bool requireDownload = false) => SessionRequestAsync(state, new { method = "GET", endpoint },
+            requireDownload, HostCallSafety.ReadOnly, cancellationToken);
+
+    private async Task<JsonElement> SessionRequestAsync(SessionState state, object parameters, bool requireDownload,
+        HostCallSafety safety, CancellationToken cancellationToken, string operation = "request")
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        bool entered = false;
+        bool confirmed = false;
+        bool checkingSession = true;
+        bool invalidate = false;
+        JsonElement response = default;
+        ConnectionSession? updated = null;
+        FilewayException? failure = null;
+        try
+        {
+            // This gate covers all service requests, including their permission
+            // checks. Lease-side renewal is independently bound by the broker.
+            await state.Operations.WaitAsync(linked.Token).ConfigureAwait(false);
+            entered = true;
+            updated = await RefreshSessionCoreAsync(state, linked.Token).ConfigureAwait(false);
+            EnsureActive(state);
+            if (requireDownload) RequireDownload(state);
+            checkingSession = false;
+            response = await CallAsync(operation, parameters, state.CoreSession, linked.Token, safety).ConfigureAwait(false);
+            if (operation == "request") _ = HttpBody(response);
+            confirmed = true;
+            checkingSession = true;
+            updated = await RefreshSessionCoreAsync(state, safety == HostCallSafety.Mutation ? state.LifetimeToken : linked.Token)
+                .ConfigureAwait(false) ?? updated;
+            if (safety != HostCallSafety.Mutation) EnsureActive(state);
+        }
+        catch (OperationCanceledException)
+        {
+            failure = SessionCanceled(state, cancellationToken);
+            invalidate = failure.Error.Code != ErrorCode.Canceled;
+        }
+        catch (FilewayException error)
+        {
+            failure = error;
+            invalidate = checkingSession && error.Error.Code != ErrorCode.Canceled || error.Error.Code == ErrorCode.AuthenticationExpired;
+        }
+        finally { if (entered) state.Operations.Release(); }
+
+        // No callback runs under a session/persistence mutex. A subscriber can
+        // safely start another operation without changing the confirmed result.
+        if (failure is not null)
+        {
+            if (invalidate || confirmed && safety == HostCallSafety.Mutation)
+            {
+                try
+                {
+                    if (await RetireAsync(state).ConfigureAwait(false)) PublishConnectionIssue(state, failure.Error);
+                }
+                catch (FilewayException cleanupError) when (confirmed && safety == HostCallSafety.Mutation)
+                {
+                    PublishConnectionIssue(state, cleanupError.Error);
+                    Trace.TraceWarning("Fileway confirmed operation session cleanup failed ({0}).", cleanupError.Error.Code);
+                }
+            }
+            if (!confirmed || safety != HostCallSafety.Mutation) throw failure;
+            Trace.TraceWarning("Fileway confirmed operation session refresh failed ({0}).", failure.Error.Code);
+            return response;
+        }
+        PublishSessionUpdated(state, updated);
+        return response;
+    }
 
     private async Task<JsonElement> CallAsync(string operation, object parameters, string? session, CancellationToken cancellationToken, HostCallSafety? safety = null)
     {
@@ -450,6 +896,11 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         }
         catch (FilewayException error) { throw new FilewayException(error.Error with { Message = Message(error.Error.Code) }); }
         catch (OperationCanceledException) { throw Safe(ErrorCode.Canceled, "操作已取消。"); }
+        catch (Exception)
+        {
+            var code = safety == HostCallSafety.Mutation ? ErrorCode.OutcomeUnknown : ErrorCode.NetworkUnavailable;
+            throw Safe(code, Message(code));
+        }
     }
 
     private static string HttpBody(JsonElement response)
@@ -597,6 +1048,7 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
     private static string? OptionalText(JsonElement value, string name) => value.TryGetProperty(name, out var text) && text.ValueKind == JsonValueKind.String ? text.GetString() : null;
     private static string RequiredText(JsonElement value) => value.ValueKind == JsonValueKind.String && value.GetString() is { Length: > 0 } text ? text : throw InvalidResponse();
     private static FilewayException Safe(ErrorCode code, string message, int? status = null) => new(new ErrorInfo(code, message, status));
+    private static FilewayException CleanupFailed() => Safe(ErrorCode.HostExited, "无法确认连接与媒体已关闭，请关闭并重新打开客户端。");
     private static FilewayException InvalidResponse() => Safe(ErrorCode.ProtocolMismatch, "服务器返回的数据格式不受支持，请刷新或检查服务器版本。");
     private static Task<FileOperationResult> UnsupportedWrite(CancellationToken cancellationToken)
     {
@@ -618,6 +1070,8 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         ErrorCode.ProtocolMismatch => "服务器返回的数据格式不受支持。", ErrorCode.HostExited => "连接服务已退出，请重新连接。",
         ErrorCode.InvalidRequest => "请求参数无效。", ErrorCode.Timeout => "连接超时，请稍后重试。", ErrorCode.Conflict => "服务器内容已变化，请刷新后重试。",
         ErrorCode.SourceChanged => "账户连接已更换，请重新连接。", ErrorCode.CapabilityMissing => "当前连接不支持此功能。",
+        ErrorCode.CredentialsUnavailable => "无法访问此 Windows 用户的登录凭据，请重新登录或稍后重试。",
+        ErrorCode.LocalStorageUnavailable => "无法访问本地连接资料，请稍后重试。",
         ErrorCode.OutcomeUnknown => "操作结果尚未确认；请先核对服务器状态，不要直接重试。",
         _ => "无法完成服务器请求，请检查网络或服务器后重试。",
     };

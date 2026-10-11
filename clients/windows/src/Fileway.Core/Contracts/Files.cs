@@ -52,7 +52,11 @@ public sealed record LoginInput(
 
 public interface IConnectionService
 {
+    /// <summary>Publishes verified metadata for the same active account; never contains credentials.</summary>
+    event EventHandler<ConnectionSession>? SessionUpdated;
+    event EventHandler<ConnectionIssue>? ConnectionIssue;
     Task<ConnectionSession> ConnectAsync(ConnectionProfile profile, LoginInput login, CancellationToken cancellationToken);
+    Task<ConnectionSession> RestoreAsync(Guid profileId, CancellationToken cancellationToken);
     Task DisconnectAsync(AccountKey account, CancellationToken cancellationToken);
     Task LogoutAsync(AccountKey account, CancellationToken cancellationToken);
 }
