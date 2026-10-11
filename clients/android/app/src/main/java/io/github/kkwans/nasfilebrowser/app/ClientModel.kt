@@ -211,8 +211,11 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                     editorVersion = mutable.value.editorVersion + 1)
                 connectTo(profile, account.username, "", account, automatic = true)
             } catch (error: Exception) {
-                if (error !is CancellationException && generation == expected)
-                    mutable.value = mutable.value.copy(startupPending = false, error = "无法恢复本机登录记录，请重试。")
+                if (error !is CancellationException && generation == expected) {
+                    val feedback = loginFailureFeedback(error, LoginPhase.LOCAL_RECORDS, restoring = true)
+                    android.util.Log.w("LoginRecovery", feedback.diagnostic)
+                    mutable.value = mutable.value.copy(startupPending = false, error = feedback.message)
+                }
             }
         }
     }
@@ -235,10 +238,12 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         mutable.value = mutable.value.copy(startupPending = automatic, busy = true, stage = if (restored == null) "正在登录服务器" else "正在恢复登录", error = null, selected = null, image = null, mediaQueue = null, previewScope = "", fileLayout = FileLayout.COVER)
         operation = viewModelScope.launch {
             var opened: NasSession? = null
+            var phase = LoginPhase.LOCAL_RECORDS
             try {
                 closing?.join()
                 val profile = store.save(draft)
                 if (profile.network == ConnectionMode.TAILNET) {
+                    phase = LoginPhase.EMBEDDED_NETWORK
                     var status = if (restored == null) embeddedNetwork.status() else embeddedNetwork.start()
                     if (restored != null) {
                         networkActivated = true
@@ -254,12 +259,15 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                     networkMutable.value = status
                     if (!status.connected) throw IllegalStateException("请先连接并登录 Tailscale")
                 }
+                phase = if (restored != null) LoginPhase.RESTORE else LoginPhase.SIGN_IN
                 val saved = restored?.let { restoreSavedSession(store, profile, it) }
                 opened = saved?.api ?: NasSession.login(profile, username, password)
                 if (generation != expected) return@launch
                 // A restored token is accepted only after an authenticated read.
+                phase = LoginPhase.VERIFY
                 val root = saved?.verification ?: opened.request("GET", "/api/resources/")
                 if (generation != expected) return@launch
+                phase = LoginPhase.SAVE_LOGIN
                 val account = store.saveLogin(profile, opened.identity.id, opened.identity.username, opened.token())
                 if (restored == null) store.rememberPassword(profile, account, password.takeIf { rememberPassword })
                 opened.persistTokens { token -> store.refreshToken(profile, account, token); Unit }
@@ -267,9 +275,11 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 val accounts = store.accounts(profile)
                 val directory = store.directory(account)
                 if (generation != expected) return@launch
+                phase = LoginPhase.ACTIVATE
                 store.activate(profile, account, bound.owner)
                 if (generation != expected) return@launch
                 context = bound
+                phase = LoginPhase.DIRECTORY
                 favorites.bind(bound)
                 tags.bind(bound)
                 tasks.bind(bound)
@@ -301,8 +311,11 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (error: Exception) {
                 if (error !is CancellationException && generation == expected) {
+                    val feedback = loginFailureFeedback(error, phase, restoring = restored != null)
+                    android.util.Log.w("LoginRecovery", feedback.diagnostic)
+                    val message = if (feedback.reason == "EMBEDDED_NETWORK") networkError(error) else feedback.message
                     closeSession()
-                    mutable.value = mutable.value.copy(startupPending = false, connected = false, busy = false, stage = "", error = error.message ?: "无法连接服务器")
+                    mutable.value = mutable.value.copy(startupPending = false, connected = false, busy = false, stage = "", error = message)
                 }
             } finally {
                 val release = opened
