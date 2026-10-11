@@ -15,15 +15,19 @@
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Default">
                     <SolidColorBrush x:Key="PlayerForeground" Color="#F0FFFFFF" />
-                    <SolidColorBrush x:Key="PlayerSecondary" Color="#ADB9CB" />
+                    <SolidColorBrush x:Key="PlayerSecondary" Color="#C8FFFFFF" />
                     <SolidColorBrush x:Key="PlayerAccent" Color="#69A8FF" />
-                    <!-- PlayerPage.xaml: video-edge gradients, not acrylic. -->
+                    <!-- Screenbox video-edge masks fade into the picture. -->
                     <LinearGradientBrush x:Key="PlayerTopGradient" StartPoint="0.5,0" EndPoint="0.5,1">
-                        <GradientStop Color="#C0000000" /><GradientStop Offset="1" Color="#80000000" />
+                        <GradientStop Offset="0" Color="#99000000" />
+                        <GradientStop Offset="0.5" Color="#33000000" />
+                        <GradientStop Offset="1" Color="#00000000" />
                     </LinearGradientBrush>
                     <LinearGradientBrush x:Key="PlayerBottomGradient" StartPoint="0.5,0" EndPoint="0.5,1">
-                        <GradientStop Color="#70000000" /><GradientStop Offset="1" Color="#CC000000" />
+                        <GradientStop Offset="0" Color="#00000000" />
+                        <GradientStop Offset="1" Color="#99000000" />
                     </LinearGradientBrush>
+                    <SolidColorBrush x:Key="PlayerFallbackSurface" Color="#202020" />
                     <SolidColorBrush x:Key="SliderTrackFill" Color="#55FFFFFF" />
                     <SolidColorBrush x:Key="SliderTrackFillPointerOver" Color="#70FFFFFF" />
                     <SolidColorBrush x:Key="SliderTrackFillPressed" Color="#70FFFFFF" />
@@ -41,6 +45,7 @@
                     <StaticResource x:Key="PlayerAccent" ResourceKey="SystemColorHighlightColorBrush" />
                     <StaticResource x:Key="PlayerTopGradient" ResourceKey="SystemColorWindowColorBrush" />
                     <StaticResource x:Key="PlayerBottomGradient" ResourceKey="SystemColorWindowColorBrush" />
+                    <StaticResource x:Key="PlayerFallbackSurface" ResourceKey="SystemColorWindowColorBrush" />
                     <StaticResource x:Key="SliderTrackFill" ResourceKey="SystemColorWindowTextColorBrush" />
                     <StaticResource x:Key="SliderTrackFillPointerOver" ResourceKey="SystemColorWindowTextColorBrush" />
                     <StaticResource x:Key="SliderTrackFillPressed" ResourceKey="SystemColorWindowTextColorBrush" />
@@ -62,7 +67,7 @@
                 <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
                 <Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="0" />
-                <Setter Property="MaxWidth" Value="420" />
+                <Setter Property="MaxWidth" Value="420" /><Setter Property="MaxHeight" Value="600" />
                 <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
             </Style>
             <!-- Screenbox Styles/Flyout.xaml: native MenuFlyout padding. -->
@@ -83,7 +88,7 @@
                 <Setter Property="Background" Value="Transparent" />
             </Style>
             <Style x:Key="PlayerActionButtonStyle" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
-                <Setter Property="MinHeight" Value="48" /><Setter Property="Padding" Value="16,8" />
+                <Setter Property="MinHeight" Value="40" /><Setter Property="Padding" Value="16,8" />
                 <Setter Property="HorizontalAlignment" Value="Stretch" />
                 <Setter Property="HorizontalContentAlignment" Value="Center" />
                 <Setter Property="UseSystemFocusVisuals" Value="True" />
@@ -99,6 +104,8 @@
                     <VisualState.Setters>
                         <Setter Target="AdaptiveTools.Visibility" Value="Visible"/>
                         <Setter Target="ChapterContainer.Visibility" Value="Visible"/>
+                        <Setter Target="InlineVolumeHost.Visibility" Value="Visible"/>
+                        <Setter Target="VolumeButton.Visibility" Value="Collapsed"/>
                         <Setter Target="MoreButton.Visibility" Value="Collapsed"/>
                     </VisualState.Setters>
                 </VisualState>
@@ -106,28 +113,32 @@
                     <VisualState.Setters>
                         <Setter Target="AdaptiveTools.Visibility" Value="Collapsed"/>
                         <Setter Target="ChapterContainer.Visibility" Value="Collapsed"/>
+                        <Setter Target="InlineVolumeHost.Visibility" Value="Collapsed"/>
+                        <Setter Target="VolumeButton.Visibility" Value="Visible"/>
                         <Setter Target="MoreButton.Visibility" Value="Visible"/>
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
         <Grid x:Name="Chrome">
-            <!-- PlayerPage's immersive title content lives on the video gradient,
-                 never on a second caption surface. Native window behavior is owned
+            <!-- Native window behavior is owned
                  by the host; these buttons only raise requests. -->
-            <Grid x:Name="TopBar" Height="80" VerticalAlignment="Top" Padding="12,8,12,24"
-                  Background="{ThemeResource PlayerTopGradient}" ColumnSpacing="8">
+            <Grid x:Name="TopBar" Height="72" VerticalAlignment="Top" Padding="12,10,12,10"
+                  Background="{ThemeResource PlayerTopGradient}" ColumnSpacing="12">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <Button x:Name="BackButton" Style="{StaticResource PlayerButtonStyle}" Click="Close_Click"
                         AutomationProperties.Name="关闭视频并返回文件" ToolTipService.ToolTip="返回文件">
                     <local:ScreenboxVectorIcon IconName="ArrowLeft" Width="20" Height="20" />
                 </Button>
                 <Grid x:Name="TitleDragRegion" Grid.Column="1" Background="Transparent">
-                    <TextBlock x:Name="TitleText" TextTrimming="CharacterEllipsis" FontSize="14"
-                               FontWeight="SemiBold" Foreground="{ThemeResource PlayerForeground}" VerticalAlignment="Center"
-                               IsHitTestVisible="False" />
+                    <StackPanel VerticalAlignment="Center" Spacing="2" IsHitTestVisible="False">
+                        <TextBlock x:Name="TitleText" TextTrimming="CharacterEllipsis" FontSize="20"
+                                   FontWeight="SemiBold" Foreground="{ThemeResource PlayerForeground}" />
+                        <TextBlock x:Name="SubtitleText" TextTrimming="CharacterEllipsis" FontSize="12"
+                                   Foreground="{ThemeResource PlayerSecondary}" />
+                    </StackPanel>
                 </Grid>
-                <StackPanel x:Name="WindowButtons" Grid.Column="2" Orientation="Horizontal" Spacing="0">
+                <StackPanel x:Name="WindowButtons" Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
                     <Button x:Name="MinimizeButton" Style="{StaticResource PlayerButtonStyle}" Click="Minimize_Click"
                             AutomationProperties.Name="最小化视频窗口" ToolTipService.ToolTip="最小化">
                         <local:ScreenboxVectorIcon IconName="Subtract" Width="20" Height="20"/>
@@ -143,17 +154,31 @@
                 </StackPanel>
             </Grid>
             <Grid x:Name="BottomBar" VerticalAlignment="Bottom" Background="{ThemeResource PlayerBottomGradient}">
-                <Grid Padding="12,34,12,10" RowSpacing="0">
+                <Grid Padding="12,8,12,12" RowSpacing="0">
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <InfoBar x:Name="Notice" HorizontalAlignment="Center" MaxWidth="480" Margin="12,0"
-                             IsOpen="False" IsClosable="True" Severity="Error" Closed="Notice_Closed" />
+                    <StackPanel Margin="12,0">
+                        <Grid x:Name="ResumeToast" Visibility="Collapsed" MaxWidth="640" HorizontalAlignment="Center" ColumnSpacing="12" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="ResumeText" FontSize="14" Foreground="{ThemeResource PlayerForeground}" VerticalAlignment="Center"
+                                       TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                            <Button x:Name="ResumeActionButton" Grid.Column="1" Style="{StaticResource PlayerActionButtonStyle}" Click="ResumeAction_Click"/>
+                            <Button Grid.Column="2" Width="32" Height="32" Style="{StaticResource PlayerButtonStyle}" Click="ResumeDismiss_Click"
+                                    AutomationProperties.Name="关闭续播提示" ToolTipService.ToolTip="关闭提示">
+                                <local:ScreenboxVectorIcon IconName="Dismiss" Width="16" Height="16"/>
+                            </Button>
+                        </Grid>
+                        <TextBlock x:Name="ProgressSyncText" Visibility="Collapsed" Text="播放进度暂未同步" FontSize="12" TextTrimming="CharacterEllipsis"
+                                   Foreground="{ThemeResource PlayerSecondary}" Margin="0,0,0,6" AutomationProperties.LiveSetting="Polite"/>
+                        <InfoBar x:Name="Notice" HorizontalAlignment="Center" MaxWidth="480"
+                                 IsOpen="False" IsClosable="True" Severity="Error" Closed="Notice_Closed" />
+                    </StackPanel>
                     <TextBlock x:Name="PreviewText" Grid.Row="1" Text="00:00" Visibility="Collapsed" Margin="12,0,0,0"
                                Foreground="{ThemeResource PlayerForeground}" Typography.NumeralAlignment="Tabular" FontSize="12" />
                     <!-- Screenbox SeekBar's composition: segmented progress under
                          a transparent native Slider; real cache data is a second layer. -->
-                    <Grid Grid.Row="2" Margin="12,0">
+                    <Grid Grid.Row="2" Margin="8,0">
                         <local:ScreenboxSeekSlider x:Name="SeekSlider" Minimum="0" Maximum="1"
-                                SmallChange="5" LargeChange="10" Height="40" Style="{StaticResource DefaultSliderStyle}"
+                                SmallChange="5" LargeChange="10" Height="32" Style="{StaticResource DefaultSliderStyle}"
                                 IsThumbToolTipEnabled="False" ValueChanged="Seek_ValueChanged" KeyUp="Seek_KeyUp" AutomationProperties.Name="播放进度">
                             <local:ScreenboxSeekSlider.Resources>
                                 <SolidColorBrush x:Key="SliderTrackFill" Color="Transparent"/>
@@ -182,27 +207,35 @@
                             <TextBlock x:Name="TimeText" Text="00:00 / --:--" Foreground="{ThemeResource PlayerForeground}"
                                        FontSize="14" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
                             <Grid x:Name="ChapterContainer" Grid.Column="1">
-                            <Button x:Name="ChapterButton" Width="Auto" MinWidth="0" Padding="8,0"
+                            <Button x:Name="ChapterButton" Width="Auto" MinWidth="0" MaxWidth="240" Padding="8,0"
                                     HorizontalAlignment="Left" Style="{StaticResource PlayerButtonStyle}" Visibility="Collapsed"
                                     Click="Chapter_Click" AutomationProperties.Name="选择章节">
                                 <Grid ColumnSpacing="6"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <TextBlock x:Name="ChapterTitle" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
-                                    <local:ScreenboxVectorIcon Grid.Column="1" IconName="ChevronDown" Width="20" Height="20" VerticalAlignment="Center"/>
+                                    <local:ScreenboxVectorIcon Grid.Column="1" IconName="ChevronDown" Width="12" Height="12" VerticalAlignment="Center"/>
                                 </Grid>
                             </Button>
                             </Grid>
                         </Grid>
                         <StackPanel x:Name="Tools" Grid.Column="4" Orientation="Horizontal" Spacing="4">
+                            <ContentControl x:Name="InlineVolumeHost" VerticalAlignment="Center" Margin="0,0,8,0" IsTabStop="False" />
                             <Button x:Name="VolumeButton" Style="{StaticResource PlayerButtonStyle}" Click="Volume_Click"
                                     AutomationProperties.Name="音量" ToolTipService.ToolTip="音量与静音"><local:ScreenboxVectorIcon x:Name="VolumeIcon" IconName="Speaker2" Width="20" Height="20" /></Button>
                             <StackPanel x:Name="AdaptiveTools" Orientation="Horizontal" Spacing="4">
+                            <Button x:Name="ResolutionButton" Width="Auto" MinWidth="0" Padding="8,0" FontSize="12" Style="{StaticResource PlayerButtonStyle}"
+                                    Visibility="Collapsed" Click="Resolution_Click" AutomationProperties.Name="源分辨率" ToolTipService.ToolTip="源分辨率">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock x:Name="ResolutionText" VerticalAlignment="Center"/>
+                                    <local:ScreenboxVectorIcon IconName="ChevronDown" Width="12" Height="12" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
                             <Button x:Name="AudioButton" Style="{StaticResource PlayerButtonStyle}" Click="Audio_Click"
                                     AutomationProperties.Name="选择音轨" ToolTipService.ToolTip="音轨"><local:ScreenboxVectorIcon IconName="MusicNote2" Width="20" Height="20" /></Button>
                             <Button x:Name="SubtitleButton" Style="{StaticResource PlayerButtonStyle}" Click="Subtitle_Click"
                                     AutomationProperties.Name="选择字幕" ToolTipService.ToolTip="字幕"><local:ScreenboxVectorIcon IconName="ClosedCaption" Width="20" Height="20" /></Button>
                             <Button x:Name="SubtitleStyleButton" Style="{StaticResource PlayerButtonStyle}" Click="SubtitleStyle_Click"
                                     ToolTipService.ToolTip="字幕样式" AutomationProperties.Name="字幕样式"><local:ScreenboxVectorIcon IconName="TextFontSize" Width="20" Height="20" /></Button>
-                            <Button x:Name="SpeedButton" Width="64" Style="{StaticResource PlayerButtonStyle}" Content="1×"
+                            <Button x:Name="SpeedButton" Width="48" Style="{StaticResource PlayerButtonStyle}" Content="1×"
                                     Click="Speed_Click" AutomationProperties.Name="播放速度" ToolTipService.ToolTip="播放速度" />
                             </StackPanel>
                             <Button x:Name="MoreButton" Style="{StaticResource PlayerButtonStyle}" Click="More_Click" Visibility="Collapsed"

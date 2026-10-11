@@ -10,7 +10,7 @@ Source retained and adapted:
 - `ScreenboxButtonResources.xaml` transplants the `SubtleButtonStyle` control
   template, four native visual states, theme/high-contrast brush aliases and
   83 ms background transition from upstream `Styles/Button.xaml`. UWP contract
-  conditionals are removed; hit targets are changed from 40/36 to 48 DIP and
+  conditionals are removed; the standard 40 DIP transport targets are retained and
   explicit keyboard focus visuals are added.
 - `ScreenboxSpeedControl.xaml` ports the header/value/repeat-button/slider/
   rounded-preset structure of `PlaybackSpeedControl.xaml`; its code-behind is
@@ -37,7 +37,7 @@ Source retained and adapted:
   Its session wiring, seek race protection, visibility timer,
   subtitle settings and error handling are Fileway code, not copied Screenbox
   implementations.
-  The immersive 80-DIP title-gradient composition follows `PlayerPage.xaml`;
+  The immersive 72-DIP title-gradient and 20/12 title hierarchy follow `PlayerPage.xaml`;
   the minimize/maximize/close request buttons and local-DIP drag rectangle are
   Fileway's owned-window adapter. The `Screenbox.UI` TitleBar implementation
   and its native caption integration are not copied or claimed as working here.
@@ -59,23 +59,26 @@ They are not covered by the separate MIT license of the `Screenbox.UI` helper di
 Modified for Fileway on 2026-10-10–11: port Windows.UI.Xaml to WinUI 3; remove
 Screenbox-specific DI, services, playlist, casting and application resources;
 bind the existing Fileway playback session; retain native focus, range controls
-and confirmation-driven track/rate state; use 48 DIP targets and precise
+and confirmation-driven track/rate state; use 40 DIP targets and precise
 0.125–5 speed input; add capability-gated subtitle settings and a shared
 four-second visibility timer. Sprite and episode providers are not fabricated.
 
 Material boundary: upstream's video chrome uses edge gradients; its
 `AcrylicBrush BackgroundSource=Backdrop` is part of the in-app background-art
 composition. Fileway's HWND video requires a separate native material boundary.
-The owned WinUI HUD uses a window-level `NativePlayerAcrylicBackdrop`, based on
-the SDK `DesktopAcrylicController` with Thin kind. Its native window region is
-limited to measured top/footer bounds; the central movie area is excluded.
-The edge gradients use translucent black contrast layers to limit bright-scene
-washout without introducing transparent-white interpolation. Chrome keeps
-its material when focus moves, while the SDK retains system transparency,
-accessibility and capability fallback policy. Popups use the SDK's built-in
-`DesktopAcrylicBackdrop` with Base kind when supported; disabling effects
-restores the native `AcrylicInAppFillColorDefaultBrush` presenter style.
-The failed WinUIEx/Win2D and SystemBackdropElement candidates are not loaded.
+The owned WinUI HUD uses WinUIEx 2.9.3 `TransparentTintBackdrop` for transparency;
+its MIT notice is included in `WinUIEx-MIT.txt`. The full HUD stays transparent
+so native popups are not clipped to toolbar bounds. Native WinUI
+linear gradients retain the source video's detail while fading from translucent
+black to transparent. The previous toolbar acrylic/controller and small DWM
+material-window candidates are not used. Settings reuse the original control
+content in a small, interactive owned WinUI window, targeting the SDK
+`DesktopAcrylicController` across that window's complete surface. The Thin
+recipe retains system luminosity/noise with a dark `#2C2C2C` tint at 0.15 opacity.
+The SDK controls system-policy and high-contrast fallbacks. Systems without
+desktop acrylic support keep an opaque accessible settings surface. Standard
+presenter flyouts remain available when no native settings adapter is supplied.
+The failed Win2D effect graph and SystemBackdropElement candidates are not loaded.
 Native-video sampling, popup materials and platform fallback behavior require
 separate runtime verification. Tint alone must not be described as verified
 video blur. The pinned upstream has no

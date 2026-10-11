@@ -36,6 +36,15 @@ The native preview supports password/noauth connections, directory browsing, sor
 
 A complete local media file can also be opened offline by passing its absolute path as the sole argument to `Fileway.App.exe`. This does not acquire a remote media lease or require login.
 
+Remote playback reuses the server's playback-history API and resume preferences;
+the native nonmodal offer follows the Web player's resume/from-start/ask behavior.
+Only confirmed engine positions are saved. Source resolution is displayed from
+native video metadata; it does not imply HLS transcoding quality selection.
+
+Windows executable, window, taskbar and installer icons use the Android launcher's
+original foreground paths and background gradient. Raster sizes are platform
+exports of those sources, not a separate Windows brand.
+
 This preview uses explicit direct connections, including routes supplied by the system Tailscale installation. System/PAC proxies, embedded tsnet, persistent credentials, transfers, file mutations and external-player integration are not included in this first slice. They remain separate application work. The main interface contains no placeholder actions for those features.
 
 The Go auxiliary process is managed by the app: it starts locally, uses private inherited control pipes, and exits with the parent. Process management prevents orphan processes and supports crash recovery. Server authorization continues to enforce the existing account permissions.

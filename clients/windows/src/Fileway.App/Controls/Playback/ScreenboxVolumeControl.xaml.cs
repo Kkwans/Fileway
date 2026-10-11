@@ -42,6 +42,16 @@ public sealed partial class ScreenboxVolumeControl : UserControl
         VolumeGlyph.IconName = muted ? "SpeakerMute" : volume < 34 ? "Speaker0" : volume < 67 ? "Speaker1" : "Speaker2";
         AutomationProperties.SetName(MuteToggle, muted ? "取消静音" : "静音");
         VolumeValue.Text = $"{volume:0}%";
+        ToolTipService.SetToolTip(VolumeSlider, $"音量 {volume:0}%");
+    }
+
+    public void UseInlineLayout()
+    {
+        VolumeLayout.Width = 140;
+        VolumeLayout.Padding = new Thickness(0);
+        VolumeLayout.ColumnSpacing = 4;
+        ValueColumn.Width = new GridLength(0);
+        VolumeValue.Visibility = Visibility.Collapsed;
     }
 
     private void Volume_ValueChanged(object sender, RangeBaseValueChangedEventArgs args) { if (!_updating) _setVolume(args.NewValue); }

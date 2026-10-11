@@ -41,6 +41,8 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private nint _child;
     private bool _subtitlePickerOpen;
     private long _subtitlePickerGeneration;
+    private bool _initialAspectApplied;
+    private bool _userAdjustedWindow;
 
     public PlayerWindow(IPlaybackSession session)
     {
@@ -140,13 +142,20 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
         NativePlayerOverlay.SetWindowLongPtrW(_window, -16, (nint)((style & ~0x00c00000L) | 0x000f0000L));
         var dark = 1;
         var noBorderColor = unchecked((int)0xfffffffeu); // DWMWA_COLOR_NONE.
+        var renderNonClient = 2; // DWMNCRP_ENABLED: retain the system window shadow.
+        var roundCorners = 2; // DWMWCP_ROUND.
+        _ = NativeVideoWindow.DwmSetWindowAttribute(_window, 2, ref renderNonClient, sizeof(int));
         _ = NativeVideoWindow.DwmSetWindowAttribute(_window, 20, ref dark, sizeof(int));
+        _ = NativeVideoWindow.DwmSetWindowAttribute(_window, 33, ref roundCorners, sizeof(int));
         _ = NativeVideoWindow.DwmSetWindowAttribute(_window, 34, ref noBorderColor, sizeof(int));
+        var shadowFrame = new NativeVideoWindow.FrameMargins { Left = 1, Right = 1, Top = 1, Bottom = 1 };
+        _ = NativeVideoWindow.DwmExtendFrameIntoClientArea(_window, ref shadowFrame);
         NativeVideoWindow.SetWindowPos(_window, 0, 0, 0, 0, 0, 0x0037); // FRAMECHANGED, no activation/move/size/z-order.
     }
 
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint subclassId, nuint reference)
     {
+        if (window == _window && message == 0x0231) _userAdjustedWindow = true; // Native move/resize loop.
         if (!_disposed && window == _window && message == 0x0083) return 0; // WM_NCCALCSIZE: full-window client.
         if (!_disposed && window == _window && message == 0x0085) return 0;
         if (!_disposed && window == _window && message == 0x0086)
@@ -291,6 +300,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private void ApplySnapshot(PlaybackSnapshot snapshot)
     {
         if (_detached) return;
+        FitInitialVideoAspect(snapshot.DisplayAspectRatio);
         _overlay.ApplySnapshot(snapshot);
         if (snapshot.Error is { } error) { ShowState("无法播放这个视频", error.Message, loading: false); return; }
         switch (snapshot.Status)
@@ -318,6 +328,35 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
                 UpdateVideoVisibility();
                 break;
         }
+    }
+
+    private void FitInitialVideoAspect(double? displayAspectRatio)
+    {
+        if (_initialAspectApplied || displayAspectRatio is not { } aspect || !double.IsFinite(aspect) || aspect is < 0.1 or > 10) return;
+        _initialAspectApplied = true;
+        if (_userAdjustedWindow
+            || AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen || NativePlayerOverlay.IsZoomed(_window)) return;
+        var scale = NativeVideoWindow.GetDpiForWindow(_window) / 96d;
+        var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        var margin = (int)Math.Round(24 * scale);
+        var frameWidth = Math.Max(0, AppWindow.Size.Width - AppWindow.ClientSize.Width);
+        var frameHeight = Math.Max(0, AppWindow.Size.Height - AppWindow.ClientSize.Height);
+        var width = AppWindow.ClientSize.Width;
+        var height = Math.Max((int)Math.Round(270 * scale), (int)Math.Round(width / aspect));
+        var maxHeight = Math.Max(1, work.Height - 2 * margin - frameHeight);
+        if (height > maxHeight)
+        {
+            height = maxHeight;
+            width = Math.Max((int)Math.Round(480 * scale), (int)Math.Round(height * aspect));
+        }
+        width = Math.Min(width, Math.Max(1, work.Width - 2 * margin - frameWidth));
+        var outerWidth = width + frameWidth;
+        var outerHeight = height + frameHeight;
+        var x = AppWindow.Position.X + (AppWindow.Size.Width - outerWidth) / 2;
+        var y = AppWindow.Position.Y + (AppWindow.Size.Height - outerHeight) / 2;
+        AppWindow.MoveAndResize(new RectInt32(Math.Clamp(x, work.X, work.X + Math.Max(0, work.Width - outerWidth)),
+            Math.Clamp(y, work.Y, work.Y + Math.Max(0, work.Height - outerHeight)), outerWidth, outerHeight));
+        UpdateBounds();
     }
 
     private void ShowState(string title, string description, bool loading)
@@ -537,6 +576,8 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
 
 internal static class NativeVideoWindow
 {
+    [StructLayout(LayoutKind.Sequential)] internal struct FrameMargins { internal int Left, Right, Top, Bottom; }
+    [DllImport("dwmapi.dll", ExactSpelling = true)] internal static extern int DwmExtendFrameIntoClientArea(nint window, ref FrameMargins margins);
     internal delegate nint SubclassProc(nint window, uint message, nuint wParam, nint lParam, nuint subclassId, nuint reference);
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativePoint { internal int X; internal int Y; }

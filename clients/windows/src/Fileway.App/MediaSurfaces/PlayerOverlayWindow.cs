@@ -20,14 +20,13 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private readonly NativeVideoWindow.SubclassProc _procedure;
     private readonly nint _window;
     private readonly nint _owner;
-    private readonly PlayerBackdropState _backdropActivity = new();
+    private PlayerSettingsWindow? _settingsWindow;
     private readonly UISettings _policySettings = new();
     private readonly AccessibilitySettings _policyAccessibility = new();
     private bool _ownerFullscreen;
     private bool _disposed;
     private bool _activatedOnce;
     private bool _ownerVisible;
-    private (int Width, int Height, int Top, int Bottom)? _materialRegion;
 
     internal PlayerOverlayWindow(IPlaybackSession session, nint owner)
     {
@@ -37,19 +36,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         _procedure = WindowProcedure;
         try
         {
-            var initialRegion = NativePlayerOverlay.CreateRectRgn(0, 0, 0, 0);
-            if (initialRegion == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-            if (NativePlayerOverlay.SetWindowRgn(_window, initialRegion, true) == 0)
-            {
-                NativePlayerOverlay.DeleteObject(initialRegion);
-                throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
-            }
             _controls = new ScreenboxPlayerControls(session);
             RefreshBackdropState();
             EnableHostBackdrop();
             UpdateBackdropFactory();
             Content = _controls;
-            // Assign acrylic only after the bounded native region exists.
+            SystemBackdrop = new WinUIEx.TransparentTintBackdrop();
             EnableHostBackdrop();
             if (AppWindow.Presenter is OverlappedPresenter presenter)
             {
@@ -66,6 +58,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             if (NativeVideoWindow.GetWindow(_window, 4) != owner)
                 throw new InvalidOperationException("无法绑定播放器控制窗口。");
             NativeVideoWindow.SetWindowSubclass(_window, _procedure, 2, 0);
+            _controls.SetNativeSettingsHost(ShowNativeSettings, CloseNativeSettings);
             EnableHostBackdrop();
             _controls.CloseRequested += Controls_CloseRequested;
             _controls.ToggleFullscreenRequested += Controls_ToggleFullscreenRequested;
@@ -109,6 +102,38 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void Controls_MinimizeRequested(object? sender, EventArgs args) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
     private void Controls_MaximizeRequested(object? sender, EventArgs args) => MaximizeRequested?.Invoke(this, EventArgs.Empty);
 
+    private void ShowNativeSettings(FrameworkElement content, FrameworkElement anchor, Style? style, Action onClosed)
+    {
+        if (_disposed) { onClosed(); return; }
+        CloseNativeSettings();
+        PlayerSettingsWindow? popup = null;
+        try
+        {
+            popup = new PlayerSettingsWindow(_window, content, style, () =>
+            {
+                if (ReferenceEquals(_settingsWindow, popup)) _settingsWindow = null;
+                onClosed();
+            });
+            _settingsWindow = popup;
+            popup.ShowAt(anchor);
+        }
+        catch (Exception exception)
+        {
+            if (ReferenceEquals(_settingsWindow, popup)) _settingsWindow = null;
+            popup?.Dispose();
+            onClosed();
+            _controls.ReportError("设置窗口未能打开，请关闭后重试。");
+            System.Diagnostics.Trace.TraceError($"Playback settings host failed: {exception.GetType().Name}; HRESULT=0x{exception.HResult:X8}");
+        }
+    }
+
+    private void CloseNativeSettings()
+    {
+        var popup = _settingsWindow;
+        _settingsWindow = null;
+        popup?.Dispose();
+    }
+
     internal void SetWindowMaximized(bool maximized)
     {
         if (!_disposed) _controls.SetWindowMaximized(maximized);
@@ -148,47 +173,10 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             NativeVideoWindow.ShowWindow(_window, 0);
             return;
         }
-        if (UpdateMaterialRegion()) NativeVideoWindow.ShowWindow(_window, 4);
-    }
-
-    private bool UpdateMaterialRegion()
-    {
-        if (_disposed || _controls.XamlRoot is null || !NativePlayerOverlay.GetClientRect(_window, out var bounds)) return false;
-        var scale = _controls.XamlRoot.RasterizationScale;
-        var (top, bottom) = _controls.GetMaterialInsets();
-        var width = Math.Max(0, bounds.Right - bounds.Left);
-        var height = Math.Max(0, bounds.Bottom - bounds.Top);
-        var topPixels = Math.Clamp((int)Math.Ceiling(top * scale), 0, height);
-        var bottomPixels = Math.Clamp((int)Math.Ceiling(bottom * scale), 0, height);
-        var regionKey = (width, height, topPixels, bottomPixels);
-        if (_materialRegion == regionKey) return true;
-        var region = NativePlayerOverlay.CreateRectRgn(0, 0, width, topPixels);
-        var footer = NativePlayerOverlay.CreateRectRgn(0, height - bottomPixels, width, height);
-        if (region == 0 || footer == 0)
-        {
-            if (region != 0) NativePlayerOverlay.DeleteObject(region);
-            if (footer != 0) NativePlayerOverlay.DeleteObject(footer);
-            NativeVideoWindow.ShowWindow(_window, 0); // Fail closed: no full-movie material.
-            return false;
-        }
-        try
-        {
-            if (NativePlayerOverlay.CombineRgn(region, region, footer, 2) == 0
-                || NativePlayerOverlay.SetWindowRgn(_window, region, true) == 0)
-            {
-                NativeVideoWindow.ShowWindow(_window, 0);
-                return false;
-            }
-            region = 0; // A successful SetWindowRgn transfers ownership to USER32.
-            _materialRegion = regionKey;
-            SystemBackdrop ??= new NativePlayerAcrylicBackdrop(_backdropActivity);
-            return true;
-        }
-        finally
-        {
-            NativePlayerOverlay.DeleteObject(footer);
-            if (region != 0) NativePlayerOverlay.DeleteObject(region);
-        }
+        // Keep the full transparent XAML surface: popup content can extend above
+        // the footer and must never be clipped to a native toolbar region.
+        NativeVideoWindow.ShowWindow(_window, 4);
+        _controls.SetMaterialAvailable(true, _policyAccessibility.HighContrast);
     }
 
     private void RecordIconDiagnostics()
@@ -217,9 +205,10 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         if (_disposed) return;
         Func<SystemBackdrop>? popupFactory = null;
-        if (NativePlayerAcrylicBackdrop.IsSupported && _policySettings.AdvancedEffectsEnabled && !_policyAccessibility.HighContrast)
+        if (Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported() && _policySettings.AdvancedEffectsEnabled && !_policyAccessibility.HighContrast)
             popupFactory = static () => new DesktopAcrylicBackdrop();
         _controls.SetFlyoutBackdropFactory(popupFactory);
+        UpdateMaterialVisibility();
     }
 
     private void PolicySettings_Changed(UISettings sender, object args) => DispatcherQueue.TryEnqueue(UpdateBackdropFactory);
@@ -227,16 +216,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void EnableHostBackdrop()
     {
         if (_disposed) return;
-        // Official DWMWA_USE_HOSTBACKDROPBRUSH (17), Windows 11 22000+.
-        // Only the owned HUD HWND is changed; never the video/HDR HWND.
-        var enabled = 1;
-        _backdropActivity.SetHostBackdropResult(NativeVideoWindow.DwmSetWindowAttribute(_window, 17, ref enabled, sizeof(int)));
+        // Screenbox-style translucent edge gradients belong to WinUI. Do not
+        // add a desktop-acrylic plate or extended glass behind the whole HUD.
         var noBorder = unchecked((int)0xfffffffeu);
         _ = NativeVideoWindow.DwmSetWindowAttribute(_window, 34, ref noBorder, sizeof(int));
         var dark = 1;
         _ = NativeVideoWindow.DwmSetWindowAttribute(_window, 20, ref dark, sizeof(int));
-        var margins = new NativePlayerOverlay.Margins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
-        _ = NativePlayerOverlay.DwmExtendFrameIntoClientArea(_window, ref margins);
         var dc = NativePlayerOverlay.GetDC(_window);
         if (dc != 0)
         {
@@ -253,20 +238,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
     internal void RefreshBackdropState()
     {
-        if (_disposed) return;
-        var current = NativePlayerOverlay.GetForegroundWindow();
-        var active = false;
-        for (var depth = 0; current != 0 && depth < 16; depth++)
-        {
-            var root = NativePlayerOverlay.GetAncestor(current, 2); // GA_ROOT.
-            if (current == _window || current == _owner || root == _window || root == _owner)
-            {
-                active = true;
-                break;
-            }
-            current = NativeVideoWindow.GetWindow(root == 0 ? current : root, 4); // GW_OWNER.
-        }
-        _backdropActivity.Update(active, _controls.ActualTheme);
+        if (!_disposed) UpdateMaterialVisibility();
     }
 
     internal void ApplySnapshot(PlaybackSnapshot snapshot)
@@ -336,7 +308,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         UpdateMaterialVisibility();
     }
 
-    internal void Hide() { if (!_disposed) { _ownerVisible = false; NativeVideoWindow.ShowWindow(_window, 0); } }
+    internal void Hide()
+    {
+        if (_disposed) return;
+        _ownerVisible = false;
+        NativeVideoWindow.ShowWindow(_window, 0);
+    }
 
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
     {
@@ -397,6 +374,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        CloseNativeSettings();
         NativeVideoWindow.ShowWindow(_window, 0);
         NativeVideoWindow.RemoveWindowSubclass(_window, _procedure, 2);
         _controls.CloseRequested -= Controls_CloseRequested;
@@ -416,18 +394,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
 internal static class NativePlayerOverlay
 {
-    [StructLayout(LayoutKind.Sequential)] internal struct Margins { internal int Left, Right, Top, Bottom; }
-    [DllImport("dwmapi.dll", ExactSpelling = true)] internal static extern int DwmExtendFrameIntoClientArea(nint window, ref Margins margins);
     [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint GetDC(nint window);
     [DllImport("user32.dll", ExactSpelling = true)] internal static extern int ReleaseDC(nint window, nint dc);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetClientRect(nint window, out Rect rectangle);
     [DllImport("user32.dll", ExactSpelling = true)] internal static extern int FillRect(nint dc, ref Rect rectangle, nint brush);
     [DllImport("gdi32.dll", ExactSpelling = true)] internal static extern nint GetStockObject(int index);
-    [DllImport("gdi32.dll", ExactSpelling = true, SetLastError = true)] internal static extern nint CreateRectRgn(int left, int top, int right, int bottom);
-    [DllImport("gdi32.dll", ExactSpelling = true)] internal static extern int CombineRgn(nint destination, nint first, nint second, int mode);
-    [DllImport("gdi32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool DeleteObject(nint value);
-    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)] internal static extern int SetWindowRgn(nint window, nint region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
     internal static NativeVideoWindow.NativePoint PointFromLParam(nint value) => new()
     {
         X = unchecked((short)(value.ToInt64() & 0xffff)),
@@ -447,9 +419,9 @@ internal static class NativePlayerOverlay
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool IsWindowVisible(nint window);
     [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint GetForegroundWindow();
+    [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint GetAncestor(nint window, uint flags);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool SetForegroundWindow(nint window);
-    [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint GetAncestor(nint window, uint flags);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool IsZoomed(nint window);
 }

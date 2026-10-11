@@ -19,9 +19,13 @@ namespace Fileway.App.Controls.Playback;
 
 public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 {
+    private const double ExpandedControlsMinWidth = 1000;
     private readonly IPlaybackSession _session;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DispatcherQueueTimer _hideTimer;
+    private readonly DispatcherQueueTimer _resumeTimer;
+    private readonly HashSet<(Guid SessionId, TimeSpan Position, PlaybackResumeMode Mode)> _shownResumePrompts = [];
+    private PlaybackResumePrompt? _visibleResumePrompt;
     private readonly UISettings _uiSettings = new();
     private PlaybackSnapshot _snapshot;
     private SubtitlePreferences _subtitlePreferences = new();
@@ -35,6 +39,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private Storyboard? _fade;
     private ScreenboxSpeedControl? _speedControl;
     private ScreenboxVolumeControl? _volumeControl;
+    private readonly ScreenboxVolumeControl _inlineVolumeControl;
     private ScreenboxTrackPicker? _trackPicker;
     private FlyoutBase? _activeFlyout;
     private double? _pendingRate;
@@ -45,23 +50,35 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private double? _pendingSubtitleSafeArea;
     private bool _subtitleSafeAreaRunning;
     private Func<SystemBackdrop>? _flyoutBackdropFactory;
+    private Action<FrameworkElement, FrameworkElement, Style?, Action>? _showNativeSettings;
+    private Action? _closeNativeSettings;
+    private Action? _activeSettingsClosed;
+    private bool _nativeSettingsOpen;
 
     public ScreenboxPlayerControls(IPlaybackSession session)
     {
         _session = session;
         _snapshot = session.Snapshot;
         InitializeComponent();
+        _inlineVolumeControl = new ScreenboxVolumeControl(_snapshot.Volume, _snapshot.IsMuted, RequestVolume,
+            async muted => await RunAsync(token => _session.SetMutedAsync(muted, token)));
+        _inlineVolumeControl.UseInlineLayout();
+        InlineVolumeHost.Content = _inlineVolumeControl;
         _hideTimer = DispatcherQueue.CreateTimer();
         _hideTimer.Interval = TimeSpan.FromSeconds(4);
         _hideTimer.IsRepeating = false;
         _hideTimer.Tick += HideTimer_Tick;
+        _resumeTimer = DispatcherQueue.CreateTimer();
+        _resumeTimer.Interval = TimeSpan.FromSeconds(6);
+        _resumeTimer.IsRepeating = false;
+        _resumeTimer.Tick += ResumeTimer_Tick;
         SeekSlider.AddHandler(PointerPressedEvent, new PointerEventHandler(Seek_PointerPressed), true);
         SeekSlider.AddHandler(PointerReleasedEvent, new PointerEventHandler(Seek_PointerReleased), true);
         SeekSlider.AddHandler(PointerCanceledEvent, new PointerEventHandler(Seek_PointerCanceled), true);
         SeekSlider.PreviewKeyDown += Seek_PreviewKeyDown;
         SeekSlider.LostFocus += Seek_LostFocus;
-        Loaded += (_, _) => { VisualStateManager.GoToState(this, ActualWidth < 900 ? "AdaptiveHidden" : "Expanded", false); NotifyActivity(); UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged(); };
-        Unloaded += (_, _) => _hideTimer.Stop();
+        Loaded += Controls_Loaded;
+        Unloaded += Controls_Unloaded;
         SizeChanged += Controls_SizeChanged;
         BottomBar.SizeChanged += BottomBar_SizeChanged;
         ControlsVisibilityChanged += Controls_SafeAreaVisibilityChanged;
@@ -76,6 +93,24 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public event EventHandler? ControlsVisibilityChanged;
     public event EventHandler? MaterialBoundsChanged;
     public bool ControlsVisible { get; private set; } = true;
+
+    internal void SetNativeSettingsHost(Action<FrameworkElement, FrameworkElement, Style?, Action>? show, Action? close)
+    {
+        if (_disposed) return;
+        CloseSettingsFlyout();
+        _showNativeSettings = show;
+        _closeNativeSettings = close;
+    }
+
+    public void SetMaterialAvailable(bool available, bool highContrast = false)
+    {
+        if (_disposed) return;
+        var theme = (ResourceDictionary)Resources.ThemeDictionaries[highContrast ? "HighContrast" : "Default"];
+        // The signature remains compatible with the host; normal HUD masks
+        // are independent of native material support or transparency effects.
+        TopBar.Background = (Brush)theme[highContrast ? "PlayerFallbackSurface" : "PlayerTopGradient"];
+        BottomBar.Background = (Brush)theme[highContrast ? "PlayerFallbackSurface" : "PlayerBottomGradient"];
+    }
 
     /// <summary>Supplies a fresh native backdrop for each popup. Null restores
     /// the presenter App Acrylic style; toolbar material belongs to the window.</summary>
@@ -120,7 +155,11 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         var wasPlaying = _snapshot.Status == PlaybackStatus.Playing;
         _snapshot = snapshot;
         _applying = true;
-        TitleText.Text = snapshot.DisplayName;
+        var extension = System.IO.Path.GetExtension(snapshot.DisplayName).ToLowerInvariant();
+        var hasMediaExtension = extension is ".mp4" or ".mkv" or ".webm" or ".mov" or ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv" or ".flv" or ".mp3" or ".flac" or ".m4a" or ".wav" or ".ogg";
+        TitleText.Text = hasMediaExtension ? snapshot.DisplayName[..^extension.Length] : snapshot.DisplayName;
+        SubtitleText.Text = snapshot.DisplayName;
+        SubtitleText.Visibility = hasMediaExtension ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(TitleText, snapshot.DisplayName);
         PlayIcon.IconName = snapshot.Status is PlaybackStatus.Paused or PlaybackStatus.Ended ? "Play" : "Pause";
         AutomationProperties.SetName(PlayButton, snapshot.Status == PlaybackStatus.Ended ? "重新播放" : snapshot.Status == PlaybackStatus.Paused ? "开始播放" : "暂停播放");
@@ -145,13 +184,21 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         VolumeIcon.IconName = snapshot.IsMuted ? "SpeakerMute" : snapshot.Volume < 34 ? "Speaker0" : snapshot.Volume < 67 ? "Speaker1" : "Speaker2";
         _speedControl?.ApplyConfirmedRate(snapshot.PlaybackRate, _rateRunning);
         _volumeControl?.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
+        _inlineVolumeControl.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
         _trackPicker?.ApplyTracks(snapshot.Tracks);
         AudioButton.Visibility = snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio) ? Visibility.Visible : Visibility.Collapsed;
         var hasSubtitles = snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Subtitle);
         SubtitleButton.Visibility = Visibility.Visible;
         var caps = snapshot.SubtitleCapabilities;
         SubtitleStyleButton.Visibility = hasSubtitles && (caps.CanScale || caps.CanPosition || caps.CanDelay || caps.CanChangeFont) ? Visibility.Visible : Visibility.Collapsed;
+        ResolutionButton.Visibility = SourceResolution(snapshot) is null ? Visibility.Collapsed : Visibility.Visible;
+        ResolutionText.Text = SourceResolution(snapshot) ?? "";
+        AutomationProperties.SetName(ResolutionButton, "源分辨率 " + ResolutionText.Text);
+        ProgressSyncText.Visibility = snapshot.Diagnostics.ProgressError is null ? Visibility.Collapsed : Visibility.Visible;
+        ToolTipService.SetToolTip(ProgressSyncText, snapshot.Diagnostics.ProgressError?.Message);
+        AutomationProperties.SetHelpText(ProgressSyncText, snapshot.Diagnostics.ProgressError?.Message ?? "");
         _applying = false;
+        UpdateResumePrompt();
         if (snapshot.Error is { } error) ShowError(error.Message);
         if (snapshot.Status != PlaybackStatus.Playing) ShowControls();
         else if (!wasPlaying) NotifyActivity();
@@ -170,7 +217,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (_disposed) return;
         ShowControls();
         _hideTimer.Stop();
-        if (_snapshot.Status == PlaybackStatus.Playing && !_seeking && !_menuOpen && !Notice.IsOpen) _hideTimer.Start();
+        if (_snapshot.Status == PlaybackStatus.Playing && !_seeking && !_menuOpen && !Notice.IsOpen && _visibleResumePrompt is null) _hideTimer.Start();
     }
 
     public void ShowControls()
@@ -182,9 +229,81 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (!ControlsVisible) { ControlsVisible = true; ControlsVisibilityChanged?.Invoke(this, EventArgs.Empty); }
     }
 
+    private void Controls_Loaded(object sender, RoutedEventArgs args)
+    {
+        VisualStateManager.GoToState(this, ActualWidth < ExpandedControlsMinWidth ? "AdaptiveHidden" : "Expanded", false);
+        UpdateResumePrompt();
+        NotifyActivity(); UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged();
+    }
+
+    private void Controls_Unloaded(object sender, RoutedEventArgs args)
+    {
+        CloseSettingsFlyout();
+        _hideTimer.Stop();
+        DismissResumePrompt(notifyActivity: false);
+    }
+
+    private void UpdateResumePrompt()
+    {
+        if (!IsLoaded) return;
+        var prompt = _snapshot.ResumePrompt;
+        if (prompt is null || prompt.Position <= TimeSpan.Zero || _snapshot.Status is PlaybackStatus.Closing or PlaybackStatus.Stopped or PlaybackStatus.Failed)
+        {
+            if (_visibleResumePrompt is not null) DismissResumePrompt();
+            return;
+        }
+        ResumeActionButton.IsEnabled = _snapshot.Seekable && (prompt.Mode != PlaybackResumeMode.Resume || _session is IPlaybackResumeControl);
+        if (_visibleResumePrompt == prompt) return;
+        if (_visibleResumePrompt is not null) DismissResumePrompt();
+        if (_shownResumePrompts.Contains((_session.Id, prompt.Position, prompt.Mode))) return;
+        _visibleResumePrompt = prompt;
+        ResumeText.Text = prompt.Mode == PlaybackResumeMode.Resume
+            ? "将从 " + Clock(prompt.Position) + " 继续播放"
+            : "上次播放至 " + Clock(prompt.Position);
+        var action = prompt.Mode == PlaybackResumeMode.Resume ? "从头播放" : "跳转播放";
+        ResumeActionButton.Content = action;
+        AutomationProperties.SetName(ResumeActionButton, action);
+        ResumeToast.Visibility = Visibility.Visible;
+        _resumeTimer.Start();
+        NotifyActivity();
+    }
+
+    private void DismissResumePrompt(bool notifyActivity = true)
+    {
+        _resumeTimer.Stop();
+        if (_visibleResumePrompt is { } prompt) _shownResumePrompts.Add((_session.Id, prompt.Position, prompt.Mode));
+        _visibleResumePrompt = null;
+        var focused = XamlRoot is null ? null : FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
+        while (focused is not null)
+        {
+            if (focused == ResumeToast) { PlayButton.Focus(FocusState.Keyboard); break; }
+            focused = VisualTreeHelper.GetParent(focused);
+        }
+        ResumeToast.Visibility = Visibility.Collapsed;
+        if (notifyActivity) NotifyActivity();
+    }
+
+    private void ResumeTimer_Tick(DispatcherQueueTimer sender, object args) => DismissResumePrompt();
+    private void ResumeDismiss_Click(object sender, RoutedEventArgs args) => DismissResumePrompt();
+    private async void ResumeAction_Click(object sender, RoutedEventArgs args)
+    {
+        if (_visibleResumePrompt is not { } prompt) return;
+        DismissResumePrompt();
+        await RunAsync(async token =>
+        {
+            if (prompt.Mode == PlaybackResumeMode.Resume)
+            {
+                if (_session is IPlaybackResumeControl resumeControl) await resumeControl.RestartFromBeginningAsync(token);
+                return;
+            }
+            await _session.SeekAsync(prompt.Position, token);
+            await _session.SetPausedAsync(false, token);
+        });
+    }
+
     private void HideTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        if (_snapshot.Status != PlaybackStatus.Playing || _seeking || _menuOpen || Notice.IsOpen) return;
+        if (_snapshot.Status != PlaybackStatus.Playing || _seeking || _menuOpen || Notice.IsOpen || _visibleResumePrompt is not null) return;
         if (XamlRoot is not null && FocusManager.GetFocusedElement(XamlRoot) is Control { FocusState: FocusState.Keyboard }) return;
         ControlsVisible = false;
         Chrome.IsHitTestVisible = false;
@@ -289,9 +408,32 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Audio_Click(object sender, RoutedEventArgs args) => ShowTracks(AudioButton, MediaTrackKind.Audio);
     private void Subtitle_Click(object sender, RoutedEventArgs args) => ShowTracks(SubtitleButton, MediaTrackKind.Subtitle);
+    private static string? SourceResolution(PlaybackSnapshot snapshot) => snapshot.Diagnostics is { VideoWidth: > 0, VideoHeight: > 0 } diagnostics
+        ? $"{diagnostics.VideoWidth}×{diagnostics.VideoHeight}" : null;
+
+    private static RadioMenuFlyoutItem SourceResolutionItem(string resolution) => new()
+    {
+        Text = "原画 · " + resolution,
+        GroupName = "SourceResolution",
+        IsChecked = true,
+    };
+
+    private void Resolution_Click(object sender, RoutedEventArgs args)
+    {
+        if (SourceResolution(_snapshot) is not { } resolution) return;
+        var menu = new MenuFlyout();
+        menu.Items.Add(SourceResolutionItem(resolution));
+        ShowFlyout(menu, ResolutionButton);
+    }
+
     private void More_Click(object sender, RoutedEventArgs args)
     {
         var menu = new MenuFlyout();
+        if (SourceResolution(_snapshot) is { } resolution)
+        {
+            menu.Items.Add(SourceResolutionItem(resolution));
+            menu.Items.Add(new MenuFlyoutSeparator());
+        }
         if (_snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio)) Add("音轨", "MusicNote2", () => ShowTracks(MoreButton, MediaTrackKind.Audio));
         Add("字幕", "ClosedCaption", () => ShowTracks(MoreButton, MediaTrackKind.Subtitle));
         if (SubtitleStyleButton.Visibility == Visibility.Visible) Add("字幕样式", "TextFontSize", () => SubtitleStyle_Click(MoreButton, args));
@@ -316,14 +458,11 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     }
     private void ShowTracks(FrameworkElement anchor, MediaTrackKind kind)
     {
-        _activeFlyout?.Hide();
         Flyout? flyout = null;
         _trackPicker = new ScreenboxTrackPicker(kind, _snapshot.Tracks,
             async id => await RunAsync(token => _session.SelectTrackAsync(kind, id, token)),
-            () => { flyout?.Hide(); AddSubtitleRequested?.Invoke(this, EventArgs.Empty); });
+            () => { CloseSettingsFlyout(flyout); AddSubtitleRequested?.Invoke(this, EventArgs.Empty); });
         flyout = new Flyout { Content = _trackPicker };
-        var trackPicker = _trackPicker;
-        flyout.Closed += (_, _) => { if (_trackPicker == trackPicker) _trackPicker = null; };
         ShowFlyout(flyout, anchor);
     }
 
@@ -331,8 +470,6 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         _speedControl = new ScreenboxSpeedControl(_snapshot.PlaybackRate, RequestRate);
         var flyout = new Flyout { Content = _speedControl };
-        var speedControl = _speedControl;
-        flyout.Closed += (_, _) => { if (_speedControl == speedControl) _speedControl = null; };
         ShowFlyout(flyout, SpeedButton);
     }
 
@@ -341,8 +478,6 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _volumeControl = new ScreenboxVolumeControl(_snapshot.Volume, _snapshot.IsMuted, RequestVolume,
             async muted => await RunAsync(token => _session.SetMutedAsync(muted, token)));
         var flyout = new Flyout { Content = _volumeControl };
-        var volumeControl = _volumeControl;
-        flyout.Closed += (_, _) => { if (_volumeControl == volumeControl) _volumeControl = null; };
         ShowFlyout(flyout, VolumeButton);
     }
 
@@ -381,14 +516,22 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
                 await RunAsync(token => _session.SetVolumeAsync(next, token));
             }
         }
-        finally { _volumeRunning = false; if (!_disposed) _volumeControl?.ApplyConfirmed(_session.Snapshot.Volume, _session.Snapshot.IsMuted); }
+        finally
+        {
+            _volumeRunning = false;
+            if (!_disposed)
+            {
+                _volumeControl?.ApplyConfirmed(_session.Snapshot.Volume, _session.Snapshot.IsMuted);
+                _inlineVolumeControl.ApplyConfirmed(_session.Snapshot.Volume, _session.Snapshot.IsMuted);
+            }
+        }
     }
 
     private void SubtitleStyle_Click(object sender, RoutedEventArgs args)
     {
         var caps = _snapshot.SubtitleCapabilities;
-        var panel = new StackPanel { Spacing = 16, Width = 320, Margin = new Thickness(20) };
-        panel.Children.Add(new TextBlock { Text = "字幕样式", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var panel = new StackPanel { Spacing = 16, Width = 288, Margin = new Thickness(20) };
+        panel.Children.Add(new TextBlock { Text = "字幕样式", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         var scale = new NumberBox { Header = "大小比例", Minimum = 0.25, Maximum = 5, Value = _subtitlePreferences.Scale, SmallChange = 0.1, IsEnabled = caps.CanScale };
         var position = new NumberBox { Header = "垂直位置（%）", Minimum = 0, Maximum = 100, Value = _subtitlePreferences.VerticalPositionPercent, SmallChange = 1, IsEnabled = caps.CanPosition };
         var delay = new NumberBox { Header = "延迟（秒）", Minimum = -60, Maximum = 60, Value = _subtitlePreferences.Delay.TotalSeconds, SmallChange = 0.1, IsEnabled = caps.CanDelay };
@@ -401,24 +544,88 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         {
             if (!double.IsFinite(scale.Value) || !double.IsFinite(position.Value) || !double.IsFinite(delay.Value)) return;
             var preferences = new SubtitlePreferences(Math.Clamp(scale.Value, 0.25, 5), Math.Clamp(position.Value, 0, 100), string.IsNullOrWhiteSpace(font.Text) ? null : font.Text, TimeSpan.FromSeconds(Math.Clamp(delay.Value, -60, 60)), caps.PreservesScriptStyle && preserve.IsChecked != true);
-            await RunAsync(async token => { await _session.SetSubtitlesAsync(preferences, token); _subtitlePreferences = preferences; flyout.Hide(); });
+            await RunAsync(async token => { await _session.SetSubtitlesAsync(preferences, token); _subtitlePreferences = preferences; CloseSettingsFlyout(flyout); });
         };
         panel.Children.Add(apply); ShowFlyout(flyout, SubtitleStyleButton);
     }
 
     private void ShowFlyout(FlyoutBase flyout, FrameworkElement anchor)
     {
-        _activeFlyout?.Hide();
+        CloseSettingsFlyout();
         _activeFlyout = flyout;
+        var component = (flyout as Flyout)?.Content as FrameworkElement;
+        Action? releaseNativeMenu = null;
+        void CompleteClose()
+        {
+            if (_speedControl == component) _speedControl = null;
+            if (_trackPicker == component) _trackPicker = null;
+            if (_volumeControl == component) _volumeControl = null;
+            if (_activeFlyout != flyout) return;
+            releaseNativeMenu?.Invoke();
+            _activeFlyout = null;
+            _activeSettingsClosed = null;
+            _nativeSettingsOpen = false;
+            _menuOpen = false;
+            if (_disposed) return;
+            ApplySnapshot(_session.Snapshot); NotifyActivity();
+        }
+        _activeSettingsClosed = CompleteClose;
+        var resolvedAnchor = AdaptiveTools.Visibility == Visibility.Collapsed && anchor != VolumeButton ? MoreButton : anchor;
+        if (_showNativeSettings is { } show)
+        {
+            FrameworkElement? content = component;
+            Style? presenterStyle = (Style)Resources["PlayerHostFlyoutStyle"];
+            if (flyout is Flyout contentFlyout && content is not null)
+                contentFlyout.Content = null;
+            else if (flyout is MenuFlyout menu)
+            {
+                var presenter = new MenuFlyoutPresenter { Style = (Style)Resources["PlayerHostMenuFlyoutStyle"] };
+                var items = menu.Items.ToArray();
+                menu.Items.Clear();
+                RoutedEventHandler closeOnClick = (_, _) => CloseSettingsFlyout(flyout);
+                foreach (var item in items)
+                {
+                    if (item is MenuFlyoutItem command) command.Click += closeOnClick;
+                    presenter.Items.Add(item);
+                }
+                releaseNativeMenu = () =>
+                {
+                    foreach (var item in items)
+                        if (item is MenuFlyoutItem command) command.Click -= closeOnClick;
+                    presenter.Items.Clear();
+                };
+                content = presenter;
+                presenterStyle = null; // Already a styled MenuFlyoutPresenter.
+            }
+            if (content is not null)
+            {
+                _nativeSettingsOpen = true;
+                _menuOpen = true;
+                NotifyActivity();
+                try { show(content, resolvedAnchor, presenterStyle, CompleteClose); }
+                catch (Exception exception)
+                {
+                    CloseSettingsFlyout(flyout);
+                    if (!_disposed) ShowError(MainPage.ErrorMessage(exception));
+                }
+                return;
+            }
+        }
         flyout.Placement = FlyoutPlacementMode.TopEdgeAlignedRight;
         ApplyFlyoutBackdrop(flyout);
         flyout.Opening += (_, _) => { _menuOpen = true; NotifyActivity(); };
-        flyout.Closed += (_, _) =>
-        {
-            if (_activeFlyout == flyout) { _activeFlyout = null; _menuOpen = false; }
-            ApplySnapshot(_session.Snapshot); NotifyActivity();
-        };
-        flyout.ShowAt(AdaptiveTools.Visibility == Visibility.Collapsed && anchor != VolumeButton ? MoreButton : anchor);
+        flyout.Closed += (_, _) => CompleteClose();
+        flyout.ShowAt(resolvedAnchor);
+    }
+
+    private void CloseSettingsFlyout(FlyoutBase? expected = null)
+    {
+        var active = _activeFlyout;
+        if (active is null || expected is not null && active != expected) return;
+        if (!_nativeSettingsOpen) { active.Hide(); return; }
+        var complete = _activeSettingsClosed;
+        try { _closeNativeSettings?.Invoke(); }
+        finally { complete?.Invoke(); }
     }
     private void ApplyFlyoutBackdrop(FlyoutBase flyout)
     {
@@ -460,16 +667,19 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     }
     private void Controls_SizeChanged(object sender, SizeChangedEventArgs args)
     {
-        var compact = args.NewSize.Width < 900;
+        var compact = args.NewSize.Width < ExpandedControlsMinWidth;
         var focused = XamlRoot is null ? null : FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
         var moveFocus = false;
+        var moveVolumeFocus = false;
         while (focused is not null)
         {
+            if (focused == InlineVolumeHost) { moveVolumeFocus = compact; break; }
             if (focused == AdaptiveTools || focused == ChapterContainer) { moveFocus = compact; break; }
             focused = VisualTreeHelper.GetParent(focused);
         }
         VisualStateManager.GoToState(this, compact ? "AdaptiveHidden" : "Expanded", false);
         if (moveFocus) MoreButton.Focus(FocusState.Keyboard);
+        if (moveVolumeFocus) VolumeButton.Focus(FocusState.Keyboard);
         UpdateSubtitleSafeArea();
         NotifyMaterialBoundsChanged();
     }
@@ -509,8 +719,12 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         if (_disposed) return;
         _disposed = true; _pendingSubtitleSafeArea = null; BottomBar.SizeChanged -= BottomBar_SizeChanged;
+        _resumeTimer.Stop(); _resumeTimer.Tick -= ResumeTimer_Tick;
+        Loaded -= Controls_Loaded; Unloaded -= Controls_Unloaded;
         SizeChanged -= Controls_SizeChanged;
         ControlsVisibilityChanged -= Controls_SafeAreaVisibilityChanged;
-        _activeFlyout?.Hide(); _activeFlyout = null; _hideTimer.Stop(); _hideTimer.Tick -= HideTimer_Tick; _fade?.Stop(); _lifetime.Cancel(); _lifetime.Dispose();
+        CloseSettingsFlyout(); _activeFlyout = null; _activeSettingsClosed = null;
+        _showNativeSettings = null; _closeNativeSettings = null;
+        _hideTimer.Stop(); _hideTimer.Tick -= HideTimer_Tick; _fade?.Stop(); _lifetime.Cancel(); _lifetime.Dispose();
     }
 }

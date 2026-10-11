@@ -4,9 +4,9 @@
 <UserControl x:Class="Fileway.App.Controls.Playback.ScreenboxVolumeControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App.Controls.Playback" RequestedTheme="Dark">
-    <Grid Width="300" Padding="12" ColumnSpacing="8">
-        <Grid.ColumnDefinitions><ColumnDefinition Width="48"/><ColumnDefinition Width="*"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
-        <ToggleButton x:Name="MuteToggle" Padding="0" Width="48" Height="48" Background="Transparent" BorderThickness="0" Click="Mute_Click" ToolTipService.ToolTip="静音" AutomationProperties.Name="静音">
+    <Grid x:Name="VolumeLayout" Width="284" Padding="12" ColumnSpacing="8">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition x:Name="ValueColumn" Width="40"/></Grid.ColumnDefinitions>
+        <ToggleButton x:Name="MuteToggle" Padding="0" Width="40" Height="40" Background="Transparent" BorderThickness="0" Click="Mute_Click" ToolTipService.ToolTip="静音" AutomationProperties.Name="静音">
             <local:ScreenboxVectorIcon x:Name="VolumeGlyph" IconName="Speaker2" Width="20" Height="20"/>
         </ToggleButton>
         <Slider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="100" SmallChange="5" StepFrequency="1" VerticalAlignment="Center" IsThumbToolTipEnabled="False" ValueChanged="Volume_ValueChanged" AutomationProperties.Name="音量百分比"/>

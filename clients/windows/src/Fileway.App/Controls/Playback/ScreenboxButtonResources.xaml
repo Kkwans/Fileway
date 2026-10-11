@@ -187,8 +187,8 @@
         x:Key="PlayerButtonStyle"
         BasedOn="{StaticResource SubtleButtonStyle}"
         TargetType="Button">
-        <Setter Property="Width" Value="48" />
-        <Setter Property="Height" Value="48" />
+        <Setter Property="Width" Value="40" />
+        <Setter Property="Height" Value="40" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="UseSystemFocusVisuals" Value="True" />
         <Setter Property="FocusVisualMargin" Value="-2" />
@@ -197,8 +197,8 @@
         x:Key="SmallPlayerButtonStyle"
         BasedOn="{StaticResource SubtleButtonStyle}"
         TargetType="Button">
-        <Setter Property="Width" Value="48" />
-        <Setter Property="Height" Value="48" />
+        <Setter Property="Width" Value="36" />
+        <Setter Property="Height" Value="36" />
         <Setter Property="Padding" Value="0" />
     </Style>
 
