@@ -11,7 +11,7 @@ using Fileway.Infrastructure.Persistence;
 namespace Fileway.Infrastructure.Services;
 
 /// <summary>Typed, account-bound application services over the supervised Go Host.</summary>
-public sealed partial class FilewayClientServices : IConnectionService, IConnectionCatalog, IFileRepository, IImageContentService,
+public sealed partial class FilewayClientServices : IConnectionService, IConnectionCatalog, IFileRepository, IImageContentService, IResourceCollectionsService, IBrowserPreferencesService,
     IResourceLeaseProvider, IPlaybackProgressStore, IAsyncDisposable
 {
     private const long MaximumImageBytes = 64L * 1024 * 1024;
@@ -261,7 +261,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         {
             var root = document.RootElement;
             var parsedDirectory = ParseFile(root, state);
-            if (!parsedDirectory.IsDirectory || parsedDirectory.Resource.WirePath != directory.WirePath) throw InvalidResponse();
+            if (!parsedDirectory.IsDirectory || FileOperationWireIdentity(parsedDirectory.Resource.WirePath, allowRoot: true)
+                != FileOperationWireIdentity(directory.WirePath, allowRoot: true)) throw InvalidResponse();
             var items = root.GetProperty("items").EnumerateArray().Select(item => ParseFile(item, state)).ToArray();
             Array.Sort(items, (left, right) => CompareFiles(left, right, query));
             EnsureActive(state);
@@ -279,7 +280,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         try
         {
             var file = ParseFile(document.RootElement, state);
-            if (file.Resource.WirePath != resource.WirePath) throw InvalidResponse();
+            if (FileOperationWireIdentity(file.Resource.WirePath, allowRoot: true)
+                != FileOperationWireIdentity(resource.WirePath, allowRoot: true)) throw InvalidResponse();
             EnsureActive(state);
             return file;
         }

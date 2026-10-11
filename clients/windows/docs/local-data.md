@@ -11,7 +11,7 @@
 应用持有 `.client.lock` 的独占文件句柄；同一数据根只允许一个应用进程，关闭时释放。
 SQLite 工作在后台执行并串行访问，锁等待有界；连接启用 WAL、外键和 FULL 同步。
 
-## Schema 3
+## Schema 4
 
 `client.db` 用 SQLite `user_version` 管理版本。`saved_connections` 以 profile UUID 为主键，
 保存 source revision、名称、服务器地址、网络/代理策略、认证方式、用户名、服务端 userId、
@@ -28,8 +28,13 @@ SQLite 工作在后台执行并串行访问，锁等待有界；连接启用 WAL
 不会搬移或删除旧目录的数据。播放缓存的分块和配额由 Go 核心统一管理，见
 [缓存与预加载](cache-storage.md)。
 
-首次仅在空数据库创建 schema。升级 schema 1 或 2 前使用 SQLite Backup API 制作包含已提交 WAL
-内容的一致备份，随后事务添加缺少的设置/缓存归属表并设置版本 3；备份名为
+`browser_preferences` 以完整 AccountKey 与解码后的远端目录字节身份为复合主键，保存五种视图、
+两组独立图标大小、当前目录类型筛选和排序。目录身份以大写十六进制存储，不使用显示路径、
+Windows 本地路径归一化或 Unicode 改写。写入事务核实对应连接仍存在且没有待注销意图；
+遗忘只删除该完整账号的偏好，不能误删同 profile 下的新 revision 或新账号。
+
+首次仅在空数据库创建 schema。升级 schema 1、2 或 3 前使用 SQLite Backup API 制作包含已提交 WAL
+内容的一致备份，随后事务添加缺少的设置/缓存归属/浏览偏好表并设置版本 4；备份名为
 `client.db.schema<旧版本>-<随机标识>.backup`。
 备份失败不开始迁移。未知更高版本或无版本但已有数据表的数据库拒绝写入，不自动重建。
 不能复制运行中的 WAL 文件冒充备份，也不能只换旧程序做不兼容降级。

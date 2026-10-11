@@ -6,9 +6,9 @@ using Microsoft.Data.Sqlite;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Versioned, credential-free profile storage with durable logout intent.</summary>
-public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore
+public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore
 {
-    private const int SchemaVersion = 3;
+    private const int SchemaVersion = 4;
     private const int BusyTimeoutSeconds = 3;
     private const string Columns = "profile_id, source_revision, display_name, base_address, network_mode, proxy_mode, proxy_address, authentication_mode, username, server_user_id, keep_signed_in, last_connected_at";
     private const string AccountPredicate = "profile_id = $profile AND source_revision = $revision AND server_user_id = $user";
@@ -92,9 +92,15 @@ public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore, I
     public Task ForgetAsync(AccountKey account, CancellationToken cancellationToken) => RunAsync(connection =>
     {
         ProfileStoreValidation.Validate(account);
-        using var command = Command(connection, "DELETE FROM saved_connections WHERE " + AccountPredicate);
+        using var transaction = connection.BeginTransaction(deferred: false);
+        using var command = Command(connection, "DELETE FROM saved_connections WHERE " + AccountPredicate, transaction);
         BindAccount(command, account);
         command.ExecuteNonQuery();
+        using var preferences = Command(connection, "DELETE FROM browser_preferences WHERE " + AccountPredicate, transaction);
+        BindAccount(preferences, account);
+        preferences.ExecuteNonQuery();
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
         return true;
     }, cancellationToken);
 
@@ -251,12 +257,12 @@ public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore, I
             connection.Open();
             long initialVersion = ReadVersion(connection);
             if (initialVersion is < 0 or > SchemaVersion) throw ProfileStoreValidation.Unavailable();
-            if (initialVersion is 1 or 2) BackupBeforeMigration(connection, initialVersion);
+            if (initialVersion is 1 or 2 or 3) BackupBeforeMigration(connection, initialVersion);
             using var transaction = connection.BeginTransaction(deferred: false);
             // Another instance may have upgraded while the consistent backup was being taken.
             long version = ReadVersion(connection, transaction);
             if (version is < 0 or > SchemaVersion) throw ProfileStoreValidation.Unavailable();
-            if ((version is 1 or 2) && initialVersion is not (1 or 2)) throw ProfileStoreValidation.Unavailable();
+            if ((version is 1 or 2 or 3) && initialVersion is not (1 or 2 or 3)) throw ProfileStoreValidation.Unavailable();
             if (version == 0)
             {
                 using var existing = Command(connection, "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'", transaction);
@@ -309,6 +315,28 @@ public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore, I
                         PRIMARY KEY (profile_id, source_revision, server_user_id, cache_root)
                     );
                     PRAGMA user_version = 3;
+                    """, transaction);
+                migrate.ExecuteNonQuery();
+            }
+            if (version < 4)
+            {
+                using var migrate = Command(connection, """
+                    CREATE TABLE browser_preferences (
+                        profile_id TEXT NOT NULL CHECK (length(profile_id) = 36),
+                        source_revision TEXT NOT NULL CHECK (length(source_revision) = 36),
+                        server_user_id TEXT NOT NULL CHECK (length(server_user_id) > 0),
+                        directory_identity TEXT NOT NULL CHECK (
+                            length(directory_identity) > 0 AND length(directory_identity) % 2 = 0 AND
+                            directory_identity = upper(directory_identity) AND directory_identity NOT GLOB '*[^0-9A-F]*'),
+                        view_mode INTEGER NOT NULL CHECK (typeof(view_mode) = 'integer' AND view_mode IN (0, 1, 2, 3, 4)),
+                        compact_grid_size INTEGER NOT NULL CHECK (typeof(compact_grid_size) = 'integer' AND compact_grid_size IN (0, 1, 2, 3)),
+                        windows_icon_size INTEGER NOT NULL CHECK (typeof(windows_icon_size) = 'integer' AND windows_icon_size IN (0, 1, 2, 3)),
+                        type_filter INTEGER NOT NULL CHECK (typeof(type_filter) = 'integer' AND type_filter IN (0, 1, 2, 3, 4, 5, 6, 7)),
+                        sort_by INTEGER NOT NULL CHECK (typeof(sort_by) = 'integer' AND sort_by IN (0, 1, 2, 3)),
+                        descending INTEGER NOT NULL CHECK (typeof(descending) = 'integer' AND descending IN (0, 1)),
+                        PRIMARY KEY (profile_id, source_revision, server_user_id, directory_identity)
+                    );
+                    PRAGMA user_version = 4;
                     """, transaction);
                 migrate.ExecuteNonQuery();
             }

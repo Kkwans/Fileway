@@ -3,7 +3,7 @@ using Fileway.Core.Contracts;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Process-local store for callers that do not opt into persistence.</summary>
-public sealed class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore
+public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, SavedConnection> _saved = [];
@@ -44,6 +44,8 @@ public sealed class InMemoryProfileStore : IProfileStore, IStorageSettingsStore,
         {
             if (_saved.TryGetValue(account.ProfileId, out var connection) && connection.Account == account)
                 _saved.Remove(account.ProfileId);
+            foreach (var key in _browserPreferences.Keys.Where(key => key.Account == account).ToArray())
+                _browserPreferences.Remove(key);
         }
         return Task.CompletedTask;
     }
