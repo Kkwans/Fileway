@@ -348,9 +348,22 @@ class NativeSubtitleTest {
             val colors = listOf(listOf(255,0,0), listOf(0,255,0), listOf(0,0,255), listOf(255,255,0), listOf(0,255,255), listOf(255,0,255))
             colors.forEachIndexed { index, color ->
                 checking = "PGS${index + 1} pixels"
-                select(model, "NFB PGS${index + 1}")
-                rendered(checking) { frame -> count(frame, color) > 200 && colors.filter { it != color }.all { count(frame, it) < 20 } }
+                val marker = "NFB PGS${index + 1}"
+                val track = model.player.state.value.subtitles.single { it.id >= 0 && it.title.contains(marker) }
+                // select includes the original seek(0) and confirms this track at 0..1500ms.
+                // Observe its new live clock before a slow screenshot can reach the 11s clear.
+                select(model, marker)
+                withTimeout(10_000) {
+                    pauseAtLivePosition(model, 1500)
+                    val paused = model.player.state.value
+                    assertEquals("The live cue must belong to this selected PGS track", track.id, paused.selectedSubtitle)
+                    assertFalse("PGS capture must hold the actual live position", paused.playing)
+                    assertTrue("PGS capture must remain inside the authored cue interval: ${paused.positionMs}",
+                        paused.positionMs >= 1500 && paused.positionMs < 11000)
+                    rendered(checking) { frame -> count(frame, color) > 200 && colors.filter { it != color }.all { count(frame, it) < 20 } }
+                }
                 capture("pgs${index + 1}")
+                onMain { model.player.toggle() }
             }
             checking = "subtitle off"
             onMain { model.player.subtitle(-1) }
