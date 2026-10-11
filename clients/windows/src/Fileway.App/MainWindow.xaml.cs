@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window, IDisposable
         var height = Math.Min((int)Math.Round(760 * scale), Math.Max(1, work.Height - margin * 2));
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(work.X + (work.Width - width) / 2, work.Y + (work.Height - height) / 2, width, height));
         RootFrame.Navigate(typeof(MainPage));
+        ((MainPage)RootFrame.Content).AttachTitleBar(AppTitleBar);
         Closed += (_, _) => Dispose();
     }
     public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)

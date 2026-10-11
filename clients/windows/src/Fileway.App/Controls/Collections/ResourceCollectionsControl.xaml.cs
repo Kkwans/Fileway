@@ -35,12 +35,17 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     private bool _rendering;
     private bool _requiresRefresh;
     private bool _unknownWrite;
+    private readonly Dictionary<AccountKey, CollectionAccountState> _accountWriteState = [];
+    private readonly InfoBar _receiptWarningBar = new() { Title = "本机操作记录提示", Severity = InfoBarSeverity.Warning, IsClosable = false };
+    private readonly Button _reconcileButton = new() { Content = "核实上次结果", Visibility = Visibility.Collapsed };
     private bool _disposed;
     private string? _browseTagId;
     public event EventHandler? CloseRequested;
     public event EventHandler<ResourceCollectionsSnapshot>? SnapshotChanged;
     public event EventHandler<CollectionStatus>? StatusChanged;
     public event EventHandler? CommandsChanged;
+    public event EventHandler<CollectionReceiptWarning>? ReceiptWarningChanged;
+    public bool HasOpenDialog => _dialog is not null;
     public bool CanManageCurrentResource => CanWrite && _currentResource is not null;
     public bool CanNavigate => !_busy && Capture() is not null;
     public bool IsCurrentResourceFavorite => _currentResource is { } resource && _snapshot?.Favorites.Any(item => SameResource(item.Reference.Resource, resource)) == true;
@@ -49,6 +54,14 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     public ResourceCollectionsControl()
     {
         InitializeComponent();
+        if (Status.Parent is Grid host)
+        {
+            var row = Grid.GetRow(Status); host.Children.Remove(Status);
+            var statusArea = new StackPanel { Spacing = 4 }; Grid.SetRow(statusArea, row);
+            statusArea.Children.Add(Status); statusArea.Children.Add(_receiptWarningBar); host.Children.Add(statusArea);
+        }
+        Status.ActionButton = _reconcileButton;
+        _reconcileButton.Click += async (_, _) => await ReconcileUnknownAsync();
         Records.ItemsSource = _records; TagResources.ItemsSource = _resources;
         UpdateCommands();
     }
@@ -63,11 +76,12 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             ++_generation; ++_openGeneration; _contextCancellation?.Cancel(); _contextCancellation?.Dispose();
             _contextCancellation = session is null ? null : new CancellationTokenSource();
             _dialog?.Hide(); _session = session; _snapshot = null; _busy = false;
-            _requiresRefresh = _unknownWrite = false; _records.Clear(); _resources.Clear();
+            _records.Clear(); _resources.Clear();
             _browseTagId = null;
             GroupBox.ItemsSource = null; Status.IsOpen = false;
         }
         else _session = session;
+        RestoreAccountWriteState();
         var nextResource = currentResource?.Account == session?.Account ? currentResource : null;
         if (_currentResource != nextResource) { ++_resourceGeneration; ++_openGeneration; }
         _currentResource = nextResource;
@@ -79,7 +93,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     private Scope? Capture() => !_disposed && _service is not null && _session is { } session && _contextCancellation is { } cancellation
         ? new Scope(session.Id, session.Account, _generation, cancellation.Token) : null;
     private bool Current(Scope scope) => !_disposed && !scope.Token.IsCancellationRequested && scope.Generation == _generation && _session?.Id == scope.SessionId && _session.Account == scope.Account;
-    private bool CanWrite => !_busy && !_requiresRefresh && _snapshot is not null && Capture() is not null;
+    private bool CanWrite => !_busy && !_requiresRefresh && !_unknownWrite && _snapshot is not null && Capture() is not null;
     private bool TagMode => ModeBox.SelectedIndex == 1;
     private FavoriteGroup? SelectedGroup => (GroupBox.SelectedItem as GroupChoice)?.Group;
     private CollectionRow? Selected => Records.SelectedItem as CollectionRow;
@@ -92,8 +106,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         {
             await ReadSnapshotAsync(scope);
             if (!Current(scope)) return;
-            _requiresRefresh = false;
-            ShowStatus(_unknownWrite ? "已刷新服务器记录。请核实上次结果未知的操作；不要直接重复新建。" : "已刷新收藏与标签。", _unknownWrite ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+            AccountState(scope.Account).RequiresRefresh = false; RestoreAccountWriteState();
+            ShowStatus(_unknownWrite ? "已刷新服务器记录，上次写入仍未确认。普通刷新不会解除写入保护，请核实上次结果，勿重复提交。" : "已刷新收藏与标签。", _unknownWrite ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { if (Current(scope)) ShowStatus($"刷新失败：{MainPage.ErrorMessage(exception)}", InfoBarSeverity.Error); }
@@ -206,6 +220,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         OpenTagResourceButton.IsEnabled = !_busy && (TagResources.SelectedItem as CollectionRow)?.Reference?.Resource is not null && connected;
         UnlinkButton.IsEnabled = CanWrite && (TagResources.SelectedItem as CollectionRow)?.Reference?.Resource is not null;
         ModeBox.IsEnabled = GroupBox.IsEnabled = !_busy;
+        _reconcileButton.Visibility = _unknownWrite ? Visibility.Visible : Visibility.Collapsed;
+        _reconcileButton.IsEnabled = !_busy && _session is { } owner && AccountState(owner.Account).UnknownOperations.Count > 0 && (_files is IOperationHistoryService || _service is IOperationHistoryService);
         CommandsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -216,36 +232,93 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         try
         {
             var result = await write(scope.Token);
+            var state = AccountState(scope.Account);
+            ConsumeReceipt(scope.Account, result.Receipt);
+            if (result.Outcome == OperationOutcome.OutcomeUnknown) TrackUnknown(scope.Account, result.Receipt);
+            if (result.Outcome != OperationOutcome.Confirmed) state.RequiresRefresh = true;
+            RestoreAccountWriteState();
             if (!Current(scope)) return;
             if (result.Outcome != OperationOutcome.Confirmed)
             {
-                _unknownWrite = _requiresRefresh = true;
-                ShowStatus((result.Outcome == OperationOutcome.Partial ? "部分操作已保存。" : "操作结果未知。") + "请刷新核实服务器记录，勿直接重复提交。" + (result.Error is { } error ? $" {error.Message}" : ""), InfoBarSeverity.Warning);
+                ShowStatus((result.Outcome == OperationOutcome.Partial ? "部分操作已保存，请刷新查看逐项状态。" : "操作结果未知。请使用‘核实上次结果’，普通刷新不会解除写入保护。") + "勿直接重复提交。" + (result.Error is { } error ? $" {error.Message}" : ""), InfoBarSeverity.Warning);
                 return;
             }
-            _unknownWrite = false;
             ShowStatus(confirmed, InfoBarSeverity.Success);
             try
             {
                 await ReadSnapshotAsync(scope);
-                if (Current(scope)) _requiresRefresh = false;
+                if (Current(scope)) { state.RequiresRefresh = false; RestoreAccountWriteState(); }
             }
             catch (OperationCanceledException) { }
             catch (Exception exception)
             {
-                if (Current(scope)) { _requiresRefresh = true; ShowStatus($"{confirmed} 列表刷新失败，请刷新查看；不要重复提交。{MainPage.ErrorMessage(exception)}", InfoBarSeverity.Warning); }
+                state.RequiresRefresh = true;
+                if (Current(scope)) { RestoreAccountWriteState(); ShowStatus($"{confirmed} 列表刷新失败，请刷新查看；不要重复提交。{MainPage.ErrorMessage(exception)}", InfoBarSeverity.Warning); }
             }
         }
         catch (OperationCanceledException) { }
         catch (Exception exception)
         {
+            if (exception is FilewayException { Error.Code: ErrorCode.OutcomeUnknown }) TrackUnknown(scope.Account, null);
             if (Current(scope))
             {
-                if (exception is FilewayException { Error.Code: ErrorCode.OutcomeUnknown }) _unknownWrite = _requiresRefresh = true;
-                ShowStatus(_requiresRefresh ? "操作结果未知，请刷新核实服务器记录，勿直接重复提交。" : MainPage.ErrorMessage(exception), InfoBarSeverity.Error);
+                RestoreAccountWriteState();
+                ShowStatus(_unknownWrite ? "操作结果未知，写入已暂停。请核实服务器记录，勿重复提交；本机记录不可用时需要人工核对。" : MainPage.ErrorMessage(exception), InfoBarSeverity.Error);
             }
         }
         finally { if (Current(scope)) { _busy = false; UpdateCommands(); } }
+    }
+
+    private CollectionAccountState AccountState(AccountKey account)
+    {
+        if (!_accountWriteState.TryGetValue(account, out var state)) _accountWriteState[account] = state = new CollectionAccountState();
+        return state;
+    }
+    private void RestoreAccountWriteState()
+    {
+        var state = _session is { } session ? AccountState(session.Account) : null;
+        _requiresRefresh = state?.RequiresRefresh == true;
+        _unknownWrite = state is not null && (state.UntrackedUnknown || state.UnknownOperations.Count > 0);
+        _receiptWarningBar.IsOpen = state?.Warnings.Count > 0;
+        _receiptWarningBar.Message = state is null ? "" : "此提示不改变服务器已返回的操作结果，请勿因此重复提交。\n" + string.Join("\n", state.Warnings);
+    }
+    private void TrackUnknown(AccountKey account, OperationReceipt? receipt)
+    {
+        var state = AccountState(account);
+        if (receipt is null) state.UntrackedUnknown = true;
+        else state.UnknownOperations.Add(new OperationRef(account, receipt.OperationId));
+        RestoreAccountWriteState(); UpdateCommands();
+    }
+    private void ConsumeReceipt(AccountKey account, OperationReceipt? receipt)
+    {
+        var message = receipt?.PersistenceWarning?.Message ?? (receipt is { AckPersisted: false } ? "本机操作记录未能完整保存。" : null);
+        if (message is null) return;
+        AccountState(account).Warnings.Add(message);
+        ReceiptWarningChanged?.Invoke(this, new CollectionReceiptWarning(account, message));
+        RestoreAccountWriteState();
+    }
+    private async Task ReconcileUnknownAsync()
+    {
+        if (_busy || Capture() is not { } scope || (_files as IOperationHistoryService ?? _service as IOperationHistoryService) is not { } operations) return;
+        var state = AccountState(scope.Account);
+        if (state.UnknownOperations.Count == 0) return;
+        _busy = true; UpdateCommands();
+        try
+        {
+            foreach (var reference in state.UnknownOperations.ToArray())
+            {
+                var result = await operations.ReconcileAsync(reference, scope.Token);
+                if (result.Error is null && result.Resolution is (OperationResolution.Confirmed or OperationResolution.NotSent or OperationResolution.ObservedDesiredState or OperationResolution.ObservedTaskState)) state.UnknownOperations.Remove(reference);
+                if (!Current(scope)) return;
+            }
+            await ReadSnapshotAsync(scope);
+            if (!Current(scope)) return;
+            state.RequiresRefresh = false; RestoreAccountWriteState();
+            ShowStatus(_unknownWrite ? "仍无法确认上次操作，写入保护保留。请人工核对服务器，不要重复提交。" : "上次操作结果已核实，可以继续管理收藏与标签。", _unknownWrite ? InfoBarSeverity.Warning : InfoBarSeverity.Informational);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { if (Current(scope)) ShowStatus("核实未完成，写入保护保留。" + MainPage.ErrorMessage(error), InfoBarSeverity.Warning); }
+        finally { if (Current(scope)) { RestoreAccountWriteState(); _busy = false; UpdateCommands(); } }
     }
 
     private async Task<ContentDialogResult> ShowDialogAsync(Scope scope, ContentDialog dialog)
@@ -498,6 +571,13 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         _session = null; _snapshot = null; _currentResource = null; OpenResourceAsync = null;
     }
     private sealed record Scope(Guid SessionId, AccountKey Account, long Generation, CancellationToken Token);
+    private sealed class CollectionAccountState
+    {
+        public bool RequiresRefresh;
+        public bool UntrackedUnknown;
+        public HashSet<OperationRef> UnknownOperations { get; } = [];
+        public HashSet<string> Warnings { get; } = [];
+    }
 }
 
 [Microsoft.UI.Xaml.Data.Bindable]
@@ -534,3 +614,4 @@ public sealed record CollectionRow(string Id, string Name, string Detail, string
 }
 
 public sealed record CollectionStatus(string Message, InfoBarSeverity Severity);
+public sealed record CollectionReceiptWarning(AccountKey Account, string Message);

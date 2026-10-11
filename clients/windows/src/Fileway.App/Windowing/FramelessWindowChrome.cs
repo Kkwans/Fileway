@@ -21,6 +21,7 @@ internal sealed class FramelessWindowChrome : IDisposable
     private readonly SubclassProc _procedure;
     private InputNonClientPointerSource? _nonClientPointerSource;
     private (int Width, int Height, uint Dpi, bool Disabled)? _resizeRegionState;
+    private string? _captionRegionsState;
     private bool _windowClosed;
     private bool _subclassed;
     private bool _maximizePressed;
@@ -47,6 +48,7 @@ internal sealed class FramelessWindowChrome : IDisposable
             _titleBar.CloseRequested += TitleBar_CloseRequested;
             _titleBar.Loaded += TitleBar_Loaded;
             _titleBar.ActualThemeChanged += TitleBar_ActualThemeChanged;
+            _titleBar.LayoutUpdated += TitleBar_LayoutUpdated;
             _appWindow.Changed += AppWindow_Changed;
             _window.Closed += Window_Closed;
             _nonClientPointerSource = InputNonClientPointerSource.GetForWindowId(_appWindow.Id);
@@ -122,6 +124,7 @@ internal sealed class FramelessWindowChrome : IDisposable
     }
 
     private void TitleBar_Loaded(object sender, RoutedEventArgs args) => RefreshWindowState();
+    private void TitleBar_LayoutUpdated(object? sender, object args) => UpdateCaptionRegions();
     private void AppWindow_Changed(AppWindow sender, AppWindowChangedEventArgs args) => RefreshWindowState();
     private void TitleBar_ActualThemeChanged(FrameworkElement sender, object args)
     {
@@ -137,6 +140,26 @@ internal sealed class FramelessWindowChrome : IDisposable
     {
         UpdateMaximized();
         UpdateResizeRegions();
+        UpdateCaptionRegions();
+    }
+
+    private void UpdateCaptionRegions()
+    {
+        if (_disposed || _windowClosed || _titleBar.InteractiveRegions.Count == 0 || _nonClientPointerSource is not { } source || _window.Content is not UIElement root) return;
+        var rectangles = new List<RectInt32>();
+        foreach (var element in _titleBar.InteractiveRegions)
+        {
+            if (!element.IsLoaded || element.Visibility != Visibility.Visible || element.XamlRoot is null || element.ActualWidth <= 0 || element.ActualHeight <= 0) continue;
+            var bounds = element.TransformToVisual(root).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            var scale = element.XamlRoot.RasterizationScale;
+            rectangles.Add(new RectInt32((int)Math.Floor(bounds.X * scale), (int)Math.Floor(bounds.Y * scale),
+                (int)Math.Ceiling(bounds.Width * scale), (int)Math.Ceiling(bounds.Height * scale)));
+        }
+        var state = string.Join(";", rectangles.Select(rect => $"{rect.X},{rect.Y},{rect.Width},{rect.Height}"));
+        if (_captionRegionsState == state) return;
+        if (rectangles.Count == 0) source.ClearRegionRects(NonClientRegionKind.Passthrough);
+        else source.SetRegionRects(NonClientRegionKind.Passthrough, rectangles.ToArray());
+        _captionRegionsState = state;
     }
 
     private void UpdateResizeRegions()
@@ -245,6 +268,9 @@ internal sealed class FramelessWindowChrome : IDisposable
             var limits = Marshal.PtrToStructure<MinMaxInfo>(lParam);
             limits.MaximumPosition = new NativePoint { X = monitor.Work.Left - monitor.Monitor.Left, Y = monitor.Work.Top - monitor.Monitor.Top };
             limits.MaximumSize = new NativePoint { X = monitor.Work.Right - monitor.Work.Left, Y = monitor.Work.Bottom - monitor.Work.Top };
+            var minimumScale = GetDpiForWindow(window) / 96d;
+            if (_titleBar.MinimumWindowWidth > 0) limits.MinimumTrackSize.X = (int)Math.Ceiling(_titleBar.MinimumWindowWidth * minimumScale);
+            if (_titleBar.MinimumWindowHeight > 0) limits.MinimumTrackSize.Y = (int)Math.Ceiling(_titleBar.MinimumWindowHeight * minimumScale);
             Marshal.StructureToPtr(limits, lParam, false);
         }
         if (message == 0x02e0 && !_disposed)
@@ -275,6 +301,7 @@ internal sealed class FramelessWindowChrome : IDisposable
             if (right) return 11;
         }
         if (IsOverElement(point, _titleBar.MaximizeButtonElement)) return 9; // HTMAXBUTTON: official Snap menu contract.
+        if (_titleBar.InteractiveRegions.Any(element => IsOverElement(point, element))) return 1;
         return IsOverElement(point, _titleBar.DragRegion) ? 2 : 1; // HTCAPTION / HTCLIENT.
     }
 
@@ -327,6 +354,7 @@ internal sealed class FramelessWindowChrome : IDisposable
         _titleBar.CloseRequested -= TitleBar_CloseRequested;
         _titleBar.Loaded -= TitleBar_Loaded;
         _titleBar.ActualThemeChanged -= TitleBar_ActualThemeChanged;
+        _titleBar.LayoutUpdated -= TitleBar_LayoutUpdated;
         _appWindow.Changed -= AppWindow_Changed;
         _window.Closed -= Window_Closed;
         var source = _nonClientPointerSource;
@@ -337,7 +365,7 @@ internal sealed class FramelessWindowChrome : IDisposable
         {
             // A closed window releases its input source itself. Explicit early
             // disposal removes only our borders, never WinUI's caption region.
-            if (!_windowClosed && source is not null) ClearResizeRegions(source);
+            if (!_windowClosed && source is not null) { ClearResizeRegions(source); if (_captionRegionsState is not null) source.ClearRegionRects(NonClientRegionKind.Passthrough); }
         }
         finally
         {

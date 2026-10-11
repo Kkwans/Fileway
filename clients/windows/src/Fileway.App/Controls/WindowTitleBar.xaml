@@ -51,7 +51,8 @@
             <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
         <!-- The native owner uses exactly this rectangle for caption dragging. -->
-        <Grid x:Name="DragSurface" Background="Transparent" Padding="16,0,16,0" ColumnSpacing="12">
+        <Grid x:Name="DragSurface" Background="Transparent">
+         <Grid x:Name="BrandSurface" Padding="16,0,16,0" ColumnSpacing="12">
             <Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Image Width="24" Height="24" VerticalAlignment="Center" Stretch="Uniform"
                    Source="ms-appx:///Assets/Square44x44Logo.targetsize-48_altform-lightunplated.png"
@@ -59,6 +60,8 @@
             <TextBlock x:Name="CaptionText" Grid.Column="1" FontSize="14" FontWeight="SemiBold"
                        VerticalAlignment="Center" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
                        Foreground="{ThemeResource TextFillColorPrimaryBrush}" IsHitTestVisible="False" />
+         </Grid>
+         <ContentPresenter x:Name="NavigationPresenter" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
         </Grid>
         <Button x:Name="MinimizeButton" Grid.Column="1" Style="{StaticResource CaptionButtonStyle}" Click="Minimize_Click" Loaded="CaptionButton_Loaded">
             <playback:ScreenboxVectorIcon IconName="Subtract" Width="20" Height="20" Foreground="{Binding Foreground, ElementName=MinimizeButton}" />

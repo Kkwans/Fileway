@@ -31,6 +31,21 @@ public sealed partial class WindowTitleBar : UserControl
 
     public FrameworkElement DragRegion => DragSurface;
     public FrameworkElement MaximizeButtonElement => MaximizeButton;
+    public IReadOnlyList<FrameworkElement> InteractiveRegions { get; private set; } = [];
+    public double MinimumWindowWidth { get; private set; }
+    public double MinimumWindowHeight { get; private set; }
+
+    /// <summary>Only the browser opts into compact navigation; image-window defaults stay intact.</summary>
+    public void SetBrowserNavigation(UIElement content, IReadOnlyList<FrameworkElement> interactiveRegions)
+    {
+        Height = MinimizeButton.Height = MaximizeButton.Height = CloseButton.Height = 40;
+        MinimumWindowWidth = 800; MinimumWindowHeight = 600;
+        BrandSurface.Visibility = Visibility.Collapsed;
+        ToolTipService.SetToolTip(DragSurface, null);
+        NavigationPresenter.Content = content;
+        NavigationPresenter.Visibility = Visibility.Visible;
+        InteractiveRegions = interactiveRegions;
+    }
 
     public event EventHandler? MinimizeRequested;
     public event EventHandler? MaximizeRequested;

@@ -70,6 +70,7 @@ public sealed partial class MainPage : Page, IDisposable
             if (!_disposed && CollectionsPanel.Visibility != Visibility.Visible) SetNotice("收藏与标签", status.Message, status.Severity);
         };
         CollectionsPanel.CommandsChanged += (_, _) => UpdateCollectionActions();
+        CollectionsPanel.ReceiptWarningChanged += (_, warning) => RememberReceiptWarning(warning.Account, warning.Message);
         SidebarCollections.FavoriteRequested += async (_, favorite) =>
         {
             if (_disposed || _connecting || _session?.Account != favorite.Account) return;
@@ -78,13 +79,14 @@ public sealed partial class MainPage : Page, IDisposable
         SidebarCollections.TagRequested += async (_, tag) =>
         {
             if (_disposed || _connecting || _session?.Account != tag.Account) return;
+            CloseSidebarOverlay();
             UpdateCollectionsContext(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
             UpdateThumbnailContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
         };
         FileList.ItemsSource = FileGrid.ItemsSource = _rows;
         FileGrid.Loaded += (_, _) => UpdateGridMetrics();
         FileGrid.SizeChanged += (_, _) => UpdateGridMetrics();
-        BrandName.Text = AppBranding.DisplayName;
+        InitializeBrowserShell();
         ApplyBrowserPresentation();
         Loaded += (_, _) => { ApplyTheme(); UpdateThumbnailContext(); };
         Unloaded += (_, _) => _thumbnailController.SetContext(null, null);
@@ -174,6 +176,7 @@ public sealed partial class MainPage : Page, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        _browserDialog?.Hide();
         _storageDialog?.Hide(); _storageControl?.Dispose();
         _disposed = true; CollectionsPanel.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
         _connectionCancellation?.Cancel();
@@ -357,7 +360,7 @@ public sealed partial class MainPage : Page, IDisposable
         _items.Clear(); _rows.Clear(); _trail.Clear(); _history.Clear();
         NavigationCommands.IsEnabled = false; LogoutButton.Visibility = DismissConnection.Visibility = Visibility.Collapsed;
         ConnectionLabel.Text = "尚未连接"; ConnectionButton.Content = "连接服务器"; PathBox.Text = "尚未连接";
-        Heading.Text = "我的文件"; Subheading.Text = "连接你的服务器，继续浏览。";
+        UpdateBreadcrumbs(); ResetOperationContext();
         _loadStateTitle = _loadStateDescription = null;
         SetLoading(false); SetDetailsVisible(false); UpdateSelection(); ApplyFilter();
     }
@@ -365,7 +368,7 @@ public sealed partial class MainPage : Page, IDisposable
     private void Connection_SessionUpdated(object? sender, ConnectionSession session) => DispatcherQueue.TryEnqueue(() =>
     {
         if (!_disposed && _session?.Id == session.Id && _session.Account == session.Account)
-        { _session = session; ConnectionLabel.Text = session.DisplayName; }
+        { _session = session; ConnectionLabel.Text = session.DisplayName; UpdateSelection(); }
     });
 
     private void Connection_Issue(object? sender, ConnectionIssue issue) => DispatcherQueue.TryEnqueue(async () =>
@@ -390,11 +393,10 @@ public sealed partial class MainPage : Page, IDisposable
         _thumbnailController.Invalidate();
         bool CurrentLoad() => !_disposed && generation == _generation && _session?.Id == session.Id && _session.Account == session.Account;
         _loadStateTitle = _loadStateDescription = null;
-        _directory = directory; PathBox.Text = directory.DisplayPath;
+        _directory = directory; PathBox.Text = directory.WirePath; UpdateBreadcrumbs(); CloseSidebarOverlay();
         var preferenceRevision = ++_preferenceRevision;
         _browserPreferences = new BrowserPreferences(); ApplyBrowserPresentation();
         _ = ReadBrowserPreferencesAsync(directory, session, generation, preferenceRevision, token);
-        Heading.Text = directory == _root ? "我的文件" : directory.DisplayName;
         _items.Clear(); _rows.Clear(); SearchBox.Text = "";
         SetLoading(true); Notice.IsOpen = false; EmptyState.Visibility = Visibility.Collapsed;
         try
@@ -411,8 +413,7 @@ public sealed partial class MainPage : Page, IDisposable
                 if (cursor is not null && !seenCursors.Add(cursor)) throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "服务器返回了重复的分页标记。"));
                 ApplyFilter();
             } while (cursor is not null);
-            Subheading.Text = $"{_items.Count} 个项目 · 双击或按 Enter 打开";
-            StatusText.Text = $"已加载 {_items.Count} 个项目";
+            UpdateSelection();
         }
         catch (OperationCanceledException)
         {
@@ -482,7 +483,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void Collections_Click(object sender, RoutedEventArgs e)
     {
         if (_disposed || _connecting || _session is null || _collections is null) return;
-        CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
+        CloseSidebarOverlay(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
         _thumbnailController.SetContext(null, null);
         UpdateCollectionsContext();
         CollectionsPanel.EnterManagementView();
@@ -495,10 +496,10 @@ public sealed partial class MainPage : Page, IDisposable
         if (FavoriteActionButton is null) return;
         var enabled = !_disposed && !_connecting && CollectionsPanel.CanManageCurrentResource;
         SidebarCollections.IsEnabled = !_disposed && !_connecting && CollectionsPanel.CanNavigate;
-        FavoriteActionButton.IsEnabled = TagActionButton.IsEnabled = DetailsFavoriteButton.IsEnabled = DetailsTagButton.IsEnabled = ListFavoriteAction.IsEnabled = ListTagAction.IsEnabled = GridFavoriteAction.IsEnabled = GridTagAction.IsEnabled = enabled;
+        FavoriteActionButton.IsEnabled = TagActionButton.IsEnabled = DetailsFavoriteButton.IsEnabled = DetailsTagButton.IsEnabled = enabled;
         var favorite = CollectionsPanel.IsCurrentResourceFavorite;
         FavoriteActionButton.Label = favorite ? "取消收藏" : "收藏";
-        DetailsFavoriteButton.Content = ListFavoriteAction.Text = GridFavoriteAction.Text = favorite ? "取消收藏" : "收藏选中资源";
+        DetailsFavoriteButton.Content = favorite ? "取消收藏" : "收藏";
     }
     private async void FavoriteResource_Click(object sender, RoutedEventArgs args)
     {
@@ -509,18 +510,6 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed || _connecting) return;
         UpdateCollectionsContext(); await CollectionsPanel.ManageCurrentResourceTagsAsync();
-    }
-    private void FileResource_RightTapped(object sender, RightTappedRoutedEventArgs args)
-    {
-        if (sender is not ListViewBase view) return;
-        var source = args.OriginalSource as DependencyObject;
-        while (source is not null && !ReferenceEquals(source, view) && source is not SelectorItem) source = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(source);
-        if (source is SelectorItem { Content: FileRow row })
-        {
-            if (!view.SelectedItems.Contains(row)) view.SelectedItem = row;
-        }
-        else view.SelectedItems.Clear();
-        UpdateSelection();
     }
     private void HideCollections()
     {
@@ -534,8 +523,7 @@ public sealed partial class MainPage : Page, IDisposable
         HideCollections();
         if (file.IsDirectory)
         {
-            _history.Push(_trail.ToArray()); _trail.Clear(); _trail.Add(file.Resource);
-            await LoadAsync(file.Resource);
+            await NavigateToResourceAsync(file.Resource);
         }
         else await OpenFileAsync(new FileRow(file), [file.Resource]);
     }
@@ -550,7 +538,7 @@ public sealed partial class MainPage : Page, IDisposable
         CredentialFields.Visibility = AuthenticationBox.SelectedIndex == 1 ? Visibility.Collapsed : Visibility.Visible;
         if (AuthenticationBox.SelectedIndex == 1) PasswordBox.Password = "";
     }
-    private void Connection_Click(object sender, RoutedEventArgs e) => ConnectionPanel.Visibility = Visibility.Visible;
+    private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); ConnectionPanel.Visibility = Visibility.Visible; }
     private void DismissConnection_Click(object sender, RoutedEventArgs e) => ConnectionPanel.Visibility = Visibility.Collapsed;
     private void Search_Changed(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) { if (FileList is not null) ApplyFilter(); }
     private void Sort_Changed(object sender, SelectionChangedEventArgs e)
@@ -570,8 +558,8 @@ public sealed partial class MainPage : Page, IDisposable
         if (!_disposed && !_connecting && _session is not null) { UpdateCollectionsContext(); await CollectionsPanel.RefreshAsync(); }
     }
     private async void Root_Click(object sender, RoutedEventArgs e) { HideCollections(); if (_root is null) { ConnectionPanel.Visibility = Visibility.Visible; return; } _history.Push(_trail.ToArray()); _trail.Clear(); _trail.Add(_root); await LoadAsync(_root); }
-    private async void Back_Click(object sender, RoutedEventArgs e) { if (!_history.TryPop(out var previous)) return; _trail.Clear(); _trail.AddRange(previous); await LoadAsync(_trail[^1]); }
-    private async void Up_Click(object sender, RoutedEventArgs e) { if (_trail.Count < 2) return; _history.Push(_trail.ToArray()); _trail.RemoveAt(_trail.Count - 1); await LoadAsync(_trail[^1]); }
+    private async void Back_Click(object sender, RoutedEventArgs e) { if (!_history.TryPop(out var previous)) return; HideCollections(); _trail.Clear(); _trail.AddRange(previous); await LoadAsync(_trail[^1]); }
+    private async void Up_Click(object sender, RoutedEventArgs e) { if (_trail.Count < 2) return; HideCollections(); _history.Push(_trail.ToArray()); _trail.RemoveAt(_trail.Count - 1); await LoadAsync(_trail[^1]); }
     private void Cancel_Click(object sender, RoutedEventArgs e) => _loadCancellation?.Cancel();
     private async void FileList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
@@ -586,7 +574,11 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private async void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Handled || e.OriginalSource is TextBox) return;
+        if (e.Handled || IsTextInput(e.OriginalSource as DependencyObject)) return;
+        var control = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (control && e.Key == VirtualKey.A) { e.Handled = true; ActiveFiles.SelectAll(); return; }
+        if (e.Key == VirtualKey.F2) { e.Handled = true; Rename_Click(sender, e); return; }
+        if (e.Key == VirtualKey.Delete) { e.Handled = true; Trash_Click(sender, e); return; }
         if (e.Key == VirtualKey.Enter) { e.Handled = true; await OpenSelectedAsync(); }
         else if (e.Key == VirtualKey.Escape && _detailsVisible) { e.Handled = true; SetDetailsVisible(false); }
     }
@@ -604,14 +596,14 @@ public sealed partial class MainPage : Page, IDisposable
         if (DetailsName is null) return;
         var count = ActiveFiles.SelectedItems.Count;
         var row = count == 1 ? ActiveFiles.SelectedItem as FileRow : null;
-        StatusText.Text = row is not null ? $"{row.Name} · {row.Kind} · {row.Size}" : LoadingRing.IsActive ? "正在加载目录…" : _loadStateTitle ?? $"{_rows.Count} 个项目 · 已选择 {count} 个";
+        StatusText.Text = LoadingRing.IsActive ? $"正在加载目录… · {_rows.Count} 个项目" : $"{_rows.Count} 个项目 · 已选择 {count} 个 · 双击或按 Enter 打开";
         DetailsName.Text = row?.Name ?? (count > 1 ? $"已选择 {count} 个项目" : "选择一个项目");
         DetailsMetadata.Text = row is not null ? $"类型：{row.Kind}\n大小：{row.Size}\n修改时间：{row.Modified}" : "选择单个文件或目录，查看详细信息。";
         DetailsPath.Text = row?.File.Resource.DisplayPath ?? "";
         DetailsOpenButton.IsEnabled = row is not null && !_connecting;
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
-        UpdateCollectionsContext(); UpdateCollectionActions();
+        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)
     {
@@ -661,7 +653,7 @@ public sealed partial class MainPage : Page, IDisposable
         var size = mode == BrowserViewMode.WindowsIcons ? _browserPreferences.WindowsIconSize : _browserPreferences.CompactGridSize;
         var visual = FileRow.IconSize(mode, size);
         panel.ItemWidth = mode == BrowserViewMode.CompactList ? Math.Max(240, (FilesArea.ActualWidth - 24) / (FilesArea.ActualWidth >= 650 ? 2 : 1)) : mode == BrowserViewMode.Mosaic ? 180 : mode == BrowserViewMode.WindowsIcons ? size switch { BrowserIconSize.Small => 112, BrowserIconSize.Large => 224, BrowserIconSize.ExtraLarge => 288, _ => 160 } : size switch { BrowserIconSize.Small => 100, BrowserIconSize.Large => 168, BrowserIconSize.ExtraLarge => 228, _ => 124 };
-        panel.ItemHeight = mode == BrowserViewMode.CompactList ? 56 : mode == BrowserViewMode.Mosaic ? 184 : visual + 78;
+        panel.ItemHeight = mode == BrowserViewMode.CompactList ? 64 : mode == BrowserViewMode.Mosaic ? 216 : visual + 96;
     }
     private void RebuildPresentation()
     {
@@ -746,7 +738,7 @@ public sealed partial class MainPage : Page, IDisposable
         Shell.RequestedTheme = theme;
         foreach (var window in _imageWindows) window.SetTheme(theme);
     }
-    private void Workspace_SizeChanged(object sender, SizeChangedEventArgs e) { if (SidebarColumn is null || SearchBox is null) return; SidebarColumn.Width = new GridLength(ActualWidth < 880 ? 190 : 244); SearchBox.Width = e.NewSize.Width < 650 ? 150 : 240; UpdateDetailsLayout(); }
+    private void Workspace_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateDetailsLayout(); }
 }
 
 public sealed record ConnectionChoice(SavedConnection Saved)
