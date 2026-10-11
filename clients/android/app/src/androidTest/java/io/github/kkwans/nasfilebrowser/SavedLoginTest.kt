@@ -126,7 +126,37 @@ class SavedLoginTest {
             assertEquals(0, server.logins.get())
         }
     }
-    private inner class RenewalServer : Closeable {
+    @Test fun nativeRejectedRenewalRecoversOnceOnlyWithRememberedPassword() = runBlocking {
+        for ((status, invalid) in listOf(401 to false, 403 to false, 503 to false, 200 to true)) {
+            RenewalServer(status, invalid).use { server ->
+                val (profile, account) = account(server.address)
+                store.rememberPassword(profile, account, "owned-password")
+                val restored = runCatching { restoreSavedSession(store, profile, account) }
+                if (status == 401) {
+                    val saved = restored.getOrThrow()
+                    try {
+                        assertEquals(7L, saved.api.identity.id)
+                        assertEquals(token(7, 20), store.token(profile, account))
+                        assertEquals(1, server.logins.get())
+                    } finally { saved.api.close() }
+                } else {
+                    assertTrue("Non-authentication renewal failures must remain failures", restored.isFailure)
+                    assertEquals(0, server.logins.get())
+                    assertEquals(token(), store.token(profile, account))
+                }
+                assertEquals(1, server.renewals.get())
+                assertEquals("owned-password", store.password(profile, account))
+            }
+        }
+        RenewalServer(401).use { server ->
+            val (profile, account) = account(server.address)
+            val failure = runCatching { restoreSavedSession(store, profile, account) }.exceptionOrNull()
+            assertTrue(failure is ServiceException && failure.status == 401)
+            assertEquals(0, server.logins.get())
+            assertEquals(token(), store.token(profile, account))
+        }
+    }
+    private inner class RenewalServer(private val renewalStatus: Int = 200, private val invalidRenewal: Boolean = false) : Closeable {
         private val socket = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
         val address = "http://127.0.0.1:${socket.localPort}"
         val renewals = AtomicInteger()
@@ -146,11 +176,25 @@ class SavedLoginTest {
                     }
                     val old = headers["x-auth"] == token()
                     val valid = old || headers["x-auth"] == token(7, 20)
-                    val status = if (!valid || (old && rejectOld)) 401 else 200
+                    var status = if (!valid || (old && rejectOld)) 401 else 200
                     var extra = ""
                     val body = when (route) {
-                        "/api/renew" -> { renewals.incrementAndGet(); token(7, 20) }
-                        "/api/login" -> { logins.incrementAndGet(); "" }
+                        "/api/renew" -> {
+                            renewals.incrementAndGet(); status = renewalStatus
+                            if (invalidRenewal) "not-a-token" else token(7, 20)
+                        }
+                        "/api/login" -> {
+                            logins.incrementAndGet()
+                            val chars = CharArray(headers["content-length"]?.toInt() ?: 0)
+                            var read = 0
+                            while (read < chars.size) {
+                                val count = reader.read(chars, read, chars.size - read)
+                                check(count > 0); read += count
+                            }
+                            val login = JSONObject(String(chars))
+                            check(login.getString("username") == "owned-viewer" && login.getString("password") == "owned-password")
+                            status = 200; token(7, 20)
+                        }
                         else -> { if (old && status == 200) extra = "X-Renew-Token: true\r\n"; "{\"items\":[]}" }
                     }.toByteArray()
                     val head = "HTTP/1.1 $status Owned\r\nContent-Length: ${body.size}\r\nConnection: close\r\n$extra\r\n"
