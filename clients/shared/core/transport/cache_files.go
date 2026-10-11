@@ -136,6 +136,10 @@ func ownedCacheFile(name string, managed bool) (owned, partial bool) {
 // Enumerate only the pool's known layout. Never recurse into arbitrary user
 // directories, unknown filenames, or filesystem links.
 func (c *mediaCache) entries() ([]cacheEntry, error) {
+	return c.entriesForOwner("")
+}
+
+func (c *mediaCache) entriesForOwner(owner string) ([]cacheEntry, error) {
 	var files []cacheEntry
 	rootInfo, rootErr := os.Lstat(c.config.Directory)
 	if rootErr != nil || !rootInfo.IsDir() || rootInfo.Mode()&os.ModeSymlink != 0 {
@@ -171,6 +175,9 @@ func (c *mediaCache) entries() ([]cacheEntry, error) {
 	}
 	for _, root := range roots {
 		if !root.IsDir() || root.Type()&os.ModeSymlink != 0 || !cacheHex(root.Name()) {
+			continue
+		}
+		if c.config.Managed && owner != "" && root.Name() != owner {
 			continue
 		}
 		path := filepath.Join(c.config.Directory, root.Name())
@@ -213,7 +220,7 @@ func (c *mediaCache) cleanToLimit(active map[string]bool, clear, capacityOnly bo
 	for _, file := range files {
 		expired := !capacityOnly && (clear || time.Since(file.used) >= time.Duration(c.config.Hours)*time.Hour)
 		selected := owner == "" || file.owner == owner
-		remove := selected && (file.partial || expired && !active[file.group] || capacityOnly && total > limit)
+		remove := selected && ((file.partial || expired) && !active[file.group] || capacityOnly && total > limit)
 		if remove {
 			if err := os.Remove(file.path); err != nil && !os.IsNotExist(err) {
 				return stats, errors.New("cannot clear playback cache")
@@ -225,6 +232,7 @@ func (c *mediaCache) cleanToLimit(active map[string]bool, clear, capacityOnly bo
 		stats.Files++
 		if active[file.group] {
 			stats.Protected++
+			stats.ProtectedBytes += file.size
 		}
 	}
 	c.bytes = stats.Bytes
@@ -232,27 +240,7 @@ func (c *mediaCache) cleanToLimit(active map[string]bool, clear, capacityOnly bo
 }
 
 func (b *Broker) CleanCacheOwner(owner string) (CacheStats, error) {
-	if owner == "" {
-		return CacheStats{}, errors.New("cache owner is required")
-	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	cache := b.cache
-	if cache == nil {
-		return CacheStats{}, errors.New("playback cache is not configured")
-	}
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-	if !cache.config.Managed {
-		return CacheStats{}, errors.New("cache owner cleanup is unavailable")
-	}
-	namespace := cacheHash(owner)
-	for _, lease := range b.leases {
-		if lease.cacheOwner == namespace && lease.ctx.Err() == nil {
-			return CacheStats{}, errors.New("cache owner still has active media")
-		}
-	}
-	return cache.cleanToLimit(nil, true, false, cache.config.MaxBytes, namespace)
+	return b.CleanCacheOwnerInRoot(owner, "", false)
 }
 
 func cacheSourceVersion(lease *Lease, response *http.Response, total int64) string {

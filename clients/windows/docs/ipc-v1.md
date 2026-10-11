@@ -51,11 +51,30 @@ not in JSON. `lease_stats` requires the owning session and URL, reporting
 `upstreamBytes`, `cacheReadBytes`, `deliveredBytes`, `elapsedMillis` and additive
 `cacheWriteFailures`. These are byte counters, not buffered media timestamps.
 
+The `preview` operation accepts the same optional cache fields while preserving
+its existing path/scope fields. `scope:"contain"` uses the server's fixed 512-pixel
+route. Raw and preview representations share the data budget without sharing
+content identities. A failed preview never falls back to the original file.
+
+`cache_stats` is a read-only, sessionless operation. Without parameters it reports
+the current pool; optional `cacheRoot` plus required `cacheOwner` reports that
+registered owner in another application root. It returns `bytes`, `files`,
+`protected`, `protectedBytes` and `activePool`; the last flag identifies current
+pool aliases to avoid double-counting. It does not create directories, evict
+blocks or touch LRU timestamps. Missing historical pools report no data; the
+adapter separately retains unavailable roots instead of guessing cleanup success.
+
 `cache_cleanup_owner` takes `cacheOwner` without a live session, allowing durable
 logout recovery after credentials and sessions have been retired. It refuses
 cleanup while that owner still has live media leases. It does not delete other
 owners or unknown files. This control capability is reachable only through the
 parent's private inherited pipes, never through a remote HTTP control port.
+
+Optional `cacheRoot` targets a registered historical application root, and
+`inactiveOnly:true` clears only inactive groups. Omitting it retains strict logout
+behavior. Cleanup replies retain the preexisting remaining-pool totals; query
+owner statistics separately. Historical OS work uses a retained single-flight
+job with bounded caller waiting; this does not claim the OS call is cancellable.
 
 See [cache storage](cache-storage.md) for version, quota and failure semantics.
 

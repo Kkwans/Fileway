@@ -27,7 +27,7 @@ internal static class StorageSettingsValidation
 
     internal static bool SameDirectory(string left, string right) => StringComparer.OrdinalIgnoreCase.Equals(left, right);
 
-    private static string DirectoryPath(string value)
+    internal static string DirectoryPath(string value)
     {
         if (string.IsNullOrWhiteSpace(value) || !Path.IsPathFullyQualified(value) || value.Any(char.IsControl)) throw Invalid();
         // Device syntax and Win32 trailing-dot/space aliases would defeat a lexical ownership boundary.

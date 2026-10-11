@@ -27,9 +27,10 @@ type CacheConfig struct {
 	Managed   bool   `json:"managed,omitempty"`
 }
 type CacheStats struct {
-	Bytes     int64 `json:"bytes"`
-	Files     int   `json:"files"`
-	Protected int   `json:"protected"`
+	Bytes          int64 `json:"bytes"`
+	Files          int   `json:"files"`
+	Protected      int   `json:"protected"`
+	ProtectedBytes int64 `json:"protectedBytes"`
 }
 type mediaCache struct {
 	bytes  int64
@@ -57,6 +58,12 @@ func (b *Broker) ConfigureCache(config CacheConfig) error {
 	if config.Managed {
 		config.Directory = filepath.Join(config.Directory, managedCacheDirectory)
 	}
+	// A historical-root operation can be waiting inside an uninterruptible OS
+	// filesystem call. It must not make configuration wait while holding b.mu.
+	if !b.cacheBinding.TryLock() {
+		return errors.New("cache root control is busy")
+	}
+	defer b.cacheBinding.Unlock()
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	cache := b.cache
@@ -121,16 +128,23 @@ func (b *Broker) LeaseCachedForOwner(id, endpoint, identity, owner string) (stri
 func (b *Broker) cacheState() (*mediaCache, map[string]bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	return b.cache, b.activeCacheGroupsLocked()
+}
+
+// The caller holds b.mu for the complete snapshot/operation boundary.
+func (b *Broker) activeCacheGroupsLocked() map[string]bool {
 	active := make(map[string]bool)
 	for _, l := range b.leases {
 		if l.media && l.cacheKey != "" && l.ctx.Err() == nil {
 			active[l.cacheGroup()] = true
 		}
 	}
-	return b.cache, active
+	return active
 }
 func (b *Broker) CleanCache(clear bool) (CacheStats, error) {
-	cache, active := b.cacheState()
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	cache, active := b.cache, b.activeCacheGroupsLocked()
 	if cache == nil {
 		return CacheStats{}, nil
 	}

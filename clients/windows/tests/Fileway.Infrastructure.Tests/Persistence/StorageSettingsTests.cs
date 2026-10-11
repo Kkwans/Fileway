@@ -235,7 +235,7 @@ public sealed class StorageSettingsTests
         using var upgraded = OpenDatabase(directory.DatabasePath);
         using var version = upgraded.CreateCommand();
         version.CommandText = "PRAGMA user_version";
-        Assert.Equal(2L, version.ExecuteScalar());
+        Assert.Equal(3L, version.ExecuteScalar());
         Assert.Single(Directory.GetFiles(directory.DirectoryPath, "profiles.sqlite3.schema1-*.backup"));
     }
 
@@ -246,7 +246,7 @@ public sealed class StorageSettingsTests
         using (var database = OpenDatabase(directory.DatabasePath))
         using (var create = database.CreateCommand())
         {
-            create.CommandText = "CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('must survive'); PRAGMA user_version = 3;";
+            create.CommandText = "CREATE TABLE future_data (value TEXT); INSERT INTO future_data VALUES ('must survive'); PRAGMA user_version = 4;";
             create.ExecuteNonQuery();
         }
         byte[] before = await File.ReadAllBytesAsync(directory.DatabasePath, Token);

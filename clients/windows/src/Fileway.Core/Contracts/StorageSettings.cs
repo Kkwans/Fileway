@@ -22,3 +22,19 @@ public interface ILocalStorageSettingsService
     Task<StorageSettingsState> ReadAsync(CancellationToken cancellationToken);
     Task<StorageSettingsState> SaveAsync(ClientStorageSettings settings, CancellationToken cancellationToken);
 }
+
+/// <summary>Current pool and registered previous roots; filesystem allocation overhead is not data bytes.</summary>
+public sealed record LocalCacheUsage(
+    long ActiveDataBytes,
+    long MaximumCacheBytes,
+    int BlockCount,
+    int ProtectedBlockCount,
+    long PreviousRootDataBytes = 0,
+    int UnavailablePreviousRoots = 0);
+
+public interface ILocalCacheManagementService
+{
+    Task<LocalCacheUsage> ReadCacheUsageAsync(CancellationToken cancellationToken);
+    /// <summary>Clears only recognized inactive cache data; active media and user downloads are preserved.</summary>
+    Task<LocalCacheUsage> ClearInactiveCacheAsync(CancellationToken cancellationToken);
+}

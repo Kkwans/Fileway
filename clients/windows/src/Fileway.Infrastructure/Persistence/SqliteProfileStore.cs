@@ -6,9 +6,9 @@ using Microsoft.Data.Sqlite;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Versioned, credential-free profile storage with durable logout intent.</summary>
-public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore
+public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private const int BusyTimeoutSeconds = 3;
     private const string Columns = "profile_id, source_revision, display_name, base_address, network_mode, proxy_mode, proxy_address, authentication_mode, username, server_user_id, keep_signed_in, last_connected_at";
     private const string AccountPredicate = "profile_id = $profile AND source_revision = $revision AND server_user_id = $user";
@@ -169,6 +169,58 @@ public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore
         return true;
     }, cancellationToken);
 
+    public Task<IReadOnlyList<RegisteredCacheRoot>> ListCacheRootsAsync(CancellationToken cancellationToken) =>
+        RunAsync<IReadOnlyList<RegisteredCacheRoot>>(connection =>
+        {
+            using var command = Command(connection, "SELECT profile_id, source_revision, server_user_id, cache_root FROM cache_roots ORDER BY cache_root, profile_id, source_revision, server_user_id");
+            using var reader = command.ExecuteReader();
+            var values = new List<RegisteredCacheRoot>();
+            while (reader.Read())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var account = new AccountKey(Guid.ParseExact(reader.GetString(0), "D"), Guid.ParseExact(reader.GetString(1), "D"), reader.GetString(2));
+                ProfileStoreValidation.Validate(account);
+                values.Add(new(account, StorageSettingsValidation.DirectoryPath(reader.GetString(3))));
+            }
+            return values;
+        }, cancellationToken);
+
+    public Task RegisterCacheRootAsync(AccountKey account, string cacheRoot, CancellationToken cancellationToken) =>
+        RegisterCacheRootAsync(account, cacheRoot, forCleanup: false, cancellationToken);
+
+    public Task RegisterCacheRootForCleanupAsync(AccountKey account, string cacheRoot, CancellationToken cancellationToken) =>
+        RegisterCacheRootAsync(account, cacheRoot, forCleanup: true, cancellationToken);
+
+    private Task<bool> RegisterCacheRootAsync(AccountKey account, string cacheRoot, bool forCleanup, CancellationToken cancellationToken) => RunAsync(connection =>
+    {
+        ProfileStoreValidation.Validate(account);
+        string normalized = StorageSettingsValidation.DirectoryPath(cacheRoot);
+        using var transaction = connection.BeginTransaction(deferred: false);
+        using (var pending = Command(connection, "SELECT 1 FROM pending_logouts WHERE " + AccountPredicate, transaction))
+        {
+            BindAccount(pending, account);
+            if ((pending.ExecuteScalar() is not null) != forCleanup) throw ProfileStoreValidation.Unavailable();
+        }
+        using var command = Command(connection, "INSERT INTO cache_roots (profile_id, source_revision, server_user_id, cache_root) VALUES ($profile, $revision, $user, $root) ON CONFLICT DO NOTHING", transaction);
+        BindAccount(command, account);
+        command.Parameters.AddWithValue("$root", normalized);
+        command.ExecuteNonQuery();
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+        return true;
+    }, cancellationToken);
+
+    public Task RemoveCacheRootAsync(AccountKey account, string cacheRoot, CancellationToken cancellationToken) => RunAsync(connection =>
+    {
+        ProfileStoreValidation.Validate(account);
+        string normalized = StorageSettingsValidation.DirectoryPath(cacheRoot);
+        using var command = Command(connection, "DELETE FROM cache_roots WHERE " + AccountPredicate + " AND cache_root = $root");
+        BindAccount(command, account);
+        command.Parameters.AddWithValue("$root", normalized);
+        command.ExecuteNonQuery();
+        return true;
+    }, cancellationToken);
+
     private Task<T> RunAsync<T>(Func<SqliteConnection, T> operation, CancellationToken cancellationToken) => Task.Run(() =>
     {
         lock (_gate)
@@ -199,12 +251,12 @@ public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore
             connection.Open();
             long initialVersion = ReadVersion(connection);
             if (initialVersion is < 0 or > SchemaVersion) throw ProfileStoreValidation.Unavailable();
-            if (initialVersion == 1) BackupBeforeMigration(connection);
+            if (initialVersion is 1 or 2) BackupBeforeMigration(connection, initialVersion);
             using var transaction = connection.BeginTransaction(deferred: false);
             // Another instance may have upgraded while the consistent backup was being taken.
             long version = ReadVersion(connection, transaction);
             if (version is < 0 or > SchemaVersion) throw ProfileStoreValidation.Unavailable();
-            if (version == 1 && initialVersion != 1) throw ProfileStoreValidation.Unavailable();
+            if ((version is 1 or 2) && initialVersion is not (1 or 2)) throw ProfileStoreValidation.Unavailable();
             if (version == 0)
             {
                 using var existing = Command(connection, "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'", transaction);
@@ -233,7 +285,7 @@ public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore
                     """, transaction);
                 create.ExecuteNonQuery();
             }
-            if (version < SchemaVersion)
+            if (version < 2)
             {
                 using var migrate = Command(connection, """
                     CREATE TABLE client_storage_settings (
@@ -243,6 +295,20 @@ public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore
                         maximum_cache_bytes INTEGER NOT NULL CHECK (maximum_cache_bytes >= 0 AND maximum_cache_bytes <= 1099511627776)
                     );
                     PRAGMA user_version = 2;
+                    """, transaction);
+                migrate.ExecuteNonQuery();
+            }
+            if (version < 3)
+            {
+                using var migrate = Command(connection, """
+                    CREATE TABLE cache_roots (
+                        profile_id TEXT NOT NULL,
+                        source_revision TEXT NOT NULL,
+                        server_user_id TEXT NOT NULL,
+                        cache_root TEXT NOT NULL COLLATE NOCASE CHECK (length(cache_root) > 0),
+                        PRIMARY KEY (profile_id, source_revision, server_user_id, cache_root)
+                    );
+                    PRAGMA user_version = 3;
                     """, transaction);
                 migrate.ExecuteNonQuery();
             }
@@ -267,10 +333,10 @@ public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
-    private void BackupBeforeMigration(SqliteConnection source)
+    private void BackupBeforeMigration(SqliteConnection source, long version)
     {
         // BackupDatabase includes committed WAL contents. Never copy the .db file in isolation.
-        string backupPath = _databasePath + ".schema1-" + Guid.NewGuid().ToString("N") + ".backup";
+        string backupPath = _databasePath + ".schema" + version.ToString(CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N") + ".backup";
         using var backup = new SqliteConnection(new SqliteConnectionStringBuilder
         {
             DataSource = backupPath,

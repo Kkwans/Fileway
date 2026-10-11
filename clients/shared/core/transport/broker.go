@@ -59,15 +59,18 @@ type Lease struct {
 // Broker binds source credentials to immutable sessions. The public HTTP
 // surface consists solely of random, revocable loopback lease URLs.
 type Broker struct {
-	cache    *mediaCache
-	mu       sync.RWMutex
-	sessions map[string]*Session
-	leases   map[string]*Lease
-	searches map[string]*searchStream
-	commands map[string]*commandStream
-	listener net.Listener
-	server   *http.Server
-	closed   bool
+	cache        *mediaCache
+	cacheBinding sync.RWMutex
+	cacheJobsMu  sync.Mutex
+	cacheJob     *cacheControlJob
+	mu           sync.RWMutex
+	sessions     map[string]*Session
+	leases       map[string]*Lease
+	searches     map[string]*searchStream
+	commands     map[string]*commandStream
+	listener     net.Listener
+	server       *http.Server
+	closed       bool
 }
 
 func New() (*Broker, error) {

@@ -12,3 +12,9 @@ public interface IImageContentService
 {
     Task<IImageContent> OpenAsync(RemoteResourceRef resource, CancellationToken cancellationToken);
 }
+
+/// <summary>Bounded server-generated contain previews; unsupported media never falls back to the full original.</summary>
+public interface IThumbnailContentService
+{
+    Task<IImageContent> OpenThumbnailAsync(RemoteResourceRef resource, CancellationToken cancellationToken);
+}

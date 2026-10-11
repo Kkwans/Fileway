@@ -142,6 +142,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             await CompletePendingLogoutsAsync(cancellationToken).ConfigureAwait(false);
             var saved = await StorageAsync(() => _profiles.GetAsync(profileId, cancellationToken)).ConfigureAwait(false)
                 ?? throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
+            var pending = await StorageAsync(() => _profiles.ListPendingLogoutsAsync(cancellationToken)).ConfigureAwait(false);
+            if (pending.Contains(saved.Account)) throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
             ValidateProfile(saved.Profile, new LoginInput(saved.AuthenticationMode, saved.Username), restoring: true);
             string token = "";
             if (saved.AuthenticationMode == AuthenticationMode.Password)
@@ -368,7 +370,13 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
 
     public async Task<IImageContent> OpenAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
     {
-        var lease = (ResourceLease)await AcquireAsync(resource, cancellationToken).ConfigureAwait(false);
+        var lease = (ResourceLease)await AcquireCachedAsync(resource, cancellationToken).ConfigureAwait(false);
+        return await ReadImageContentAsync(resource, lease, MaximumImageBytes, thumbnail: false, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IImageContent> ReadImageContentAsync(RemoteResourceRef resource, ResourceLease lease,
+        long maximumBytes, bool thumbnail, CancellationToken cancellationToken)
+    {
         HttpResponseMessage? response = null;
         MemoryStream? content = null;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lease.State.LifetimeToken);
@@ -376,7 +384,11 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         {
             response = await _images.GetAsync(lease.Address, HttpCompletionOption.ResponseHeadersRead, linked.Token).ConfigureAwait(false);
             CheckStatus((int)response.StatusCode);
-            if (response.Content.Headers.ContentLength > MaximumImageBytes) throw Safe(ErrorCode.ResponseTooLarge, "图片超过首预览的 64 MiB 大小限制。");
+            string? mediaType = response.Content.Headers.ContentType?.MediaType;
+            if (thumbnail && !StringComparer.OrdinalIgnoreCase.Equals(mediaType, "image/jpeg") &&
+                !StringComparer.OrdinalIgnoreCase.Equals(mediaType, "image/png"))
+                throw Safe(ErrorCode.CapabilityMissing, "服务器未提供 JPEG 或 PNG 缩略图。");
+            if (response.Content.Headers.ContentLength > maximumBytes) throw ImageTooLarge(thumbnail);
             content = new MemoryStream();
             await using var input = await response.Content.ReadAsStreamAsync(linked.Token).ConfigureAwait(false);
             byte[] buffer = new byte[81920];
@@ -384,7 +396,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             {
                 int count = await input.ReadAsync(buffer, linked.Token).ConfigureAwait(false);
                 if (count == 0) break;
-                if (content.Length + count > MaximumImageBytes) throw Safe(ErrorCode.ResponseTooLarge, "图片超过首预览的 64 MiB 大小限制。");
+                if (content.Length + count > maximumBytes) throw ImageTooLarge(thumbnail);
                 await content.WriteAsync(buffer.AsMemory(0, count), linked.Token).ConfigureAwait(false);
             }
             content.Position = 0;
@@ -479,7 +491,14 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             throw Safe(ErrorCode.LocalStorageUnavailable, "此账户仍有待清理的本地缓存，请完成注销清理后重新登录。");
         var previous = await StorageAsync(() => _profiles.GetAsync(saved.Profile.Id, cancellationToken)).ConfigureAwait(false);
         if (previous is not null && previous.Account != saved.Account)
-            await LogoutCoreAsync(previous.Account, cancellationToken).ConfigureAwait(false);
+        {
+            await StorageAsync(() => _profiles.BeginLogoutAsync(previous.Account, cancellationToken)).ConfigureAwait(false);
+            // A disconnected old cache root belongs to the old full AccountKey.
+            // Once its session and vault token are retired, keep its cleanup intent
+            // without blocking a newly verified principal using this profile slot.
+            if (!await CompleteLogoutCleanupAsync(previous.Account, cancellationToken).ConfigureAwait(false))
+                Trace.TraceWarning("Fileway retained previous account cache cleanup while replacing a profile account.");
+        }
         if (saved.KeepSignedIn)
             await CredentialsAsync(() => _credentials.WriteTokenAsync(saved.Account, token, cancellationToken)).ConfigureAwait(false);
         else
@@ -493,10 +512,21 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         try
         {
             var pending = await StorageAsync(() => _profiles.ListPendingLogoutsAsync(cancellationToken)).ConfigureAwait(false);
+            using var recoveryBudget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            recoveryBudget.CancelAfter(TimeSpan.FromSeconds(2));
             foreach (var account in pending)
             {
-                if (!await CompleteLogoutCleanupAsync(account, cancellationToken).ConfigureAwait(false))
-                    Trace.TraceWarning("Fileway retained a pending account cache cleanup; credentials are retired.");
+                if (recoveryBudget.IsCancellationRequested) { cancellationToken.ThrowIfCancellationRequested(); break; }
+                try
+                {
+                    if (await CompleteLogoutCleanupAsync(account, cancellationToken, recoveryBudget.Token).ConfigureAwait(false)) continue;
+                }
+                catch (FilewayException error) when (error.Error.Code == ErrorCode.Canceled && !cancellationToken.IsCancellationRequested) { break; }
+                catch (FilewayException error) when (error.Error.Code != ErrorCode.Canceled)
+                {
+                    // Durable intent prevents this account from restoring; other accounts can still proceed.
+                }
+                Trace.TraceWarning("Fileway retained pending account cleanup; that account cannot restore credentials.");
             }
         }
         finally { _persistence.Release(); }

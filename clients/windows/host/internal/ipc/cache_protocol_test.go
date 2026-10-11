@@ -17,6 +17,14 @@ func TestManagedCacheControlPreservesCanonicalFieldsAndSessionAuthority(t *testi
 		{"owner field is canonical", "lease", "fixture-session", `{"wirePath":"/movie.mp4","CacheOwner":"account"}`, false},
 		{"owner must be a string", "lease", "fixture-session", `{"wirePath":"/movie.mp4","cacheOwner":5}`, false},
 		{"managed flag must be boolean", "cache_configure", "", `{"cacheConfig":{"directory":"C:\\fixture\\cache","maxBytes":5000000000,"hours":720,"managed":"true"}}`, false},
+		{"owned contained preview", "preview", "fixture-session", `{"wirePath":"/picture.png","scope":"contain","cacheKey":"thumb-contain512","cacheOwner":"account"}`, true},
+		{"preview dimensions remain fixed", "preview", "fixture-session", `{"wirePath":"/picture.png","scope":"contain","width":512}`, false},
+		{"current cache usage without session", "cache_stats", "", `{}`, true},
+		{"historical owner usage", "cache_stats", "", `{"cacheRoot":"C:\\fixture\\old-cache","cacheOwner":"account"}`, true},
+		{"usage cannot supply session", "cache_stats", "fixture-session", `{}`, false},
+		{"usage root must be a string", "cache_stats", "", `{"cacheRoot":5,"cacheOwner":"account"}`, false},
+		{"inactive registered owner cleanup", "cache_cleanup_owner", "", `{"cacheRoot":"C:\\fixture\\old-cache","cacheOwner":"account","inactiveOnly":true}`, true},
+		{"inactive flag must be boolean", "cache_cleanup_owner", "", `{"cacheOwner":"account","inactiveOnly":"true"}`, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var parameters map[string]json.RawMessage

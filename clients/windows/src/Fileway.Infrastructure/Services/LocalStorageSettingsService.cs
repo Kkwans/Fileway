@@ -7,7 +7,7 @@ using Fileway.Infrastructure.Persistence;
 namespace Fileway.Infrastructure.Services;
 
 /// <summary>Startup directory snapshot and durable preferences; no existing data is moved or deleted.</summary>
-public sealed class LocalStorageSettingsService : ILocalStorageSettingsService, IAsyncDisposable
+public sealed partial class LocalStorageSettingsService : ILocalStorageSettingsService, ILocalCacheManagementService, IAsyncDisposable
 {
     private readonly IStorageSettingsStore _store;
     private readonly ClientStorageSettings _defaults;
@@ -37,6 +37,40 @@ public sealed class LocalStorageSettingsService : ILocalStorageSettingsService, 
             return State();
         }
         finally { Exit(); }
+    }
+
+    /// <summary>Explicit startup initialization; statistics reads never configure or evict cache data.</summary>
+    public async Task InitializeCacheAsync(CancellationToken cancellationToken)
+    {
+        await EnterAsync(cancellationToken).ConfigureAwait(false);
+        bool gateHeld = true;
+        try
+        {
+            await ConfigureLockedAsync(cancellationToken).ConfigureAwait(false);
+            var profiles = _store as IProfileStore;
+            var roots = _store as ICacheRootStore;
+            string cacheRoot = (_active ?? throw Unavailable()).CacheDirectory;
+            _gate.Release();
+            gateHeld = false;
+            if (profiles is null || roots is null) return;
+
+            // Pre-ledger versions may have blocks before this process opens a new cached lease.
+            // Seed only known full account keys and the trusted startup root, never disk-discovered owners.
+            var saved = await RootStoreAsync(() => profiles.ListAsync(cancellationToken)).ConfigureAwait(false);
+            var pending = (await RootStoreAsync(() => profiles.ListPendingLogoutsAsync(cancellationToken)).ConfigureAwait(false)).ToHashSet();
+            foreach (var account in saved.Select(connection => connection.Account).Concat(pending).Distinct())
+            {
+                if (pending.Contains(account))
+                    await RootStoreAsync(() => roots.RegisterCacheRootForCleanupAsync(account, cacheRoot, cancellationToken)).ConfigureAwait(false);
+                else
+                    await RootStoreAsync(() => roots.RegisterCacheRootAsync(account, cacheRoot, cancellationToken)).ConfigureAwait(false);
+            }
+        }
+        finally
+        {
+            if (gateHeld) _gate.Release();
+            EndParticipant();
+        }
     }
 
     public async Task<StorageSettingsState> SaveAsync(ClientStorageSettings settings, CancellationToken cancellationToken)
@@ -80,23 +114,22 @@ public sealed class LocalStorageSettingsService : ILocalStorageSettingsService, 
         await EnterAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await InitializeAsync(cancellationToken).ConfigureAwait(false);
-            var active = _active ?? throw Unavailable();
-            var pending = _pending ?? throw Unavailable();
-            var effective = StorageSettingsValidation.SameDirectory(active.CacheDirectory, pending.CacheDirectory)
-                ? active with { MaximumCacheBytes = pending.MaximumCacheBytes } : active;
-            if (_cacheConfigured && effective == active) return;
-            await ConfigureAsync(effective, cancellationToken).ConfigureAwait(false);
-            _active = effective;
-            _cacheConfigured = true;
+            await ConfigureLockedAsync(cancellationToken).ConfigureAwait(false);
         }
         finally { Exit(); }
     }
 
-    internal async Task ClearOwnerCacheAsync(string cacheOwner, CancellationToken cancellationToken)
+    private async Task ConfigureLockedAsync(CancellationToken cancellationToken)
     {
-        await EnsureCacheConfiguredAsync(cancellationToken).ConfigureAwait(false);
-        await CacheCallAsync("cache_cleanup_owner", new { cacheOwner }, cancellationToken).ConfigureAwait(false);
+        await InitializeAsync(cancellationToken).ConfigureAwait(false);
+        var active = _active ?? throw Unavailable();
+        var pending = _pending ?? throw Unavailable();
+        var effective = StorageSettingsValidation.SameDirectory(active.CacheDirectory, pending.CacheDirectory)
+            ? active with { MaximumCacheBytes = pending.MaximumCacheBytes } : active;
+        if (_cacheConfigured && effective == active) return;
+        await ConfigureAsync(effective, cancellationToken).ConfigureAwait(false);
+        _active = effective;
+        _cacheConfigured = true;
     }
 
     private async Task InitializeAsync(CancellationToken cancellationToken)

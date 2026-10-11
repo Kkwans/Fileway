@@ -3,12 +3,13 @@ using Fileway.Core.Contracts;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Process-local store for callers that do not opt into persistence.</summary>
-public sealed class InMemoryProfileStore : IProfileStore, IStorageSettingsStore
+public sealed class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, SavedConnection> _saved = [];
     private readonly HashSet<AccountKey> _pending = [];
     private ClientStorageSettings? _storageSettings;
+    private readonly List<RegisteredCacheRoot> _cacheRoots = [];
 
     public Task<IReadOnlyList<SavedConnection>> ListAsync(CancellationToken cancellationToken)
     {
@@ -85,6 +86,41 @@ public sealed class InMemoryProfileStore : IProfileStore, IStorageSettingsStore
         cancellationToken.ThrowIfCancellationRequested();
         var normalized = StorageSettingsValidation.Normalize(settings);
         lock (_gate) _storageSettings = normalized;
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<RegisteredCacheRoot>> ListCacheRootsAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate) return Task.FromResult<IReadOnlyList<RegisteredCacheRoot>>(_cacheRoots.ToArray());
+    }
+
+    public Task RegisterCacheRootAsync(AccountKey account, string cacheRoot, CancellationToken cancellationToken) =>
+        RegisterCacheRootAsync(account, cacheRoot, forCleanup: false, cancellationToken);
+
+    public Task RegisterCacheRootForCleanupAsync(AccountKey account, string cacheRoot, CancellationToken cancellationToken) =>
+        RegisterCacheRootAsync(account, cacheRoot, forCleanup: true, cancellationToken);
+
+    private Task RegisterCacheRootAsync(AccountKey account, string cacheRoot, bool forCleanup, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ProfileStoreValidation.Validate(account);
+        string normalized = StorageSettingsValidation.DirectoryPath(cacheRoot);
+        lock (_gate)
+        {
+            if (_pending.Contains(account) != forCleanup) throw ProfileStoreValidation.Unavailable();
+            if (!_cacheRoots.Any(root => root.Account == account && StorageSettingsValidation.SameDirectory(root.CacheRoot, normalized)))
+                _cacheRoots.Add(new(account, normalized));
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task RemoveCacheRootAsync(AccountKey account, string cacheRoot, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ProfileStoreValidation.Validate(account);
+        string normalized = StorageSettingsValidation.DirectoryPath(cacheRoot);
+        lock (_gate) _cacheRoots.RemoveAll(root => root.Account == account && StorageSettingsValidation.SameDirectory(root.CacheRoot, normalized));
         return Task.CompletedTask;
     }
 
