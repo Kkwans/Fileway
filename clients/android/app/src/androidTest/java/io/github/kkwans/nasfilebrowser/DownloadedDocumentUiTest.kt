@@ -73,12 +73,14 @@ internal class DownloadedDocumentUiTest : LibraryUiHarness() {
         val icon = device.wait(Until.findObject(By.desc("下载文档")), 5000) ?: error("Missing document toolbar")
         val ancestors = generateSequence(icon) { it.parent }.take(10).toList()
         val semantics = ancestors.joinToString(" > ") { "${it.className}(enabled=${it.isEnabled},clickable=${it.isClickable})" }
-        // Compose exposes this IconButton as a clickable android.view.View on
-        // this device. The decorative Icon's enabled state is independent.
-        val button = ancestors.firstOrNull { it.isClickable } ?: error("Missing clickable download button owner: $semantics")
+        // Role.Button identifies the actual owner independently of the state
+        // this test is about to assert. A disabled owner need not be clickable.
+        val button = ancestors.firstOrNull { it.applicationPackage == instrumentation.targetContext.packageName &&
+            it.className == "android.widget.Button" } ?: error("Missing download Button owner: $semantics")
         Log.i("DownloadedDocumentUiTest", "Download AX owner: $semantics")
         OwnedUiTraceRule.trace("document download AX owner: $semantics")
         assertFalse("Already downloaded content must have a disabled button; $semantics", button.isEnabled)
+        assertFalse("Disabled download must expose no click action; $semantics", button.isClickable)
         val bounds = button.visibleBounds
         val minimum = (48 * instrumentation.targetContext.resources.displayMetrics.density).roundToInt() - 1
         assertTrue("Download owner must expose its 48dp touch area: $bounds; $semantics", bounds.width() >= minimum && bounds.height() >= minimum)
