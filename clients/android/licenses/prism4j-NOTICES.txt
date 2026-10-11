@@ -1,0 +1,13 @@
+Prism4j 2.0.0
+Copyright 2019 Dimitry Ivanov (legal@noties.io).
+https://github.com/noties/Prism4j/tree/v2.0.0
+
+Licensed under the Apache License, Version 2.0; see prism4j-LICENSE.txt.
+This Fileway distribution attribution retains the fixed upstream README
+copyright. The fixed upstream source contains LICENSE and no separate NOTICE;
+this is not represented as an upstream NOTICE.
+
+Prism4j core is a runtime dependency. The bundler is a build-only annotation
+processor; it generates the upstream grammar/locator code without an App lexer.
+Runtime POM also declares org.jetbrains:annotations-java5:17.0.0, JetBrains Team,
+under Apache-2.0. Final resolved versions require the integrated dependency gate.

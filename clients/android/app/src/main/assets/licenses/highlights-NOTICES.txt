@@ -1,0 +1,16 @@
+Highlights 1.0.0
+Copyright 2023-2024 Tomasz Kądziołka.
+https://github.com/SnipMeDev/Highlights/tree/1.0.0
+
+Licensed under the Apache License, Version 2.0; see highlights-LICENSE.txt.
+This Fileway distribution attribution retains the copyright from the pinned
+upstream README. Upstream tag 1.0.0 and the published JAR do not contain a
+separate NOTICE file; this is not represented as an upstream NOTICE.
+
+Additional runtime declared by Highlights 1.0.0:
+org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.7.1
+org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.7.1
+https://github.com/Kotlin/kotlinx.serialization/tree/v1.7.1
+Apache License, Version 2.0 (same full terms in highlights-LICENSE.txt).
+The pinned kotlinx.serialization source has LICENSE.txt and no separate NOTICE.
+Final resolved versions remain subject to the integrated dependency gate.

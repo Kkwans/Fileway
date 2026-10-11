@@ -2,22 +2,32 @@ package io.github.kkwans.nasfilebrowser.ui
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -29,6 +39,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +64,7 @@ import com.mikepenz.markdown.model.markdownDimens
 import com.mikepenz.markdown.model.markdownPadding
 import com.mikepenz.markdown.utils.getUnescapedTextInNode
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.R
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
@@ -64,6 +76,12 @@ import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 internal fun markdownExternalIntent(destination: String): Intent? = markdownExternalLink(destination)?.let {
     Intent(Intent.ACTION_VIEW, Uri.parse(it).normalizeScheme()).addCategory(Intent.CATEGORY_BROWSABLE)
 }
+
+/** Opt-in owned-test observations only. No document/clipboard contents or raw
+ * exception messages are exposed, and no observer can change the copy result. */
+internal data class MarkdownCodeDiagnostic(val phase: String, val instance: Int, val copied: Boolean,
+    val failed: Boolean, val exceptionType: String? = null, val geometry: String? = null)
+internal val LocalMarkdownCodeDiagnostics = staticCompositionLocalOf<((MarkdownCodeDiagnostic) -> Unit)?> { null }
 
 /** Only security and explicit unsupported-content handling override upstream inline rendering. */
 internal fun markdownSafetyAnnotator(document: MarkdownDocument): MarkdownAnnotator = markdownAnnotator { content, node ->
@@ -148,10 +166,12 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
                 rowBlock = { content, row, width, style -> ReaderTableRow(content, row, width, style, alignments, false) })
         },
         custom = { type, model ->
-            // Definitions were already stored by the parser adapter. Unknown visible
-            // blocks (including HTML/math) stay literal rather than disappearing.
-            if (type != MarkdownElementTypes.LINK_DEFINITION) Text(model.node.getTextInNode(model.content).toString(),
-                style = model.typography.code)
+            // Upstream list rendering visits structural leaves too. Printing
+            // every unknown node duplicates bullets and CHECK_BOX source tokens.
+            if (type == MarkdownElementTypes.HTML_BLOCK || type.name == "HTML_TAG" ||
+                type == GFMElementTypes.INLINE_MATH || type == GFMElementTypes.BLOCK_MATH)
+                Text(model.node.getTextInNode(model.content).toString(), style = model.typography.code,
+                    color = LocalMarkdownColors.current.text)
         },
     )
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
@@ -211,26 +231,76 @@ private fun taskLabelSemantics(content: String, node: ASTNode): Modifier {
 @Composable
 private fun ReaderCode(code: String, language: String?, style: TextStyle) {
     val clipboard = LocalClipboardManager.current
+    val dark = MaterialTheme.colorScheme.background.luminance() < .5f
+    // This exact opaque surface is the integration input for the highlighter;
+    // token contrast must not be computed against the outer document color.
+    val codeSurface = if (dark) Color(0xFF171F2A) else Color(0xFFF8FAFC)
+    val codeBorder = if (dark) Color(0xFF2B3646) else Color(0xFFE2E8F0)
+    val codeText = if (dark) Color(0xFFE5EAF1) else Color(0xFF1F2937)
+    val codeMuted = if (dark) Color(0xFF9BAABC) else Color(0xFF64748B)
+    val codeStyle = style.copy(fontSize = 14.sp, lineHeight = 22.sp, fontFamily = FontFamily.Monospace, color = codeText)
+    val highlighted = rememberMarkdownCodeHighlight(code, language, codeSurface)
     var copied by remember(code) { mutableStateOf(false) }
     var copyFailed by remember(code) { mutableStateOf(false) }
     var wrap by remember(code) { mutableStateOf(true) }
-    MarkdownCodeBackground(color = LocalMarkdownColors.current.codeBackground,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), shape = MaterialTheme.shapes.small) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(language?.takeWhile { !it.isWhitespace() }?.ifEmpty { "代码" } ?: "代码", Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton({ wrap = !wrap }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (wrap) "横向滚动" else "自动换行") }
-                TextButton({
-                    try { clipboard.setText(AnnotatedString(code)); copied = true; copyFailed = false }
-                    catch (_: Exception) { copyFailed = true }
-                }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (copied) "已复制代码" else "复制代码") }
+    val observer = LocalMarkdownCodeDiagnostics.current
+    val instance = remember(code) { Any() }
+    fun observe(phase: String, exceptionType: String? = null, geometry: String? = null) {
+        if (observer != null) runCatching {
+            observer(MarkdownCodeDiagnostic(phase, System.identityHashCode(instance), copied, copyFailed, exceptionType, geometry))
+        }
+    }
+    if (observer != null) {
+        SideEffect { observe("composed") }
+        DisposableEffect(instance) { observe("attached"); onDispose { observe("disposed") } }
+    }
+    val copyModifier = if (observer == null) Modifier.size(48.dp) else Modifier.size(48.dp)
+        .onGloballyPositioned { observe("layout", geometry = it.boundsInWindow().toString()) }
+        .pointerInput(instance, observer) {
+            awaitPointerEventScope {
+                while (true) {
+                    for ((pass, stage) in listOf(PointerEventPass.Initial to "initial", PointerEventPass.Main to "main")) {
+                        val event = awaitPointerEvent(pass)
+                        event.changes.forEach { change ->
+                            if (change.pressed != change.previousPressed) observe("pointer-$stage-${if (change.pressed) "down" else "up"}",
+                                geometry = "${change.position.x},${change.position.y};consumed=${change.isConsumed}")
+                        }
+                    }
+                }
             }
-            if (copyFailed) Text("无法复制，请长按选择代码。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            if (wrap) Text(code, Modifier.fillMaxWidth(), style = style)
-            else Box(Modifier.horizontalScroll(rememberScrollState())) {
+        }
+    val copyCode = {
+        observe("callback-enter")
+        try { clipboard.setText(AnnotatedString(code)); copied = true; copyFailed = false; observe("copy-success") }
+        catch (error: Exception) { copyFailed = true; observe("copy-failed", exceptionType = error.javaClass.simpleName) }
+    }
+    MarkdownCodeBackground(color = codeSurface, border = BorderStroke(1.dp, codeBorder),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), shape = RoundedCornerShape(8.dp)) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(language?.takeWhile { !it.isWhitespace() }?.ifEmpty { "代码" } ?: "代码",
+                    Modifier.weight(1f).padding(start = 12.dp, end = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 16.sp), color = codeMuted)
+                IconButton({ wrap = !wrap }, modifier = Modifier.size(48.dp).clearAndSetSemantics {
+                    contentDescription = if (wrap) "横向滚动代码" else "自动换行代码"
+                    stateDescription = if (wrap) "当前自动换行" else "当前横向滚动"
+                    role = Role.Button
+                    onClick { wrap = !wrap; true }
+                }) { Icon(painterResource(R.drawable.ic_wrap_text), null, Modifier.size(20.dp), tint = codeMuted) }
+                IconButton(copyCode, modifier = copyModifier.clearAndSetSemantics {
+                    contentDescription = if (copied) "已复制代码" else "复制代码"
+                    stateDescription = if (copied) "已复制" else "复制完整代码"
+                    role = Role.Button
+                    onClick { copyCode(); true }
+                }) { Icon(painterResource(if (copied) R.drawable.art_check else R.drawable.ic_copy), null,
+                    Modifier.size(20.dp), tint = if (copied) codeText else codeMuted) }
+            }
+            if (copyFailed) Text("无法复制，请长按选择代码。", Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            if (wrap) Text(highlighted, Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp), style = codeStyle)
+            else Box(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp).horizontalScroll(rememberScrollState())) {
                 // A finite wide canvas prevents packed-constraint overflow on extreme lines.
-                Text(code, Modifier.widthIn(max = 1600.dp), style = style)
+                Text(highlighted, Modifier.widthIn(max = 1600.dp), style = codeStyle)
             }
         }
     }

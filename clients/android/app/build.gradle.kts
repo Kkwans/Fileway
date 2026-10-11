@@ -102,6 +102,11 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.4")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("com.mikepenz:multiplatform-markdown-renderer-m3-android:0.39.2")
+    implementation("io.noties:prism4j:2.0.0") {
+        exclude(group = "org.jetbrains", module = "annotations-java5")
+    }
+    annotationProcessor("io.noties:prism4j-bundler:2.0.0")
+    implementation("dev.snipme:highlights-jvm:1.0.0") { version { strictly("1.0.0") } }
     implementation("androidx.room:room-runtime:2.8.5")
     ksp("androidx.room:room-compiler:2.8.5")
     debugImplementation("androidx.compose.ui:ui-tooling")

@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
@@ -20,6 +21,14 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 internal class MarkdownDocumentUiTest : LibraryUiHarness() {
+    private var codeDiagnosticCount = 0
+    private fun codeDiagnostic(value: MarkdownCodeDiagnostic) {
+        if (codeDiagnosticCount++ >= 64) return
+        instrumentation.sendStatus(2, android.os.Bundle().apply {
+            putString("stream", "MARKDOWN_CODE phase=${value.phase} instance=${value.instance} copied=${value.copied} failed=${value.failed} " +
+                "exceptionType=${value.exceptionType ?: "none"} geometry=${value.geometry ?: "none"}\n")
+        })
+    }
     /** One fresh unique title, then its closest actual clickable ancestor.
      * No cached node survives the query and no rejected tap is retried. */
     private fun buttonBounds(label: String): Rect? {
@@ -73,6 +82,13 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             requireNotNull(target)
         }
         OwnedUiTraceRule.trace("markdown-control=$label driver=$driver bounds=$bounds")
+        if (androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("nfbMarkdownCodeDiagnostics") == "true") {
+            var owner = "unavailable"
+            activity.scenario.onActivity { host ->
+                owner = "callbackType=${host.window.callback?.javaClass?.name} focus=${host.hasWindowFocus()} shown=${host.window.decorView.isShown}"
+            }
+            instrumentation.sendStatus(2, android.os.Bundle().apply { putString("stream", "MARKDOWN_INPUT_OWNER $owner\n") })
+        }
         if (driver == "shell") device.executeShellCommand("input touchscreen tap ${bounds.centerX()} ${bounds.centerY()}")
         else OwnedTouchInput.tap(instrumentation, bounds, tracePrefix = "markdown-$label")
     }
@@ -93,9 +109,10 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             .onFailure { captureUnavailable(stage, it.javaClass.simpleName) }
         if (stage == "reading") {
             // Compare only owned expected text: never print an unknown clipboard.
-            val copiedCode = runCatching { copiedText().trimEnd('\n') == "println(\"needle\")" }.getOrNull()
+            val clipboard = runCatching { copiedText() }
+            val copiedCode = clipboard.getOrNull()?.trimEnd('\n')?.let { it == "println(\"needle\")" }
             instrumentation.sendStatus(2, android.os.Bundle().apply {
-                putString("stream", "MARKDOWN_COPY_OWNED_CODE_MATCHES=$copiedCode\n")
+                putString("stream", "MARKDOWN_COPY_OWNED_CODE_MATCHES=$copiedCode exceptionType=${clipboard.exceptionOrNull()?.javaClass?.simpleName ?: "none"}\n")
             })
         }
     }
@@ -123,13 +140,16 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
         val owner = fixture.session("markdown-ui")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         val controller = DocumentPreviewController(instrumentation.targetContext, scope, { it === owner }, reader = fixture.reader)
+        val diagnostics = androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("nfbMarkdownCodeDiagnostics") == "true"
         var edited: DocumentText? = null
         var downloads = 0
         activity.scenario.onActivity { host ->
             model = ViewModelProvider(host)[ClientModel::class.java]
             host.setContent { ClientTheme(darkTheme = false) { LibraryTheme {
-                DocumentPreviewScreen(controller, {}, { assertEquals(fixture.sourceWire, it.wirePath); downloads++ }, true,
-                    onEdit = { file, text -> assertEquals(fixture.sourceWire, file.wirePath); edited = text })
+                CompositionLocalProvider(LocalMarkdownCodeDiagnostics provides if (diagnostics) ::codeDiagnostic else null) {
+                    DocumentPreviewScreen(controller, {}, { assertEquals(fixture.sourceWire, it.wirePath); downloads++ }, true,
+                        onEdit = { file, text -> assertEquals(fixture.sourceWire, file.wirePath); edited = text })
+                }
             } } }
         }
         try {
@@ -137,8 +157,10 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             val opened = withTimeout(5000) { controller.state.first { !it.loading && it.text != null } }
             text("Owned heading"); text("UTF-8 · 阅读 · 只读")
             assertFalse(device.hasObject(By.clazz("android.widget.EditText")))
-            click("复制代码"); text("已复制代码")
+            click("复制代码"); action("已复制代码")
             assertEquals("println(\"needle\")", copiedText().trimEnd('\n'))
+            click("横向滚动代码"); action("自动换行代码")
+            click("自动换行代码"); action("横向滚动代码")
             click("源码"); text("UTF-8 · 只读")
             val input = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5000) ?: error("Missing source search")
             input.text = "needle"
@@ -205,14 +227,22 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             MarkdownBody(document, { error("Task rows must not open a link") })
         } } } }
         try {
+            val rows = mutableListOf<Rect>()
             for ((label, checked) in listOf("Owned completed lower" to true, "Owned completed upper" to true, "Owned waiting" to false)) {
                 val row = text(label)
                 try {
                     assertTrue(label, row.isCheckable)
                     assertEquals(label, checked, row.isChecked)
                     assertFalse("Reading tasks must remain readonly", row.isClickable)
+                    rows.add(Rect(row.visibleBounds))
                 } finally { row.recycle() }
             }
+            val nodes = freshAccessibilityBounds(instrumentation, Rect(0, 0, device.displayWidth, device.displayHeight))
+                ?: error("Owned task accessibility tree unavailable")
+            assertFalse("Task syntax must not be rendered a second time", nodes.any {
+                it.visible && it.text?.trim() in setOf("-", "[x]", "[X]", "[ ]")
+            })
+            assertTrue("Task labels must not overlap", rows.zipWithNext().all { (before, after) -> before.bottom <= after.top })
             assertEquals(source, document.state.content)
             successEvidence("tasks")
         } catch (error: Throwable) { failureEvidence("tasks"); throw error }
