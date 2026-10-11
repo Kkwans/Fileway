@@ -319,7 +319,12 @@ func TestRenewalFailureDoesNotInventMutationSuccess(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if response, err := b.Request(context.Background(), sid, test.method, "/api/resources/owned", nil); err == nil {
+			response, err := b.Request(context.Background(), sid, test.method, "/api/resources/owned", nil)
+			if test.method == http.MethodGet {
+				if err != nil || response.Status != http.StatusUnauthorized {
+					t.Fatal("rejected read renewal lost its authentication status", response, err)
+				}
+			} else if err == nil {
 				t.Fatal("unconfirmed success was invented", response)
 			}
 			if mutations.Load() != 1 {
@@ -327,6 +332,74 @@ func TestRenewalFailureDoesNotInventMutationSuccess(t *testing.T) {
 			}
 			if token, _ := b.Token(sid); token != "old.account.token" {
 				t.Fatal("failed renewal changed token", token)
+			}
+		})
+	}
+}
+
+func TestReadRenewalAuthenticationStatusDoesNotBroadenRecovery(t *testing.T) {
+	for _, test := range []struct {
+		name                      string
+		readStatus, renewStatus   int
+		renewBody                 string
+		interrupted, unauthorized bool
+	}{
+		{"unauthorized-renewal", 200, 401, "", false, true},
+		{"unauthorized-read-and-renewal", 401, 401, "", false, true},
+		{"forbidden-renewal", 200, 403, "", false, false},
+		{"unavailable-renewal", 200, 503, "", false, false},
+		{"invalid-renewed-token", 200, 200, "not-a-token", false, false},
+		{"interrupted-renewal", 200, 200, "", true, false},
+		{"forbidden-read", 403, 401, "", false, false},
+		{"unavailable-read", 503, 401, "", false, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var reads, renewals, logins atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/renew":
+					renewals.Add(1)
+					if test.interrupted {
+						w.Header().Set("Content-Length", "100")
+					}
+					w.WriteHeader(test.renewStatus)
+					fmt.Fprint(w, test.renewBody)
+				case "/api/login":
+					logins.Add(1)
+					w.WriteHeader(http.StatusUnauthorized)
+				case "/api/resources/":
+					reads.Add(1)
+					w.Header().Set("X-Renew-Token", "true")
+					w.WriteHeader(test.readStatus)
+					fmt.Fprint(w, "{}")
+				default:
+					t.Errorf("unexpected request: %s", r.URL.Path)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			b, err := New()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer b.Close()
+			sid, err := b.Open(server.URL, "old.account.token", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			response, err := b.Request(context.Background(), sid, http.MethodGet, "/api/resources/", nil)
+			if test.unauthorized {
+				if err != nil || response.Status != http.StatusUnauthorized || response.Body != "" {
+					t.Fatal("definitive authentication rejection was lost", response, err)
+				}
+			} else if err == nil {
+				t.Fatal("non-authentication failure became a recoverable response", response)
+			}
+			if reads.Load() != 1 || renewals.Load() != 1 || logins.Load() != 0 {
+				t.Fatal("transport replayed a read or attempted password login", reads.Load(), renewals.Load(), logins.Load())
+			}
+			if token, _ := b.Token(sid); token != "old.account.token" {
+				t.Fatal("failed renewal replaced the original credential", token)
 			}
 		})
 	}

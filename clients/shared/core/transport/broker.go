@@ -19,6 +19,8 @@ import (
 
 const maxAPIResponse = 8 << 20
 
+var errRenewalUnauthorized = errors.New("session expired; sign in again")
+
 type Response struct {
 	Status      int    `json:"status"`
 	Body        string `json:"body"`
@@ -219,6 +221,9 @@ func (s *Session) renew(ctx context.Context, previous string) error {
 	if err != nil {
 		return err
 	}
+	if r.Status == http.StatusUnauthorized {
+		return errRenewalUnauthorized
+	}
 	if r.Status != http.StatusOK || strings.Count(strings.TrimSpace(r.Body), ".") != 2 {
 		return errors.New("session expired; sign in again")
 	}
@@ -264,6 +269,13 @@ func (b *Broker) request(ctx context.Context, id, method, endpoint string, body 
 			// the original token; later reads can still report expired login.
 			if method != http.MethodGet && r.Status >= 200 && r.Status < 300 {
 				return r, nil
+			}
+			// A definitively rejected renewal is authentication failure, not a
+			// generic transport outage. Preserve it for readonly login recovery;
+			// never replay a request here or reinterpret a forbidden/failed read.
+			if method == http.MethodGet && errors.Is(renewErr, errRenewalUnauthorized) &&
+				(r.Status == http.StatusUnauthorized || r.Status >= 200 && r.Status < 300) {
+				return Response{Status: http.StatusUnauthorized}, nil
 			}
 			return Response{}, renewErr
 		}
