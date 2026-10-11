@@ -68,7 +68,10 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
     }
     private fun checked(label: String, expected: Boolean) {
         await("$label checked=$expected") { nodes ->
-            nodes.any { it.visible && (it.description == label || it.text == label) && it.checkable && it.checked == expected }
+            val owner = target(nodes, label)
+            owner != null && withActionOwner(label, owner.bounds) { node ->
+                if (node.isCheckable) node.isChecked else null
+            } == expected
         }
     }
     private fun delimiterState(choice: String) {
@@ -80,11 +83,14 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
     }
 
     /** Compose exports the speaking description/label separately from its clickable state owner. */
-    private fun actionState(description: String, expectedBounds: Rect): String? {
+    private fun actionState(description: String, expectedBounds: Rect): String? =
+        withActionOwner(description, expectedBounds) { AccessibilityNodeInfoCompat.wrap(it).stateDescription?.toString() }
+
+    private fun <T> withActionOwner(description: String, expectedBounds: Rect, read: (AccessibilityNodeInfo) -> T?): T? {
         val root = instrumentation.uiAutomation.rootInActiveWindow ?: return null
         val packageName = instrumentation.targetContext.packageName
         val windowId = root.windowId
-        fun visit(node: AccessibilityNodeInfo): String? {
+        fun visit(node: AccessibilityNodeInfo): T? {
             try {
                 if (!node.refresh() || node.packageName?.toString() != packageName || node.windowId != windowId) return null
                 if (node.isVisibleToUser && node.contentDescription?.toString() == description) {
@@ -97,8 +103,8 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
                             if (!current.refresh() || current.windowId != windowId || current.packageName?.toString() != packageName) return null
                             val bounds = Rect().also(current::getBoundsInScreen)
                             if (!bounds.intersect(screen)) bounds.setEmpty()
-                            if (current.isVisibleToUser && current.isEnabled && current.isClickable && bounds == expectedBounds)
-                                return AccessibilityNodeInfoCompat.wrap(current).stateDescription?.toString()
+                            if (current.isVisibleToUser && current.isEnabled && current.isClickable)
+                                return if (bounds == expectedBounds) read(current) else null
                             owner = current.parent
                             current.recycle()
                         }
@@ -111,7 +117,11 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
                 return null
             } finally { node.recycle() }
         }
-        return visit(root)
+        val result = visit(root)
+        val active = instrumentation.uiAutomation.rootInActiveWindow ?: return null
+        return try {
+            result.takeIf { active.refresh() && active.windowId == windowId && active.packageName?.toString() == packageName }
+        } finally { active.recycle() }
     }
     private fun chooseDelimiter(choice: String) {
         click("选择表格分隔符")
