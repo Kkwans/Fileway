@@ -31,6 +31,8 @@ VIAddVersionKey /LANG=2052 "FileVersion" "${PACKAGE_VERSION}"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "Fileway contributors"
 
 !define MUI_ABORTWARNING
+!define MUI_ICON "${PAYLOAD_DIR}\Assets\AppIcon.ico"
+!define MUI_UNICON "${PAYLOAD_DIR}\Assets\AppIcon.ico"
 !define MUI_WELCOMEPAGE_TITLE "Fileway 本机开发预览"
 !define MUI_WELCOMEPAGE_TEXT "版本 ${PACKAGE_VERSION}$\r$\n$\r$\n这是未签名、尚未完成正式分发审核的本机开发预览。$\r$\n$\r$\n仅安装到当前用户目录；不会设置文件关联、自启动或系统服务。请先正常关闭正在运行的 Fileway。$\r$\n$\r$\n卸载保留下载和用户数据。可分发许可证完整性仍属于后续 G5 门槛。"
 !insertmacro MUI_PAGE_WELCOME
@@ -110,9 +112,10 @@ Section "Fileway Preview" SEC_APP
   SetOverwrite off
   File /r "${PAYLOAD_DIR}\*"
   WriteUninstaller "$OUTDIR\uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\Fileway Preview ${PACKAGE_VERSION}.lnk" "$OUTDIR\Fileway.App.exe" "" "$OUTDIR\Fileway.App.exe"
+  CreateShortcut "$SMPROGRAMS\Fileway Preview ${PACKAGE_VERSION}.lnk" "$OUTDIR\Fileway.App.exe" "" "$OUTDIR\Assets\AppIcon.ico"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FilewayPreview-${PACKAGE_VERSION}" "DisplayName" "Fileway Preview ${PACKAGE_VERSION} (unsigned)"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FilewayPreview-${PACKAGE_VERSION}" "DisplayVersion" "${PACKAGE_VERSION}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FilewayPreview-${PACKAGE_VERSION}" "DisplayIcon" "$OUTDIR\Assets\AppIcon.ico"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FilewayPreview-${PACKAGE_VERSION}" "InstallLocation" "$OUTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FilewayPreview-${PACKAGE_VERSION}" "UninstallString" '$\"$OUTDIR\uninstall.exe$\"'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\FilewayPreview-${PACKAGE_VERSION}" "NoModify" 1

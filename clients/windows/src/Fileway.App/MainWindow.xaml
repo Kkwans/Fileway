@@ -20,7 +20,7 @@
 
         <TitleBar x:Name="AppTitleBar" Title="Fileway · 栖卷">
             <TitleBar.IconSource>
-                <ImageIconSource ImageSource="Assets/AppIcon.ico" />
+                <ImageIconSource ImageSource="Assets/Square44x44Logo.targetsize-48_altform-lightunplated.png" />
             </TitleBar.IconSource>
         </TitleBar>
 
