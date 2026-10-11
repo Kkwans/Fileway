@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.Role
@@ -41,6 +42,8 @@ import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
 import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
 import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.compose.elements.MarkdownTableBasicText
+import com.mikepenz.markdown.compose.elements.MarkdownParagraph
+import com.mikepenz.markdown.compose.elements.MarkdownText
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.MarkdownAnnotator
@@ -51,6 +54,7 @@ import com.mikepenz.markdown.model.markdownPadding
 import com.mikepenz.markdown.utils.getUnescapedTextInNode
 import io.github.kkwans.nasfilebrowser.data.*
 import org.intellij.markdown.MarkdownElementTypes
+import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
 import org.intellij.markdown.ast.findChildOfType
 import org.intellij.markdown.ast.getTextInNode
@@ -110,6 +114,10 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
     }
     val annotator = remember(document) { markdownSafetyAnnotator(document) }
     val components = markdownComponents(
+        text = { model -> MarkdownText(model.node.getUnescapedTextInNode(model.content),
+            modifier = taskLabelSemantics(model.content, model.node), style = model.typography.text) },
+        paragraph = { model -> MarkdownParagraph(model.content, model.node,
+            modifier = taskLabelSemantics(model.content, model.node), style = model.typography.paragraph) },
         heading1 = spacedHeading(CurrentComponentsBridge.heading1),
         heading2 = spacedHeading(CurrentComponentsBridge.heading2),
         heading3 = spacedHeading(CurrentComponentsBridge.heading3),
@@ -125,11 +133,10 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
         },
         checkbox = { model ->
             val checked = markdownTaskChecked(model.content, model.node)
-            Checkbox(checked = checked, onCheckedChange = null, modifier = Modifier.padding(end = 4.dp).semantics {
-                role = Role.Checkbox
-                toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
-                stateDescription = if (checked) "已完成，只读" else "未完成，只读"
-            })
+            // The task's actual text node owns its state. The visual marker
+            // must not become a separate, unlabelled checkbox for TalkBack.
+            Checkbox(checked = checked, onCheckedChange = null,
+                modifier = Modifier.padding(end = 4.dp).clearAndSetSemantics {})
         },
         image = { Text(markdownImageLabel(it.content, it.node), style = it.typography.text) },
         codeFence = { MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style -> ReaderCode(code, language, style) } },
@@ -180,6 +187,24 @@ private fun ReaderNotice(text: String) {
 
 private fun spacedHeading(delegate: MarkdownComponent): MarkdownComponent = { model ->
     Box(Modifier.padding(top = 16.dp, bottom = 6.dp).semantics(mergeDescendants = true) { heading() }) { delegate(model) }
+}
+
+/** 0.39.2 keeps listItem private; bridge its public text/paragraph modifier.
+ * Only the current item's first body owns this checkbox, never nested items.
+ * Keep native text selection and LinkAnnotation semantics on the same node. */
+private fun taskLabelSemantics(content: String, node: ASTNode): Modifier {
+    val item = node.parent?.takeIf { it.type == MarkdownElementTypes.LIST_ITEM } ?: return Modifier
+    val firstBody = item.children.firstOrNull {
+        it.type == MarkdownElementTypes.PARAGRAPH || it.type == MarkdownTokenTypes.TEXT
+    }
+    if (firstBody !== node) return Modifier
+    val task = item.children.firstOrNull { it.type == GFMTokenTypes.CHECK_BOX } ?: return Modifier
+    val checked = markdownTaskChecked(content, task)
+    return Modifier.semantics(mergeDescendants = true) {
+        role = Role.Checkbox
+        toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
+        stateDescription = if (checked) "已完成，只读" else "未完成，只读"
+    }
 }
 
 /** Upstream owns fence parsing/background; this adapter supplies 48 dp copy and wrapping controls. */

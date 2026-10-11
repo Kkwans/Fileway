@@ -2,6 +2,8 @@ package io.github.kkwans.nasfilebrowser
 
 import android.content.ClipboardManager
 import android.content.Intent
+import android.graphics.Rect
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -18,9 +20,93 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 internal class MarkdownDocumentUiTest : LibraryUiHarness() {
-    private fun click(label: String) {
-        val target = enabledTextAction(label)
-        try { target.click() } finally { target.recycle() }
+    /** One fresh unique title, then its closest actual clickable ancestor.
+     * No cached node survives the query and no rejected tap is retried. */
+    private fun buttonBounds(label: String): Rect? {
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: return null
+        val packageName = instrumentation.targetContext.packageName
+        val window = root.windowId
+        val matches = mutableListOf<AccessibilityNodeInfo>()
+        fun collect(node: AccessibilityNodeInfo): Boolean {
+            try {
+                if (!node.refresh() || node.windowId != window) return false
+                if (node.isVisibleToUser && (node.text?.toString() == label || node.contentDescription?.toString() == label))
+                    matches.add(AccessibilityNodeInfo.obtain(node))
+                for (index in 0 until node.childCount) {
+                    val child = node.getChild(index) ?: return false
+                    if (!collect(child)) return false
+                }
+                return true
+            } finally { node.recycle() }
+        }
+        try {
+            if (root.packageName?.toString() != packageName) { root.recycle(); return null }
+            if (!collect(root) || matches.size != 1) return null
+            var current: AccessibilityNodeInfo? = matches.removeAt(0)
+            var bounds: Rect? = null
+            try {
+                var depth = 0
+                while (current != null && depth++ < 32) {
+                    val node = current ?: break
+                    if (!node.refresh() || !node.isVisibleToUser || !node.isEnabled || node.windowId != window) return null
+                    if (node.isClickable) {
+                        bounds = Rect().also(node::getBoundsInScreen).takeIf {
+                            it.intersect(Rect(0, 0, device.displayWidth, device.displayHeight)) && !it.isEmpty
+                        }
+                        break
+                    }
+                    val parent = node.parent
+                    node.recycle(); current = parent
+                }
+            } finally { current?.recycle() }
+            val active = instrumentation.uiAutomation.rootInActiveWindow ?: return null
+            return try { bounds.takeIf { active.refresh() && active.windowId == window && active.packageName?.toString() == packageName } }
+            finally { active.recycle() }
+        } finally { matches.forEach { it.recycle() } }
+    }
+    private suspend fun click(label: String) {
+        val driver = androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("nfbInputDriver") ?: "automation"
+        require(driver in setOf("automation", "shell"))
+        val bounds = withTimeout(5000) {
+            var target: Rect? = null
+            while (target == null) { target = buttonBounds(label); if (target == null) delay(25) }
+            requireNotNull(target)
+        }
+        OwnedUiTraceRule.trace("markdown-control=$label driver=$driver bounds=$bounds")
+        if (driver == "shell") device.executeShellCommand("input touchscreen tap ${bounds.centerX()} ${bounds.centerY()}")
+        else OwnedTouchInput.tap(instrumentation, bounds, tracePrefix = "markdown-$label")
+    }
+    private fun ownedCapture(stage: String) {
+        val packageName = instrumentation.targetContext.packageName
+        check(device.currentPackageName == packageName)
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: error("Owned active window unavailable")
+        try { check(root.packageName?.toString() == packageName) } finally { root.recycle() }
+        var focused = false
+        activity.scenario.onActivity { focused = it.hasWindowFocus() && it.window.decorView.isShown }
+        check(focused)
+        val name = "markdown-first-owned-$stage-${android.os.SystemClock.uptimeMillis()}.png"
+        check(device.takeScreenshot(java.io.File(instrumentation.targetContext.cacheDir, name)))
+        instrumentation.sendStatus(2, android.os.Bundle().apply { putString("stream", "MARKDOWN_FIRST_OWNED_CAPTURE=$name\n") })
+    }
+    private fun failureEvidence(stage: String) {
+        runCatching { ownedCapture("$stage-failed") }
+            .onFailure { captureUnavailable(stage, it.javaClass.simpleName) }
+        if (stage == "reading") {
+            // Compare only owned expected text: never print an unknown clipboard.
+            val copiedCode = runCatching { copiedText().trimEnd('\n') == "println(\"needle\")" }.getOrNull()
+            instrumentation.sendStatus(2, android.os.Bundle().apply {
+                putString("stream", "MARKDOWN_COPY_OWNED_CODE_MATCHES=$copiedCode\n")
+            })
+        }
+    }
+    private fun successEvidence(stage: String) {
+        runCatching { ownedCapture("$stage-passed") }
+            .onFailure { captureUnavailable(stage, it.javaClass.simpleName) }
+    }
+    private fun captureUnavailable(stage: String, type: String) {
+        instrumentation.sendStatus(2, android.os.Bundle().apply {
+            putString("stream", "MARKDOWN_FIRST_CAPTURE_UNAVAILABLE stage=$stage type=$type visual=UNVERIFIED\n")
+        })
     }
     private fun copiedText(): String {
         var value = ""
@@ -60,10 +146,12 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             text("1 / 2 处匹配")
             click("复制全文"); assertEquals(source, copiedText())
             click("阅读"); text("Owned heading")
-            action("编辑文本").click(); action("下载文档").click()
+            click("编辑文本"); click("下载文档")
             instrumentation.runOnMainSync { assertSame(opened.text, edited); assertEquals(1, downloads) }
             assertEquals(source, controller.state.value.text!!.text)
             assertTrue(fixture.writes.isEmpty())
+            successEvidence("reading")
+        } catch (error: Throwable) { failureEvidence("reading"); throw error
         } finally { main { controller.close() }; scope.cancel() }
     }
 
@@ -93,6 +181,8 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             assertEquals(source, controller.state.value.text!!.text)
             assertEquals(source.indexOf("tail-owned"), controller.state.value.search.matches.single().start)
             assertTrue(fixture.writes.isEmpty())
+            successEvidence("oversized")
+        } catch (error: Throwable) { failureEvidence("oversized"); throw error
         } finally { main { controller.close() }; scope.cancel() }
     }
 
@@ -114,15 +204,18 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
         activity.scenario.onActivity { host -> host.setContent { ClientTheme(darkTheme = true) { LibraryTheme {
             MarkdownBody(document, { error("Task rows must not open a link") })
         } } } }
-        for ((label, checked) in listOf("Owned completed lower" to true, "Owned completed upper" to true, "Owned waiting" to false)) {
-            val row = text(label)
-            try {
-                assertTrue(label, row.isCheckable)
-                assertEquals(label, checked, row.isChecked)
-                assertFalse("Reading tasks must remain readonly", row.isClickable)
-            } finally { row.recycle() }
-        }
-        assertEquals(source, document.state.content)
+        try {
+            for ((label, checked) in listOf("Owned completed lower" to true, "Owned completed upper" to true, "Owned waiting" to false)) {
+                val row = text(label)
+                try {
+                    assertTrue(label, row.isCheckable)
+                    assertEquals(label, checked, row.isChecked)
+                    assertFalse("Reading tasks must remain readonly", row.isClickable)
+                } finally { row.recycle() }
+            }
+            assertEquals(source, document.state.content)
+            successEvidence("tasks")
+        } catch (error: Throwable) { failureEvidence("tasks"); throw error }
     }
 
     @Test fun nativeLinksRequireAnActualTapAndUnsafeLinksRemainPlainText(): Unit = runBlocking {

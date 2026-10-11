@@ -23,6 +23,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -53,13 +58,13 @@ import kotlin.math.roundToInt
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ leave() }, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "关闭文档") }
+                DocumentIcon(R.drawable.ic_arrow_back, "关闭文档") { leave() }
                 Text(file.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (onEdit != null && state.text != null) IconButton({ state.text?.let { onEdit(file, it) } }, enabled = !state.loading, modifier = Modifier.size(48.dp)) {
-                    Icon(painterResource(R.drawable.ic_edit), "编辑文本")
+                if (onEdit != null && state.text != null) DocumentIcon(R.drawable.ic_edit, "编辑文本", enabled = !state.loading) {
+                    state.text?.let { onEdit(file, it) }
                 }
-                IconButton({ controller.retry() }, enabled = !state.loading, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_refresh), "重新读取文档") }
-                IconButton({ onDownload(file) }, enabled = canDownload, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_download), "下载文档") }
+                DocumentIcon(R.drawable.ic_refresh, "重新读取文档", enabled = !state.loading) { controller.retry() }
+                DocumentIcon(R.drawable.ic_download, "下载文档", enabled = canDownload) { onDownload(file) }
             }
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { message ->
@@ -92,6 +97,14 @@ import kotlin.math.roundToInt
             if (onOpenExternal != null) TextButton({ onOpenExternal(file) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("使用系统应用打开已下载文件") }
         }
     }
+}
+
+@Composable private fun DocumentIcon(icon: Int, label: String, enabled: Boolean = true, click: () -> Unit) {
+    IconButton(onClick = click, enabled = enabled, modifier = Modifier.size(48.dp).clearAndSetSemantics {
+        contentDescription = label
+        role = Role.Button
+        if (enabled) onClick { click(); true } else disabled()
+    }) { Icon(painterResource(icon), null) }
 }
 
 @Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
