@@ -46,8 +46,17 @@ Only confirmed engine positions are saved. Source resolution is displayed from
 native video metadata; it does not imply HLS transcoding quality selection.
 
 Windows executable, window, taskbar and installer icons use the Android launcher's
-original foreground paths and background gradient. Raster sizes are platform
-exports of those sources, not a separate Windows brand.
+original foreground paths and background gradient. Windows optical exports
+enlarge that foreground by 1.45 and use a rounded, transparent-corner background;
+Android's adaptive-icon resources retain their existing safe area. The vector
+master is `Assets/WindowsAppMark.svg`; `eng/Export-Branding.py` regenerates the
+eight PNGs and seven native ICO sizes from the Android vector sources with Pillow.
+This is a platform adaptation of the same brand, not a separate logo.
+
+Application windows use a shared frameless caption for the main and image
+windows; playback retains its accepted native window. Normal move/resize,
+maximize/restore, system close and theme behavior remain part of native acceptance.
+The initial 0.2 preview is a window/branding slice, not the completed 0.2 feature milestone.
 
 The installer offers a destination folder and a desktop shortcut selected by
 default. Chinese Windows UI or China region defaults to **栖卷**; other preferences

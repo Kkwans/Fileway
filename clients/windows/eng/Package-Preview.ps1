@@ -1,6 +1,6 @@
 param(
     [Alias('PublishDirectory')][string] $PublisherInput,
-    [string] $Version = '0.1.1-preview.1',
+    [string] $Version = '0.2.0-preview.1',
     [string] $ArtifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..\Fileway-windows-artifacts\local')),
     [string] $ToolsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..\Fileway-windows-tools')),
     [string] $OutputDirectory

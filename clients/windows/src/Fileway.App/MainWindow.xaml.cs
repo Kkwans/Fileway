@@ -1,18 +1,20 @@
 using Fileway.Core.Contracts;
 using Fileway.App.MediaSurfaces;
 using Fileway.App.Branding;
+using Fileway.App.Windowing;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 namespace Fileway.App;
 
-public sealed partial class MainWindow : Window
+public sealed partial class MainWindow : Window, IDisposable
 {
+    private readonly FramelessWindowChrome _chrome;
+
     public MainWindow()
     {
         InitializeComponent();
-        Title = AppTitleBar.Title = AppBranding.DisplayName;
-        ExtendsContentIntoTitleBar = true;
-        SetTitleBar(AppTitleBar);
+        Title = AppTitleBar.Caption = AppBranding.DisplayName;
+        _chrome = new FramelessWindowChrome(this, AppTitleBar);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         var scale = NativeVideoWindow.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96d;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
@@ -21,9 +23,15 @@ public sealed partial class MainWindow : Window
         var height = Math.Min((int)Math.Round(760 * scale), Math.Max(1, work.Height - margin * 2));
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(work.X + (work.Width - width) / 2, work.Y + (work.Height - height) / 2, width, height));
         RootFrame.Navigate(typeof(MainPage));
-        Closed += (_, _) => ((MainPage)RootFrame.Content).Shutdown();
+        Closed += (_, _) => Dispose();
     }
     public void SetServices(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback)
         => ((MainPage)RootFrame.Content).SetServices(connection, files, images, playback);
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);
+    public void Dispose()
+    {
+        _chrome.Dispose();
+        if (RootFrame.Content is MainPage page) page.Shutdown();
+        GC.SuppressFinalize(this);
+    }
 }

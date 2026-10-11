@@ -28,24 +28,12 @@ public sealed partial class MainPage : Page, IDisposable
     private long _generation;
     private bool _connecting;
     private bool _disposed;
-    private readonly Windows.UI.ViewManagement.AccessibilitySettings _accessibility = new();
-    private readonly bool _accessibilityEventsAvailable;
 
     public MainPage()
     {
         InitializeComponent(); FileList.ItemsSource = _rows;
         BrandName.Text = AppBranding.DisplayName;
-        Shell.ActualThemeChanged += (_, _) => ApplyAppearance();
-        try
-        {
-            _accessibility.HighContrastChanged += HighContrast_Changed;
-            _accessibilityEventsAvailable = true;
-        }
-        catch (System.Runtime.InteropServices.COMException exception) when (exception.HResult == unchecked((int)0x80070490))
-        {
-            // Some unpackaged desktops expose the setting but not this WinRT event.
-            // WinUI theme resources still follow system high contrast.
-        }
+        Loaded += (_, _) => ApplyTheme();
     }
     public void SetServices(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback)
     {
@@ -60,7 +48,6 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed) return;
         _disposed = true; _lifetime.Cancel(); _loadCancellation?.Cancel();
-        if (_accessibilityEventsAvailable) _accessibility.HighContrastChanged -= HighContrast_Changed;
         foreach (var window in _imageWindows.ToArray()) window.Close();
         _loadCancellation?.Dispose(); _lifetime.Dispose();
     }
@@ -153,6 +140,7 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 var images = _items.Where(item => new FileRow(item).IsImage).Select(item => item.Resource).ToArray();
                 var window = new ImageWindow(_images, row.File.Resource, images); _imageWindows.Add(window);
+                window.SetTheme(Shell.RequestedTheme);
                 window.Closed += (_, _) => _imageWindows.Remove(window); window.Activate();
             }
             else if (row.IsVideo && _playback is not null)
@@ -209,17 +197,15 @@ public sealed partial class MainPage : Page, IDisposable
         if (await dialog.ShowAsync() == ContentDialogResult.Primary) await OpenSelectedAsync();
     }
     private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (StatusText is null) return; StatusText.Text = FileList.SelectedItems.Count == 1 && FileList.SelectedItem is FileRow row ? $"{row.Name} · {row.Kind} · {row.Size}" : $"{_rows.Count} 个项目 · 已选择 {FileList.SelectedItems.Count} 个"; }
-    private void Theme_Changed(object sender, SelectionChangedEventArgs e) { if (Shell is not null) Shell.RequestedTheme = ThemeBox.SelectedIndex switch { 1 => ElementTheme.Light, 2 => ElementTheme.Dark, _ => ElementTheme.Default }; }
-    private void Direction_Changed(object sender, SelectionChangedEventArgs e)
+    private void Theme_Changed(object sender, SelectionChangedEventArgs e) => ApplyTheme();
+    private void ApplyTheme()
     {
-        if (Workspace is null) return;
-        Workspace.Padding = DirectionBox.SelectedIndex switch { 1 => new Thickness(36, 28, 36, 20), 2 => new Thickness(20, 18, 20, 14), _ => new Thickness(28, 24, 28, 18) };
-        Heading.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Segoe UI Variable");
-        Heading.FontSize = DirectionBox.SelectedIndex == 1 ? 32 : 28;
-        ApplyAppearance();
+        if (Shell is null || ThemeBox is null) return;
+        var theme = ThemeBox.SelectedIndex switch { 1 => ElementTheme.Light, 2 => ElementTheme.Dark, _ => ElementTheme.Default };
+        if (XamlRoot?.Content is FrameworkElement windowRoot) windowRoot.RequestedTheme = theme;
+        Shell.RequestedTheme = theme;
+        foreach (var window in _imageWindows) window.SetTheme(theme);
     }
-    private void ApplyAppearance() { if (ConnectionPanel is not null) Styles.PreviewAppearance.Apply(Shell, Sidebar, Workspace, ConnectionPanel, DirectionBox.SelectedIndex); }
-    private void HighContrast_Changed(Windows.UI.ViewManagement.AccessibilitySettings sender, object args) => DispatcherQueue.TryEnqueue(ApplyAppearance);
     private void Workspace_SizeChanged(object sender, SizeChangedEventArgs e) { if (SidebarColumn is null || SearchBox is null) return; SidebarColumn.Width = new GridLength(ActualWidth < 880 ? 190 : 244); SearchBox.Width = e.NewSize.Width < 650 ? 150 : 240; }
 }
 

@@ -12,8 +12,7 @@
     <Button x:Name="ConnectionButton" Content="连接服务器" HorizontalAlignment="Stretch" Click="Connection_Click"/>
    </StackPanel>
    <StackPanel Grid.Row="3" Spacing="10">
-    <TextBlock Text="外观预览 · 待确认" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-    <ComboBox x:Name="DirectionBox" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Direction_Changed" AutomationProperties.Name="外观方向"><ComboBoxItem Content="A · 清晰 Fluent"/><ComboBoxItem Content="B · 栖卷书房"/><ComboBoxItem Content="C · 影音工作台"/></ComboBox>
+    <TextBlock Text="主题" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     <ComboBox x:Name="ThemeBox" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Theme_Changed" AutomationProperties.Name="界面主题"><ComboBoxItem Content="跟随系统"/><ComboBoxItem Content="浅色"/><ComboBoxItem Content="深色"/></ComboBox>
    </StackPanel>
   </Grid>

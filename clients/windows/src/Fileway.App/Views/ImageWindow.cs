@@ -1,5 +1,7 @@
 using Fileway.Core.Contracts;
 using Fileway.App.Branding;
+using Fileway.App.Controls;
+using Fileway.App.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -14,6 +16,8 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     private const long EncodedByteBudget = 96L * 1024 * 1024;
     private const double PixelBudget = 16_000_000;
     private readonly IImageContentService _service;
+    private readonly WindowTitleBar _titleBar = new();
+    private readonly FramelessWindowChrome _chrome;
     private RemoteResourceRef _resource;
     private readonly IReadOnlyList<RemoteResourceRef> _resources;
     private readonly CancellationTokenSource _lifetime = new();
@@ -31,13 +35,14 @@ public sealed class ImageWindow : Window, IAsyncDisposable
 
     public ImageWindow(IImageContentService service, RemoteResourceRef resource, IReadOnlyList<RemoteResourceRef>? resources = null)
     {
-        _service = service; _resource = resource; Title = resource.DisplayName + " · " + AppBranding.DisplayName;
+        _service = service; _resource = resource; Title = _titleBar.Caption = resource.DisplayName + " · " + AppBranding.DisplayName;
         _resources = resources is { Count: > 0 } ? resources : [resource];
         _index = _resources.ToList().FindIndex(item => item == resource);
         if (_index < 0) _index = 0;
         SystemBackdrop = new MicaBackdrop();
+        AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 760));
-        var root = new Grid { Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"], Padding = new Thickness(20), RowSpacing = 12 };
+        var root = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), Padding = new Thickness(20), RowSpacing = 12 };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); root.RowDefinitions.Add(new RowDefinition());
         var commands = new CommandBar { DefaultLabelPosition = CommandBarDefaultLabelPosition.Right, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
         var fit = new AppBarButton { Label = "适应窗口", Icon = new SymbolIcon(Symbol.FourBars) };
@@ -55,9 +60,20 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         root.Children.Add(commands); Grid.SetRow(_notice, 1); root.Children.Add(_notice);
         var surface = new Grid(); Grid.SetRow(surface, 2); root.Children.Add(surface);
         _scroll.Content = _image; surface.Children.Add(_scroll); surface.Children.Add(_progress);
-        Content = root;
+        var windowRoot = new Grid();
+        windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        windowRoot.RowDefinitions.Add(new RowDefinition());
+        windowRoot.Children.Add(_titleBar);
+        Grid.SetRow(root, 1); windowRoot.Children.Add(root);
+        Content = windowRoot;
+        _chrome = new FramelessWindowChrome(this, _titleBar);
         root.Loaded += async (_, _) => { if (_started) return; _started = true; await NavigateAsync(_index); };
         Closed += OnClosed;
+    }
+
+    public void SetTheme(ElementTheme theme)
+    {
+        if (!_closed && Content is FrameworkElement root) root.RequestedTheme = theme;
     }
 
     private async Task NavigateAsync(int index)
@@ -72,7 +88,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         if (_closed || generation != _generation) return;
         _imageCancellation?.Dispose();
         _imageCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        _resource = _resources[index]; Title = _resource.DisplayName + " · " + AppBranding.DisplayName;
+        _resource = _resources[index]; Title = _titleBar.Caption = _resource.DisplayName + " · " + AppBranding.DisplayName;
         _image.Source = null; _progress.IsActive = true; _progress.Visibility = Visibility.Visible;
         _notice.Severity = InfoBarSeverity.Informational; _notice.Message = "正在加载图片…";
         _loadTask = LoadAsync(generation, _imageCancellation.Token);
@@ -125,7 +141,10 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         _scroll.ChangeView(0, 0, (float)Math.Clamp(Math.Min(_scroll.ViewportWidth / _image.Width, _scroll.ViewportHeight / _image.Height), 0.1, 8));
     }
     private async void OnClosed(object sender, WindowEventArgs args)
-        => await DisposeAsync();
+    {
+        _chrome.Dispose();
+        await DisposeAsync();
+    }
     public async ValueTask DisposeAsync()
     {
         if (_closed) return;
