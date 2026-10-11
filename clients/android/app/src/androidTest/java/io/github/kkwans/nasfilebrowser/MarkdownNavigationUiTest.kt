@@ -51,18 +51,22 @@ internal class MarkdownNavigationUiTest : LibraryUiHarness() {
             } finally { window?.recycle() }
         } finally { root.recycle() }
     }
-    private fun boundTap(label: String): BoundTap? {
+    private fun boundTap(label: String, requireClickable: Boolean): BoundTap? {
         val window = activeWindow() ?: return null
         val nodes = snapshot() ?: return null
-        val leaf = nodes.filter { it.visible && (it.text == label || it.description == label) }.singleOrNull() ?: return null
-        val candidates = nodes.filter { it.visible && it.enabled && it.clickable && it.bounds.contains(leaf.bounds) }
-        val minimum = candidates.minOfOrNull { it.bounds.width().toLong() * it.bounds.height() }
-        val target = candidates.filter { it.bounds.width().toLong() * it.bounds.height() == minimum }.singleOrNull() ?: return null
-        val objects = device.findObjects(By.pkg(instrumentation.targetContext.packageName).clickable(true))
+        val leaf = nodes.filter { it.visible && (it.text == label || requireClickable && it.description == label) }.singleOrNull() ?: return null
+        val target = if (requireClickable) {
+            val candidates = nodes.filter { it.visible && it.enabled && it.clickable && it.bounds.contains(leaf.bounds) }
+            val minimum = candidates.minOfOrNull { it.bounds.width().toLong() * it.bounds.height() }
+            candidates.filter { it.bounds.width().toLong() * it.bounds.height() == minimum }.singleOrNull()
+        } else leaf.takeIf { it.enabled } // LinkAnnotation spans need no clickable Text owner.
+        if (target == null) return null
+        val selector = By.pkg(instrumentation.targetContext.packageName)
+        val objects = device.findObjects(if (requireClickable) selector.clickable(true) else selector.text(label))
         var retained: UiObject2? = null
         return try {
             val owner = objects.filter { it.applicationPackage == instrumentation.targetContext.packageName &&
-                (window.display == null || it.displayId == window.display) && it.isEnabled && it.isClickable && it.visibleBounds == target.bounds &&
+                (window.display == null || it.displayId == window.display) && it.isEnabled && (!requireClickable || it.isClickable) && it.visibleBounds == target.bounds &&
                 it.text == target.text && it.contentDescription == target.description && it.className == target.className }.singleOrNull()
                 ?: return null
             if (activeWindow() != window) return null
@@ -84,7 +88,7 @@ internal class MarkdownNavigationUiTest : LibraryUiHarness() {
             val ready = atStage("$stage-owner-ready") {
                 var result: BoundTap? = null
                 while (result == null) {
-                    result = boundTap(label)
+                    result = boundTap(label, requireClickable = minimum48dp)
                     if (result == null) delay(25)
                 }
                 requireNotNull(result)
@@ -96,7 +100,7 @@ internal class MarkdownNavigationUiTest : LibraryUiHarness() {
             }
             assertEquals(ready.window, activeWindow())
             assertEquals(ready.fresh.bounds, ready.owner.visibleBounds)
-            assertTrue(ready.owner.isEnabled && ready.owner.isClickable)
+            assertTrue(ready.owner.isEnabled && (!minimum48dp || ready.owner.isClickable))
             // One AndroidX real pointer click. No semantic action, callback,
             // fallback or retry after the input has begun.
             ready.owner.click()
