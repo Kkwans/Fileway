@@ -43,7 +43,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.mikepenz.markdown.compose.LazyMarkdownSuccess
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
+import com.mikepenz.markdown.compose.MarkdownElement
 import com.mikepenz.markdown.compose.LocalMarkdownColors
 import com.mikepenz.markdown.compose.components.CurrentComponentsBridge
 import com.mikepenz.markdown.compose.components.MarkdownComponent
@@ -125,21 +135,63 @@ internal fun markdownSafetyAnnotator(document: MarkdownDocument,
             val label = node.findChildOfType(MarkdownElementTypes.LINK_TEXT) ?: node.findChildOfType(MarkdownElementTypes.LINK_LABEL)
             val target = node.findChildOfType(MarkdownElementTypes.LINK_DESTINATION)?.getUnescapedTextInNode(content)
                 ?: node.findChildOfType(MarkdownElementTypes.LINK_LABEL)?.getUnescapedTextInNode(content)?.let(document.state.referenceLinkHandler::find)
-            if (target == null || markdownExternalLink(target) == null) {
+            if (target == null || (markdownExternalLink(target) == null && document.navigation.resolve(target) == null)) {
                 append(label?.getUnescapedTextInNode(content)?.removePrefix("[")?.removeSuffix("]") ?: node.getTextInNode(content)); true
             } else false
         }
         node.type == MarkdownElementTypes.AUTOLINK || node.type == GFMTokenTypes.GFM_AUTOLINK -> {
             val target = node.getUnescapedTextInNode(content).removePrefix("<").removeSuffix(">")
-            if (markdownExternalLink(target) == null) { append(target); true } else false
+            if (markdownExternalLink(target) == null && document.navigation.resolve(target) == null) { append(target); true } else false
         }
         else -> false
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Unit, modifier: Modifier = Modifier,
-    imageBinding: DocumentImageBinding? = null, imageCache: CacheController? = null, imageSource: ResourceRef? = null) {
+    imageBinding: DocumentImageBinding? = null, imageCache: CacheController? = null, imageSource: ResourceRef? = null,
+    outlineOpen: Boolean = false, onDismissOutline: () -> Unit = {}) {
+    val listState = key(document) { rememberLazyListState() }
+    val headingRequesters = remember(document) { mutableStateMapOf<Int, BringIntoViewRequester>() }
+    var requestedHeading by remember(document) { mutableStateOf<Pair<Int, MarkdownHeading>?>(null) }
+    fun navigate(heading: MarkdownHeading) {
+        requestedHeading = ((requestedHeading?.first ?: 0) + 1) to heading
+    }
+    LaunchedEffect(document, requestedHeading) {
+        val target = requestedHeading?.second ?: return@LaunchedEffect
+        if (target !in document.navigation.headings) return@LaunchedEffect
+        // Compose the owning root item first, then target the exact nested
+        // heading's real layout; no source-height estimates or delayed retries.
+        listState.scrollToItem(target.rootIndex)
+        snapshotFlow { headingRequesters[target.startOffset] }.filterNotNull().first().bringIntoView()
+    }
+    BackHandler(enabled = outlineOpen, onBack = onDismissOutline)
+    if (outlineOpen) ModalBottomSheet(onDismissRequest = onDismissOutline,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("目录", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                IconButton(onDismissOutline, Modifier.size(48.dp)) {
+                    Icon(painterResource(R.drawable.art_close), "关闭目录")
+                }
+            }
+            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
+                itemsIndexed(document.navigation.headings, key = { _, heading -> heading.startOffset }) { index, heading ->
+                    val choose = { onDismissOutline(); navigate(heading) }
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = choose)
+                        .clearAndSetSemantics {
+                            role = Role.Button
+                            contentDescription = "目录项 ${index + 1}，${heading.title}，${heading.level}级标题"
+                            onClick { choose(); true }
+                        }.padding(start = (20 + (heading.level - 1) * 14).dp, end = 20.dp, top = 12.dp, bottom = 12.dp)) {
+                        Text(heading.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+        }
+    }
     val body = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 26.sp)
     val typography = markdownTypography(
         h1 = body.copy(fontSize = 28.sp, lineHeight = 42.sp, fontWeight = FontWeight.Bold),
@@ -154,9 +206,12 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
         inlineCode = body.copy(fontFamily = FontFamily.Monospace),
         table = body.copy(fontSize = 14.sp, lineHeight = 23.sp),
     )
-    val uriHandler = remember(onOpenLink) {
+    val uriHandler = remember(document, onOpenLink) {
         object : UriHandler {
-            override fun openUri(uri: String) { markdownExternalLink(uri)?.let(onOpenLink) }
+            override fun openUri(uri: String) {
+                if (uri.startsWith('#')) document.navigation.resolve(uri)?.let(::navigate)
+                else markdownExternalLink(uri)?.let(onOpenLink)
+            }
         }
     }
     val references = remember(document) { markdownImageReferences(document).associateBy { it.startOffset } }
@@ -172,14 +227,14 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
             modifier = taskLabelSemantics(model.content, model.node), style = model.typography.text) },
         paragraph = { model -> MarkdownParagraph(model.content, model.node,
             modifier = taskLabelSemantics(model.content, model.node), style = model.typography.paragraph) },
-        heading1 = spacedHeading(CurrentComponentsBridge.heading1),
-        heading2 = spacedHeading(CurrentComponentsBridge.heading2),
-        heading3 = spacedHeading(CurrentComponentsBridge.heading3),
-        heading4 = spacedHeading(CurrentComponentsBridge.heading4),
-        heading5 = spacedHeading(CurrentComponentsBridge.heading5),
-        heading6 = spacedHeading(CurrentComponentsBridge.heading6),
-        setextHeading1 = spacedHeading(CurrentComponentsBridge.setextHeading1),
-        setextHeading2 = spacedHeading(CurrentComponentsBridge.setextHeading2),
+        heading1 = spacedHeading(CurrentComponentsBridge.heading1, headingRequesters),
+        heading2 = spacedHeading(CurrentComponentsBridge.heading2, headingRequesters),
+        heading3 = spacedHeading(CurrentComponentsBridge.heading3, headingRequesters),
+        heading4 = spacedHeading(CurrentComponentsBridge.heading4, headingRequesters),
+        heading5 = spacedHeading(CurrentComponentsBridge.heading5, headingRequesters),
+        heading6 = spacedHeading(CurrentComponentsBridge.heading6, headingRequesters),
+        setextHeading1 = spacedHeading(CurrentComponentsBridge.setextHeading1, headingRequesters),
+        setextHeading2 = spacedHeading(CurrentComponentsBridge.setextHeading2, headingRequesters),
         blockQuote = { model ->
             Box(Modifier.semantics { isTraversalGroup = true; contentDescription = "引用" }) {
                 CurrentComponentsBridge.blockQuote(model)
@@ -237,7 +292,15 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
                         dimens = markdownDimens(tableMaxWidth = 840.dp, tableCellWidth = 160.dp, tableCellPadding = 12.dp),
                         imageTransformer = transformer, annotator = annotator, components = components,
                         success = { state, resolved, bodyModifier ->
-                            LazyMarkdownSuccess(state, resolved, bodyModifier, contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp))
+                            // 0.39.2 exposes no LazyListState on LazyMarkdownSuccess.
+                            // Keep its exact nodes/keys/public element renderer and
+                            // add only the application-owned scroll state.
+                            LazyColumn(modifier = bodyModifier, state = listState,
+                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp)) {
+                                items(state.node.children, key = { it.startOffset }) { node ->
+                                    MarkdownElement(node, resolved, state.content)
+                                }
+                            }
                         })
                 }
             }
@@ -251,8 +314,15 @@ private fun ReaderNotice(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
-private fun spacedHeading(delegate: MarkdownComponent): MarkdownComponent = { model ->
-    Box(Modifier.padding(top = 16.dp, bottom = 6.dp).semantics(mergeDescendants = true) { heading() }) { delegate(model) }
+private fun spacedHeading(delegate: MarkdownComponent,
+    requesters: MutableMap<Int, BringIntoViewRequester>): MarkdownComponent = { model ->
+    val requester = remember(model.node) { BringIntoViewRequester() }
+    DisposableEffect(model.node, requesters) {
+        requesters[model.node.startOffset] = requester
+        onDispose { if (requesters[model.node.startOffset] === requester) requesters.remove(model.node.startOffset) }
+    }
+    Box(Modifier.bringIntoViewRequester(requester).padding(top = 16.dp, bottom = 6.dp)
+        .semantics(mergeDescendants = true) { heading() }) { delegate(model) }
 }
 
 /** 0.39.2 keeps listItem private; bridge its public text/paragraph modifier.

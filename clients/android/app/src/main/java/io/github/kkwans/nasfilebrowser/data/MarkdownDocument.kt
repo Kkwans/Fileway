@@ -93,7 +93,7 @@ internal fun markdownTaskChecked(content: String, node: ASTNode): Boolean =
 
 /** The renderer's own parsed state, not an application-owned rendering tree. */
 internal data class MarkdownDocument(val state: State.Success, val hasImages: Boolean, val hasInactiveLinks: Boolean,
-    val hasLiteralHtml: Boolean, val hasLiteralMath: Boolean)
+    val hasLiteralHtml: Boolean, val hasLiteralMath: Boolean, val navigation: MarkdownNavigation)
 internal sealed interface MarkdownPreview {
     data class Reading(val document: MarkdownDocument) : MarkdownPreview
     data class SourceOnly(val reason: String) : MarkdownPreview
@@ -145,7 +145,6 @@ internal fun markdownPreview(document: DocumentText): MarkdownPreview {
         val references = ReferenceLinkHandlerImpl()
         var count = 0
         var images = false
-        var inactive = false
         var html = false
         var math = false
         val pending = ArrayDeque<Pair<ASTNode, Int>>()
@@ -179,17 +178,25 @@ internal fun markdownPreview(document: DocumentText): MarkdownPreview {
             if (type == MarkdownElementTypes.LINK_DEFINITION) {
                 val label = node.findChildOfType(MarkdownElementTypes.LINK_LABEL)?.getUnescapedTextInNode(source)
                 val target = node.findChildOfType(MarkdownElementTypes.LINK_DESTINATION)?.getUnescapedTextInNode(source)
-                if (label != null) references.store(label, target?.let(::markdownExternalLink))
+                if (label != null) references.store(label, target?.takeIf { markdownInternalFragment(it) != null } ?: target?.let(::markdownExternalLink))
             }
-            if (type == MarkdownElementTypes.LINK_DESTINATION && markdownExternalLink(node.getUnescapedTextInNode(source)) == null) inactive = true
-            if ((type == MarkdownElementTypes.AUTOLINK || type == GFMTokenTypes.GFM_AUTOLINK) &&
-                markdownExternalLink(node.getUnescapedTextInNode(source).removePrefix("<").removeSuffix(">")) == null) inactive = true
             if (type == MarkdownElementTypes.IMAGE) images = true
             if (type == MarkdownElementTypes.HTML_BLOCK || type.name == "HTML_TAG") html = true
             if (type == GFMElementTypes.INLINE_MATH || type == GFMElementTypes.BLOCK_MATH) math = true
             node.children.asReversed().forEach { pending.addLast(it to depth + 1) }
         }
-        MarkdownPreview.Reading(MarkdownDocument(State.Success(root, source, true, references), images, inactive, html, math))
+        val navigation = markdownNavigation(source, root)
+        // Only actual targets in this exact document gain clickable fragments.
+        val inactive = root.markdownDescendants().any { node ->
+            val target = when {
+                node.type == MarkdownElementTypes.LINK_DESTINATION -> node.getUnescapedTextInNode(source)
+                node.type == MarkdownElementTypes.AUTOLINK || node.type == GFMTokenTypes.GFM_AUTOLINK ->
+                    node.getUnescapedTextInNode(source).removePrefix("<").removeSuffix(">")
+                else -> null
+            }
+            target != null && markdownExternalLink(target) == null && navigation.resolve(target) == null
+        }
+        MarkdownPreview.Reading(MarkdownDocument(State.Success(root, source, true, references), images, inactive, html, math, navigation))
     } catch (error: Exception) {
         if (error is CancellationException) throw error
         MarkdownPreview.SourceOnly("此 Markdown 的结构暂不适合阅读渲染，已显示完整源码；原文件未改变。")

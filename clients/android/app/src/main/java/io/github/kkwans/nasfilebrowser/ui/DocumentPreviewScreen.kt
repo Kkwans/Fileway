@@ -122,6 +122,7 @@ import kotlin.math.roundToInt
     // while cancellation of an earlier parse is still propagating.
     key(state.scope, file.mediaKey, document) {
         var sourceMode by rememberSaveable { mutableStateOf(false) }
+        var outlineOpen by rememberSaveable { mutableStateOf(false) }
         val preview by produceState<MarkdownPreview?>(null) {
             value = withContext(Dispatchers.Default) { markdownPreview(document) }
         }
@@ -130,10 +131,13 @@ import kotlin.math.roundToInt
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !showSource, onClick = { sourceMode = false }, enabled = fallback == null, label = { Text("阅读") })
-            FilterChip(selected = showSource, onClick = { sourceMode = true }, label = { Text("源码") })
+            FilterChip(selected = showSource, onClick = { outlineOpen = false; sourceMode = true }, label = { Text("源码") })
             if (!showSource) Text("${document.encoding} · 阅读 · 只读", Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!showSource) TextButton(onClick = { outlineOpen = true },
+                enabled = (preview as? MarkdownPreview.Reading)?.document?.navigation?.headings?.isNotEmpty() == true,
+                modifier = Modifier.heightIn(min = 48.dp)) { Text("目录") }
         }
         fallback?.let { Text(it.reason, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -153,7 +157,7 @@ import kotlin.math.roundToInt
                     if (intent == null) linkError = "此链接暂不支持打开。"
                     else try { context.startActivity(intent); linkError = null }
                     catch (_: Exception) { linkError = "没有可打开此链接的应用，可在源码中复制地址。" }
-                }, modifier = Modifier.weight(1f).fillMaxWidth(), imageBinding = images, imageCache = imageCache, imageSource = file)
+                }, modifier = Modifier.weight(1f).fillMaxWidth(), imageBinding = images, imageCache = imageCache, imageSource = file, outlineOpen = outlineOpen, onDismissOutline = { outlineOpen = false })
             }
         }
     }
