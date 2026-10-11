@@ -46,14 +46,16 @@ DPAPI 保持登录、恢复/退出/遗忘，以及列表/图标网格切换和�
 等 0.2 目标继续推进，原生浏览器切片仍待用户验收；版本号不代表该里程碑已关闭。
 
 近期优先级已按用户要求调整：**0.2.1 优先视频预加载和磁盘缓存**，显示真实时间范围、
-实际服务器下载速度（MB/s）、缓存占用，支持自定义缓存目录和总缓存数据上限（默认 5 GB），
+实际服务器下载速度（MB/s），支持自定义缓存目录和总缓存数据上限（默认 5 GB），
 同时保存独立的默认下载目录供下载功能使用。**0.2.2 完成缩略图与图片原图磁盘缓存**，
 三类缓存共享同一总预算，不能各自占用 5 GB；缓存清理不能触及下载文件或用户目录中的其他数据。
 目录变更先验证并明确生效时机，不静默搬移或删除旧数据。
 
-现有 Windows 只有 mpv 内存预缓冲与时间轴基础接线；尚无磁盘缓存、速度显示、缩略图或原图缓存。
-时间轴还需保留 seekable-ranges 的起点及多个区间，不能把 seek 后的缓存终点当成从零连续缓存。
-优先复用共享 Go 分块缓存/预取/统计和 Android 的账号隔离语义，不另造一套网络业务层。
+0.2.1 已接入共享 Go 分块磁盘缓存/相邻块预取/租约统计、mpv 有界内存预读；时间轴保留
+seekable-ranges 的起点与多个区间，速度只统计主视频上游字节增量。设置页区分当前与待生效
+目录，缓存设为 0 时禁用磁盘部分；默认下载目录暂仅保存，下载旅程仍属 0.3。
+缩略图、图片原图磁盘缓存、占用统计/清理界面和旧目录清理登记仍待实现；完整原生显示及
+真实视频网络条件验收独立记录，不把代码接入或 CLI 测试当作已验收。详见 [缓存契约](cache-storage.md)。
 
 | 版本 | 产品结果与明确范围 | 发布门槛与依赖 |
 | --- | --- | --- |
@@ -109,12 +111,13 @@ Delete 显式使用回收站语义；服务端和本地任务分别管理，取�
 
 | 能力域 | Windows 当前状态 / 版本归属 | 对齐入口（仓库相对路径） |
 | --- | --- | --- |
-| 登录/档案/会话/注册 | 临时连接已有；档案/凭据 0.2，组网/代理 0.5，条件注册/代理认证 0.8 | `server/frontend/src/views/Login.vue`、`utils/auth.ts`；Android `ui/ConnectionScreen.kt`、`NetworkSection.kt` |
+| 登录/档案/会话/注册 | 档案/DPAPI/恢复/注销已有；组网/代理 0.5，条件注册/代理认证 0.8 | `server/frontend/src/views/Login.vue`、`utils/auth.ts`；Android `ui/ConnectionScreen.kt`、`NetworkSection.kt` |
 | 浏览/视图/远端搜索/收藏/标签/最近 | 列表/本目录过滤已有；完整能力 0.2 | Web `views/files/FileListing.vue`、`SearchPage.vue`、`components/Sidebar.vue`；Android `BrowserScreen.kt`、`SearchScreen.kt`、`ClientApp.kt` |
-| 新建/批量重命名/复制移动 | Windows 服务仍为 UnsupportedWrite 或无入口；0.2 | Web `api/files.ts`；Android `FileActions.kt`、`BrowserScreen.kt`；Windows `FilewayClientServices.cs` |
+| 新建/批量重命名/复制移动 | 新建目录/重命名/复制移动/回收删除已有服务与专项测试，尚无界面入口；其余 0.2 | Web `api/files.ts`；Android `FileActions.kt`、`BrowserScreen.kt`；Windows `FilewayClientServices.Files.cs` |
 | 回收站/任务/操作历史 | 基本操作 0.2，完整任务与删除管理 0.3 | Web `api/trash.ts`、`api/tasks.ts`、`api/transfers.ts`；Android `DownloadsScreen.kt`、`UploadsScreen.kt` |
 | 上传下载/归档下载/恢复/离线 | 完整本地媒体启动已有；传输和离线索引 0.3，边下载边播放 0.4 | Web `components/prompts/Download.vue`、`api/tus.ts`；Android upload/download runtimes；shared/core `transport/upload.go` |
 | 图片/音频 | 图片基础查看已有；扩展图片与原生音频 0.4 | Web `ExtendedImage.vue`、`GlobalAudioPlayer.vue`；Android `ImageScreen.kt`、`AudioScreen.kt` |
+| 缓存/预加载 | 0.2.1 视频磁盘缓存、区间/速度、目录与 5 GB 总预算；0.2.2 缩略图/图片原图及缓存管理 | Windows `LocalStorageSettingsService.cs`、`PlaybackCacheState.cs`；shared/core `transport/cache.go`；Android `ui/CacheSettingsPanel.kt` |
 | 视频/字幕/倍速/进度 | Screenbox 原生基础已有；远端字幕/样式完善/偏好 0.4 | Web `components/files/ArtPlayerVideo.vue`；Android `PlayerScreen.kt`；Windows `ScreenboxPlayerControls.xaml.cs` |
 | 雪碧图/选集/HLS/转码 | 未实现；0.4 | Web `ArtPlayerVideo.vue`、`api/media.ts`；Android `SeekPreview.kt`、`PlayerScreen.kt` 的 QUEUE |
 | HDR/外置/网络/诊断 | 契约及部分错误提示已有；完整验证 0.5 | Windows `Media.cs`、`PlayerWindow.cs`；shared/core `tailnet/`、`transport/`；Android播放器诊断/连接设置 |

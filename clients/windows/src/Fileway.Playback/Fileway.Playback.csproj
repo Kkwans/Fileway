@@ -6,5 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Fileway.Core\Fileway.Core.csproj" />
+    <InternalsVisibleTo Include="Fileway.Infrastructure.Tests" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Net;
 using System.Runtime.CompilerServices;
@@ -26,10 +27,15 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
     private readonly ConcurrentDictionary<ulong, TaskCompletionSource> _replies = new();
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _pumpStop = new();
+    private readonly CancellationTokenSource _startStop = new();
+    private readonly CancellationTokenSource _statisticsStop = new();
     private readonly Task _commandPump;
     private PlaybackSnapshot _snapshot;
     private IPlaybackSurface? _surface;
     private Task? _start, _stop, _events;
+    private Task? _statistics;
+    private IResourceLease? _primaryLease;
+    private JsonElement? _cacheState;
     private nint _handle;
     private long _nextCommand;
     private bool _closing, _paused, _seeking, _buffering, _usable, _ended;
@@ -68,9 +74,11 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
 
     private async Task StartCoreAsync(CancellationToken cancellationToken)
     {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _startStop.Token);
+        cancellationToken = lifetime.Token;
         try
         {
-            string source = await SourceAsync(_request.Input, cancellationToken).ConfigureAwait(false);
+            string source = await SourceAsync(_request.Input, cancellationToken, primary: true).ConfigureAwait(false);
             _surface = await _surfaces.CreateAsync(PresentationSession ?? this, cancellationToken).ConfigureAwait(false);
             if (_surface.ParentHwnd == 0) throw MpvNative.Error(ErrorCode.CapabilityMissing, "播放器视频容器尚未就绪。");
             if (_surface is IPlaybackWindowControl window) window.FullscreenChanged += HostFullscreenChanged;
@@ -92,6 +100,10 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
                     ("title", "Fileway video"), ("force-media-title", _snapshot.DisplayName.Replace("\0", "", StringComparison.Ordinal)),
                     ("vo", "gpu-next"), ("gpu-context", "d3d11"), ("d3d11-output-mode", "window"),
                     ("hwdec", "auto-safe"), ("audio-client-name", "Fileway"), ("network-timeout", "15"),
+                    // mpv 0.41 options: bounded packet RAM; the owner lease supplies persistent blocks.
+                    ("cache", _request.Input is RemotePlaybackInput ? "yes" : "auto"), ("cache-on-disk", "no"),
+                    ("cache-secs", "30"), ("demuxer-readahead-secs", "1"),
+                    ("demuxer-max-bytes", "64MiB"), ("demuxer-max-back-bytes", "16MiB"),
                     ("wid", _surface.ParentHwnd.ToInt64().ToString(CultureInfo.InvariantCulture)),
                 }) _native.Option(_handle, option.Name, option.Value);
                 if (_request.ResumePosition is { } resume && resume > TimeSpan.Zero)
@@ -113,13 +125,15 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
         }
         catch (Exception error)
         {
+            await StopStatisticsAsync().ConfigureAwait(false);
             _ready.TrySetException(MpvNative.Error(ErrorCode.Unknown, "播放器初始化失败。"));
-            Publish(snapshot => snapshot with { Status = PlaybackStatus.Failed, Error = error is FilewayException fileway ? fileway.Error : new ErrorInfo(ErrorCode.Unknown, "播放器初始化失败。") });
+            Publish(snapshot => snapshot with { Status = PlaybackStatus.Failed, DownloadBytesPerSecond = null,
+                Error = error is FilewayException fileway ? fileway.Error : new ErrorInfo(ErrorCode.Unknown, "播放器初始化失败。") });
             throw;
         }
     }
 
-    private async Task<string> SourceAsync(PlaybackInput input, CancellationToken cancellationToken)
+    private async Task<string> SourceAsync(PlaybackInput input, CancellationToken cancellationToken, bool primary = false)
     {
         if (input is LocalPlaybackInput local)
         {
@@ -128,7 +142,9 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             return Path.GetFullPath(local.FullPath);
         }
         if (input is not RemotePlaybackInput remote) throw MpvNative.Error(ErrorCode.InvalidRequest, "媒体输入类型不受支持。");
-        var lease = await _leases.AcquireAsync(remote.Resource, cancellationToken).ConfigureAwait(false);
+        var lease = primary && _leases is ICachedResourceLeaseProvider cached
+            ? await cached.AcquireCachedAsync(remote.Resource, cancellationToken).ConfigureAwait(false)
+            : await _leases.AcquireAsync(remote.Resource, cancellationToken).ConfigureAwait(false);
         Uri address = lease.Address;
         if (address.Scheme != Uri.UriSchemeHttp || !IPAddress.TryParse(address.Host, out var ip) || !IPAddress.IsLoopback(ip) ||
             !string.IsNullOrEmpty(address.UserInfo) || !string.IsNullOrEmpty(address.Fragment))
@@ -137,13 +153,68 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             throw MpvNative.Error(ErrorCode.InvalidRequest, "媒体资源能力地址无效。");
         }
         bool closing;
-        lock (_gate) { closing = _closing; if (!closing) _ownedLeases.Add(lease); }
+        lock (_gate)
+        {
+            closing = _closing;
+            if (!closing)
+            {
+                _ownedLeases.Add(lease);
+                if (primary)
+                {
+                    _primaryLease = lease;
+                    if (lease is IResourceLeaseStatisticsSource statistics)
+                        _statistics = Task.Run(() => SampleStatisticsAsync(lease, statistics, _statisticsStop.Token));
+                }
+            }
+        }
         if (closing)
         {
             await lease.DisposeAsync().ConfigureAwait(false);
             throw MpvNative.Error(ErrorCode.Canceled, "播放会话已关闭。");
         }
         return address.AbsoluteUri;
+    }
+
+    private async Task SampleStatisticsAsync(IResourceLease lease, IResourceLeaseStatisticsSource source, CancellationToken cancellationToken)
+    {
+        var window = new UpstreamRateWindow();
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+        try
+        {
+            do
+            {
+                double? rate;
+                try
+                {
+                    // Single flight, away from the native event thread. Canceling a closing session
+                    // also bounds waiting for a provider that fails to finish its canceled read.
+                    var statistics = await source.ReadStatisticsAsync(cancellationToken).WaitAsync(cancellationToken).ConfigureAwait(false);
+                    if (statistics is null) { window.Reset(); rate = null; }
+                    else rate = window.Observe(statistics.UpstreamBytes, Stopwatch.GetTimestamp());
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+                catch (Exception error)
+                {
+                    window.Reset();
+                    rate = null;
+                    var code = error is FilewayException fileway ? fileway.Error.Code : ErrorCode.Unknown;
+                    Trace.TraceWarning("Fileway playback statistics unavailable ({0}).", code);
+                }
+                lock (_gate)
+                {
+                    if (_closing || cancellationToken.IsCancellationRequested || !ReferenceEquals(_primaryLease, lease)) break;
+                    Publish(snapshot => snapshot with { DownloadBytesPerSecond = rate });
+                }
+            } while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+    }
+
+    private async Task StopStatisticsAsync()
+    {
+        await _statisticsStop.CancelAsync().ConfigureAwait(false);
+        if (_statistics is { } statistics) await statistics.ConfigureAwait(false);
+        lock (_gate) _primaryLease = null;
     }
 
     private Task QueueAsync(string[][] arguments, CancellationToken cancellationToken)
@@ -258,8 +329,9 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             case "time-pos" when property.Value is double position && double.IsFinite(position) && position >= 0:
                 Publish(snapshot => snapshot with { Position = TimeSpan.FromSeconds(position), ConfirmedPosition = _usable && !_seeking ? TimeSpan.FromSeconds(position) : snapshot.ConfirmedPosition });
                 break;
-            case "duration" when property.Value is double duration && double.IsFinite(duration) && duration >= 0:
-                Publish(snapshot => snapshot with { Duration = TimeSpan.FromSeconds(duration) }); break;
+            case "duration" when property.Value is double duration && IsMediaTime(duration):
+                Publish(snapshot => snapshot with { Duration = TimeSpan.FromSeconds(duration) });
+                UpdateCache(_cacheState); break;
             case "pause" when property.Value is bool paused: _paused = paused; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
             case "seeking" when property.Value is bool seeking: _seeking = seeking; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
             case "paused-for-cache" when property.Value is bool buffering: _buffering = buffering; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
@@ -394,26 +466,12 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
 
     private void UpdateCache(JsonElement? value)
     {
-        // Only a native-reported contiguous range containing the current reader
-        // can become a buffered bar. File size or elapsed time is not buffer evidence.
-        TimeSpan? until = null;
-        if (value is { ValueKind: JsonValueKind.Object } state
-            && state.TryGetProperty("reader-pts", out var reader) && reader.ValueKind == JsonValueKind.Number
-            && reader.TryGetDouble(out var position) && IsMediaTime(position)
-            && state.TryGetProperty("seekable-ranges", out var ranges) && ranges.ValueKind == JsonValueKind.Array)
+        _cacheState = value;
+        Publish(snapshot =>
         {
-            foreach (var range in ranges.EnumerateArray())
-            {
-                if (range.ValueKind != JsonValueKind.Object || !range.TryGetProperty("start", out var start)
-                    || !range.TryGetProperty("end", out var end) || start.ValueKind != JsonValueKind.Number
-                    || end.ValueKind != JsonValueKind.Number || !start.TryGetDouble(out var from)
-                    || !end.TryGetDouble(out var to) || !double.IsFinite(from) || !IsMediaTime(to) || to < from
-                    || position < from || position > to) continue;
-                var candidate = TimeSpan.FromSeconds(to);
-                if (until is null || candidate > until) until = candidate;
-            }
-        }
-        Publish(snapshot => snapshot with { BufferedUntil = until });
+            var ranges = PlaybackCacheState.ParseRanges(value, snapshot.Duration);
+            return snapshot with { BufferedRanges = ranges, BufferedUntil = PlaybackCacheState.ReaderEnd(value, ranges) };
+        });
     }
 
     private static bool IsMediaTime(double seconds)
@@ -518,7 +576,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             {
                 _closing = true;
                 _commands.Writer.TryComplete();
-                Publish(snapshot => snapshot with { Status = PlaybackStatus.Closing }, terminal: true);
+                Publish(snapshot => snapshot with { Status = PlaybackStatus.Closing, DownloadBytesPerSecond = null }, terminal: true);
                 _stop = Task.Run(StopCoreAsync, CancellationToken.None);
             }
             stop = _stop;
@@ -530,7 +588,9 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
     {
         try
         {
+            await _startStop.CancelAsync().ConfigureAwait(false);
             if (_start is not null) { try { await _start.ConfigureAwait(false); } catch (Exception) { } }
+            await StopStatisticsAsync().ConfigureAwait(false);
             if (_surface is IPlaybackWindowControl window) window.FullscreenChanged -= HostFullscreenChanged;
             if (_surface is not null) await _surface.DetachAsync(CancellationToken.None).AsTask().WaitAsync(NativeDeadline).ConfigureAwait(false);
             if (_handle != 0 && _ready.Task.IsCompletedSuccessfully)
@@ -551,7 +611,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             foreach (var lease in _ownedLeases) await lease.DisposeAsync().ConfigureAwait(false);
             _ownedLeases.Clear();
             if (_surface is not null) await _surface.DisposeAsync().ConfigureAwait(false);
-            Publish(snapshot => snapshot with { Status = PlaybackStatus.Stopped }, terminal: true);
+            Publish(snapshot => snapshot with { Status = PlaybackStatus.Stopped, DownloadBytesPerSecond = null }, terminal: true);
             lock (_gate) foreach (var watcher in _watchers) watcher.Writer.TryComplete();
             _released(Id);
         }

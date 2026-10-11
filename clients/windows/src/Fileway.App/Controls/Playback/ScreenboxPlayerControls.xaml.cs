@@ -185,6 +185,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _speedControl?.ApplyConfirmedRate(snapshot.PlaybackRate, _rateRunning);
         _volumeControl?.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
         _inlineVolumeControl.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
+        UpdateDownloadRate();
         _trackPicker?.ApplyTracks(snapshot.Tracks);
         AudioButton.Visibility = snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio) ? Visibility.Visible : Visibility.Collapsed;
         var hasSubtitles = snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Subtitle);
@@ -375,7 +376,17 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         var duration = _snapshot.Duration?.TotalSeconds ?? 0;
         SeekSlider.ApplyTimeline(duration,
-            _seeking ? SeekSlider.Value : (_snapshot.ConfirmedPosition ?? _snapshot.Position).TotalSeconds, _snapshot.BufferedUntil, _snapshot.Chapters);
+            _seeking ? SeekSlider.Value : (_snapshot.ConfirmedPosition ?? _snapshot.Position).TotalSeconds, _snapshot.BufferedRanges, _snapshot.Chapters);
+    }
+
+    private void UpdateDownloadRate()
+    {
+        var rate = _snapshot.DownloadBytesPerSecond;
+        var known = rate is { } value && double.IsFinite(value) && value >= 0;
+        DownloadRateText.Visibility = known ? Visibility.Visible : Visibility.Collapsed;
+        DownloadRateText.Text = known ? $"预加载 {rate!.Value / 1_000_000:0.00} MB/s" : "";
+        AutomationProperties.SetName(DownloadRateText, "上游网络" + DownloadRateText.Text);
+        AutomationProperties.SetHelpText(DownloadRateText, "MB/s 使用每秒一百万字节；不包含磁盘缓存命中或交付速度。");
     }
 
     private void Chapter_Click(object sender, RoutedEventArgs args)
@@ -667,6 +678,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     }
     private void Controls_SizeChanged(object sender, SizeChangedEventArgs args)
     {
+        UpdateDownloadRate();
         var compact = args.NewSize.Width < ExpandedControlsMinWidth;
         var focused = XamlRoot is null ? null : FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
         var moveFocus = false;

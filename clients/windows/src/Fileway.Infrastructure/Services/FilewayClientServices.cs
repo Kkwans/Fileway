@@ -50,6 +50,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         internal TaskCompletionSource<ErrorInfo?> Retirement { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal ResumePreferences Preferences { get; set; }
         internal bool Active { get; set; } = true;
+        internal int CacheWarningPublished;
     }
 
     private readonly record struct ResumePreferences(PlaybackResumeMode Mode, TimeSpan MinimumPosition);
@@ -67,11 +68,13 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
 
     public FilewayClientServices(IHostControlClient host) : this(host, new InMemoryProfileStore(), new InMemoryCredentialVault()) { }
 
-    public FilewayClientServices(IHostControlClient host, IProfileStore profiles, ICredentialVault credentials)
+    public FilewayClientServices(IHostControlClient host, IProfileStore profiles, ICredentialVault credentials,
+        LocalStorageSettingsService? storageSettings = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
+        _storageSettings = storageSettings;
     }
 
     public async Task<ConnectionSession> ConnectAsync(ConnectionProfile profile, LoginInput login, CancellationToken cancellationToken)
@@ -360,20 +363,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         ArgumentNullException.ThrowIfNull(resource);
         ValidateWirePath(resource.WirePath);
         var state = GetResourceState(resource);
-        var result = await SessionRequestAsync(state, new { wirePath = resource.WirePath },
-            requireDownload: true, HostCallSafety.ReadOnly, cancellationToken, operation: "lease").ConfigureAwait(false);
-        string address = RequiredText(result);
-        if (!Uri.TryCreate(address, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttp ||
-            uri.Host != "127.0.0.1" || uri.Port <= 0 || uri.IsDefaultPort || uri.UserInfo.Length != 0 ||
-            uri.Query.Length != 0 || uri.Fragment.Length != 0)
-            throw InvalidResponse();
-        var lease = new ResourceLease(this, state, resource, uri);
-        lock (_gate)
-        {
-            if (state.Active) { state.Leases.Add(lease); return lease; }
-        }
-        await lease.DisposeAsync().ConfigureAwait(false);
-        throw Safe(ErrorCode.SourceChanged, "账户连接已关闭，请重新连接。");
+        return await AcquireLeaseAsync(state, resource, new { wirePath = resource.WirePath }, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<IImageContent> OpenAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
@@ -484,6 +474,9 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
     // durable logout intent, so an in-flight refresh cannot resurrect a logout.
     private async Task SaveConnectionAsync(SavedConnection saved, string token, CancellationToken cancellationToken)
     {
+        var pending = await StorageAsync(() => _profiles.ListPendingLogoutsAsync(cancellationToken)).ConfigureAwait(false);
+        if (pending.Contains(saved.Account))
+            throw Safe(ErrorCode.LocalStorageUnavailable, "此账户仍有待清理的本地缓存，请完成注销清理后重新登录。");
         var previous = await StorageAsync(() => _profiles.GetAsync(saved.Profile.Id, cancellationToken)).ConfigureAwait(false);
         if (previous is not null && previous.Account != saved.Account)
             await LogoutCoreAsync(previous.Account, cancellationToken).ConfigureAwait(false);
@@ -502,9 +495,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             var pending = await StorageAsync(() => _profiles.ListPendingLogoutsAsync(cancellationToken)).ConfigureAwait(false);
             foreach (var account in pending)
             {
-                await RetireExactAccountAsync(account).ConfigureAwait(false);
-                await CredentialsAsync(() => _credentials.DeleteTokenAsync(account, cancellationToken)).ConfigureAwait(false);
-                await StorageAsync(() => _profiles.CompleteLogoutAsync(account, cancellationToken)).ConfigureAwait(false);
+                if (!await CompleteLogoutCleanupAsync(account, cancellationToken).ConfigureAwait(false))
+                    Trace.TraceWarning("Fileway retained a pending account cache cleanup; credentials are retired.");
             }
         }
         finally { _persistence.Release(); }
@@ -515,9 +507,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         await StorageAsync(() => _profiles.BeginLogoutAsync(account, cancellationToken)).ConfigureAwait(false);
         // Intent has committed. Caller cancellation must not leave this process
         // using a logged-out token; deletion may still leave durable pending work.
-        await RetireExactAccountAsync(account).ConfigureAwait(false);
-        await CredentialsAsync(() => _credentials.DeleteTokenAsync(account, cancellationToken)).ConfigureAwait(false);
-        await StorageAsync(() => _profiles.CompleteLogoutAsync(account, cancellationToken)).ConfigureAwait(false);
+        if (!await CompleteLogoutCleanupAsync(account, cancellationToken).ConfigureAwait(false))
+            throw Safe(ErrorCode.LocalStorageUnavailable, "此账户的登录凭据已删除，本地缓存尚未清理完成，请稍后重试。");
     }
 
     private async Task RefreshSessionAsync(SessionState state, CancellationToken cancellationToken)
@@ -1083,7 +1074,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         _ => "无法完成服务器请求，请检查网络或服务器后重试。",
     };
 
-    private sealed class ResourceLease(FilewayClientServices owner, SessionState state, RemoteResourceRef resource, Uri address) : IResourceLease
+    private sealed class ResourceLease(FilewayClientServices owner, SessionState state, RemoteResourceRef resource, Uri address) : IResourceLease, IResourceLeaseStatisticsSource
     {
         private int _disposed;
         private ImageContent? _image;
@@ -1091,6 +1082,45 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         public RemoteResourceRef Resource { get; } = resource;
         public Uri Address { get; } = address;
         public override string ToString() => "ResourceLease (address redacted)";
+
+        public async Task<ResourceLeaseStatistics?> ReadStatisticsAsync(CancellationToken cancellationToken)
+        {
+            lock (owner._gate)
+            {
+                if (_disposed != 0) return null;
+                owner.EnsureActive(State);
+                if (!State.Leases.Contains(this)) throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged));
+            }
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, State.LifetimeToken);
+            try
+            {
+                var result = await owner.CallAsync("lease_stats", new { url = Address.AbsoluteUri }, State.CoreSession,
+                    linked.Token).ConfigureAwait(false);
+                long upstream = result.GetProperty("upstreamBytes").GetInt64();
+                long cached = result.GetProperty("cacheReadBytes").GetInt64();
+                long delivered = result.GetProperty("deliveredBytes").GetInt64();
+                long elapsed = result.GetProperty("elapsedMillis").GetInt64();
+                if (upstream < 0 || cached < 0 || delivered < 0 || elapsed < 0 || elapsed > TimeSpan.MaxValue.Ticks / TimeSpan.TicksPerMillisecond)
+                    throw InvalidResponse();
+                lock (owner._gate)
+                {
+                    if (_disposed != 0) return null;
+                    owner.EnsureActive(State);
+                }
+                if (result.TryGetProperty("cacheWriteFailures", out var failures))
+                {
+                    long count = failures.GetInt64();
+                    if (count < 0) throw InvalidResponse();
+                    if (count > 0) owner.PublishCacheUnavailable(State);
+                }
+                return new ResourceLeaseStatistics(upstream, cached, delivered, TimeSpan.FromTicks(elapsed * TimeSpan.TicksPerMillisecond));
+            }
+            catch (FilewayException) when (Volatile.Read(ref _disposed) != 0) { return null; }
+            catch (FilewayException) when (State.LifetimeToken.IsCancellationRequested)
+            { throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged)); }
+            catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException or OverflowException)
+            { throw InvalidResponse(); }
+        }
 
         internal void Attach(ImageContent image)
         {

@@ -17,6 +17,7 @@ import (
 type Command struct {
 	CacheConfig     transport.CacheConfig   `json:"cacheConfig"`
 	CacheKey        string                  `json:"cacheKey"`
+	CacheOwner      string                  `json:"cacheOwner,omitempty"`
 	Clear           bool                    `json:"clear"`
 	Op              string                  `json:"op"`
 	RequestID       string                  `json:"requestId"`
@@ -264,8 +265,10 @@ func (e *Engine) execute(c Command) (any, error) {
 		return nil, b.ConfigureCache(c.CacheConfig)
 	case "cache_cleanup":
 		return b.CleanCache(c.Clear)
+	case "cache_cleanup_owner":
+		return b.CleanCacheOwner(c.CacheOwner)
 	case "lease_stats":
-		return b.LeaseStats(c.Session, c.URL)
+		return b.CacheLeaseStats(c.Session, c.URL)
 	case "upload_lease":
 		return b.UploadLease(c.Session, c.Path, c.WirePath, c.Upload)
 	case "upload_stats":
@@ -276,7 +279,7 @@ func (e *Engine) execute(c Command) (any, error) {
 			return nil, err
 		}
 		if c.CacheKey != "" {
-			return b.LeaseCached(c.Session, endpoint, c.CacheKey)
+			return b.LeaseCachedForOwner(c.Session, endpoint, c.CacheKey, c.CacheOwner)
 		}
 		return b.Lease(c.Session, endpoint, true)
 	case "asset":

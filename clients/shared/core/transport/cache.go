@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,12 +17,14 @@ import (
 )
 
 const cacheChunkSize int64 = 2 << 20
-const maxPlaybackCache int64 = 10 << 30
+const maxPlaybackCache int64 = 1 << 40
+const managedCacheDirectory = "fileway-cache-v1"
 
 type CacheConfig struct {
 	Directory string `json:"directory"`
 	MaxBytes  int64  `json:"maxBytes"`
 	Hours     int    `json:"hours"`
+	Managed   bool   `json:"managed,omitempty"`
 }
 type CacheStats struct {
 	Bytes     int64 `json:"bytes"`
@@ -41,31 +42,65 @@ func cacheHash(value string) string {
 	return hex.EncodeToString(sum[:])
 }
 func (l *Lease) cacheGroup() string {
-	return cacheHash(l.session.base.String() + "\x00" + l.endpoint + "\x00" + l.cacheKey)
+	group := cacheHash(l.session.base.String() + "\x00" + l.endpoint + "\x00" + l.cacheKey)
+	if l.cacheManaged {
+		return l.cacheOwner + "/" + group
+	}
+	return group
 }
 
 func (b *Broker) ConfigureCache(config CacheConfig) error {
 	if !filepath.IsAbs(config.Directory) || config.MaxBytes < 0 || config.MaxBytes > maxPlaybackCache || config.Hours < 1 || config.Hours > 720 {
 		return errors.New("invalid playback cache settings")
 	}
-	if err := os.MkdirAll(config.Directory, 0700); err != nil {
-		return errors.New("cannot prepare playback cache")
+	config.Directory = filepath.Clean(config.Directory)
+	if config.Managed {
+		config.Directory = filepath.Join(config.Directory, managedCacheDirectory)
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.cache == nil {
-		b.cache = &mediaCache{}
+	cache := b.cache
+	if cache == nil {
+		cache = &mediaCache{}
 	}
-	b.cache.mu.Lock()
-	defer b.cache.mu.Unlock()
-	if b.cache.config.Directory != "" && b.cache.config.Directory != config.Directory {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.config.Directory != "" && (cache.config.Directory != config.Directory || cache.config.Managed != config.Managed) {
 		return errors.New("playback cache directory is immutable")
 	}
-	b.cache.config = config
-	_, err := b.cache.clean(nil, false, true)
-	return err
+	if err := os.MkdirAll(filepath.Dir(config.Directory), 0700); err != nil {
+		return errors.New("cannot prepare playback cache")
+	}
+	if err := ownedCacheDirectory(config.Directory); err != nil {
+		return errors.New("cannot prepare playback cache")
+	}
+	previous := cache.config
+	cache.config = config
+	if _, err := cache.clean(nil, false, true); err != nil {
+		cache.config = previous
+		return err
+	}
+	b.cache = cache
+	return nil
 }
 func (b *Broker) LeaseCached(id, endpoint, identity string) (string, error) {
+	return b.LeaseCachedForOwner(id, endpoint, identity, "")
+}
+
+// The optional owner is supplied only by a trusted account-aware control client.
+// Legacy callers retain their existing identity key behavior in the legacy namespace.
+func (b *Broker) LeaseCachedForOwner(id, endpoint, identity, owner string) (string, error) {
+	b.mu.RLock()
+	configured := b.cache != nil && b.cache.config.Directory != ""
+	b.mu.RUnlock()
+	if !configured && owner == "" {
+		// Legacy callers could obtain a stream before configuring the cache.
+		// Leave that stream uncached even if a managed pool is configured later.
+		return b.Lease(id, endpoint, true)
+	}
+	if !configured || identity == "" {
+		return "", errors.New("playback cache is not configured")
+	}
 	value, err := b.Lease(id, endpoint, true)
 	if err != nil {
 		return "", err
@@ -75,7 +110,11 @@ func (b *Broker) LeaseCached(id, endpoint, identity string) (string, error) {
 	key := strings.TrimPrefix(value, "http://"+b.listener.Addr().String()+"/stream/")
 	if l := b.leases[key]; l != nil {
 		l.cacheKey = identity
+		l.cacheOwner = cacheHash(owner)
+		l.cacheManaged = b.cache.config.Managed
 		l.prefetch = make(chan struct{}, 1)
+	} else {
+		return "", errors.New("session closed")
 	}
 	return value, nil
 }
@@ -100,63 +139,6 @@ func (b *Broker) CleanCache(clear bool) (CacheStats, error) {
 	return cache.clean(active, clear, false)
 }
 
-type cacheEntry struct {
-	path, group string
-	size        int64
-	used        time.Time
-}
-
-func (c *mediaCache) entries() ([]cacheEntry, error) {
-	var files []cacheEntry
-	err := filepath.WalkDir(c.config.Directory, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		files = append(files, cacheEntry{path: path, group: filepath.Base(filepath.Dir(path)), size: info.Size(), used: info.ModTime()})
-		return nil
-	})
-	return files, err
-}
-
-// Capacity eviction uses least recently read chunks. Time/manual cleanup never
-// removes a lease's active movie. Data being sent lives in a bounded memory chunk.
-func (c *mediaCache) clean(active map[string]bool, clear, capacityOnly bool) (CacheStats, error) {
-	files, err := c.entries()
-	if err != nil {
-		return CacheStats{}, errors.New("cannot read playback cache")
-	}
-	sort.Slice(files, func(i, j int) bool { return files[i].used.Before(files[j].used) })
-	total := int64(0)
-	for _, f := range files {
-		total += f.size
-	}
-	stats := CacheStats{}
-	for _, f := range files {
-		expired := !capacityOnly && (clear || time.Since(f.used) >= time.Duration(c.config.Hours)*time.Hour)
-		remove := (expired && !active[f.group]) || (capacityOnly && total > c.config.MaxBytes)
-		if remove {
-			if err := os.Remove(f.path); err != nil && !os.IsNotExist(err) {
-				return stats, errors.New("cannot clear playback cache")
-			}
-			total -= f.size
-			continue
-		}
-		stats.Bytes += f.size
-		stats.Files++
-		if active[f.group] {
-			stats.Protected++
-		}
-	}
-	c.bytes = stats.Bytes
-	return stats, nil
-}
 func (c *mediaCache) chunkSize() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -169,7 +151,13 @@ func (c *mediaCache) read(group, key string, n int64) ([]byte, bool) {
 	if c.config.MaxBytes == 0 {
 		return nil, false
 	}
-	path := filepath.Join(c.config.Directory, group, key+"-"+strconv.FormatInt(n, 10))
+	if !c.safeGroup(group) {
+		return nil, false
+	}
+	path := c.chunkPath(group, key, n)
+	if !regularCacheFile(path) {
+		return nil, false
+	}
 	data, err := os.ReadFile(path)
 	if err != nil || int64(len(data)) != n {
 		return nil, false
@@ -180,37 +168,83 @@ func (c *mediaCache) read(group, key string, n int64) ([]byte, bool) {
 }
 func (c *mediaCache) write(group, key string, data []byte) {
 	c.mu.Lock()
+	group = c.cacheGroupName(group)
+	c.mu.Unlock()
+	_ = c.writeChunk(context.Background(), group, cacheChunkKey(key), data)
+}
+
+func (c *mediaCache) writeChunk(ctx context.Context, group, key string, data []byte) error {
+	c.mu.Lock()
 	defer c.mu.Unlock()
-	if int64(len(data)) > c.config.MaxBytes {
-		return
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	n := int64(len(data))
+	if n == 0 || n > c.config.MaxBytes || n > cacheChunkSize {
+		return errors.New("cache write exceeds budget")
+	}
+	path := c.chunkPath(group, key, n)
+	if info, err := os.Lstat(path); err == nil && !info.Mode().IsRegular() {
+		return errors.New("cache block is unavailable")
+	}
+	if regularCacheFile(path) {
+		if info, err := os.Stat(path); err == nil && info.Size() == n {
+			return nil
+		}
+	}
+	// All writes share this mutex and reserve space by evicting before creating
+	// their temporary file. Committed chunks plus temporary bytes never need an
+	// extra chunk beyond the configured total data budget.
+	if c.bytes > c.config.MaxBytes-n {
+		if _, err := c.cleanToLimit(nil, false, true, c.config.MaxBytes-n, ""); err != nil {
+			return err
+		}
 	}
 	dir := filepath.Join(c.config.Directory, group)
-	if os.MkdirAll(dir, 0700) != nil {
-		return
+	if c.config.Managed {
+		if err := ownedCacheDirectory(filepath.Dir(dir)); err != nil {
+			return errors.New("cannot prepare cache owner")
+		}
 	}
-	path := filepath.Join(dir, key+"-"+strconv.Itoa(len(data)))
-	tmp, err := os.CreateTemp(dir, "partial-")
+	if err := ownedCacheDirectory(dir); err != nil {
+		return errors.New("cannot prepare cache group")
+	}
+	prefix := "partial-"
+	if c.config.Managed {
+		prefix = "fileway-partial-"
+	}
+	tmp, err := os.CreateTemp(dir, prefix)
 	if err != nil {
-		return
+		return errors.New("cannot create cache block")
 	}
 	name := tmp.Name()
-	defer os.Remove(name)
+	defer func() {
+		if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+			if info, statErr := os.Lstat(name); statErr == nil && info.Mode().IsRegular() {
+				c.bytes += info.Size()
+			}
+		}
+	}()
 	_, err = tmp.Write(data)
 	closeErr := tmp.Close()
 	if err != nil || closeErr != nil {
-		return
+		return errors.New("cannot write cache block")
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	oldSize := int64(0)
-	if info, err := os.Stat(path); err == nil {
+	if info, err := os.Lstat(path); err == nil {
+		if !info.Mode().IsRegular() {
+			return errors.New("cache block is unavailable")
+		}
 		oldSize = info.Size()
 	}
 	if os.Rename(name, path) != nil {
-		return
+		return errors.New("cannot commit cache block")
 	}
-	c.bytes += int64(len(data)) - oldSize
-	if c.bytes > c.config.MaxBytes {
-		_, _ = c.clean(nil, false, true)
-	}
+	c.bytes += n - oldSize
+	return nil
 }
 func responseRange(res *http.Response) (start, end, total int64, ok bool) {
 	if res.StatusCode == http.StatusOK && res.ContentLength > 0 && strings.EqualFold(res.Header.Get("Accept-Ranges"), "bytes") {
@@ -242,18 +276,24 @@ func cachedChunk(ctx context.Context, l *Lease, c *mediaCache, version string, s
 		return nil, err
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
+		return nil, cacheReadError{status: res.StatusCode}
+	}
 	if res.Header.Get("X-Renew-Token") == "true" && previous != "" {
 		if err = l.session.renew(ctx, previous); err != nil {
+			if errors.Is(err, errRenewalUnauthorized) {
+				return nil, cacheReadError{status: http.StatusUnauthorized}
+			}
 			return nil, err
 		}
 	}
 	gotStart, gotEnd, gotTotal, ok := responseRange(res)
 	if !ok || res.StatusCode != http.StatusPartialContent || gotStart != start || gotEnd != end || gotTotal != total {
-		return nil, errors.New("source range changed or unavailable")
+		return nil, cacheReadError{status: http.StatusConflict}
 	}
-	actual := cacheHash(res.Header.Get("ETag") + "\x00" + res.Header.Get("Last-Modified") + "\x00" + strconv.FormatInt(total, 10))
+	actual := cacheSourceVersion(l, res, total)
 	if actual != version {
-		return nil, errors.New("source identity changed")
+		return nil, cacheReadError{status: http.StatusConflict}
 	}
 	data, err := io.ReadAll(io.LimitReader(measuredBody{ReadCloser: res.Body, stats: &l.telemetry}, n+1))
 	if err != nil || int64(len(data)) != n {
@@ -262,7 +302,9 @@ func cachedChunk(ctx context.Context, l *Lease, c *mediaCache, version string, s
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-	c.write(l.cacheGroup(), key, data)
+	if err := c.writeChunk(ctx, l.cacheGroup(), key, data); err != nil && ctx.Err() == nil {
+		l.cacheWriteFailures.Add(1)
+	}
 	return data, nil
 }
 func (b *Broker) serveCached(ctx context.Context, w http.ResponseWriter, r *http.Request, res *http.Response, l *Lease) bool {
@@ -274,7 +316,7 @@ func (b *Broker) serveCached(ctx context.Context, w http.ResponseWriter, r *http
 	if !ok {
 		return false
 	}
-	version := cacheHash(res.Header.Get("ETag") + "\x00" + res.Header.Get("Last-Modified") + "\x00" + strconv.FormatInt(total, 10))
+	version := cacheSourceVersion(l, res, total)
 	validator := res.Header.Get("ETag")
 	if validator == "" || strings.HasPrefix(validator, "W/") {
 		validator = res.Header.Get("Last-Modified")
@@ -286,7 +328,12 @@ func (b *Broker) serveCached(ctx context.Context, w http.ResponseWriter, r *http
 	first := start / chunkSize * chunkSize
 	data, err := cachedChunk(ctx, l, c, version, first, total, validator, chunkSize)
 	if err != nil {
-		http.Error(w, "media cache source unavailable", http.StatusBadGateway)
+		status := http.StatusBadGateway
+		var sourceError cacheReadError
+		if errors.As(err, &sourceError) {
+			status = sourceError.status
+		}
+		http.Error(w, "media cache source unavailable", status)
 		return true
 	}
 	_ = res.Body.Close()

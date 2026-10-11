@@ -6,9 +6,9 @@ using Microsoft.Data.Sqlite;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Versioned, credential-free profile storage with durable logout intent.</summary>
-public sealed class SqliteProfileStore : IProfileStore
+public sealed class SqliteProfileStore : IProfileStore, IStorageSettingsStore
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
     private const int BusyTimeoutSeconds = 3;
     private const string Columns = "profile_id, source_revision, display_name, base_address, network_mode, proxy_mode, proxy_address, authentication_mode, username, server_user_id, keep_signed_in, last_connected_at";
     private const string AccountPredicate = "profile_id = $profile AND source_revision = $revision AND server_user_id = $user";
@@ -142,6 +142,33 @@ public sealed class SqliteProfileStore : IProfileStore
         return true;
     }, cancellationToken);
 
+    public Task<ClientStorageSettings?> ReadStorageSettingsAsync(CancellationToken cancellationToken) => RunAsync(connection =>
+    {
+        using var command = Command(connection, "SELECT cache_directory, download_directory, maximum_cache_bytes FROM client_storage_settings WHERE id = 1");
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? StorageSettingsValidation.Normalize(new ClientStorageSettings(
+            reader.GetString(0), reader.GetString(1), reader.GetInt64(2))) : null;
+    }, cancellationToken);
+
+    public Task SaveStorageSettingsAsync(ClientStorageSettings settings, CancellationToken cancellationToken) => RunAsync(connection =>
+    {
+        var normalized = StorageSettingsValidation.Normalize(settings);
+        using var transaction = connection.BeginTransaction(deferred: false);
+        using var command = Command(connection, """
+            INSERT INTO client_storage_settings (id, cache_directory, download_directory, maximum_cache_bytes)
+            VALUES (1, $cache, $download, $maximum)
+            ON CONFLICT(id) DO UPDATE SET cache_directory = excluded.cache_directory,
+                download_directory = excluded.download_directory, maximum_cache_bytes = excluded.maximum_cache_bytes
+            """, transaction);
+        command.Parameters.AddWithValue("$cache", normalized.CacheDirectory);
+        command.Parameters.AddWithValue("$download", normalized.DownloadDirectory);
+        command.Parameters.AddWithValue("$maximum", normalized.MaximumCacheBytes);
+        command.ExecuteNonQuery();
+        cancellationToken.ThrowIfCancellationRequested();
+        transaction.Commit();
+        return true;
+    }, cancellationToken);
+
     private Task<T> RunAsync<T>(Func<SqliteConnection, T> operation, CancellationToken cancellationToken) => Task.Run(() =>
     {
         lock (_gate)
@@ -170,10 +197,14 @@ public sealed class SqliteProfileStore : IProfileStore
         try
         {
             connection.Open();
+            long initialVersion = ReadVersion(connection);
+            if (initialVersion is < 0 or > SchemaVersion) throw ProfileStoreValidation.Unavailable();
+            if (initialVersion == 1) BackupBeforeMigration(connection);
             using var transaction = connection.BeginTransaction(deferred: false);
-            using var versionCommand = Command(connection, "PRAGMA user_version", transaction);
-            long version = Convert.ToInt64(versionCommand.ExecuteScalar(), CultureInfo.InvariantCulture);
-            if (version != 0 && version != SchemaVersion) throw ProfileStoreValidation.Unavailable();
+            // Another instance may have upgraded while the consistent backup was being taken.
+            long version = ReadVersion(connection, transaction);
+            if (version is < 0 or > SchemaVersion) throw ProfileStoreValidation.Unavailable();
+            if (version == 1 && initialVersion != 1) throw ProfileStoreValidation.Unavailable();
             if (version == 0)
             {
                 using var existing = Command(connection, "SELECT COUNT(*) FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'", transaction);
@@ -199,9 +230,21 @@ public sealed class SqliteProfileStore : IProfileStore
                         server_user_id TEXT NOT NULL,
                         PRIMARY KEY (profile_id, source_revision, server_user_id)
                     );
-                    PRAGMA user_version = 1;
                     """, transaction);
                 create.ExecuteNonQuery();
+            }
+            if (version < SchemaVersion)
+            {
+                using var migrate = Command(connection, """
+                    CREATE TABLE client_storage_settings (
+                        id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+                        cache_directory TEXT NOT NULL CHECK (length(cache_directory) > 0),
+                        download_directory TEXT NOT NULL CHECK (length(download_directory) > 0),
+                        maximum_cache_bytes INTEGER NOT NULL CHECK (maximum_cache_bytes >= 0 AND maximum_cache_bytes <= 1099511627776)
+                    );
+                    PRAGMA user_version = 2;
+                    """, transaction);
+                migrate.ExecuteNonQuery();
             }
             transaction.Commit();
             using var journal = Command(connection, "PRAGMA journal_mode = WAL");
@@ -216,6 +259,27 @@ public sealed class SqliteProfileStore : IProfileStore
             connection.Dispose();
             throw;
         }
+    }
+
+    private static long ReadVersion(SqliteConnection connection, SqliteTransaction? transaction = null)
+    {
+        using var command = Command(connection, "PRAGMA user_version", transaction);
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    private void BackupBeforeMigration(SqliteConnection source)
+    {
+        // BackupDatabase includes committed WAL contents. Never copy the .db file in isolation.
+        string backupPath = _databasePath + ".schema1-" + Guid.NewGuid().ToString("N") + ".backup";
+        using var backup = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = backupPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            DefaultTimeout = BusyTimeoutSeconds,
+            Pooling = false,
+        }.ToString());
+        backup.Open();
+        source.BackupDatabase(backup);
     }
 
     private static SqliteCommand Command(SqliteConnection connection, string sql, SqliteTransaction? transaction = null)

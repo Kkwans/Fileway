@@ -6,6 +6,7 @@ using Fileway.Infrastructure.Services;
 using Fileway.Infrastructure.Persistence;
 using Fileway.Infrastructure.Credentials;
 using Fileway.Playback;
+using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 
@@ -18,6 +19,7 @@ public partial class App : Application, IAsyncDisposable
     private GoHostClient? _host;
     private FilewayClientServices? _services;
     private MpvPlaybackService? _playback;
+    private ILocalStorageSettingsService? _storageSettings;
     private FileStream? _dataDirectoryLock;
     private Task _startup = Task.CompletedTask;
     private Task? _shutdown;
@@ -95,12 +97,16 @@ public partial class App : Application, IAsyncDisposable
                 Path.Combine(directory, "fileway-host.exe"),
                 Path.Combine(directory, "host-build.json")), _lifetime.Token);
             _lifetime.Token.ThrowIfCancellationRequested();
-            _services = new FilewayClientServices(_host,
-                new SqliteProfileStore(Path.Combine(dataDirectory, "client.db")),
-                new DpapiCredentialVault(Path.Combine(dataDirectory, "credentials")));
+            var profiles = new SqliteProfileStore(Path.Combine(dataDirectory, "client.db"));
+            var storageSettings = new LocalStorageSettingsService(profiles,
+                new ClientStorageSettings(Path.Combine(dataDirectory, "cache"), DefaultDownloadDirectory()), _host);
+            _storageSettings = storageSettings;
+            _services = new FilewayClientServices(_host, profiles,
+                new DpapiCredentialVault(Path.Combine(dataDirectory, "credentials")), storageSettings);
             _playback = new MpvPlaybackService(_services,
                 new PlaybackWindowFactory(_window!.DispatcherQueue),
                 Path.Combine(directory, "media"), _services);
+            _window.SetStorageSettings(storageSettings);
             await _window.SetServicesAsync(_services, _services, _services, _playback, _services);
             await OpenLaunchFileAsync();
         }
@@ -160,6 +166,12 @@ public partial class App : Application, IAsyncDisposable
         catch (Exception) { /* The Host Job Object still bounds process lifetime. */ }
         try { if (_services is not null) await _services.DisposeAsync(); }
         catch (Exception) { }
+        try
+        {
+            if (_storageSettings is IAsyncDisposable asyncSettings) await asyncSettings.DisposeAsync();
+            else if (_storageSettings is IDisposable settings) settings.Dispose();
+        }
+        catch (Exception) { }
         try { if (_host is not null) await _host.DisposeAsync(); }
         catch (Exception) { }
         _dataDirectoryLock?.Dispose();
@@ -168,4 +180,23 @@ public partial class App : Application, IAsyncDisposable
 
     private static string DataDirectory() => Environment.GetEnvironmentVariable("FILEWAY_WINDOWS_DATA_ROOT")
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fileway", "Preview");
+
+    private static string DefaultDownloadDirectory()
+    {
+        var downloads = new Guid("374DE290-123F-4565-9164-39C4925E467B");
+        nint path = 0;
+        try
+        {
+            // DONT_VERIFY preserves a user's redirected location even if the volume is offline.
+            if (SHGetKnownFolderPath(ref downloads, 0x4000, 0, out path) >= 0
+                && path != 0 && Marshal.PtrToStringUni(path) is { } folder && Path.IsPathFullyQualified(folder))
+                return folder;
+        }
+        finally { if (path != 0) Marshal.FreeCoTaskMem(path); }
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+    }
+
+    [DllImport("shell32.dll", ExactSpelling = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern int SHGetKnownFolderPath(ref Guid folder, uint flags, nint token, out nint path);
 }

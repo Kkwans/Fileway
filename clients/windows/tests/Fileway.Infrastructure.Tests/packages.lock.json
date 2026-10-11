@@ -191,6 +191,12 @@
           "Microsoft.Data.Sqlite": "[10.0.12, )",
           "System.Security.Cryptography.ProtectedData": "[10.0.12, )"
         }
+      },
+      "fileway.playback": {
+        "type": "Project",
+        "dependencies": {
+          "Fileway.Core": "[1.0.0, )"
+        }
       }
     }
   }

@@ -36,6 +36,29 @@ Host codes include `ProtocolMismatch`, `HandshakeRequired`, `InvalidRequest`, `D
 - A queued canceled request must not call the server. Completion already confirmed by the core survives a late cancel. Closing a session prevents queued requests from recreating or using that session.
 - The .NET client drops obsolete presentation callbacks by generation but still records confirmed business results. Killing/restarting the Host invalidates every session and lease.
 
+## Optional managed media cache
+
+Windows may configure the shared cache with `cache_configure`, supplying
+`cacheConfig.directory`, `maxBytes`, `hours` and optional `managed:true`. Managed
+mode owns only its `fileway-cache-v1` child. Omitted `managed` retains the legacy
+client layout. The Windows default budget is 5,000,000,000 bytes; zero disables
+disk caching and the shared ceiling is 1 TiB. A configured directory cannot change
+within a Host process; new directory settings take effect after restart.
+
+The existing `lease` operation accepts optional `cacheKey` and `cacheOwner` from
+the trusted account-aware adapter. Raw media stays on the loopback resource path,
+not in JSON. `lease_stats` requires the owning session and URL, reporting
+`upstreamBytes`, `cacheReadBytes`, `deliveredBytes`, `elapsedMillis` and additive
+`cacheWriteFailures`. These are byte counters, not buffered media timestamps.
+
+`cache_cleanup_owner` takes `cacheOwner` without a live session, allowing durable
+logout recovery after credentials and sessions have been retired. It refuses
+cleanup while that owner still has live media leases. It does not delete other
+owners or unknown files. This control capability is reachable only through the
+parent's private inherited pipes, never through a remote HTTP control port.
+
+See [cache storage](cache-storage.md) for version, quota and failure semantics.
+
 ## Verification
 
 The Host is tested with in-memory framed streams and a fake core boundary, plus a real subprocess integration test using the shared Engine and a local HTTP fixture. Cover length/UTF-8/truncation, handshake/version mismatch, duplicate identities, eight workers/64 queued saturation, cancellation while saturated, queued cancellation, session close, response bounds, EOF/shutdown and clean process exit. Never use personal server credentials in tests.

@@ -27,9 +27,9 @@ public sealed class ScreenboxSeekSlider : Slider
         _trackHost.Children.Insert(0, _progress);
     }
 
-    public void ApplyTimeline(double duration, double position, TimeSpan? bufferedUntil, IReadOnlyList<PlaybackChapter>? chapters)
+    public void ApplyTimeline(double duration, double position, IReadOnlyList<BufferedTimeRange>? bufferedRanges, IReadOnlyList<PlaybackChapter>? chapters)
     {
         _progress.Visibility = duration > 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (duration > 0) _progress.Apply(duration, position, bufferedUntil, chapters);
+        if (duration > 0) _progress.Apply(duration, position, bufferedRanges, chapters);
     }
 }

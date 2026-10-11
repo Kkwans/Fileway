@@ -17,6 +17,10 @@ public sealed partial class MainPage : Page, IDisposable
     private IImageContentService? _images;
     private IPlaybackService? _playback;
     private IConnectionCatalog? _catalog;
+    private ILocalStorageSettingsService? _storageSettings;
+    private nint _storageOwnerHwnd;
+    private ContentDialog? _storageDialog;
+    private StorageSettingsControl? _storageControl;
     private ConnectionProfile? _selectedProfile;
     private CancellationTokenSource? _connectionCancellation;
     private bool _refreshingSavedConnections;
@@ -47,6 +51,49 @@ public sealed partial class MainPage : Page, IDisposable
         BrandName.Text = AppBranding.DisplayName;
         Loaded += (_, _) => ApplyTheme();
     }
+
+    public void SetStorageSettings(ILocalStorageSettingsService settings, nint ownerHwnd)
+    {
+        if (_disposed) return;
+        _storageSettings = settings; _storageOwnerHwnd = ownerHwnd;
+        StorageSettingsButton.IsEnabled = ownerHwnd != 0;
+    }
+
+    private async void StorageSettings_Click(object sender, RoutedEventArgs args)
+    {
+        if (_disposed || _storageSettings is null || _storageOwnerHwnd == 0 || _storageDialog is not null) return;
+        using var control = new StorageSettingsControl(_storageSettings, _storageOwnerHwnd, _lifetime.Token);
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot, Title = "缓存与存储", Content = control,
+            PrimaryButtonText = "保存", CloseButtonText = "关闭", IsPrimaryButtonEnabled = false,
+            RequestedTheme = Shell.RequestedTheme,
+        };
+        _storageDialog = dialog; _storageControl = control;
+        dialog.Closed += (_, _) => control.Dispose();
+        void StateChanged(object? source, EventArgs eventArgs) { if (!_disposed) dialog.IsPrimaryButtonEnabled = control.CanSave; }
+        control.StateChanged += StateChanged;
+        dialog.PrimaryButtonClick += async (_, click) =>
+        {
+            click.Cancel = true;
+            var deferral = click.GetDeferral();
+            try { await control.SaveAsync(); }
+            finally { deferral.Complete(); }
+        };
+        try
+        {
+            var completion = dialog.ShowAsync();
+            await control.LoadAsync();
+            await completion;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { if (!_disposed) SetNotice("存储设置未能打开", "请关闭其他对话框后重试。", InfoBarSeverity.Error); }
+        finally
+        {
+            control.StateChanged -= StateChanged;
+            if (ReferenceEquals(_storageDialog, dialog)) { _storageDialog = null; _storageControl = null; }
+        }
+    }
     public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog)
     {
         _connection = connection; _files = files; _images = images; _playback = playback; _catalog = catalog;
@@ -73,6 +120,7 @@ public sealed partial class MainPage : Page, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        _storageDialog?.Hide(); _storageControl?.Dispose();
         _disposed = true; _lifetime.Cancel(); _loadCancellation?.Cancel();
         _connectionCancellation?.Cancel();
         if (_connection is not null)

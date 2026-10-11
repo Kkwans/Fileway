@@ -72,10 +72,13 @@ The window/branding and saved-connection/browser slices are delivered as 0.2.0.
 Further usable increments use ordinary versions such as 0.2.1; neither the version
 number nor a local package marks the full product roadmap complete.
 
-Current video buffering comes from mpv memory, with only basic timeline wiring.
-Video disk cache, true buffered intervals, upstream speed, custom cache/download
-locations and a default 5 GB total cache budget are the next priority. Thumbnails
-and original-image disk caching follow and must share that total budget.
+The 0.2.1 increment adds account-bound video disk caching through the shared Go
+core, bounded mpv memory read-ahead, actual buffered timeline intervals and the
+primary video's upstream network speed in decimal MB/s. Storage settings save
+a custom cache root, an independent future download location and one total data
+budget of 5 GB by default. Directory changes take effect after restart; existing
+data is not moved or removed. Thumbnails and original-image disk caching follow
+in 0.2.2 and must share that budget. See [cache behavior and limits](docs/cache-storage.md).
 
 The installer offers a destination folder and a desktop shortcut selected by
 default. Chinese Windows UI or China region defaults to **栖卷**; other preferences

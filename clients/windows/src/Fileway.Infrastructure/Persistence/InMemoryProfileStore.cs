@@ -3,11 +3,12 @@ using Fileway.Core.Contracts;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Process-local store for callers that do not opt into persistence.</summary>
-public sealed class InMemoryProfileStore : IProfileStore
+public sealed class InMemoryProfileStore : IProfileStore, IStorageSettingsStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, SavedConnection> _saved = [];
     private readonly HashSet<AccountKey> _pending = [];
+    private ClientStorageSettings? _storageSettings;
 
     public Task<IReadOnlyList<SavedConnection>> ListAsync(CancellationToken cancellationToken)
     {
@@ -70,6 +71,20 @@ public sealed class InMemoryProfileStore : IProfileStore
         cancellationToken.ThrowIfCancellationRequested();
         ProfileStoreValidation.Validate(account);
         lock (_gate) _pending.Remove(account);
+        return Task.CompletedTask;
+    }
+
+    public Task<ClientStorageSettings?> ReadStorageSettingsAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate) return Task.FromResult(_storageSettings);
+    }
+
+    public Task SaveStorageSettingsAsync(ClientStorageSettings settings, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var normalized = StorageSettingsValidation.Normalize(settings);
+        lock (_gate) _storageSettings = normalized;
         return Task.CompletedTask;
     }
 

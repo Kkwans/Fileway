@@ -12,6 +12,7 @@
     <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.1" />
     <ProjectReference Include="..\..\src\Fileway.Core\Fileway.Core.csproj" />
     <ProjectReference Include="..\..\src\Fileway.Infrastructure\Fileway.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Fileway.Playback\Fileway.Playback.csproj" />
     <Using Include="Xunit" />
   </ItemGroup>
 </Project>

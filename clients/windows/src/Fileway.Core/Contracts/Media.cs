@@ -67,6 +67,9 @@ public sealed record PlaybackDiagnostics(
     int? VideoHeight = null,
     ErrorInfo? ProgressError = null);
 
+/// <summary>An engine-observed seekable buffer interval; never inferred from downloaded byte ratios.</summary>
+public readonly record struct BufferedTimeRange(TimeSpan Start, TimeSpan End);
+
 public sealed record PlaybackSnapshot(
     Guid SessionId,
     long Generation,
@@ -86,7 +89,9 @@ public sealed record PlaybackSnapshot(
     IReadOnlyList<PlaybackChapter>? Chapters = null,
     bool IsMuted = false,
     double? DisplayAspectRatio = null,
-    PlaybackResumePrompt? ResumePrompt = null)
+    PlaybackResumePrompt? ResumePrompt = null,
+    IReadOnlyList<BufferedTimeRange>? BufferedRanges = null,
+    double? DownloadBytesPerSecond = null)
 {
     public override string ToString() => "PlaybackSnapshot (private media details redacted)";
 }

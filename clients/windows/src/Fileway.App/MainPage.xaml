@@ -13,6 +13,7 @@
     <Button x:Name="LogoutButton" Content="退出登录" HorizontalAlignment="Stretch" Visibility="Collapsed" Click="Logout_Click"/>
    </StackPanel></ScrollViewer>
    <StackPanel Grid.Row="3" Spacing="10">
+    <Button x:Name="StorageSettingsButton" Content="缓存与存储" Click="StorageSettings_Click" IsEnabled="False" HorizontalAlignment="Stretch" AutomationProperties.Name="缓存与存储设置"/>
     <TextBlock Text="主题" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     <ComboBox x:Name="ThemeBox" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Theme_Changed" AutomationProperties.Name="界面主题"><ComboBoxItem Content="跟随系统"/><ComboBoxItem Content="浅色"/><ComboBoxItem Content="深色"/></ComboBox>
    </StackPanel>

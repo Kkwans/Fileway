@@ -204,8 +204,13 @@
                                 AutomationProperties.Name="前进十秒" ToolTipService.ToolTip="前进十秒"><local:ScreenboxVectorIcon IconName="SkipForward10" Width="20" Height="20" /></Button>
                         <Grid Grid.Column="3" ColumnSpacing="8" Margin="8,0,12,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <TextBlock x:Name="TimeText" Text="00:00 / --:--" Foreground="{ThemeResource PlayerForeground}"
-                                       FontSize="14" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center"/>
+                            <StackPanel Spacing="1" VerticalAlignment="Center">
+                                <TextBlock x:Name="TimeText" Text="00:00 / --:--" Foreground="{ThemeResource PlayerForeground}"
+                                           FontSize="14" Typography.NumeralAlignment="Tabular"/>
+                                <TextBlock x:Name="DownloadRateText" Visibility="Collapsed" FontSize="12" MaxWidth="160"
+                                           TextTrimming="CharacterEllipsis" Foreground="{ThemeResource PlayerSecondary}"
+                                           ToolTipService.ToolTip="上游网络预加载速度（MB/s = 1,000,000 字节/秒），不包含磁盘缓存命中" />
+                            </StackPanel>
                             <Grid x:Name="ChapterContainer" Grid.Column="1">
                             <Button x:Name="ChapterButton" Width="Auto" MinWidth="0" MaxWidth="240" Padding="8,0"
                                     HorizontalAlignment="Left" Style="{StaticResource PlayerButtonStyle}" Visibility="Collapsed"

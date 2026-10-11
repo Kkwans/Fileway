@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="Fileway.App.Views.StorageSettingsControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer MaxHeight="480" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Spacing="20" MinWidth="280" MaxWidth="480">
+            <TextBlock Text="设置本机缓存和默认下载位置。缓存目录变更将在下次启动后生效。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <InfoBar x:Name="StatusNotice" IsOpen="True" IsClosable="False" Severity="Informational" Message="正在读取存储设置…"/>
+            <ContentControl x:Name="SettingsFields" IsEnabled="False" HorizontalContentAlignment="Stretch">
+              <StackPanel Spacing="16">
+                <StackPanel Spacing="6">
+                    <TextBlock Text="当前生效" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="ActiveSettingsText" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <TextBlock Text="保存配置" FontWeight="SemiBold"/>
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBox x:Name="CacheDirectoryBox" Header="缓存根目录" IsReadOnly="True" AutomationProperties.Name="缓存根目录"/>
+                    <Button Grid.Column="1" Content="选择…" Click="ChooseCache_Click" VerticalAlignment="Bottom" AutomationProperties.Name="选择缓存根目录"/>
+                </Grid>
+                <NumberBox x:Name="MaximumCacheGbBox" Header="磁盘缓存总容量（GB）" Minimum="0" Value="5" SmallChange="1" SpinButtonPlacementMode="Compact" AutomationProperties.Name="磁盘缓存总容量，单位GB"/>
+                <TextBlock Text="默认 5 GB；1 GB = 1,000,000,000 字节。设为 0 关闭磁盘缓存，不影响播放器内存预加载。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBox x:Name="DownloadDirectoryBox" Header="默认下载目录" IsReadOnly="True" AutomationProperties.Name="默认下载目录"/>
+                    <Button Grid.Column="1" Content="选择…" Click="ChooseDownload_Click" VerticalAlignment="Bottom" AutomationProperties.Name="选择默认下载目录"/>
+                </Grid>
+                <TextBlock Text="此目录用于后续下载功能，当前版本尚未提供下载。下载目录独立于缓存，不参与缓存清理。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock x:Name="PendingSettingsText" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+              </StackPanel>
+            </ContentControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -27,6 +27,8 @@ public sealed partial class MainWindow : Window, IDisposable
     }
     public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog)
         => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog);
+    public void SetStorageSettings(ILocalStorageSettingsService settings)
+        => ((MainPage)RootFrame.Content).SetStorageSettings(settings, WinRT.Interop.WindowNative.GetWindowHandle(this));
     public void RequestShutdown() => ((MainPage)RootFrame.Content).Shutdown();
     public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -29,26 +30,30 @@ type Response struct {
 }
 
 type Session struct {
-	base      *url.URL
-	client    *http.Client
-	ctx       context.Context
-	cancel    context.CancelFunc
-	mu        sync.RWMutex
-	token     string
-	principal uint64
-	renewMu   sync.Mutex
+	base           *url.URL
+	client         *http.Client
+	ctx            context.Context
+	cancel         context.CancelFunc
+	mu             sync.RWMutex
+	token          string
+	principal      uint64
+	renewMu        sync.Mutex
+	cacheNamespace string
 }
 
 type Lease struct {
-	upload    *uploadCapability
-	telemetry leaseTelemetry
-	cacheKey  string
-	prefetch  chan struct{}
-	session   *Session
-	endpoint  string
-	media     bool
-	ctx       context.Context
-	cancel    context.CancelFunc
+	upload             *uploadCapability
+	telemetry          leaseTelemetry
+	cacheKey           string
+	cacheOwner         string
+	cacheManaged       bool
+	cacheWriteFailures atomic.Int64
+	prefetch           chan struct{}
+	session            *Session
+	endpoint           string
+	media              bool
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
 // Broker binds source credentials to immutable sessions. The public HTTP
@@ -115,7 +120,7 @@ func (b *Broker) Open(baseURL, token string, client *http.Client) (string, error
 		cancel()
 		return "", errors.New("transport closed")
 	}
-	b.sessions[id] = &Session{base: base, client: &copyClient, token: token, principal: tokenPrincipal(token), ctx: ctx, cancel: cancel}
+	b.sessions[id] = &Session{base: base, client: &copyClient, token: token, principal: tokenPrincipal(token), ctx: ctx, cancel: cancel, cacheNamespace: id}
 	return id, nil
 }
 
