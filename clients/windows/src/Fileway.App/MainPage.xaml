@@ -44,7 +44,7 @@
      <Button x:Name="ViewOptionsButton" Content="视图" AutomationProperties.Name="文件视图与图标大小"><Button.Flyout><MenuFlyout>
       <RadioMenuFlyoutItem x:Name="MosaicViewItem" Text="详细网格" Tag="Mosaic" GroupName="BrowserView" Click="ViewMode_Click"/>
       <RadioMenuFlyoutItem x:Name="CompactGridViewItem" Text="紧凑网格" Tag="CompactGrid" GroupName="BrowserView" Click="ViewMode_Click"/>
-      <RadioMenuFlyoutItem x:Name="WindowsIconsViewItem" Text="Windows 图标" Tag="WindowsIcons" GroupName="BrowserView" Click="ViewMode_Click"/>
+      <RadioMenuFlyoutItem x:Name="WindowsIconsViewItem" Text="无界网格" Tag="WindowsIcons" GroupName="BrowserView" Click="ViewMode_Click"/>
       <RadioMenuFlyoutItem x:Name="DetailsViewItem" Text="详细列表" Tag="Details" GroupName="BrowserView" Click="ViewMode_Click"/>
       <RadioMenuFlyoutItem x:Name="CompactListViewItem" Text="紧凑列表" Tag="CompactList" GroupName="BrowserView" Click="ViewMode_Click"/>
       <MenuFlyoutSubItem x:Name="IconSizesMenu" Text="图标大小"><RadioMenuFlyoutItem x:Name="SmallIconItem" Text="小图标" Tag="Small" GroupName="BrowserSize" Click="IconSize_Click"/><RadioMenuFlyoutItem x:Name="MediumIconItem" Text="中图标" Tag="Medium" GroupName="BrowserSize" Click="IconSize_Click"/><RadioMenuFlyoutItem x:Name="LargeIconItem" Text="大图标" Tag="Large" GroupName="BrowserSize" Click="IconSize_Click"/><RadioMenuFlyoutItem x:Name="ExtraLargeIconItem" Text="超大图标" Tag="ExtraLarge" GroupName="BrowserSize" Click="IconSize_Click"/></MenuFlyoutSubItem>
