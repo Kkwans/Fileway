@@ -51,6 +51,13 @@ DPAPI 保持登录、恢复/退出/遗忘，以及列表/图标网格切换和�
 三类缓存共享同一总预算，不能各自占用 5 GB；缓存清理不能触及下载文件或用户目录中的其他数据。
 目录变更先验证并明确生效时机，不静默搬移或删除旧数据。
 
+收藏/分组、标签、服务端搜索和基础文件管理始终属于原定 0.2；0.2.1/0.2.2 的缓存增量
+没有完成整个 0.2。当前完整欠账与验收状态维护在 [0.2 交付清单](v02-capability-status.md)，
+0.2.3 接通侧栏收藏/分组快跳、标签真实色点/关联数与直接资源列表，保留独立管理入口；
+按 Web 提供拼贴、紧凑网格、Windows 图标、详细列表和紧凑列表，两类独立图标大小与七类
+当前目录筛选，并按账号/原始目录保存视图和排序。扩大本地字幕上限至 500 MB。
+服务/数据专项及构建已通过，纠正版原生验收仍待完成；随后继续清单其余项目，不能等待用户逐项提醒。
+
 0.2.1 已接入共享 Go 分块磁盘缓存/相邻块预取/租约统计、mpv 有界内存预读；时间轴保留
 seekable-ranges 的起点与多个区间，速度只统计主视频上游字节增量。设置页区分当前与待生效
 目录，缓存设为 0 时禁用磁盘部分；默认下载目录暂仅保存，下载旅程仍属 0.3。
@@ -114,7 +121,7 @@ Delete 显式使用回收站语义；服务端和本地任务分别管理，取�
 | --- | --- | --- |
 | 登录/档案/会话/注册 | 档案/DPAPI/恢复/注销已有；组网/代理 0.5，条件注册/代理认证 0.8 | `server/frontend/src/views/Login.vue`、`utils/auth.ts`；Android `ui/ConnectionScreen.kt`、`NetworkSection.kt` |
 | 浏览/视图/远端搜索/收藏/标签/最近 | 列表/本目录过滤已有；完整能力 0.2 | Web `views/files/FileListing.vue`、`SearchPage.vue`、`components/Sidebar.vue`；Android `BrowserScreen.kt`、`SearchScreen.kt`、`ClientApp.kt` |
-| 新建/批量重命名/复制移动 | 新建目录/重命名/复制移动/回收删除已有服务与专项测试，尚无界面入口；其余 0.2 | Web `api/files.ts`；Android `FileActions.kt`、`BrowserScreen.kt`；Windows `FilewayClientServices.Files.cs` |
+| 新建/批量重命名/复制移动 | 新建目录/单项重命名/回收删除已有服务与专项测试，尚无界面入口；复制移动未接入；其余 0.2 | Web `api/files.ts`；Android `FileActions.kt`、`BrowserScreen.kt`；Windows `FilewayClientServices.Files.cs` |
 | 回收站/任务/操作历史 | 基本操作 0.2，完整任务与删除管理 0.3 | Web `api/trash.ts`、`api/tasks.ts`、`api/transfers.ts`；Android `DownloadsScreen.kt`、`UploadsScreen.kt` |
 | 上传下载/归档下载/恢复/离线 | 完整本地媒体启动已有；传输和离线索引 0.3，边下载边播放 0.4 | Web `components/prompts/Download.vue`、`api/tus.ts`；Android upload/download runtimes；shared/core `transport/upload.go` |
 | 图片/音频 | 图片基础查看已有；扩展图片与原生音频 0.4 | Web `ExtendedImage.vue`、`GlobalAudioPlayer.vue`；Android `ImageScreen.kt`、`AudioScreen.kt` |
