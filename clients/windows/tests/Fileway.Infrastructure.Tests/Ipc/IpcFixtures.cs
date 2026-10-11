@@ -57,7 +57,8 @@ internal sealed class HarnessFixture : IAsyncDisposable
 }
 
 internal sealed record FixtureRequest(string Method, string Target, string Body, IReadOnlyDictionary<string, string> Headers);
-internal sealed record FixtureResponse(int Status, byte[] Body, string ContentType = "application/json");
+internal sealed record FixtureResponse(int Status, byte[] Body, string ContentType = "application/json",
+    IReadOnlyDictionary<string, string>? Headers = null);
 
 internal sealed class HttpFixture : IAsyncDisposable
 {
@@ -123,7 +124,8 @@ internal sealed class HttpFixture : IAsyncDisposable
                     _ = await stream.ReadAsync(probe, _stop.Token); // Core cancellation closes the request connection.
                     return;
                 }
-                byte[] head = Encoding.ASCII.GetBytes($"HTTP/1.1 {response.Status} Fixture\r\nContent-Type: {response.ContentType}\r\nContent-Length: {response.Body.Length}\r\nConnection: close\r\n\r\n");
+                string extraHeaders = response.Headers is null ? "" : string.Concat(response.Headers.Select(header => $"{header.Key}: {header.Value}\r\n"));
+                byte[] head = Encoding.ASCII.GetBytes($"HTTP/1.1 {response.Status} Fixture\r\nContent-Type: {response.ContentType}\r\nContent-Length: {response.Body.Length}\r\n{extraHeaders}Connection: close\r\n\r\n");
                 await stream.WriteAsync(head, _stop.Token);
                 await stream.WriteAsync(response.Body, _stop.Token);
             }

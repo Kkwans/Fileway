@@ -32,7 +32,25 @@ public enum OperationOutcome
     OutcomeUnknown,
 }
 
-public sealed record FileOperationResult(OperationOutcome Outcome, string? ServerTaskId = null, ErrorInfo? Error = null);
+public enum FileOperationItemOutcome
+{
+    Confirmed,
+    Failed,
+    OutcomeUnknown,
+    NotAttempted,
+}
+
+/// <summary>One requested resource's actual result; unattempted items must never be reported as canceled writes.</summary>
+public sealed record FileOperationItemResult(
+    RemoteResourceRef Resource,
+    FileOperationItemOutcome Outcome,
+    ErrorInfo? Error = null);
+
+public sealed record FileOperationResult(
+    OperationOutcome Outcome,
+    string? ServerTaskId = null,
+    ErrorInfo? Error = null,
+    IReadOnlyList<FileOperationItemResult>? Items = null);
 
 public enum AuthenticationMode
 {

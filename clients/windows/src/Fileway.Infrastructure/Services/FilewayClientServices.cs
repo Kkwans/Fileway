@@ -11,7 +11,7 @@ using Fileway.Infrastructure.Persistence;
 namespace Fileway.Infrastructure.Services;
 
 /// <summary>Typed, account-bound application services over the supervised Go Host.</summary>
-public sealed class FilewayClientServices : IConnectionService, IConnectionCatalog, IFileRepository, IImageContentService,
+public sealed partial class FilewayClientServices : IConnectionService, IConnectionCatalog, IFileRepository, IImageContentService,
     IResourceLeaseProvider, IPlaybackProgressStore, IAsyncDisposable
 {
     private const long MaximumImageBytes = 64L * 1024 * 1024;
@@ -281,10 +281,6 @@ public sealed class FilewayClientServices : IConnectionService, IConnectionCatal
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }
     }
-
-    public Task<FileOperationResult> CreateDirectoryAsync(RemoteResourceRef parent, string name, CancellationToken cancellationToken) => UnsupportedWrite(cancellationToken);
-    public Task<FileOperationResult> RenameAsync(RemoteResourceRef resource, string name, CancellationToken cancellationToken) => UnsupportedWrite(cancellationToken);
-    public Task<FileOperationResult> TrashAsync(IReadOnlyList<RemoteResourceRef> resources, CancellationToken cancellationToken) => UnsupportedWrite(cancellationToken);
 
     public async Task<PlaybackBookmark?> ReadAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
     {
@@ -809,7 +805,9 @@ public sealed class FilewayClientServices : IConnectionService, IConnectionCatal
             requireDownload, HostCallSafety.ReadOnly, cancellationToken);
 
     private async Task<JsonElement> SessionRequestAsync(SessionState state, object parameters, bool requireDownload,
-        HostCallSafety safety, CancellationToken cancellationToken, string operation = "request")
+        HostCallSafety safety, CancellationToken cancellationToken, string operation = "request",
+        Func<CancellationToken, Task>? beforeSend = null, Action<JsonElement>? confirmResponse = null,
+        Action? authorizeSend = null)
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         bool entered = false;
@@ -829,8 +827,23 @@ public sealed class FilewayClientServices : IConnectionService, IConnectionCatal
             EnsureActive(state);
             if (requireDownload) RequireDownload(state);
             checkingSession = false;
+            if (beforeSend is not null)
+            {
+                await beforeSend(linked.Token).ConfigureAwait(false);
+                // Metadata preflight can renew the token. Re-verify that
+                // principal's permissions/capabilities before sending a write;
+                // never replay the preflight or re-enter Operations here.
+                checkingSession = true;
+                updated = await RefreshSessionCoreAsync(state, linked.Token).ConfigureAwait(false) ?? updated;
+                EnsureActive(state);
+                checkingSession = false;
+            }
+            authorizeSend?.Invoke();
+            linked.Token.ThrowIfCancellationRequested();
+            EnsureActive(state);
             response = await CallAsync(operation, parameters, state.CoreSession, linked.Token, safety).ConfigureAwait(false);
             if (operation == "request") _ = HttpBody(response);
+            confirmResponse?.Invoke(response);
             confirmed = true;
             checkingSession = true;
             updated = await RefreshSessionCoreAsync(state, safety == HostCallSafety.Mutation ? state.LifetimeToken : linked.Token)
@@ -849,7 +862,7 @@ public sealed class FilewayClientServices : IConnectionService, IConnectionCatal
         }
         finally { if (entered) state.Operations.Release(); }
 
-        // No callback runs under a session/persistence mutex. A subscriber can
+        // No event callback runs under a session/persistence mutex. A subscriber can
         // safely start another operation without changing the confirmed result.
         if (failure is not null)
         {
@@ -1050,12 +1063,6 @@ public sealed class FilewayClientServices : IConnectionService, IConnectionCatal
     private static FilewayException Safe(ErrorCode code, string message, int? status = null) => new(new ErrorInfo(code, message, status));
     private static FilewayException CleanupFailed() => Safe(ErrorCode.HostExited, "无法确认连接与媒体已关闭，请关闭并重新打开客户端。");
     private static FilewayException InvalidResponse() => Safe(ErrorCode.ProtocolMismatch, "服务器返回的数据格式不受支持，请刷新或检查服务器版本。");
-    private static Task<FileOperationResult> UnsupportedWrite(CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        throw Safe(ErrorCode.CapabilityMissing, "首预览尚未开放文件写入操作。");
-    }
-
     private static void CheckStatus(int status)
     {
         if (status is >= 200 and < 300) return;
