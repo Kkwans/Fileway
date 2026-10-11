@@ -32,7 +32,7 @@ internal suspend fun clickOwnedDescription(instrumentation: Instrumentation, dev
 internal suspend fun clickOwnedText(instrumentation: Instrumentation, device: UiDevice,
     label: String, stableFrames: Int = 2) = clickOwned(instrumentation, device, label, false, stableFrames)
 
-private data class OwnedClickWindow(val id: Int, val display: Int, val bounds: Rect, val screen: Rect, val minimum: Float)
+private data class OwnedClickWindow(val id: Int, val display: Int, val bounds: Rect, val screen: Rect)
 private data class OwnedClickOwner(val windowId: Int, val displayId: Int, val className: String, val bounds: Rect)
 
 /** Existing read values only; no label, hierarchy or extra accessibility queries. */
@@ -105,7 +105,6 @@ private suspend fun clickOwned(instrumentation: Instrumentation, device: UiDevic
                 val candidate = target
                 trace.enter("owner-state")
                 val owner = candidate?.let { readOwnedState(it, packageName, window, trace) }
-                trace.owner = owner
                 frames = if (owner != null && owner == previous) frames + 1 else if (owner != null) 1 else 0
                 previous = owner; trace.frames = frames
                 if (owner == null) { target?.recycle(); target = null; continue }
@@ -161,8 +160,7 @@ private fun activeOwnedWindow(instrumentation: Instrumentation): OwnedClickWindo
             @Suppress("DEPRECATION")
             display.getRealSize(size)
             val bounds = Rect().also(window::getBoundsInScreen)
-            val density = instrumentation.targetContext.createDisplayContext(display).resources.displayMetrics.density
-            return OwnedClickWindow(window.id, displayId, bounds, Rect(0, 0, size.x, size.y), 48 * density - 1)
+            return OwnedClickWindow(window.id, displayId, bounds, Rect(0, 0, size.x, size.y))
         } finally { window.recycle() }
     } finally { root.recycle() }
 }
@@ -177,10 +175,15 @@ private fun readOwnedState(node: UiObject2, packageName: String, window: OwnedCl
         else -> {
             val className = node.className
             val bounds = node.visibleBounds
-            if (className.isNullOrEmpty() || bounds.width() < window.minimum || bounds.height() < window.minimum ||
-                !window.screen.contains(bounds) || !window.bounds.contains(bounds)) {
-                trace.rejected = "class-or-visible-bounds"; null
-            } else OwnedClickOwner(window.id, window.display, className, bounds)
+            val shape = OwnedClickOwner(window.id, window.display, className.orEmpty(), bounds)
+            trace.owner = shape
+            when {
+                className.isNullOrEmpty() -> { trace.rejected = "missing-class"; null }
+                bounds.isEmpty -> { trace.rejected = "empty-visible-bounds"; null }
+                !window.screen.contains(bounds) -> { trace.rejected = "outside-screen"; null }
+                !window.bounds.contains(bounds) -> { trace.rejected = "outside-active-window"; null }
+                else -> shape
+            }
         }
     }
 } catch (_: StaleObjectException) { trace.rejected = "stale-owner"; null }
@@ -190,7 +193,7 @@ private fun locateOwnedAction(device: UiDevice, packageName: String, window: Own
     val matches = mutableListOf<UiObject2>()
     try {
         val selector = (if (description) By.desc(label) else By.text(label)).pkg(packageName)
-        trace.leaves = null; trace.matches = null
+        trace.leaves = null; trace.matches = null; trace.owner = null; trace.rejected = "unknown"
         val leaves = device.findObjects(selector)
         trace.leaves = leaves.size; trace.matches = null
         for (leaf in leaves) {
@@ -213,7 +216,10 @@ private fun locateOwnedAction(device: UiDevice, packageName: String, window: Own
             finally { current?.recycle() }
         }
         trace.matches = matches.size
-        if (matches.size != 1) { trace.rejected = "match-count"; return null }
+        if (matches.size != 1) {
+            if (trace.rejected == "unknown") trace.rejected = "match-count"
+            return null
+        }
         return matches.removeAt(0)
     } catch (_: StaleObjectException) { trace.rejected = "stale-locator"; return null }
     finally { matches.forEach { it.recycle() } }
