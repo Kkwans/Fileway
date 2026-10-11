@@ -105,6 +105,11 @@ class AccountSettingsUiTest {
                 AccountSettingsScreen(controller, {}, { reconnects++ })
             } } } }
             mounted = true; stage = "open-password-sheet"
+            text("账户安全")
+            listOf("交互与日期", "播放偏好", "默认播放策略", "兼容播放", "特殊前缀", "网页编辑器", "保存账户设置").forEach { label ->
+                assertFalse("Android must not expose an unused Web preference: $label", device.hasObject(By.text(label)))
+            }
+            val originalPreferences = controller.state.value.profile!!.preferences
             val content = device.wait(Until.findObject(By.desc("账户设置内容")), 5000) ?: error("Account content missing")
             repeat(8) {
                 if (device.hasObject(By.text("修改密码"))) return@repeat
@@ -151,6 +156,7 @@ class AccountSettingsUiTest {
             assertEquals(1, reconnects)
             assertEquals("owned-new-password", controller.state.value.password.replacement)
             assertEquals(1, authority.writes)
+            assertEquals("Password actions must preserve the stored Web preferences", originalPreferences, controller.state.value.profile!!.preferences)
         } catch (error: Throwable) {
             diagnose(stage, controller, authority.writes, mounted)
             throw error
