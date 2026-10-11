@@ -163,8 +163,6 @@ Function .onInit
   ${If} $LANGUAGE == ${LANG_SIMPCHINESE}
     StrCpy $ProductLanguage "zh-CN"
   ${EndIf}
-  StrCpy $StartMenuLink "$SMPROGRAMS\$(ProductName) ${PACKAGE_VERSION}.lnk"
-  StrCpy $DesktopLink "$DESKTOP\$(ProductName) ${PACKAGE_VERSION}.lnk"
   ${IfNot} ${RunningX64}
     MessageBox MB_OK|MB_ICONSTOP "$(RequiresX64)" /SD IDOK
     Abort
@@ -250,6 +248,10 @@ FunctionEnd
 
 Section "$(ProductName)" SEC_APP
   SectionIn RO
+  ; NSIS activates the selected language table after .onInit returns.
+  ; Resolve localized shortcut names here, not in the language-picker callback.
+  StrCpy $StartMenuLink "$SMPROGRAMS\$(ProductName) ${PACKAGE_VERSION}.lnk"
+  StrCpy $DesktopLink "$DESKTOP\$(ProductName) ${PACKAGE_VERSION}.lnk"
   Call CheckRunning
   Call VerifyInstallDirectory
   ClearErrors
