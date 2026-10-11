@@ -177,13 +177,14 @@ class ExternalSubtitleFailureTest {
                         current.externalPgsTimeline("external:owned", timeline, cancelled::get, { failed.incrementAndGet() }) { ready.incrementAndGet() }
                         unownedTimeline = null
                     }
-                    cancelled.set(true); unblock.countDown()
+                    main { cancelled.set(true); current.cancelPendingExternalPgs() }
+                    unblock.countDown()
                 } else main {
                     // Keep the UI callback queued until attach has completed and
                     // the cancellation token is set. No timing sleep or retry.
                     current.externalPgsTimeline("external:owned", timeline, cancelled::get, { failed.incrementAndGet() }) { ready.incrementAndGet() }
                     unownedTimeline = null
-                    worker.submit { cancelled.set(true) }.get(5, TimeUnit.SECONDS)
+                    worker.submit { cancelled.set(true); current.cancelPendingExternalPgs() }.get(5, TimeUnit.SECONDS)
                 }
                 if (stage == "closed") assertTrue(withContext(Dispatchers.IO) { worker.awaitTermination(5, TimeUnit.SECONDS) })
                 else {

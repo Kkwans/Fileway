@@ -208,6 +208,12 @@ internal class MediaSubtitleLayer(context: Context) : View(context), MediaSubtit
             }
         }
     }
+    /** Pending imports release on the worker without waiting for View.post.
+     * Accepted tracks keep their local index for subtitle off/reselection. */
+    fun cancelPendingExternalPgs() = submit {
+        indexedPgs.filterValues { it.cancelledBeforeReady() }
+            .forEach { (id, entry) -> removeIndexed(id, entry) }
+    }
     /** UI ready/cancel callbacks enqueue cleanup on the same worker as decode.
      * Once closed, the already queued media-close task owns every attached entry. */
     private fun discardIndexed(id: String, entry: IndexedPgs) = synchronized(submissions) {

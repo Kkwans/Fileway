@@ -606,7 +606,12 @@ class NativePlayer(context: Context) {
     }
     fun clearOperationError(expected: String) { if (mutable.value.operationError == expected) mutable.value = mutable.value.copy(operationError = null) }
     private fun cancelExternalImport() {
-        externalSupCancellation?.set(true); externalSupCancellation = null
+        externalSupCancellation?.let { pending ->
+            pending.set(true)
+            // A not-yet-attached View must not delay reclaiming a canceled import.
+            layer?.cancelPendingExternalPgs()
+        }
+        externalSupCancellation = null
         externalJob?.cancel(); externalJob = null
     }
     private fun disposeMedia() {
