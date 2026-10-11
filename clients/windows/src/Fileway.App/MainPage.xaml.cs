@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Fileway.App.Views;
 using Fileway.App.Branding;
+using Fileway.App.Controls.Browser;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -15,6 +16,8 @@ public sealed partial class MainPage : Page, IDisposable
     private IConnectionService? _connection;
     private IFileRepository? _files;
     private IImageContentService? _images;
+    private IThumbnailContentService? _thumbnails;
+    private readonly BrowserThumbnailController _thumbnailController;
     private IPlaybackService? _playback;
     private IConnectionCatalog? _catalog;
     private ILocalStorageSettingsService? _storageSettings;
@@ -47,9 +50,12 @@ public sealed partial class MainPage : Page, IDisposable
 
     public MainPage()
     {
-        InitializeComponent(); FileList.ItemsSource = FileGrid.ItemsSource = _rows;
+        InitializeComponent();
+        _thumbnailController = new BrowserThumbnailController(_lifetime.Token, FileList, FileGrid);
+        FileList.ItemsSource = FileGrid.ItemsSource = _rows;
         BrandName.Text = AppBranding.DisplayName;
-        Loaded += (_, _) => ApplyTheme();
+        Loaded += (_, _) => { ApplyTheme(); UpdateThumbnailContext(); };
+        Unloaded += (_, _) => _thumbnailController.SetContext(null, null);
     }
 
     public void SetStorageSettings(ILocalStorageSettingsService settings, nint ownerHwnd)
@@ -57,6 +63,11 @@ public sealed partial class MainPage : Page, IDisposable
         if (_disposed) return;
         _storageSettings = settings; _storageOwnerHwnd = ownerHwnd;
         StorageSettingsButton.IsEnabled = ownerHwnd != 0;
+    }
+
+    public void ShowStorageWarning(string message)
+    {
+        if (!_disposed) SetNotice("本地缓存暂不可用", message, InfoBarSeverity.Warning);
     }
 
     private async void StorageSettings_Click(object sender, RoutedEventArgs args)
@@ -83,7 +94,7 @@ public sealed partial class MainPage : Page, IDisposable
         try
         {
             var completion = dialog.ShowAsync();
-            await control.LoadAsync();
+            _ = LoadStorageControlAsync();
             await completion;
         }
         catch (OperationCanceledException) { }
@@ -93,10 +104,21 @@ public sealed partial class MainPage : Page, IDisposable
             control.StateChanged -= StateChanged;
             if (ReferenceEquals(_storageDialog, dialog)) { _storageDialog = null; _storageControl = null; }
         }
+        async Task LoadStorageControlAsync()
+        {
+            try { await control.LoadAsync(); }
+            catch (OperationCanceledException) { }
+            catch (Exception)
+            {
+                if (!_disposed && ReferenceEquals(_storageDialog, dialog))
+                    SetNotice("存储设置未能加载", "请关闭设置后重试。", InfoBarSeverity.Error);
+            }
+        }
     }
-    public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog)
+    public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
     {
-        _connection = connection; _files = files; _images = images; _playback = playback; _catalog = catalog;
+        _connection = connection; _files = files; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails;
+        UpdateThumbnailContext();
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
         ConnectButton.IsEnabled = true;
@@ -121,7 +143,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed) return;
         _storageDialog?.Hide(); _storageControl?.Dispose();
-        _disposed = true; _lifetime.Cancel(); _loadCancellation?.Cancel();
+        _disposed = true; _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
         _connectionCancellation?.Cancel();
         if (_connection is not null)
         {
@@ -189,6 +211,7 @@ public sealed partial class MainPage : Page, IDisposable
     private void SetConnecting(bool connecting)
     {
         _connecting = connecting;
+        UpdateThumbnailContext();
         ConnectButton.IsEnabled = !connecting && _connection is not null;
         RestoreSavedButton.IsEnabled = ForgetSavedButton.IsEnabled = SavedConnectionBox.IsEnabled = !connecting;
         ConnectionNameBox.IsEnabled = ServerBox.IsEnabled = AuthenticationBox.IsEnabled = !connecting;
@@ -291,6 +314,7 @@ public sealed partial class MainPage : Page, IDisposable
     private void ClearActiveWorkspace()
     {
         _session = null; _root = null; _directory = null; ++_generation; _loadCancellation?.Cancel();
+        UpdateThumbnailContext();
         _items.Clear(); _rows.Clear(); _trail.Clear(); _history.Clear();
         NavigationCommands.IsEnabled = false; LogoutButton.Visibility = DismissConnection.Visibility = Visibility.Collapsed;
         ConnectionLabel.Text = "尚未连接"; ConnectionButton.Content = "连接服务器"; PathBox.Text = "尚未连接";
@@ -324,6 +348,7 @@ public sealed partial class MainPage : Page, IDisposable
         _loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _loadCancellation.Token;
         var generation = ++_generation;
+        _thumbnailController.Invalidate();
         bool CurrentLoad() => !_disposed && generation == _generation && _session?.Id == session.Id && _session.Account == session.Account;
         _loadStateTitle = _loadStateDescription = null;
         _directory = directory; PathBox.Text = directory.DisplayPath;
@@ -366,7 +391,7 @@ public sealed partial class MainPage : Page, IDisposable
         _changingView = true;
         try
         {
-            if (!append) _rows.Clear();
+            if (!append) { _thumbnailController.Invalidate(); _rows.Clear(); }
             for (var index = _rows.Count; index < matching.Length; index++) _rows.Add(new FileRow(matching[index]));
             if (!append)
                 foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource))) ActiveFiles.SelectedItems.Add(row);
@@ -476,8 +501,10 @@ public sealed partial class MainPage : Page, IDisposable
             foreach (var row in selected) ActiveFiles.SelectedItems.Add(row);
         }
         finally { _changingView = false; }
+        _thumbnailController.RefreshVisibility();
         UpdateSelection();
     }
+    private void UpdateThumbnailContext() => _thumbnailController.SetContext(_connecting ? null : _thumbnails, _connecting ? null : _session);
     private void SetDetailsVisible(bool visible) { _detailsVisible = visible; DetailsPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed; UpdateDetailsLayout(); }
     private void BrowserBody_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateDetailsLayout();
     private void UpdateDetailsLayout()

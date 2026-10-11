@@ -107,7 +107,13 @@ public partial class App : Application, IAsyncDisposable
                 new PlaybackWindowFactory(_window!.DispatcherQueue),
                 Path.Combine(directory, "media"), _services);
             _window.SetStorageSettings(storageSettings);
-            await _window.SetServicesAsync(_services, _services, _services, _playback, _services);
+            await _window.SetServicesAsync(_services, _services, _services, _playback, _services, _services);
+            try { await storageSettings.InitializeCacheAsync(_lifetime.Token); }
+            catch (OperationCanceledException) when (_closing) { }
+            catch (FilewayException)
+            {
+                if (!_closing) _window.ShowStorageWarning("本地缓存暂不可用，连接与在线浏览仍可继续。请检查缓存目录后重试。");
+            }
             await OpenLaunchFileAsync();
         }
         catch (OperationCanceledException) when (_closing) { }

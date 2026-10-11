@@ -77,8 +77,11 @@ core, bounded mpv memory read-ahead, actual buffered timeline intervals and the
 primary video's upstream network speed in decimal MB/s. Storage settings save
 a custom cache root, an independent future download location and one total data
 budget of 5 GB by default. Directory changes take effect after restart; existing
-data is not moved or removed. Thumbnails and original-image disk caching follow
-in 0.2.2 and must share that budget. See [cache behavior and limits](docs/cache-storage.md).
+data is not moved or removed. The 0.2.2 increment adds contained thumbnails and
+original-image disk caching in that same pool, usage/inactive cleanup and a
+persistent account/root ledger for logout cleanup after directory changes. Old
+roots unavailable during cleanup remain tracked. Native validation is separate
+from service implementation. See [cache behavior and limits](docs/cache-storage.md).
 
 The installer offers a destination folder and a desktop shortcut selected by
 default. Chinese Windows UI or China region defaults to **栖卷**; other preferences

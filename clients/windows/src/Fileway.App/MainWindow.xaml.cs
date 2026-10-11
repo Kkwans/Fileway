@@ -25,10 +25,11 @@ public sealed partial class MainWindow : Window, IDisposable
         RootFrame.Navigate(typeof(MainPage));
         Closed += (_, _) => Dispose();
     }
-    public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog)
-        => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog);
+    public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
+        => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails);
     public void SetStorageSettings(ILocalStorageSettingsService settings)
         => ((MainPage)RootFrame.Content).SetStorageSettings(settings, WinRT.Interop.WindowNative.GetWindowHandle(this));
+    public void ShowStorageWarning(string message) => ((MainPage)RootFrame.Content).ShowStorageWarning(message);
     public void RequestShutdown() => ((MainPage)RootFrame.Content).Shutdown();
     public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);

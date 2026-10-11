@@ -6,6 +6,21 @@
         <StackPanel Spacing="20" MinWidth="280" MaxWidth="480">
             <TextBlock Text="设置本机缓存和默认下载位置。缓存目录变更将在下次启动后生效。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             <InfoBar x:Name="StatusNotice" IsOpen="True" IsClosable="False" Severity="Informational" Message="正在读取存储设置…"/>
+            <StackPanel Spacing="6">
+                <TextBlock Text="缓存占用" FontWeight="SemiBold"/>
+                <TextBlock x:Name="CacheUsageText" Text="正在读取当前缓存池占用…" TextWrapping="Wrap"/>
+                <TextBlock x:Name="CacheBlocksText" Text="缓存块与受保护状态尚未读取。" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock x:Name="PreviousRootsText" Text="旧缓存根目录额外占用尚未读取。" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="旧缓存根目录额外占用不计入当前池容量；不可用目录未计入统计。" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="清理仅移除已识别且未使用的缓存，保留活跃播放缓存、下载文件和未知文件。" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <InfoBar x:Name="CacheNotice" IsOpen="False" IsClosable="False" Severity="Informational"/>
+                <ContentControl x:Name="CacheActions" IsEnabled="False" HorizontalContentAlignment="Stretch">
+                    <CommandBar Background="Transparent" DefaultLabelPosition="Right" IsDynamicOverflowEnabled="False">
+                        <AppBarButton Label="刷新" Icon="Refresh" Click="RefreshCache_Click" AutomationProperties.Name="刷新缓存占用"/>
+                        <AppBarButton Label="清理未使用缓存" Icon="Delete" Click="ClearCache_Click" AutomationProperties.Name="清理未使用缓存"/>
+                    </CommandBar>
+                </ContentControl>
+            </StackPanel>
             <ContentControl x:Name="SettingsFields" IsEnabled="False" HorizontalContentAlignment="Stretch">
               <StackPanel Spacing="16">
                 <StackPanel Spacing="6">
