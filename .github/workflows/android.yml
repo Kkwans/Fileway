@@ -4,6 +4,12 @@ on:
     branches: [main]
     paths: ['clients/android/**', 'clients/shared/core/**', '.github/workflows/android.yml']
   workflow_dispatch:
+    inputs:
+      test_methods:
+        description: 'Optional affected-method batch: canonical package.Class#method entries separated by commas; empty runs the full suite'
+        required: false
+        type: string
+        default: ''
 concurrency:
   group: android-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
@@ -16,6 +22,7 @@ jobs:
     needs: media-native
     env:
       ORG_GRADLE_PROJECT_filewayFfmpegManifest: ${{ github.workspace }}/media-native/ffmpeg-probe.json
+      NFB_TEST_METHODS: ${{ inputs.test_methods || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -95,7 +102,7 @@ jobs:
             adb shell getconf PAGESIZE
             if [ '${{ matrix.target }}' = google_apis_ps16k ]; then test "$(adb shell getconf PAGESIZE | tr -d '\r')" = 16384; fi
             mkdir -p clients/android/app/build/acceptance
-            cd clients/android; python3 scripts/run-emulator-checks.py --serial "$(adb get-serialno)"
+            cd clients/android; python3 scripts/run-emulator-checks.py --serial "$(adb get-serialno)" --test-methods "$NFB_TEST_METHODS"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

@@ -11,7 +11,7 @@ spec.loader.exec_module(runner)
 
 
 class EmulatorChecksTest(unittest.TestCase):
-    def exercise(self, suite=0, prepare="OK (1 test)\n", verify="OK (1 test)\n", export=0,
+    def exercise(self, suite=0, prepare="OK (1 test)\n", verify="OK (1 test)\n", export=0, test_methods="",
                  junit='<testsuites><testsuite><testcase classname="OwnedRuntimeTest" name="realCase"/></testsuite></testsuites>'):
         calls = []
 
@@ -34,7 +34,7 @@ class EmulatorChecksTest(unittest.TestCase):
             return 0, "Success\n"
 
         with tempfile.TemporaryDirectory(dir=os.environ.get("NFB_CHECK_TMP")) as root:
-            result = runner.run_checks(Path(root), "emulator-5556", run)
+            result = runner.run_checks(Path(root), "emulator-5556", run, test_methods=test_methods)
         return result, calls
 
     def test_restart_gate_runs_in_two_invocations_with_stop_between(self):
@@ -123,6 +123,75 @@ class EmulatorChecksTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             runner.run_checks(Path("."), "emulator-5556", run)
         self.assertEqual(2, len(calls))
+
+    def test_method_selection_rejects_noncanonical_duplicate_and_restart_entries_before_adb(self):
+        method = runner.PACKAGE + ".OwnedRuntimeTest#actualCase"
+        invalid = [" ", ",", method + ",", "," + method, method + ",," + method,
+                   method + "," + method, method + " ", method.replace("#", "."),
+                   "OwnedRuntimeTest#actualCase", "other.package.OwnedTest#actualCase",
+                   runner.PACKAGE + ".OwnedRuntimeTest", method + ";echo injected",
+                   runner.PACKAGE + ".hostrestart.ThemeRestartPrepareTest#prepare",
+                   runner.PACKAGE + ".ThemeRestartVerifyTest#verify"]
+        for selection in invalid:
+            calls = []
+            with self.subTest(selection=selection), self.assertRaises(ValueError):
+                runner.run_checks(Path("."), "emulator-5556", lambda *args: calls.append(args), test_methods=selection)
+            self.assertEqual([], calls)
+        self.assertEqual((), runner.parse_test_methods(""))
+        self.assertEqual((method,), runner.parse_test_methods(method))
+
+    def test_affected_batch_runs_exact_methods_once_without_restart_or_install(self):
+        first = runner.PACKAGE + ".OwnedRuntimeTest#firstCase"
+        second = runner.PACKAGE + ".nested.OwnedOtherTest#secondCase"
+        junit = f'<testsuites><testsuite><testcase classname="{runner.PACKAGE}.OwnedRuntimeTest" name="firstCase"/>' + \
+                f'<testcase classname="{runner.PACKAGE}.nested.OwnedOtherTest" name="secondCase"/></testsuite></testsuites>'
+        status, calls = self.exercise(test_methods=first + "," + second, junit=junit)
+        self.assertEqual(0, status)
+        commands = [c for c in calls if ":app:connectedDebugAndroidTest" in c]
+        self.assertEqual(1, len(commands))
+        self.assertIn("-Pandroid.testInstrumentationRunnerArguments.class=" + first + "," + second, commands[0])
+        self.assertFalse(any("install" in c or "instrument" in c or "force-stop" in c for c in calls))
+        self.assertEqual("pull", calls[-1][3])
+
+    def test_affected_batch_cannot_pass_missing_extra_duplicate_failed_or_skipped_methods(self):
+        cls = runner.PACKAGE + ".OwnedRuntimeTest"
+        first = f'<testcase classname="{cls}" name="firstCase"/>'
+        second = f'<testcase classname="{cls}" name="secondCase"/>'
+        selection = cls + "#firstCase," + cls + "#secondCase"
+        invalid = [None, '<testsuites/>', '<broken', '<testsuite>' + first + '</testsuite>',
+                   '<testsuite>' + first + second + first + '</testsuite>',
+                   '<testsuite>' + first + second + f'<testcase classname="{cls}" name="extraCase"/></testsuite>',
+                   '<testsuite>' + first + f'<testcase classname="{cls}" name="secondCase"><failure>broken</failure></testcase></testsuite>',
+                   '<testsuite>' + first + f'<testcase classname="{cls}" name="secondCase"><error>broken</error></testcase></testsuite>',
+                   '<testsuite>' + first + f'<testcase classname="{cls}" name="secondCase"><skipped/></testcase></testsuite>']
+        for junit in invalid:
+            with self.subTest(junit=junit):
+                status, calls = self.exercise(test_methods=selection, junit=junit)
+                self.assertEqual(1, status)
+                self.assertFalse(any("install" in c or "instrument" in c or "force-stop" in c for c in calls))
+                self.assertEqual("pull", calls[-1][3])
+
+    def test_affected_batch_preserves_gradle_timeout_failure_and_export_failure(self):
+        cls = runner.PACKAGE + ".OwnedRuntimeTest"
+        selection = cls + "#actualCase"
+        junit = f'<testsuite><testcase classname="{cls}" name="actualCase"/></testsuite>'
+        for suite, export, expected in [(7, 9, 7), (124, 0, 124), (0, 9, 9)]:
+            with self.subTest(suite=suite, export=export):
+                status, calls = self.exercise(test_methods=selection, junit=junit, suite=suite, export=export)
+                self.assertEqual(expected, status)
+                self.assertFalse(any("install" in c or "instrument" in c or "force-stop" in c for c in calls))
+
+    def test_affected_contract_explicitly_cannot_be_reported_as_full_suite(self):
+        cls = runner.PACKAGE + ".OwnedRuntimeTest"
+        with tempfile.TemporaryDirectory(dir=os.environ.get("NFB_CHECK_TMP")) as folder:
+            component = Path(folder)
+            report = component / "app/build/outputs/androidTest-results/connected/TEST-fixture.xml"
+            report.parent.mkdir(parents=True)
+            report.write_text(f'<testsuite><testcase classname="{cls}" name="actualCase"/></testsuite>')
+            status, output = runner.suite_contract(component, (cls + "#actualCase",))
+            self.assertEqual(0, status)
+            self.assertIn("NOT a full-suite result", output)
+            self.assertIn("restart gates were not rerun", output)
 
 
 if __name__ == "__main__":
