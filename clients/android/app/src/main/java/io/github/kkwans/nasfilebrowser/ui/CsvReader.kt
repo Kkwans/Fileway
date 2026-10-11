@@ -13,6 +13,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
@@ -32,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.collect
 
 /** A read-only native view of decoded text; source/search/edit stay with their existing owner. */
 @Composable
@@ -40,6 +43,23 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
     var delimiter by rememberSaveable(document, fileName) { mutableStateOf(CsvDelimiter.AUTO) }
     var firstRowHeader by rememberSaveable(document, fileName) { mutableStateOf(true) }
     var delimiterMenu by remember(document, fileName) { mutableStateOf(false) }
+    val ownedTrace = io.github.kkwans.nasfilebrowser.BuildConfig.DEBUG &&
+        androidx.activity.compose.LocalActivity.current?.intent?.getBooleanExtra("nfbOwnedCsvTrace", false) == true
+    val traceOwner = remember(document, fileName) { Any() }
+    fun trace(event: String) {
+        if (ownedTrace) android.util.Log.i("FilewayCsvUi", "event=$event t=${android.os.SystemClock.uptimeMillis()} " +
+            "owner=${System.identityHashCode(traceOwner)} document=${System.identityHashCode(document)} " +
+            "delimiter=${delimiter.name} header=$firstRowHeader expanded=$delimiterMenu")
+    }
+    if (ownedTrace) {
+        DisposableEffect(traceOwner) {
+            trace("reader-enter")
+            onDispose { trace("reader-dispose") }
+        }
+        LaunchedEffect(traceOwner) {
+            snapshotFlow { Triple(delimiter, firstRowHeader, delimiterMenu) }.collect { trace("reader-state:$it") }
+        }
+    }
     val preview by produceState<CsvPreview?>(null, document, fileName, delimiter) {
         value = null
         value = withContext(Dispatchers.Default) {
@@ -51,24 +71,35 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Box {
-                TextButton({ delimiterMenu = true }, Modifier.heightIn(min = 48.dp).semantics {
+                TextButton({ trace("open-menu-delivered"); delimiterMenu = true; trace("open-menu-assigned") }, Modifier.heightIn(min = 48.dp).semantics {
                     contentDescription = "选择表格分隔符"
                     stateDescription = "当前选择：${delimiter.label}"
                 }) {
                     Text("分隔符：${delimiter.label}")
                     Text("▾", Modifier.padding(start = 4.dp).clearAndSetSemantics {})
                 }
-                DropdownMenu(delimiterMenu, { delimiterMenu = false }) {
+                DropdownMenu(delimiterMenu, { trace("dismiss-menu-delivered"); delimiterMenu = false }) {
+                    val menuView = androidx.compose.ui.platform.LocalView.current
+                    if (ownedTrace) DisposableEffect(menuView) {
+                        trace("menu-enter:view=${System.identityHashCode(menuView)} root=${System.identityHashCode(menuView.rootView)}")
+                        onDispose { trace("menu-dispose") }
+                    }
                     val current = preview
                     val details = if (current is CsvPreview.Reading) {
                         val table = current.document
                         "${document.encoding} · 只读 · ${table.delimiter.label}分隔 · ${table.rows(firstRowHeader).size} 行 · ${table.columns} 列"
                     } else "${document.encoding} · 只读"
-                    Text(details, Modifier.widthIn(max = 320.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+                    Text(details, Modifier.widthIn(max = 320.dp).padding(horizontal = 16.dp, vertical = 8.dp)
+                        .then(if (ownedTrace) Modifier.onGloballyPositioned {
+                            val root = menuView.rootView
+                            trace("menu-geometry:bounds=${it.boundsInWindow()} attached=${root.isAttachedToWindow} shown=${root.isShown} focus=${root.hasWindowFocus()} size=${root.width}x${root.height}")
+                        } else Modifier),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     CsvDelimiter.entries.forEach { choice ->
                         DropdownMenuItem(text = { Text(choice.label) }, onClick = {
+                            trace("item-delivered:${choice.name}")
                             delimiter = choice; delimiterMenu = false
+                            trace("item-assigned:${choice.name}")
                         }, modifier = Modifier.heightIn(min = 48.dp).semantics {
                             contentDescription = "分隔符：${choice.label}"
                             role = Role.RadioButton
@@ -80,7 +111,7 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
             Row(Modifier.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("首行作为表头", Modifier.weight(1f, fill = false), style = MaterialTheme.typography.bodyMedium)
-                Switch(firstRowHeader, { firstRowHeader = it }, Modifier.semantics { contentDescription = "首行作为表头" })
+                Switch(firstRowHeader, { trace("header-delivered:$it"); firstRowHeader = it }, Modifier.semantics { contentDescription = "首行作为表头" })
             }
         }
         when (val result = preview) {

@@ -27,11 +27,14 @@ import java.io.File
 /** Owned documents only; every navigation/edit entry is exercised through the real UI. */
 @RunWith(AndroidJUnit4::class)
 internal class CsvDocumentUiTest : LibraryUiHarness() {
+    private var phase = "setup"
+    private var traceFlagBefore: Pair<Boolean, Boolean>? = null
     private val screen get() = Rect(0, 0, device.displayWidth, device.displayHeight)
     private val density get() = instrumentation.targetContext.resources.displayMetrics.density
     private fun snapshot() = freshAccessibilityBounds(instrumentation, screen)
 
     private fun await(label: String, predicate: (List<FreshAccessibilityNodeBounds>) -> Boolean): List<FreshAccessibilityNodeBounds> {
+        phase = label
         val deadline = SystemClock.uptimeMillis() + 5000
         do {
             val nodes = snapshot()
@@ -52,8 +55,10 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
     private fun tapBounds(bounds: Rect) {
         val driver = InstrumentationRegistry.getArguments().getString("nfbInputDriver", "automation")
         require(driver == "automation" || driver == "shell")
+        OwnedUiTraceRule.trace("csv-tap phase=$phase driver=$driver bounds=$bounds t=${SystemClock.uptimeMillis()}")
         if (driver == "shell") device.executeShellCommand("input touchscreen tap ${bounds.centerX()} ${bounds.centerY()}")
         else OwnedTouchInput.tap(instrumentation, bounds, tracePrefix = "csv")
+        OwnedUiTraceRule.trace("csv-tap-returned phase=$phase t=${SystemClock.uptimeMillis()}")
     }
     private fun click(label: String) {
         val nodes = await("enabled action $label") { target(it, label) != null }
@@ -68,12 +73,45 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
     }
     private fun delimiterState(choice: String) {
         await("delimiter selected=$choice") { nodes ->
-            nodes.any { it.visible && it.description == "选择表格分隔符" } &&
-                withTextNode("分隔符：$choice") { node ->
-                    node.contentDescription?.toString() == "选择表格分隔符" &&
-                        AccessibilityNodeInfoCompat.wrap(node).stateDescription?.toString() == "当前选择：$choice"
-                }
+            val owner = target(nodes, "选择表格分隔符")
+            owner != null && nodes.any { it.visible && it.text == "分隔符：$choice" && owner.bounds.contains(it.bounds) } &&
+                actionState("选择表格分隔符", owner.bounds) == "当前选择：$choice"
         }
+    }
+
+    /** Compose exports the speaking description/label separately from its clickable state owner. */
+    private fun actionState(description: String, expectedBounds: Rect): String? {
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: return null
+        val packageName = instrumentation.targetContext.packageName
+        val windowId = root.windowId
+        fun visit(node: AccessibilityNodeInfo): String? {
+            try {
+                if (!node.refresh() || node.packageName?.toString() != packageName || node.windowId != windowId) return null
+                if (node.isVisibleToUser && node.contentDescription?.toString() == description) {
+                    @Suppress("DEPRECATION")
+                    var owner: AccessibilityNodeInfo? = AccessibilityNodeInfo.obtain(node)
+                    var depth = 0
+                    try {
+                        while (owner != null && depth++ < 32) {
+                            val current = owner
+                            if (!current.refresh() || current.windowId != windowId || current.packageName?.toString() != packageName) return null
+                            val bounds = Rect().also(current::getBoundsInScreen)
+                            if (!bounds.intersect(screen)) bounds.setEmpty()
+                            if (current.isVisibleToUser && current.isEnabled && current.isClickable && bounds == expectedBounds)
+                                return AccessibilityNodeInfoCompat.wrap(current).stateDescription?.toString()
+                            owner = current.parent
+                            current.recycle()
+                        }
+                    } finally { owner?.recycle() }
+                }
+                for (index in 0 until node.childCount) {
+                    val child = node.getChild(index) ?: return null
+                    visit(child)?.let { return it }
+                }
+                return null
+            } finally { node.recycle() }
+        }
+        return visit(root)
     }
     private fun chooseDelimiter(choice: String) {
         click("选择表格分隔符")
@@ -142,12 +180,53 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
         }
         return value
     }
-    private fun captureOwned(stage: String) {
-        if (InstrumentationRegistry.getArguments().getString("nfbTraceUi") != "true") return
+    private fun enableOwnedTrace() {
+        activity.scenario.onActivity { host ->
+            traceFlagBefore = host.intent.hasExtra("nfbOwnedCsvTrace") to host.intent.getBooleanExtra("nfbOwnedCsvTrace", false)
+            host.intent.putExtra("nfbOwnedCsvTrace", true)
+        }
+    }
+    private fun restoreOwnedTrace() {
+        val previous = traceFlagBefore ?: return
+        activity.scenario.onActivity { host ->
+            if (previous.first) host.intent.putExtra("nfbOwnedCsvTrace", previous.second) else host.intent.removeExtra("nfbOwnedCsvTrace")
+        }
+        traceFlagBefore = null
+    }
+    private fun diagnoseFailure() {
+        runCatching {
+            val nodes = snapshot()
+            OwnedUiTraceRule.trace("csv-failure phase=$phase t=${SystemClock.uptimeMillis()} complete=${nodes != null} nodes=${nodes?.filter {
+                it.description == "选择表格分隔符" || it.description == "首行作为表头" ||
+                    it.description?.startsWith("分隔符：") == true || it.text?.startsWith("分隔符：") == true ||
+                    it.text in listOf("自动", "逗号", "分号", "Tab", "表格", "源码")
+            }}")
+            for (window in instrumentation.uiAutomation.windows) try {
+                val bounds = Rect().also(window::getBoundsInScreen)
+                OwnedUiTraceRule.trace("csv-window id=${window.id} type=${window.type} layer=${window.layer} active=${window.isActive} focused=${window.isFocused} bounds=$bounds")
+            } finally { window.recycle() }
+            val owner = nodes?.let { target(it, "选择表格分隔符") }
+            OwnedUiTraceRule.trace("csv-owner-state bounds=${owner?.bounds} state=${owner?.let { actionState("选择表格分隔符", it.bounds) }}")
+        }.onFailure { android.util.Log.w("FilewayCsvUi", "Owned CSV failure diagnostics unavailable; original failure retained", it) }
+        runCatching { captureOwned("failure", force = true) }
+            .onFailure { android.util.Log.w("FilewayCsvUi", "Owned CSV failure screenshot unavailable; original failure retained", it) }
+        runCatching { OwnedUiTraceRule.trace("csv-native-probes=${device.executeShellCommand("logcat -d -s FilewayCsvUi:I *:S")}") }
+            .onFailure { android.util.Log.w("FilewayCsvUi", "Owned CSV native probes unavailable; original failure retained", it) }
+    }
+    private fun captureOwned(stage: String, force: Boolean = false) {
+        if (!force && InstrumentationRegistry.getArguments().getString("nfbTraceUi") != "true") return
+        val packageName = instrumentation.targetContext.packageName
+        check(device.currentPackageName == packageName)
+        val root = instrumentation.uiAutomation.rootInActiveWindow ?: error("Owned CSV active window unavailable")
+        try { check(root.packageName?.toString() == packageName) } finally { root.recycle() }
+        activity.scenario.onActivity { host ->
+            check(!host.isDestroyed && host.window.decorView.isAttachedToWindow && host.window.decorView.isShown)
+        }
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot()) { "Missing CSV success screenshot" }
         try {
             val file = File(instrumentation.targetContext.cacheDir, "csv-owned-$stage-${SystemClock.uptimeMillis()}.png")
             file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+            android.util.Log.i("FilewayCsvUi", "owned-screenshot phase=$phase path=${file.absolutePath}")
             OwnedUiTraceRule.trace("csv-owned-screenshot=${file.absolutePath}")
         } finally { bitmap.recycle() }
     }
@@ -169,13 +248,14 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
         val preview = DocumentPreviewController(instrumentation.targetContext, scope, { it === owner }, reader = fixture.reader)
         val editor = DocumentEditController(instrumentation.targetContext, scope, { it === owner }, reader = fixture.reader)
         var downloads = 0
-        activity.scenario.onActivity { host -> host.setContent { ClientTheme(darkTheme = false) { LibraryTheme {
-            val editing by editor.state.collectAsStateWithLifecycle()
-            if (editing.file != null) DocumentEditorScreen(editor, {})
-            else DocumentPreviewScreen(preview, {}, { assertEquals(fixture.sourceWire, it.wirePath); downloads++ }, true,
-                onEdit = { file, text -> editor.open(file, text, owner.api.id) })
-        } } } }
+        enableOwnedTrace()
         try {
+            activity.scenario.onActivity { host -> host.setContent { ClientTheme(darkTheme = false) { LibraryTheme {
+                val editing by editor.state.collectAsStateWithLifecycle()
+                if (editing.file != null) DocumentEditorScreen(editor, {})
+                else DocumentPreviewScreen(preview, {}, { assertEquals(fixture.sourceWire, it.wirePath); downloads++ }, true,
+                    onEdit = { file, text -> editor.open(file, text, owner.api.id) })
+            } } } }
             main { preview.bind(owner); editor.bind(owner); preview.open(fixture.file, owner.api.id) }
             val opened = withTimeout(5000) { preview.state.first { !it.loading && it.text != null } }
             visibleText("CSV列01"); captureOwned("initial")
@@ -221,7 +301,11 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
             assertEquals("true", endpoint.getQueryParameter("conditional"))
             assertEquals(original.size.toString(), endpoint.getQueryParameter("expectedSize"))
             assertArrayEquals(bom + edited.toByteArray(), fixture.files.getValue(fixture.sourceWire))
-        } finally { withContext(NonCancellable) { main { preview.close(); editor.close(discard = true) }; scope.cancel() } }
+        } catch (failure: Throwable) { diagnoseFailure(); throw failure }
+        finally { withContext(NonCancellable) {
+            try { main { preview.close(); editor.close(discard = true) } }
+            finally { scope.cancel(); restoreOwnedTrace() }
+        } }
     }
 
     @Test fun ambiguousDelimiterHeaderAndSourceRecoveryDoNotEnableReadonlyWritesOrDownloads(): Unit = runBlocking {
@@ -231,16 +315,17 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
         val owner = fixture.session("csv-readonly")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         val preview = DocumentPreviewController(instrumentation.targetContext, scope, { it === owner }, reader = fixture.reader)
-        activity.scenario.onActivity { host -> host.setContent { ClientTheme(darkTheme = false) { LibraryTheme {
-            DocumentPreviewScreen(preview, {}, { error("Readonly download must remain disabled") }, canDownload = false)
-        } } } }
-        fun permissions() {
-            await("readonly controls") { nodes ->
-                nodes.none { it.visible && it.description == "编辑文本" } &&
-                    nodes.any { it.visible && it.description == "下载文档" && !it.enabled }
-            }
-        }
+        enableOwnedTrace()
         try {
+            activity.scenario.onActivity { host -> host.setContent { ClientTheme(darkTheme = false) { LibraryTheme {
+                DocumentPreviewScreen(preview, {}, { error("Readonly download must remain disabled") }, canDownload = false)
+            } } } }
+            fun permissions() {
+                await("readonly controls") { nodes ->
+                    nodes.none { it.visible && it.description == "编辑文本" } &&
+                        nodes.any { it.visible && it.description == "下载文档" && !it.enabled }
+                }
+            }
             main { preview.bind(owner); preview.open(fixture.file, owner.api.id) }
             withTimeout(5000) { preview.state.first { !it.loading && it.text != null } }
             visibleText("查看完整源码"); permissions()
@@ -262,6 +347,10 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
             delimiterState("分号"); checked("首行作为表头", false); visibleText("列 1"); permissions()
             assertEquals(source, preview.state.value.text!!.text)
             assertArrayEquals(original, fixture.files.getValue(fixture.sourceWire)); assertTrue(fixture.writes.isEmpty())
-        } finally { withContext(NonCancellable) { main { preview.close() }; scope.cancel() } }
+        } catch (failure: Throwable) { diagnoseFailure(); throw failure }
+        finally { withContext(NonCancellable) {
+            try { main { preview.close() } }
+            finally { scope.cancel(); restoreOwnedTrace() }
+        } }
     }
 }
