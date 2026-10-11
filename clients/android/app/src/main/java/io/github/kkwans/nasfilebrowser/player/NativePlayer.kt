@@ -30,7 +30,9 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class NativeTrack(val id: Int, val title: String, val codec: String = "", val language: String = "")
 data class PlayerState(
@@ -73,6 +75,7 @@ class NativePlayer(context: Context) {
     private var temporaryRate: Float? = null
     private var seekTarget: Long? = null
     private var externalJob: Job? = null
+    private var externalSupCancellation: AtomicBoolean? = null
     private var externalRequest = 0L
     private var selectedExternal: Int? = null
     private var subtitleDisabled = false
@@ -401,7 +404,7 @@ class NativePlayer(context: Context) {
         // A later explicit selection supersedes any still-loading external file.
         // Invalidate queued native parse callbacks as well as the coroutine read.
         externalRequest++
-        externalJob?.cancel(); externalJob = null
+        cancelExternalImport()
         mutable.value = mutable.value.copy(subtitleLoading = false, operationError = null)
         // Track notifications and cue callbacks can trail the user's command.
         // An explicit off request wins immediately, even before renderer teardown.
@@ -468,30 +471,77 @@ class NativePlayer(context: Context) {
         val epoch = session.generation; val request = ++externalRequest; val id = nextId++
         fun externalFailure() {
             if (!session.accepts(epoch) || externalRequest != request) return
+            externalSupCancellation?.set(true); externalSupCancellation = null
             externalJob = null
             mutable.value = mutable.value.copy(subtitleLoading = false, operationError = "字幕渲染失败，请重试或选择其他字幕")
         }
-        externalJob?.cancel()
+        cancelExternalImport()
+        val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
+        val supCancellation = if (extension == "sup") AtomicBoolean(false) else null
+        externalSupCancellation = supCancellation
         mutable.value = mutable.value.copy(subtitleLoading = true, operationError = null)
         externalJob = scope.launch {
             try {
+                if (supCancellation != null) {
+                    var ownedFile: File? = null
+                    var ownedTimeline: ExternalPgs.Timeline? = null
+                    try {
+                        withContext(Dispatchers.IO) {
+                            val ioContext = currentCoroutineContext()
+                            val source = DefaultDataSource.Factory(context).createDataSource()
+                            try {
+                                val size = source.open(DataSpec(Uri.parse(url)))
+                                if (size > EXTERNAL_SUP_BYTES_LIMIT) throw ExternalSubtitleLimitException(EXTERNAL_SUP_BYTES_LIMIT)
+                                val reserve = 16L * 1024 * 1024
+                                if (size >= 0 && context.cacheDir.usableSpace < size + reserve)
+                                    throw ExternalSubtitleStorageException()
+                                val file = File.createTempFile("external-sup-", ".sup", context.cacheDir)
+                                ownedFile = file
+                                file.outputStream().use { output ->
+                                    copyExternalSubtitle(source::read, output, EXTERNAL_SUP_BYTES_LIMIT) { ioContext.ensureActive() }
+                                }
+                                ioContext.ensureActive()
+                                // Assign inside IO before the cancellable dispatcher
+                                // handoff, so a late result still has a cleanup owner.
+                                ownedTimeline = ExternalPgs.index(file, deleteOnClose = true)
+                            } finally { source.close() }
+                        }
+                        ensureActive()
+                        if (!session.accepts(epoch) || externalRequest != request || supCancellation.get()) return@launch
+                        currentLayer.externalPgsTimeline("external:$id", checkNotNull(ownedTimeline), supCancellation::get,
+                            ::externalFailure) {
+                            if (!session.accepts(epoch) || externalRequest != request || supCancellation.get())
+                                return@externalPgsTimeline
+                            // This accepted track owns its file until media close.
+                            // Off can hide/reselect it without another network read.
+                            externalSupCancellation = null
+                            externalJob = null
+                            external[id] = NativeTrack(id, name, MimeTypes.APPLICATION_PGS)
+                            mutable.value = mutable.value.copy(subtitleLoading = false)
+                            subtitle(id)
+                        }
+                        // The layer consumes ownership even when already closed.
+                        ownedTimeline = null; ownedFile = null
+                    } finally {
+                        withContext(NonCancellable + Dispatchers.IO) {
+                            try { ownedTimeline?.close() } finally { ownedFile?.delete() }
+                        }
+                    }
+                    return@launch
+                }
                 val bytes = withContext(Dispatchers.IO) {
                     val source = DefaultDataSource.Factory(context).createDataSource()
                     try {
-                        source.open(DataSpec(Uri.parse(url)))
-                        val output = ByteArrayOutputStream(); val buffer = ByteArray(16 * 1024)
-                        while (true) {
-                            ensureActive(); val count = source.read(buffer, 0, buffer.size)
-                            if (count == C.RESULT_END_OF_INPUT) break
-                            check(output.size() + count <= 16 * 1024 * 1024) { "Subtitle too large" }
-                            output.write(buffer, 0, count)
-                        }
+                        val size = source.open(DataSpec(Uri.parse(url)))
+                        if (size > EXTERNAL_TEXT_BYTES_LIMIT) throw ExternalSubtitleLimitException(EXTERNAL_TEXT_BYTES_LIMIT)
+                        val output = ByteArrayOutputStream()
+                        val ioContext = currentCoroutineContext()
+                        copyExternalSubtitle(source::read, output, EXTERNAL_TEXT_BYTES_LIMIT) { ioContext.ensureActive() }
                         output.toByteArray()
                     } finally { source.close() }
                 }
                 ensureActive()
                 if (!session.accepts(epoch) || externalRequest != request) return@launch
-                val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
                 if (extension in setOf("smi", "sami")) {
                     val tracks = withContext(Dispatchers.IO) { SamiSubtitles.parse(bytes).map { track ->
                         track to track.captions.map { caption ->
@@ -520,7 +570,6 @@ class NativePlayer(context: Context) {
                     "srt" -> MimeTypes.APPLICATION_SUBRIP
                     "vtt" -> MimeTypes.TEXT_VTT
                     "ttml", "dfxp" -> MimeTypes.APPLICATION_TTML
-                    "sup" -> MimeTypes.APPLICATION_PGS
                     else -> error("Unsupported external subtitle")
                 }
                 fun ready() {
@@ -531,11 +580,6 @@ class NativePlayer(context: Context) {
                     subtitle(id)
                 }
                 if (mime == MimeTypes.TEXT_SSA) currentLayer.externalAss("external:$id", bytes, ::externalFailure, ::ready)
-                else if (mime == MimeTypes.APPLICATION_PGS) {
-                    val values = withContext(Dispatchers.IO) { ExternalPgs.parse(bytes) }
-                    ensureActive()
-                    if (session.accepts(epoch) && externalRequest == request) currentLayer.externalPgs("external:$id", values, ::externalFailure, ::ready)
-                }
                 else {
                     val values = withContext(Dispatchers.IO) {
                         buildList {
@@ -547,17 +591,28 @@ class NativePlayer(context: Context) {
                     if (session.accepts(epoch) && externalRequest == request) currentLayer.externalText("external:$id", values, ::externalFailure, ::ready)
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) {
-                if (session.accepts(epoch) && externalRequest == request) mutable.value = mutable.value.copy(subtitleLoading = false, operationError = "字幕读取失败或格式暂不支持，请重试或选择其他字幕")
+            catch (error: Exception) {
+                if (session.accepts(epoch) && externalRequest == request) {
+                    externalSupCancellation?.set(true); externalSupCancellation = null
+                    val message = when (error) {
+                        is ExternalSubtitleLimitException, is ExternalSubtitleStorageException -> error.message
+                        else -> "字幕读取失败或格式暂不支持，请重试或选择其他字幕"
+                    }
+                    mutable.value = mutable.value.copy(subtitleLoading = false, operationError = message)
+                }
             }
         }
         return true
     }
     fun clearOperationError(expected: String) { if (mutable.value.operationError == expected) mutable.value = mutable.value.copy(operationError = null) }
+    private fun cancelExternalImport() {
+        externalSupCancellation?.set(true); externalSupCancellation = null
+        externalJob?.cancel(); externalJob = null
+    }
     private fun disposeMedia() {
         cancelTrackRequest(C.TRACK_TYPE_AUDIO); cancelTrackRequest(C.TRACK_TYPE_TEXT)
         handler.removeCallbacks(ticker)
-        externalRequest++; externalJob?.cancel(); externalJob = null
+        externalRequest++; cancelExternalImport()
         val previous = engine; engine = null
         previous?.release()
         loadControl = null

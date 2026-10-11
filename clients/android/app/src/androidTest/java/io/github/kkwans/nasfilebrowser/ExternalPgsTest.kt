@@ -4,9 +4,13 @@ import android.view.ViewGroup
 import androidx.media3.common.C
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import io.github.kkwans.nasfilebrowser.player.ExternalPgs
 import io.github.kkwans.nasfilebrowser.player.MediaSubtitleLayer
 import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
+import java.io.File
+import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.*
@@ -129,7 +133,170 @@ class ExternalPgsTest {
         job.join()
         assertTrue(canceled)
     }
+    @Test fun fileIndexSeeksBeyondOldSizeAndEventLimitsPreservingCropClearAndEarlierObjects(): Unit = runBlocking {
+        val file = File.createTempFile("owned-large-sup-", ".sup", InstrumentationRegistry.getInstrumentation().targetContext.cacheDir)
+        try {
+            withContext(Dispatchers.IO) { writeLargeSup(file) }
+            assertTrue("Actual valid SUP must exceed the old whole-track budget", file.length() > 32L * 1024 * 1024)
+            val timeline = withContext(Dispatchers.IO) { ExternalPgs.index(file) }
+            try {
+                assertEquals(20_606, timeline.eventCount)
+                assertTrue("Metadata must not retain the compressed movie-sized source", timeline.retainedBytes < file.length() / 2)
+                assertTrue(timeline.retainedBytes <= 32L * 1024 * 1024)
+                assertEquals(-1, timeline.floorIndex(1_999_999))
+                fun image(atUs: Long, width: Int, height: Int) {
+                    val index = timeline.floorIndex(atUs)
+                    assertEquals(index, timeline.floorIndex(atUs))
+                    val frame = timeline.decode(index)
+                    assertEquals(C.TIME_UNSET, frame.durationUs)
+                    val cue = frame.cues.single(); val bitmap = cue.bitmap!!
+                    try {
+                        assertEquals(width, bitmap.width); assertEquals(height, bitmap.height)
+                        assertTrue(android.graphics.Color.red(bitmap.getPixel(0, 0)) > 180)
+                        assertTrue(android.graphics.Color.green(bitmap.getPixel(0, 0)) > 180)
+                    } finally { bitmap.recycle() }
+                }
+                image(2_500_000, 64, 12)
+                image(3_500_000, 32, 6)
+                assertTrue(timeline.decode(timeline.floorIndex(4_000_000)).cues.isEmpty())
+                assertTrue("The far live event must follow over 20k clear events", timeline.floorIndex(10_500_000) > 20_000)
+                image(10_500_000, 512, 128)
+                assertTrue(timeline.decode(timeline.floorIndex(11_500_000)).cues.isEmpty())
+                image(2_500_000, 64, 12)
+                var checkpoints = 0
+                try {
+                    timeline.decode(timeline.floorIndex(4_000_012)) { ++checkpoints >= 5 }
+                    fail("Cancellation between the two real ODS fragments was ignored")
+                } catch (_: CancellationException) { assertEquals(5, checkpoints) }
+                image(2_500_000, 64, 12)
+            } finally { withContext(Dispatchers.IO) { timeline.close(); timeline.close() } }
+            assertTrue("Default close must preserve the caller's file", file.isFile)
+            try { timeline.floorIndex(2_500_000); fail("Closed reader remained usable") }
+            catch (_: CancellationException) { }
+        } finally { file.delete() }
+    }
+
+    @Test fun fileIndexPreservesWrappedPtsAndCachedCropAfterRandomSeek(): Unit = runBlocking {
+        val bytes = ownedSup()
+        var offset = 0
+        while (offset < bytes.size) {
+            val seconds = (2..5).first { second ->
+                val pts = (0..3).fold(0L) { n, i -> (n shl 8) or (bytes[offset + 2 + i].toLong() and 255) }
+                pts == second * 90_000L
+            }
+            val pts = (0xffff0000L + (seconds - 2) * 90_000L) and 0xffffffffL
+            for (i in 0..3) bytes[offset + 2 + i] = (pts ushr (24 - i * 8)).toByte()
+            offset += 13 + ((bytes[offset + 11].toInt() and 255) shl 8) + (bytes[offset + 12].toInt() and 255)
+        }
+        val file = File.createTempFile("owned-wrap-sup-", ".sup", InstrumentationRegistry.getInstrumentation().targetContext.cacheDir)
+        try {
+            file.writeBytes(bytes)
+            val timeline = ExternalPgs.index(file)
+            try {
+                val firstUs = 0xffff0000L * 1_000_000 / 90_000
+                val cropUs = (0xffff0000L + 90_000) * 1_000_000 / 90_000
+                val clearUs = (0xffff0000L + 180_000) * 1_000_000 / 90_000
+                assertEquals(-1, timeline.floorIndex(firstUs - 1))
+                for ((at, width) in listOf(cropUs to 32, firstUs to 64)) {
+                    val frame = timeline.decode(timeline.floorIndex(at))
+                    assertEquals(at, frame.startTimeUs)
+                    val bitmap = frame.cues.single().bitmap!!
+                    try { assertEquals(width, bitmap.width) } finally { bitmap.recycle() }
+                }
+                assertTrue(timeline.decode(timeline.floorIndex(clearUs)).cues.isEmpty())
+            } finally { timeline.close() }
+        } finally { file.delete() }
+    }
+
+    @Test fun malformedFileIndexNeverTakesOwnershipAndChangedSourceFailsAtDecode(): Unit = runBlocking {
+        val file = File.createTempFile("owned-invalid-sup-", ".sup", InstrumentationRegistry.getInstrumentation().targetContext.cacheDir)
+        try {
+            for (bytes in listOf(ownedSup().dropLast(1).toByteArray(), byteArrayOf(80, 71))) {
+                file.writeBytes(bytes)
+                try { ExternalPgs.index(file, deleteOnClose = true); fail("Malformed SUP index accepted") }
+                catch (_: IllegalArgumentException) { }
+                assertTrue("Index failure must leave cleanup to its caller", file.isFile)
+            }
+            val reset = ownedSup()
+            var at = 0; var compositions = 0
+            while (at < reset.size) {
+                if (reset[at + 10].toInt() and 255 == 0x16 && ++compositions == 2) reset[at + 13 + 7] = 0x80.toByte()
+                at += 13 + ((reset[at + 11].toInt() and 255) shl 8) + (reset[at + 12].toInt() and 255)
+            }
+            file.writeBytes(reset)
+            try { ExternalPgs.index(file); fail("An epoch reset reused an object from the prior epoch") }
+            catch (_: IllegalArgumentException) { }
+            file.writeBytes(ownedSup())
+            val timeline = ExternalPgs.index(file)
+            try {
+                RandomAccessFile(file, "rw").use { it.setLength(it.length() - 1) }
+                try { timeline.decode(0); fail("Changed indexed source accepted") }
+                catch (_: IllegalArgumentException) { }
+            } finally { timeline.close() }
+        } finally { file.delete() }
+    }
+
+    @Test fun cancelledIndexLeavesCallerFileAndOwnedCloseDeletesOnlyItsSpool(): Unit = runBlocking {
+        val file = File.createTempFile("owned-cancel-sup-", ".sup", InstrumentationRegistry.getInstrumentation().targetContext.cacheDir)
+        try {
+            file.writeBytes(ownedSup())
+            var canceled = false
+            val job = launch {
+                currentCoroutineContext().cancel()
+                try { ExternalPgs.index(file, deleteOnClose = true); fail("Canceled SUP indexing completed") }
+                catch (_: CancellationException) { canceled = true }
+            }
+            job.join(); assertTrue(canceled); assertTrue(file.isFile)
+            val timeline = ExternalPgs.index(file, deleteOnClose = true)
+            timeline.close(); timeline.close()
+            assertFalse("Owned close must release its exact spool", file.exists())
+        } finally { file.delete() }
+    }
+
     companion object {
+        /** Stream a real ~39MiB SUP, not a giant APK asset/ByteArray. The 12s movie can
+         * seek 2.5s=64x12, 3.5s=crop32x6, 10.5s=512x128, 11.5s=clear, then back.
+         * Extra clear events expose the old 20k registration limit independently of size.
+         */
+        fun writeLargeSup(file: File, fillerCaptions: Int = 600, trailingClears: Int = 20_001) {
+            require(fillerCaptions in 1..600 && trailingClears in 0..20_001)
+            DataOutputStream(file.outputStream().buffered()).use { out ->
+                out.write(ownedSup())
+                fun segment(pts: Long, type: Int, payload: ByteArray) {
+                    require(payload.size <= 65535)
+                    out.writeByte(80); out.writeByte(71); out.writeInt(pts.toInt()); out.writeInt(0)
+                    out.writeByte(type); out.writeShort(payload.size); out.write(payload)
+                }
+                fun pcs(count: Int, composition: Int): ByteArray = ByteArrayOutputStream().also { bytes ->
+                    DataOutputStream(bytes).use { data ->
+                        data.writeShort(1920); data.writeShort(1080); data.writeByte(0x10); data.writeShort(composition)
+                        data.writeByte(0); data.writeByte(0); data.writeByte(0); data.writeByte(count)
+                        if (count != 0) {
+                            data.writeShort(1); data.writeByte(0); data.writeByte(0); data.writeShort(64); data.writeShort(900)
+                        }
+                    }
+                }.toByteArray()
+                val pixels = ByteArray((512 + 2) * 128)
+                repeat(128) { row -> pixels.fill(1, row * 514, row * 514 + 512) }
+                val length = pixels.size + 4
+                val firstSize = 60000
+                repeat(fillerCaptions) { index ->
+                    val pts = 360001L + index * 300L
+                    val version = ((index + 1) and 255).toByte()
+                    segment(pts, 0x16, pcs(1, index + 4))
+                    segment(pts, 0x15, byteArrayOf(0, 1, version, 0x80.toByte(),
+                        (length ushr 16).toByte(), (length ushr 8).toByte(), length.toByte(), 2, 0, 0, 0x80.toByte()) + pixels.copyOfRange(0, firstSize))
+                    segment(pts, 0x15, byteArrayOf(0, 1, version, 0x40) + pixels.copyOfRange(firstSize, pixels.size))
+                    segment(pts, 0x80, byteArrayOf())
+                }
+                repeat(trailingClears) { index ->
+                    val pts = 630000L + index * 8L
+                    segment(pts, 0x16, pcs(0, index)); segment(pts, 0x80, byteArrayOf())
+                }
+                segment(900000, 0x16, pcs(1, 1)); segment(900000, 0x80, byteArrayOf())
+                segment(990000, 0x16, pcs(0, 2)); segment(990000, 0x80, byteArrayOf())
+            }
+        }
         fun longSup(): ByteArray {
             val output = ByteArrayOutputStream()
             fun segment(at: Int, type: Int, payload: ByteArray) {

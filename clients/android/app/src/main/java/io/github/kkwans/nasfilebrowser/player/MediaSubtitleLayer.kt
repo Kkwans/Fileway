@@ -16,6 +16,8 @@ import io.github.peerless2012.ass.AssFrame
 import io.github.peerless2012.ass.AssTexType
 import io.github.peerless2012.ass.AssTrack
 import java.util.concurrent.Executors
+import java.util.concurrent.CancellationException
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
@@ -36,8 +38,22 @@ internal class MediaSubtitleLayer(context: Context) : View(context), MediaSubtit
     private val cues = mutableMapOf<String, MutableList<CuesWithTiming>>()
     private class PgsPacket(val timeUs: Long, val bytes: ByteArray = byteArrayOf(), val external: ExternalPgs.DisplaySet? = null)
     private val pgs = mutableMapOf<String, java.util.TreeMap<Long, PgsPacket>>()
+    private class IndexedPgs(val timeline: ExternalPgs.Timeline, val isCancelled: () -> Boolean) {
+        private val disposed = AtomicBoolean()
+        @Volatile var active = false
+        @Volatile var accepted = false
+        fun cancelledBeforeReady() = !accepted && isCancelled()
+        fun close() {
+            active = false
+            if (disposed.compareAndSet(false, true)) runCatching { timeline.close() }
+        }
+    }
+    private val indexedPgs = mutableMapOf<String, IndexedPgs>()
+    private var indexedBytes = 0L
     private val cueDecoder = CueDecoder()
     private var lastPgsPacket: PgsPacket? = null
+    private var lastIndexedPgs: IndexedPgs? = null
+    private var lastIndexedEvent = -1
     private var decodedPgs: CuesWithTiming? = null
     private var eventBytes = 0L
     private var cueBytes = 0L
@@ -107,7 +123,7 @@ internal class MediaSubtitleLayer(context: Context) : View(context), MediaSubtit
     private class Eviction(val id: String, val timeUs: Long, val current: Boolean, val text: CuesWithTiming? = null)
     private fun trimCues() {
         val atUs = (timeMs.get() - delayMs) * 1000
-        while (cueBytes > 32L * 1024 * 1024 || cueCount() > 20_000) {
+        while (cueBytes + indexedBytes > 32L * 1024 * 1024 || cueCount() > 20_000) {
             val candidates = sequence {
                 for ((id, values) in cues) {
                     if (id.startsWith("external:")) continue
@@ -142,18 +158,84 @@ internal class MediaSubtitleLayer(context: Context) : View(context), MediaSubtit
     fun externalPgs(id: String, values: List<ExternalPgs.DisplaySet>, onFailure: (() -> Unit)? = null, ready: () -> Unit) = submit(onFailure) {
         val size = ExternalPgs.encodedBytes(values)
         check(size <= 32L * 1024 * 1024 && values.size <= 20_000)
-        check(cueBytes + size <= 32L * 1024 * 1024 && cueCount() + values.size <= 20_000)
+        check(cueBytes + indexedBytes + size <= 32L * 1024 * 1024 && cueCount() + values.size <= 20_000)
         pgs[id] = java.util.TreeMap<Long, PgsPacket>().apply {
             values.forEach { put(it.startTimeUs, PgsPacket(it.startTimeUs, external = it)) }
         }
         cueBytes += size
         post { if (!closed.get()) ready() }
     }
+    /** Ownership transfers at entry, including a closed layer or a rejected
+     * submission. Only the immutable index is retained, never the whole SUP. */
+    fun externalPgsTimeline(id: String, timeline: ExternalPgs.Timeline, isCancelled: () -> Boolean,
+        onFailure: (() -> Unit)? = null, ready: () -> Unit) {
+        val entry = IndexedPgs(timeline, isCancelled)
+        synchronized(submissions) {
+            if (closed.get()) { entry.close(); return }
+            try {
+                worker.execute {
+                    try {
+                        if (closed.get() || entry.cancelledBeforeReady()) { entry.close(); return@execute }
+                        val size = timeline.retainedBytes
+                        val old = indexedPgs[id]
+                        check(size in 0..32L * 1024 * 1024 &&
+                            cueBytes + indexedBytes - (old?.timeline?.retainedBytes ?: 0) + size <= 32L * 1024 * 1024)
+                        old?.let { removeIndexed(id, it) }
+                        indexedPgs[id] = entry; indexedBytes += size; entry.active = true
+                        if (closed.get() || entry.cancelledBeforeReady()) { removeIndexed(id, entry); return@execute }
+                        val posted = post {
+                            if (closed.get() || entry.cancelledBeforeReady()) discardIndexed(id, entry)
+                            else try {
+                                ready()
+                                if (closed.get() || entry.cancelledBeforeReady()) discardIndexed(id, entry)
+                                else entry.accepted = true
+                            } catch (_: CancellationException) { discardIndexed(id, entry) }
+                            catch (_: Exception) {
+                                discardIndexed(id, entry)
+                                if (!closed.get() && !entry.cancelledBeforeReady()) (onFailure ?: failed)()
+                            }
+                        }
+                        if (!posted) removeIndexed(id, entry)
+                    } catch (_: CancellationException) { removeIndexed(id, entry) }
+                    catch (_: Exception) {
+                        removeIndexed(id, entry)
+                        post { if (!closed.get() && !entry.cancelledBeforeReady()) (onFailure ?: failed)() }
+                    }
+                }
+            } catch (_: RejectedExecutionException) {
+                entry.close()
+                post { if (!closed.get() && !entry.cancelledBeforeReady()) (onFailure ?: failed)() }
+            }
+        }
+    }
+    /** UI ready/cancel callbacks enqueue cleanup on the same worker as decode.
+     * Once closed, the already queued media-close task owns every attached entry. */
+    private fun discardIndexed(id: String, entry: IndexedPgs) = synchronized(submissions) {
+        if (!closed.get()) try { worker.execute { removeIndexed(id, entry) } }
+        catch (_: RejectedExecutionException) { entry.close() }
+    }
+    private fun removeIndexed(id: String, entry: IndexedPgs) {
+        if (indexedPgs[id] === entry) {
+            indexedPgs.remove(id); indexedBytes -= entry.timeline.retainedBytes
+        }
+        if (lastIndexedPgs === entry) {
+            lastIndexedPgs = null; lastIndexedEvent = -1; decodedPgs = null
+        }
+        entry.close()
+    }
+    private fun indexedEvent(entry: IndexedPgs): Int {
+        val at = timeMs.get() - delayMs
+        return if (at < 0) -1 else try { entry.timeline.floorIndex(at * 1000) }
+        catch (_: CancellationException) { Int.MIN_VALUE }
+    }
+    private fun currentIndexedFrame(entry: IndexedPgs, index: Int, selectedText: String?, epoch: Long): Boolean =
+        !closed.get() && selection.get() == epoch && textId == selectedText && entry.active &&
+            !entry.cancelledBeforeReady() && indexedEvent(entry) == index
     fun externalTexts(values: Map<String, List<CuesWithTiming>>, onFailure: (() -> Unit)? = null, ready: () -> Unit) = submit(onFailure) {
         val count = values.values.sumOf { it.size }
         val size = values.values.sumOf { items -> items.sumOf(::bytes) }
         check(count <= 20_000 && size <= 32L * 1024 * 1024)
-        check(cueBytes + size <= 32L * 1024 * 1024 && cueCount() + count <= 20_000)
+        check(cueBytes + indexedBytes + size <= 32L * 1024 * 1024 && cueCount() + count <= 20_000)
         // Attach only a fully parsed file. A partial/failed read never becomes
         // a selected track, and whole-file seek does not silently lose old cues.
         values.forEach { (id, items) -> cues[id] = items.toMutableList() }; cueBytes += size
@@ -180,11 +262,28 @@ internal class MediaSubtitleLayer(context: Context) : View(context), MediaSubtit
                 }.flatMap { it.cues }
                 // PGS replaces the previous display set, including an explicit
                 // empty clear event. Only the selected display set is decoded.
-                val packet = if (at < 0) null else pgs[selectedText]?.floorEntry(at * 1000)?.value
-                if (packet !== lastPgsPacket) {
-                    decodedPgs = packet?.let { value -> value.external?.let(ExternalPgs::decode)
-                        ?: cueDecoder.decode(value.timeUs, value.bytes, 0, value.bytes.size) }
-                    lastPgsPacket = packet
+                val indexed = indexedPgs[selectedText]
+                val index = indexed?.let(::indexedEvent) ?: -1
+                if (indexed != null) {
+                    if (!currentIndexedFrame(indexed, index, selectedText, epoch)) throw CancellationException()
+                    if (indexed !== lastIndexedPgs || index != lastIndexedEvent) {
+                        decodedPgs = if (index < 0) null else try {
+                            indexed.timeline.decode(index) { !currentIndexedFrame(indexed, index, selectedText, epoch) }
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (_: Exception) {
+                            removeIndexed(requireNotNull(selectedText), indexed)
+                            post { if (!closed.get() && selection.get() == epoch && textId == selectedText) failed() }
+                            return@submit
+                        }
+                        lastIndexedPgs = indexed; lastIndexedEvent = index; lastPgsPacket = null
+                    }
+                } else {
+                    val packet = if (at < 0) null else pgs[selectedText]?.floorEntry(at * 1000)?.value
+                    if (lastIndexedPgs != null || packet !== lastPgsPacket) {
+                        decodedPgs = packet?.let { value -> value.external?.let(ExternalPgs::decode)
+                            ?: cueDecoder.decode(value.timeUs, value.bytes, 0, value.bytes.size) }
+                        lastPgsPacket = packet; lastIndexedPgs = null; lastIndexedEvent = -1
+                    }
                 }
                 val text = decodedPgs?.takeIf { it.durationUs == C.TIME_UNSET || at * 1000 < it.endTimeUs }?.cues ?: ordinary
                 val track = tracks[assId]
@@ -198,12 +297,16 @@ internal class MediaSubtitleLayer(context: Context) : View(context), MediaSubtit
                     lastNative
                 }
                 post {
-                    if (!closed.get() && selection.get() == epoch) {
+                    if (!closed.get() && selection.get() == epoch &&
+                        (indexed == null || currentIndexedFrame(indexed, index, selectedText, epoch))) {
                         frame = output
                         if (selectedText != null) showText(text)
                         invalidate()
                     }
                 }
+            } catch (_: CancellationException) {
+                // Seek, delay, selection and media close invalidate an event,
+                // not the subtitle track. The latest request is queued below.
             } finally {
                 queued.set(false)
                 if (!closed.get() && revision.get() != request) requestFrame(timeMs.get())
@@ -221,9 +324,10 @@ internal class MediaSubtitleLayer(context: Context) : View(context), MediaSubtit
         if (!closed.compareAndSet(false, true)) return@synchronized
         selection.incrementAndGet(); frame = null; invalidate()
         worker.execute {
+            indexedPgs.values.forEach { it.close() }; indexedPgs.clear(); indexedBytes = 0
             renderer?.release(); tracks.values.forEach { it.release() }; library?.release()
             tracks.clear(); cues.clear(); pgs.clear(); headers.clear(); lastNative = null
-            lastPgsPacket = null; decodedPgs = null
+            lastPgsPacket = null; lastIndexedPgs = null; lastIndexedEvent = -1; decodedPgs = null
         }
         worker.shutdown()
     }
