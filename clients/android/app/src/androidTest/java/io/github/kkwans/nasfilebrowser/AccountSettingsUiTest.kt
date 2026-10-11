@@ -16,14 +16,33 @@ import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.RuleChain
 import org.junit.runner.RunWith
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class AccountSettingsUiTest {
-    @get:Rule val activity = ActivityScenarioRule(MainActivity::class.java)
+    private val uiTrace = OwnedUiTraceRule()
+    private val activity = ActivityScenarioRule(MainActivity::class.java)
+    @get:Rule val rules: RuleChain = RuleChain.outerRule(uiTrace).around(activity)
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val device = UiDevice.getInstance(instrumentation)
+    private val inputDriver = InstrumentationRegistry.getArguments().getString("nfbInputDriver", "automation")
+    private var openingInputDelivered = false
+    private fun freshNodes() = freshAccessibilityBounds(instrumentation, Rect(0, 0, device.displayWidth, device.displayHeight))
+    private data class EntryCandidates(val titleCount: Int, val containingOwnerCount: Int,
+        val nearestOwnerCount: Int, val owner: FreshAccessibilityNodeBounds?)
+    private fun entryCandidates(nodes: List<FreshAccessibilityNodeBounds>): EntryCandidates {
+        val titles = nodes.filter { it.visible && (it.text == "修改密码" || it.description == "修改密码") }
+        val title = titles.singleOrNull() ?: return EntryCandidates(titles.size, 0, 0, null)
+        // SettingsAction's title belongs to a child Text node. Select its
+        // nearest unique clickable row by containment, without requiring the
+        // row to repeat its children's text or accepting another window's tree.
+        val owners = nodes.filter { it.visible && it.enabled && it.clickable && it.bounds.contains(title.bounds) }
+        val minimumArea = owners.minOfOrNull { it.bounds.width().toLong() * it.bounds.height() }
+        val nearest = owners.filter { it.bounds.width().toLong() * it.bounds.height() == minimumArea }
+        return EntryCandidates(titles.size, owners.size, nearest.size, nearest.singleOrNull())
+    }
     private fun text(label: String): UiObject2 = device.wait(Until.findObject(By.text(label)), 5000) ?: error("Missing account control: $label")
     private fun fieldTarget(label: String): UiObject2 = device.wait(Until.findObject(By.desc(label)), 5000) ?: error("Missing password field: $label")
     private suspend fun enterPassword(label: String, value: String) {
@@ -70,9 +89,12 @@ class AccountSettingsUiTest {
     private fun diagnose(stage: String, controller: AccountSettingsController, writes: Int, capture: Boolean) {
         runCatching {
             val state = controller.state.value
+            val nodes = runCatching { freshNodes() }.getOrNull()
+            val candidates = nodes?.let(::entryCandidates)
+            val imeVisible = runCatching { keyboardVisible() }.getOrNull()
             val output = File(instrumentation.targetContext.cacheDir, "account-settings-ui")
             check(output.isDirectory || output.mkdirs())
-            // Only booleans and a fixed stage name: never password text, lengths,
+            // Only booleans, counts and fixed stage/driver names: never password text, lengths,
             // account snapshots or accessibility hierarchy dumps.
             File(output, "password-stage.txt").writeText(listOf(
                 "stage=$stage", "profileReady=${state.profile != null}", "capabilitiesReady=${state.capabilities != null}",
@@ -82,15 +104,21 @@ class AccountSettingsUiTest {
                 "confirmationMatches=${state.password.confirmation == "owned-new-password"}",
                 "confirmationAgrees=${state.password.replacement == state.password.confirmation}",
                 "saving=${state.saving}", "passwordUnknown=${state.passwordUnknown}", "writeObserved=${writes > 0}",
-                "errorPresent=${state.error != null}", "imeVisible=${keyboardVisible()}",
-                "sheetPresent=${device.hasObject(By.desc("密码修改内容"))}",
-                "confirmPresent=${device.hasObject(By.text("确认修改密码"))}", "reconnectPresent=${device.hasObject(By.text("重新连接核对"))}"
+                "errorPresent=${state.error != null}", "imeVisible=$imeVisible",
+                "openInputDelivered=$openingInputDelivered", "activeRootObserved=${nodes != null}",
+                "inputDriver=$inputDriver", "entryTitleCount=${candidates?.titleCount}",
+                "entryContainingOwnerCount=${candidates?.containingOwnerCount}",
+                "entryNearestOwnerCount=${candidates?.nearestOwnerCount}", "entryOwnerReady=${candidates?.owner != null}",
+                "sheetPresent=${nodes?.any { it.visible && it.description == "密码修改内容" }}",
+                "confirmPresent=${nodes?.any { it.visible && it.text?.contains("确认修改密码") == true }}",
+                "reconnectPresent=${nodes?.any { it.visible && it.text?.contains("重新连接核对") == true }}"
             ).joinToString("\n"))
             if (capture) device.takeScreenshot(File(output, "password-sheet.png"))
         }
     }
 
     @Test fun passwordSheetRetainsUnknownResultAndUsesAccessibleTouchTargets(): Unit = runBlocking {
+        require(inputDriver in setOf("automation", "shell"))
         val authority = AccountSettingsAuthority(); authority.commitThenFail = true
         val context = authority.context("ui")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -115,9 +143,31 @@ class AccountSettingsUiTest {
                 if (device.hasObject(By.text("修改密码"))) return@repeat
                 content.scroll(Direction.DOWN, .7f)
             }
-            text("修改密码").click()
-            sheet()
             val density = instrumentation.targetContext.resources.displayMetrics.density
+            stage = "open-password-target"
+            val openingAction = withTimeout(5000) {
+                var found: FreshAccessibilityNodeBounds? = null
+                while (found == null) {
+                    found = freshNodes()?.let(::entryCandidates)?.owner
+                    if (found == null) delay(25)
+                }
+                checkNotNull(found)
+            }
+            assertTrue("Password entry must have a 48dp target", openingAction.bounds.height() / density >= 48f)
+            stage = "open-password-input"
+            val beforeTouches = uiTrace.deliveredTouches()
+            OwnedUiTraceRule.trace("account-open-password-driver=$inputDriver")
+            if (inputDriver == "shell") {
+                // Explicit driver choice, never a retry/fallback. The same
+                // Activity DOWN/UP and real sheet assertions remain below.
+                device.executeShellCommand("input touchscreen tap ${openingAction.bounds.centerX()} ${openingAction.bounds.centerY()}")
+            } else OwnedTouchInput.tap(instrumentation, openingAction.bounds, tracePrefix = "account-open-password")
+            openingInputDelivered = uiTrace.deliveredTouches() >= beforeTouches + 2
+            assertTrue("Password entry DOWN/UP must reach the owned Activity; ${uiTrace.snapshot()}", openingInputDelivered)
+            stage = "open-password-sheet"
+            withTimeout(5000) {
+                while (freshNodes()?.any { it.visible && it.description == "密码修改内容" } != true) delay(25)
+            }
             listOf("当前密码", "新密码", "确认新密码").forEach { label ->
                 assertTrue("Password target below 48dp: $label", fieldTarget(label).visibleBounds.height() / density >= 48f)
             }
