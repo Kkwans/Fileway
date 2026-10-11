@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+  <title>Fileway Windows optical brand export</title>
+  <!-- Original Android mark/colors; Windows-only scale 1.45 and 24-unit radius. -->
+  <defs><linearGradient id="blue" gradientUnits="userSpaceOnUse" x1="54" y1="18" x2="54" y2="90">
+    <stop stop-color="#1C66FB"/><stop offset="1" stop-color="#56A1F5"/>
+  </linearGradient></defs>
+  <rect width="108" height="108" rx="24" fill="url(#blue)"/>
+  <g transform="translate(54 54) scale(1.45) translate(-54 -54)">
+    <path fill="#D1E5FF" d="M28,60 L54,48 L80,60 L54,72 Z"/>
+    <path fill="#83BAF3" d="M28,60 L54,72 L54,78 L28,66 Z"/>
+    <path fill="#A5CFFF" d="M54,72 L80,60 L80,66 L54,78 Z"/>
+    <path fill="#3784DA" d="M34,63 L37,64.4 L37,67.4 L34,66 Z"/>
+    <path fill="#EAF3FF" d="M28,51 L54,39 L80,51 L54,63 Z"/>
+    <path fill="#BAD7F7" d="M28,51 L54,63 L54,69 L28,57 Z"/>
+    <path fill="#CDE3FC" d="M54,63 L80,51 L80,57 L54,69 Z"/>
+    <path fill="#3784DA" d="M34,54 L37,55.4 L37,58.4 L34,57 Z"/>
+    <path fill="#FFFFFF" d="M28,42 L54,30 L80,42 L54,54 Z"/>
+    <path fill="#E0ECFA" d="M28,42 L54,54 L54,60 L28,48 Z"/>
+    <path fill="#EFF6FF" d="M54,54 L80,42 L80,48 L54,60 Z"/>
+    <path fill="#3784DA" d="M34,45 L37,46.4 L37,49.4 L34,48 Z"/>
+  </g>
+</svg>
