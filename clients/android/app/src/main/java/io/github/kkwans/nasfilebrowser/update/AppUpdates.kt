@@ -33,7 +33,8 @@ internal class UpdatePackages(private val context: Context) {
             ?: error("安装包无法读取，请重新下载")
         check(apk.packageName == current.packageName) { "安装包不属于栖卷，已拒绝安装" }
         check(apk.longVersionCode > current.versionCode) { "安装包版本未高于当前版本，已拒绝降级或重复安装" }
-        check(AppVersion.parse(apk.versionName.orEmpty()) == AppVersion.parse(update.release.version)) { "安装包版本与更新说明不一致，请重新检查更新" }
+        val expectedVersion = UpdatePolicy.releaseVersion(update.release)
+        check(expectedVersion != null && AppVersion.parse(apk.versionName.orEmpty()) == expectedVersion) { "安装包版本与更新说明不一致，请重新检查更新" }
         val certificates = apk.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty()
         check(certificates.isNotEmpty() && current.certificates.isNotEmpty() && certificates == current.certificates) {
             "安装包签名与已安装的栖卷不一致，已拒绝安装"
@@ -63,7 +64,7 @@ internal class UpdateDownloads(private val context: Context) {
     fun enqueue(update: AppUpdate): Long {
         require(UpdatePolicy.trusted(update.asset, update.release.tag)) { "更新下载地址无效，请重新检查更新" }
         return manager.enqueue(DownloadManager.Request(Uri.parse(update.asset.url))
-            .setTitle("栖卷 ${update.release.version}").setDescription("应用更新 · 可返回栖卷查看进度")
+            .setTitle("栖卷 ${update.release.displayVersion}").setDescription("应用更新 · 可返回栖卷查看进度")
             .setMimeType("application/vnd.android.package-archive")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
             .setDestinationUri(Uri.fromFile(file(update))).setAllowedOverMetered(true))

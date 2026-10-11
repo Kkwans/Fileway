@@ -9,6 +9,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import io.github.kkwans.nasfilebrowser.update.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -18,6 +19,13 @@ import java.util.UUID
 @RunWith(AndroidJUnit4::class)
 class AppUpdateTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    private fun ownedUpdate(version: String, revision: Int? = null, preview: Boolean = true, size: Long = 1024): AppUpdate {
+        val suffix = revision?.let { "-r$it" }.orEmpty()
+        val tag = "android-${if (preview) "preview-" else ""}$version$suffix-1234567"
+        val name = "fileway-android-$version${if (preview) "-preview" else ""}$suffix.apk"
+        val asset = UpdateAsset(42, name, "https://github.com/Kkwans/Fileway/releases/download/$tag/$name", size)
+        return AppUpdate(AppRelease(tag, version, "Owned update", preview, listOf(asset), revision), asset)
+    }
     @Test fun publishedMetadataFiltersDraftsNonAndroidAndIncompleteAssetsAndRoundTrips() {
         val json = """[
           {"tag_name":"android-preview-0.7.0-1234567","draft":false,"prerelease":true,"body":"Owned notes","assets":[
@@ -34,28 +42,87 @@ class AppUpdateTest {
         assertThrows(org.json.JSONException::class.java) { parseReleases("not json") }
     }
 
+    @Test fun revisionMetadataRoundTripsTheFullTagWithoutChangingTheCoreVersionField() {
+        val update = ownedUpdate("0.7.5", revision = 2)
+        val saved = update.serialize()
+        val restored = parseReleases("[$saved]").single()
+        assertEquals(update.release, restored)
+        assertEquals("0.7.5", restored.version)
+        assertEquals(2, restored.previewRevision)
+        assertEquals(AppVersion.parse("0.7.5-preview-r2"), UpdatePolicy.releaseVersion(restored))
+        assertEquals(update.asset, UpdatePolicy.compatible(restored, Build.SUPPORTED_ABIS.toList()))
+        assertFalse(JSONObject(saved).has("version"))
+        assertFalse(JSONObject(saved).has("previewRevision"))
+        assertTrue(parseReleases("[${JSONObject(saved).put("prerelease", false)}]").isEmpty())
+        val wrongTag = JSONObject(saved).put("tag_name", "android-preview-0.7.5-1234567")
+        assertNull(UpdatePolicy.compatible(parseReleases("[$wrongTag]").single(), Build.SUPPORTED_ABIS.toList()))
+    }
+
     @Test fun actualSignedPackageRejectsWrongIdentitySignatureVersionAndTruncationBeforeInstaller() {
         val root = File(context.getExternalFilesDir("updates"), "owned-package-${UUID.randomUUID()}"); check(root.mkdirs())
         val file = File(root, "owned.apk")
         try {
             File(context.applicationInfo.sourceDir).copyTo(file)
-            val version = BuildConfig.VERSION_NAME.removeSuffix("-preview"); val tag = "android-preview-$version-1234567"
-            val name = "fileway-android-$version-preview.apk"
-            val asset = UpdateAsset(1, name, "https://github.com/Kkwans/fileway/releases/download/$tag/$name", file.length())
-            val update = AppUpdate(AppRelease(tag, version, "Owned package validation", true, listOf(asset)), asset)
+            val version = checkNotNull(AppVersion.parse(BuildConfig.VERSION_NAME))
+            val update = ownedUpdate(version.coreVersion, revision = version.previewRevision?.takeIf { it > 1 },
+                preview = version.previewRevision != null, size = file.length())
             val packages = UpdatePackages(context); val installed = packages.installed(); val older = installed.copy(versionCode = installed.versionCode - 1)
             packages.verify(file, update, older)
             assertThrows(IllegalStateException::class.java) { packages.verify(file, update) }
             assertThrows(IllegalStateException::class.java) { packages.verify(file, update, older.copy(packageName = "owned.wrong.package")) }
             assertThrows(IllegalStateException::class.java) { packages.verify(file, update, older.copy(certificates = setOf("wrong owned certificate"))) }
             assertThrows(IllegalStateException::class.java) { packages.verify(file, update.copy(release = update.release.copy(version = "99.0.0")), older) }
-            assertThrows(IllegalStateException::class.java) { packages.verify(file, update.copy(asset = asset.copy(size = file.length() - 1)), older) }
+            val differentRevision = ownedUpdate(version.coreVersion, revision = if (version.previewRevision == 2) 3 else 2, size = file.length())
+            val mismatch = assertThrows(IllegalStateException::class.java) { packages.verify(file, differentRevision, older) }
+            assertEquals("安装包版本与更新说明不一致，请重新检查更新", mismatch.message)
+            val differentChannel = ownedUpdate(version.coreVersion, preview = version.previewRevision == null, size = file.length())
+            assertThrows(IllegalStateException::class.java) { packages.verify(file, differentChannel, older) }
+            assertThrows(IllegalStateException::class.java) { packages.verify(file, update.copy(asset = update.asset.copy(size = file.length() - 1)), older) }
             val intent = packages.intent(file)
             assertEquals(Intent.ACTION_VIEW, intent.action); assertEquals("application/vnd.android.package-archive", intent.type)
             assertEquals("content", intent.data!!.scheme); assertEquals("${context.packageName}.updates", intent.data!!.authority)
             assertEquals(Intent.FLAG_GRANT_READ_URI_PERMISSION, intent.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION)
             assertEquals(intent.data, intent.clipData!!.getItemAt(0).uri)
         } finally { file.delete(); root.delete() }
+    }
+
+    /** Restores remembered metadata only; no network request or download is started. */
+    @Test fun oldAndRevisedDownloadsRestoreTheirIdentityAndClearOnlyWhenAlreadyInstalled(): Unit = runBlocking {
+        for (revision in listOf<Int?>(null, 2)) {
+            val name = "owned-revision-restore-${UUID.randomUUID()}"
+            val ownedContext = object : ContextWrapper(context) {
+                override fun getSharedPreferences(ignored: String, mode: Int) = context.getSharedPreferences(name, mode)
+                override fun getExternalFilesDir(type: String?): File? = context.getExternalFilesDir("updates/$name")
+            }
+            val preferences = ownedContext.getSharedPreferences("app-updates", Context.MODE_PRIVATE)
+            val update = ownedUpdate("0.7.5", revision = revision)
+            val sentinel = File(checkNotNull(ownedContext.getExternalFilesDir("updates")), "preserve.txt").apply { writeText("preserve") }
+            val scopes = mutableListOf<CoroutineScope>()
+            try {
+                assertTrue(preferences.edit().putString("release", update.serialize()).putLong("downloadId", -1).commit())
+                val firstScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { scopes += it }
+                val first = AppUpdates(ownedContext, firstScope, installedVersion = "0.7.4-preview")
+                val restored = withTimeout(10_000) { first.state.first { !it.busy } }
+                assertEquals(UpdatePhase.FAILED, restored.phase)
+                assertEquals(update.release, restored.update?.release)
+                assertEquals(update.asset, restored.update?.asset)
+                assertEquals(update.release, parseReleases("[${preferences.getString("release", null)}]").single())
+                firstScope.coroutineContext[Job]!!.cancelAndJoin()
+                val secondScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate).also { scopes += it }
+                val installedVersion = "0.7.5-preview" + revision?.let { "-r$it" }.orEmpty()
+                val second = AppUpdates(ownedContext, secondScope, installedVersion = installedVersion)
+                val current = withTimeout(10_000) { second.state.first { !it.busy } }
+                assertEquals(UpdatePhase.IDLE, current.phase)
+                assertNull(current.update)
+                assertFalse(preferences.contains("release"))
+                assertEquals("preserve", sentinel.readText())
+            } finally { withContext(NonCancellable) {
+                scopes.forEach { it.coroutineContext[Job]!!.cancelAndJoin() }
+                UpdateDownloads(ownedContext).remove(preferences.getLong("downloadId", -1), update)
+                context.deleteSharedPreferences(name)
+                sentinel.delete(); ownedContext.getExternalFilesDir("updates")?.delete()
+            } }
+        }
     }
 
     /** Real public GitHub + Android DownloadManager; no server login or private media. */

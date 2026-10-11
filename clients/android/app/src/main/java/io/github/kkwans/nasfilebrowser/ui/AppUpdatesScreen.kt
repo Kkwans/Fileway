@@ -91,8 +91,8 @@ import io.github.kkwans.nasfilebrowser.update.*
                     UpdatePhase.RESTORING -> "正在读取更新任务"
                     UpdatePhase.CHECKING -> "正在检查更新"
                     UpdatePhase.CURRENT -> "已是最新版本"
-                    UpdatePhase.AVAILABLE -> "发现新版本 ${update?.release?.version.orEmpty()}"
-                    UpdatePhase.DOWNLOADING -> "正在下载 ${update?.release?.version.orEmpty()}"
+                    UpdatePhase.AVAILABLE -> "发现新版本 ${update?.release?.displayVersion.orEmpty()}"
+                    UpdatePhase.DOWNLOADING -> "正在下载 ${update?.release?.displayVersion.orEmpty()}"
                     UpdatePhase.VERIFYING -> "正在核对安装包"
                     UpdatePhase.READY -> "更新已下载，等待安装"
                     UpdatePhase.FAILED -> "更新未完成"
@@ -128,7 +128,7 @@ import io.github.kkwans.nasfilebrowser.update.*
                                 onClick = { select(choice.asset.id) }).heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 RadioButton(selected = update.asset.id == choice.asset.id, onClick = null)
-                                Text(choice.release.version, style = MaterialTheme.typography.bodyLarge)
+                                Text(choice.release.displayVersion, style = MaterialTheme.typography.bodyLarge)
                                 ReleaseLabel(choice.release.preview)
                                 if (index == 0) Text("推荐", style = MaterialTheme.typography.labelMedium, color = colors.primary)
                             }

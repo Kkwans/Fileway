@@ -52,7 +52,7 @@ internal fun parseReleases(json: String): List<AppRelease> {
         AppRelease(tag, version, item.optString("body").take(64 * 1024), item.optBoolean("prerelease", true),
             (0 until assets.length()).mapNotNull { n -> assets.optJSONObject(n)?.takeIf { it.optString("state") == "uploaded" }?.let {
                 UpdateAsset(it.optLong("id"), it.optString("name"), it.optString("browser_download_url"), it.optLong("size"))
-            } })
+            } }, previewRevision = UpdatePolicy.tagRevision(tag)).takeIf { UpdatePolicy.releaseVersion(it) != null }
     }
 }
 

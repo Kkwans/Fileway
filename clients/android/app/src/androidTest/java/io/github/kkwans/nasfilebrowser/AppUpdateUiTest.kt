@@ -71,6 +71,9 @@ internal class AppUpdateUiTest : LibraryUiHarness() {
         touchTarget("重新下载"); touchTarget("重新检查更新")
         instrumentation.runOnMainSync { state.value = UpdateState(UpdatePhase.READY, update) }
         text("安装更新"); touchTarget("删除安装包")
+        val revised = update.copy(release = update.release.copy(version = "0.7.5", previewRevision = 2))
+        instrumentation.runOnMainSync { state.value = UpdateState(UpdatePhase.AVAILABLE, revised, choices = listOf(revised)) }
+        text("发现新版本 0.7.5-preview-r2")
     }
 
     @Test fun settingsEntryReturnsToSettingsInsteadOfLosingItsLocation(): Unit = runBlocking {
