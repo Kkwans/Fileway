@@ -90,7 +90,7 @@ import java.util.Locale
             document.file!!.downloadId.isEmpty() && state.permissions.download && !model.isTemporaryContent(document.file!!),
             onEdit = if (document.file!!.downloadId.isEmpty() && state.permissions.modify && !model.isTemporaryContent(document.file!!)) {
                 file, text -> model.documentEdits.open(file, text, state.previewScope)
-            } else null)
+            } else null, imageCache = model.cache)
     }; return }
     if (archive.file != null) { LibraryTheme {
         ArchiveScreen(model.archives, {}, { model.archives.close(); model.tab("tasks") },

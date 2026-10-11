@@ -50,7 +50,7 @@ import kotlin.math.roundToInt
 
 @Composable internal fun DocumentPreviewScreen(controller: DocumentPreviewController, onClose: () -> Unit,
     onDownload: (ResourceRef) -> Unit, canDownload: Boolean, onOpenExternal: ((ResourceRef) -> Unit)? = null,
-    onEdit: ((ResourceRef, DocumentText) -> Unit)? = null) {
+    onEdit: ((ResourceRef, DocumentText) -> Unit)? = null, imageCache: CacheController? = null) {
     val state by controller.state.collectAsStateWithLifecycle()
     val file = state.file ?: return
     fun leave() { controller.close(); onClose() }
@@ -80,7 +80,7 @@ import kotlin.math.roundToInt
             if (state.loading && state.text == null && state.pageCount == 0) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(if (state.kind == DocumentPreviewKind.PDF) "正在准备 PDF…" else "正在读取文档…", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else when (state.kind) {
-                DocumentPreviewKind.TEXT -> if (state.text != null) DocumentTextContent(controller, state)
+                DocumentPreviewKind.TEXT -> if (state.text != null) DocumentTextContent(controller, state, imageCache)
                 DocumentPreviewKind.PDF -> if (state.pageCount > 0) DocumentPdfContent(controller, state)
                 DocumentPreviewKind.OTHER -> Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("文件详情", style = MaterialTheme.typography.titleMedium)
@@ -107,7 +107,7 @@ import kotlin.math.roundToInt
     }) { Icon(painterResource(icon), null) }
 }
 
-@Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
+@Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState, imageCache: CacheController?) {
     val document = state.text ?: return
     val file = state.file ?: return
     if (isCsvDocument(file)) {
@@ -147,12 +147,13 @@ import kotlin.math.roundToInt
                 var linkError by remember { mutableStateOf<String?>(null) }
                 linkError?.let { Text(it, Modifier.padding(horizontal = 16.dp),
                     color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                val images = remember(controller, state.scope, file, document) { controller.imageBinding(file, document, state.scope) }
                 MarkdownBody(reading.document, onOpenLink = { destination ->
                     val intent = markdownExternalIntent(destination)
                     if (intent == null) linkError = "此链接暂不支持打开。"
                     else try { context.startActivity(intent); linkError = null }
                     catch (_: Exception) { linkError = "没有可打开此链接的应用，可在源码中复制地址。" }
-                }, modifier = Modifier.weight(1f).fillMaxWidth())
+                }, modifier = Modifier.weight(1f).fillMaxWidth(), imageBinding = images, imageCache = imageCache, imageSource = file)
             }
         }
     }

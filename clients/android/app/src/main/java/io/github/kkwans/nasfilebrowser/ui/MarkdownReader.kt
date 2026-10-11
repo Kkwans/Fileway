@@ -72,6 +72,26 @@ import org.intellij.markdown.ast.findChildOfType
 import org.intellij.markdown.ast.getTextInNode
 import org.intellij.markdown.flavours.gfm.GFMElementTypes
 import org.intellij.markdown.flavours.gfm.GFMTokenTypes
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.text.appendInlineContent
+import com.mikepenz.markdown.model.ImageTransformer
+import com.mikepenz.markdown.model.ImageData
+import com.mikepenz.markdown.utils.MARKDOWN_TAG_IMAGE_URL
+import io.github.kkwans.nasfilebrowser.app.DocumentImageBinding
+import io.github.kkwans.nasfilebrowser.app.DocumentImageLease
+import io.github.kkwans.nasfilebrowser.app.DocumentImageLimitException
+import io.github.kkwans.nasfilebrowser.app.ResourceRef
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.ContentScale
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImagePainter
+import coil3.compose.rememberAsyncImagePainter
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withContext
 
 internal fun markdownExternalIntent(destination: String): Intent? = markdownExternalLink(destination)?.let {
     Intent(Intent.ACTION_VIEW, Uri.parse(it).normalizeScheme()).addCategory(Intent.CATEGORY_BROWSABLE)
@@ -84,10 +104,18 @@ internal data class MarkdownCodeDiagnostic(val phase: String, val instance: Int,
 internal val LocalMarkdownCodeDiagnostics = staticCompositionLocalOf<((MarkdownCodeDiagnostic) -> Unit)?> { null }
 
 /** Only security and explicit unsupported-content handling override upstream inline rendering. */
-internal fun markdownSafetyAnnotator(document: MarkdownDocument): MarkdownAnnotator = markdownAnnotator { content, node ->
+internal fun markdownSafetyAnnotator(document: MarkdownDocument,
+    imageDestinations: Map<Int, MarkdownImageReference> = emptyMap(), imageSource: ResourceRef? = null): MarkdownAnnotator = markdownAnnotator { content, node ->
     when {
         node.type == MarkdownElementTypes.IMAGE -> {
-            append(markdownImageLabel(content, node)); true
+            val destination = imageDestinations[node.startOffset]?.destination
+            // The upstream table's BasicText does not create image inline
+            // content. Retain alt text there rather than showing an internal key.
+            val tableCell = generateSequence(node.parent) { it.parent }.any { it.type == GFMTokenTypes.CELL }
+            if (!tableCell && imageSource != null && destination != null && resolveMarkdownImage(imageSource, destination) is MarkdownImageResolution.Nas)
+                appendInlineContent(MARKDOWN_TAG_IMAGE_URL, node.startOffset.toString())
+            else append(markdownImageLabel(content, node))
+            true
         }
         node.type.name == "HTML_TAG" || node.type == GFMElementTypes.INLINE_MATH -> {
             append(node.getTextInNode(content)); true
@@ -110,7 +138,8 @@ internal fun markdownSafetyAnnotator(document: MarkdownDocument): MarkdownAnnota
 }
 
 @Composable
-internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Unit, modifier: Modifier = Modifier) {
+internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Unit, modifier: Modifier = Modifier,
+    imageBinding: DocumentImageBinding? = null, imageCache: CacheController? = null, imageSource: ResourceRef? = null) {
     val body = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 26.sp)
     val typography = markdownTypography(
         h1 = body.copy(fontSize = 28.sp, lineHeight = 42.sp, fontWeight = FontWeight.Bold),
@@ -130,7 +159,14 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
             override fun openUri(uri: String) { markdownExternalLink(uri)?.let(onOpenLink) }
         }
     }
-    val annotator = remember(document) { markdownSafetyAnnotator(document) }
+    val references = remember(document) { markdownImageReferences(document).associateBy { it.startOffset } }
+    val canReadImages = imageBinding != null && imageCache != null && imageSource != null
+    val transformer = if (canReadImages) remember(imageBinding, imageCache, imageSource, references) {
+        NasMarkdownImageTransformer(imageBinding!!, imageCache!!, imageSource!!, references)
+    } else remember { NoOpImageTransformerImpl() }
+    val annotator = remember(document, canReadImages, imageSource, references) {
+        markdownSafetyAnnotator(document, if (canReadImages) references else emptyMap(), if (canReadImages) imageSource else null)
+    }
     val components = markdownComponents(
         text = { model -> MarkdownText(model.node.getUnescapedTextInNode(model.content),
             modifier = taskLabelSemantics(model.content, model.node), style = model.typography.text) },
@@ -156,7 +192,15 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
             Checkbox(checked = checked, onCheckedChange = null,
                 modifier = Modifier.padding(end = 4.dp).clearAndSetSemantics {})
         },
-        image = { Text(markdownImageLabel(it.content, it.node), style = it.typography.text) },
+        image = { model ->
+            val reference = references[model.node.startOffset]
+            val resolved = if (imageSource != null && reference?.destination != null) resolveMarkdownImage(imageSource, reference.destination) else null
+            if (canReadImages && resolved is MarkdownImageResolution.Nas) {
+                transformer.transform(model.node.startOffset.toString())?.let { image ->
+                    Image(image.painter, image.contentDescription, image.modifier, image.alignment, image.contentScale)
+                }
+            } else Text(markdownImageLabel(model.content, model.node), style = model.typography.text)
+        },
         codeFence = { MarkdownCodeFence(it.content, it.node, it.typography.code) { code, language, style -> ReaderCode(code, language, style) } },
         codeBlock = { MarkdownCodeBlock(it.content, it.node, it.typography.code) { code, language, style -> ReaderCode(code, language, style) } },
         table = {
@@ -176,8 +220,10 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
     )
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
         Column(Modifier.widthIn(max = 840.dp).fillMaxSize()) {
-            if (document.hasImages) ReaderNotice("阅读模式暂不加载内联图片，源码中保留完整图片地址。")
-            if (document.hasInactiveLinks) ReaderNotice("相对链接、本机地址和不受支持的链接仅显示文字。")
+            if (document.hasImages && !canReadImages)
+                ReaderNotice("图片暂未加载，可切换源码查看地址。")
+            if ((transformer as? NasMarkdownImageTransformer)?.limitReached == true)
+                ReaderNotice("GIF 超过 10 MiB，暂未加载；原文件未改变，可在源码中查看地址。")
             if (document.hasLiteralHtml) ReaderNotice("HTML 按原文显示，不执行脚本或加载其中资源。")
             if (document.hasLiteralMath) ReaderNotice("数学公式暂按源码显示。")
             SelectionContainer(Modifier.weight(1f).fillMaxWidth()) {
@@ -189,7 +235,7 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
                         modifier = Modifier.fillMaxSize(),
                         padding = markdownPadding(block = 10.dp, list = 6.dp, listItemTop = 4.dp, listItemBottom = 4.dp, listIndent = 18.dp),
                         dimens = markdownDimens(tableMaxWidth = 840.dp, tableCellWidth = 160.dp, tableCellPadding = 12.dp),
-                        imageTransformer = NoOpImageTransformerImpl(), annotator = annotator, components = components,
+                        imageTransformer = transformer, annotator = annotator, components = components,
                         success = { state, resolved, bodyModifier ->
                             LazyMarkdownSuccess(state, resolved, bodyModifier, contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp))
                         })
@@ -320,6 +366,64 @@ private fun ReaderTableRow(content: String, row: ASTNode, width: Dp, style: Text
                         MarkdownAlignment.RIGHT -> TextAlign.Right
                         else -> TextAlign.Start
                     }), maxLines = Int.MAX_VALUE)
+            }
+        }
+    }
+}
+
+/** Reuses the existing authenticated NAS preview and Coil loader. The renderer
+ * receives a painter/local capability, never a server URL or auth headers. */
+private class NasMarkdownImageTransformer(private val binding: DocumentImageBinding, private val cache: CacheController,
+    private val source: ResourceRef, private val references: Map<Int, MarkdownImageReference>) : ImageTransformer {
+    var limitReached by mutableStateOf(false)
+        private set
+    @Composable override fun transform(link: String): ImageData? {
+        val reference = link.toIntOrNull()?.let(references::get) ?: return null
+        val destination = reference.destination ?: return null
+        val target = resolveMarkdownImage(source, destination) as? MarkdownImageResolution.Nas ?: return null
+        return key(binding.key, target.wirePath) {
+            val settings by cache.state.collectAsStateWithLifecycle()
+            val context = LocalContext.current.applicationContext
+            val placeholder = painterResource(R.drawable.ic_image)
+            var owned by remember { mutableStateOf<DocumentImageLease?>(null) }
+            var failed by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                var lease: DocumentImageLease? = null
+                try {
+                    lease = binding.load(target.wirePath)
+                    check(binding.current()) { "文档来源已切换" }
+                    owned = lease
+                    awaitCancellation()
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) { failed = true; if (error is DocumentImageLimitException) limitReached = true }
+                finally { lease?.let { image -> withContext(NonCancellable) { runCatching { binding.release(image.lease) } } } }
+            }
+            val asset = owned
+            val current = binding.current()
+            if (asset == null || !current) {
+                ImageData(placeholder,
+                    contentDescription = "图片：${reference.alt.ifEmpty { "未提供说明" }} · ${if (failed) "暂未加载" else "正在加载"}")
+            } else {
+                val request = remember(asset, settings.revision) {
+                    val file = asset.file
+                    val cacheKey = cache.key(binding.accountKey, target.wirePath,
+                        "markdown/${binding.key}/${source.wirePath}/${source.size}/${source.modified}/${file.size}/${file.modified}/" +
+                            if (asset.data != null) "gif-bounded" else "contain")
+                    ImageRequest.Builder(context).data(asset.data ?: asset.lease.url).size(512, 512)
+                        .memoryCacheKey(cacheKey).diskCacheKey(cacheKey)
+                        .diskCachePolicy(if (settings.settings.thumbnailMB == 0L) CachePolicy.DISABLED else CachePolicy.ENABLED).build()
+                }
+                val painter = rememberAsyncImagePainter(request, imageLoader = cache.thumbnailLoader.value,
+                    placeholder = placeholder, error = placeholder, contentScale = ContentScale.Fit)
+                val state by painter.state.collectAsState()
+                val phase = when (state) {
+                    is AsyncImagePainter.State.Success -> if (asset.data != null) "原图已加载" else "预览已加载"
+                    is AsyncImagePainter.State.Error -> "暂未加载"
+                    else -> "正在加载"
+                }
+                ImageData(if (binding.current()) painter else placeholder,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 480.dp),
+                    contentDescription = "图片：${reference.alt.ifEmpty { "未提供说明" }} · $phase", contentScale = ContentScale.Fit)
             }
         }
     }
