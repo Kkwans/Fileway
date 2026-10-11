@@ -72,8 +72,19 @@ public sealed class GoHostClientTests
         for (int i = 0; i < 63; i++) queued.Add(client.CallAsync(new HostCall("request", Parameters(new { method = "GET", endpoint = "/api/resources/queued" }), session), Token));
         var overflow = await Assert.ThrowsAsync<FilewayException>(() => client.CallAsync(new HostCall("request", Parameters(new { method = "GET", endpoint = "/api/resources/overflow" }), session), Token));
         Assert.Equal(ErrorCode.Busy, overflow.Error.Code);
-        HostReply health = await client.CallAsync(new HostCall("health", Safety: HostCallSafety.Control), Token);
-        Assert.True(health.IsSuccess);
+        // CallAsync only enters the local queue; priority controls can overtake business writes.
+        // Prove Host acceptance before asserting that every queued request was canceled by close.
+        using var acceptance = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        acceptance.CancelAfter(TimeSpan.FromSeconds(3));
+        while (true)
+        {
+            HostReply health = await client.CallAsync(new HostCall("health", Safety: HostCallSafety.Control), acceptance.Token);
+            Assert.True(health.IsSuccess);
+            JsonElement state = health.Result!.Value;
+            Assert.Equal("ready", state.GetProperty("state").GetString());
+            if (state.GetProperty("activeBusiness").GetInt32() == 8 && state.GetProperty("queuedBusiness").GetInt32() == 64) break;
+            await Task.Delay(10, acceptance.Token);
+        }
         queuedCancellation.Cancel();
         try { HostReply canceledReply = await canceled; Assert.Equal("Canceled", canceledReply.Error?.Code); }
         catch (FilewayException error) { Assert.Equal(ErrorCode.Canceled, error.Error.Code); }
@@ -83,6 +94,37 @@ public sealed class GoHostClientTests
         Assert.Equal(8, fixture.Count);
         HostReply afterClose = await client.CallAsync(new HostCall("request", Parameters(new { method = "GET", endpoint = "/api/resources/closed" }), session), Token);
         Assert.False(afterClose.IsSuccess);
+        Assert.Equal("InvalidRequest", afterClose.Error?.Code);
+        Assert.Equal(8, fixture.Count);
+    }
+
+    [Fact]
+    public async Task LocallyQueuedBusinessMayReachHostAfterPriorityClose()
+    {
+        await using var fixture = new HttpFixture(_ => null);
+        await using var client = await GoHostClient.StartAsync(HarnessFixture.RealOptions, Token);
+        string session = await OpenAsync(client, fixture.BaseUrl, Token);
+        var active = new List<Task<HostReply>>();
+        for (int i = 0; i < 8; i++) active.Add(client.CallAsync(new HostCall("request", Parameters(new { method = "GET", endpoint = "/api/resources/active" }), session), Token));
+        for (int i = 0; i < 8; i++) await fixture.Seen.Reader.ReadAsync(Token).AsTask().WaitAsync(TimeSpan.FromSeconds(3), Token);
+
+        var local = new List<Task<HostReply>>();
+        Task<HostReply> close;
+        object gate = typeof(GoHostClient).GetField("_gate", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(client)!;
+        lock (gate)
+        {
+            // Queue uses the same reentrant gate; the writer cannot mark another business frame as writing.
+            // It can have prefetched at most one frame before the priority close becomes available.
+            for (int i = 0; i < 64; i++) local.Add(client.CallAsync(new HostCall("request", Parameters(new { method = "GET", endpoint = "/api/resources/local" }), session), Token));
+            close = client.CallAsync(new HostCall("close_session", Session: session, Safety: HostCallSafety.Control), Token);
+        }
+
+        Assert.True((await close).IsSuccess);
+        foreach (var request in active) Assert.Equal("Canceled", (await request).Error?.Code);
+        HostReply[] replies = await Task.WhenAll(local);
+        int late = replies.Count(reply => reply.Error?.Code == "InvalidRequest");
+        Assert.InRange(late, 63, 64);
+        Assert.Equal(64 - late, replies.Count(reply => reply.Error?.Code == "Canceled"));
         Assert.Equal(8, fixture.Count);
     }
 
