@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Fileway.App.Branding;
 using Fileway.App.Controls.Playback;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Windowing;
@@ -31,7 +32,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     internal PlayerOverlayWindow(IPlaybackSession session, nint owner)
     {
         _owner = owner;
-        Title = "Fileway 播放控制";
+        Title = AppBranding.DisplayName + (AppBranding.IsChinese ? " 播放控制" : " playback controls");
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
         _procedure = WindowProcedure;
         try

@@ -6,7 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:local="using:Fileway.App"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    Title="Fileway · 栖卷"
+    Title="栖卷"
     mc:Ignorable="d">
     <Window.SystemBackdrop>
         <MicaBackdrop />
@@ -18,7 +18,7 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <TitleBar x:Name="AppTitleBar" Title="Fileway · 栖卷">
+        <TitleBar x:Name="AppTitleBar" Title="栖卷">
             <TitleBar.IconSource>
                 <ImageIconSource ImageSource="Assets/Square44x44Logo.targetsize-48_altform-lightunplated.png" />
             </TitleBar.IconSource>

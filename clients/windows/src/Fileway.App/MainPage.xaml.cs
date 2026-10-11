@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Fileway.App.Views;
+using Fileway.App.Branding;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -33,6 +34,7 @@ public sealed partial class MainPage : Page, IDisposable
     public MainPage()
     {
         InitializeComponent(); FileList.ItemsSource = _rows;
+        BrandName.Text = AppBranding.DisplayName;
         Shell.ActualThemeChanged += (_, _) => ApplyAppearance();
         try
         {

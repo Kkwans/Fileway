@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using Fileway.App.Branding;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
@@ -41,7 +42,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         try
         {
             if (owner == 0 || !IsWindow(owner)) throw new ArgumentException("需要有效的播放器所属窗口。", nameof(owner));
-            Title = "Fileway 播放设置";
+            Title = AppBranding.DisplayName + (AppBranding.IsChinese ? " 播放设置" : " playback settings");
             if (presenterStyle is not null) _presenter.Style = presenterStyle;
             if (_presenter is Control control)
             {

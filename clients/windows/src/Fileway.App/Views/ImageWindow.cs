@@ -1,4 +1,5 @@
 using Fileway.Core.Contracts;
+using Fileway.App.Branding;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -30,7 +31,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
 
     public ImageWindow(IImageContentService service, RemoteResourceRef resource, IReadOnlyList<RemoteResourceRef>? resources = null)
     {
-        _service = service; _resource = resource; Title = resource.DisplayName + " · Fileway 图片";
+        _service = service; _resource = resource; Title = resource.DisplayName + " · " + AppBranding.DisplayName;
         _resources = resources is { Count: > 0 } ? resources : [resource];
         _index = _resources.ToList().FindIndex(item => item == resource);
         if (_index < 0) _index = 0;
@@ -71,7 +72,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         if (_closed || generation != _generation) return;
         _imageCancellation?.Dispose();
         _imageCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        _resource = _resources[index]; Title = _resource.DisplayName + " · Fileway 图片";
+        _resource = _resources[index]; Title = _resource.DisplayName + " · " + AppBranding.DisplayName;
         _image.Source = null; _progress.IsActive = true; _progress.Visibility = Visibility.Visible;
         _notice.Severity = InfoBarSeverity.Informational; _notice.Message = "正在加载图片…";
         _loadTask = LoadAsync(generation, _imageCancellation.Token);

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Fileway.App.Branding;
 using Fileway.Core.Contracts;
 using Fileway.Playback.Contracts;
 using Microsoft.UI.Windowing;
@@ -47,7 +48,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     public PlayerWindow(IPlaybackSession session)
     {
         _session = session;
-        Title = session.Snapshot.DisplayName + " · Fileway";
+        Title = session.Snapshot.DisplayName + " · " + AppBranding.DisplayName;
         _windowedPresenter = AppWindow.Presenter as OverlappedPresenter;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         _root.Children.Add(_video);

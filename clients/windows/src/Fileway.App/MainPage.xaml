@@ -4,7 +4,7 @@
   <Grid.ColumnDefinitions><ColumnDefinition x:Name="SidebarColumn" Width="244"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
   <Grid x:Name="Sidebar" Padding="20,24,16,20" Background="{ThemeResource LayerFillColorDefaultBrush}">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-   <StackPanel Spacing="6"><TextBlock Text="栖卷" FontSize="24" FontWeight="SemiBold"/><TextBlock Text="文件 · 图片 · 影音" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+   <StackPanel Spacing="6"><TextBlock x:Name="BrandName" Text="栖卷" FontSize="24" FontWeight="SemiBold"/><TextBlock Text="文件 · 图片 · 影音" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    <StackPanel Grid.Row="1" Margin="0,32,0,0" Spacing="12">
     <TextBlock Text="工作空间" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="Root_Click" AutomationProperties.Name="我的文件根目录"><StackPanel Orientation="Horizontal" Spacing="10"><FontIcon Glyph="&#xE8B7;" FontSize="18"/><TextBlock Text="我的文件"/></StackPanel></Button>

@@ -1,6 +1,6 @@
 param(
     [Alias('PublishDirectory')][string] $PublisherInput,
-    [string] $Version = '0.1.0-preview.1',
+    [string] $Version = '0.1.1-preview.1',
     [string] $ArtifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..\Fileway-windows-artifacts\local')),
     [string] $ToolsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..\Fileway-windows-tools')),
     [string] $OutputDirectory
@@ -33,7 +33,7 @@ if (@($entries | Where-Object { $_.Attributes -band [IO.FileAttributes]::Reparse
 $payloadFiles = @($entries | Where-Object { -not $_.PSIsContainer } | Sort-Object FullName)
 foreach ($entry in $payloadFiles) {
     if ($entry.Extension -in @('.db', '.sqlite', '.sqlite3', '.pfx', '.key', '.pem') -or $entry.Name -in @('.env', 'credentials.json')) { throw 'Publish input contains data or signing material; remove it through the publishing workflow.' }
-    if ($entry.Name -in @('PREVIEW-PACKAGE.json', 'PREVIEW-README.txt', 'uninstall.exe')) { throw 'Publish input contains reserved packaging files; use the original publish directory.' }
+    if ($entry.Name -in @('PREVIEW-PACKAGE.json', 'PREVIEW-README.txt', 'uninstall.exe', 'product-language.txt')) { throw 'Publish input contains reserved packaging or installation files; use the original publish directory.' }
 }
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
 $baseName = "Fileway-$Version-win-x64-unsigned-preview"
@@ -83,10 +83,15 @@ $metadata | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $stage
 Fileway $Version — unsigned local development preview
 
 Extract the ZIP into a new folder and run Fileway.App.exe, or use the per-user installer.
-The installer uses LOCALAPPDATA\Programs\Fileway Preview\versions\$Version.
+The installer lets you choose a folder; the default is LOCALAPPDATA\Programs\Fileway Preview.
+It remembers the last successful folder and installs into its versions\$Version subfolder.
+The desktop shortcut is selected by default and can be disabled. Start menu shortcuts are version-specific.
+Installer language defaults to Chinese for Chinese UI or China region, and English otherwise; you can change it.
+The selected language names the app 栖卷 or Fileway and is saved in product-language.txt beside the installed EXE.
+The ZIP has no installation language selection and follows the local UI language or region.
 Close Fileway normally before installing or uninstalling. No process is forcefully stopped.
 No file associations, startup entries, system services, or global configuration are created.
-Uninstall removes the packaged program files and keeps additional user files and downloads.
+Uninstall removes this version's program files and unchanged shortcuts it created; other versions, extra files and downloads are kept.
 
 This package is unsigned and intended only for local development acceptance.
 Presence of media/licenses is not a completed redistribution license audit.

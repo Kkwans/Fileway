@@ -1,5 +1,6 @@
 using Fileway.Core.Contracts;
 using Fileway.App.MediaSurfaces;
+using Fileway.App.Branding;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 namespace Fileway.App;
@@ -9,6 +10,7 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        Title = AppTitleBar.Title = AppBranding.DisplayName;
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
