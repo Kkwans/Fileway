@@ -312,7 +312,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
                     else WindowInsets.displayCutout.union(WindowInsets.navigationBarsIgnoringVisibility).union(WindowInsets.captionBar)
                 val headerDensity = LocalDensity.current
-                var fullscreenHeaderHeight by remember { mutableStateOf(72.dp) }
+                var fullscreenHeaderHeight by remember { mutableStateOf(56.dp) }
                 val controlPadding = if (landscape) 20.dp else 12.dp
                 val downloadCoverageHeight = with(headerDensity) { 16.sp.toDp() }
                 val portraitControlsReserve = (if (maxWidth - controlPadding * 2 >= 600.dp) 96.dp else 144.dp) +
@@ -463,20 +463,18 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                 .semantics { contentDescription = "实际网络下载速度" })
                         if (showControls && fullscreen) Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
                             .windowInsetsPadding(controlInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
-                            Column(Modifier.fillMaxWidth()
+                            Row(Modifier.fillMaxWidth()
                                 .onSizeChanged { fullscreenHeaderHeight = with(headerDensity) { it.height.toDp() } }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)) {
+                                .padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 val deviceTime = rememberPlayerClock()
+                                PlayerIcon(R.drawable.ic_arrow_back, "退出全屏并返回详情", { changeDisplay(PlayerDisplayMode.AUTOMATIC) })
+                                Text(file.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
                                 Text(deviceTime, color = Color.White, fontSize = 12.sp, lineHeight = 16.sp,
-                                    modifier = Modifier.padding(start = 12.dp).clearAndSetSemantics {
+                                    maxLines = 1, modifier = Modifier.padding(horizontal = 8.dp).clearAndSetSemantics {
                                         contentDescription = "设备时间"
                                         stateDescription = deviceTime
                                     })
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    PlayerIcon(R.drawable.ic_arrow_back, "退出全屏并返回详情", { changeDisplay(PlayerDisplayMode.AUTOMATIC) })
-                                    Text(file.name, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
-                                    PlayerIcon(R.drawable.ic_more_vert, "更多播放选项", { touch(); sheet = PlayerSheet.MORE })
-                                }
+                                PlayerIcon(R.drawable.ic_more_vert, "更多播放选项", { touch(); sheet = PlayerSheet.MORE })
                             }
                         }
                         if (showControls) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000))))
