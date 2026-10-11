@@ -34,6 +34,49 @@ internal suspend fun clickOwnedText(instrumentation: Instrumentation, device: Ui
 private data class OwnedClickOwner(val packageName: String, val windowId: Int, val displayId: Int,
     val className: String, val bounds: Rect)
 
+/** Records values already read by the click path; never performs an accessibility query. */
+private class OwnedClickFailureTrace(private val deadline: Long) {
+    private val started = SystemClock.uptimeMillis()
+    private var phaseStarted = started
+    private var phase = "start"
+    private val timings = ArrayDeque<String>()
+    private val rejections = linkedMapOf<String, Int>()
+    var frames = 0
+    var owner: OwnedClickOwner? = null
+    var finalOwner: OwnedClickOwner? = null
+    var finalChanged = "unknown"
+    var leaves: Int? = null
+    var matches: Int? = null
+    var uiClass: String? = null
+    var uiDisplay: Int? = null
+    var uiBounds: Rect? = null
+    var uiEnabled: Boolean? = null
+    var uiClickable: Boolean? = null
+    fun enter(next: String) {
+        val now = SystemClock.uptimeMillis()
+        if (timings.size == 12) timings.removeFirst()
+        timings.addLast("$phase:${now - phaseStarted}ms")
+        phase = next; phaseStarted = now
+    }
+    fun reject(reason: String) { rejections[reason] = (rejections[reason] ?: 0) + 1 }
+    fun newUiNode() {
+        uiClass = null; uiDisplay = null; uiBounds = null; uiEnabled = null; uiClickable = null
+    }
+    private fun safeClass(value: String?) = value?.takeIf { it.matches(Regex("[A-Za-z0-9_.$]{1,160}")) } ?: "unknown"
+    private fun shape(value: OwnedClickOwner?) = value?.let {
+        "class=${safeClass(it.className)},window=${it.windowId},display=${it.displayId},bounds=${it.bounds}"
+    } ?: "unknown"
+    fun failure(error: Throwable): String {
+        val now = SystemClock.uptimeMillis()
+        return "owned-click-failure exception=${error.javaClass.simpleName} phase=$phase phaseMs=${now - phaseStarted} " +
+            "elapsedMs=${now - started} remainingMs=${deadline - now} frames=$frames timings=$timings " +
+            "owner={${shape(owner)}} finalFreshChanged=$finalChanged finalOwner={${shape(finalOwner)}} " +
+            "uiLeaves=${leaves ?: "unknown"} uiMatches=${matches ?: "unknown"} " +
+            "ui={class=${safeClass(uiClass)},display=${uiDisplay ?: "unknown"},bounds=${uiBounds ?: "unknown"}," +
+            "enabled=${uiEnabled ?: "unknown"},clickable=${uiClickable ?: "unknown"}} rejects=$rejections"
+    }
+}
+
 /** Fresh AX establishes the owner/window. AndroidX then injects one real pointer
  * gesture at that exact owner's center; a failed gesture is never retried. */
 private suspend fun clickOwned(instrumentation: Instrumentation, device: UiDevice, label: String,
@@ -42,6 +85,7 @@ private suspend fun clickOwned(instrumentation: Instrumentation, device: UiDevic
     val configuration = Configurator.getInstance()
     val previousIdle = configuration.getWaitForIdleTimeout()
     val deadline = SystemClock.uptimeMillis() + 5_000
+    val failureTrace = OwnedClickFailureTrace(deadline)
     // Every UiObject2 attribute read implicitly waits for idle. Keep that
     // nested wait within the original readiness budget, restoring it exactly.
     configuration.setWaitForIdleTimeout(0L)
@@ -50,24 +94,41 @@ private suspend fun clickOwned(instrumentation: Instrumentation, device: UiDevic
             var previous: OwnedClickOwner? = null
             var frames = 0
             while (true) {
+                failureTrace.enter("frame-wait")
                 nextOwnedFrame()
+                failureTrace.enter("fresh-owner")
                 val owner = freshOwnedOwner(instrumentation, label, description)
+                failureTrace.owner = owner
                 frames = if (owner != null && owner == previous) frames + 1 else if (owner != null) 1 else 0
                 previous = owner
+                failureTrace.frames = frames
+                if (owner == null) failureTrace.reject("fresh-owner-unavailable")
                 if (owner == null || frames < stableFrames) continue
-                val target = matchingUiObject(device, owner, label, description)
+                failureTrace.enter("ui-match")
+                val target = matchingUiObject(device, owner, label, description, failureTrace)
                 if (target == null) { frames = 0; continue }
                 try {
-                    if (freshOwnedOwner(instrumentation, label, description) != owner) { frames = 0; continue }
+                    failureTrace.enter("final-fresh")
+                    failureTrace.finalChanged = "unknown"; failureTrace.finalOwner = null
+                    val fresh = freshOwnedOwner(instrumentation, label, description)
+                    failureTrace.finalOwner = fresh
+                    failureTrace.finalChanged = (fresh != owner).toString()
+                    if (fresh != owner) { failureTrace.reject("final-fresh-changed"); frames = 0; continue }
+                    failureTrace.enter("deadline-check")
                     currentCoroutineContext().ensureActive()
                     check(SystemClock.uptimeMillis() < deadline) { "Owned action readiness exceeded 5000ms" }
                     // click(Point) uses GestureController, not ACTION_CLICK.
                     // Do not catch/retry after entering this physical action.
+                    failureTrace.enter("click")
                     target.click(Point(owner.bounds.centerX(), owner.bounds.centerY()))
+                    failureTrace.enter("click-returned")
                     return@withTimeout
                 } finally { target.recycle() }
             }
         }
+    } catch (error: Throwable) {
+        runCatching { OwnedUiTraceRule.trace(failureTrace.failure(error)) }
+        throw error
     } finally { configuration.setWaitForIdleTimeout(previousIdle) }
 }
 
@@ -167,33 +228,61 @@ private fun freshOwnedOwner(instrumentation: Instrumentation, label: String, des
 /** UiObject2 has no public windowId accessor in 2.3.0. Relate its unique actual
  * owner to the fresh active AX window by package/display/class/full bounds,
  * then recheck that active window before the one physical click. */
-private fun matchingUiObject(device: UiDevice, owner: OwnedClickOwner, label: String, description: Boolean): UiObject2? {
+private fun matchingUiObject(device: UiDevice, owner: OwnedClickOwner, label: String, description: Boolean,
+    failureTrace: OwnedClickFailureTrace): UiObject2? {
     val matches = mutableListOf<UiObject2>()
+    failureTrace.leaves = null; failureTrace.matches = null; failureTrace.newUiNode()
     try {
         val selector = (if (description) By.desc(label) else By.text(label)).pkg(owner.packageName)
-        for (leaf in device.findObjects(selector)) {
+        val leaves = device.findObjects(selector)
+        failureTrace.leaves = leaves.size
+        for (leaf in leaves) {
             var current: UiObject2? = leaf
             try {
                 var depth = 0
                 while (current != null && depth++ < 32) {
                     val node = current
-                    if (node.applicationPackage != owner.packageName || node.displayId != owner.displayId || !node.isEnabled) break
-                    if (node.isClickable) {
-                        if (node.className == owner.className && node.visibleBounds == owner.bounds && matches.none { it == node }) {
-                            matches.add(node); current = null
-                        }
+                    failureTrace.newUiNode()
+                    // Preserve the original short-circuit property reads. Diagnostics
+                    // only retain a value after the original path has requested it.
+                    if (node.applicationPackage != owner.packageName) { failureTrace.reject("package"); break }
+                    val display = node.displayId
+                    failureTrace.uiDisplay = display
+                    if (display != owner.displayId) { failureTrace.reject("display"); break }
+                    val enabled = node.isEnabled
+                    failureTrace.uiEnabled = enabled
+                    if (!enabled) { failureTrace.reject("disabled"); break }
+                    val clickable = node.isClickable
+                    failureTrace.uiClickable = clickable
+                    if (clickable) {
+                        val className = node.className
+                        failureTrace.uiClass = className
+                        if (className == owner.className) {
+                            val bounds = node.visibleBounds
+                            failureTrace.uiBounds = bounds
+                            if (bounds == owner.bounds) {
+                                if (matches.none { it == node }) { matches.add(node); current = null }
+                                else failureTrace.reject("duplicate-owner")
+                            } else failureTrace.reject("bounds")
+                        } else failureTrace.reject("class")
                         break
                     }
                     current = node.parent
                     node.recycle()
                 }
-            } catch (_: StaleObjectException) { /* Not a gesture retry: this query produced no usable owner. */ }
-            finally { current?.recycle() }
+                if (depth > 32) failureTrace.reject("ancestor-depth")
+            } catch (_: StaleObjectException) {
+                failureTrace.reject("stale-query-node") // No input has been attempted.
+            } finally { current?.recycle() }
         }
-        if (matches.size != 1) return null
+        failureTrace.matches = matches.size
+        if (matches.size != 1) { failureTrace.reject("match-count"); return null }
         return matches.removeAt(0)
-    } catch (_: StaleObjectException) { return null }
-    finally { matches.forEach { it.recycle() } }
+    } catch (_: StaleObjectException) {
+        failureTrace.matches = matches.size
+        failureTrace.reject("stale-query")
+        return null
+    } finally { matches.forEach { it.recycle() } }
 }
 
 /** Failure-only, own-process root geometry. No view text, Intent, credentials,
