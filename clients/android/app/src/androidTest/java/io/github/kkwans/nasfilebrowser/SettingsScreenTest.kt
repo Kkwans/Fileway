@@ -5,7 +5,6 @@ import android.app.Instrumentation
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Color
-import android.graphics.Rect
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -96,17 +95,10 @@ class SettingsScreenTest {
             }
             instrumentation.addMonitor(monitor)
             try {
-                val link = withTimeout(5000) {
-                    var found: FreshAccessibilityNodeBounds? = null
-                    while (found == null) {
-                        found = freshAccessibilityBounds(instrumentation, Rect(0, 0, device.displayWidth, device.displayHeight))
-                            ?.singleOrNull { it.visible && it.enabled && it.clickable && it.description == "打开 GitHub 仓库" }
-                        if (found == null) delay(25)
-                    }
-                    checkNotNull(found)
-                }
-                assertTrue("Repository link must have a 48dp target", link.bounds.height() + 1 >= 48 * instrumentation.targetContext.resources.displayMetrics.density)
-                OwnedTouchInput.tap(instrumentation, link.bounds, tracePrefix = "settings-repository")
+                // Compose may export the description through a non-clickable
+                // speaking child. Resolve its real action owner in the active
+                // dialog and dispatch one AndroidX pointer gesture.
+                clickOwnedDescription(instrumentation, device, "打开 GitHub 仓库")
                 withTimeout(5000) { while (repositoryIntent.get() == null) delay(25) }
                 val launched = checkNotNull(repositoryIntent.get())
                 assertEquals(UpdatePolicy.REPOSITORY, launched.dataString)

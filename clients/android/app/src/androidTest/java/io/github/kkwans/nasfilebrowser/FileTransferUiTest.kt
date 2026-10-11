@@ -15,18 +15,14 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 internal class FileTransferUiTest : LibraryUiHarness() {
-    private fun clickText(label: String) {
-        val target = enabledTextAction(label)
-        try { assertTrue("$label must be enabled", target.isEnabled); target.click() }
-        finally { target.recycle() }
-    }
+    private suspend fun clickText(label: String) = clickOwnedText(instrumentation, device, label)
     private suspend fun regularList() {
         main { model.fileLayout(FileLayout.LIST) }
         withTimeout(5000) { model.state.first { it.fileLayout == FileLayout.LIST } }
         assertTrue(device.wait(Until.hasObject(By.desc(FileLayout.LIST.collectionDescription())), 5000))
     }
     private suspend fun target(name: String) {
-        action("目标目录：$name").click()
+        clickOwnedDescription(instrumentation, device, "目标目录：$name")
         withTimeout(5000) { model.fileOperations.state.first { it.transfer?.let { draft -> !draft.loading && draft.directory.path == "/$name" } == true } }
     }
     private suspend fun review() {
@@ -34,10 +30,12 @@ internal class FileTransferUiTest : LibraryUiHarness() {
         catch (failure: Exception) {
             val state = model.fileOperations.state.value
             val draft = state.transfer
+            val windows = ownedWindowFacts(instrumentation)
+            android.util.Log.i("FilewayTransferUi", "Owned review windows: $windows")
             capture("transfer-review-not-ready")
             throw AssertionError("Owned review unavailable: changing=${state.changing}, present=${draft != null}, " +
                 "visible=${draft?.visible}, loading=${draft?.loading}, reviewed=${draft?.reviewed}, " +
-                "unknownSubmission=${draft?.unknownSubmission}, errorPresent=${draft?.error != null}", failure)
+                "unknownSubmission=${draft?.unknownSubmission}, errorPresent=${draft?.error != null}; windows=$windows", failure)
         }
         withTimeout(5000) { model.fileOperations.state.first { !it.changing && it.transfer?.reviewed == true } }
     }

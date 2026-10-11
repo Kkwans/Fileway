@@ -24,12 +24,16 @@ internal class DirectoryCreationUiTest : LibraryUiHarness() {
         }
         @Suppress("UNREACHABLE_CODE") error("Keyboard window missing")
     }
-    private fun clickText(label: String) {
-        val button = enabledTextAction(label)
-        try { assertTrue(button.isEnabled); button.click() }
-        finally { button.recycle() }
-    }
+    private suspend fun clickText(label: String) = clickOwnedText(instrumentation, device, label)
     private fun input() = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5000) ?: error("Missing directory input")
+    private suspend fun enterName(value: String) = withTimeout(5000) {
+        input().text = value
+        // A framework setText receipt alone does not prove that the dialog's
+        // current draft received the value. Observe the real callback before
+        // the one physical submit; never set the controller directly here.
+        model.fileOperations.state.first { !it.changing && it.creation?.name == value }
+        assertEquals(value, input().text)
+    }
     private suspend fun start() {
         action("新建文件或文件夹").click()
         action("新建文件夹").click()
@@ -40,32 +44,55 @@ internal class DirectoryCreationUiTest : LibraryUiHarness() {
         val data = LibraryFixtureData().apply { liveDirectoryListing = true; rejectNextMkdirStatus = 503 }
         data.file("/已有文件"); data.file("/已存在", true)
         fixture(data) {
-            start(); input().text = "未创建 +%"; clickText("创建")
-            withTimeout(5000) { model.fileOperations.state.first { !it.changing && it.creation?.error != null } }
-            assertEquals("未创建 +%", input().text); assertEquals(1, data.mkdirAttempts.size)
-            input().text = "已有文件"; clickText("创建")
-            withTimeout(5000) { model.fileOperations.state.first { !it.changing && it.creation?.error?.contains("同名文件") == true } }
-            assertFalse(data.files.getValue("/已有文件").getBoolean("isDir")); assertEquals(1, data.mkdirAttempts.size)
-            input().text = "已存在"; clickText("创建")
-            withTimeout(5000) { model.fileOperations.state.first { !it.changing && it.creation?.existing != null } }
-            capture("directory-existing-conflict"); clickText("打开已有文件夹")
-            withTimeout(5000) { model.state.first { !it.busy && it.path == "/已存在" } }
-            start(); val name = "%2F +# 中文"; input().text = name; clickText("创建")
-            withTimeout(5000) { model.state.first { it.files.any { file -> file.name == name && file.directory } } }
-            assertNull(model.fileOperations.state.value.creation)
-            assertEquals(2, data.mkdirAttempts.size)
-            assertEquals("/api/resources" + SearchResult.encodePath("/已存在/$name") + "/", data.mkdirAttempts.last())
-            capture("directory-created-in-current-list")
+            val scope = model.fileOperations.state.value.scope
+            var stage = "rejected-create"
+            var intendedName = "未创建 +%"
+            try {
+                start(); enterName(intendedName); clickText("创建")
+                withTimeout(5000) { model.fileOperations.state.first { !it.changing && it.creation?.error != null } }
+                assertEquals(intendedName, input().text); assertEquals(1, data.mkdirAttempts.size)
+                stage = "existing-file"; intendedName = "已有文件"
+                enterName(intendedName); clickText("创建")
+                withTimeout(5000) { model.fileOperations.state.first { !it.changing && it.creation?.error?.contains("同名文件") == true } }
+                assertFalse(data.files.getValue("/已有文件").getBoolean("isDir")); assertEquals(1, data.mkdirAttempts.size)
+                stage = "existing-directory"; intendedName = "已存在"
+                enterName(intendedName); clickText("创建")
+                withTimeout(5000) { model.fileOperations.state.first { !it.changing && it.creation?.existing != null } }
+                capture("directory-existing-conflict"); clickText("打开已有文件夹")
+                withTimeout(5000) { model.state.first { !it.busy && it.path == "/已存在" } }
+                stage = "create-in-current-directory"; intendedName = "%2F +# 中文"
+                start(); enterName(intendedName); clickText("创建")
+                withTimeout(5000) { model.state.first { it.files.any { file -> file.name == intendedName && file.directory } } }
+                assertNull(model.fileOperations.state.value.creation)
+                assertEquals(2, data.mkdirAttempts.size)
+                assertEquals("/api/resources" + SearchResult.encodePath("/已存在/$intendedName") + "/", data.mkdirAttempts.last())
+                capture("directory-created-in-current-list")
+            } catch (failure: Throwable) {
+                // Capture before fixture teardown removes the dialog. No raw
+                // field values, addresses, error messages or hierarchy dumps.
+                val state = model.fileOperations.state.value
+                val draft = state.creation
+                val sameScope = state.scope == scope
+                if (sameScope && device.currentPackageName == instrumentation.targetContext.packageName)
+                    runCatching { capture("directory-create-not-ready") }
+                val windows = runCatching { ownedWindowFacts(instrumentation) }
+                    .getOrElse { "unavailable(${it.javaClass.simpleName})" }
+                throw AssertionError("Directory stage=$stage, scopeMatches=$sameScope, changing=${state.changing}, " +
+                    "draftPresent=${draft != null}, nameMatches=${draft?.name == intendedName}, " +
+                    "errorPresent=${draft?.error != null}, sameFileError=${draft?.error?.contains("同名文件") == true}, " +
+                    "existingPresent=${draft?.existing != null}, unknownPresent=${draft?.unknownTarget != null}, " +
+                    "mkdirAttempts=${data.mkdirAttempts.size}; $windows", failure)
+            }
         }
     }
     @Test fun lostCreateResponseIsConfirmedByReadAndUnknownOutcomeDoesNotRepeatWriteAcrossAccountSwitch(): Unit = runBlocking {
         val data = LibraryFixtureData().apply { liveDirectoryListing = true; mkdirResponseLostOnce = true }
         fixture(data) { source ->
-            start(); input().text = "已落盘"; clickText("创建")
+            start(); enterName("已落盘"); clickText("创建")
             withTimeout(5000) { model.state.first { it.files.any { file -> file.path == "/已落盘" } } }
             assertNull(model.fileOperations.state.value.creation); assertEquals(1, data.mkdirAttempts.size)
             data.mkdirResponseLostOnce = true; data.mkdirMetadataUnavailable = true
-            start(); input().text = "待核对"; clickText("创建")
+            start(); enterName("待核对"); clickText("创建")
             withTimeout(5000) { model.fileOperations.state.first { !it.changing && it.creation?.unknownTarget != null } }
             main { model.fileOperations.createDirectory() }; delay(150)
             assertEquals(2, data.mkdirAttempts.size); assertEquals("待核对", input().text)
@@ -92,7 +119,7 @@ internal class DirectoryCreationUiTest : LibraryUiHarness() {
     @Test fun keyboardKeepsCreationAndExistingFolderActionsPhysicallyVisible(): Unit = runBlocking {
         val data = LibraryFixtureData().apply { liveDirectoryListing = true }; data.file("/已存在", true)
         fixture(data) {
-            start(); input().text = "已存在"
+            start(); enterName("已存在")
             val ime = keyboardBounds()
             val create = text("创建").visibleBounds; val cancel = text("取消").visibleBounds
             assertTrue("Create must stay above the actual IME", create.bottom <= ime.top)
