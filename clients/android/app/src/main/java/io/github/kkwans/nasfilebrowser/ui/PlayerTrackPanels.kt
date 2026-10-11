@@ -30,6 +30,11 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,12 +52,16 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.text
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.TextSubtitleAppearance
+import io.github.kkwans.nasfilebrowser.data.TextSubtitleArea
+import io.github.kkwans.nasfilebrowser.data.SubtitleFontCatalog
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.player.NativeTrack
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -235,6 +244,10 @@ internal fun PlayerSubtitleAdjustments(
             bitmap -> Text("PGS / DVB / VobSub 位图字幕使用片源图像，不支持文字字号与底边距调整。时间偏移仍可调整。",
                 color = PlayerSecondary, fontSize = 13.sp, lineHeight = 20.sp)
             else -> {
+                val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
+                var choosingFont by remember { mutableStateOf(false) }
+                val font = fonts.resolve(appearance.fontKey)
+                LaunchedEffect(Unit) { SubtitleFontCatalog.request() }
                 Text("文本字号 ${(appearance.scale * 100).roundToInt()}%", color = PlayerSecondary, fontSize = 13.sp)
                 Slider(appearance.scale, { onAppearance(appearance.copy(scale = it)) },
                     Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "文本字幕字号"; stateDescription = "${(appearance.scale * 100).roundToInt()}%" },
@@ -244,10 +257,45 @@ internal fun PlayerSubtitleAdjustments(
                     Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "文本字幕底边距"; stateDescription = "${(appearance.bottomPadding * 100).roundToInt()}%" },
                     valueRange = 0f.. .4f, colors = SliderDefaults.colors(thumbColor = PlayerAccent, activeTrackColor = PlayerAccent))
                 Text("外观预览", color = PlayerSecondary, fontSize = 12.sp)
-                Box(Modifier.fillMaxWidth().height(148.dp).clip(RoundedCornerShape(8.dp)).background(PlayerCanvas)
-                    .padding(horizontal = 12.dp), contentAlignment = Alignment.BottomCenter) {
-                    Text("字幕外观预览", Modifier.padding(bottom = 148.dp * appearance.bottomPadding),
-                        color = Color.White, fontSize = (18 * appearance.scale).sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Box(Modifier.fillMaxWidth().heightIn(min = 96.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF667384))
+                    .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.BottomCenter) {
+                    Text("字幕外观预览", Modifier.padding(bottom = 96.dp * appearance.bottomPadding)
+                        .background(Color.Black.copy(alpha = appearance.backgroundOpacity)),
+                        color = Color.White, fontSize = (18 * appearance.scale).sp, lineHeight = (26 * appearance.scale).sp,
+                        fontFamily = FontFamily(font.typeface ?: android.graphics.Typeface.DEFAULT))
+                }
+                Text("字幕显示区域", color = Color.White, fontSize = 14.sp)
+                PlayerTrackRow("画面内", "", appearance.area == TextSubtitleArea.PICTURE, false) {
+                    onAppearance(appearance.copy(area = TextSubtitleArea.PICTURE))
+                }
+                PlayerTrackRow("整个播放区域（含黑边）", "不改变视频大小；没有黑边时仍在画面内显示", appearance.area == TextSubtitleArea.STAGE, false) {
+                    onAppearance(appearance.copy(area = TextSubtitleArea.STAGE))
+                }
+                Text("背景不透明度 ${(appearance.backgroundOpacity * 100).roundToInt()}%" +
+                    if (appearance.backgroundOpacity == 0f) " · 无背景" else " · 黑色", color = PlayerSecondary, fontSize = 13.sp)
+                Slider(appearance.backgroundOpacity, { onAppearance(appearance.copy(backgroundOpacity = it)) },
+                    Modifier.fillMaxWidth().height(48.dp).semantics {
+                        contentDescription = "字幕背景不透明度"
+                        stateDescription = "${(appearance.backgroundOpacity * 100).roundToInt()}%"
+                    }, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = PlayerAccent, activeTrackColor = PlayerAccent))
+                TextButton({ onAppearance(appearance.copy(backgroundOpacity = if (appearance.backgroundOpacity == 0f) .5f else 0f)) },
+                    Modifier.heightIn(min = 48.dp), colors = buttonColors) {
+                    Text(if (appearance.backgroundOpacity == 0f) "使用半透明黑背景" else "无背景")
+                }
+                Text("字幕字体", color = Color.White, fontSize = 14.sp)
+                TextButton({ choosingFont = !choosingFont }, Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .semantics { contentDescription = "选择字幕字体"; stateDescription = font.label }, colors = buttonColors) {
+                    Text(font.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (fonts.loading) Text("正在读取系统可用字体…", color = PlayerSecondary, fontSize = 12.sp)
+                if (fonts.failed) Text("系统字体暂时不可用，可使用字幕默认或跟随系统。", color = PlayerSecondary, fontSize = 12.sp)
+                if (fonts.missing(appearance.fontKey)) Text("所选字体已不可用，当前使用字幕默认；可重新选择。", color = PlayerSecondary, fontSize = 12.sp)
+                if (choosingFont) LazyColumn(Modifier.fillMaxWidth().height(240.dp)) {
+                    itemsIndexed(fonts.options, key = { _, option -> option.key }) { _, option ->
+                        PlayerTrackRow(option.label, "", font.key == option.key, false) {
+                            onAppearance(appearance.copy(fontKey = option.key)); choosingFont = false
+                        }
+                    }
                 }
                 Text("调整会即时预览；保存后用于此设备的文本字幕。", color = PlayerSecondary, fontSize = 12.sp)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

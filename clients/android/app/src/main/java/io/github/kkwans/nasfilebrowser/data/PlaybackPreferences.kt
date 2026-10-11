@@ -8,8 +8,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-data class TextSubtitleAppearance(val scale: Float = 1f, val bottomPadding: Float = .08f) {
-    init { require(scale.isFinite() && scale in .5f..2f && bottomPadding.isFinite() && bottomPadding in 0f.. .4f) }
+enum class TextSubtitleArea { PICTURE, STAGE }
+
+data class TextSubtitleAppearance(val scale: Float = 1f, val bottomPadding: Float = .08f,
+    val area: TextSubtitleArea = TextSubtitleArea.PICTURE, val backgroundOpacity: Float = 0f,
+    val fontKey: String = "subtitle-default") {
+    init {
+        require(scale.isFinite() && scale in .5f..2f && bottomPadding.isFinite() && bottomPadding in 0f.. .4f)
+        require(backgroundOpacity.isFinite() && backgroundOpacity in 0f..1f && fontKey.isNotBlank())
+    }
 }
 
 enum class VideoDecodePolicy(val label: String) {
@@ -32,11 +39,16 @@ class PlaybackPreferences(context: Context) {
     private val subtitleMutable = MutableStateFlow(TextSubtitleAppearance(
         prefs.getFloat("subtitle_scale", 1f).takeIf { it.isFinite() && it in .5f..2f } ?: 1f,
         prefs.getFloat("subtitle_bottom", .08f).takeIf { it.isFinite() && it in 0f.. .4f } ?: .08f,
+        TextSubtitleArea.entries.firstOrNull { it.name == prefs.getString("subtitle_area", "PICTURE") } ?: TextSubtitleArea.PICTURE,
+        prefs.getFloat("subtitle_background", 0f).takeIf { it.isFinite() && it in 0f..1f } ?: 0f,
+        prefs.getString("subtitle_font", "subtitle-default")?.takeIf { it.isNotBlank() } ?: "subtitle-default",
     ))
     val textSubtitleAppearance = subtitleMutable.asStateFlow()
     suspend fun saveTextSubtitleAppearance(value: TextSubtitleAppearance) = subtitleWrites.withLock {
         withContext(Dispatchers.IO) {
-            check(prefs.edit().putFloat("subtitle_scale", value.scale).putFloat("subtitle_bottom", value.bottomPadding).commit()) { "无法保存字幕外观" }
+            check(prefs.edit().putFloat("subtitle_scale", value.scale).putFloat("subtitle_bottom", value.bottomPadding)
+                .putString("subtitle_area", value.area.name).putFloat("subtitle_background", value.backgroundOpacity)
+                .putString("subtitle_font", value.fontKey).commit()) { "无法保存字幕外观" }
         }
         subtitleMutable.value = value
     }
