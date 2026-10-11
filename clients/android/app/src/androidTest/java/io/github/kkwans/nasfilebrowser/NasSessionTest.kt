@@ -1,7 +1,9 @@
 package io.github.kkwans.nasfilebrowser
 
 import android.util.Base64
+import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -11,8 +13,8 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class NasSessionTest {
-    private fun token(id: Long, issued: Long = 0): String {
-        val payload = JSONObject().put("iat", issued).put("user", JSONObject().put("id", id).put("username", "viewer"))
+    private fun token(id: Long, issued: Long = 0, username: String = "viewer"): String {
+        val payload = JSONObject().put("iat", issued).put("user", JSONObject().put("id", id).put("username", username))
         return "header." + Base64.encodeToString(payload.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) + ".signature"
     }
     @Test fun renewedTokensArePersistedOnceAndAnotherIdentityCannotReachStorage() = runBlocking {
@@ -36,6 +38,51 @@ class NasSessionTest {
         assertTrue(runCatching { session.token() }.isFailure)
         assertEquals(listOf(original, renewed), saved)
         session.close()
+    }
+    @Test fun renewedPrincipalMetadataKeepsRestoredAccountActivationConsistent() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val database = Room.inMemoryDatabaseBuilder(context, ClientDatabase::class.java).build()
+        val store = ProfileStore(database, CredentialVault(context))
+        val profile = store.save(ServerProfile(name = "Owned renamed login", address = "https://login.example.test"))
+        val old = token(7, 10)
+        val renewed = token(7, 20, "viewer-renamed")
+        var current = old
+        var session: NasSession? = null
+        try {
+            val previous = store.saveLogin(profile, 7, "viewer", old)
+            val saved = restoreSavedSession(store, profile, previous) { command ->
+                when (command.getString("op")) {
+                    "open" -> "owned-renamed-session"
+                    "token" -> current
+                    "request" -> {
+                        assertEquals("GET", command.getString("method"))
+                        current = renewed
+                        JSONObject().put("status", 200).put("body", "{\"items\":[]}")
+                    }
+                    "close_session" -> null
+                    else -> error("Unexpected owned authentication call")
+                }
+            }
+            val api = saved.api.also { session = it }
+            // Match ClientModel's verified read -> save -> persist -> activate.
+            val account = store.saveLogin(profile, api.identity.id, api.identity.username, api.token())
+            api.persistTokens { store.refreshToken(profile, account, it); Unit }
+            store.activate(profile, account, "owned-renamed-login")
+            assertEquals("viewer-renamed", store.active()?.second?.username)
+            assertEquals("viewer-renamed", api.identity.username)
+            assertEquals(previous.key, account.key)
+            assertEquals(previous.credentialRef, account.credentialRef)
+            assertEquals(renewed, store.token(profile, account))
+            val verified = api.identity
+            current = token(8, 30, "different-viewer")
+            try { api.token(); fail("Renewal must not change the bound user ID") }
+            catch (_: IllegalStateException) { }
+            assertEquals(verified, api.identity)
+            assertEquals(renewed, store.token(profile, account))
+        } finally {
+            try { session?.close() }
+            finally { try { store.remove(profile) } finally { database.close() } }
+        }
     }
     @Test fun previewCapabilityPreservesWirePathAndReleasesOnce() = runBlocking {
         var account = 7L

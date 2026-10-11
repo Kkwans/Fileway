@@ -15,8 +15,11 @@ data class AccountIdentity(val id: Long, val username: String, val hostname: Str
 class ServiceException(val status: Int, message: String) : Exception(message)
 
 /** One immutable server/account context. Never reuse a handle for another login. */
-class NasSession private constructor(val profile: ServerProfile, val id: String, val identity: AccountIdentity,
+class NasSession private constructor(val profile: ServerProfile, val id: String, identity: AccountIdentity,
     private val native: suspend (JSONObject) -> Any?) {
+    private val userId = identity.id
+    @Volatile private var currentIdentity = identity
+    val identity: AccountIdentity get() = currentIdentity
     private val tokenWrites = Mutex()
     private var tokenStore: (suspend (String) -> Unit)? = null
     private var persistedToken: String? = null
@@ -29,7 +32,11 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
     }
     suspend fun token(): String = tokenWrites.withLock {
         val token = native(JSONObject().put("op", "token").put("session", id)) as String
-        check(parseIdentity(token).id == identity.id) { "服务器账号已变化，请重新登录" }
+        val principal = parseIdentity(token)
+        check(principal.id == userId) { "服务器账号已变化，请重新登录" }
+        // Renewal may update the same user's name/permissions. Login storage
+        // and activation must see the claims of the token they are persisting.
+        currentIdentity = principal
         tokenStore?.let { save -> if (persistedToken != token) { save(token); persistedToken = token } }
         token
     }
