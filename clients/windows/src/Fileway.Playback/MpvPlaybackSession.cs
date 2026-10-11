@@ -55,6 +55,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
     }
 
     public Guid Id { get; } = Guid.NewGuid();
+    internal IPlaybackSession? PresentationSession { get; set; }
     internal AccountKey? Account => _request.Input switch { RemotePlaybackInput remote => remote.Resource.Account, LocalPlaybackInput local => local.Origin?.Account, _ => null };
     public PlaybackSnapshot Snapshot { get { lock (_gate) return _snapshot; } }
 
@@ -70,7 +71,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
         try
         {
             string source = await SourceAsync(_request.Input, cancellationToken).ConfigureAwait(false);
-            _surface = await _surfaces.CreateAsync(this, cancellationToken).ConfigureAwait(false);
+            _surface = await _surfaces.CreateAsync(PresentationSession ?? this, cancellationToken).ConfigureAwait(false);
             if (_surface.ParentHwnd == 0) throw MpvNative.Error(ErrorCode.CapabilityMissing, "播放器视频容器尚未就绪。");
             if (_surface is IPlaybackWindowControl window) window.FullscreenChanged += HostFullscreenChanged;
             await Task.Run(() =>
@@ -103,7 +104,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
                     ("eof-reached", 3), ("seekable", 3), ("track-list", 6), ("video-format", 1),
                     ("audio-codec-name", 1), ("hwdec-current", 1), ("current-gpu-context", 1), ("video-params/gamma", 1),
                     ("fullscreen", 3), ("speed", 5), ("volume", 5), ("mute", 3),
-                    ("chapter-list", 6), ("demuxer-cache-state", 6),
+                    ("chapter-list", 6), ("demuxer-cache-state", 6), ("video-out-params", 6),
                 }) _native.Observe(_handle, ++observer, property.Name, property.Format);
             }, cancellationToken).ConfigureAwait(false);
             _events = Task.Factory.StartNew(EventPump, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
@@ -274,6 +275,8 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
                 UpdateChapters(property.Value as JsonElement?); break;
             case "demuxer-cache-state":
                 UpdateCache(property.Value as JsonElement?); break;
+            case "video-out-params":
+                UpdateVideoShape(property.Value as JsonElement?); break;
             case "fullscreen" when property.Value is bool fullscreen:
                 lock (_gate) _nativeFullscreen = fullscreen;
                 if (_hostFullscreen != fullscreen) _ = SetHostFullscreenAsync(fullscreen);
@@ -286,6 +289,28 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             case "video-params/gamma" when property.Value is string gamma:
                 Publish(snapshot => snapshot with { Diagnostics = snapshot.Diagnostics with { SourceDynamicRange = gamma is "pq" or "hlg" ? gamma : "SDR" } }); break;
         }
+    }
+
+    private void UpdateVideoShape(JsonElement? value)
+    {
+        double? aspect = null;
+        if (value is { ValueKind: JsonValueKind.Object } video
+            && video.TryGetProperty("dw", out var widthValue) && widthValue.ValueKind == JsonValueKind.Number && widthValue.TryGetInt32(out var width)
+            && video.TryGetProperty("dh", out var heightValue) && heightValue.ValueKind == JsonValueKind.Number && heightValue.TryGetInt32(out var height)
+            && width is > 0 and <= 65536 && height is > 0 and <= 65536)
+        {
+            var rotate = video.TryGetProperty("rotate", out var rotation) && rotation.ValueKind == JsonValueKind.Number && rotation.TryGetInt32(out var degrees) ? degrees : 0;
+            aspect = Math.Abs(rotate % 180) == 90 ? (double)height / width : (double)width / height;
+        }
+        var pixelWidth = value is { ValueKind: JsonValueKind.Object } source && source.TryGetProperty("w", out var w)
+            && w.ValueKind == JsonValueKind.Number && w.TryGetInt32(out var sourceWidth) && sourceWidth > 0 ? (int?)sourceWidth : null;
+        var pixelHeight = value is { ValueKind: JsonValueKind.Object } source2 && source2.TryGetProperty("h", out var h)
+            && h.ValueKind == JsonValueKind.Number && h.TryGetInt32(out var sourceHeight) && sourceHeight > 0 ? (int?)sourceHeight : null;
+        Publish(snapshot => snapshot with
+        {
+            DisplayAspectRatio = aspect,
+            Diagnostics = snapshot.Diagnostics with { VideoWidth = pixelWidth, VideoHeight = pixelHeight },
+        });
     }
 
     private void HostFullscreenChanged(object? sender, bool fullscreen)

@@ -62,7 +62,10 @@ public sealed record PlaybackDiagnostics(
     bool? DisplayHdrEnabled = null,
     string? SwapChainFormat = null,
     string? SwapChainColorSpace = null,
-    string? ActualOutputMode = null);
+    string? ActualOutputMode = null,
+    int? VideoWidth = null,
+    int? VideoHeight = null,
+    ErrorInfo? ProgressError = null);
 
 public sealed record PlaybackSnapshot(
     Guid SessionId,
@@ -81,7 +84,9 @@ public sealed record PlaybackSnapshot(
     double Volume = 100.0,
     TimeSpan? BufferedUntil = null,
     IReadOnlyList<PlaybackChapter>? Chapters = null,
-    bool IsMuted = false)
+    bool IsMuted = false,
+    double? DisplayAspectRatio = null,
+    PlaybackResumePrompt? ResumePrompt = null)
 {
     public override string ToString() => "PlaybackSnapshot (private media details redacted)";
 }

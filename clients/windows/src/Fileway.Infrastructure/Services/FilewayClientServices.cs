@@ -1,4 +1,7 @@
+using System.Diagnostics;
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
@@ -7,31 +10,38 @@ namespace Fileway.Infrastructure.Services;
 
 /// <summary>Typed, account-bound application services over the supervised Go Host.</summary>
 public sealed class FilewayClientServices : IConnectionService, IFileRepository, IImageContentService,
-    IResourceLeaseProvider, IAsyncDisposable
+    IResourceLeaseProvider, IPlaybackProgressStore, IAsyncDisposable
 {
     private const long MaximumImageBytes = 64L * 1024 * 1024;
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private readonly IHostControlClient _host;
     private readonly object _gate = new();
     private readonly SemaphoreSlim _connections = new(1, 1);
     private readonly Dictionary<AccountKey, SessionState> _sessions = [];
+    private readonly ConditionalWeakTable<RemoteResourceRef, SessionState> _playbackOwners = new();
     private readonly HttpClient _images = new(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false });
     private bool _disposed;
 
     private sealed class SessionState
     {
-        internal SessionState(string coreSession, ConnectionSession session)
+        internal SessionState(string coreSession, ConnectionSession session, ResumePreferences preferences)
         {
             CoreSession = coreSession;
             Session = session;
             LifetimeToken = Lifetime.Token;
+            Preferences = preferences;
         }
         internal string CoreSession { get; }
         internal ConnectionSession Session { get; }
         internal CancellationTokenSource Lifetime { get; } = new();
         internal CancellationToken LifetimeToken { get; }
         internal HashSet<ResourceLease> Leases { get; } = [];
+        internal SemaphoreSlim PlaybackMutations { get; } = new(1, 1);
+        internal ResumePreferences Preferences { get; set; }
         internal bool Active { get; set; } = true;
     }
+
+    private readonly record struct ResumePreferences(PlaybackResumeMode Mode, TimeSpan MinimumPosition);
 
     public FilewayClientServices(IHostControlClient host) => _host = host ?? throw new ArgumentNullException(nameof(host));
 
@@ -74,7 +84,7 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
             lock (_gate)
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                _sessions.Add(session.Account, new SessionState(coreSession, session));
+                _sessions.Add(session.Account, new SessionState(coreSession, session, ParseResumePreferences(user)));
             }
             coreSession = null;
             return session;
@@ -99,7 +109,7 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         cancellationToken.ThrowIfCancellationRequested();
         var state = GetState(session.Account);
         if (state.Session.Id != session.Id) throw Safe(ErrorCode.SourceChanged, "此账户会话已更换，请重新打开目录。");
-        return Task.FromResult(new RemoteResourceRef(session.Account, "/", "根目录", "/"));
+        return Task.FromResult(BindResource(new RemoteResourceRef(session.Account, "/", "根目录", "/"), state));
     }
 
     public async Task<DirectoryPage> ListAsync(RemoteResourceRef directory, DirectoryQuery query, CancellationToken cancellationToken)
@@ -107,14 +117,14 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         ArgumentNullException.ThrowIfNull(directory);
         ArgumentNullException.ThrowIfNull(query);
         if (query.Cursor is not null) throw Safe(ErrorCode.CapabilityMissing, "首预览尚不支持分页目录。");
-        var state = GetState(directory.Account);
+        var state = GetResourceState(directory);
         using var document = await ResourceDocumentAsync(state, directory, false, cancellationToken).ConfigureAwait(false);
         try
         {
             var root = document.RootElement;
-            var parsedDirectory = ParseFile(root, directory.Account);
+            var parsedDirectory = ParseFile(root, state);
             if (!parsedDirectory.IsDirectory || parsedDirectory.Resource.WirePath != directory.WirePath) throw InvalidResponse();
-            var items = root.GetProperty("items").EnumerateArray().Select(item => ParseFile(item, directory.Account)).ToArray();
+            var items = root.GetProperty("items").EnumerateArray().Select(item => ParseFile(item, state)).ToArray();
             Array.Sort(items, (left, right) => CompareFiles(left, right, query));
             EnsureActive(state);
             return new DirectoryPage(parsedDirectory.Resource, items, null, null);
@@ -126,11 +136,11 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
     public async Task<RemoteFile> GetAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(resource);
-        var state = GetState(resource.Account);
+        var state = GetResourceState(resource);
         using var document = await ResourceDocumentAsync(state, resource, true, cancellationToken).ConfigureAwait(false);
         try
         {
-            var file = ParseFile(document.RootElement, resource.Account);
+            var file = ParseFile(document.RootElement, state);
             if (file.Resource.WirePath != resource.WirePath) throw InvalidResponse();
             EnsureActive(state);
             return file;
@@ -143,11 +153,101 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
     public Task<FileOperationResult> RenameAsync(RemoteResourceRef resource, string name, CancellationToken cancellationToken) => UnsupportedWrite(cancellationToken);
     public Task<FileOperationResult> TrashAsync(IReadOnlyList<RemoteResourceRef> resources, CancellationToken cancellationToken) => UnsupportedWrite(cancellationToken);
 
+    public async Task<PlaybackBookmark?> ReadAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ValidateWirePath(resource.WirePath);
+        var state = GetPlaybackState(resource);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        try
+        {
+            // Web refreshes account policy on every open and falls back to its
+            // last verified account preferences when that read is unavailable.
+            try
+            {
+                using var userBody = ParseBody(await RequestAsync(state.CoreSession,
+                    "/api/users/" + state.Session.Account.ServerUserId, linked.Token).ConfigureAwait(false));
+                if (ReadUserId(userBody.RootElement) != state.Session.Account.ServerUserId) throw InvalidResponse();
+                var preferences = ParseResumePreferences(userBody.RootElement);
+                lock (_gate) { EnsureActive(state); state.Preferences = preferences; }
+            }
+            catch (FilewayException error) when (!linked.IsCancellationRequested)
+            {
+                Trace.TraceWarning("Fileway playback preference refresh failed ({0}); using verified account policy.", error.Error.Code);
+            }
+
+            using var document = ParseBody(await RequestAsync(state.CoreSession,
+                PlaybackEndpoint(resource), linked.Token).ConfigureAwait(false));
+            var value = document.RootElement;
+            bool exists = value.GetProperty("exists").GetBoolean();
+            string identity = RequiredText(value.GetProperty("identity"));
+            TimeSpan position = MediaTime(value.GetProperty("position"));
+            TimeSpan duration = MediaTime(value.GetProperty("duration"));
+            lock (_gate)
+            {
+                EnsureActive(state);
+                return exists ? new PlaybackBookmark(position, duration > TimeSpan.Zero ? duration : null,
+                    identity, state.Preferences.Mode, state.Preferences.MinimumPosition) : null;
+            }
+        }
+        catch (FilewayException error) when (error.Error.Code == ErrorCode.Canceled && state.LifetimeToken.IsCancellationRequested)
+        { throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged)); }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException or OverflowException)
+        { throw InvalidResponse(); }
+    }
+
+    public async Task WriteAsync(RemoteResourceRef resource, TimeSpan confirmedPosition, TimeSpan? duration, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        if (confirmedPosition < TimeSpan.Zero || duration < TimeSpan.Zero)
+            throw Safe(ErrorCode.InvalidRequest, "播放位置和时长不能为负数。");
+        var state = GetPlaybackState(resource);
+        string path = PlaybackJsonPath(resource);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        await state.PlaybackMutations.WaitAsync(linked.Token).ConfigureAwait(false);
+        try
+        {
+            EnsureActive(state);
+            var response = await CallAsync("request", new
+            {
+                method = "PUT",
+                endpoint = "/api/media/playback",
+                // The bridge forwards body as json.RawMessage. CallAsync owns
+                // its single JSON encoding, so retain the object here.
+                body = new { path, position = confirmedPosition.TotalSeconds, duration = duration?.TotalSeconds ?? 0 },
+            }, state.CoreSession, linked.Token, HostCallSafety.Mutation).ConfigureAwait(false);
+            // A confirmed 2xx response remains success even if logout wins a
+            // later race. No request or response body is retained or logged.
+            _ = HttpBody(response);
+        }
+        catch (FilewayException error) when (error.Error.Code == ErrorCode.Canceled && state.LifetimeToken.IsCancellationRequested)
+        { throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged)); }
+        finally { state.PlaybackMutations.Release(); }
+    }
+
+    public async Task ClearAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        var state = GetPlaybackState(resource);
+        string endpoint = PlaybackEndpoint(resource);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        await state.PlaybackMutations.WaitAsync(linked.Token).ConfigureAwait(false);
+        try
+        {
+            EnsureActive(state);
+            _ = HttpBody(await CallAsync("request", new { method = "DELETE", endpoint },
+                state.CoreSession, linked.Token, HostCallSafety.Mutation).ConfigureAwait(false));
+        }
+        catch (FilewayException error) when (error.Error.Code == ErrorCode.Canceled && state.LifetimeToken.IsCancellationRequested)
+        { throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged)); }
+        finally { state.PlaybackMutations.Release(); }
+    }
+
     public async Task<IResourceLease> AcquireAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(resource);
         ValidateWirePath(resource.WirePath);
-        var state = GetState(resource.Account);
+        var state = GetResourceState(resource);
         if (!state.Session.Permissions.Download) throw Safe(ErrorCode.PermissionDenied, "此账户没有读取文件内容的权限。");
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         var result = await CallAsync("lease", new { wirePath = resource.WirePath }, state.CoreSession, linked.Token).ConfigureAwait(false);
@@ -241,6 +341,40 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         throw Safe(ErrorCode.SourceChanged, "账户连接已失效，请重新连接。");
     }
 
+    private SessionState GetPlaybackState(RemoteResourceRef resource)
+    {
+        var state = GetResourceState(resource);
+        if (!state.Session.Permissions.Download) throw Safe(ErrorCode.PermissionDenied, Message(ErrorCode.PermissionDenied));
+        return state;
+    }
+
+    private SessionState GetResourceState(RemoteResourceRef resource)
+    {
+        lock (_gate)
+        {
+            // Repository references are bound when created. For a newly
+            // constructed external reference there is no creation lifetime to
+            // infer, so only its currently authorized account can be used.
+            if (!_playbackOwners.TryGetValue(resource, out var state))
+            {
+                state = GetState(resource.Account);
+                _playbackOwners.Add(resource, state);
+            }
+            EnsureActive(state);
+            return state;
+        }
+    }
+
+    private RemoteResourceRef BindResource(RemoteResourceRef resource, SessionState state)
+    {
+        lock (_gate)
+        {
+            EnsureActive(state);
+            _playbackOwners.Add(resource, state);
+            return resource;
+        }
+    }
+
     private void EnsureActive(SessionState state)
     {
         lock (_gate) if (!state.Active || _disposed) throw Safe(ErrorCode.SourceChanged, "账户连接已更换，请刷新后重试。");
@@ -293,12 +427,12 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
     private Task<JsonElement> RequestAsync(string session, string endpoint, CancellationToken cancellationToken) =>
         CallAsync("request", new { method = "GET", endpoint }, session, cancellationToken);
 
-    private async Task<JsonElement> CallAsync(string operation, object parameters, string? session, CancellationToken cancellationToken)
+    private async Task<JsonElement> CallAsync(string operation, object parameters, string? session, CancellationToken cancellationToken, HostCallSafety? safety = null)
     {
         try
         {
             var reply = await _host.CallAsync(new HostCall(operation, JsonSerializer.SerializeToElement(parameters), session,
-                Safety: operation is "open" or "close_session" or "revoke" ? HostCallSafety.Control : HostCallSafety.ReadOnly), cancellationToken).ConfigureAwait(false);
+                Safety: safety ?? (operation is "open" or "close_session" or "revoke" ? HostCallSafety.Control : HostCallSafety.ReadOnly)), cancellationToken).ConfigureAwait(false);
             if (!reply.IsSuccess)
             {
                 if (reply.Error?.HttpStatus is { } status) CheckStatus(status);
@@ -307,6 +441,7 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
                     "Canceled" => ErrorCode.Canceled, "Busy" => ErrorCode.Busy, "ResponseTooLarge" => ErrorCode.ResponseTooLarge,
                     "ProtocolMismatch" or "HandshakeRequired" => ErrorCode.ProtocolMismatch,
                     "HostClosing" or "HostFailure" => ErrorCode.HostExited, "InvalidRequest" => ErrorCode.InvalidRequest,
+                    "OutcomeUnknown" => ErrorCode.OutcomeUnknown,
                     _ => ErrorCode.NetworkUnavailable,
                 };
                 throw Safe(code, Message(code));
@@ -349,7 +484,81 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         return id.ToString(CultureInfo.InvariantCulture);
     }
 
-    private static RemoteFile ParseFile(JsonElement item, AccountKey account)
+    private static ResumePreferences ParseResumePreferences(JsonElement user)
+    {
+        PlaybackResumeMode mode = PlaybackResumeMode.Resume;
+        double minimum = 10;
+        if (user.TryGetProperty("playerPreferences", out var preferences) && preferences.ValueKind == JsonValueKind.Object)
+        {
+            mode = OptionalText(preferences, "resumeMode")?.Trim().ToLowerInvariant() switch
+            {
+                "from-start" or "start" or "restart" or "none" => PlaybackResumeMode.FromStart,
+                "ask" or "prompt" or "choose" => PlaybackResumeMode.Ask,
+                _ => PlaybackResumeMode.Resume,
+            };
+            if (preferences.TryGetProperty("resumeMinSec", out var raw) && raw.ValueKind == JsonValueKind.Number &&
+                raw.TryGetDouble(out double seconds) && double.IsFinite(seconds) && seconds > 0)
+                minimum = Math.Clamp(Math.Floor(seconds + 0.5), 5, 600);
+        }
+        return new ResumePreferences(mode, TimeSpan.FromSeconds(minimum));
+    }
+
+    private static TimeSpan MediaTime(JsonElement value)
+    {
+        double seconds = value.GetDouble();
+        if (!double.IsFinite(seconds) || seconds < 0 || seconds >= TimeSpan.MaxValue.TotalSeconds) throw InvalidResponse();
+        return TimeSpan.FromSeconds(seconds);
+    }
+
+    private static string PlaybackEndpoint(RemoteResourceRef resource)
+    {
+        ValidateWirePath(resource.WirePath);
+        // Query.Get decodes once. Preserve escaped filename bytes, including
+        // literal percent signs, and escape only query delimiters as Web does.
+        string query = resource.WirePath.Replace("/", "%2F", StringComparison.Ordinal)
+            .Replace("+", "%2B", StringComparison.Ordinal).Replace("&", "%26", StringComparison.Ordinal)
+            .Replace("=", "%3D", StringComparison.Ordinal);
+        return "/api/media/playback?path=" + query;
+    }
+
+    private static string PlaybackJsonPath(RemoteResourceRef resource)
+    {
+        ValidateWirePath(resource.WirePath);
+        try
+        {
+            byte[] encoded = StrictUtf8.GetBytes(resource.WirePath);
+            byte[] decoded = new byte[encoded.Length];
+            int length = 0;
+            for (int index = 0; index < encoded.Length; index++)
+            {
+                byte current = encoded[index];
+                if (current == '%')
+                {
+                    if (index + 2 >= encoded.Length) throw InvalidResponse();
+                    int high = Hex(encoded[index + 1]);
+                    int low = Hex(encoded[index + 2]);
+                    if (high < 0 || low < 0) throw InvalidResponse();
+                    current = (byte)((high << 4) | low);
+                    index += 2;
+                }
+                decoded[length++] = current;
+            }
+            string path = StrictUtf8.GetString(decoded, 0, length);
+            if (path.Equals(resource.DisplayPath, StringComparison.Ordinal)) return path;
+        }
+        catch (Exception error) when (error is EncoderFallbackException or DecoderFallbackException) { }
+        throw Safe(ErrorCode.CapabilityMissing, "服务器尚不支持此原始路径的续播保存；仍可直接播放或下载原文件。");
+    }
+
+    private static int Hex(byte value) => value switch
+    {
+        >= (byte)'0' and <= (byte)'9' => value - '0',
+        >= (byte)'A' and <= (byte)'F' => value - 'A' + 10,
+        >= (byte)'a' and <= (byte)'f' => value - 'a' + 10,
+        _ => -1,
+    };
+
+    private RemoteFile ParseFile(JsonElement item, SessionState state)
     {
         string wirePath = RequiredText(item.GetProperty("wirePath"));
         ValidateWirePath(wirePath);
@@ -361,7 +570,8 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         if (size < 0) throw InvalidResponse();
         DateTimeOffset? modified = null;
         if (OptionalText(item, "modified") is { } date && DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)) modified = parsed;
-        return new RemoteFile(new RemoteResourceRef(account, wirePath, name, displayPath), isDirectory, size, modified, OptionalText(item, "type"));
+        return new RemoteFile(BindResource(new RemoteResourceRef(state.Session.Account, wirePath, name, displayPath), state),
+            isDirectory, size, modified, OptionalText(item, "type"));
     }
 
     private static int CompareFiles(RemoteFile left, RemoteFile right, DirectoryQuery query)
@@ -408,6 +618,7 @@ public sealed class FilewayClientServices : IConnectionService, IFileRepository,
         ErrorCode.ProtocolMismatch => "服务器返回的数据格式不受支持。", ErrorCode.HostExited => "连接服务已退出，请重新连接。",
         ErrorCode.InvalidRequest => "请求参数无效。", ErrorCode.Timeout => "连接超时，请稍后重试。", ErrorCode.Conflict => "服务器内容已变化，请刷新后重试。",
         ErrorCode.SourceChanged => "账户连接已更换，请重新连接。", ErrorCode.CapabilityMissing => "当前连接不支持此功能。",
+        ErrorCode.OutcomeUnknown => "操作结果尚未确认；请先核对服务器状态，不要直接重试。",
         _ => "无法完成服务器请求，请检查网络或服务器后重试。",
     };
 

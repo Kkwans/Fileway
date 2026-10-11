@@ -83,7 +83,7 @@ public partial class App : Application, IAsyncDisposable
             _services = new FilewayClientServices(_host);
             _playback = new MpvPlaybackService(_services,
                 new PlaybackWindowFactory(_window!.DispatcherQueue),
-                Path.Combine(directory, "media"));
+                Path.Combine(directory, "media"), _services);
             _window.SetServices(_services, _services, _services, _playback);
             await OpenLaunchFileAsync();
         }
