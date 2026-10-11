@@ -5,11 +5,20 @@ import android.content.Intent
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Configurator
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.UiObject2
 import androidx.test.uiautomator.Until
 import io.github.kkwans.nasfilebrowser.app.*
@@ -474,12 +483,64 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             "[Blocked](javascript:alert%281%29)").toByteArray())) as MarkdownPreview.Reading).document
         val opened = mutableListOf<String>()
         activity.scenario.onActivity { host -> host.setContent { ClientTheme(darkTheme = false) { LibraryTheme {
-            MarkdownBody(document, { opened += it })
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    MarkdownBody(document, { opened += it }, Modifier.fillMaxSize())
+                }
+            }
         } } } }
-        text("Owned external")
-        main { assertTrue(opened.isEmpty()) }
-        val safeBounds = text("Owned external").visibleBounds
-        assertTrue(device.click(safeBounds.left + 5, safeBounds.centerY()))
+        suspend fun clickTextLeaf(label: String) {
+            val packageName = instrumentation.targetContext.packageName
+            val configurator = Configurator.getInstance()
+            val previousIdle = configurator.waitForIdleTimeout
+            var selected: UiObject2? = null
+            var selectedWindow = -1
+            try {
+                configurator.waitForIdleTimeout = 0
+                withTimeout(5000) {
+                    while (selected == null) {
+                        val root = instrumentation.uiAutomation.rootInActiveWindow
+                        if (root != null) try {
+                            if (root.refresh() && root.packageName?.toString() == packageName) {
+                                val windowId = root.windowId
+                                val window = root.window
+                                val display = try { if (android.os.Build.VERSION.SDK_INT >= 30) window?.displayId else 0 }
+                                    finally { window?.recycle() }
+                                val leaf = freshAccessibilityBounds(instrumentation, Rect(0, 0, device.displayWidth, device.displayHeight))
+                                    ?.filter { it.visible && it.enabled && it.text == label }?.singleOrNull()
+                                if (leaf != null && display != null) {
+                                    val objects = device.findObjects(By.pkg(packageName).text(label))
+                                    try {
+                                        val candidate = objects.filter { it.isEnabled && it.displayId == display &&
+                                            it.visibleBounds == leaf.bounds && it.className == leaf.className }.singleOrNull()
+                                        val active = instrumentation.uiAutomation.rootInActiveWindow
+                                        if (active != null) try {
+                                            if (candidate != null && active.refresh() && active.windowId == windowId &&
+                                                active.packageName?.toString() == packageName) {
+                                                selected = candidate; selectedWindow = windowId
+                                            }
+                                        } finally { active.recycle() }
+                                    } catch (_: StaleObjectException) {
+                                        // Discard only a pre-input readiness sample.
+                                    } finally { objects.filter { it !== selected }.forEach { it.recycle() } }
+                                }
+                            }
+                        } finally { root.recycle() }
+                        if (selected == null) delay(25)
+                    }
+                }
+                val active = instrumentation.uiAutomation.rootInActiveWindow ?: error("Missing owned link window")
+                try { check(active.refresh() && active.windowId == selectedWindow && active.packageName?.toString() == packageName) }
+                finally { active.recycle() }
+                if (label == "Owned external") main { assertTrue(opened.isEmpty()) }
+                // Text/LinkAnnotation needs no clickable Text owner. Exactly
+                // one real pointer action; no semantic click or fallback.
+                requireNotNull(selected).click()
+            } finally {
+                try { selected?.recycle() } finally { configurator.waitForIdleTimeout = previousIdle }
+            }
+        }
+        clickTextLeaf("Owned external")
         withTimeout(5000) {
             while (true) {
                 var delivered = false
@@ -488,8 +549,7 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
                 delay(25)
             }
         }
-        val blockedBounds = text("Blocked").visibleBounds
-        assertTrue(device.click(blockedBounds.left + 5, blockedBounds.centerY()))
+        clickTextLeaf("Blocked")
         main { assertEquals(listOf("https://example.invalid/owned"), opened) }
     }
 }
