@@ -32,6 +32,10 @@ The EXE is produced under `<external-artifacts>\bin\Fileway.App\x64\Debug\net10.
 
 ## First local preview
 
+The maintained [product roadmap](docs/product-roadmap.md) assigns Web/Android
+feature parity to concrete Windows milestones. The accepted Screenbox player is
+the baseline; acceptance of that player does not approve all other application UI.
+
 The native preview supports password/noauth connections, directory browsing, sorting and filtering the current directory, file details, a native image window, and libmpv video playback. Its native playback controls port parts of Screenbox's templates and interaction structure: pause, seek, volume/mute, precise speed, chapters, confirmed audio/subtitle track selection, local external-subtitle selection and format-aware subtitle settings. This is a source adaptation, not an embedded Screenbox application or its complete feature set. See [source attribution](licenses/screenbox-ui.md). Sprite and episode providers remain separate work. The file-browser A/B/C appearance selector compares provisional directions; it does not save a product-wide design decision.
 
 A complete local media file can also be opened offline by passing its absolute path as the sole argument to `Fileway.App.exe`. This does not acquire a remote media lease or require login.
@@ -44,6 +48,12 @@ native video metadata; it does not imply HLS transcoding quality selection.
 Windows executable, window, taskbar and installer icons use the Android launcher's
 original foreground paths and background gradient. Raster sizes are platform
 exports of those sources, not a separate Windows brand.
+
+The installer offers a destination folder and a desktop shortcut selected by
+default. Chinese Windows UI or China region defaults to **栖卷**; other preferences
+default to **Fileway**, with an explicit installation language choice taking
+priority. Internal executable names and data paths stay stable. This naming
+policy is separate from future complete UI localization.
 
 This preview uses explicit direct connections, including routes supplied by the system Tailscale installation. System/PAC proxies, embedded tsnet, persistent credentials, transfers, file mutations and external-player integration are not included in this first slice. They remain separate application work. The main interface contains no placeholder actions for those features.
 
