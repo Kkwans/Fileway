@@ -13,7 +13,7 @@ namespace Fileway.Infrastructure.Services;
 /// <summary>Typed, account-bound application services over the supervised Go Host.</summary>
 public sealed partial class FilewayClientServices : IConnectionService, IConnectionCatalog, IFileRepository, IImageContentService, IResourceCollectionsService, IBrowserPreferencesService,
     IServerSearchService, IFileManagementService, IServerTaskService, ITrashService, IFileChecksumService, IOperationHistoryService,
-    IResourceLeaseProvider, IPlaybackProgressStore, IAsyncDisposable
+    IResourceLeaseProvider, IPlaybackProgressStore, IRecentAccessService, IAsyncDisposable
 {
     private const long MaximumImageBytes = 64L * 1024 * 1024;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);

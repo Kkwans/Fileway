@@ -135,7 +135,7 @@ Delete 显式使用回收站语义；服务端和本地任务分别管理，取�
 | 能力域 | Windows 当前状态 / 版本归属 | 对齐入口（仓库相对路径） |
 | --- | --- | --- |
 | 登录/档案/会话/注册 | 档案/DPAPI/恢复/注销已有；组网/代理 0.5，条件注册/代理认证 0.8 | `server/frontend/src/views/Login.vue`、`utils/auth.ts`；Android `ui/ConnectionScreen.kt`、`NetworkSection.kt` |
-| 浏览/视图/远端搜索/收藏/标签/最近 | 浏览与收藏/标签已有；0.2.4 远端搜索核心专项通过，UI/原生及真实旅程待测；最近访问仍欠缺 | Web `views/files/FileListing.vue`、`SearchPage.vue`、`components/Sidebar.vue`；Android `BrowserScreen.kt`、`SearchScreen.kt`、`ClientApp.kt` |
+| 浏览/视图/远端搜索/收藏/标签/最近 | 浏览与收藏/标签已有；0.2.4 远端搜索核心专项及隔离真实服务通过，UI/原生待验收；最近访问服务专项与隔离真实服务已通过，页面/成功打开接入待补 | Web `views/files/FileListing.vue`、`SearchPage.vue`、`components/Sidebar.vue`；Android `BrowserScreen.kt`、`SearchScreen.kt`、`ClientApp.kt` |
 | 新建/批量重命名/复制移动 | 0.2.4 零字节文件/目录、单项/批量重命名、复制移动任务提交核心已实现且集中验证通过；UI/真实旅程待测 | Web `api/files.ts`；Android `FileActions.kt`、`BrowserScreen.kt`；Windows `FilewayClientServices.Files.cs` |
 | 回收站/任务/操作历史 | 0.2.4 own-only 恢复/任务与持久操作核实核心专项通过，UI/真实旅程待测；完整删除管理 0.3 | Web `api/trash.ts`、`api/tasks.ts`、`api/transfers.ts`；Android `DownloadsScreen.kt`、`UploadsScreen.kt` |
 | 上传下载/归档下载/恢复/离线 | 完整本地媒体启动已有；传输和离线索引 0.3，边下载边播放 0.4 | Web `components/prompts/Download.vue`、`api/tus.ts`；Android upload/download runtimes；shared/core `transport/upload.go` |
