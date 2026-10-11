@@ -1,14 +1,15 @@
 param(
     [Alias('PublishDirectory')][string] $PublisherInput,
-    [string] $Version = '0.2.0-preview.2',
+    [string] $Version = '0.2.0',
     [string] $ArtifactsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..\Fileway-windows-artifacts\local')),
     [string] $ToolsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\..\..\Fileway-windows-tools')),
     [string] $OutputDirectory
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
-if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)-preview\.(\d+)$') { throw 'Use a numeric x.y.z-preview.n version.' }
-$fileVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).$($Matches[4])"
+if ($Version -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-preview\.(\d+))?$') { throw 'Use a numeric x.y.z version.' }
+$revision = if ($Matches.ContainsKey(4)) { $Matches[4] } else { '0' }
+$fileVersion = "$($Matches[1]).$($Matches[2]).$($Matches[3]).$revision"
 foreach ($part in $fileVersion.Split('.')) { if ([long]$part -gt 65535) { throw 'Version components must fit a Windows file version.' } }
 $ArtifactsRoot = [System.IO.Path]::GetFullPath($ArtifactsRoot)
 $ToolsRoot = [System.IO.Path]::GetFullPath($ToolsRoot)
@@ -36,7 +37,7 @@ foreach ($entry in $payloadFiles) {
     if ($entry.Name -in @('PREVIEW-PACKAGE.json', 'PREVIEW-README.txt', 'uninstall.exe', 'product-language.txt')) { throw 'Publish input contains reserved packaging or installation files; use the original publish directory.' }
 }
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-$baseName = "Fileway-$Version-win-x64-unsigned-preview"
+$baseName = if ($Version.Contains('-preview.')) { "Fileway-$Version-win-x64-unsigned-preview" } else { "Fileway-$Version-win-x64-unsigned" }
 $zipPath = Join-Path $OutputDirectory ($baseName + '.zip')
 $installerPath = Join-Path $OutputDirectory ($baseName + '-setup.exe')
 $receiptPath = Join-Path $OutputDirectory ($baseName + '.json')

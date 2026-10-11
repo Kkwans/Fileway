@@ -68,8 +68,14 @@ This is a platform adaptation of the same brand, not a separate logo.
 Application windows use a shared frameless caption for the main and image
 windows; playback retains its accepted native window. Normal move/resize,
 maximize/restore, system close and theme behavior remain part of native acceptance.
-0.2.0-preview.1 contains the window/branding slice; preview.2 adds saved connections
-and the browser slice. Neither marks the complete 0.2 feature milestone finished.
+The window/branding and saved-connection/browser slices are delivered as 0.2.0.
+Further usable increments use ordinary versions such as 0.2.1; neither the version
+number nor a local package marks the full product roadmap complete.
+
+Current video buffering comes from mpv memory, with only basic timeline wiring.
+Video disk cache, true buffered intervals, upstream speed, custom cache/download
+locations and a default 5 GB total cache budget are the next priority. Thumbnails
+and original-image disk caching follow and must share that total budget.
 
 The installer offers a destination folder and a desktop shortcut selected by
 default. Chinese Windows UI or China region defaults to **栖卷**; other preferences
@@ -91,6 +97,10 @@ Native media binaries stay outside Git. `vendor/mpv/runtime-packages.lock.json` 
 ```
 
 The runtime is copied under `media` beside the application. Packaging consumes an existing publish directory and creates an unsigned ZIP and a current-user NSIS installer; it does not rebuild, install or publish a GitHub release. Keep the whole extracted directory together and run `Fileway.App.exe`. See [installer behavior](installer/README.md).
+
+Local installers use zlib to reduce packaging time. Focused regression can select
+the affected test classes with `eng/Test-Windows.ps1 -FilterClass <fully-qualified-class>`;
+omitting the filter retains the full suite for relevant shared changes and release candidates.
 
 Visual direction, representative native slice and final product acceptance remain separate gates. Build and runtime evidence belongs outside Git. A successful native media probe does not prove visible first frames, audible sound, HDR, all codecs, multiple monitors or a clean installation.
 

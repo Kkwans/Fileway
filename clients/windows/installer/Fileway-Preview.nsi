@@ -2,8 +2,8 @@
 ; Unsigned, current-user development preview. Payload and uninstall lists are generated externally.
 Unicode true
 RequestExecutionLevel user
-SetCompressor /SOLID lzma
-SetCompressorDictSize 32
+; Local development packages favor short packaging time over maximum compression.
+SetCompressor /SOLID zlib
 AllowSkipFiles off
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
