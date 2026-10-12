@@ -1132,6 +1132,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
     private sealed class ResourceLease(FilewayClientServices owner, SessionState state, RemoteResourceRef resource, Uri address) : IResourceLease, IResourceLeaseStatisticsSource
     {
         private int _disposed;
+        private Task<bool>? _release;
         private ImageContent? _image;
         internal SessionState State { get; } = state;
         public RemoteResourceRef Resource { get; } = resource;
@@ -1188,15 +1189,38 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
 
         public async ValueTask DisposeAsync()
         {
+            _ = await TryDisposeConfirmedAsync().ConfigureAwait(false);
+        }
+
+        /// <summary>Shared release result; false means session closure is needed to retire unobserved authority.</summary>
+        internal Task<bool> TryDisposeConfirmedAsync()
+        {
+            TaskCompletionSource<bool> completion;
             lock (owner._gate)
             {
-                if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+                if (_release is not null) return _release;
+                Interlocked.Exchange(ref _disposed, 1);
                 State.Leases.Remove(this);
                 _image?.CloseContent();
                 _image = null;
+                completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _release = completion.Task;
             }
-            try { await owner.CallAsync("revoke", new { url = Address.AbsoluteUri }, null, CancellationToken.None).ConfigureAwait(false); }
-            catch (FilewayException) { /* Session closure also retires its leases. */ }
+            // Dispatch outside the owner's gate. Retirement awaits this inner
+            // release, so it must never wait for Retirement or call RetireAsync.
+            _ = CompleteReleaseAsync(completion);
+            return completion.Task;
+        }
+
+        private async Task CompleteReleaseAsync(TaskCompletionSource<bool> completion)
+        {
+            try
+            {
+                await owner.CallAsync("revoke", new { url = Address.AbsoluteUri }, null, CancellationToken.None).ConfigureAwait(false);
+                completion.TrySetResult(true);
+            }
+            catch (FilewayException) { completion.TrySetResult(false); }
+            catch (Exception error) { completion.TrySetException(error); }
         }
     }
 

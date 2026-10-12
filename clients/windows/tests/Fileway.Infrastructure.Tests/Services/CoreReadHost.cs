@@ -16,6 +16,7 @@ internal sealed class CoreReadHost : IHostControlClient
     internal bool Delete { get; set; } = true;
     internal bool WireOperations { get; set; } = true;
     internal bool SearchWirePathV1 { get; set; } = true;
+    internal bool ConditionalDownloadV1 { get; set; }
     internal int UserReadStatus { get; set; } = 200;
     internal string CurrentToken { get; set; } = Jwt();
     internal ConcurrentQueue<HostCall> Calls { get; } = new();
@@ -41,7 +42,8 @@ internal sealed class CoreReadHost : IHostControlClient
                 modify = Modify, delete = Delete, execute = false, admin = true },
         }, UserReadStatus);
         else if (request.Operation == "request" && Endpoint(request) == "/api/client-capabilities")
-            result = Http(new { authMethod = "json", searchWirePathV1 = SearchWirePathV1, resourceWireOperations = WireOperations });
+            result = Http(new { authMethod = "json", searchWirePathV1 = SearchWirePathV1, resourceWireOperations = WireOperations,
+                conditionalDownloadV1 = ConditionalDownloadV1 });
         else result = await (Dispatch?.Invoke(request, cancellationToken) ??
             Task.FromException<object>(new InvalidOperationException("Unexpected fixture command.")));
         return new HostReply("fixture", request.Generation, true, JsonSerializer.SerializeToElement(result), null);
