@@ -5,6 +5,7 @@ using Fileway.Infrastructure.Ipc;
 using Fileway.Infrastructure.Services;
 using Fileway.Infrastructure.Persistence;
 using Fileway.Infrastructure.Credentials;
+using Fileway.Infrastructure.Transfers;
 using Fileway.Playback;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
@@ -18,6 +19,8 @@ public partial class App : Application, IAsyncDisposable
     private MainWindow? _window;
     private GoHostClient? _host;
     private FilewayClientServices? _services;
+    private UploadCoordinator? _uploadCoordinator;
+    private UploadApplicationService? _uploads;
     private MpvPlaybackService? _playback;
     private ILocalStorageSettingsService? _storageSettings;
     private FileStream? _dataDirectoryLock;
@@ -103,11 +106,18 @@ public partial class App : Application, IAsyncDisposable
             _storageSettings = storageSettings;
             _services = new FilewayClientServices(_host, profiles,
                 new DpapiCredentialVault(Path.Combine(dataDirectory, "credentials")), storageSettings);
+            var executionDirectory = Path.Combine(dataDirectory, "transfer-locks");
+            Directory.CreateDirectory(executionDirectory);
+            var uploadFiles = new WindowsUploadFileAccess(executionDirectory);
+            var uploadRunner = new FileUploadRunner(profiles, _services, uploadFiles, uploadFiles, _services);
+            _uploadCoordinator = new UploadCoordinator(profiles, uploadRunner);
+            _uploads = new UploadApplicationService(_services, _services, _services, profiles, _uploadCoordinator);
             _playback = new MpvPlaybackService(_services,
                 new PlaybackWindowFactory(_window!.DispatcherQueue),
                 Path.Combine(directory, "media"), _services);
             _window.SetStorageSettings(storageSettings);
-            await _window.SetServicesAsync(_services, _services, _services, _playback, _services, _services);
+            _window.SetUploadService(_uploads);
+            await _window.SetServicesAsync(_uploads, _services, _services, _playback, _uploads, _services);
             try { await storageSettings.InitializeCacheAsync(_lifetime.Token); }
             catch (OperationCanceledException) when (_closing) { }
             catch (FilewayException)
@@ -167,6 +177,14 @@ public partial class App : Application, IAsyncDisposable
         _window?.RequestShutdown();
         await _startup;
         if (_window is not null) await _window.WaitForConnectionAsync();
+        // Stop file writers and release their native source/ownership handles
+        // before retiring the account's resource leases or its Host process.
+        try
+        {
+            if (_uploads is not null) await _uploads.DisposeAsync();
+            else if (_uploadCoordinator is not null) await _uploadCoordinator.DisposeAsync();
+        }
+        catch (Exception error) { RecordStartupFailure(error); }
         // Stop native readers before revoking their HTTP resource leases and the Host.
         try { if (_playback is not null) await _playback.DisposeAsync(); }
         catch (Exception) { /* The Host Job Object still bounds process lifetime. */ }

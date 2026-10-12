@@ -67,7 +67,17 @@ public sealed partial class FilewayClientServices : IUploadLeaseProvider
             // A timed-out control response may hide a capability: closing only
             // this original owner also closes any unobserved late lease.
             if (attempted && captured is null && error.Error.Code == ErrorCode.Timeout)
-                await RetireAsync(state).ConfigureAwait(false);
+            {
+                try { _ = await RetireAsync(state).ConfigureAwait(false); }
+                catch (FilewayException cleanupError)
+                {
+                    PublishConnectionIssue(state, cleanupError.Error);
+                    throw;
+                }
+                // Notify the outer application authority after retirement. Its handler fences admission
+                // and schedules drain; it must never await the runner from this acquisition stack.
+                PublishConnectionIssue(state, error.Error);
+            }
             throw;
         }
     }

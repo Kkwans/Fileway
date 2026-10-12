@@ -28,6 +28,8 @@ public sealed partial class MainWindow : Window, IDisposable
     }
     public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
         => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails);
+    public void SetUploadService(IUploadService uploads)
+        => ((MainPage)RootFrame.Content).SetUploadService(uploads, AppWindow.Id);
     public void SetStorageSettings(ILocalStorageSettingsService settings)
         => ((MainPage)RootFrame.Content).SetStorageSettings(settings, WinRT.Interop.WindowNative.GetWindowHandle(this));
     public void ShowStorageWarning(string message) => ((MainPage)RootFrame.Content).ShowStorageWarning(message);
