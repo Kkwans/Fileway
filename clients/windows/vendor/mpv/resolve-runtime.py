@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -29,6 +30,19 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+
+def open_package_response(url):
+    # Retry only transient HTTP failures before any response body is written.
+    # Certificate, identity, hash and partial-write failures remain fail-closed.
+    for attempt in range(3):
+        try:
+            return urllib.request.urlopen(url, timeout=60)
+        except urllib.error.HTTPError as error:
+            if error.code not in (502, 503, 504) or attempt == 2:
+                raise
+            error.close()
+            time.sleep(2 ** attempt)
+
 def download(url, path, expected=None):
     if is_link(path):
         raise ValueError("Package cache path is a link: " + path.name)
@@ -40,11 +54,11 @@ def download(url, path, expected=None):
     if temporary.exists() or temporary.is_symlink():
         raise RuntimeError("Incomplete package retained; inspect before retrying: " + temporary.name)
     try:
-        response = urllib.request.urlopen(url, timeout=60)
+        response = open_package_response(url)
     except urllib.error.HTTPError as error:
         if error.code != 404 or not url.startswith(BASE):
             raise
-        response = urllib.request.urlopen(url.replace("mirror.msys2.org", "repo.msys2.org", 1), timeout=60)
+        response = open_package_response(url.replace("mirror.msys2.org", "repo.msys2.org", 1))
     with response, open(temporary, "xb") as output:
         shutil.copyfileobj(response, output)
     if expected and digest(temporary) != expected:

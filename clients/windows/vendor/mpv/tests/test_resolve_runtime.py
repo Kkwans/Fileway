@@ -553,6 +553,36 @@ class PackageCacheTests(unittest.TestCase):
         self.assertEqual(late, self.path.read_bytes())
         self.assertEqual(self.data, self.path.with_suffix(self.path.suffix + ".partial").read_bytes())
 
+    def test_transient_http_failures_retry_same_url_before_writing(self):
+        for code in (502, 503, 504):
+            with self.subTest(code=code):
+                failure = urllib.error.HTTPError(self.url, code, "transient", {}, None)
+                with patch.object(resolver.urllib.request, "urlopen", side_effect=[failure, io.BytesIO(self.data)]) as request, patch.object(resolver.time, "sleep") as sleep:
+                    resolver.download(self.url, self.path, sha(self.data))
+                self.assertEqual([self.url, self.url], [call.args[0] for call in request.call_args_list])
+                sleep.assert_called_once_with(1)
+                self.assertEqual(self.data, self.path.read_bytes())
+                self.path.unlink()
+
+    def test_transient_http_retry_is_bounded_and_creates_no_partial(self):
+        failures = [urllib.error.HTTPError(self.url, 502, "transient", {}, None) for _ in range(3)]
+        with patch.object(resolver.urllib.request, "urlopen", side_effect=failures) as request, patch.object(resolver.time, "sleep") as sleep:
+            with self.assertRaises(urllib.error.HTTPError):
+                resolver.download(self.url, self.path, sha(self.data))
+        self.assertEqual(3, request.call_count)
+        self.assertEqual([1, 2], [call.args[0] for call in sleep.call_args_list])
+        self.assertFalse(self.path.exists())
+        self.assertFalse(self.path.with_suffix(self.path.suffix + ".partial").exists())
+
+    def test_nontransient_http_errors_are_not_retried(self):
+        for code in (401, 403, 429):
+            failure = urllib.error.HTTPError(self.url, code, "not retryable", {}, None)
+            with patch.object(resolver.urllib.request, "urlopen", side_effect=failure) as request, patch.object(resolver.time, "sleep") as sleep:
+                with self.assertRaises(urllib.error.HTTPError):
+                    resolver.download(self.url, self.path, sha(self.data))
+            self.assertEqual(1, request.call_count)
+            sleep.assert_not_called()
+
     def test_official_mirror_fallback_retains_package_identity_and_hash(self):
         missing = urllib.error.HTTPError(self.url, 404, "fixture missing", {}, None)
         with patch.object(resolver.urllib.request, "urlopen", side_effect=[missing, io.BytesIO(self.data)]) as request:
