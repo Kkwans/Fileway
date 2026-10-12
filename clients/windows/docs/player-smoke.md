@@ -85,7 +85,12 @@ numeric `player-responsiveness.json`, and these fixed names under `screenshots/`
 Do not upload application executables/DLLs, AVI/manifest files, package caches,
 private app data, databases, raw CLI/UIA/app output or recursive diagnostic folders.
 Events retain only fixed stage/action identifiers, elapsed durations, numeric
-frame/exit observations and codes. Command timings include CLI startup and UIA
+frame/exit observations and codes. On abnormal app exit, bounded diagnostic observations
+may also include allowlisted compiled type/method names and a matching-process Windows
+fault module basename/code/offset. Exception messages, executable paths and raw Windows
+event XML are excluded. Numeric responsiveness evidence is saved before application
+shutdown, so an exit failure does not discard completed interaction evidence.
+Command timings include CLI startup and UIA
 work; they are not application handler latency. The optional app-owned recorder
 retains separately defined numeric UI-dispatch markers.
 

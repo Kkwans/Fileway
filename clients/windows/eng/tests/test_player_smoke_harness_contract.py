@@ -84,6 +84,15 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("scope = 'native-smoke'", text)
         self.assertIn("nativePlaybackVerified = $false", text)
 
+    def test_exit_evidence_does_not_relax_shutdown_gate_or_copy_raw_logs(self):
+        text, _, powershell = source_parts()
+        self.assertIn("Record-SafeExitEvidence", powershell)
+        self.assertIn("Stop-Smoke 'application_exit_code_nonzero'", powershell)
+        self.assertIn("$observedId -ne $script:process.Id", powershell)
+        self.assertNotIn("Record-Observation 'managed-failure' $failure", powershell)
+        self.assertNotIn("Copy-Item", powershell)
+        self.assertLess(text.index("Complete-Step 'close'\n    $null = Copy-SafeDiagnostics"), text.index("$script:stage = 'application-shutdown'"))
+
     def test_artifact_allowlist_contains_only_named_json_and_png(self):
         text, _, _ = source_parts()
         block = re.search(r"\$allowedArtifacts = @\((.*?)\)\n", text, re.S).group(1)

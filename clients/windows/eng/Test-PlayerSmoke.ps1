@@ -516,6 +516,45 @@ function Copy-SafeDiagnostics {
     return $true
 }
 
+
+function Record-SafeExitEvidence {
+    # Only fixed-schema app diagnostics and matching-process numeric Windows
+    # fault fields enter the existing allowlist. Never copy messages or paths.
+    try { $null = Copy-SafeDiagnostics } catch { }
+    try {
+        $path = Join-Path $script:privateRoot 'diagnostics\startup.log'
+        if ([IO.File]::Exists($path) -and (Get-Item -LiteralPath $path).Length -le 32768) {
+            $failures = @(Get-Content -Raw -LiteralPath $path | ConvertFrom-Json -AsHashtable)
+            foreach ($failure in $failures | Select-Object -First 4) {
+                $type = [string]$failure.type
+                if ($type.Length -gt 200 -or $type -notmatch '^(Fileway|System|Microsoft)\.[A-Za-z0-9_.+`<>]+$') { continue }
+                $methods = @($failure.methods | Where-Object {
+                    $_ -is [string] -and $_.Length -le 250 -and $_ -match '^(Fileway|System|Microsoft)\.[A-Za-z0-9_.+`<>]+$'
+                } | Select-Object -First 32)
+                Record-Observation 'managed-failure' @{ type = $type; hresult = [int]$failure.HResult; methods = $methods }
+            }
+        }
+    } catch { }
+    try {
+        $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $script:process.StartTime } -MaxEvents 16 -ErrorAction Stop)
+        foreach ($event in $events) {
+            $xml = [xml]$event.ToXml()
+            $fields = @{}
+            foreach ($datum in $xml.Event.EventData.Data) { $fields[[string]$datum.Name] = [string]$datum.'#text' }
+            $processText = [string]$fields.ProcessId
+            $observedId = if ($processText.StartsWith('0x', [StringComparison]::OrdinalIgnoreCase)) { [Convert]::ToInt64($processText.Substring(2), 16) } else { [long]$processText }
+            if ($observedId -ne $script:process.Id -or $fields.AppName -ne [IO.Path]::GetFileName($AppPath)) { continue }
+            $module = [string]$fields.ModuleName
+            if ($module.Length -gt 100 -or $module -notmatch '^[A-Za-z0-9_.-]+$') { $module = 'redacted' }
+            Record-Observation 'windows-application-fault' @{
+                eventId = 1000; module = $module
+                exceptionCode = [Convert]::ToUInt32(([string]$fields.ExceptionCode -replace '^0x', ''), 16)
+                faultOffset = [Convert]::ToUInt64(([string]$fields.FaultingOffset -replace '^0x', ''), 16)
+            }
+        }
+    } catch { }
+}
+
 $exitCode = 1
 try {
     $candidateRoot = Assert-ExternalPath $OutputRoot
@@ -683,12 +722,16 @@ try {
     Invoke-Control $hud '^关闭视频窗口$'
     $null = Wait-Condition { -not [Fileway.PlayerSmoke.Native]::IsWindow($player) -and -not [Fileway.PlayerSmoke.Native]::IsWindow($hud) -and (Get-Surface 'settings') -eq [IntPtr]::Zero } 'player_surfaces_not_closed' 15000
     Complete-Step 'close'
+    $null = Copy-SafeDiagnostics
     $script:stage = 'application-shutdown'
     $script:process.Refresh()
     if (-not $script:process.CloseMainWindow()) { Stop-Smoke 'application_close_not_delivered' }
     if (-not $script:process.WaitForExit(15000)) { Stop-Smoke 'application_exit_timeout' }
     Record-Observation 'application-exit' @{ exitCode = $script:process.ExitCode }
-    if ($script:process.ExitCode -ne 0) { Stop-Smoke 'application_exit_code_nonzero' }
+    if ($script:process.ExitCode -ne 0) {
+        Record-SafeExitEvidence
+        Stop-Smoke 'application_exit_code_nonzero'
+    }
     foreach ($ownedHost in $script:hosts) {
         if (-not $ownedHost.WaitForExit(15000)) { Stop-Smoke 'owned_host_exit_timeout' }
         Record-Observation 'owned-host-exit' @{ exitCode = $ownedHost.ExitCode }
