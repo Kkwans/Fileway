@@ -18,6 +18,34 @@ Each opened media item has a new generation. Native event data is copied before 
 
 Commands are serialized per session. Rapid seek/resize requests may be coalesced, but stop/close and resource release are not discarded. `StopAsync` is idempotent and terminates the current source; `DisposeAsync` also releases the engine. Native failure and cancellation are explicit states rather than a silent reopen loop.
 
+### UI responsiveness
+
+Video rendering and HUD input use different execution paths. Smooth video does
+not establish a responsive UI. Diagnose delayed menus/fullscreen separately from
+network buffering or dropped video frames; record UI dispatch latency, snapshot
+application time and whether the input handler was reached before changing the
+media transport.
+
+Each surface coalesces its snapshot stream into one pending UI callback and the
+newest applicable snapshot. Cosmetic dispatch uses low priority so ordinary input
+and deferred menus can run; callbacks yield rather than draining indefinitely.
+Session/generation checks and teardown fences reject stale work, while pending
+error/close states are retained. Explicit user close starts immediately on the
+UI thread. Native visibility and bounds calls run on transitions instead of on
+every playback-position notification.
+
+The chapter buffer overlay reuses its existing columns and fills as observed
+range endpoints move. Disjoint cached intervals remain disjoint; only overlapping
+or touching intervals are merged. A duration/chapter structure change rebuilds
+the segments. Hidden controls retain the latest snapshot and refresh their
+timeline synchronously before becoming visible again. These changes preserve the
+accepted Screenbox design rather than substituting another player interface.
+
+Pure layout and scheduling tests do not establish native interaction latency.
+Regression acceptance still includes repeated settings opens, button and F11
+fullscreen changes, seek/resize, hide/show, close during updates, and comparison
+of visible buffered gaps on a real Windows player.
+
 ## Teardown
 
 1. Mark closing, fence new callbacks and preserve the latest confirmed position.

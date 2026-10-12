@@ -19,6 +19,7 @@ namespace Fileway.App.MediaSurfaces;
 internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowControl
 {
     private readonly IPlaybackSession _session;
+    private readonly PlaybackSnapshotDispatcher _snapshotDispatcher;
     private readonly CancellationTokenSource _watchCancellation = new();
     private readonly Grid _root = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Black), RequestedTheme = ElementTheme.Dark };
     private readonly Grid _video = new();
@@ -43,10 +44,17 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private long _subtitlePickerGeneration;
     private bool _initialAspectApplied;
     private bool _userAdjustedWindow;
+    private bool _videoVisible;
+    private RectInt32? _videoBounds;
 
     public PlayerWindow(IPlaybackSession session)
     {
         _session = session;
+        var origin = session.Snapshot;
+        // Settings and seek UIA work also defer at Low. Snapshot rendering must
+        // yield to input without continually outranking those pending callbacks.
+        _snapshotDispatcher = new PlaybackSnapshotDispatcher(origin.SessionId, origin.Generation,
+            action => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => action()), ApplySnapshot);
         Title = session.Snapshot.DisplayName + " · " + AppBranding.DisplayName;
         _windowedPresenter = AppWindow.Presenter as OverlappedPresenter;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
@@ -100,7 +108,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
                 DispatcherQueue.TryEnqueue(() => { UpdateBounds(); _overlay.NotifyActivity(); });
         };
         AppWindow.Closing += (_, args) => { if (_disposed) return; args.Cancel = true; BeginClose(); };
-        Closed += (_, _) => { if (!_disposed) _watchCancellation.Cancel(); };
+        Closed += (_, _) => { _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
         _ = WatchAsync();
     }
 
@@ -263,10 +271,17 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private void Root_Changed(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateBounds();
     private void UpdateBounds()
     {
-        if (_child == 0 || _root.XamlRoot is null) return;
+        if (_disposed || _child == 0 || _root.XamlRoot is null) return;
         var point = _video.TransformToVisual(_root).TransformPoint(new Point(0, 0));
         var scale = _root.XamlRoot.RasterizationScale;
-        NativeVideoWindow.MoveWindow(_child, (int)Math.Round(point.X * scale), (int)Math.Round(point.Y * scale), Math.Max(1, (int)Math.Round(_video.ActualWidth * scale)), Math.Max(1, (int)Math.Round(_video.ActualHeight * scale)), true);
+        var videoBounds = new RectInt32((int)Math.Round(point.X * scale), (int)Math.Round(point.Y * scale),
+            Math.Max(1, (int)Math.Round(_video.ActualWidth * scale)), Math.Max(1, (int)Math.Round(_video.ActualHeight * scale)));
+        if (_videoBounds is not { } previous || !previous.Equals(videoBounds))
+        {
+            _videoBounds = videoBounds;
+            if (!NativeVideoWindow.MoveWindow(_child, videoBounds.X, videoBounds.Y, videoBounds.Width, videoBounds.Height, true))
+                _videoBounds = null;
+        }
         UpdateVideoVisibility();
         _overlay.SetWindowMaximized(NativePlayerOverlay.IsZoomed(_window));
         if (NativePlayerOverlay.GetWindowRect(_child, out var bounds)) _overlay.SyncBounds(bounds, !_detached);
@@ -276,6 +291,8 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     {
         if (_child == 0) return;
         var visible = !_showingState && !_detached;
+        if (_videoVisible == visible) return;
+        _videoVisible = visible;
         NativeVideoWindow.ShowWindow(_child, visible ? 8 : 0);
         if (visible) NativeVideoWindow.SetWindowPos(_child, 0, 0, 0, 0, 0, 0x0013);
     }
@@ -291,15 +308,24 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
         try
         {
             await foreach (var snapshot in _session.WatchAsync(_watchCancellation.Token).ConfigureAwait(false))
-                DispatcherQueue.TryEnqueue(() => ApplySnapshot(snapshot));
+                _snapshotDispatcher.Publish(snapshot);
         }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { DispatcherQueue.TryEnqueue(() => { if (!_detached) ShowState("播放暂时不可用", MainPage.ErrorMessage(exception), loading: false); }); }
+        catch (Exception exception)
+        {
+            _snapshotDispatcher.Stop();
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_closing && !_disposed && !_detached && _snapshotDispatcher.Owns(_session.Snapshot))
+                    ShowState("播放暂时不可用", MainPage.ErrorMessage(exception), loading: false);
+            });
+        }
     }
 
     private void ApplySnapshot(PlaybackSnapshot snapshot)
     {
-        if (_detached) return;
+        if (_disposed || _detached || !_snapshotDispatcher.Owns(snapshot) || !_snapshotDispatcher.Owns(_session.Snapshot)
+            || (_closing && !PlaybackSnapshotDispatcher.IsLifecycleSnapshot(snapshot))) return;
         FitInitialVideoAspect(snapshot.DisplayAspectRatio);
         _overlay.ApplySnapshot(snapshot);
         if (snapshot.Error is { } error) { ShowState("无法播放这个视频", error.Message, loading: false); return; }
@@ -375,7 +401,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     public ValueTask SetFullscreenAsync(bool fullscreen, CancellationToken cancellationToken) => OnUiAsync(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (_detached || _disposed) return;
+        if (_detached || _disposed || _closing) return;
         var isFullscreen = AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
         if (fullscreen == isFullscreen) return;
         if (fullscreen)
@@ -401,7 +427,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     public ValueTask ShowControlsAsync(CancellationToken cancellationToken) => OnUiAsync(() =>
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!_detached && !_disposed) _overlay.ShowControls();
+        if (!_detached && !_disposed && !_closing) _overlay.ShowControls();
     });
 
     private void AddTracks(MenuFlyout menu, PlaybackSnapshot snapshot, MediaTrackKind kind, string label)
@@ -457,7 +483,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     {
         try { await command(); }
         catch (OperationCanceledException) { }
-        catch (Exception exception) { if (!_detached) ShowState("操作未完成", MainPage.ErrorMessage(exception), loading: false); }
+        catch (Exception exception) { if (!_closing && !_disposed && !_detached) ShowState("操作未完成", MainPage.ErrorMessage(exception), loading: false); }
     }
 
     private void Overlay_AddSubtitleRequested(object? sender, EventArgs args) => _ = AddLocalSubtitleAsync();
@@ -539,7 +565,9 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     {
         if (_closing || _disposed) return;
         _closing = true;
+        _snapshotDispatcher.BeginClosing();
         Interlocked.Increment(ref _subtitlePickerGeneration);
+        ShowState("正在关闭视频", "正在释放播放资源…", loading: true);
         _ = CloseSessionAsync();
     }
     private async Task CloseSessionAsync()
@@ -550,12 +578,18 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             catch (Exception) { /* Disposal still owns native renderer teardown. */ }
             await _session.DisposeAsync();
         }
-        catch (Exception exception) { _closing = false; ShowState("暂时无法关闭视频", MainPage.ErrorMessage(exception), loading: false); }
+        catch (Exception exception)
+        {
+            if (_disposed || _detached) return;
+            _closing = false;
+            ShowState("暂时无法关闭视频", MainPage.ErrorMessage(exception), loading: false);
+        }
     }
 
     public ValueTask DetachAsync(CancellationToken cancellationToken) => OnUiAsync(() =>
     {
         if (_disposed) return;
+        _snapshotDispatcher.Stop();
         Interlocked.Increment(ref _subtitlePickerGeneration);
         _detached = true; _watchCancellation.Cancel(); _overlay.Hide(); UpdateVideoVisibility();
     });
@@ -563,6 +597,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     public ValueTask DisposeAsync() => OnUiAsync(() =>
     {
         if (_disposed) return;
+        _snapshotDispatcher.Stop();
         Interlocked.Increment(ref _subtitlePickerGeneration);
         _disposed = true; _detached = true; _watchCancellation.Cancel();
         _overlay.AddSubtitleRequested -= Overlay_AddSubtitleRequested;

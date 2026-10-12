@@ -224,10 +224,17 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public void ShowControls()
     {
         if (_disposed) return;
+        // Hidden snapshots retain their data without allocating/rendering
+        // buffer geometry. Refresh synchronously before revealing the HUD.
+        if (!ControlsVisible) UpdateChapterProgress(force: true);
         _fade?.Stop();
         Chrome.Opacity = 1;
         Chrome.IsHitTestVisible = true;
-        if (!ControlsVisible) { ControlsVisible = true; ControlsVisibilityChanged?.Invoke(this, EventArgs.Empty); }
+        if (!ControlsVisible)
+        {
+            ControlsVisible = true;
+            ControlsVisibilityChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     private void Controls_Loaded(object sender, RoutedEventArgs args)
@@ -372,8 +379,9 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         TimeText.Text = Clock(position) + " / " + (_snapshot.Duration is { } duration ? Clock(duration) : "--:--");
         AutomationProperties.SetHelpText(SeekSlider, "当前位置 " + TimeText.Text);
     }
-    private void UpdateChapterProgress()
+    private void UpdateChapterProgress(bool force = false)
     {
+        if (!ControlsVisible && !force) return;
         var duration = _snapshot.Duration?.TotalSeconds ?? 0;
         SeekSlider.ApplyTimeline(duration,
             _seeking ? SeekSlider.Value : (_snapshot.ConfirmedPosition ?? _snapshot.Position).TotalSeconds, _snapshot.BufferedRanges, _snapshot.Chapters);

@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
+using Windows.Graphics;
 using Windows.System;
 using Windows.UI.ViewManagement;
 
@@ -28,6 +29,9 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private bool _disposed;
     private bool _activatedOnce;
     private bool _ownerVisible;
+    private bool? _windowVisible;
+    private bool? _materialHighContrast;
+    private RectInt32? _windowBounds;
 
     internal PlayerOverlayWindow(IPlaybackSession session, nint owner)
     {
@@ -153,9 +157,14 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         if (!_disposed) _controls.ReportError(message);
     }
 
-    private void Controls_ActualThemeChanged(FrameworkElement sender, object args) => RefreshBackdropState();
+    private void Controls_ActualThemeChanged(FrameworkElement sender, object args)
+    {
+        _materialHighContrast = null;
+        RefreshBackdropState();
+    }
     private void Controls_Loaded(object sender, RoutedEventArgs args)
     {
+        _materialHighContrast = null;
         UpdateMaterialVisibility();
         DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, RecordIconDiagnostics);
     }
@@ -165,19 +174,25 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void UpdateMaterialVisibility()
     {
         if (_disposed) return;
-        if (!_controls.ControlsVisible || !_ownerVisible)
+        var visible = _controls.ControlsVisible && _ownerVisible;
+        if (_windowVisible != visible)
         {
             // An empty visible owned HWND can retain activation and obstruct
             // foreground recovery. Hide it and return focus only within this group.
-            if (NativePlayerOverlay.GetForegroundWindow() == _window)
+            if (!visible && NativePlayerOverlay.GetForegroundWindow() == _window)
                 NativePlayerOverlay.SetForegroundWindow(_owner);
-            NativeVideoWindow.ShowWindow(_window, 0);
-            return;
+            _windowVisible = visible;
+            // Keep the full transparent XAML surface: popup content can extend
+            // above the footer and must never be clipped to a native toolbar region.
+            NativeVideoWindow.ShowWindow(_window, visible ? 4 : 0);
         }
-        // Keep the full transparent XAML surface: popup content can extend above
-        // the footer and must never be clipped to a native toolbar region.
-        NativeVideoWindow.ShowWindow(_window, 4);
-        _controls.SetMaterialAvailable(true, _policyAccessibility.HighContrast);
+        if (visible)
+        {
+            var highContrast = _policyAccessibility.HighContrast;
+            if (_materialHighContrast == highContrast) return;
+            _materialHighContrast = highContrast;
+            _controls.SetMaterialAvailable(true, highContrast);
+        }
     }
 
     private void RecordIconDiagnostics()
@@ -246,7 +261,6 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         if (!_disposed)
         {
-            RefreshBackdropState();
             _controls.ApplySnapshot(snapshot);
         }
     }
@@ -261,7 +275,6 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         if (!_disposed)
         {
-            RefreshBackdropState();
             _controls.NotifyActivity();
         }
     }
@@ -270,8 +283,11 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         if (_disposed) return;
         _controls.ShowControls();
+        if (!_ownerVisible) return;
         _activatedOnce = true;
         Activate();
+        _windowVisible = true;
+        UpdateMaterialVisibility();
         FocusFirstControl(_controls);
     }
 
@@ -287,23 +303,28 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     internal void SyncBounds(NativePlayerOverlay.Rect bounds, bool visible)
     {
         if (_disposed) return;
-        RefreshBackdropState();
         _ownerVisible = visible && !NativePlayerOverlay.IsIconic(_owner) && NativePlayerOverlay.IsWindowVisible(_owner);
         if (!_ownerVisible)
         {
-            NativeVideoWindow.ShowWindow(_window, 0);
+            UpdateMaterialVisibility();
             return;
         }
         // All values are physical pixels from the owner's actual video HWND.
         // Preserve z-order while moving, especially when the owner is inactive.
-        NativeVideoWindow.SetWindowPos(_window, 0, bounds.Left, bounds.Top,
-            Math.Max(1, bounds.Right - bounds.Left), Math.Max(1, bounds.Bottom - bounds.Top), 0x0014);
+        var windowBounds = new RectInt32(bounds.Left, bounds.Top, Math.Max(1, bounds.Right - bounds.Left), Math.Max(1, bounds.Bottom - bounds.Top));
+        if (_windowBounds is not { } previous || !previous.Equals(windowBounds))
+        {
+            _windowBounds = windowBounds;
+            if (!NativeVideoWindow.SetWindowPos(_window, 0, windowBounds.X, windowBounds.Y, windowBounds.Width, windowBounds.Height, 0x0014))
+                _windowBounds = null;
+        }
         if (!_activatedOnce && NativePlayerOverlay.GetForegroundWindow() == _owner)
         {
             // WinUI's first Activate completes the content lifetime. Only do
             // this while the owner is already foreground, then restore it.
             _activatedOnce = true;
             Activate();
+            _windowVisible = true;
             NativePlayerOverlay.SetForegroundWindow(_owner);
         }
         UpdateMaterialVisibility();
@@ -313,7 +334,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         if (_disposed) return;
         _ownerVisible = false;
-        NativeVideoWindow.ShowWindow(_window, 0);
+        UpdateMaterialVisibility();
     }
 
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
