@@ -2,9 +2,9 @@ name: Windows media runtime lock
 on:
   push:
     branches: [main, codex/windows-native-client]
-    paths: ['clients/windows/vendor/mpv/**', '.github/workflows/windows-media-runtime.yml']
+    paths: ['clients/windows/vendor/mpv/**', 'clients/windows/eng/New-PlayerSmokeFixture.py', 'clients/windows/eng/tests/test_player_smoke_fixture.py', '.github/workflows/windows-media-runtime.yml']
   pull_request:
-    paths: ['clients/windows/vendor/mpv/**', '.github/workflows/windows-media-runtime.yml']
+    paths: ['clients/windows/vendor/mpv/**', 'clients/windows/eng/New-PlayerSmokeFixture.py', 'clients/windows/eng/tests/test_player_smoke_fixture.py', '.github/workflows/windows-media-runtime.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -26,3 +26,7 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: '1'
         run: python -m unittest discover -s clients/windows/vendor/mpv/tests -p "test_*.py" -v
+      - name: Test deterministic private video fixture
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -m unittest discover -s clients/windows/eng/tests -p "test_player_smoke_fixture.py" -v
