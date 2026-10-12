@@ -565,6 +565,7 @@ class PackageCacheTests(unittest.TestCase):
                 self.path.unlink()
 
     def test_transient_http_retry_is_bounded_and_creates_no_partial(self):
+        self.url = "https://repo.msys2.org/mingw/ucrt64/" + self.path.name
         failures = [urllib.error.HTTPError(self.url, 502, "transient", {}, None) for _ in range(3)]
         with patch.object(resolver.urllib.request, "urlopen", side_effect=failures) as request, patch.object(resolver.time, "sleep") as sleep:
             with self.assertRaises(urllib.error.HTTPError):
@@ -582,6 +583,13 @@ class PackageCacheTests(unittest.TestCase):
                     resolver.download(self.url, self.path, sha(self.data))
             self.assertEqual(1, request.call_count)
             sleep.assert_not_called()
+
+    def test_exhausted_mirror_gateway_errors_use_only_official_origin(self):
+        failures = [urllib.error.HTTPError(self.url, 502, "transient", {}, None) for _ in range(3)]
+        with patch.object(resolver.urllib.request, "urlopen", side_effect=failures + [io.BytesIO(self.data)]) as request, patch.object(resolver.time, "sleep"):
+            resolver.download(self.url, self.path, sha(self.data))
+        self.assertEqual([self.url] * 3 + [self.url.replace("mirror.msys2.org", "repo.msys2.org", 1)], [call.args[0] for call in request.call_args_list])
+        self.assertEqual(self.data, self.path.read_bytes())
 
     def test_official_mirror_fallback_retains_package_identity_and_hash(self):
         missing = urllib.error.HTTPError(self.url, 404, "fixture missing", {}, None)

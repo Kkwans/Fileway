@@ -56,8 +56,11 @@ def download(url, path, expected=None):
     try:
         response = open_package_response(url)
     except urllib.error.HTTPError as error:
-        if error.code != 404 or not url.startswith(BASE):
+        if error.code not in (404, 502, 503, 504) or not url.startswith(BASE):
             raise
+        # MSYS2 documents repo.msys2.org as its primary server. Only the
+        # authority changes; the locked package path and hash remain mandatory.
+        error.close()
         response = open_package_response(url.replace("mirror.msys2.org", "repo.msys2.org", 1))
     with response, open(temporary, "xb") as output:
         shutil.copyfileobj(response, output)
