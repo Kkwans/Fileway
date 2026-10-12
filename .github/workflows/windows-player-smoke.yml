@@ -1,0 +1,80 @@
+name: Windows player interaction smoke
+on:
+  push:
+    branches: [codex/windows-native-client]
+    paths:
+      - '.github/workflows/windows-player-smoke.yml'
+      - 'clients/windows/eng/Test-PlayerSmoke.ps1'
+      - 'clients/windows/eng/New-PlayerSmokeFixture.py'
+      - 'clients/windows/vendor/mpv/runtime-packages.lock.json'
+      - 'clients/windows/vendor/mpv/requirements-restore.txt'
+      - 'clients/windows/src/Fileway.App/MediaSurfaces/**'
+      - 'clients/windows/src/Fileway.App/Controls/Playback/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-player:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: clients/windows
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      WINAPP_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Configure isolated paths
+        run: |
+          @(
+            "FILEWAY_TOOLS_ROOT=$env:RUNNER_TEMP\Fileway-player-tools"
+            "FILEWAY_ARTIFACTS_ROOT=$env:RUNNER_TEMP\Fileway-player-artifacts"
+            "FILEWAY_NUGET_PACKAGES=$env:RUNNER_TEMP\Fileway-player-nuget"
+            "FILEWAY_SMOKE_EVIDENCE=$env:RUNNER_TEMP\Fileway-player-evidence"
+            "FILEWAY_SMOKE_MEDIA=$env:RUNNER_TEMP\Fileway-player-fixture\sample.avi"
+          ) | Add-Content -LiteralPath $env:GITHUB_ENV
+      - name: Install pinned isolated toolchains
+        run: ./eng/Install-WindowsTools.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT
+      - name: Check interactive desktop and capture before media downloads
+        run: ./eng/Test-PlayerSmoke.ps1 -PreflightOnly -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
+      - name: Install hash-locked PE inspection in private virtual environment
+        run: |
+          python -m venv "$env:FILEWAY_TOOLS_ROOT\mpv-python"
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot create isolated Python environment.' }
+          & "$env:FILEWAY_TOOLS_ROOT\mpv-python\Scripts\python.exe" -m pip install --require-hashes --only-binary=:all: --no-deps -r vendor/mpv/requirements-restore.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Hash-locked PE inspection installation failed.' }
+      - name: Restore exact committed media runtime
+        run: |
+          & "$env:FILEWAY_TOOLS_ROOT\mpv-python\Scripts\python.exe" vendor/mpv/resolve-runtime.py --artifacts-root $env:FILEWAY_ARTIFACTS_ROOT --lock-input vendor/mpv/runtime-packages.lock.json
+          if ($LASTEXITCODE -ne 0) { throw 'Pinned media runtime restore failed.' }
+          & "$env:FILEWAY_TOOLS_ROOT\mpv-python\Scripts\python.exe" vendor/mpv/probe-runtime.py "$env:FILEWAY_ARTIFACTS_ROOT\media-runtime\x64"
+          if ($LASTEXITCODE -ne 0) { throw 'Native media runtime probe failed.' }
+      - name: Build native application without publishing a package
+        run: ./eng/Build-Windows.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES -MediaRuntimeRoot "$env:FILEWAY_ARTIFACTS_ROOT\media-runtime\x64" -Configuration Release
+      - name: Generate private deterministic video
+        run: |
+          python eng/New-PlayerSmokeFixture.py --output $env:FILEWAY_SMOKE_MEDIA --duration-seconds 180
+          if ($LASTEXITCODE -ne 0) { throw 'Synthetic media generation failed.' }
+      - name: Verify native playback and interactions
+        run: |
+          . ./eng/Use-WindowsEnvironment.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES
+          $target = (& dotnet msbuild src/Fileway.App/Fileway.App.csproj -getProperty:TargetDir -p:Configuration=Release -p:Platform=x64 -nologo).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not [IO.Path]::IsPathFullyQualified($target)) { throw 'Cannot locate the built native application.' }
+          ./eng/Test-PlayerSmoke.ps1 -AppPath (Join-Path $target 'Fileway.App.exe') -MediaPath $env:FILEWAY_SMOKE_MEDIA -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
+      - name: Preserve only allowlisted synthetic UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-player-interaction-evidence
+          path: |
+            ${{ runner.temp }}/Fileway-player-evidence/report.json
+            ${{ runner.temp }}/Fileway-player-evidence/events.jsonl
+            ${{ runner.temp }}/Fileway-player-evidence/player-responsiveness.json
+            ${{ runner.temp }}/Fileway-player-evidence/screenshots/*.png
+          if-no-files-found: ignore
