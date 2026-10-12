@@ -1,0 +1,28 @@
+name: Windows media runtime lock
+on:
+  push:
+    branches: [main, codex/windows-native-client]
+    paths: ['clients/windows/vendor/mpv/**', '.github/workflows/windows-media-runtime.yml']
+  pull_request:
+    paths: ['clients/windows/vendor/mpv/**', '.github/workflows/windows-media-runtime.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-contracts:
+    name: Offline lock contracts (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Test locked restore without downloading media packages
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: python -m unittest discover -s clients/windows/vendor/mpv/tests -p "test_*.py" -v
