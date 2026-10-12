@@ -23,6 +23,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private readonly NativeVideoWindow.SubclassProc _procedure;
     private readonly KeyEventHandler _keyHandler;
     private readonly nint _window;
+    private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private Action? _onClosed;
     private bool _subclassed;
     private bool _shown;
@@ -30,8 +31,10 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private bool _closed;
     private bool _released;
 
-    internal PlayerSettingsWindow(nint owner, FrameworkElement content, Style? presenterStyle, Action onClosed)
+    internal PlayerSettingsWindow(nint owner, FrameworkElement content, Style? presenterStyle, Action onClosed,
+        PlaybackResponsivenessDiagnostics? responsiveness = null)
     {
+        _responsiveness = responsiveness;
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(onClosed);
         _onClosed = onClosed;
@@ -121,15 +124,23 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             // Size before the first show, then finish XAML initialization without
             // activation. Re-measure once using the target window's actual DPI.
             PlaceAndMeasure(information.Work, anchorRight, anchorTop, anchorBottom, anchorScale);
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsShowBegin);
             AppWindow.Show(false);
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsShowEnd);
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutBegin, 1);
             _root.UpdateLayout();
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutEnd, 1);
             PlaceAndMeasure(information.Work, anchorRight, anchorTop, anchorBottom,
                 _root.XamlRoot?.RasterizationScale ?? anchorScale);
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutBegin, 2);
             _root.UpdateLayout();
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutEnd, 2);
             _shown = true;
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsActivateBegin);
             Activate(); // This surface was explicitly opened for interaction.
             FocusFirstControl(_root, anchor is Control { FocusState: FocusState.Keyboard }
                 ? FocusState.Keyboard : FocusState.Programmatic);
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsActivateEnd);
         }
         catch
         {
@@ -140,6 +151,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
 
     private void PlaceAndMeasure(NativePlayerOverlay.Rect work, int anchorRight, int anchorTop, int anchorBottom, double scale)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsMeasureBegin);
         var gap = Math.Max(1, (int)Math.Ceiling(8 * scale));
         var availableWidth = Math.Max(1, work.Right - work.Left - gap * 2);
         var availableHeight = Math.Max(1, work.Bottom - work.Top - gap * 2);
@@ -159,10 +171,12 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         top = Math.Clamp(top, work.Top + gap, work.Bottom - gap - height);
         if (!NativeVideoWindow.SetWindowPos(_window, 0, left, top, width, height, 0x0214)) // NOACTIVATE | NOZORDER | NOOWNERZORDER.
             throw NativeFailure("SetWindowPos");
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsMeasureEnd);
     }
 
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsActivation, (int)args.WindowActivationState);
         if (_shown && args.WindowActivationState == WindowActivationState.Deactivated)
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, DismissIfOutside);
     }

@@ -46,6 +46,39 @@ Regression acceptance still includes repeated settings opens, button and F11
 fullscreen changes, seek/resize, hide/show, close during updates, and comparison
 of visible buffered gaps on a real Windows player.
 
+### Opt-in local responsiveness evidence
+
+`FILEWAY_PLAYER_RESPONSIVENESS_DIAGNOSTICS=1` enables a two-minute local capture
+for the first player opened while no other capture is active. Without this exact
+value, no diagnostic worker, queue probe or file write is started. Captures use
+the existing `FILEWAY_WINDOWS_DATA_ROOT` (or the normal local preview data root)
+and replace `diagnostics/player-responsiveness.json`; there is no automatic upload.
+
+The recorder retains at most 512 numeric events, one outstanding Normal-priority
+UI probe and one background writer. The report and temporary file are each
+limited to 256 KiB. Closing/detaching the player cancels capture without waiting
+on the UI thread. Unavailable storage or rejected dispatch disables evidence
+collection without changing playback. UI producers use one nonblocking atomic
+slot update; they never write files or wait for the writer.
+
+Evidence includes settings/fullscreen handler arrival, UI queue latency/pending
+age, paired menu creation/measurement/layout/show/activation markers, fullscreen
+presenter markers, activation/visibility state, and sampled hit-test, bounds and
+snapshot-application duration. Ordinary hot-path durations are sampled at most
+once per second; calls taking at least 50 ms are retained. Settings action values
+are fixed identifiers: 1 audio, 2 subtitles, 3 speed, 4 volume, 5 subtitle style,
+6 overflow, 7 chapters and 8 source resolution. Event identifiers are defined by
+the application-owned `PlaybackDiagnosticEvent` enum; timestamps/durations use
+relative monotonic microseconds. An unfinished begin marker and an aging queue
+probe can remain visible while the UI is blocked.
+
+The schema accepts only fixed event identifiers, sequences, numeric durations
+and counters/booleans. It does not retain media titles or paths, resource URLs,
+accounts, text input, pointer coordinates, HWNDs or exception messages. Enabling
+diagnostics does not change Screenbox styling, window hit testing, engine commands
+or media transport. Passing recorder tests establishes this diagnostic capability;
+it does not establish a fix for native interaction stalls.
+
 ## Teardown
 
 1. Mark closing, fence new callbacks and preserve the latest confirmed position.

@@ -1,6 +1,7 @@
 // Adapted from Screenbox 6870eb0 PlayerControls, SeekBar and PlaybackSpeedControl.
 // GPL-3.0; upstream attribution and modification record: licenses/screenbox-ui.md.
 using System.Globalization;
+using Fileway.App.MediaSurfaces;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -21,6 +22,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 {
     private const double ExpandedControlsMinWidth = 1000;
     private readonly IPlaybackSession _session;
+    private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly DispatcherQueueTimer _hideTimer;
     private readonly DispatcherQueueTimer _resumeTimer;
@@ -55,9 +57,12 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private Action? _activeSettingsClosed;
     private bool _nativeSettingsOpen;
 
-    public ScreenboxPlayerControls(IPlaybackSession session)
+    public ScreenboxPlayerControls(IPlaybackSession session) : this(session, null) { }
+
+    internal ScreenboxPlayerControls(IPlaybackSession session, PlaybackResponsivenessDiagnostics? responsiveness)
     {
         _session = session;
+        _responsiveness = responsiveness;
         _snapshot = session.Snapshot;
         InitializeComponent();
         _inlineVolumeControl = new ScreenboxVolumeControl(_snapshot.Volume, _snapshot.IsMuted, RequestVolume,
@@ -399,6 +404,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Chapter_Click(object sender, RoutedEventArgs args)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 7);
         if (_snapshot.Chapters is not { Count: > 0 } chapters) return;
         var menu = new MenuFlyout();
         var current = chapters.LastOrDefault(chapter => chapter.Position <= (_snapshot.ConfirmedPosition ?? _snapshot.Position));
@@ -423,10 +429,14 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Minimize_Click(object sender, RoutedEventArgs args) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
     private void Maximize_Click(object sender, RoutedEventArgs args) => MaximizeRequested?.Invoke(this, EventArgs.Empty);
-    private void Fullscreen_Click(object sender, RoutedEventArgs args) => ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty);
+    private void Fullscreen_Click(object sender, RoutedEventArgs args)
+    {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenInput);
+        ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty);
+    }
 
-    private void Audio_Click(object sender, RoutedEventArgs args) => ShowTracks(AudioButton, MediaTrackKind.Audio);
-    private void Subtitle_Click(object sender, RoutedEventArgs args) => ShowTracks(SubtitleButton, MediaTrackKind.Subtitle);
+    private void Audio_Click(object sender, RoutedEventArgs args) { _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 1); ShowTracks(AudioButton, MediaTrackKind.Audio); }
+    private void Subtitle_Click(object sender, RoutedEventArgs args) { _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 2); ShowTracks(SubtitleButton, MediaTrackKind.Subtitle); }
     private static string? SourceResolution(PlaybackSnapshot snapshot) => snapshot.Diagnostics is { VideoWidth: > 0, VideoHeight: > 0 } diagnostics
         ? $"{diagnostics.VideoWidth}×{diagnostics.VideoHeight}" : null;
 
@@ -439,6 +449,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Resolution_Click(object sender, RoutedEventArgs args)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 8);
         if (SourceResolution(_snapshot) is not { } resolution) return;
         var menu = new MenuFlyout();
         menu.Items.Add(SourceResolutionItem(resolution));
@@ -447,6 +458,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void More_Click(object sender, RoutedEventArgs args)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 6);
         var menu = new MenuFlyout();
         if (SourceResolution(_snapshot) is { } resolution)
         {
@@ -487,6 +499,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Speed_Click(object sender, RoutedEventArgs args)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 3);
         _speedControl = new ScreenboxSpeedControl(_snapshot.PlaybackRate, RequestRate);
         var flyout = new Flyout { Content = _speedControl };
         ShowFlyout(flyout, SpeedButton);
@@ -494,6 +507,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Volume_Click(object sender, RoutedEventArgs args)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 4);
         _volumeControl = new ScreenboxVolumeControl(_snapshot.Volume, _snapshot.IsMuted, RequestVolume,
             async muted => await RunAsync(token => _session.SetMutedAsync(muted, token)));
         var flyout = new Flyout { Content = _volumeControl };
@@ -548,6 +562,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void SubtitleStyle_Click(object sender, RoutedEventArgs args)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 5);
         var caps = _snapshot.SubtitleCapabilities;
         var panel = new StackPanel { Spacing = 16, Width = 288, Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock { Text = "字幕样式", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
@@ -570,6 +585,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void ShowFlyout(FlyoutBase flyout, FrameworkElement anchor)
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsPresentBegin);
         CloseSettingsFlyout();
         _activeFlyout = flyout;
         var component = (flyout as Flyout)?.Content as FrameworkElement;
@@ -668,7 +684,11 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public void ReportError(string message) { if (!_disposed) ShowError(message); }
     private void Notice_Closed(InfoBar sender, InfoBarClosedEventArgs args) => NotifyActivity();
     private void Root_PointerMoved(object sender, PointerRoutedEventArgs args) => NotifyActivity();
-    private void Root_PointerPressed(object sender, PointerRoutedEventArgs args) => NotifyActivity();
+    private void Root_PointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.PointerPressed);
+        NotifyActivity();
+    }
     private async void Root_KeyDown(object sender, KeyRoutedEventArgs args)
     {
         NotifyActivity();
@@ -681,7 +701,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         }
         if (_menuOpen) return;
         if (args.Key == VirtualKey.Space && args.OriginalSource is not Button) { args.Handled = true; await TogglePlayAsync(); }
-        else if (args.Key == VirtualKey.F11) { args.Handled = true; ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty); }
+        else if (args.Key == VirtualKey.F11) { _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenInput); args.Handled = true; ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty); }
         else if (args.Key == VirtualKey.Escape && _fullscreen) { args.Handled = true; ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty); }
     }
     private void Controls_SizeChanged(object sender, SizeChangedEventArgs args)

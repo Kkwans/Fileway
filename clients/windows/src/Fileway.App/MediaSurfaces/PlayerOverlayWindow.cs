@@ -19,6 +19,7 @@ namespace Fileway.App.MediaSurfaces;
 internal sealed class PlayerOverlayWindow : Window, IDisposable
 {
     private readonly ScreenboxPlayerControls _controls;
+    private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private readonly NativeVideoWindow.SubclassProc _procedure;
     private readonly nint _window;
     private readonly nint _owner;
@@ -33,15 +34,16 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private bool? _materialHighContrast;
     private RectInt32? _windowBounds;
 
-    internal PlayerOverlayWindow(IPlaybackSession session, nint owner)
+    internal PlayerOverlayWindow(IPlaybackSession session, nint owner, PlaybackResponsivenessDiagnostics? responsiveness = null)
     {
         _owner = owner;
+        _responsiveness = responsiveness;
         Title = AppBranding.DisplayName + (AppBranding.IsChinese ? " 播放控制" : " playback controls");
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
         _procedure = WindowProcedure;
         try
         {
-            _controls = new ScreenboxPlayerControls(session);
+            _controls = new ScreenboxPlayerControls(session, responsiveness);
             RefreshBackdropState();
             EnableHostBackdrop();
             UpdateBackdropFactory();
@@ -75,7 +77,11 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             _controls.Loaded += Controls_Loaded;
             _controls.MaterialBoundsChanged += Controls_MaterialBoundsChanged;
             _policySettings.AdvancedEffectsEnabledChanged += PolicySettings_Changed;
-            Activated += (_, _) => DispatcherQueue.TryEnqueue(() => { EnableHostBackdrop(); RefreshBackdropState(); });
+            Activated += (_, args) =>
+            {
+                _responsiveness?.Record(PlaybackDiagnosticEvent.OverlayActivation, (int)args.WindowActivationState);
+                DispatcherQueue.TryEnqueue(() => { EnableHostBackdrop(); RefreshBackdropState(); });
+            };
             AppWindow.Closing += (_, args) =>
             {
                 if (_disposed) return;
@@ -114,11 +120,13 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         PlayerSettingsWindow? popup = null;
         try
         {
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsCreateBegin);
             popup = new PlayerSettingsWindow(_window, content, style, () =>
             {
                 if (ReferenceEquals(_settingsWindow, popup)) _settingsWindow = null;
                 onClosed();
-            });
+            }, _responsiveness);
+            _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsCreateEnd);
             _settingsWindow = popup;
             popup.ShowAt(anchor);
         }
@@ -183,6 +191,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             if (!visible && NativePlayerOverlay.GetForegroundWindow() == _window)
                 NativePlayerOverlay.SetForegroundWindow(_owner);
             _windowVisible = visible;
+            _responsiveness?.Record(PlaybackDiagnosticEvent.OverlayVisibility, visible ? 1 : 0);
             // Keep the full transparent XAML surface: popup content can extend
             // above the footer and must never be clipped to a native toolbar region.
             NativeVideoWindow.ShowWindow(_window, visible ? 4 : 0);
@@ -339,6 +348,15 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     }
 
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
+    {
+        if (_responsiveness is not { } diagnostics || message != 0x0084)
+            return WindowProcedureCore(window, message, wParam, lParam, id, reference);
+        var started = diagnostics.Timestamp;
+        try { return WindowProcedureCore(window, message, wParam, lParam, id, reference); }
+        finally { diagnostics.RecordDuration(PlaybackDiagnosticEvent.HitTestDuration, started); }
+    }
+
+    private nint WindowProcedureCore(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
     {
         if (!_disposed && message == 0x0083) return 0; // Entire owned window is client content.
         if (!_disposed && message == 0x0085) return 0; // No classic nonclient border paint.

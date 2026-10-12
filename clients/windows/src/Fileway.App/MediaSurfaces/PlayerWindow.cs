@@ -19,6 +19,7 @@ namespace Fileway.App.MediaSurfaces;
 internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowControl
 {
     private readonly IPlaybackSession _session;
+    private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private readonly PlaybackSnapshotDispatcher _snapshotDispatcher;
     private readonly CancellationTokenSource _watchCancellation = new();
     private readonly Grid _root = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Black), RequestedTheme = ElementTheme.Dark };
@@ -76,9 +77,12 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
         _child = NativeVideoWindow.CreateWindowExW(0, "STATIC", "Fileway video", 0x50000004 | 0x04000000 | 0x02000000, 0, 0, 1, 1, _window, 0, 0, 0);
         if (_child == 0) throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error(), "无法创建原生视频容器。");
         NativeVideoWindow.SetWindowSubclass(_child, _windowProcedure, 3, 0);
-        try { _overlay = new PlayerOverlayWindow(session, _window); }
+        _responsiveness = PlaybackResponsivenessDiagnostics.TryCreate(
+            action => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () => action()));
+        try { _overlay = new PlayerOverlayWindow(session, _window, _responsiveness); }
         catch
         {
+            _responsiveness?.Dispose();
             NativeVideoWindow.RemoveWindowSubclass(_child, _windowProcedure, 3);
             NativeVideoWindow.RemoveWindowSubclass(_window, _windowProcedure, 1);
             NativeVideoWindow.DestroyWindow(_child);
@@ -108,7 +112,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
                 DispatcherQueue.TryEnqueue(() => { UpdateBounds(); _overlay.NotifyActivity(); });
         };
         AppWindow.Closing += (_, args) => { if (_disposed) return; args.Cancel = true; BeginClose(); };
-        Closed += (_, _) => { _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
+        Closed += (_, _) => { _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
         _ = WatchAsync();
     }
 
@@ -188,6 +192,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             var key = (VirtualKey)(uint)wParam;
             if (key is VirtualKey.Space or VirtualKey.Left or VirtualKey.Right or VirtualKey.F10 or VirtualKey.F11 or VirtualKey.Escape or VirtualKey.Q)
             {
+                if (key == VirtualKey.F11) _responsiveness?.Record(PlaybackDiagnosticEvent.NativeFullscreenInput);
                 if ((lParam.ToInt64() & (1L << 30)) == 0) HandleNativeKey(key);
                 return 0;
             }
@@ -271,6 +276,14 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private void Root_Changed(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateBounds();
     private void UpdateBounds()
     {
+        if (_responsiveness is not { } diagnostics) { UpdateBoundsCore(); return; }
+        var started = diagnostics.Timestamp;
+        try { UpdateBoundsCore(); }
+        finally { diagnostics.RecordDuration(PlaybackDiagnosticEvent.BoundsDuration, started); }
+    }
+
+    private void UpdateBoundsCore()
+    {
         if (_disposed || _child == 0 || _root.XamlRoot is null) return;
         var point = _video.TransformToVisual(_root).TransformPoint(new Point(0, 0));
         var scale = _root.XamlRoot.RasterizationScale;
@@ -323,6 +336,14 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     }
 
     private void ApplySnapshot(PlaybackSnapshot snapshot)
+    {
+        if (_responsiveness is not { } diagnostics) { ApplySnapshotCore(snapshot); return; }
+        var started = diagnostics.Timestamp;
+        try { ApplySnapshotCore(snapshot); }
+        finally { diagnostics.RecordDuration(PlaybackDiagnosticEvent.SnapshotApplyDuration, started); }
+    }
+
+    private void ApplySnapshotCore(PlaybackSnapshot snapshot)
     {
         if (_disposed || _detached || !_snapshotDispatcher.Owns(snapshot) || !_snapshotDispatcher.Owns(_session.Snapshot)
             || (_closing && !PlaybackSnapshotDispatcher.IsLifecycleSnapshot(snapshot))) return;
@@ -399,10 +420,12 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
 
     public ValueTask SetFullscreenAsync(bool fullscreen, CancellationToken cancellationToken) => OnUiAsync(() =>
     {
+        _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenUiEntered, fullscreen ? 1 : 0);
         cancellationToken.ThrowIfCancellationRequested();
         if (_detached || _disposed || _closing) return;
         var isFullscreen = AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
         if (fullscreen == isFullscreen) return;
+        _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenPresenterBegin, fullscreen ? 1 : 0);
         if (fullscreen)
         {
             _windowedPresenter = AppWindow.Presenter as OverlappedPresenter;
@@ -417,6 +440,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             else AppWindow.MoveAndResize(_windowedBounds);
             ApplyFramelessChrome();
         }
+        _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenPresenterEnd, fullscreen ? 1 : 0);
         var actualFullscreen = AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
         _overlay.SetFullscreen(actualFullscreen);
         if (actualFullscreen != isFullscreen) FullscreenChanged?.Invoke(this, actualFullscreen);
@@ -588,6 +612,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     public ValueTask DetachAsync(CancellationToken cancellationToken) => OnUiAsync(() =>
     {
         if (_disposed) return;
+        _responsiveness?.Dispose();
         _snapshotDispatcher.Stop();
         Interlocked.Increment(ref _subtitlePickerGeneration);
         _detached = true; _watchCancellation.Cancel(); _overlay.Hide(); UpdateVideoVisibility();
@@ -596,6 +621,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     public ValueTask DisposeAsync() => OnUiAsync(() =>
     {
         if (_disposed) return;
+        _responsiveness?.Dispose();
         _snapshotDispatcher.Stop();
         Interlocked.Increment(ref _subtitlePickerGeneration);
         _disposed = true; _detached = true; _watchCancellation.Cancel();
