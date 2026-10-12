@@ -328,6 +328,8 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             || (_closing && !PlaybackSnapshotDispatcher.IsLifecycleSnapshot(snapshot))) return;
         FitInitialVideoAspect(snapshot.DisplayAspectRatio);
         _overlay.ApplySnapshot(snapshot);
+        // Stop retains any prior failure metadata. Closing must still happen.
+        if (snapshot.Status == PlaybackStatus.Stopped) { BeginClose(); return; }
         if (snapshot.Error is { } error) { ShowState("无法播放这个视频", error.Message, loading: false); return; }
         switch (snapshot.Status)
         {
@@ -339,9 +341,6 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
                 break;
             case PlaybackStatus.Failed:
                 ShowState("无法播放这个视频", "请关闭窗口，检查连接后重新打开文件。", loading: false);
-                break;
-            case PlaybackStatus.Stopped:
-                BeginClose();
                 break;
             case PlaybackStatus.Closing:
                 ShowState("正在关闭视频", "正在释放播放资源…", loading: true);

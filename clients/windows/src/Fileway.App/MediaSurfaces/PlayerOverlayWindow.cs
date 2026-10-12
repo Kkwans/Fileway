@@ -174,7 +174,8 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void UpdateMaterialVisibility()
     {
         if (_disposed) return;
-        var visible = _controls.ControlsVisible && _ownerVisible;
+        var visible = _controls.ControlsVisible && _ownerVisible
+            && !NativePlayerOverlay.IsIconic(_owner) && NativePlayerOverlay.IsWindowVisible(_owner);
         if (_windowVisible != visible)
         {
             // An empty visible owned HWND can retain activation and obstruct
@@ -378,6 +379,14 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             return -1; // HTTRANSPARENT: same UI-thread video container receives input.
         }
         var result = NativeVideoWindow.DefSubclassProc(window, message, wParam, lParam);
+        if (!_disposed && message == 0x0018)
+        {
+            // The system can hide/show owned HWNDs on minimize/restore without
+            // going through our explicit visibility transitions.
+            _windowVisible = wParam != 0;
+            if (lParam != 0) DispatcherQueue.TryEnqueue(RefreshBackdropState);
+        }
+        if (!_disposed && message == 0x02e0) _windowBounds = null; // WM_DPICHANGED may reposition this HWND.
         if (!_disposed && message == 0x031e) EnableHostBackdrop(); // WM_DWMCOMPOSITIONCHANGED.
         return result;
     }

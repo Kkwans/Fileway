@@ -213,6 +213,26 @@ public sealed class PlaybackSnapshotDispatcherTests
     }
 
     [Fact]
+    public void StoppedRetainsCloseSemanticsWhenFailureMetadataIsInherited()
+    {
+        var origin = Snapshot();
+        var queue = new UiQueue();
+        var rendered = new List<PlaybackSnapshot>();
+        var dispatcher = Create(origin, queue, rendered.Add);
+        var failure = origin with { Status = PlaybackStatus.Failed, Error = new ErrorInfo(ErrorCode.Unknown, "fixture error") };
+        var stopped = failure with { Status = PlaybackStatus.Stopped };
+        dispatcher.Publish(failure);
+        dispatcher.Publish(stopped);
+        dispatcher.Publish(origin);
+        dispatcher.Publish(failure);
+
+        queue.RunNext();
+        Assert.Same(stopped, Assert.Single(rendered));
+        Assert.Equal(PlaybackStatus.Stopped, rendered[0].Status);
+        Assert.Same(failure.Error, rendered[0].Error);
+    }
+
+    [Fact]
     public void CloseFailureReplacesPreparingToCloseState()
     {
         var origin = Snapshot();
