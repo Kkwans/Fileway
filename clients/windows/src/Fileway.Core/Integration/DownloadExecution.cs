@@ -1,0 +1,45 @@
+using Fileway.Core.Contracts;
+
+namespace Fileway.Core.Integration;
+
+/// <summary>Length and SHA-256 reread from the held, owned local file after its writes have drained.</summary>
+public sealed record DownloadLocalFileHash(long Length, string Sha256);
+
+/// <summary>
+/// Owned local destination. Raw handles remain in Infrastructure. Dispose releases handles; only
+/// DeleteOwnedPartialAsync deletes, and it must refuse any published or no-longer-owned file.
+/// </summary>
+public interface IDownloadDestination : IAsyncDisposable
+{
+    TransferWorkFiles Files { get; }
+    bool IsPublished { get; }
+    long Length { get; }
+    Task WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken);
+    Task<long> FlushToDiskAsync(CancellationToken cancellationToken);
+    Task<DownloadLocalFileHash> CalculateSha256Async(CancellationToken cancellationToken);
+    Task<string> PublishNoReplaceAsync(CancellationToken cancellationToken);
+    Task DeleteOwnedPartialAsync(CancellationToken cancellationToken);
+}
+
+public interface IDownloadDestinationProvider
+{
+    /// <summary>Exclusively creates a fresh same-directory partial; never opens or replaces an existing name.</summary>
+    Task<IDownloadDestination> CreateFreshAsync(string finalPath, CancellationToken cancellationToken);
+    /// <summary>Reopens only positively identified owned partial/final evidence; never creates, renames or deletes.</summary>
+    Task<IDownloadDestination> OpenOwnedAsync(string finalPath, TransferWorkFiles files, CancellationToken cancellationToken);
+}
+
+/// <summary>Received bytes are distinct from the successfully flushed local prefix.</summary>
+public sealed record DownloadTaskProgress(TransferRunToken Run, long ReceivedBytes, long? ConfirmedOffset,
+    long TotalBytes, TimeSpan Elapsed);
+
+/// <summary>Explicit, one-at-a-time fresh execution. Reconcile is local-only; there is no pause or resume operation.</summary>
+public interface IFileDownloadRunner : IAsyncDisposable
+{
+    event EventHandler<DownloadTaskProgress>? ProgressChanged;
+    Task<TransferTaskRecord> RunAsync(TransferTaskRef task, CancellationToken cancellationToken);
+    Task<TransferTaskRecord> CancelAsync(TransferTaskRef task, CancellationToken cancellationToken);
+    Task<TransferTaskRecord> ReconcileAsync(TransferTaskRef task, CancellationToken cancellationToken);
+    /// <summary>Persists cancellation and drains all active writers/capabilities before the original connection retires.</summary>
+    Task StopAndDrainAsync(CancellationToken cancellationToken);
+}
