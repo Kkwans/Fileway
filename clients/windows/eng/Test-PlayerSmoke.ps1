@@ -488,9 +488,9 @@ function Validate-Fixture([string] $Path) {
     if ($manifest.Count -ne $keys.Count -or @($manifest.Keys | Where-Object { $_ -notin $keys }).Count -ne 0) { Stop-Smoke 'fixture_manifest_schema_mismatch' }
     # A caller-authored manifest alone is not provenance. Pin the deterministic
     # 180-second byte hash as well, so arbitrary local media cannot be admitted.
-    if ($manifest.schemaVersion -ne 1 -or $manifest.fixtureId -ne 'fileway-player-smoke-v1' -or $manifest.width -ne 160 -or $manifest.height -ne 90 -or $manifest.framesPerSecond -ne 12
-        -or $manifest.frameCount -ne 2160 -or $manifest.byteLength -ne 93364072
-        -or $manifest.sha256 -cne '6549098053b18f0b25d8aad3119b37464f3e955cc1b12c553671555bbcc4593e') { Stop-Smoke 'fixture_contract_mismatch' }
+    if ($manifest.schemaVersion -ne 1 -or $manifest.fixtureId -ne 'fileway-player-smoke-v1' -or $manifest.width -ne 160 -or $manifest.height -ne 90 -or $manifest.framesPerSecond -ne 12 -or
+        $manifest.frameCount -ne 2160 -or $manifest.byteLength -ne 93364072 -or
+        $manifest.sha256 -cne '6549098053b18f0b25d8aad3119b37464f3e955cc1b12c553671555bbcc4593e') { Stop-Smoke 'fixture_contract_mismatch' }
     # Keep a read-share-only handle open through playback: another writer cannot
     # replace verified bytes between hashing and the native engine's open.
     $script:fixtureStream = [System.IO.FileStream]::new($path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
@@ -594,8 +594,8 @@ try {
     $ownedHost = [System.Diagnostics.Process]::GetProcessById($hostIds[0])
     $null = $ownedHost.Handle
     $expectedHost = Join-Path ([System.IO.Path]::GetDirectoryName($AppPath)) 'fileway-host.exe'
-    if (-not [System.IO.Path]::GetFullPath($ownedHost.MainModule.FileName).Equals([System.IO.Path]::GetFullPath($expectedHost), [StringComparison]::OrdinalIgnoreCase)
-        -or $ownedHost.StartTime -lt $script:process.StartTime) { $ownedHost.Dispose(); Stop-Smoke 'owned_host_identity_mismatch' }
+    if (-not [System.IO.Path]::GetFullPath($ownedHost.MainModule.FileName).Equals([System.IO.Path]::GetFullPath($expectedHost), [StringComparison]::OrdinalIgnoreCase) -or
+        $ownedHost.StartTime -lt $script:process.StartTime) { $ownedHost.Dispose(); Stop-Smoke 'owned_host_identity_mismatch' }
     $script:hosts.Add($ownedHost)
     Complete-Step 'launch'
 

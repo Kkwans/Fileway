@@ -39,6 +39,15 @@ jobs:
             "FILEWAY_SMOKE_EVIDENCE=$env:RUNNER_TEMP\Fileway-player-evidence"
             "FILEWAY_SMOKE_MEDIA=$env:RUNNER_TEMP\Fileway-player-fixture\sample.avi"
           ) | Add-Content -LiteralPath $env:GITHUB_ENV
+      - name: Parse player smoke script before provisioning
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'eng/Test-PlayerSmoke.ps1'), [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.ToString() }
+            throw 'Player smoke PowerShell syntax validation failed.'
+          }
       - name: Install pinned isolated toolchains
         run: ./eng/Install-WindowsTools.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT
       - name: Check interactive desktop and capture before media downloads
