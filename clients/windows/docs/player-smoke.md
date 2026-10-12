@@ -48,7 +48,8 @@ runtime or building the app. Exit 0 here establishes only `scope=preflight`,
 
 Full smoke launches the supplied built app with the sole local media argument.
 It checks two independently decoded video frames advance; opens and dismisses
-the real speed settings three times; verifies pause with unchanged decoded
+the real speed settings three times, following the More menu when the toolbar
+is narrow; verifies pause with unchanged decoded
 frames and resume with advancing frames; checks button and F11 fullscreen
 against physical monitor bounds; and requires player/HUD/settings HWND teardown.
 It then closes the main application normally and verifies app exit code 0 and

@@ -447,8 +447,8 @@ function Wait-Control([IntPtr] $Window, [string] $NamePattern, [string] $Type = 
     return Wait-Condition { Find-Control $Window $NamePattern $Type -Optional } 'expected_control_state_not_observed'
 }
 
-function Invoke-Control([IntPtr] $Window, [string] $NamePattern) {
-    $element = Wait-Control $Window $NamePattern
+function Invoke-Control([IntPtr] $Window, [string] $NamePattern, [string] $Type = 'Button') {
+    $element = Wait-Control $Window $NamePattern $Type
     $result = Invoke-WinApp @('ui', 'invoke', $element.selector, '-w', $Window.ToInt64().ToString(), '--action', 'invoke', '--json')
     if ($result.performedAction -ne 'invoke' -or $result.hwnd -ne $Window.ToInt64()) { Stop-Smoke 'invoke_effect_contract_mismatch' }
 }
@@ -614,7 +614,16 @@ try {
     for ($iteration = 1; $iteration -le 3; $iteration++) {
         Show-Hud $player
         $hud = Get-Surface 'hud'
-        Invoke-Control $hud '^播放速度(?: |$)'
+        # Narrow windows intentionally move speed into More; follow the real
+        # adaptive UI rather than requiring an invisible toolbar button.
+        if (Find-Control $hud '^播放速度(?: |$)' -Optional) {
+            Invoke-Control $hud '^播放速度(?: |$)'
+        } else {
+            Invoke-Control $hud '^更多播放选项$'
+            $menu = Wait-Condition { $window = Get-Surface 'settings'; if ($window -ne [IntPtr]::Zero) { $window } } 'more_menu_not_opened'
+            Invoke-Control $menu '^播放速度 · ' 'MenuItem'
+            $null = Wait-Condition { -not [Fileway.PlayerSmoke.Native]::IsWindow($menu) } 'more_menu_not_closed'
+        }
         $settings = Wait-Condition { $window = Get-Surface 'settings'; if ($window -ne [IntPtr]::Zero) { $window } } 'settings_window_not_opened'
         $null = Wait-Control $settings '^播放速度$' 'Slider'
         if ([Fileway.PlayerSmoke.Native]::GetForegroundWindow() -ne $settings) { Stop-Smoke 'settings_not_foreground' }

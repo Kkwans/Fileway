@@ -62,6 +62,14 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("$manifest.frameCount -ne 2160", text)
         self.assertIn("[System.IO.FileShare]::Read)", text)
 
+    def test_settings_flow_handles_adaptive_overflow_menu(self):
+        _, _, powershell = source_parts()
+        self.assertIn("Find-Control $hud '^播放速度(?: |$)' -Optional", powershell)
+        self.assertIn("Invoke-Control $hud '^更多播放选项$'", powershell)
+        self.assertIn("Invoke-Control $menu '^播放速度 · ' 'MenuItem'", powershell)
+        self.assertIn("'more_menu_not_closed'", powershell)
+        self.assertIn("Wait-Control $Window $NamePattern $Type", powershell)
+
     def test_no_assignment_to_readonly_powershell_automatic_variables(self):
         _, _, powershell = source_parts()
         reserved = r"(?:host|pid|pshome|psversiontable|iswindows|islinux|ismacos|psedition)"
