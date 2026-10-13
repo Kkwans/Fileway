@@ -1,0 +1,94 @@
+name: Windows remote image interaction smoke
+on:
+  push:
+    branches: [codex/windows-native-client]
+    paths:
+      - '.github/workflows/windows-remote-image-smoke.yml'
+      - 'clients/windows/eng/Test-PlayerSmoke.ps1'
+      - 'clients/windows/eng/Test-RemoteImageSmoke.ps1'
+      - 'clients/windows/eng/tests/test_remote_image_smoke_harness_contract.py'
+      - 'clients/windows/eng/RemoteResourceSmoke.Common.psm1'
+      - 'clients/windows/eng/New-RemoteImageSmokeFixture.py'
+      - 'clients/windows/eng/tests/test_remote_image_fixture.py'
+      - 'clients/windows/eng/Test-TransferSmoke.ps1'
+      - 'clients/windows/src/Fileway.App/**'
+      - 'clients/windows/src/Fileway.Infrastructure/Services/**'
+      - 'clients/windows/host/**'
+      - 'clients/windows/src/Fileway.Core/Integration/RecentOpenRecording.cs'
+      - 'clients/windows/src/Fileway.Core/Contracts/RecentAccess.cs'
+      - 'server/backend/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-remote-image:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: clients/windows
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+      WINAPP_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with:
+          python-version: '3.12'
+      - name: Configure isolated paths
+        run: |
+          @(
+            "FILEWAY_TOOLS_ROOT=$env:RUNNER_TEMP\Fileway-remote-image-tools"
+            "FILEWAY_ARTIFACTS_ROOT=$env:RUNNER_TEMP\Fileway-remote-image-artifacts"
+            "FILEWAY_NUGET_PACKAGES=$env:RUNNER_TEMP\Fileway-remote-image-nuget"
+            "FILEWAY_SMOKE_EVIDENCE=$env:RUNNER_TEMP\Fileway-remote-image-evidence"
+            "FILEWAY_REMOTE_IMAGE_SERVER=$env:RUNNER_TEMP\Fileway-remote-image-artifacts\remote-image-server\fileway-server.exe"
+          ) | Add-Content -LiteralPath $env:GITHUB_ENV
+      - name: Validate remote image smoke before provisioning
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          $null = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD 'eng/Test-RemoteImageSmoke.ps1'), [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) {
+            $parseErrors | ForEach-Object { Write-Error $_.ToString() }
+            throw 'Remote image smoke PowerShell syntax validation failed.'
+          }
+          python -m unittest discover -s eng/tests -p test_remote_image_fixture.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Remote image fixture guards failed.' }
+          python -m unittest discover -s eng/tests -p test_remote_image_smoke_harness_contract.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Remote image smoke offline guards failed.' }
+      - name: Install pinned isolated toolchains
+        run: ./eng/Install-WindowsTools.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT
+      - name: Check interactive desktop and capture before application build
+        run: ./eng/Test-RemoteImageSmoke.ps1 -PreflightOnly -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
+      - name: Build native application without publishing a package
+        run: ./eng/Build-Windows.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES -Configuration Release
+      - name: Build real loopback image server
+        run: |
+          . ./eng/Use-WindowsEnvironment.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES
+          New-Item -ItemType Directory -Path (Split-Path $env:FILEWAY_REMOTE_IMAGE_SERVER) -Force | Out-Null
+          Push-Location ../../server/backend
+          try {
+            & go build -o $env:FILEWAY_REMOTE_IMAGE_SERVER .
+            if ($LASTEXITCODE -ne 0) { throw 'Real image server build failed.' }
+          } finally { Pop-Location }
+      - name: Verify native remote image and real recent record
+        run: |
+          . ./eng/Use-WindowsEnvironment.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES
+          $target = (& dotnet msbuild src/Fileway.App/Fileway.App.csproj -getProperty:TargetDir -p:Configuration=Release -p:Platform=x64 -nologo).Trim()
+          if ($LASTEXITCODE -ne 0 -or -not [IO.Path]::IsPathFullyQualified($target)) { throw 'Cannot locate the built native application.' }
+          ./eng/Test-RemoteImageSmoke.ps1 -AppPath (Join-Path $target 'Fileway.App.exe') -ServerPath $env:FILEWAY_REMOTE_IMAGE_SERVER -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
+      - name: Preserve only allowlisted synthetic UI evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: windows-remote-image-interaction-evidence
+          path: |
+            ${{ runner.temp }}/Fileway-remote-image-evidence/report.json
+            ${{ runner.temp }}/Fileway-remote-image-evidence/events.jsonl
+            ${{ runner.temp }}/Fileway-remote-image-evidence/screenshots/preflight.png
+            ${{ runner.temp }}/Fileway-remote-image-evidence/screenshots/preflight-smoke.png
+            ${{ runner.temp }}/Fileway-remote-image-evidence/screenshots/remote-image-ready.png
+          if-no-files-found: ignore
