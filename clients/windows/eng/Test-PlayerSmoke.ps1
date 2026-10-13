@@ -165,6 +165,63 @@ namespace Fileway.PlayerSmoke {
     delegate bool EnumProc(IntPtr window, IntPtr argument);
     delegate IntPtr WindowProc(IntPtr window, uint message, UIntPtr wParam, IntPtr lParam);
 
+    public sealed class ShutdownStage {
+        public readonly int SchemaVersion=1, Stage, UiThread;
+        internal ShutdownStage(int stage,int uiThread) { Stage=stage; UiThread=uiThread; }
+    }
+
+    // This is deliberately a narrow reader for the app's fixed numeric JSONL
+    // contract, not a general JSON parser. Validate the whole bounded file
+    // before returning any records; never return raw bytes, text, or paths.
+    public static class ShutdownEvidence {
+        const int MaximumBytes=4096, MaximumLines=16, MaximumLineLength=256;
+        static InvalidDataException Invalid() { return new InvalidDataException("shutdown_evidence_invalid"); }
+        public static ShutdownStage[] Read(string dataRoot) {
+            if(string.IsNullOrEmpty(dataRoot)||!Path.IsPathFullyQualified(dataRoot)) throw Invalid();
+            string directory=Path.Combine(dataRoot,"diagnostics");
+            string path=Path.Combine(directory,"shutdown.jsonl");
+            if(!File.Exists(path)) return Array.Empty<ShutdownStage>();
+            for(var parent=new DirectoryInfo(directory);parent!=null;parent=parent.Parent)
+                if((parent.Attributes&FileAttributes.ReparsePoint)!=0) throw Invalid();
+            if((File.GetAttributes(path)&FileAttributes.ReparsePoint)!=0) throw Invalid();
+            byte[] bytes=new byte[MaximumBytes+1]; int count=0;
+            using(var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite)) {
+                if(stream.Length>MaximumBytes) throw Invalid();
+                while(count<bytes.Length) {
+                    int read=stream.Read(bytes,count,bytes.Length-count);
+                    if(read==0) break;
+                    count+=read;
+                }
+            }
+            if(count==0||count>MaximumBytes||bytes[count-1]!=(byte)'\n') throw Invalid();
+            string[] lines=new UTF8Encoding(false,true).GetString(bytes,0,count).Split('\n');
+            if(lines.Length-1>MaximumLines) throw Invalid();
+            var records=new List<ShutdownStage>();
+            for(int index=0;index<lines.Length-1;index++) {
+                string line=lines[index];
+                if(line.EndsWith("\r",StringComparison.Ordinal)) line=line.Substring(0,line.Length-1);
+                if(line.Length>MaximumLineLength) throw Invalid();
+                line=line.Trim(' ','\t');
+                if(line.Length<2||line[0]!='{'||line[line.Length-1]!='}') throw Invalid();
+                string[] fields=line.Substring(1,line.Length-2).Split(',');
+                if(fields.Length!=3) throw Invalid();
+                var values=new Dictionary<string,int>(StringComparer.Ordinal);
+                foreach(string field in fields) {
+                    string[] pair=field.Split(':');
+                    if(pair.Length!=2) throw Invalid();
+                    string key=pair[0].Trim(' ','\t'), value=pair[1].Trim(' ','\t');
+                    if(key!="\"schemaVersion\""&&key!="\"stage\""&&key!="\"uiThread\"") throw Invalid();
+                    if(values.ContainsKey(key)||value.Length!=1||value[0]<'0'||value[0]>'9') throw Invalid();
+                    values.Add(key,value[0]-'0');
+                }
+                int schema=values["\"schemaVersion\""], stage=values["\"stage\""], uiThread=values["\"uiThread\""];
+                if(schema!=1||stage<1||stage>9||uiThread>1) throw Invalid();
+                records.Add(new ShutdownStage(stage,uiThread));
+            }
+            return records.ToArray();
+        }
+    }
+
     public sealed class Image {
         public readonly int Width, Height; public readonly byte[] Pixels;
         public Image(int width, int height, byte[] pixels) {
@@ -521,6 +578,17 @@ function Record-SafeExitEvidence {
     # Only fixed-schema app diagnostics and matching-process numeric Windows
     # fault fields enter the existing allowlist. Never copy messages or paths.
     try { $null = Copy-SafeDiagnostics } catch { }
+    try {
+        # Reconstruct a numeric-only payload after the entire file validates.
+        # A reached stage (including one after a catch) does not prove success.
+        foreach ($record in [Fileway.PlayerSmoke.ShutdownEvidence]::Read($script:privateRoot)) {
+            Record-Observation 'shutdown-stage' @{
+                schemaVersion = [int]$record.SchemaVersion
+                stage = [int]$record.Stage
+                uiThread = [int]$record.UiThread
+            }
+        }
+    } catch { }
     try {
         $path = Join-Path $script:privateRoot 'diagnostics\startup.log'
         if ([IO.File]::Exists($path) -and (Get-Item -LiteralPath $path).Length -le 32768) {

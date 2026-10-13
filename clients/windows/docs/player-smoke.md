@@ -15,10 +15,15 @@ python -m unittest discover -s eng/tests -p "test_*.py" -v
 ```
 
 The optional harness contract test compiles the production pixel decoder/PNG
-writer with an already installed .NET 6+ SDK. It clears all NuGet sources, uses
-only SDK framework references and never calls Windows APIs. If no SDK is found,
-that test is explicitly skipped; the other tests remain stdlib-only. To select
-an existing private SDK, set `FILEWAY_SMOKE_DOTNET` to its absolute executable.
+writer and bounded shutdown-evidence reader with an already installed .NET 6+
+SDK. It clears all NuGet sources, uses only SDK framework references and never
+calls Windows APIs. The reader tests cover field/type/range rejection, duplicate
+keys, malformed/incomplete records, file/line bounds and numeric-only output.
+If no SDK is found, that test is explicitly skipped; the other tests remain
+stdlib-only. To select an existing private SDK, set `FILEWAY_SMOKE_DOTNET` to its
+absolute executable. These checks do not execute or parse PowerShell itself.
+A separate parser-only test uses an existing `pwsh` when available and otherwise
+reports a skip; it does not execute the smoke or validate Windows behavior.
 
 ## Desktop gate and application run
 
@@ -93,6 +98,45 @@ shutdown, so an exit failure does not discard completed interaction evidence.
 Command timings include CLI startup and UIA
 work; they are not application handler latency. The optional app-owned recorder
 retains separately defined numeric UI-dispatch markers.
+
+### Shutdown-stage breadcrumbs
+
+The application shutdown recorder is off by default. The smoke launch opts in
+with `FILEWAY_PLAYER_RESPONSIVENESS_DIAGNOSTICS=1`, using its isolated
+`FILEWAY_WINDOWS_DATA_ROOT`. The recorder synchronously writes at most 16 records
+to that private data root's `diagnostics/shutdown.jsonl`; the file itself is never
+copied into the evidence directory or added to the artifact allowlist.
+
+On abnormal app exit, `Record-SafeExitEvidence` reads only that fixed location.
+It rejects reparse points, files over 4,096 bytes, more than 16 records, lines over
+256 characters, invalid UTF-8, incomplete final lines and any nonconforming row.
+All rows must validate before any shutdown-stage observation is exported. A row
+must have exactly the case-sensitive keys `schemaVersion`, `stage`, `uiThread`,
+with unquoted single-digit integer values: version 1, stage 1–9, and UI-thread bit
+0 or 1. Duplicate/unknown keys, escaped names, strings, booleans, nulls, decimal or
+exponent forms and additional data are rejected. Key order and horizontal JSON
+whitespace may vary; LF and CRLF record endings are accepted. Missing or rejected
+optional evidence does not alter the app/Host exit assertions.
+
+Validated records are rebuilt as numeric `schemaVersion`, `stage`, `uiThread`
+details of fixed `shutdown-stage` observations in `events.jsonl`. The nine stage
+values identify these reached points in the application-owned shutdown path:
+
+1. Shutdown entered
+2. Startup and connection task waits returned
+3. Transfer-disposal attempt returned
+4. Playback disposal about to begin
+5. Playback-disposal attempt returned
+6. Service and settings disposal attempts returned
+7. Host-disposal attempt returned
+8. Main-window close about to begin
+9. Main-window close call returned
+
+Several markers follow exception-catching teardown blocks. They establish that
+execution reached that point or an attempt returned, not that disposal succeeded.
+Stage 7 does not establish Host process exit, and stage 9 does not establish app
+process exit. Even all nine markers cannot replace exit code 0 for both owned
+processes. A missing later marker alone cannot identify a native crash's cause.
 
 Offline tests/compilation establish file and decoder contracts, not functioning
 Windows capture, UIA delivery or native playback. An executed hosted Windows

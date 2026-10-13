@@ -1,12 +1,15 @@
 """Offline guards and optional existing-SDK checks for the native smoke helper.
 
-The SDK check compiles the production C# decoder and PNG writer, but never calls
-Windows APIs. It uses no NuGet sources/packages and installs nothing.
+The SDK check compiles the production C# decoder, PNG writer and shutdown-evidence
+reader, but never calls Windows APIs. It uses no NuGet sources/packages and installs
+nothing. Static guards do not establish a native PowerShell parse/pass; an optional
+parser check runs only when PowerShell is already available.
 """
 from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import os
 import re
 import shutil
@@ -93,6 +96,23 @@ class HarnessGuards(unittest.TestCase):
         self.assertNotIn("Copy-Item", powershell)
         self.assertLess(text.index("Complete-Step 'close'\n    $null = Copy-SafeDiagnostics"), text.index("$script:stage = 'application-shutdown'"))
 
+    def test_shutdown_evidence_exports_only_reconstructed_numeric_records(self):
+        text, native, powershell = source_parts()
+        evidence = powershell.split("function Record-SafeExitEvidence {", 1)[1].split("$exitCode = 1", 1)[0]
+        self.assertIn("[Fileway.PlayerSmoke.ShutdownEvidence]::Read($script:privateRoot)", evidence)
+        self.assertIn("Record-Observation 'shutdown-stage' @{", evidence)
+        for field in ("schemaVersion = [int]$record.SchemaVersion", "stage = [int]$record.Stage", "uiThread = [int]$record.UiThread"):
+            self.assertIn(field, evidence)
+        self.assertNotIn("Record-Observation 'shutdown-stage' $record", evidence)
+        self.assertIn('MaximumBytes=4096, MaximumLines=16, MaximumLineLength=256', native)
+        self.assertIn('Path.Combine(directory,"shutdown.jsonl")', native)
+        self.assertIn('new byte[MaximumBytes+1]', native)
+        self.assertIn('while(count<bytes.Length)', native)
+        self.assertIn('values.ContainsKey(key)', native)
+        self.assertIn('StringComparer.Ordinal', native)
+        self.assertIn('$start.Environment[\'FILEWAY_WINDOWS_DATA_ROOT\'] = $script:privateRoot', text)
+        self.assertIn('$start.Environment[\'FILEWAY_PLAYER_RESPONSIVENESS_DIAGNOSTICS\'] = \'1\'', text)
+
     def test_artifact_allowlist_contains_only_named_json_and_png(self):
         text, _, _ = source_parts()
         block = re.search(r"\$allowedArtifacts = @\((.*?)\)\n", text, re.S).group(1)
@@ -103,8 +123,17 @@ class HarnessGuards(unittest.TestCase):
         self.assertTrue(all(Path(name).name == name for name in names))
         self.assertIn("Join-Path $script:root 'screenshots'", text)
 
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
+    def test_actual_script_parses_with_powershell(self):
+        path = str(HARNESS).replace("'", "''")
+        command = ("$t=$null;$e=$null;[void][System.Management.Automation.Language.Parser]::ParseFile('"
+                   + path + "',[ref]$t,[ref]$e);if($e.Count){$e|%{Write-Error $_};exit 1}")
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-Command", command],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     @unittest.skipUnless(DOTNET, "Optional production C# checks require an already installed .NET SDK")
-    def test_production_decoder_and_png_writer_with_existing_sdk(self):
+    def test_production_decoder_png_writer_and_shutdown_reader_with_existing_sdk(self):
         with tempfile.TemporaryDirectory(prefix="Fileway Smoke CSharp ", dir=os.environ.get("FILEWAY_MPV_CHECK_TMP")) as temporary:
             root = Path(temporary)
             environment = dict(os.environ, DOTNET_CLI_HOME=str(root / "dotnet-home"), DOTNET_GENERATE_ASPNET_CERTIFICATE="false",
@@ -135,13 +164,89 @@ class HarnessGuards(unittest.TestCase):
                 vectors.append(f'Check("{name}.bgra",480,270,-1);')
             (root / "black.bgra").write_bytes(bytes(480 * 270 * 4))
             vectors.append('Check("black.bgra",480,270,-1);')
+            row = '{"schemaVersion":1,"stage":1,"uiThread":0}'
+            shutdown_vectors = []
+
+            def shutdown_case(name, content, expected=None):
+                directory = root / name / "diagnostics"
+                directory.mkdir(parents=True)
+                (directory / "shutdown.jsonl").write_bytes(content.encode("utf-8") if isinstance(content, str) else content)
+                if expected is None:
+                    shutdown_vectors.append(f'RejectShutdown("{name}");')
+                else:
+                    stages = ",".join(str(stage) for stage, _ in expected)
+                    threads = ",".join(str(thread) for _, thread in expected)
+                    shutdown_vectors.append(f'CheckShutdown("{name}",new int[]{{{stages}}},new int[]{{{threads}}});')
+
+            all_stages = [(stage, stage % 2) for stage in range(1, 10)]
+            shutdown_case("all-stages", "".join(json.dumps(dict(schemaVersion=1, stage=stage, uiThread=thread), separators=(",", ":"))
+                                               + "\n" for stage, thread in all_stages), all_stages)
+            shutdown_case("reordered-crlf", ' \t{ "uiThread" : 1, "stage" : 9, "schemaVersion" : 1 } \t\r\n', [(9, 1)])
+            shutdown_case("capacity", (row + "\n") * 16, [(1, 0)] * 16)
+            shutdown_case("byte-boundary", (row.ljust(255) + "\n") * 16, [(1, 0)] * 16)
+            shutdown_case("line-boundary", row.ljust(256) + "\n", [(1, 0)])
+            for name, content in {
+                "empty": b"", "blank": "\n", "trailing-blank": row + "\n\n",
+                "unterminated": row, "partial-final": row + '\n{"schemaVersion":1,',
+                "seventeen-lines": (row + "\n") * 17, "large-file": (row.ljust(255) + "\n") * 16 + "\n",
+                "large-line": row.ljust(257) + "\n", "bom": b"\xef\xbb\xbf" + row.encode() + b"\n",
+                "invalid-utf8": b"\xff\n", "nonobject": "[]\n", "nested": '{"schemaVersion":1,"stage":{},"uiThread":0}\n',
+                "private-field": row[:-1] + ',"path":"C:\\\\private"}\n',
+                "missing-field": '{"schemaVersion":1,"stage":1}\n',
+                "duplicate-field": '{"schemaVersion":1,"stage":1,"stage":2}\n',
+                "extra-duplicate": row[:-1] + ',"stage":2}\n',
+                "wrong-case": row.replace("stage", "Stage") + "\n",
+                "escaped-key": row.replace("stage", r"\u0073tage") + "\n",
+                "unknown-key": row.replace("stage", "other") + "\n",
+                "leading-text": "private " + row + "\n", "trailing-text": row + " private\n",
+                "vertical-tab": "\v" + row + "\n", "embedded-cr": row.replace("1,", "1\r,", 1) + "\n",
+            }.items():
+                shutdown_case(name, content)
+            for key, bad_values in {"schemaVersion": ("0", "2"), "stage": ("0", "10", "-1", '"1"', "true", "null", "1.0", "1e0", "+1", "01"),
+                                    "uiThread": ("2", "-1", '"0"', "false", "null", "0.0")}.items():
+                current = "0" if key == "uiThread" else "1"
+                for index, value in enumerate(bad_values):
+                    shutdown_case(f"bad-{key}-{index}", row.replace(f'"{key}":{current}', f'"{key}":{value}') + "\n")
+            # Even a valid prefix is discarded when any later record is invalid.
+            shutdown_case("invalid-later-row", row + "\n" + row.replace('"uiThread":0', '"uiThread":true') + "\n")
+            shutdown_vectors.append('CheckShutdown("missing",Array.Empty<int>(),Array.Empty<int>());')
+            shutdown_vectors.append('bool relativeRejected=false; try { ShutdownEvidence.Read("relative"); } catch(InvalidDataException) { relativeRejected=true; } if(!relativeRejected) throw new Exception("relative data root accepted");')
+            if os.name != "nt":
+                # Windows link creation may need privileges; run portable link
+                # rejection checks here without changing host security settings.
+                (root / "linked-file" / "diagnostics").mkdir(parents=True)
+                (root / "linked-file" / "diagnostics" / "shutdown.jsonl").symlink_to(root / "capacity" / "diagnostics" / "shutdown.jsonl")
+                shutdown_vectors.append('RejectShutdown("linked-file");')
+                (root / "linked-directory").mkdir()
+                (root / "linked-directory" / "diagnostics").symlink_to(root / "capacity" / "diagnostics", target_is_directory=True)
+                shutdown_vectors.append('RejectShutdown("linked-directory");')
+                (root / "linked-root").symlink_to(root / "capacity", target_is_directory=True)
+                shutdown_vectors.append('RejectShutdown("linked-root");')
             (root / "Program.cs").write_text('''using System; using System.IO; using Fileway.PlayerSmoke;
 class Program {
  static void Check(string path,int width,int height,int expected) {
   int actual=new Image(width,height,File.ReadAllBytes(path)).DecodeFrame(2160);
   if(actual!=expected) throw new Exception(path+": expected "+expected+", actual "+actual);
  }
- static void Main() { ''' + "".join(vectors) + '''
+ static void CheckShutdown(string root,int[] stages,int[] threads) {
+  var records=ShutdownEvidence.Read(Path.GetFullPath(root));
+  if(records.Length!=stages.Length) throw new Exception(root+": wrong record count");
+  for(int index=0;index<records.Length;index++) {
+   var record=records[index];
+   if(record.SchemaVersion!=1||record.Stage!=stages[index]||record.UiThread!=threads[index]) throw new Exception(root+": wrong numeric payload");
+   var fields=record.GetType().GetFields();
+   if(fields.Length!=3) throw new Exception("unexpected evidence fields");
+   foreach(var field in fields) if(field.FieldType!=typeof(int)) throw new Exception("nonnumeric evidence field");
+  }
+ }
+ static void RejectShutdown(string root) {
+  bool rejected=false;
+  try { ShutdownEvidence.Read(Path.GetFullPath(root)); }
+  catch(InvalidDataException) { rejected=true; }
+  catch(System.Text.DecoderFallbackException) { rejected=true; }
+  if(!rejected) throw new Exception(root+": invalid evidence accepted");
+ }
+ static void Main() { ''' + "".join(vectors + shutdown_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

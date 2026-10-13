@@ -165,7 +165,10 @@ public partial class App : Application, IAsyncDisposable
         if (_closing) return;
         await DisposeAsync();
         _closed = true;
+        var shutdownUiThread = _window?.DispatcherQueue.HasThreadAccess == true;
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseBegin, shutdownUiThread);
         _window?.Close();
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseReturned, shutdownUiThread);
     }
 
     public async ValueTask DisposeAsync()
@@ -176,11 +179,13 @@ public partial class App : Application, IAsyncDisposable
 
     private async Task ShutdownServicesAsync()
     {
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.ShutdownEntered, _window?.DispatcherQueue.HasThreadAccess == true);
         _closing = true;
         _lifetime.Cancel();
         _window?.RequestShutdown();
         await _startup;
         if (_window is not null) await _window.WaitForConnectionAsync();
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.ApplicationTasksDrained, _window?.DispatcherQueue.HasThreadAccess == true);
         // Stop file writers and release their native source/ownership handles
         // before retiring the account's resource leases or its Host process.
         try
@@ -193,9 +198,12 @@ public partial class App : Application, IAsyncDisposable
             }
         }
         catch (Exception error) { RecordStartupFailure(error); }
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.TransfersDisposed, _window?.DispatcherQueue.HasThreadAccess == true);
         // Stop native readers before revoking their HTTP resource leases and the Host.
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.PlaybackDisposeBegin, _window?.DispatcherQueue.HasThreadAccess == true);
         try { if (_playback is not null) await _playback.DisposeAsync(); }
         catch (Exception) { /* The Host Job Object still bounds process lifetime. */ }
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.PlaybackDisposeReturned, _window?.DispatcherQueue.HasThreadAccess == true);
         try { if (_services is not null) await _services.DisposeAsync(); }
         catch (Exception) { }
         try
@@ -204,8 +212,10 @@ public partial class App : Application, IAsyncDisposable
             else if (_storageSettings is IDisposable settings) settings.Dispose();
         }
         catch (Exception) { }
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.ServicesAndSettingsDisposed, _window?.DispatcherQueue.HasThreadAccess == true);
         try { if (_host is not null) await _host.DisposeAsync(); }
         catch (Exception) { }
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.HostDisposed, _window?.DispatcherQueue.HasThreadAccess == true);
         _dataDirectoryLock?.Dispose();
         _lifetime.Dispose();
     }
