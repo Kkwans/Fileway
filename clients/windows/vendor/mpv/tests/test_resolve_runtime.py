@@ -1,8 +1,9 @@
 """Offline runtime-lock safety contracts; these do not prove native playback.
 
 Packages are locally generated uncompressed tar fixtures, not media binaries.
-The contract suite uses stdlib archive/PE mocks. One optional test exercises the
-platform's existing tar; neither pefile nor a zstd module is needed.
+The contract suite uses stdlib archive/PE mocks. Optional tests exercise the
+platform's existing tar; neither pefile nor a zstd module is needed. Fake bsdtar
+checks prove command construction, not native Windows performance.
 """
 import copy
 import hashlib
@@ -33,12 +34,19 @@ def sha(value):
     return hashlib.sha256(value).hexdigest()
 
 
+def tar_mode(arguments):
+    return next(argument for argument in arguments[1:] if argument != "-q")
+
+
 def fixture_archive(entries):
     value = io.BytesIO()
     with tarfile.open(fileobj=value, mode="w") as archive:
         for name, payload in entries.items():
             item = tarfile.TarInfo(name)
-            if isinstance(payload, tuple):
+            if payload is None:
+                item.type = tarfile.DIRTYPE
+                archive.addfile(item)
+            elif isinstance(payload, tuple):
                 item.type = tarfile.SYMTYPE
                 item.linkname = payload[0]
                 archive.addfile(item)
@@ -80,6 +88,9 @@ class LockedRestoreTests(unittest.TestCase):
         self.repack()
         self.requests = []
         self.tar_calls = []
+        # Default fixtures never claim a Windows bsdtar implementation. Tests
+        # enabling fast reads separately mock the capability helper or version.
+        self.tar_version = "fixture tar (unsupported implementation)\n"
         self.addCleanup(patch.stopall)
         patch.dict(os.environ, {"SystemRoot": str(self.system_root)}).start()
         patch.object(resolver.urllib.request, "urlopen", side_effect=AssertionError("Real network access is forbidden")).start()
@@ -111,13 +122,21 @@ class LockedRestoreTests(unittest.TestCase):
 
     def run_tar(self, arguments, **kwargs):
         self.assertEqual("tar.exe", arguments[0])
-        self.assertIn(arguments[1], ("-tf", "-xOf"))
         self.tar_calls.append(arguments.copy())
-        with tarfile.open(arguments[2], "r:") as archive:
-            if arguments[1] == "-tf":
+        if arguments[1:] == ["--version"]:
+            return subprocess.CompletedProcess(arguments, 0, self.tar_version, "")
+        self.assertIn(tar_mode(arguments), ("-tf", "-xOf"))
+        if tar_mode(arguments) == "-tf":
+            self.assertEqual(3, len(arguments))
+        else:
+            self.assertLessEqual(arguments.count("-q"), 1)
+        command = [argument for argument in arguments if argument != "-q"]
+        with tarfile.open(command[2], "r:") as archive:
+            if command[1] == "-tf":
                 names = [item.name + ("/" if item.isdir() else "") for item in archive.getmembers()]
                 return subprocess.CompletedProcess(arguments, 0, "\n".join(names) + "\n", "")
-            item = archive.getmember(arguments[3])
+            self.assertEqual(4, len(command))
+            item = archive.getmember(command[3])
             # Streaming a link does not read its filesystem target. Selected
             # DLL links produce no DLL bytes and fail the expected hash.
             if item.isfile():
@@ -390,6 +409,170 @@ class LockedRestoreTests(unittest.TestCase):
         self.assertTrue((self.restore() / "libmpv-2.dll").is_file())
 
 
+    def test_fast_read_uses_complete_inventory_before_streaming_exact_members(self):
+        self.entries["ucrt64/"] = None
+        self.entries["ucrt64/bin/"] = None
+        self.entries["unused/late-member"] = b"unselected bytes"
+        self.repack()
+        original_inventory = resolver.archive_entries
+        inventory_complete = []
+        def inventory(package):
+            result = original_inventory(package)
+            inventory_complete.append(result)
+            return result
+        def supported():
+            self.assertEqual(1, len(inventory_complete))
+            self.assertIn("unused/late-member", inventory_complete[0][1])
+            self.assertIn("ucrt64/bin", inventory_complete[0][1])
+            self.assertFalse(any(tar_mode(call) == "-xOf" for call in self.tar_calls))
+            return True
+        with patch.object(resolver, "archive_entries", side_effect=inventory), \
+                patch.object(resolver, "windows_bsdtar_fast_read_supported", side_effect=supported) as capability:
+            runtime = self.restore()
+        capability.assert_called_once_with()
+        self.assertEqual(self.dll, (runtime / "libmpv-2.dll").read_bytes())
+        self.assertEqual(["-tf", "-xOf", "-xOf", "-xOf", "-xOf"], [tar_mode(call) for call in self.tar_calls])
+        self.assertEqual(["tar.exe", "-tf", str(self.root / "media-packages" / self.filename)], self.tar_calls[0])
+        for call in self.tar_calls[1:]:
+            self.assertEqual(1, call.count("-q"))
+            self.assertEqual(["tar.exe", "-xOf", str(self.root / "media-packages" / self.filename), call[-1]],
+                             [argument for argument in call if argument != "-q"])
+        self.assertEqual(set(self.entries) - {"ucrt64/", "ucrt64/bin/", "unused/late-member"},
+                         {call[-1] for call in self.tar_calls[1:]})
+
+    def test_fast_read_preserves_dot_prefixed_exact_raw_arguments(self):
+        self.entries = {"./" + name: value for name, value in self.entries.items()}
+        self.repack()
+        with patch.object(resolver, "windows_bsdtar_fast_read_supported", return_value=True):
+            runtime = self.restore()
+        self.assertEqual(self.dll, (runtime / "libmpv-2.dll").read_bytes())
+        for call in self.tar_calls:
+            if tar_mode(call) == "-xOf":
+                self.assertIn("-q", call)
+                self.assertIn(call[-1], self.entries)
+                self.assertTrue(call[-1].startswith("./"))
+
+    def test_unsupported_capability_retains_every_legacy_command(self):
+        with patch.object(resolver, "windows_bsdtar_fast_read_supported", return_value=False) as capability:
+            self.restore()
+        capability.assert_called_once_with()
+        self.assertFalse(any("-q" in call for call in self.tar_calls))
+        package = str(self.root / "media-packages" / self.filename)
+        self.assertEqual([["tar.exe", "-tf", package],
+                          ["tar.exe", "-xOf", package, ".PKGINFO"],
+                          ["tar.exe", "-xOf", package, ".BUILDINFO"],
+                          ["tar.exe", "-xOf", package, "ucrt64/bin/libmpv-2.dll"],
+                          ["tar.exe", "-xOf", package, "ucrt64/share/licenses/mpv/COPYING"]], self.tar_calls)
+
+    def test_capability_is_checked_once_across_multiple_locked_packages(self):
+        name, version = "mingw-w64-ucrt-x86_64-dependency", "1.0-1"
+        url = resolver.BASE + name + "-" + version + "-any.pkg.tar.zst"
+        package = fixture_archive({".PKGINFO": ("pkgname = " + name + "\npkgver = " + version + "\n").encode(),
+                                   ".BUILDINFO": b"format = 2\n", "unused/late-member": b"unselected"})
+        self.lock["packages"].append({"name": name, "version": version, "packageUrl": url, "sha256": sha(package)})
+        self.save_lock()
+        def download(requested_url, path, expected):
+            value = package if requested_url == url else self.package_bytes
+            self.assertEqual(sha(value), expected)
+            path.write_bytes(value)
+            return path
+        resolver.download.side_effect = download
+        with patch.object(resolver, "windows_bsdtar_fast_read_supported", return_value=True) as capability:
+            runtime = self.restore()
+        capability.assert_called_once_with()
+        self.assertEqual(self.dll, (runtime / "libmpv-2.dll").read_bytes())
+        self.assertEqual(2, sum(tar_mode(call) == "-tf" for call in self.tar_calls))
+        self.assertTrue(all("-q" in call for call in self.tar_calls if tar_mode(call) == "-xOf"))
+        self.assertTrue(all("-q" not in call for call in self.tar_calls if tar_mode(call) == "-tf"))
+
+    def test_fast_read_falls_back_for_selected_pattern_and_descendant_members(self):
+        for prefix in ("", "./"):
+            for basename in ("NOTICE[1]", "NOTICE^", "NOTICE$", "CASE-NOTICE"):
+                with self.subTest(prefix=prefix, basename=basename):
+                    self.root = self.base / ("fallback-" + str(len(self.requests)))
+                    selected = "ucrt64/share/licenses/mpv/" + basename
+                    self.entries = {prefix + name: value for name, value in {
+                        ".PKGINFO": ("pkgname = " + self.name + "\npkgver = " + self.version + "\n").encode(),
+                        ".BUILDINFO": b"format = 2\n", "ucrt64/bin/libmpv-2.dll": self.dll,
+                        selected: b"synthetic notice",
+                    }.items()}
+                    if basename == "CASE-NOTICE":
+                        # An inventory-only directory proves the descendant
+                        # collision without attempting a case-alias file/child
+                        # output pair on Windows' case-insensitive filesystem.
+                        self.entries[prefix + selected.lower() + "/late-child/"] = None
+                    self.repack()
+                    self.tar_calls.clear()
+                    with patch.object(resolver, "windows_bsdtar_fast_read_supported", return_value=True):
+                        runtime = self.restore()
+                    notice = runtime / "licenses" / self.name / "mpv" / basename
+                    self.assertEqual(b"synthetic notice", notice.read_bytes())
+                    selected_call = next(call for call in self.tar_calls if call[-1] == prefix + selected)
+                    self.assertNotIn("-q", selected_call)
+                    self.assertTrue(all("-q" in call for call in self.tar_calls
+                                        if tar_mode(call) == "-xOf" and call[-1] in {prefix + ".PKGINFO", prefix + ".BUILDINFO", prefix + "ucrt64/bin/libmpv-2.dll"}))
+
+    def test_late_inventory_hazards_are_rejected_before_capability_or_extraction(self):
+        for last in ("ucrt64/bin/LIBMPV-2.DLL", "./.PKGINFO", "ucrt64/bin/libmpv-2.dll/", "../late-escape", "ucrt64/late\\escape"):
+            with self.subTest(last=last):
+                self.root = self.base / ("late-inventory-" + str(len(self.requests)))
+                self.entries[last] = b"late hazard"
+                self.repack()
+                self.tar_calls.clear()
+                with patch.object(resolver, "windows_bsdtar_fast_read_supported", side_effect=AssertionError("Full inventory must reject first")) as capability:
+                    with self.assertRaises(ValueError):
+                        self.restore()
+                capability.assert_not_called()
+                self.assertEqual(["-tf"], [tar_mode(call) for call in self.tar_calls])
+                self.assertNotIn("-q", self.tar_calls[0])
+                self.assert_not_activated()
+                self.assertFalse((self.base / "late-escape").exists())
+                del self.entries[last]
+
+    def test_fast_read_keeps_runtime_and_metadata_failures_fail_closed(self):
+        original_entries, original_lock = copy.deepcopy(self.entries), copy.deepcopy(self.lock)
+        for failure in ("dll-hash", "imports", "machine", "metadata"):
+            with self.subTest(failure=failure):
+                self.root = self.base / ("fast-failure-" + failure)
+                self.entries, self.lock = copy.deepcopy(original_entries), copy.deepcopy(original_lock)
+                if failure == "dll-hash":
+                    self.entries["ucrt64/bin/libmpv-2.dll"] += b"changed DLL"
+                    message = "DLL hash mismatch"
+                elif failure in ("imports", "machine"):
+                    value = {"machine": 0x14c if failure == "machine" else 0x8664,
+                             "imports": ["unexpected.dll"] if failure == "imports" else ["kernel32.dll"]}
+                    changed = json.dumps(value).encode()
+                    self.entries["ucrt64/bin/libmpv-2.dll"] = changed
+                    self.lock["runtimeFiles"][0]["sha256"] = sha(changed)
+                    message = "not x64" if failure == "machine" else "imports differ"
+                else:
+                    self.entries[".PKGINFO"] = b"pkgname = other\npkgver = 0.41.0-8\n"
+                    message = "metadata identity differs"
+                self.repack()
+                self.tar_calls.clear()
+                with patch.object(resolver, "windows_bsdtar_fast_read_supported", return_value=True):
+                    with self.assertRaisesRegex(RuntimeError, message):
+                        self.restore()
+                self.assert_not_activated()
+                self.assertTrue(any("-q" in call for call in self.tar_calls if tar_mode(call) == "-xOf"))
+
+    def test_fast_read_selected_symlink_still_streams_no_external_target_bytes(self):
+        outside = self.base / "outside-fast.dll"
+        outside.write_bytes(self.dll)
+        self.entries["ucrt64/bin/libmpv-2.dll"] = (str(outside),)
+        self.repack()
+        with patch.object(resolver, "windows_bsdtar_fast_read_supported", return_value=True):
+            with self.assertRaisesRegex(RuntimeError, "DLL hash mismatch"):
+                self.restore()
+        self.assertEqual(self.dll, outside.read_bytes())
+        self.assert_not_activated()
+        streamed = list((self.root / "media-runtime").glob("x64.locked-*/libmpv-2.dll"))
+        self.assertEqual(1, len(streamed))
+        self.assertEqual(b"", streamed[0].read_bytes())
+        selected_call = next(call for call in self.tar_calls if call[-1] == "ucrt64/bin/libmpv-2.dll")
+        self.assertIn("-q", selected_call)
+
+
 class LockValidationTests(unittest.TestCase):
     def setUp(self):
         self.lock = {
@@ -618,7 +801,165 @@ class PeReaderTests(unittest.TestCase):
         image.close.assert_called_once_with()
 
 
+class FastReadCapabilityTests(unittest.TestCase):
+    def version_result(self, output, returncode=0, stderr=""):
+        return subprocess.CompletedProcess(["tar.exe", "--version"], returncode, output, stderr)
+
+    def check_version(self, output, expected, platform="nt", returncode=0, stderr=""):
+        # Replace only the resolver's reference. Patching the shared os.name
+        # would make pathlib attempt WindowsPath on a non-Windows test host.
+        with patch.object(resolver, "os", SimpleNamespace(name=platform)), \
+                patch.object(resolver.subprocess, "run") as run:
+            def version(arguments, **kwargs):
+                if returncode and kwargs.get("check"):
+                    raise subprocess.CalledProcessError(returncode, arguments, output=output, stderr=stderr)
+                return self.version_result(output, returncode, stderr)
+            run.side_effect = version
+            self.assertEqual(expected, resolver.windows_bsdtar_fast_read_supported())
+        if platform == "nt":
+            self.assertEqual(["tar.exe", "--version"], run.call_args.args[0])
+            self.assertEqual(1, run.call_count)
+            self.assertTrue(run.call_args.kwargs["check"])
+            self.assertEqual(5, run.call_args.kwargs["timeout"])
+        else:
+            run.assert_not_called()
+
+    def test_windows_recognized_bsdtar_first_line_supports_fast_read(self):
+        for version in ("bsdtar 3.5.2 - libarchive 3.5.2\n", "bsdtar 3.8.1 - libarchive 3.8.1 zlib/1.3.1\nmore details\n"):
+            with self.subTest(version=version):
+                self.check_version(version, True)
+
+    def test_other_platforms_never_query_or_enable_bsdtar_fast_read(self):
+        for platform in ("posix", "java", "unknown"):
+            with self.subTest(platform=platform):
+                self.check_version("bsdtar 3.8.1 - libarchive 3.8.1\n", False, platform)
+
+    def test_unknown_gnu_empty_and_nonfirst_line_versions_use_fallback(self):
+        for output in ("tar (GNU tar) 1.35\n", "fixture tar 1.0\n", "", "bsdtar\n", "bsdtar unknown\n",
+                       "wrapper bsdtar 3.8.1\n", " bsdtar 3.8.1\n", "bsdtar 3.8.1x\n",
+                       "GNU tar wrapper\nbsdtar 3.8.1\n", "\nbsdtar 3.8.1\n"):
+            with self.subTest(output=output):
+                self.check_version(output, False)
+        self.check_version("", False, stderr="bsdtar 3.8.1 - libarchive 3.8.1\n")
+
+    def test_failed_version_exit_uses_fallback_even_with_bsdtar_stdout(self):
+        self.check_version("bsdtar 3.8.1 - libarchive 3.8.1\n", False, returncode=1)
+
+    def test_missing_or_failed_version_command_uses_fallback(self):
+        for error in (FileNotFoundError("fixture executable missing"), OSError("fixture process failure"),
+                      subprocess.CalledProcessError(1, ["tar.exe", "--version"]),
+                      subprocess.TimeoutExpired(["tar.exe", "--version"], 5), UnicodeError("fixture decoding failure")):
+            with self.subTest(error=type(error).__name__):
+                with patch.object(resolver, "os", SimpleNamespace(name="nt")), \
+                        patch.object(resolver.subprocess, "run", side_effect=error):
+                    self.assertFalse(resolver.windows_bsdtar_fast_read_supported())
+
+
+class FastReadMemberTests(unittest.TestCase):
+    def test_plain_and_dot_prefixed_exact_members_match_complete_inventory(self):
+        inventory = {".pkginfo", "ucrt64", "ucrt64/bin", "ucrt64/bin/libmpv-2.dll", "unused/late-member"}
+        for raw in (".PKGINFO", "./.PKGINFO", "ucrt64/bin/libmpv-2.dll", "./ucrt64/bin/LIBMPV-2.DLL"):
+            with self.subTest(raw=raw):
+                self.assertTrue(resolver.can_fast_read_member(raw, inventory))
+
+    def test_member_must_exist_in_complete_inventory(self):
+        for raw in (".PKGINFO", "./ucrt64/bin/libmpv-2.dll"):
+            with self.subTest(raw=raw):
+                self.assertFalse(resolver.can_fast_read_member(raw, {"unselected/other"}))
+
+    def test_directory_raw_argument_prevents_fast_read(self):
+        for raw in ("nested/member/", "./nested/member/"):
+            with self.subTest(raw=raw):
+                self.assertFalse(resolver.can_fast_read_member(raw, {"nested/member"}))
+
+    def test_bsdtar_pattern_characters_always_use_legacy_read(self):
+        for character in "*?[]\\^$":
+            for prefix in ("", "./"):
+                raw = prefix + "ucrt64/share/licenses/mpv/NOTICE" + character
+                with self.subTest(raw=raw):
+                    self.assertFalse(resolver.can_fast_read_member(raw, {raw.removeprefix("./").lower()}))
+
+    def test_any_case_insensitive_descendant_prevents_fast_read(self):
+        for raw in ("nested/member", "./nested/member", "nested/MEMBER"):
+            for descendant in ("nested/member/child", "nested/member/subdirectory/child", "nested/member/subdirectory"):
+                with self.subTest(raw=raw, descendant=descendant):
+                    self.assertFalse(resolver.can_fast_read_member(raw, {"nested/member", descendant}))
+        self.assertTrue(resolver.can_fast_read_member("nested/member", {"nested/member", "nested/member-other/child"}))
+
+
 class ArchiveIOTests(unittest.TestCase):
+    def test_inventory_keeps_all_directory_names_and_exact_raw_file_spelling(self):
+        listing = "./\n./ucrt64/\n./ucrt64/bin/\n./ucrt64/bin/LIBMPV-2.DLL\nunused/late-directory/\n"
+        with patch.object(resolver.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, listing, "")) as run:
+            entries, complete_names = resolver.archive_entries(Path("fixture.pkg.tar.zst"))
+        self.assertEqual({"ucrt64/bin/LIBMPV-2.DLL": "./ucrt64/bin/LIBMPV-2.DLL"}, entries)
+        self.assertEqual({"ucrt64", "ucrt64/bin", "ucrt64/bin/libmpv-2.dll", "unused/late-directory"}, complete_names)
+        self.assertEqual(["tar.exe", "-tf", "fixture.pkg.tar.zst"], run.call_args.args[0])
+        self.assertTrue(run.call_args.kwargs["check"])
+        self.assertTrue(run.call_args.kwargs["capture_output"])
+
+    def test_copy_member_default_and_fast_read_only_differ_by_standalone_q(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("FILEWAY_MPV_CHECK_TMP")) as folder:
+            root = Path(folder)
+            package, member = root / "fixture.pkg.tar.zst", "./nested/member"
+            for fast_read in (False, True):
+                with self.subTest(fast_read=fast_read):
+                    destination = root / str(fast_read)
+                    def stream(arguments, **kwargs):
+                        self.assertTrue(kwargs["check"])
+                        self.assertEqual(destination.name, Path(kwargs["stdout"].name).name)
+                        kwargs["stdout"].write(b"synthetic stdout")
+                        return subprocess.CompletedProcess(arguments, 0)
+                    with patch.object(resolver.subprocess, "run", side_effect=stream) as run:
+                        if fast_read:
+                            resolver.copy_archive_member(package, member, destination, fast_read=True)
+                        else:
+                            resolver.copy_archive_member(package, member, destination)
+                    command = run.call_args.args[0]
+                    self.assertEqual(["tar.exe", "-xOf", str(package), member],
+                                     [argument for argument in command if argument != "-q"])
+                    self.assertEqual(int(fast_read), command.count("-q"))
+                    self.assertEqual(b"synthetic stdout", destination.read_bytes())
+            self.assertFalse((root / "nested").exists())
+
+    def test_write_member_forwards_fast_read_after_validating_output_path(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("FILEWAY_MPV_CHECK_TMP")) as folder:
+            root = Path(folder)
+            with patch.object(resolver, "copy_archive_member") as copy:
+                destination = resolver.write_member(Path("fixture.pkg.tar.zst"), "./raw/member", root,
+                                                    "guarded/member", fast_read=True)
+                copy.assert_called_once_with(Path("fixture.pkg.tar.zst"), "./raw/member", root / "guarded/member", fast_read=True)
+                self.assertEqual(root / "guarded/member", destination)
+                self.assertTrue(destination.parent.is_dir())
+            with patch.object(resolver, "copy_archive_member") as copy:
+                with self.assertRaises(ValueError):
+                    resolver.write_member(Path("fixture.pkg.tar.zst"), "./raw/member", root, "../escape", fast_read=True)
+                copy.assert_not_called()
+
+    @unittest.skipUnless(TAR and os.name == "nt", "Optional fast-read integration requires Windows tar")
+    def test_windows_bsdtar_fast_read_streams_exact_synthetic_member(self):
+        with tempfile.TemporaryDirectory(prefix="Fileway Bsdtar Stream ", dir=os.environ.get("FILEWAY_MPV_CHECK_TMP")) as folder:
+            root = Path(folder)
+            archive = root / "fixture.pkg.tar.zst"
+            archive.write_bytes(fixture_archive({"./nested/member": b"synthetic bytes", "./unused/late": b"unselected bytes"}))
+            calls = []
+            def run(arguments, **kwargs):
+                calls.append(arguments.copy())
+                self.assertIn(tar_mode(arguments), ("--version", "-tf", "-xOf"))
+                return RUN([TAR, *arguments[1:]], **kwargs)
+            with patch.object(resolver.subprocess, "run", side_effect=run):
+                if not resolver.windows_bsdtar_fast_read_supported():
+                    self.skipTest("The installed Windows tar is not recognized bsdtar")
+                entries, complete_names = resolver.archive_entries(archive)
+                raw = entries["nested/member"]
+                self.assertTrue(resolver.can_fast_read_member(raw, complete_names))
+                resolver.copy_archive_member(archive, raw, root / "streamed", fast_read=True)
+            self.assertEqual(["--version", "-tf", "-xOf"], [tar_mode(call) for call in calls])
+            self.assertNotIn("-q", calls[1])
+            self.assertEqual(1, calls[2].count("-q"))
+            self.assertEqual(b"synthetic bytes", (root / "streamed").read_bytes())
+            self.assertFalse((root / "nested").exists())
+
     @unittest.skipUnless(TAR, "Optional integration requires the platform's existing tar")
     def test_platform_tar_streams_regular_members_without_extracting_paths(self):
         with tempfile.TemporaryDirectory(prefix="Fileway Tar Stream ", dir=os.environ.get("FILEWAY_MPV_CHECK_TMP")) as folder:
@@ -627,9 +968,10 @@ class ArchiveIOTests(unittest.TestCase):
             archive.write_bytes(fixture_archive({"nested/member": b"synthetic bytes"}))
             def run(arguments, **kwargs):
                 self.assertIn(arguments[1], ("-tf", "-xOf"))
+                self.assertNotIn("-q", arguments)
                 return RUN([TAR, *arguments[1:]], **kwargs)
             with patch.object(resolver.subprocess, "run", side_effect=run):
-                self.assertEqual({"nested/member": "nested/member"}, resolver.archive_entries(archive))
+                self.assertEqual(({"nested/member": "nested/member"}, {"nested/member"}), resolver.archive_entries(archive))
                 resolver.copy_archive_member(archive, "nested/member", root / "streamed")
             self.assertEqual(b"synthetic bytes", (root / "streamed").read_bytes())
             self.assertFalse((root / "nested").exists())

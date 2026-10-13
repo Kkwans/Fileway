@@ -242,20 +242,47 @@ def archive_entries(package):
         seen.add(name.lower())
         if not raw.endswith("/"):
             entries[name] = raw
-    return entries
+    return entries, seen
 
 
-def copy_archive_member(package, member, destination):
+def windows_bsdtar_fast_read_supported():
+    if os.name != "nt":
+        return False
+    try:
+        result = subprocess.run(["tar.exe", "--version"], check=True,
+                                capture_output=True, text=True, encoding="utf-8", timeout=5)
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return False
+    lines = result.stdout.splitlines()
+    return bool(lines and re.match(r"^bsdtar [0-9]+(?:\.[0-9]+)*(?:\s|$)", lines[0]))
+
+
+def can_fast_read_member(raw, complete_names):
+    # bsdtar's literal operands also match descendants. Only stop at the first
+    # match after the complete inventory has ruled out duplicates and children.
+    if not isinstance(raw, str) or raw.endswith("/") or any(char in raw for char in "*?[]\\^$"):
+        return False
+    try:
+        name = str(safe_relative(raw)).lower()
+    except ValueError:
+        return False
+    return name in complete_names and not any(value.startswith(name + "/") for value in complete_names)
+
+
+def copy_archive_member(package, member, destination, fast_read=False):
     # tar writes only to stdout. Never extract archive paths or symlinks onto
     # the filesystem; even a link member cannot redirect an output write.
     with open(destination, "xb") as output:
-        subprocess.run(["tar.exe", "-xOf", str(package), member], check=True, stdout=output)
+        command = ["tar.exe", "-xOf", str(package), member]
+        if fast_read:
+            command.insert(1, "-q")
+        subprocess.run(command, check=True, stdout=output)
 
 
-def write_member(package, member, root, relative):
+def write_member(package, member, root, relative, fast_read=False):
     destination = output_path(root, relative)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    copy_archive_member(package, member, destination)
+    copy_archive_member(package, member, destination, fast_read=fast_read)
     return destination
 
 
@@ -316,18 +343,22 @@ def restore_runtime(root_value, lock_path):
     cache.mkdir(parents=True, exist_ok=True)
     runtime.parent.mkdir(parents=True, exist_ok=True)
     stage = pathlib.Path(tempfile.mkdtemp(prefix="x64.locked-", dir=runtime.parent))
-    selected = set()
+    selected, fast_read_supported = set(), None
     for name, item in sorted(packages.items()):
         filename = pathlib.PurePosixPath(urllib.parse.urlsplit(item["packageUrl"]).path).name
         package = output_path(cache, filename)
         download(item["packageUrl"], package, sha256_value(item["sha256"]))
         if digest(package) != sha256_value(item["sha256"]):
             raise RuntimeError("Package hash mismatch: " + filename)
-        entries = archive_entries(package)
+        entries, complete_names = archive_entries(package)
+        if fast_read_supported is None:
+            fast_read_supported = windows_bsdtar_fast_read_supported()
         for metadata in (".PKGINFO", ".BUILDINFO"):
             if metadata not in entries:
                 raise RuntimeError("Package metadata missing: " + name + " " + metadata)
-            path = write_member(package, entries[metadata], stage, "provenance/" + name + "/" + metadata)
+            raw = entries[metadata]
+            path = write_member(package, raw, stage, "provenance/" + name + "/" + metadata,
+                                fast_read=fast_read_supported and can_fast_read_member(raw, complete_names))
             if metadata == ".PKGINFO":
                 fields = path.read_text(encoding="utf-8").splitlines()
                 if ("pkgname = " + item["name"] not in fields or "pkgver = " + item["version"] not in fields):
@@ -338,10 +369,12 @@ def restore_runtime(root_value, lock_path):
                 basename = path.name.lower()
                 if basename in selected:
                     raise RuntimeError("Locked DLL appears in multiple packages: " + basename)
-                write_member(package, raw, stage, runtime_files[basename]["file"])
+                write_member(package, raw, stage, runtime_files[basename]["file"],
+                             fast_read=fast_read_supported and can_fast_read_member(raw, complete_names))
                 selected.add(basename)
             elif member.startswith("ucrt64/share/licenses/"):
-                write_member(package, raw, stage, "licenses/" + name + "/" + member.removeprefix("ucrt64/share/licenses/"))
+                write_member(package, raw, stage, "licenses/" + name + "/" + member.removeprefix("ucrt64/share/licenses/"),
+                             fast_read=fast_read_supported and can_fast_read_member(raw, complete_names))
     verify_runtime(stage, runtime_files, system)
     if lock_path.read_bytes() != original:
         raise RuntimeError("Input lock changed during restoration; staged runtime retained")

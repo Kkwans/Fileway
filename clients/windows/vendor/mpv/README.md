@@ -28,6 +28,15 @@ System32 file. Packages are inspected with `tar.exe`; selected entries stream to
 owned output files through stdout. Archive paths and symlinks are never extracted
 onto the filesystem. Windows path aliases, traversal and case collisions fail.
 
+After a package's complete inventory passes those checks, locked restoration can
+use bsdtar's `-q` for an exact, individual member read. This is enabled only on
+Windows when `tar.exe --version` identifies bsdtar, the raw member path has no
+pattern characters and the inventory contains no descendants of that member.
+Unknown tar versions, other platforms and ambiguous member paths retain the
+original full-scan command. Package/DLL hash checks, staging and the native probe
+remain required; no Windows timing improvement is established by the offline
+tests.
+
 The input lock and artifact root must be separate. Artifacts cannot be inside a
 Git checkout or traverse output symlinks/junctions. All validation happens in a
 unique staging directory before its promotion to `media-runtime\x64`. A runtime
@@ -62,7 +71,9 @@ The offline tests do not need this wheel or any installation.
 The offline contract suite needs only Python's standard library. It generates
 synthetic tar packages and mocks PE metadata, download responses and archive
 commands. One optional integration test also exercises the platform's existing
-tar with an uncompressed synthetic archive; it skips explicitly if tar is absent.
+tar with an uncompressed synthetic archive; another exercises `-q` only with
+recognized Windows bsdtar. They skip explicitly when their platform/tool gate is
+unavailable.
 No test downloads packages, installs tools or loads a real media DLL.
 
 From the repository root:
