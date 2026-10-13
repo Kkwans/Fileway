@@ -198,6 +198,9 @@ class HarnessGuards(unittest.TestCase):
         self.assertNotRegex(powershell, r"!vprot[ \t]*;")
         self.assertIn("[Fileway.PlayerSmoke.DebuggerEvidence]::RegionProgress($log)", powershell)
         self.assertIn("status = 3; phase = [int]$phase", powershell)
+        self.assertIn("status = 2; reason = [int]$reason", powershell)
+        self.assertIn("$regionError.Data['regionReason'] -ge 2", powershell)
+        self.assertIn("$regionError.Data['regionReason'] -le 7", powershell)
         self.assertIn("if ($fault.HelperArgument.Classification -eq 6) { Record-SafeCandidateRegion", powershell)
         self.assertIn("[Math]::Min(30000, [Math]::Max(0, 120000 - $Budget.ElapsedMilliseconds))", powershell)
         self.assertIn("queriedFault.HelperArgument.Classification!=6", native)
@@ -629,10 +632,25 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             free = full_region.replace("00001000MEM_COMMIT", "00010000MEM_FREE").replace("00020000MEM_PRIVATE", "00000000").replace("00000020PAGE_EXECUTE_READ", "00000001PAGE_NOACCESS")
             region_case("free-undefined", free, (0x10000,0,0))
             region_case("free-zero", free.replace("00000001PAGE_NOACCESS", "00000000"), (0x10000,0,0))
-            region_case("free-omitted", free.replace("Type: 00000000\n", "").replace("Protect: 00000001PAGE_NOACCESS\n", ""))
+
+            # Observed vprot FREE shape omits AllocationProtect and Type; the
+            # undefined-field semantics come from MINIDUMP_MEMORY_INFO docs.
+            free_shape = free.replace("AllocationProtect: 00000000\n", "").replace("Type: 00000000\n", "")
+            region_case("free-observed-five-fields", free_shape, (0x10000,0,0))
+            free_minimum = free_shape.replace("AllocationBase: 11223344`55667000\n", "").replace("Protect: 00000001PAGE_NOACCESS\n", "")
+            region_case("free-minimum-defined-fields", free_minimum, (0x10000,0,0))
+            region_case("free-shape-wrong-commit", free_shape.replace("00010000MEM_FREE", "00001000MEM_COMMIT"))
+            region_case("free-shape-wrong-reserve", free_shape.replace("00010000MEM_FREE", "00002000MEM_RESERVE"))
+            region_case("free-unknown-allocation", free_shape.replace("AllocationBase: 11223344`55667000", "AllocationBase: PRIVATE_SECRET"))
+            region_case("free-unknown-type-present", free_shape.replace(region_end,"Type: 00000000PRIVATE_SECRET\n"+region_end))
+            region_case("free-unknown-allocation-protect-present", free_shape.replace(region_end,"AllocationProtect: 00000000PRIVATE_SECRET\n"+region_end))
+            region_case("free-duplicate-state", free_shape.replace(region_end,"State: 00010000MEM_FREE\n"+region_end))
+            region_case("mixed-regions", free_shape+full_region)
+
+            region_case("free-omitted", free.replace("Type: 00000000\n", "").replace("Protect: 00000001PAGE_NOACCESS\n", ""), (0x10000,0,0))
             reserve = full_region.replace("00001000MEM_COMMIT", "00002000MEM_RESERVE")
             region_case("reserved-undefined", reserve, (0x2000,0x20000,0))
-            region_case("reserved-omitted", reserve.replace("Protect: 00000020PAGE_EXECUTE_READ\n", ""))
+            region_case("reserved-omitted", reserve.replace("Protect: 00000020PAGE_EXECUTE_READ\n", ""), (0x2000,0x20000,0))
             region_case("allocation-protection", full_region.replace("AllocationProtect: 00000000", "AllocationProtect: 00000040 PAGE_EXECUTE_READWRITE"), (0x1000,0x20000,0x20))
             for value, token in ((1,"NOACCESS"),(2,"READONLY"),(4,"READWRITE"),(8,"WRITECOPY"),(0x10,"EXECUTE"),(0x20,"EXECUTE_READ"),(0x40,"EXECUTE_READWRITE"),(0x80,"EXECUTE_WRITECOPY")):
                 region_case(f"base-{value}", full_region.replace("00000020PAGE_EXECUTE_READ", f"{value:08X}PAGE_{token}"), (0x1000,0x20000,value))
@@ -703,6 +721,12 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 region_vectors.append(f'CheckBoundRegion("tail-unmapped.log","{path}",false);')
             region_vectors.append('CheckBoundRegion("tail-wrong-source.log","region-bound.log",false);')
             region_vectors.append('CheckBoundRegion("tail-loaded.log","region-bound.log",false);')
+            region_vectors.append('CheckBoundRegion("tail-loaded.log","region-bound.log",false,2);')
+            region_vectors.append('CheckBoundRegion("tail-unmapped.log","region-bound-wrong-subcode.log",false,3);')
+            region_vectors.append('CheckBoundRegion("tail-unmapped.log","region-bound-different-context.log",false,4);')
+            for name, reason in (("missing-State",5),("overflow-region",6),("unknown-state",7)):
+                region_vectors.append(f'CheckRegionReason("region-{name}.log",{reason});')
+
 
             progress_markers = ("FILEWAY_CFG_CONTEXT_BEGIN", "FILEWAY_CFG_CONTEXT_END", "FILEWAY_CFG_TAIL_BEGIN",
                                 "FILEWAY_CFG_TAIL_END", "FILEWAY_CFG_REGION_BEGIN", "FILEWAY_CFG_REGION_END")
@@ -811,6 +835,11 @@ class Program {
   if(single.ParameterCount!=1||single.Parameters.Length!=0) throw new Exception("invented invalid call target");
  }
 
+ static void CheckRegionReason(string path,int reason) {
+  bool rejected=false; try { SingleRegionEvidence.Parse(File.ReadAllText(path),0x1122334455667788); }
+  catch(InvalidDataException error) { rejected=true; if(error.Message!="region_evidence_rejected"||!Equals(error.Data["regionReason"],reason)) throw new Exception("incorrect region reason"); }
+  if(!rejected) throw new Exception("missing region rejection");
+ }
  static void CheckRegionProgress(string path,int expected) {
   if(DebuggerEvidence.RegionProgress(path)!=expected) throw new Exception("incorrect region progress enum");
  }
@@ -825,10 +854,13 @@ class Program {
   catch(InvalidDataException error) { rejected=true; if(error.Message!="region_evidence_rejected") throw new Exception("unsafe region rejection"); }
   if(!rejected) throw new Exception("invalid region accepted: "+path);
  }
- static void CheckBoundRegion(string first,string second,bool expected) {
+ static void CheckBoundRegion(string first,string second,bool expected,int reason=0) {
   bool accepted=false;
   try { var region=DebuggerEvidence.ReadCandidateRegion(first,second); accepted=region.State==0x1000&&region.Type==0x20000&&region.Protection==0x20; }
-  catch(InvalidDataException error) { if(error.Message.Contains("private")||error.Message.Contains("11223344")) throw new Exception("raw region exception leaked"); }
+  catch(InvalidDataException error) {
+   if(error.Message!="region_evidence_rejected"||!(error.Data["regionReason"] is int actual)||actual<2||actual>7) throw new Exception("unsafe region reason");
+   if(reason!=0&&actual!=reason) throw new Exception("incorrect bound region reason");
+  }
   if(accepted!=expected) throw new Exception("incorrect bound region validation: "+second);
  }
 

@@ -344,7 +344,9 @@ namespace Fileway.PlayerSmoke {
         internal RegionMetadata(uint state,uint type,uint protection) { State=state; Type=type; Protection=protection; }
     }
     public static class SingleRegionEvidence {
-        static InvalidDataException Invalid() { return new InvalidDataException("region_evidence_rejected"); }
+        internal static InvalidDataException Invalid(int reason=5) {
+            var error=new InvalidDataException("region_evidence_rejected"); error.Data["regionReason"]=reason; return error;
+        }
         static readonly Dictionary<string,uint> States=new Dictionary<string,uint>(StringComparer.Ordinal) {
             {"MEM_COMMIT",0x1000},{"MEM_RESERVE",0x2000},{"MEM_FREE",0x10000}
         };
@@ -361,7 +363,7 @@ namespace Fileway.PlayerSmoke {
             var match=System.Text.RegularExpressions.Regex.Match(value,@"^([0-9a-fA-F]{1,8})[ \t]*([A-Z_]+)$");
             uint numeric,known;
             if(!match.Success||!uint.TryParse(match.Groups[1].Value,System.Globalization.NumberStyles.AllowHexSpecifier,
-                System.Globalization.CultureInfo.InvariantCulture,out numeric)||!allowed.TryGetValue(match.Groups[2].Value,out known)||numeric!=known) throw Invalid();
+                System.Globalization.CultureInfo.InvariantCulture,out numeric)||!allowed.TryGetValue(match.Groups[2].Value,out known)||numeric!=known) throw Invalid(7);
             return known;
         }
         static uint ProtectionValue(string value,bool zero) {
@@ -369,24 +371,24 @@ namespace Fileway.PlayerSmoke {
             var match=System.Text.RegularExpressions.Regex.Match(value,@"^([0-9a-fA-F]{1,8})[ \t]*(PAGE_[A-Z_]+(?:[ \t]*\|[ \t]*PAGE_[A-Z_]+)*)$");
             uint numeric;
             if(!match.Success||!uint.TryParse(match.Groups[1].Value,System.Globalization.NumberStyles.AllowHexSpecifier,
-                System.Globalization.CultureInfo.InvariantCulture,out numeric)) throw Invalid();
+                System.Globalization.CultureInfo.InvariantCulture,out numeric)) throw Invalid(7);
             uint combined=0;
             foreach(string raw in match.Groups[2].Value.Split('|')) {
                 uint token;
-                if(!Protections.TryGetValue(raw.Trim(),out token)||(combined&token)!=0) throw Invalid();
+                if(!Protections.TryGetValue(raw.Trim(),out token)||(combined&token)!=0) throw Invalid(7);
                 combined|=token;
             }
             uint basic=combined&0xff,modifiers=combined&0x700;
             if(combined!=numeric||basic==0||(basic&(basic-1))!=0||
                 ((modifiers&0x100)!=0&&basic==1)||
                 ((modifiers&0x200)!=0&&(basic==1||(modifiers&0x500)!=0))||
-                ((modifiers&0x400)!=0&&(basic==1||(modifiers&0x300)!=0))) throw Invalid();
+                ((modifiers&0x400)!=0&&(basic==1||(modifiers&0x300)!=0))) throw Invalid(7);
             return combined;
         }
         static ulong AddressValue(string value) {
             ulong result;
             if(!System.Text.RegularExpressions.Regex.IsMatch(value,@"^(?:[0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})$")||
-                !ulong.TryParse(value.Replace("`",""),System.Globalization.NumberStyles.AllowHexSpecifier,System.Globalization.CultureInfo.InvariantCulture,out result)) throw Invalid();
+                !ulong.TryParse(value.Replace("`",""),System.Globalization.NumberStyles.AllowHexSpecifier,System.Globalization.CultureInfo.InvariantCulture,out result)) throw Invalid(6);
             return result;
         }
         public static RegionMetadata Parse(string text,ulong candidate) {
@@ -413,14 +415,21 @@ namespace Fileway.PlayerSmoke {
                 if(value.Length==0||fields.ContainsKey(key)) throw Invalid();
                 fields.Add(key,value);
             }
-            if(fields.Count!=7) throw Invalid();
-            string stateText=fields["State"],typeText=fields["Type"],protectText=fields["Protect"];
-            ulong low=AddressValue(fields["BaseAddress"]),size=AddressValue(fields["RegionSize"]);
-            AddressValue(fields["AllocationBase"]); ProtectionValue(fields["AllocationProtect"],true);
-            if(size==0||low>ulong.MaxValue-size||candidate<low||candidate>=low+size) throw Invalid();
+            string stateText,baseText,sizeText,typeText,protectText,allocationBase,allocationProtect;
+            if(!fields.TryGetValue("State",out stateText)||!fields.TryGetValue("BaseAddress",out baseText)||!fields.TryGetValue("RegionSize",out sizeText)) throw Invalid();
             uint state=EnumValue(stateText,States),type=0,protection=0;
-            type=EnumValue(typeText,Types,state==0x10000);
-            protection=ProtectionValue(protectText,state!=0x1000);
+            ulong low=AddressValue(baseText),size=AddressValue(sizeText);
+            if(size==0||low>ulong.MaxValue-size||candidate<low||candidate>=low+size) throw Invalid(6);
+            bool hasType=fields.TryGetValue("Type",out typeText),hasProtect=fields.TryGetValue("Protect",out protectText),
+                hasAllocationBase=fields.TryGetValue("AllocationBase",out allocationBase),hasAllocationProtect=fields.TryGetValue("AllocationProtect",out allocationProtect);
+            // Only fields documented as undefined for this validated state may
+            // be absent. A committed record still needs all seven fields.
+            if(state!=0x10000&&(!hasType||!hasAllocationBase||!hasAllocationProtect)) throw Invalid();
+            if(state==0x1000&&!hasProtect) throw Invalid();
+            if(hasAllocationBase) AddressValue(allocationBase);
+            if(hasAllocationProtect) ProtectionValue(allocationProtect,true);
+            if(hasType) type=EnumValue(typeText,Types,state==0x10000);
+            if(hasProtect) protection=ProtectionValue(protectText,state!=0x1000);
             // These fields are explicitly undefined for FREE / RESERVE. Never
             // assign semantic meaning to whatever the debugger printed there.
             if(state==0x10000) type=0;
@@ -638,13 +647,16 @@ namespace Fileway.PlayerSmoke {
             return next;
         }
         public static RegionMetadata ReadCandidateRegion(string stackPath,string regionPath) {
-            string stack=ReadBounded(stackPath,FileShare.Read); var fault=Parse(stack);
+            string stack=ReadBounded(stackPath,FileShare.Read); DebuggerFault fault;
+            try { fault=Parse(stack); } catch(InvalidDataException) { throw SingleRegionEvidence.Invalid(2); }
             ulong candidate,queryCandidate;
             if(fault.HelperArgument==null||fault.HelperArgument.Classification!=6||!ContextArgument(stack.Split('\n'),out candidate))
-                throw new InvalidDataException("region_candidate_not_verified");
-            string region=ReadBounded(regionPath,FileShare.Read); var queriedFault=Parse(region);
-            if(queriedFault.HelperArgument==null||queriedFault.HelperArgument.Classification!=6||!ContextArgument(region.Split('\n'),out queryCandidate)||queryCandidate!=candidate)
-                throw new InvalidDataException("region_context_mismatch");
+                throw SingleRegionEvidence.Invalid(2);
+            string region=ReadBounded(regionPath,FileShare.Read); DebuggerFault queriedFault;
+            try { queriedFault=Parse(region); } catch(InvalidDataException) { throw SingleRegionEvidence.Invalid(3); }
+            if(!ContextArgument(region.Split('\n'),out queryCandidate)||queryCandidate!=candidate)
+                throw SingleRegionEvidence.Invalid(4);
+            if(queriedFault.HelperArgument==null||queriedFault.HelperArgument.Classification!=6) throw SingleRegionEvidence.Invalid(3);
             return SingleRegionEvidence.Parse(region,candidate);
         }
 
@@ -1272,10 +1284,17 @@ function Record-SafeCandidateRegion([string] $Dump, [string] $StackLog, [string]
             try { $phase = [Fileway.PlayerSmoke.DebuggerEvidence]::RegionProgress($log) } catch { }
             Record-Observation 'shutdown-cfg-region-result' @{ status = 3; phase = [int]$phase }; return
         }
-        if ($regionProcess.ExitCode -ne 0) { Record-Observation 'shutdown-cfg-region-result' @{ status = 2 }; return }
+        if ($regionProcess.ExitCode -ne 0) { Record-Observation 'shutdown-cfg-region-result' @{ status = 2; reason = 1 }; return }
         $region = [Fileway.PlayerSmoke.DebuggerEvidence]::ReadCandidateRegion($StackLog, $log)
         Record-Observation 'shutdown-cfg-region' @{ state = [uint32]$region.State; type = [uint32]$region.Type; protection = [uint32]$region.Protection }
-    } catch { Record-Observation 'shutdown-cfg-region-result' @{ status = 2 } }
+    } catch {
+        $regionError = $_.Exception
+        while ($regionError.InnerException) { $regionError = $regionError.InnerException }
+        $reason = 0
+        if ($regionError.Data.Contains('regionReason') -and $regionError.Data['regionReason'] -is [int] -and
+            $regionError.Data['regionReason'] -ge 2 -and $regionError.Data['regionReason'] -le 7) { $reason = $regionError.Data['regionReason'] }
+        Record-Observation 'shutdown-cfg-region-result' @{ status = 2; reason = [int]$reason }
+    }
     finally { if ($null -ne $regionProcess) { $regionProcess.Dispose() } }
 }
 

@@ -262,8 +262,10 @@ region evidence is accepted. The dump's uppercase
 option includes basic memory layout, not lowercase `/mf` full memory.
 
 The single region section admits at most 64 lines within the existing 1 MiB /
-4,096-line limits. Exactly seven unique fields are required: BaseAddress, AllocationBase,
-AllocationProtect, RegionSize, State, Protect and Type. BaseAddress plus nonzero
+4,096-line limits. Only these seven unique field names are accepted: BaseAddress, AllocationBase,
+AllocationProtect, RegionSize, State, Protect and Type. BaseAddress, RegionSize
+and a validated State are always required. COMMIT requires all seven; FREE may
+omit undefined allocation/protection/type fields; RESERVE may omit only Protect. BaseAddress plus nonzero
 RegionSize must not overflow and must privately contain the candidate in a
 half-open range. Allocation fields are validated but never exported. Only rebuilt numeric `shutdown-cfg-region` fields leave the
 private directory: State (`0x1000` committed, `0x2000` reserved, `0x10000` free),
@@ -277,10 +279,17 @@ export Type=0 and Protection=0, and reserved regions export Protection=0, becaus
 these fields are
 [undefined](https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_memory_info)
 in those states. Printed undefined values are discarded, never interpreted.
-Even undefined fields must be present and use the fixed numeric/token grammar;
-they are never used to infer an allocation or protection state. No region address, size, allocation detail, name or raw
+Present undefined fields must still use the fixed numeric/token grammar, but
+their absence is permitted only after State validates. They are never used to
+infer an allocation or protection state. This supports the observed five-field
+FREE output shape without treating a missing required field as a free region. No region address, size, allocation detail, name or raw
 line is exported. Failure emits only `shutdown-cfg-region-result` status 2
-(rejected/unavailable) or 3 (timeout). Timeouts may also include `phase`, derived
+(rejected/unavailable) or 3 (timeout). Status 2 includes a fixed numeric `reason`:
+0 other unavailable error, 1 debugger process failure, 2 original candidate
+validation, 3 repeated fault/data-flow validation, 4 context mismatch, 5 bounded
+section/field shape, 6 address/interval validation, or 7 fixed enum validation.
+These reasons never carry exception messages or raw values.
+Timeouts may also include `phase`, derived
 only from complete, unique, ordered existing marker lines: 0 unavailable,
 1 context begin, 2 context end, 3 tail begin, 4 tail end, 5 region begin,
 6 region end. An echoed command is not a marker; duplicates or reordered markers
