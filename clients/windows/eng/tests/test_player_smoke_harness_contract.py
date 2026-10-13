@@ -244,6 +244,30 @@ class HarnessGuards(unittest.TestCase):
         for private in (".dmp", "shutdown-stack.log", "symbols", "Fileway-private"):
             self.assertNotIn(private, upload)
 
+    def test_caller_diagnostic_is_dump_only_bound_and_does_not_promote_helper_argument(self):
+        _, native, powershell = source_parts()
+        capture = powershell.split("function Record-SafeCallerEvidence", 1)[1].split("function Record-SafeDebuggerEvidence", 1)[0]
+        self.assertIn("[Fileway.PlayerSmoke.DebuggerEvidence]::CallerQuery($StackLog)", capture)
+        self.assertIn("[Fileway.PlayerSmoke.DebuggerEvidence]::ReadCaller($StackLog, $log)", capture)
+        self.assertIn("'-z', $Dump", capture)
+        self.assertNotIn("'-p'", capture)
+        self.assertIn("120000 - $Budget.ElapsedMilliseconds", capture)
+        self.assertIn("30000", capture)
+        self.assertIn("currentInstruction-callerRange[0]==offset", native)
+        self.assertIn("caller&&next!=expectedBase", native)
+        self.assertIn("delta==0&&destination==expectedTarget", native)
+        self.assertIn("candidate!=queriedCandidate", native)
+        self.assertIn('" L0n16; .echo FILEWAY_CFG_CALLER_END"', native)
+        self.assertIn("call.TargetSymbol==\"RtlpHandleInvalidUserCallTarget\"", native)
+        self.assertIn("Record-SafeCallerEvidence $dump $log $symbols $analysisBudget", powershell)
+        exported = capture.split("Record-Observation 'shutdown-cfg-caller'", 2)[2].split("foreach ($instruction", 1)[0]
+        self.assertNotIn("HelperArgument", exported)
+        self.assertNotIn("targetAddress", capture)
+        self.assertNotIn("MEM_FREE", capture)
+        self.assertNotIn("bu ", capture)
+        self.assertNotIn("bp ", capture)
+        self.assertIn(".dump /muF /o shutdown.dmp; gn", powershell)
+
     def test_internal_timings_use_existing_numeric_events_not_latency_acceptance(self):
         _, native, powershell = source_parts()
         self.assertIn("[Fileway.PlayerSmoke.ResponsivenessEvidence]::Pair($rows.ToArray())", powershell)
@@ -627,6 +651,59 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             tail_case("fifth-instruction", tail=tail_body.replace("FILEWAY_CFG_TAIL_END", "115d 90 nop\nFILEWAY_CFG_TAIL_END"), expected_status=2, expected_count=0)
 
 
+            caller_vectors = []
+            caller_frames = tail_frames.replace("00000000`00000000 ntdll!RtlpHandleInvalidUserCallTarget", "00000000`00001308 ntdll!RtlpHandleInvalidUserCallTarget") + "02 00000000`00008040 00000000`00002100 ntdll+0x308\n"
+            caller_prefix = helper_prefix + ("1100 4053 push rbx\n1102 4883ec30 sub rsp,30h\n"
+                                              "1106 833d0000000000 cmp dword ptr [ntdll!PRIVATE_SECRET],0\n"
+                                              "110d 488bd9 mov rbx,rcx\n") + helper_suffix
+            caller_original = tail_header + caller_frames + "FILEWAY_CFG_MODULES_BEGIN\n" + tail_ranges + "FILEWAY_CFG_MODULES_END\n" + tail_context + caller_prefix + tail_body
+            (root / "caller-original.log").write_text(caller_original, encoding="utf-8")
+            caller_block = ("FILEWAY_CFG_CALLER_BEGIN\nntdll!PRIVATE_SECRET+0x1:\n"
+                            "1300 488bc8 mov rcx,rax\n"
+                            "1303 e8f8fdffff call ntdll!RtlpHandleInvalidUserCallTarget (00000000`00001100)\n"
+                            "FILEWAY_CFG_CALLER_END\n")
+            def caller_case(name, block=caller_block, original=caller_original, status=1, passes=1, saves=1, reject=False, stack="caller-original.log"):
+                path = f"caller-{name}.log"
+                (root / path).write_text(original + block, encoding="utf-8")
+                caller_vectors.append(f'RejectCaller("{path}");' if reject else f'CheckCaller("{path}",{status},{passes},{saves},{json.dumps(stack)});')
+
+            caller_case("rax")
+            caller_case("other-register", block=caller_block.replace("rcx,rax", "rcx,r10"), passes=0)
+            caller_case("unknown-opcode", block=caller_block.replace("mov rcx,rax", "unknownop PRIVATE_SECRET"), passes=0)
+            caller_case("private-symbol", block=caller_block.replace("ntdll!RtlpHandleInvalidUserCallTarget (", "ntdll!PRIVATE_SECRET ("), passes=0)
+            caller_case("wrong-helper-address", block=caller_block.replace("(00000000`00001100)", "(00000000`00001200)"), passes=0)
+            caller_case("helper-interior", block=caller_block.replace("Target (", "Target+0x1 (").replace("(00000000`00001100)", "(00000000`00001101)"), passes=0)
+            caller_case("jump", block=caller_block.replace(" call ", " jmp "), passes=0)
+            caller_unproven = caller_original.replace("mov rbx,rcx", "mov rbx,rax")
+            (root / "caller-unproven-original.log").write_text(caller_unproven, encoding="utf-8")
+            caller_case("unproven-prologue", original=caller_unproven, saves=0, stack="caller-unproven-original.log")
+            for name, block in {
+                "gap": caller_block.replace("1303 e8", "1304 e8"),
+                "wrong-end": caller_block.replace("e8f8fdffff", "e8f8fdff"),
+                "outside-module": caller_block.replace("1300 488bc8", "0900 488bc8"),
+                "past-return": caller_block.replace("FILEWAY_CFG_CALLER_END", "1308 90 nop\nFILEWAY_CFG_CALLER_END"),
+                "missing-end": caller_block.replace("FILEWAY_CFG_CALLER_END", ""),
+                "duplicate": caller_block * 2,
+                "wrong-module-label": caller_block.replace("ntdll!PRIVATE_SECRET+0x1:", "USER32!PRIVATE_SECRET+0x1:"),
+                "command-echo": caller_block.replace("FILEWAY_CFG_CALLER_BEGIN", "0:000> .echo FILEWAY_CFG_CALLER_BEGIN"),
+                "too-many": "FILEWAY_CFG_CALLER_BEGIN\nntdll!PRIVATE_SECRET:\n" + "".join(f"{0x12f8 + i:x} 90 nop\n" for i in range(17)) + "FILEWAY_CFG_CALLER_END\n",
+            }.items():
+                caller_case(name, block=block, status=2, passes=0, saves=0)
+            caller_case("absent", block="", status=0, passes=0, saves=0)
+            for name, original in {
+                "changed-context": caller_original.replace("rdx=0000000000004234", "rdx=0000000000004244"),
+                "changed-module": caller_original.replace("1000 3000 ntdll", "0900 3000 ntdll"),
+                "wrong-return-rva": caller_original.replace("ntdll+0x308", "ntdll+0x309"),
+                "wrong-return-value": caller_original.replace("00000000`00001308 ntdll!Rtlp", "00000000`00001309 ntdll!Rtlp"),
+                "wrong-frame-module": caller_original.replace("ntdll+0x308", "USER32+0x308"),
+                "changed-prologue": caller_original.replace("mov rbx,rcx", "mov rbx,rax"),
+            }.items():
+                caller_case(name, original=original, reject=True)
+                caller_vectors.append(f'CheckCallerQuery("caller-{name}.log",false);' if name not in ("changed-context", "changed-module", "changed-prologue") else "")
+            (root / "other-caller-session").mkdir()
+            (root / "other-caller-session/caller.log").write_text(caller_original + caller_block, encoding="utf-8")
+            caller_vectors += ['RejectCaller("other-caller-session/caller.log");', 'CheckCallerQuery("caller-original.log",true);', 'CheckCallerQuery("tail-unloaded.log",false);']
+
             region_vectors = []
             region_begin, region_end = "FILEWAY_CFG_REGION_BEGIN\n", "FILEWAY_CFG_REGION_END\n"
             region_body = ("BaseAddress: 11223344`55667000\nAllocationBase: 11223344`55667000\n"
@@ -866,6 +943,30 @@ class Program {
   if(actual!=expectedArgument) throw new Exception(path+": incorrect candidate argument "+actual);
   if(count==4&&(fault.TailInstructions[0].Offset!=0x4e||fault.TailInstructions[3].Offset!=0x58)) throw new Exception("incorrect tail-relative offsets");
  }
+ static void CheckCallerQuery(string path,bool expected) {
+  string query=DebuggerEvidence.CallerQuery(path);
+  if(expected?query!=".echo FILEWAY_CFG_CALLER_BEGIN; ub ntdll+0x308 L0n16; .echo FILEWAY_CFG_CALLER_END":query!=null)
+   throw new Exception("incorrect or unbound caller query");
+ }
+ static void CheckCaller(string path,int status,int passes,int saves,string stack) {
+  var caller=DebuggerEvidence.ReadCaller(stack,path);
+  if(caller.Status!=status||caller.PassesRax!=passes||caller.HelperSavesRcx!=saves) throw new Exception(path+": incorrect caller evidence");
+  if(status!=1&&caller.Instructions.Length!=0) throw new Exception("partial caller rows accepted");
+  foreach(var row in caller.Instructions) {
+   if(row.Offset>=0x1000||row.TargetSymbol.Contains("PRIVATE")||row.FirstRegister.Contains("SECRET")||row.SecondRegister.Contains("SECRET"))
+    throw new Exception("raw or private caller data exported");
+  }
+  if(path=="caller-rax.log"&&(caller.Instructions.Length!=2||caller.Instructions[0].Offset!=0x300||caller.Instructions[1].Offset!=0x303))
+   throw new Exception("caller instructions lost module-relative offsets");
+  // The original helper parameter remains its own observation and mapping.
+  var argument=DebuggerEvidence.Read("caller-original.log").HelperArgument;
+  if(argument==null||argument.Mapping!=2||argument.Module!="libmpv_2"||argument.Offset!=0x234) throw new Exception("caller analysis changed helper mapping");
+ }
+ static void RejectCaller(string path) {
+  bool rejected=false;
+  try { DebuggerEvidence.ReadCaller("caller-original.log",path); } catch(InvalidDataException) { rejected=true; }
+  if(!rejected) throw new Exception("unbound caller evidence accepted");
+ }
  static void CheckCandidateClassifications() {
   foreach(var item in new (string Name,int Expected)[]{("unloaded",3),("loaded",2),("unmapped",6),("ambiguous",0),
     ("null",1),("unknown-only",4),("unknown-unloaded-only",5),("unknown-loaded-overlap",0),("unknown-unloaded-overlap",0),
@@ -1009,7 +1110,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckMainWindowCandidate(); CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors + region_vectors) + '''
+ static void Main() { CheckMainWindowCandidate(); CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors + caller_vectors + region_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

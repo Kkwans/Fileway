@@ -334,9 +334,19 @@ namespace Fileway.PlayerSmoke {
         public readonly DebuggerParameter[] Parameters;
         public readonly DebuggerInstruction[] Instructions, TailInstructions;
         public readonly DebuggerParameter HelperArgument;
-        internal DebuggerFault(uint code,int subcode,int parameterCount,DebuggerFrame[] frames,DebuggerParameter[] parameters,int helperStatus,DebuggerInstruction[] instructions,int tailStatus,DebuggerInstruction[] tail,DebuggerParameter helperArgument) {
+        internal readonly ulong NtdllStart, NtdllEnd, HelperAddress, CallerReturnAddress;
+        internal DebuggerFault(uint code,int subcode,int parameterCount,DebuggerFrame[] frames,DebuggerParameter[] parameters,int helperStatus,DebuggerInstruction[] instructions,int tailStatus,DebuggerInstruction[] tail,DebuggerParameter helperArgument,
+            ulong ntdllStart,ulong ntdllEnd,ulong helperAddress,ulong callerReturnAddress) {
             ExceptionCode=code; FastFailSubcode=subcode; ParameterCount=parameterCount; Frames=frames; Parameters=parameters;
             HelperStatus=helperStatus; Instructions=instructions; TailStatus=tailStatus; TailInstructions=tail; HelperArgument=helperArgument;
+            NtdllStart=ntdllStart; NtdllEnd=ntdllEnd; HelperAddress=helperAddress; CallerReturnAddress=callerReturnAddress;
+        }
+    }
+    public sealed class DebuggerCaller {
+        public readonly int Status, PassesRax, HelperSavesRcx;
+        public readonly DebuggerInstruction[] Instructions;
+        internal DebuggerCaller(int status,int passesRax,int helperSavesRcx,DebuggerInstruction[] instructions) {
+            Status=status; PassesRax=passesRax; HelperSavesRcx=helperSavesRcx; Instructions=instructions;
         }
     }
     public sealed class RegionMetadata {
@@ -519,9 +529,9 @@ namespace Fileway.PlayerSmoke {
             if(immediate.Success&&Hex(immediate.Groups[1].Value,out number)) { kind=3; return true; }
             return false;
         }
-        static DebuggerInstruction[] Helper(string[] lines,Dictionary<string,ulong[]> ranges,out int status,out ulong helperBase,bool tail=false,ulong expectedBase=0) {
-            status=0; helperBase=0; int begin=-1,end=-1,maximum=tail?4:24;
-            string prefix=tail?"FILEWAY_CFG_TAIL_":"FILEWAY_CFG_HELPER_";
+        static DebuggerInstruction[] Helper(string[] lines,Dictionary<string,ulong[]> ranges,out int status,out ulong helperBase,bool tail=false,ulong expectedBase=0,bool caller=false,ulong expectedTarget=0) {
+            status=0; helperBase=0; int begin=-1,end=-1,maximum=caller?16:tail?4:24;
+            string prefix=caller?"FILEWAY_CFG_CALLER_":tail?"FILEWAY_CFG_TAIL_":"FILEWAY_CFG_HELPER_";
             for(int i=0;i<lines.Length;i++) {
                 string marker=lines[i].TrimEnd('\r');
                 if(marker==prefix+"BEGIN") { if(begin!=-1) { status=2; return Array.Empty<DebuggerInstruction>(); } begin=i; }
@@ -529,14 +539,19 @@ namespace Fileway.PlayerSmoke {
             }
             if(begin==-1&&end==-1) return Array.Empty<DebuggerInstruction>();
             status=2; ulong[] range;
-            if(begin<0||end<=begin||end-begin>maximum+4||!ranges.TryGetValue("ntdll",out range)||(tail&&(expectedBase==0||expectedBase>ulong.MaxValue-0x5d))) return Array.Empty<DebuggerInstruction>();
+            if(begin<0||end<=begin||end-begin>maximum+4||!ranges.TryGetValue("ntdll",out range)||(tail&&(expectedBase==0||expectedBase>ulong.MaxValue-0x5d))||
+                (caller&&(expectedBase<=range[0]||expectedBase>=range[1]||expectedTarget<range[0]||expectedTarget>=range[1]))) return Array.Empty<DebuggerInstruction>();
             var result=new List<DebuggerInstruction>(); bool header=false; ulong first=0,next=0,headerOffset=0;
             for(int i=begin+1;i<end;i++) {
                 string line=lines[i].Trim();
                 if(line.Length==0) continue;
                 if(line.Length>2048) return Array.Empty<DebuggerInstruction>();
                 if(!header) {
-                    if(tail) {
+                    if(caller) {
+                        // An internal ntdll symbol can label this code. Its name is
+                        // not exported; instruction addresses must match the bound RVA.
+                        if(!System.Text.RegularExpressions.Regex.IsMatch(line,@"^ntdll(?:![A-Za-z_][A-Za-z0-9_]*)?(?:\+0x[0-9a-fA-F]{1,8})?:$")) return Array.Empty<DebuggerInstruction>();
+                    } else if(tail) {
                         var label=System.Text.RegularExpressions.Regex.Match(line,@"^ntdll!RtlpHandleInvalidUserCallTarget\+0x([0-9a-fA-F]{1,2}):$");
                         if(!label.Success||!Hex(label.Groups[1].Value,out headerOffset)||headerOffset>=0x5d) return Array.Empty<DebuggerInstruction>();
                     } else if(line!="ntdll!RtlpHandleInvalidUserCallTarget:") return Array.Empty<DebuggerInstruction>();
@@ -547,12 +562,12 @@ namespace Fileway.PlayerSmoke {
                 if(!match.Success||result.Count>=maximum||match.Groups[2].Length%2!=0||!Address(match.Groups[1].Value,out address)||
                     address<range[0]||address>=range[1]||address-range[0]>uint.MaxValue) return Array.Empty<DebuggerInstruction>();
                 if(result.Count==0) {
-                    first=tail?expectedBase:address;
+                    first=caller?range[0]:tail?expectedBase:address;
                     if(tail&&address!=expectedBase+headerOffset) return Array.Empty<DebuggerInstruction>();
                 }
                 else if(address!=next) return Array.Empty<DebuggerInstruction>();
                 int size=match.Groups[2].Length/2;
-                if(address>ulong.MaxValue-(ulong)size||address+(ulong)size>range[1]) return Array.Empty<DebuggerInstruction>();
+                if(address>ulong.MaxValue-(ulong)size||address+(ulong)size>range[1]||(caller&&address+(ulong)size>expectedBase)) return Array.Empty<DebuggerInstruction>();
                 next=address+(ulong)size;
                 string opcode=Array.Find(Opcodes,name=>name==match.Groups[3].Value)??"";
                 string operands=match.Groups[4].Value.Trim(),r1="",r2="",target=""; int kind1=0,kind2=0,d1=0,d2=0,decoded=0; ulong targetOffset=0;
@@ -564,7 +579,9 @@ namespace Fileway.PlayerSmoke {
                         if(call.Success&&Address(call.Groups[3].Value,out destination)&&destination>=range[0]&&destination<range[1]&&
                             (!call.Groups[2].Success||Hex(call.Groups[2].Value,out delta))&&delta<=destination-range[0]) {
                             string known=Array.Find(Symbols,name=>name==call.Groups[1].Value);
-                            if(known!=null) { decoded=1; kind1=4; target=known; targetOffset=delta; }
+                            if(known!=null&&(!caller||known!="RtlpHandleInvalidUserCallTarget"||(delta==0&&destination==expectedTarget))) {
+                                decoded=1; kind1=4; target=known; targetOffset=delta;
+                            }
                         } else if(Operand(operands,out kind1,out r1,out d1)&&kind1==1) decoded=1;
                     } else {
                         string[] values=operands.Split(',');
@@ -578,7 +595,7 @@ namespace Fileway.PlayerSmoke {
                 if(opcode=="mov"&&decoded==1&&code.Success&&Hex(code.Groups[1].Value,out immediate)&&immediate==10) failFastCode=true;
                 result.Add(new DebuggerInstruction(result.Count,address-first,opcode,decoded,kind1,r1,d1,kind2,r2,d2,target,targetOffset,failFastCode));
             }
-            if(!header||result.Count==0||(tail&&(result.Count!=4||next!=expectedBase+0x5d))) return Array.Empty<DebuggerInstruction>();
+            if(!header||result.Count==0||(tail&&(result.Count!=4||next!=expectedBase+0x5d))||(caller&&next!=expectedBase)) return Array.Empty<DebuggerInstruction>();
             helperBase=first; status=1; return result.ToArray();
         }
 
@@ -631,6 +648,59 @@ namespace Fileway.PlayerSmoke {
             return false;
         }
         public static DebuggerFault Read(string path) { return Parse(ReadBounded(path,FileShare.Read)); }
+        static bool SameInstructions(DebuggerInstruction[] left,DebuggerInstruction[] right) {
+            if(left.Length!=right.Length) return false;
+            for(int index=0;index<left.Length;index++) {
+                var a=left[index]; var b=right[index];
+                if(a.Index!=b.Index||a.Offset!=b.Offset||a.Opcode!=b.Opcode||a.Decoded!=b.Decoded||
+                    a.FirstKind!=b.FirstKind||a.FirstRegister!=b.FirstRegister||a.FirstDisplacement!=b.FirstDisplacement||
+                    a.SecondKind!=b.SecondKind||a.SecondRegister!=b.SecondRegister||a.SecondDisplacement!=b.SecondDisplacement||
+                    a.TargetSymbol!=b.TargetSymbol||a.TargetOffset!=b.TargetOffset||a.IsFastFailCode!=b.IsFastFailCode) return false;
+            }
+            return true;
+        }
+        public static string CallerQuery(string stackPath) {
+            var fault=Read(stackPath);
+            if(fault.FastFailSubcode!=10||fault.HelperArgument==null||fault.HelperStatus!=1||fault.TailStatus!=1||
+                fault.CallerReturnAddress<=fault.NtdllStart||fault.CallerReturnAddress>=fault.NtdllEnd||
+                fault.CallerReturnAddress-fault.NtdllStart>uint.MaxValue) return null;
+            // Only a stack-verified module RVA becomes debugger command text.
+            return ".echo FILEWAY_CFG_CALLER_BEGIN; ub ntdll+0x"+
+                (fault.CallerReturnAddress-fault.NtdllStart).ToString("x",System.Globalization.CultureInfo.InvariantCulture)+
+                " L0n16; .echo FILEWAY_CFG_CALLER_END";
+        }
+        public static DebuggerCaller ReadCaller(string stackPath,string callerPath) {
+            string directory=Path.GetDirectoryName(Path.GetFullPath(stackPath));
+            if(!string.Equals(directory,Path.GetDirectoryName(Path.GetFullPath(callerPath)),StringComparison.OrdinalIgnoreCase)||CallerQuery(stackPath)==null)
+                throw new InvalidDataException("caller_evidence_rejected");
+            string original=ReadBounded(stackPath,FileShare.Read),query=ReadBounded(callerPath,FileShare.Read);
+            var fault=Parse(original); var queried=Parse(query); ulong candidate,queriedCandidate;
+            if(queried.FastFailSubcode!=10||queried.HelperArgument==null||queried.HelperStatus!=1||queried.TailStatus!=1||
+                fault.ParameterCount!=queried.ParameterCount||!SameInstructions(fault.Instructions,queried.Instructions)||!SameInstructions(fault.TailInstructions,queried.TailInstructions)||
+                fault.NtdllStart!=queried.NtdllStart||fault.NtdllEnd!=queried.NtdllEnd||fault.HelperAddress!=queried.HelperAddress||
+                fault.CallerReturnAddress!=queried.CallerReturnAddress||!ContextArgument(original.Split('\n'),out candidate)||
+                !ContextArgument(query.Split('\n'),out queriedCandidate)||candidate!=queriedCandidate)
+                throw new InvalidDataException("caller_evidence_rejected");
+            var ranges=new Dictionary<string,ulong[]>(StringComparer.Ordinal) { {"ntdll",new ulong[]{fault.NtdllStart,fault.NtdllEnd}} };
+            int status; ulong ignored;
+            var rows=Helper(query.Split('\n'),ranges,out status,out ignored,false,fault.CallerReturnAddress,true,fault.HelperAddress);
+            int passesRax=0,savesRcx=0;
+            if(status==1&&rows.Length>=2) {
+                var move=rows[rows.Length-2]; var call=rows[rows.Length-1];
+                // This proves only the immediate caller's RAX -> RCX input.
+                // It does not relabel late RDX/MEM_FREE as the original target.
+                if(move.Decoded==1&&move.Opcode=="mov"&&move.FirstKind==1&&move.FirstRegister=="rcx"&&move.SecondKind==1&&move.SecondRegister=="rax"&&
+                    call.Decoded==1&&call.Opcode=="call"&&call.FirstKind==4&&call.TargetSymbol=="RtlpHandleInvalidUserCallTarget"&&call.TargetOffset==0) passesRax=1;
+                if(fault.Instructions.Length>=4) {
+                    var push=fault.Instructions[0]; var reserve=fault.Instructions[1]; var compare=fault.Instructions[2]; var save=fault.Instructions[3];
+                    if(push.Offset==0&&push.Decoded==1&&push.Opcode=="push"&&push.FirstRegister=="rbx"&&
+                        reserve.Offset==2&&reserve.Decoded==1&&reserve.Opcode=="sub"&&reserve.FirstRegister=="rsp"&&reserve.SecondKind==3&&
+                        compare.Offset==6&&compare.Opcode=="cmp"&&save.Offset==13&&save.Decoded==1&&save.Opcode=="mov"&&
+                        save.FirstKind==1&&save.FirstRegister=="rbx"&&save.SecondKind==1&&save.SecondRegister=="rcx") savesRcx=1;
+                }
+            }
+            return new DebuggerCaller(status,passesRax,savesRcx,rows);
+        }
         public static int RegionProgress(string path) {
             // Existing exact marker lines only; never retain command/log text.
             string text=ReadBounded(path,FileShare.ReadWrite); string[] lines=text.Split('\n');
@@ -789,7 +859,7 @@ namespace Fileway.PlayerSmoke {
                 }
             }
             if(code!=0xc0000409) throw new InvalidDataException("debugger_exception_not_expected");
-            var frames=new List<DebuggerFrame>(); int nextIndex=0; ulong instruction=faultAddress;
+            var frames=new List<DebuggerFrame>(); int nextIndex=0; ulong instruction=faultAddress,callerReturnAddress=0;
             foreach(string raw in lines) {
                 if(raw.Length>2048) continue;
                 string[] parts=raw.Trim().Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
@@ -816,6 +886,10 @@ namespace Fileway.PlayerSmoke {
                         offset=currentInstruction-range[0]; kind=1;
                     }
                 }
+                ulong[] callerRange;
+                if(index==2&&known=="ntdll"&&kind==1&&ranges.TryGetValue("ntdll",out callerRange)&&
+                    currentInstruction>=callerRange[0]&&currentInstruction<callerRange[1]&&currentInstruction-callerRange[0]==offset)
+                    callerReturnAddress=currentInstruction;
                 frames.Add(new DebuggerFrame((int)index,known,symbol,offset,kind));
             }
             if(parameterCount>=0) {
@@ -835,7 +909,9 @@ namespace Fileway.PlayerSmoke {
             if(subcode==10&&parameterCount>=1&&frames.Count>=2&&FrameIs(frames[0],0,"RtlFailFast2",0)&&
                 FrameIs(frames[1],1,"RtlpHandleInvalidUserCallTarget",0x5d)&&TailHasArgumentFlow(tail)&&ContextArgument(lines,out candidate))
                 argument=MapAddress(0,candidate,ranges,unloadedRanges,anonymousRanges);
-            return new DebuggerFault(code,subcode,parameterCount,frames.ToArray(),mapped.ToArray(),helperStatus,instructions,tailStatus,tail,argument);
+            ulong[] ntdllRange; ranges.TryGetValue("ntdll",out ntdllRange);
+            return new DebuggerFault(code,subcode,parameterCount,frames.ToArray(),mapped.ToArray(),helperStatus,instructions,tailStatus,tail,argument,
+                ntdllRange==null?0:ntdllRange[0],ntdllRange==null?0:ntdllRange[1],helperBase,callerReturnAddress);
         }
     }
 
@@ -1368,6 +1444,42 @@ function Record-SafeCandidateRegion([string] $Dump, [string] $StackLog, [string]
     finally { if ($null -ne $regionProcess) { $regionProcess.Dispose() } }
 }
 
+function Record-SafeCallerEvidence([string] $Dump, [string] $StackLog, [string] $Symbols, [Diagnostics.Stopwatch] $Budget) {
+    try {
+        $query = [Fileway.PlayerSmoke.DebuggerEvidence]::CallerQuery($StackLog)
+        if ($null -eq $query) { Record-Observation 'shutdown-cfg-caller' @{ status = 0; instructionCount = 0; passesRax = 0; helperSavesRcx = 0 }; return }
+        $remaining = [Math]::Min(30000, [Math]::Max(0, 120000 - $Budget.ElapsedMilliseconds))
+        if ($remaining -le 0) { Record-Observation 'shutdown-cfg-caller-result' @{ status = 3 }; return }
+        $log = Join-Path $script:privateRoot 'shutdown-caller.log'
+        $commands = '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; .echo FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; ' + $query + '; q'
+        $start = [Diagnostics.ProcessStartInfo]::new($script:cdbPath)
+        $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+        $start.WorkingDirectory = $script:privateRoot
+        $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+        foreach ($argument in @('-z', $Dump, '-sins', '-noshell', '-y', "srv*$Symbols*https://msdl.microsoft.com/download/symbols", '-logo', $log, '-c', $commands)) { $start.ArgumentList.Add($argument) }
+        $callerProcess = $null
+        try {
+            $callerProcess = [Diagnostics.Process]::Start($start)
+            $stdout = $callerProcess.StandardOutput.ReadToEndAsync(); $stderr = $callerProcess.StandardError.ReadToEndAsync()
+            if (-not $callerProcess.WaitForExit([int]$remaining)) {
+                $callerProcess.Kill($true); $null = $callerProcess.WaitForExit(5000)
+                Record-Observation 'shutdown-cfg-caller-result' @{ status = 3 }; return
+            }
+            if ($callerProcess.ExitCode -ne 0) { Record-Observation 'shutdown-cfg-caller-result' @{ status = 2 }; return }
+            $caller = [Fileway.PlayerSmoke.DebuggerEvidence]::ReadCaller($StackLog, $log)
+            Record-Observation 'shutdown-cfg-caller' @{ status = [int]$caller.Status; instructionCount = [int]$caller.Instructions.Length; passesRax = [int]$caller.PassesRax; helperSavesRcx = [int]$caller.HelperSavesRcx }
+            foreach ($instruction in $caller.Instructions) {
+                Record-Observation 'shutdown-cfg-caller-instruction' @{
+                    index = [int]$instruction.Index; offset = [uint64]$instruction.Offset; opcode = [string]$instruction.Opcode; decoded = [int]$instruction.Decoded
+                    firstKind = [int]$instruction.FirstKind; firstRegister = [string]$instruction.FirstRegister; firstDisplacement = [int]$instruction.FirstDisplacement
+                    secondKind = [int]$instruction.SecondKind; secondRegister = [string]$instruction.SecondRegister; secondDisplacement = [int]$instruction.SecondDisplacement
+                    targetSymbol = [string]$instruction.TargetSymbol; targetOffset = [uint64]$instruction.TargetOffset
+                }
+            }
+        } finally { if ($null -ne $callerProcess) { $callerProcess.Dispose() } }
+    } catch { Record-Observation 'shutdown-cfg-caller-result' @{ status = 2 } }
+}
+
 function Record-SafeDebuggerEvidence {
     if (-not $script:shutdownDebuggerAttached) { return }
     Stop-ShutdownDebugger
@@ -1418,6 +1530,7 @@ function Record-SafeDebuggerEvidence {
             Record-Observation 'shutdown-cfg-helper-argument' @{ classification = [int]$fault.HelperArgument.Classification; mapping = [int]$fault.HelperArgument.Mapping; module = [string]$fault.HelperArgument.Module; offset = [uint64]$fault.HelperArgument.Offset }
             if ($fault.HelperArgument.Classification -eq 6) { Record-SafeCandidateRegion $dump $log $symbols $analysisBudget }
         }
+        Record-SafeCallerEvidence $dump $log $symbols $analysisBudget
     } catch { Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_evidence_rejected' } }
     finally { $analysis.Dispose() }
 }
