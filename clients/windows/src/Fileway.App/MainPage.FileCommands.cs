@@ -48,6 +48,8 @@ public sealed partial class MainPage
             Add("下载到默认目录…", () => DownloadFile_Click(this, new RoutedEventArgs()), CanDownloadSelection);
             Add("下载另存为…", () => DownloadSaveAs_Click(this, new RoutedEventArgs()), CanDownloadSelection);
         }
+        if (rows.Length == 1 && !rows[0].File.IsDirectory && permissions?.Download == true && _files is IFileChecksumService)
+            Add("计算校验和…", () => FileChecksum_Click(this, new RoutedEventArgs()), CanChecksumSelection);
         if (selected)
         {
             Add("详细信息", () => { SetDetailsVisible(true); UpdateSelection(); }, BrowserReady);

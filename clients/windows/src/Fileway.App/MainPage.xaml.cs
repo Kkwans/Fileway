@@ -181,6 +181,7 @@ public sealed partial class MainPage : Page, IDisposable
         if (_disposed) return;
         DisposeUploadPresentation();
         DisposeDownloadPresentation();
+        RetireChecksumDialog();
         _browserDialog?.Hide();
         _storageDialog?.Hide(); _storageControl?.Dispose();
         _disposed = true; CollectionsPanel.Dispose(); RecentPane.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
@@ -613,7 +614,7 @@ public sealed partial class MainPage : Page, IDisposable
         DetailsOpenButton.IsEnabled = row is not null && !_connecting;
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
-        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext();
+        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateChecksumContext();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)
     {
