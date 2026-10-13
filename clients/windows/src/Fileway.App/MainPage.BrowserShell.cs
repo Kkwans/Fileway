@@ -1,6 +1,7 @@
 using Fileway.App.Controls;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -11,16 +12,29 @@ namespace Fileway.App;
 public sealed partial class MainPage
 {
     private double _sidebarWidth = 224;
+    private bool _sidebarCollapsed;
     private bool _sidebarOverlay;
     private bool _sidebarOpen;
     private bool _pathNavigating;
     private long _navigationRevision;
 
+    private void SetConnectionView(bool visible)
+    {
+        if (visible) HideCollections();
+        // Connection and file content are exclusive views. Transparent material must not
+        // depend on an opaque login panel to conceal an active file list or its empty state.
+        Workspace.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
+        ConnectionPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        UpdateSelection();
+        UpdateThumbnailContext();
+        UpdateApplicationMenus();
+    }
+
     internal void AttachTitleBar(WindowTitleBar titleBar)
     {
         _applicationTitleBar = titleBar;
-        Shell.Children.Remove(ApplicationMenus);
-        titleBar.SetBrowserMenu(ApplicationMenus, [ApplicationMenus]);
+        Shell.Children.Remove(ApplicationCommandHost);
+        titleBar.SetBrowserMenu(ApplicationCommandHost, [PaneButton, ApplicationMenus]);
         AddNavigationAccelerators(titleBar);
         titleBar.KeyDown += Overlay_KeyDown;
     }
@@ -29,6 +43,7 @@ public sealed partial class MainPage
     {
         AddNavigationAccelerators(this);
         KeyDown += Overlay_KeyDown;
+        UpdateSidebarLayout();
         UpdateBreadcrumbs();
         FileList.ContextFlyout = CreateBrowserMenu();
         FileGrid.ContextFlyout = CreateBrowserMenu();
@@ -40,6 +55,16 @@ public sealed partial class MainPage
 
     private void AddNavigationAccelerators(UIElement owner)
     {
+        // These are application shortcuts, not a tooltip for the complete page or caption.
+        owner.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
+        var paneAccelerator = new KeyboardAccelerator { Key = VirtualKey.B, Modifiers = VirtualKeyModifiers.Control };
+        paneAccelerator.Invoked += (_, args) =>
+        {
+            if (_disposed) return;
+            args.Handled = true;
+            Pane_Click(this, new RoutedEventArgs());
+        };
+        owner.KeyboardAccelerators.Add(paneAccelerator);
         Add(VirtualKey.L, VirtualKeyModifiers.Control, () => BeginPathEdit());
         Add(VirtualKey.Left, VirtualKeyModifiers.Menu, () => Back_Click(this, new RoutedEventArgs()));
         Add(VirtualKey.Up, VirtualKeyModifiers.Menu, () => Up_Click(this, new RoutedEventArgs()));
@@ -64,21 +89,38 @@ public sealed partial class MainPage
     private void UpdateSidebarLayout()
     {
         if (SidebarColumn is null) return;
-        var width = Math.Clamp(_sidebarWidth, 192, Math.Min(320, Math.Max(192, ActualWidth - 480)));
+        var rail = !_sidebarOverlay && _sidebarCollapsed;
+        var width = rail ? 72 : Math.Clamp(_sidebarWidth, 192, Math.Min(320, Math.Max(192, ActualWidth - 480)));
         SidebarColumn.Width = new GridLength(_sidebarOverlay ? 0 : width);
         Sidebar.Width = _sidebarOverlay ? width : double.NaN;
         Sidebar.HorizontalAlignment = _sidebarOverlay ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
         Grid.SetColumnSpan(Sidebar, _sidebarOverlay ? 2 : 1);
         Sidebar.Visibility = !_sidebarOverlay || _sidebarOpen ? Visibility.Visible : Visibility.Collapsed;
-        PaneButton.Visibility = _sidebarOverlay ? Visibility.Visible : Visibility.Collapsed;
+        SidebarOverlayBackground.Visibility = _sidebarOverlay ? Visibility.Visible : Visibility.Collapsed;
+        MyFilesLabel.Visibility = RecentAccessLabel.Visibility = TransferCenterLabel.Visibility =
+            ConnectionLabel.Visibility = SidebarConnectionActionLabel.Visibility = SidebarCollections.Visibility = rail ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var button in new[] { MyFilesButton, RecentAccessButton, TransferCenterButton, ConnectionButton })
+        {
+            button.HorizontalContentAlignment = rail ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            button.Padding = rail ? new Thickness(0) : new Thickness(12, 0, 12, 0);
+        }
+        var paneAction = _sidebarOverlay ? _sidebarOpen ? "隐藏导航侧栏" : "显示导航侧栏"
+            : rail ? "展开导航侧栏" : "折叠导航侧栏";
+        AutomationProperties.SetName(PaneButton, paneAction);
+        ToolTipService.SetToolTip(PaneButton, paneAction + " (Ctrl+B)");
         SidebarDismiss.Visibility = _sidebarOverlay && _sidebarOpen ? Visibility.Visible : Visibility.Collapsed;
-        SidebarResize.Visibility = Sidebar.Visibility;
-        Grid.SetColumnSpan(SidebarResize, _sidebarOverlay ? 2 : 1);
-        SidebarResize.HorizontalAlignment = _sidebarOverlay ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-        SidebarResize.Margin = _sidebarOverlay ? new Thickness(width - 4, 0, 0, 0) : new Thickness(0);
+        SidebarResize.Visibility = !rail && Sidebar.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
+        // The transparent 8 DIP target straddles the actual material boundary.
+        SidebarResize.Margin = new Thickness(width - 4, 0, 0, 0);
     }
 
-    private void Pane_Click(object sender, RoutedEventArgs args) { _sidebarOpen = !_sidebarOpen; UpdateSidebarLayout(); }
+    private void Pane_Click(object sender, RoutedEventArgs args)
+    {
+        if (_disposed) return;
+        if (_sidebarOverlay) _sidebarOpen = !_sidebarOpen;
+        else _sidebarCollapsed = !_sidebarCollapsed;
+        UpdateSidebarLayout();
+    }
     private void PaneDismiss_Click(object sender, RoutedEventArgs args) => CloseSidebarOverlay();
     private void CloseSidebarOverlay() { if (!_sidebarOpen) return; _sidebarOpen = false; UpdateSidebarLayout(); PaneButton.Focus(FocusState.Keyboard); }
     private void Overlay_KeyDown(object sender, KeyRoutedEventArgs args)
@@ -90,11 +132,13 @@ public sealed partial class MainPage
     }
     private void SidebarResize_DragDelta(object sender, DragDeltaEventArgs args)
     {
+        if (_sidebarCollapsed && !_sidebarOverlay) return;
         _sidebarWidth = Math.Clamp(_sidebarWidth + args.HorizontalChange, 192, 320);
         UpdateSidebarLayout();
     }
     private void SidebarResize_KeyDown(object sender, KeyRoutedEventArgs args)
     {
+        if (_sidebarCollapsed && !_sidebarOverlay) return;
         if (args.Key is not (VirtualKey.Left or VirtualKey.Right or VirtualKey.Home or VirtualKey.End)) return;
         args.Handled = true;
         _sidebarWidth = args.Key switch { VirtualKey.Home => 192, VirtualKey.End => 320, VirtualKey.Left => Math.Max(192, _sidebarWidth - 8), _ => Math.Min(320, _sidebarWidth + 8) };
@@ -195,5 +239,8 @@ public sealed partial class MainPage
         return true;
     }
 
-    private sealed record BreadcrumbEntry(string Label, RemoteResourceRef Resource);
+    private sealed record BreadcrumbEntry(string Label, RemoteResourceRef Resource)
+    {
+        public override string ToString() => Label;
+    }
 }

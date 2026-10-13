@@ -67,7 +67,9 @@ public sealed partial class MainPage : Page, IDisposable
         };
         CollectionsPanel.StatusChanged += (_, status) =>
         {
-            if (!_disposed && CollectionsPanel.Visibility != Visibility.Visible) SetNotice("收藏与标签", status.Message, status.Severity);
+            // Background synchronization succeeds quietly; warnings and failures remain visible.
+            if (!_disposed && CollectionsPanel.Visibility != Visibility.Visible && status.Severity != InfoBarSeverity.Success)
+                SetNotice("收藏与标签", status.Message, status.Severity);
         };
         CollectionsPanel.CommandsChanged += (_, _) => UpdateCollectionActions();
         CollectionsPanel.ReceiptWarningChanged += (_, warning) => RememberReceiptWarning(warning.Account, warning.Message);
@@ -238,9 +240,9 @@ public sealed partial class MainPage : Page, IDisposable
             PasswordBox.Password = "";
             _root = await _files.GetRootAsync(_session, token);
             _trail.Clear(); _trail.Add(_root); _history.Clear();
-            ConnectionLabel.Text = _session.DisplayName; ConnectionButton.Content = "切换连接";
+            ConnectionLabel.Text = _session.DisplayName; SidebarConnectionActionLabel.Text = "切换连接";
             LogoutButton.Visibility = Visibility.Visible;
-            DismissConnection.Visibility = Visibility.Visible; ConnectionPanel.Visibility = Visibility.Collapsed;
+            DismissConnection.Visibility = Visibility.Visible; SetConnectionView(false);
             NavigationCommands.IsEnabled = !_connecting;
             await LoadAsync(_root);
             try { await RefreshSavedConnectionsAsync(); }
@@ -267,6 +269,7 @@ public sealed partial class MainPage : Page, IDisposable
         NavigationCommands.IsEnabled = !connecting && _session is not null;
         SortBox.IsEnabled = !connecting;
         UpdateSelection();
+        UpdateBreadcrumbs();
         if (!connecting && _session is not null && _collections is not null) _ = CollectionsPanel.RefreshAsync();
     }
 
@@ -332,7 +335,7 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 if (_playback is not null) await _playback.CloseAccountAsync(_session.Account, _lifetime.Token);
                 foreach (var window in _imageWindows.ToArray()) window.Close();
-                ClearActiveWorkspace(); ConnectionPanel.Visibility = Visibility.Visible;
+                ClearActiveWorkspace(); SetConnectionView(true);
             }
             await RefreshSavedConnectionsAsync();
             LoginNotice.Severity = InfoBarSeverity.Informational; LoginNotice.Message = "本机连接已移除。";
@@ -350,7 +353,7 @@ public sealed partial class MainPage : Page, IDisposable
             await _connection.LogoutAsync(session.Account, _lifetime.Token);
             if (_playback is not null) await _playback.CloseAccountAsync(session.Account, _lifetime.Token);
             foreach (var window in _imageWindows.ToArray()) window.Close();
-            ClearActiveWorkspace(); ConnectionPanel.Visibility = Visibility.Visible;
+            ClearActiveWorkspace(); SetConnectionView(true);
             await RefreshSavedConnectionsAsync();
             LoginNotice.Severity = InfoBarSeverity.Informational; LoginNotice.Message = "已退出登录。连接档案保留，保存的会话已清除。";
         }
@@ -370,7 +373,7 @@ public sealed partial class MainPage : Page, IDisposable
         UpdateThumbnailContext();
         _items.Clear(); _rows.Clear(); _trail.Clear(); _history.Clear();
         NavigationCommands.IsEnabled = false; LogoutButton.Visibility = DismissConnection.Visibility = Visibility.Collapsed;
-        ConnectionLabel.Text = "尚未连接"; ConnectionButton.Content = "连接服务器"; PathBox.Text = "尚未连接";
+        ConnectionLabel.Text = "尚未连接"; SidebarConnectionActionLabel.Text = "连接服务器"; PathBox.Text = "尚未连接";
         UpdateBreadcrumbs(); ResetOperationContext();
         _loadStateTitle = _loadStateDescription = null;
         SetLoading(false); SetDetailsVisible(false); UpdateSelection(); ApplyFilter();
@@ -388,7 +391,7 @@ public sealed partial class MainPage : Page, IDisposable
         SetNotice("连接状态需要处理", issue.Error.Message, InfoBarSeverity.Warning);
         if (!issue.SessionInvalidated) return;
         foreach (var window in _imageWindows.ToArray()) window.Close();
-        ClearActiveWorkspace(); ConnectionPanel.Visibility = Visibility.Visible; LoginError(issue.Error.Message);
+        ClearActiveWorkspace(); SetConnectionView(true); LoginError(issue.Error.Message);
         try { if (_playback is not null) await _playback.CloseAccountAsync(issue.Account, _lifetime.Token); }
         catch (OperationCanceledException) { }
         catch (Exception) { /* Session leases are already retired by the connection service. */ }
@@ -524,7 +527,8 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private void HideCollections()
     {
-        CollectionsPanel.Visibility = Visibility.Collapsed; TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); Workspace.Visibility = Visibility.Visible;
+        CollectionsPanel.Visibility = Visibility.Collapsed; TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane();
+        Workspace.Visibility = ConnectionPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
         CollectionsPanel.SuspendView();
         UpdateThumbnailContext();
         UpdateSelection();
@@ -550,8 +554,8 @@ public sealed partial class MainPage : Page, IDisposable
         CredentialFields.Visibility = AuthenticationBox.SelectedIndex == 1 ? Visibility.Collapsed : Visibility.Visible;
         if (AuthenticationBox.SelectedIndex == 1) PasswordBox.Password = "";
     }
-    private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); HideCollections(); ConnectionPanel.Visibility = Visibility.Visible; }
-    private void DismissConnection_Click(object sender, RoutedEventArgs e) => ConnectionPanel.Visibility = Visibility.Collapsed;
+    private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); SetConnectionView(true); }
+    private void DismissConnection_Click(object sender, RoutedEventArgs e) => SetConnectionView(false);
     private void Search_Changed(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) { if (FileList is not null) ApplyFilter(); }
     private void Sort_Changed(object sender, SelectionChangedEventArgs e)
     {
@@ -571,7 +575,7 @@ public sealed partial class MainPage : Page, IDisposable
         if (_directory is not null) await LoadAsync(_directory);
         if (!_disposed && !_connecting && _session is not null) { UpdateCollectionsContext(); await CollectionsPanel.RefreshAsync(); }
     }
-    private async void Root_Click(object sender, RoutedEventArgs e) { HideCollections(); if (_root is null) { ConnectionPanel.Visibility = Visibility.Visible; return; } _history.Push(_trail.ToArray()); _trail.Clear(); _trail.Add(_root); await LoadAsync(_root); }
+    private async void Root_Click(object sender, RoutedEventArgs e) { HideCollections(); if (_root is null) { SetConnectionView(true); return; } _history.Push(_trail.ToArray()); _trail.Clear(); _trail.Add(_root); await LoadAsync(_root); }
     private async void Back_Click(object sender, RoutedEventArgs e) { if (!_history.TryPop(out var previous)) return; HideCollections(); _trail.Clear(); _trail.AddRange(previous); await LoadAsync(_trail[^1]); }
     private async void Up_Click(object sender, RoutedEventArgs e) { if (_trail.Count < 2) return; HideCollections(); _history.Push(_trail.ToArray()); _trail.RemoveAt(_trail.Count - 1); await LoadAsync(_trail[^1]); }
     private void Cancel_Click(object sender, RoutedEventArgs e) => _loadCancellation?.Cancel();
@@ -730,7 +734,11 @@ public sealed partial class MainPage : Page, IDisposable
             }
         }
     }
-    private void UpdateThumbnailContext() => _thumbnailController.SetContext(_connecting || CollectionsPanel.Visibility == Visibility.Visible || RecentPane.Visibility == Visibility.Visible ? null : _thumbnails, _connecting || CollectionsPanel.Visibility == Visibility.Visible || RecentPane.Visibility == Visibility.Visible ? null : _session);
+    private void UpdateThumbnailContext()
+    {
+        var visible = !_connecting && ConnectionPanel.Visibility != Visibility.Visible && Workspace.Visibility == Visibility.Visible;
+        _thumbnailController.SetContext(visible ? _thumbnails : null, visible ? _session : null);
+    }
     private void SetDetailsVisible(bool visible) { _detailsVisible = visible; DetailsPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed; UpdateDetailsLayout(); }
     private void BrowserBody_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateDetailsLayout(); UpdateGridMetrics(); }
     private void FilesArea_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateGridMetrics();

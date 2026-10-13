@@ -48,6 +48,9 @@ public sealed partial class MainPage
         var connected = !_connecting && _session is not null;
 
         MenuConnectionItem.Text = _session is null ? "连接服务器…" : "切换连接…";
+        SidebarConnectionActionLabel.Text = _session is null ? "连接服务器" : "切换连接";
+        AutomationProperties.SetName(ConnectionButton, SidebarConnectionActionLabel.Text);
+        ToolTipService.SetToolTip(ConnectionButton, SidebarConnectionActionLabel.Text);
         MenuConnectionItem.IsEnabled = ConnectionButton.IsEnabled = _connection is not null && !_connecting;
         MenuOpenItem.IsEnabled = browser && selected.Length == 1 && (selected[0].File.IsDirectory
             || selected[0].IsImage && _images is not null || selected[0].IsVideo && _playback is not null);
@@ -72,7 +75,6 @@ public sealed partial class MainPage
         MenuRecentItem.IsEnabled = RecentAccessButton.IsEnabled;
         MenuTransfersItem.IsEnabled = TransferCenterButton.IsEnabled;
         CollectionsButton.IsEnabled = connected && _collections is not null && !connectionView;
-        MenuChecksumItem.IsEnabled = browser && CanChecksumSelection;
         LogoutButton.IsEnabled = connected;
 
         MenuMosaicItem.IsChecked = _browserPreferences.ViewMode == BrowserViewMode.Mosaic;
@@ -124,7 +126,7 @@ public sealed partial class MainPage
         foreach (var (key, action) in new[]
         {
             ("Alt + Left", "返回上一位置"), ("Alt + Up", "打开上一级目录"), ("Ctrl + L", "编辑原始路径"),
-            ("F5", "刷新当前视图"), ("Enter", "打开选中的文件或文件夹"), ("Ctrl + A", "全选当前文件"),
+            ("F5", "刷新当前视图"), ("Ctrl + B", "展开或折叠导航侧栏"), ("Enter", "打开选中的文件或文件夹"), ("Ctrl + A", "全选当前文件"),
             ("F2", "重命名选中项目"), ("Delete", "将选中项目移入回收站"), ("Escape", "取消路径编辑或关闭详情 / 临时侧栏"),
         })
         {
