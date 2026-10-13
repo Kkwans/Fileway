@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Include="..\..\src\Fileway.App\TransferCenterPresentationPolicy.cs" Link="Transfers\TransferCenterPresentationPolicy.cs" />
     <Compile Include="..\..\src\Fileway.App\RecentAccessListController.cs" Link="Recent\RecentAccessListController.cs" />
+    <Compile Include="..\..\src\Fileway.App\SearchResultsController.cs" Link="Search\SearchResultsController.cs" />
     <Compile Include="..\..\src\Fileway.App\FileChecksumController.cs" Link="Files\FileChecksumController.cs" />
     <Compile Include="..\Fileway.HostTestHarness\PidReceipt.cs" Link="Ipc\PidReceipt.cs" />
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\LocalSubtitlePolicy.cs" Link="Playback\LocalSubtitlePolicy.cs" />
