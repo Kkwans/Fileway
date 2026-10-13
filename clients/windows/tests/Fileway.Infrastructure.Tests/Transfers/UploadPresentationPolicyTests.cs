@@ -7,6 +7,45 @@ namespace Fileway.Infrastructure.Tests.Transfers;
 public sealed class UploadPresentationPolicyTests
 {
     [Fact]
+    public void DefinitePreDispatchConflictDoesNotSuggestPendingRemoteConfirmation()
+    {
+        var item = PreDispatchConflict();
+
+        Assert.Equal("尚未开始上传", UploadPresentationPolicy.ConfirmedBytesLabel(item));
+        Assert.Equal("尚未开始上传", UploadPresentationPolicy.Progress(item).ConfirmedText);
+        Assert.Equal(0, UploadPresentationPolicy.Progress(item).Value);
+        Assert.Equal("尚未开始上传", UploadPresentationPolicy.ConfirmedBytesLabel(item with { Progress = null }));
+    }
+
+    [Fact]
+    public void ConflictCopyRequiresTheCompleteNoDispatchEvidenceTuple()
+    {
+        var item = PreDispatchConflict();
+        UploadItem[] uncertain =
+        [
+            item with { Status = UploadStatus.OutcomeUnknown },
+            item with { Snapshot = item.Snapshot with { Phase = TransferPhase.OutcomeUnknown } },
+            item with { Snapshot = item.Snapshot with { Error = null } },
+            item with { Snapshot = item.Snapshot with { Error = new(ErrorCode.SourceChanged, "fixture") } },
+            item with { Snapshot = item.Snapshot with { Error = new(ErrorCode.Conflict, "fixture", 409) } },
+            item with { Snapshot = item.Snapshot with { Uncertainty = TransferUncertainty.RemoteWrite } },
+            item with { Snapshot = item.Snapshot with { RemotePublished = true } },
+            item with { Snapshot = item.Snapshot with { RemoteCanceled = true } },
+            item with { Progress = item.Progress! with { SentBytes = 1 } },
+        ];
+        foreach (var candidate in uncertain)
+            Assert.Equal("确认字节尚待核实", UploadPresentationPolicy.ConfirmedBytesLabel(candidate));
+        Assert.StartsWith("服务器已确认", UploadPresentationPolicy.ConfirmedBytesLabel(
+            item with { Snapshot = item.Snapshot with { ConfirmedOffset = 0 } }), StringComparison.Ordinal);
+    }
+
+    private static UploadItem PreDispatchConflict()
+    {
+        var item = Item(UploadStatus.Conflict, phase: TransferPhase.Conflict);
+        return item with { Snapshot = item.Snapshot with { Error = new(ErrorCode.Conflict, "fixture") } };
+    }
+
+    [Fact]
     public void BodyReadsNeverBecomeServerConfirmedProgress()
     {
         var item = Item(UploadStatus.Uploading, confirmed: null, total: 1024, sent: 1024);

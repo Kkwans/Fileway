@@ -10,7 +10,17 @@ internal sealed record UploadProgressPresentation(bool IsIndeterminate, double V
 internal static class UploadPresentationPolicy
 {
     internal static string ConfirmedBytesLabel(UploadItem item) => item.Snapshot.ConfirmedOffset is { } confirmed
-        ? $"服务器已确认 {FormatUploadBytes(confirmed)}{(item.Snapshot.TotalBytes is { } total ? " / " + FormatUploadBytes(total) : "")}" : "确认字节尚待核实";
+        ? $"服务器已确认 {FormatUploadBytes(confirmed)}{(item.Snapshot.TotalBytes is { } total ? " / " + FormatUploadBytes(total) : "")}"
+        : IsPreDispatchConflict(item) ? "尚未开始上传" : "确认字节尚待核实";
+
+    // A dispatched 409 retains RemoteWrite uncertainty. Only a definite local conflict
+    // with no acknowledgement, response status or body activity can use this wording.
+    private static bool IsPreDispatchConflict(UploadItem item) => item.Status == UploadStatus.Conflict
+        && item.Snapshot.Phase == TransferPhase.Conflict
+        && item.Snapshot.Error is { Code: ErrorCode.Conflict, HttpStatus: null }
+        && item.Snapshot.Uncertainty == TransferUncertainty.None
+        && !item.Snapshot.RemotePublished && !item.Snapshot.RemoteCanceled
+        && (item.Progress is null || item.Progress.SentBytes == 0);
     internal static string FormatUploadBytes(long bytes)
     {
         var value = (double)Math.Max(0, bytes); var units = new[] { "B", "KB", "MB", "GB", "TB" }; var index = 0;
