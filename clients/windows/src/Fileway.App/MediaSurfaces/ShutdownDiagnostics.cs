@@ -15,6 +15,10 @@ internal enum ShutdownDiagnosticStage
     HostDisposed = 7,
     WindowCloseBegin = 8,
     WindowCloseReturned = 9,
+    ChromeClosedEntered = 10,
+    ChromeClosedReturned = 11,
+    MainWindowClosedEntered = 12,
+    MainWindowClosedReturned = 13,
 }
 
 /// <summary>Opt-in, synchronous, bounded breadcrumbs immediately before native teardown.</summary>
@@ -88,7 +92,7 @@ internal sealed class ShutdownDiagnostics : IDisposable
     }
 
     private static bool IsSupported(ShutdownDiagnosticStage stage)
-        => (int)stage is >= (int)ShutdownDiagnosticStage.ShutdownEntered and <= (int)ShutdownDiagnosticStage.WindowCloseReturned;
+        => (int)stage is >= (int)ShutdownDiagnosticStage.ShutdownEntered and <= (int)ShutdownDiagnosticStage.MainWindowClosedReturned;
 
     public void Dispose()
     {

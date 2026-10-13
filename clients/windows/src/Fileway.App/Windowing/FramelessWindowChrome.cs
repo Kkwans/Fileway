@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using Fileway.App.Controls;
+using Fileway.App.MediaSurfaces;
 using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -15,6 +16,8 @@ internal sealed class FramelessWindowChrome : IDisposable
 {
     private const nuint SubclassId = 0x465743;
     private readonly Window _window;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue _shutdownDispatcher;
+    private readonly bool _recordShutdownStages;
     private readonly AppWindow _appWindow;
     private readonly WindowTitleBar _titleBar;
     private readonly nint _handle;
@@ -28,11 +31,13 @@ internal sealed class FramelessWindowChrome : IDisposable
     private bool _trackingNonClient;
     private bool _disposed;
 
-    internal FramelessWindowChrome(Window window, WindowTitleBar titleBar)
+    internal FramelessWindowChrome(Window window, WindowTitleBar titleBar, bool recordShutdownStages = false)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(titleBar);
         _window = window;
+        _shutdownDispatcher = window.DispatcherQueue;
+        _recordShutdownStages = recordShutdownStages;
         _appWindow = window.AppWindow;
         _titleBar = titleBar;
         _handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
@@ -336,8 +341,11 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     private void Window_Closed(object sender, WindowEventArgs args)
     {
+        var uiThread = _shutdownDispatcher.HasThreadAccess;
+        if (_recordShutdownStages) ShutdownDiagnostics.Record(ShutdownDiagnosticStage.ChromeClosedEntered, uiThread);
         _windowClosed = true;
         Dispose();
+        if (_recordShutdownStages) ShutdownDiagnostics.Record(ShutdownDiagnosticStage.ChromeClosedReturned, uiThread);
     }
     private void VerifyThread()
     {

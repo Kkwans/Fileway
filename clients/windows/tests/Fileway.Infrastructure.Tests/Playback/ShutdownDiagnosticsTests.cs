@@ -42,7 +42,7 @@ public sealed class ShutdownDiagnosticsTests
         using var fixture = new Fixture();
         Assert.False(Directory.Exists(fixture.Root));
         fixture.Recorder.WriteStage((ShutdownDiagnosticStage)0, true);
-        fixture.Recorder.WriteStage((ShutdownDiagnosticStage)10, false);
+        fixture.Recorder.WriteStage((ShutdownDiagnosticStage)14, false);
         fixture.Recorder.WriteStage((ShutdownDiagnosticStage)(-1), true);
         Assert.False(Directory.Exists(fixture.Root));
         fixture.Recorder.WriteStage(ShutdownDiagnosticStage.ShutdownEntered, true);
@@ -75,16 +75,30 @@ public sealed class ShutdownDiagnosticsTests
     {
         using var fixture = new Fixture();
         Parallel.For(0, 1000, index => fixture.Recorder.WriteStage(
-            (ShutdownDiagnosticStage)(index % 9 + 1), index % 2 == 0));
+            (ShutdownDiagnosticStage)(index % 13 + 1), index % 2 == 0));
         var rows = fixture.ReadRows();
         Assert.Equal(ShutdownDiagnostics.Capacity, rows.Length);
         Assert.All(rows, text =>
         {
             using var row = JsonDocument.Parse(text);
-            Assert.InRange(row.RootElement.GetProperty("stage").GetInt32(), 1, 9);
+            Assert.InRange(row.RootElement.GetProperty("stage").GetInt32(), 1, 13);
             Assert.InRange(row.RootElement.GetProperty("uiThread").GetInt32(), 0, 1);
         });
         Assert.InRange(new FileInfo(fixture.Path).Length, 1, 1024);
+    }
+
+    [Fact]
+    public void NestedMainWindowCloseCallbacksFitWithinTheBoundWithoutReordering()
+    {
+        using var fixture = new Fixture();
+        int[] stages = [1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 9];
+        foreach (var stage in stages) fixture.Recorder.WriteStage((ShutdownDiagnosticStage)stage, true);
+        var actual = fixture.ReadRows().Select(text =>
+        {
+            using var row = JsonDocument.Parse(text);
+            return row.RootElement.GetProperty("stage").GetInt32();
+        });
+        Assert.Equal(stages, actual);
     }
 
     [Fact]

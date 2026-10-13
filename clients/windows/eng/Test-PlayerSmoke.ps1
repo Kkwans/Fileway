@@ -211,11 +211,16 @@ namespace Fileway.PlayerSmoke {
                     if(pair.Length!=2) throw Invalid();
                     string key=pair[0].Trim(' ','\t'), value=pair[1].Trim(' ','\t');
                     if(key!="\"schemaVersion\""&&key!="\"stage\""&&key!="\"uiThread\"") throw Invalid();
-                    if(values.ContainsKey(key)||value.Length!=1||value[0]<'0'||value[0]>'9') throw Invalid();
-                    values.Add(key,value[0]-'0');
+                    if(values.ContainsKey(key)||value.Length<1||value.Length>2||(value.Length==2&&value[0]=='0')) throw Invalid();
+                    int number=0;
+                    foreach(char digit in value) {
+                        if(digit<'0'||digit>'9') throw Invalid();
+                        number=number*10+digit-'0';
+                    }
+                    values.Add(key,number);
                 }
                 int schema=values["\"schemaVersion\""], stage=values["\"stage\""], uiThread=values["\"uiThread\""];
-                if(schema!=1||stage<1||stage>9||uiThread>1) throw Invalid();
+                if(schema!=1||stage<1||stage>13||uiThread>1) throw Invalid();
                 records.Add(new ShutdownStage(stage,uiThread));
             }
             return records.ToArray();
@@ -603,24 +608,35 @@ function Record-SafeExitEvidence {
             }
         }
     } catch { }
-    try {
-        $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $script:process.StartTime } -MaxEvents 16 -ErrorAction Stop)
+    # Windows may publish its fault event shortly after the process has exited.
+    # Retry only this read, for at most 20 bounded queries / five seconds; never
+    # alter WER settings, retain raw XML, or change the failed exit result.
+    $faultWait = [Diagnostics.Stopwatch]::StartNew()
+    for ($attempt = 0; $attempt -lt 20 -and $faultWait.ElapsedMilliseconds -lt 5000; $attempt++) {
+        $events = @()
+        try { $events = @(Get-WinEvent -FilterHashtable @{ LogName = 'Application'; Id = 1000; StartTime = $script:process.StartTime } -MaxEvents 16 -ErrorAction Stop) } catch { }
+        $matchedFault = $false
         foreach ($event in $events) {
-            $xml = [xml]$event.ToXml()
-            $fields = @{}
-            foreach ($datum in $xml.Event.EventData.Data) { $fields[[string]$datum.Name] = [string]$datum.'#text' }
-            $processText = [string]$fields.ProcessId
-            $observedId = if ($processText.StartsWith('0x', [StringComparison]::OrdinalIgnoreCase)) { [Convert]::ToInt64($processText.Substring(2), 16) } else { [long]$processText }
-            if ($observedId -ne $script:process.Id -or $fields.AppName -ne [IO.Path]::GetFileName($AppPath)) { continue }
-            $module = [string]$fields.ModuleName
-            if ($module.Length -gt 100 -or $module -notmatch '^[A-Za-z0-9_.-]+$') { $module = 'redacted' }
-            Record-Observation 'windows-application-fault' @{
-                eventId = 1000; module = $module
-                exceptionCode = [Convert]::ToUInt32(([string]$fields.ExceptionCode -replace '^0x', ''), 16)
-                faultOffset = [Convert]::ToUInt64(([string]$fields.FaultingOffset -replace '^0x', ''), 16)
-            }
+            try {
+                $xml = [xml]$event.ToXml()
+                $fields = @{}
+                foreach ($datum in $xml.Event.EventData.Data) { $fields[[string]$datum.Name] = [string]$datum.'#text' }
+                $processText = [string]$fields.ProcessId
+                $observedId = if ($processText.StartsWith('0x', [StringComparison]::OrdinalIgnoreCase)) { [Convert]::ToInt64($processText.Substring(2), 16) } else { [long]$processText }
+                if ($observedId -ne $script:process.Id -or $fields.AppName -ne [IO.Path]::GetFileName($AppPath)) { continue }
+                $module = [string]$fields.ModuleName
+                if ($module.Length -gt 100 -or $module -notmatch '^[A-Za-z0-9_.-]+$') { $module = 'redacted' }
+                Record-Observation 'windows-application-fault' @{
+                    eventId = 1000; module = $module
+                    exceptionCode = [Convert]::ToUInt32(([string]$fields.ExceptionCode -replace '^0x', ''), 16)
+                    faultOffset = [Convert]::ToUInt64(([string]$fields.FaultingOffset -replace '^0x', ''), 16)
+                }
+                $matchedFault = $true
+            } catch { }
         }
-    } catch { }
+        if ($matchedFault) { break }
+        if ($attempt -lt 19 -and $faultWait.ElapsedMilliseconds -lt 4750) { Start-Sleep -Milliseconds 250 }
+    }
 }
 
 $exitCode = 1

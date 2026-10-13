@@ -113,6 +113,32 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn('$start.Environment[\'FILEWAY_WINDOWS_DATA_ROOT\'] = $script:privateRoot', text)
         self.assertIn('$start.Environment[\'FILEWAY_PLAYER_RESPONSIVENESS_DIAGNOSTICS\'] = \'1\'', text)
 
+    def test_shutdown_fault_retry_stays_bounded_and_process_matched(self):
+        _, _, powershell = source_parts()
+        evidence = powershell.split("function Record-SafeExitEvidence {", 1)[1].split("$exitCode = 1", 1)[0]
+        self.assertIn("$attempt -lt 20 -and $faultWait.ElapsedMilliseconds -lt 5000", evidence)
+        self.assertIn("-MaxEvents 16 -ErrorAction Stop", evidence)
+        self.assertIn("Start-Sleep -Milliseconds 250", evidence)
+        self.assertIn("if ($matchedFault) { break }", evidence)
+        self.assertIn("$observedId -ne $script:process.Id", evidence)
+        self.assertIn("StartTime = $script:process.StartTime", evidence)
+        self.assertIn("$fields.AppName -ne [IO.Path]::GetFileName($AppPath)", evidence)
+        self.assertNotIn("Set-ItemProperty", powershell)
+
+    def test_closed_markers_wrap_original_cleanup_without_catching_its_failures(self):
+        app = ENG.parent / "src" / "Fileway.App"
+        main = (app / "MainWindow.xaml.cs").read_text(encoding="utf-8")
+        chrome = (app / "Windowing" / "FramelessWindowChrome.cs").read_text(encoding="utf-8")
+        self.assertIn("recordShutdownStages: true", main)
+        self.assertIn("bool recordShutdownStages = false", chrome)
+        for source, name, entered, returned in ((main, "MainWindow_Closed", "MainWindowClosedEntered", "MainWindowClosedReturned"),
+                                                (chrome, "Window_Closed", "ChromeClosedEntered", "ChromeClosedReturned")):
+            block = source.split(f"private void {name}(", 1)[1].split("\n    }", 1)[0]
+            self.assertLess(block.index(entered), block.index("Dispose();"))
+            self.assertLess(block.index("Dispose();"), block.index(returned))
+            self.assertNotIn("catch", block)
+        self.assertIn("stage>13", source_parts()[1])
+
     def test_artifact_allowlist_contains_only_named_json_and_png(self):
         text, _, _ = source_parts()
         block = re.search(r"\$allowedArtifacts = @\((.*?)\)\n", text, re.S).group(1)
@@ -178,13 +204,16 @@ class HarnessGuards(unittest.TestCase):
                     threads = ",".join(str(thread) for _, thread in expected)
                     shutdown_vectors.append(f'CheckShutdown("{name}",new int[]{{{stages}}},new int[]{{{threads}}});')
 
-            all_stages = [(stage, stage % 2) for stage in range(1, 10)]
+            all_stages = [(stage, stage % 2) for stage in range(1, 14)]
             shutdown_case("all-stages", "".join(json.dumps(dict(schemaVersion=1, stage=stage, uiThread=thread), separators=(",", ":"))
                                                + "\n" for stage, thread in all_stages), all_stages)
             shutdown_case("reordered-crlf", ' \t{ "uiThread" : 1, "stage" : 9, "schemaVersion" : 1 } \t\r\n', [(9, 1)])
             shutdown_case("capacity", (row + "\n") * 16, [(1, 0)] * 16)
             shutdown_case("byte-boundary", (row.ljust(255) + "\n") * 16, [(1, 0)] * 16)
             shutdown_case("line-boundary", row.ljust(256) + "\n", [(1, 0)])
+            close_order = [(stage, 1) for stage in (*range(1, 9), 10, 11, 12, 13, 9)]
+            shutdown_case("nested-close-order", "".join(json.dumps(dict(schemaVersion=1, stage=stage, uiThread=thread), separators=(",", ":"))
+                                                     + "\n" for stage, thread in close_order), close_order)
             for name, content in {
                 "empty": b"", "blank": "\n", "trailing-blank": row + "\n\n",
                 "unterminated": row, "partial-final": row + '\n{"schemaVersion":1,',
@@ -202,7 +231,7 @@ class HarnessGuards(unittest.TestCase):
                 "vertical-tab": "\v" + row + "\n", "embedded-cr": row.replace("1,", "1\r,", 1) + "\n",
             }.items():
                 shutdown_case(name, content)
-            for key, bad_values in {"schemaVersion": ("0", "2"), "stage": ("0", "10", "-1", '"1"', "true", "null", "1.0", "1e0", "+1", "01"),
+            for key, bad_values in {"schemaVersion": ("0", "2", "10"), "stage": ("0", "14", "-1", '"1"', "true", "null", "1.0", "1e0", "+1", "01", "013", "99", "100"),
                                     "uiThread": ("2", "-1", '"0"', "false", "null", "0.0")}.items():
                 current = "0" if key == "uiThread" else "1"
                 for index, value in enumerate(bad_values):

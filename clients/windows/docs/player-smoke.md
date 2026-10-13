@@ -95,6 +95,10 @@ may also include allowlisted compiled type/method names and a matching-process W
 fault module basename/code/offset. Exception messages, executable paths and raw Windows
 event XML are excluded. Numeric responsiveness evidence is saved before application
 shutdown, so an exit failure does not discard completed interaction evidence.
+Fault-event collection allows up to 20 reads during a five-second retry window
+because Windows may publish the event after process exit. Each query is limited
+to 16 events since this app's start time; exported faults must match its process
+ID and executable basename. No Windows Error Reporting settings are changed.
 Command timings include CLI startup and UIA
 work; they are not application handler latency. The optional app-owned recorder
 retains separately defined numeric UI-dispatch markers.
@@ -112,14 +116,14 @@ It rejects reparse points, files over 4,096 bytes, more than 16 records, lines o
 256 characters, invalid UTF-8, incomplete final lines and any nonconforming row.
 All rows must validate before any shutdown-stage observation is exported. A row
 must have exactly the case-sensitive keys `schemaVersion`, `stage`, `uiThread`,
-with unquoted single-digit integer values: version 1, stage 1–9, and UI-thread bit
+with unquoted integer values: version 1, stage 1–13, and UI-thread bit
 0 or 1. Duplicate/unknown keys, escaped names, strings, booleans, nulls, decimal or
-exponent forms and additional data are rejected. Key order and horizontal JSON
+exponent forms, leading zeroes and additional data are rejected. Key order and horizontal JSON
 whitespace may vary; LF and CRLF record endings are accepted. Missing or rejected
 optional evidence does not alter the app/Host exit assertions.
 
 Validated records are rebuilt as numeric `schemaVersion`, `stage`, `uiThread`
-details of fixed `shutdown-stage` observations in `events.jsonl`. The nine stage
+details of fixed `shutdown-stage` observations in `events.jsonl`. The stage
 values identify these reached points in the application-owned shutdown path:
 
 1. Shutdown entered
@@ -131,6 +135,18 @@ values identify these reached points in the application-owned shutdown path:
 7. Host-disposal attempt returned
 8. Main-window close about to begin
 9. Main-window close call returned
+10. Main-window chrome's `Closed` callback entered
+11. Main-window chrome's `Closed` callback returned
+12. Main window's `Closed` callback entered
+13. Main window's `Closed` callback returned
+
+The four callback markers wrap the existing cleanup without catching its errors.
+They distinguish an exception inside application-owned `Closed` callbacks from a
+failure later in WinUI/native window teardown. A `Closed` notification itself is
+raised inside WinUI's close operation, before native teardown completes. Thus the
+normal nested order is 1–8, 10–13, then 9; stage numbers are identifiers rather than
+a sort order. Other windows using the shared chrome do not emit these four main
+window markers, so they cannot consume the shutdown recorder's bounded capacity.
 
 Several markers follow exception-catching teardown blocks. They establish that
 execution reached that point or an attempt returned, not that disposal succeeded.

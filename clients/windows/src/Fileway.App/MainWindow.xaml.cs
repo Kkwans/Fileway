@@ -9,12 +9,14 @@ namespace Fileway.App;
 public sealed partial class MainWindow : Window, IDisposable
 {
     private readonly FramelessWindowChrome _chrome;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue _shutdownDispatcher;
 
     public MainWindow()
     {
         InitializeComponent();
+        _shutdownDispatcher = DispatcherQueue;
         Title = AppTitleBar.Caption = AppBranding.DisplayName;
-        _chrome = new FramelessWindowChrome(this, AppTitleBar);
+        _chrome = new FramelessWindowChrome(this, AppTitleBar, recordShutdownStages: true);
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         var scale = NativeVideoWindow.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96d;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
@@ -24,7 +26,7 @@ public sealed partial class MainWindow : Window, IDisposable
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(work.X + (work.Width - width) / 2, work.Y + (work.Height - height) / 2, width, height));
         RootFrame.Navigate(typeof(MainPage));
         ((MainPage)RootFrame.Content).AttachTitleBar(AppTitleBar);
-        Closed += (_, _) => Dispose();
+        Closed += MainWindow_Closed;
     }
     public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
         => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails);
@@ -38,6 +40,14 @@ public sealed partial class MainWindow : Window, IDisposable
     public void RequestShutdown() => ((MainPage)RootFrame.Content).Shutdown();
     public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);
+    private void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        var uiThread = _shutdownDispatcher.HasThreadAccess;
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.MainWindowClosedEntered, uiThread);
+        Dispose();
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.MainWindowClosedReturned, uiThread);
+    }
+
     public void Dispose()
     {
         _chrome.Dispose();
