@@ -65,7 +65,7 @@ Only explicit UI actions initiate transfers. HTTP is used solely for `/health`.
 UIA selectors are freshly inspected and required to be unique, enabled and
 visible; mismatched actual UI fails rather than guessing a coordinate. Inspection
 collapses repeated entries only when their exact selector and
-type/name/enabled/offscreen metadata agree. Different selectors remain distinct;
+type/name/enabled/offscreen/automation-id metadata agree. Different selectors remain distinct;
 conflicting metadata for one selector fails without choosing an arbitrary entry.
 On short desktops, the connection submit button can sit below the viewport.
 The harness selects its unique enabled identity, uses the pinned CLI's UIA
@@ -97,6 +97,10 @@ Upload/picker and download actions have fixed individual substages. Ambiguous
 picker matches additionally record only numeric counts for the standard common
 dialog filename/accept automation identifiers; they never choose the first
 candidate, retain identifiers/paths or export picker contents.
+The picker accept action requires the freshly inspected exact owned picker HWND,
+an enabled visible Button with the original Open label and standard `IDOK=1`
+automation identifier. Other Open-labelled shell/navigation buttons are ignored;
+zero or multiple accept identities fail before invoking anything.
 `connect-failure.png` is allowed only when the isolated synthetic App fails on
 its connection/browser-ready surface; the same owned-window/foreground guards
 apply. It may show the synthetic name and local loopback address, never a picker,

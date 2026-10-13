@@ -145,6 +145,53 @@ class TransferSmokeContract(unittest.TestCase):
         self.assertNotIn("$matches[0].automationId", SOURCE)
         self.assertNotIn("Capture 'upload-picker", SOURCE)
 
+    def test_picker_accept_requires_owned_window_standard_id_and_matching_control(self):
+        helper = SOURCE.split("function Find-PickerAccept", 1)[1].split("function Upload-File", 1)[0]
+        for guard in ("$_.hwnd -eq $Picker.ToInt64()", "$ownedWindows.Count -ne 1", "$_.type -eq 'Button'",
+                      "$_.isEnabled -and -not $_.isOffscreen", "$_.automationId -ceq '1'", "$matches.Count -ne 1",
+                      "Native]::ProcessId($Picker) -ne $script:app.Id", "$result.hwnd -ne $Picker.ToInt64()"):
+            self.assertIn(guard, helper)
+        self.assertIn("Accept-UploadPicker $picker", SOURCE)
+        self.assertNotIn("Act $picker", SOURCE)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
+    def test_actual_picker_accept_helper_identity_and_scope_guards(self):
+        traversal = "function Find-Elements" + SOURCE.split("function Find-Elements", 1)[1].split("function Elements", 1)[0]
+        selector = "function Find-PickerAccept" + SOURCE.split("function Find-PickerAccept", 1)[1].split("function Accept-UploadPicker", 1)[0]
+        command = "Set-StrictMode -Version Latest; function Stop-Smoke($Code) { throw $Code }; " + traversal + selector + r"""
+$accept = @{selector='fixture-accept';type='Button';name='Open';isEnabled=$true;isOffscreen=$false;automationId='1'}
+$other = $accept.Clone(); $other.selector='fixture-navigation'; $other.automationId='999'
+$foreign = $accept.Clone(); $foreign.selector='fixture-foreign'
+$tree = @{windows=@(@{hwnd=123;elements=@($other,$accept)}, @{hwnd=456;elements=@($foreign)})}
+$selected = Find-PickerAccept $tree ([IntPtr]123)
+if ($selected.selector -cne 'fixture-accept') { throw 'wrong_button_selected' }
+$duplicate = $accept.Clone(); $duplicate.selector='fixture-second'
+$tree.windows[0].elements=@($accept,$duplicate)
+$code=$null
+try { $null=Find-PickerAccept $tree ([IntPtr]123) } catch { $code=$_.Exception.Message }
+if ($code -cne 'picker_accept_missing_or_ambiguous') { throw 'duplicate_accept_not_rejected' }
+foreach ($field in @('type','name','isEnabled','isOffscreen','automationId')) {
+    $invalid=$accept.Clone()
+    $invalid[$field] = if ($field -in @('isEnabled','isOffscreen')) { -not $invalid[$field] } else { 'different' }
+    $tree.windows[0].elements=@($other,$invalid); $code=$null
+    try { $null=Find-PickerAccept $tree ([IntPtr]123) } catch { $code=$_.Exception.Message }
+    if ($code -cne 'picker_accept_missing_or_ambiguous') { throw 'invalid_control_not_rejected' }
+}
+$conflict=$accept.Clone(); $conflict.automationId='999'
+$tree.windows[0].elements=@($accept,$conflict); $code=$null
+try { $null=Find-PickerAccept $tree ([IntPtr]123) } catch { $code=$_.Exception.Message }
+if ($code -cne 'inspect_selector_metadata_mismatch') { throw 'conflicting_ids_not_rejected' }
+$tree.windows=@(@{hwnd=456;elements=@($foreign)}); $code=$null
+try { $null=Find-PickerAccept $tree ([IntPtr]123) } catch { $code=$_.Exception.Message }
+if ($code -cne 'picker_inspection_window_ambiguous') { throw 'foreign_window_selected' }
+$tree.windows=@(@{hwnd=123;elements=@($accept)}, @{hwnd=123;elements=@($accept)}); $code=$null
+try { $null=Find-PickerAccept $tree ([IntPtr]123) } catch { $code=$_.Exception.Message }
+if ($code -cne 'picker_inspection_window_ambiguous') { throw 'ambiguous_window_selected' }
+"""
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-Command", command],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_connection_and_terminal_center_captures_are_scoped_real_states(self):
         self.assertLess(SOURCE.index("Reveal-ConnectionSubmit $script:window"), SOURCE.index("Capture 'connect-ready.png'"))
         self.assertLess(SOURCE.index("Capture 'connect-ready.png'"), SOURCE.index("Act $script:window '^连接并浏览$'"))
@@ -160,7 +207,7 @@ class TransferSmokeContract(unittest.TestCase):
         helper = SOURCE.split("function Unique-Elements", 1)[1].split("function Elements", 1)[0]
         self.assertIn("[StringComparer]::Ordinal", helper)
         self.assertIn("TryGetValue($element.selector", helper)
-        self.assertIn("'type', 'name', 'isEnabled', 'isOffscreen'", helper)
+        self.assertIn("'type', 'name', 'isEnabled', 'isOffscreen', 'automationId'", helper)
         self.assertIn("[object]::Equals($previous[$field], $element[$field])", helper)
         self.assertIn("'inspect_selector_metadata_mismatch'", helper)
         self.assertEqual(SOURCE.count("Unique-Elements (Find-Elements $tree)"), 2)
@@ -232,7 +279,7 @@ $items = @(Unique-Elements (Find-Elements $tree))
 if ($items.Count -ne 1 -or $items[0].selector -cne 'fixture-a') { throw 'repeat_not_collapsed' }
 $different = @{ selector='fixture-b'; type='ListItem'; name='synthetic'; isEnabled=$true; isOffscreen=$false }
 if (@(Unique-Elements @($one, $different)).Count -ne 2) { throw 'distinct_identity_collapsed' }
-foreach ($field in @('type', 'name', 'isEnabled', 'isOffscreen')) {
+foreach ($field in @('type', 'name', 'isEnabled', 'isOffscreen', 'automationId')) {
     $conflict = $same.Clone()
     $conflict[$field] = if ($field -in @('isEnabled', 'isOffscreen')) { -not $conflict[$field] } else { 'different' }
     $code = $null

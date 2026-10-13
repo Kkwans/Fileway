@@ -115,7 +115,7 @@ function Unique-Elements($Elements) {
         if ($element.selector -isnot [string] -or [string]::IsNullOrWhiteSpace($element.selector)) { Stop-Smoke 'inspect_selector_missing' }
         $previous = $null
         if ($seen.TryGetValue($element.selector, [ref]$previous)) {
-            foreach ($field in @('type', 'name', 'isEnabled', 'isOffscreen')) {
+            foreach ($field in @('type', 'name', 'isEnabled', 'isOffscreen', 'automationId')) {
                 if (-not [object]::Equals($previous[$field], $element[$field])) { Stop-Smoke 'inspect_selector_metadata_mismatch' }
             }
         } else {
@@ -202,6 +202,27 @@ function Close-TransferDialog([string] $Title) {
     $result = Invoke-WinApp @('ui', 'invoke', $buttons[0].selector, '-w', $script:window.ToInt64().ToString(), '--action', 'invoke', '--json')
     if ($result.performedAction -ne 'invoke' -or $result.hwnd -ne $script:window.ToInt64()) { Stop-Smoke 'dialog_close_effect_mismatch' }
 }
+function Find-PickerAccept($Tree, [IntPtr] $Picker) {
+    if (-not $Tree.Contains('windows')) { Stop-Smoke 'inspect_windows_contract_missing' }
+    $ownedWindows = @($Tree.windows | Where-Object { $_.hwnd -eq $Picker.ToInt64() })
+    if ($ownedWindows.Count -ne 1) { Stop-Smoke 'picker_inspection_window_ambiguous' }
+    # IDOK=1 is the standard accept button, not shell/navigation buttons also
+    # named Open. Restrict to this exact common-dialog HWND before matching.
+    $matches = @(Unique-Elements (Find-Elements $ownedWindows[0].elements) | Where-Object {
+        $_.type -eq 'Button' -and $_.name -match '^(?:选择文件|Open(?:\(O\))?|打开(?:\(O\))?)$' -and
+        $_.isEnabled -and -not $_.isOffscreen -and $_.Contains('automationId') -and $_.automationId -ceq '1'
+    })
+    if ($matches.Count -ne 1) { Stop-Smoke 'picker_accept_missing_or_ambiguous' }
+    return $matches[0]
+}
+function Accept-UploadPicker([IntPtr] $Picker) {
+    if ($Picker -eq $script:window -or [Fileway.PlayerSmoke.Native]::ProcessId($Picker) -ne $script:app.Id -or
+        [Fileway.PlayerSmoke.Native]::Title($Picker) -notmatch '选择要上传的文件|Open|打开') { Stop-Smoke 'picker_owner_mismatch' }
+    $tree = Invoke-WinApp @('ui', 'inspect', '-w', $Picker.ToInt64().ToString(), '--depth', '16', '--json')
+    $element = Find-PickerAccept $tree $Picker
+    $result = Invoke-WinApp @('ui', 'invoke', $element.selector, '-w', $Picker.ToInt64().ToString(), '--action', 'invoke', '--json')
+    if ($result.hwnd -ne $Picker.ToInt64() -or $result.performedAction -ne 'invoke') { Stop-Smoke 'picker_accept_contract_mismatch' }
+}
 function Upload-File([string] $Path, [string] $ExpectedStage, [string] $Screenshot) {
     $script:stage = 'upload-open-command'
     Act $script:window '^上传文件$'
@@ -216,7 +237,7 @@ function Upload-File([string] $Path, [string] $ExpectedStage, [string] $Screensh
     $edit = Control $picker '^(?:文件名(?:\(N\))?[:：]?|File name[:：]?)$' 'Edit'
     $null = Invoke-WinApp @('ui', 'set-value', $edit.selector, $Path, '-w', $picker.ToInt64().ToString(), '--json')
     $script:stage = 'upload-picker-open'
-    Act $picker '^(?:选择文件|Open(?:\(O\))?|打开(?:\(O\))?)$'
+    Accept-UploadPicker $picker
     $script:stage = 'upload-confirmation'
     Wait-Text '确认上传目标'
     if (-not (Has-Text $script:window ([IO.Path]::GetFileName($Path)))) { Stop-Smoke 'upload_confirmation_name_mismatch' }
