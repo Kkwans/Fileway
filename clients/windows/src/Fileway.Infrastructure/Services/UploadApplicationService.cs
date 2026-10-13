@@ -15,7 +15,7 @@ public sealed record DownloadApplicationDependencies(IFileDownloadRunner Runner,
     ILocalStorageSettingsService StorageSettings);
 
 /// <summary>Application authority and explicit single-file submission. Owns the coordinator, not the decorated services.</summary>
-public sealed partial class UploadApplicationService : IConnectionService, IConnectionCatalog, IUploadService, IDownloadService, IAsyncDisposable
+public sealed partial class UploadApplicationService : IConnectionService, IConnectionCatalog, IUploadService, IDownloadPlaybackSourceProvider, IAsyncDisposable
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private readonly IConnectionService _connection;
