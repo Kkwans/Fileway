@@ -7,9 +7,16 @@ uses a NAS, personal computer, password, saved login or external server.
 ## Inputs and isolation
 
 Use a disposable Windows CI runner with an unlocked interactive desktop, the
-hash-pinned winapp CLI 0.7.1 and the normal built native application/runtime. Run
+hash-pinned winapp CLI 0.7.1 and the normal built native application/Go Host. Run
 the PowerShell parser and offline source guards before provisioning. Run true
-preflight before application/runtime downloads; the full journey repeats it.
+preflight before the application build; the full journey repeats it.
+
+Transfer CI does not download or probe mpv/media: this journey never opens media,
+and the playback service constructs its native library lazily and disposes it
+only if created. The ordinary non-publishing App build supports an absent media
+directory. Real App/server/UI/byte checks and normal shutdown remain mandatory.
+This CI does not cover playback or media packaging; the separate player smoke
+keeps its complete hash-locked media restore, probe and real playback validation.
 
 ```powershell
 ./eng/Test-TransferSmoke.ps1 -PreflightOnly -WinAppPath $winapp -OutputRoot $evidence
@@ -58,6 +65,12 @@ visible; mismatched actual UI fails rather than guessing a coordinate. Inspectio
 collapses repeated entries only when their exact selector and
 type/name/enabled/offscreen metadata agree. Different selectors remain distinct;
 conflicting metadata for one selector fails without choosing an arbitrary entry.
+On short desktops, the connection submit button can sit below the viewport.
+The harness selects its unique enabled identity, uses the pinned CLI's UIA
+`scroll --to bottom` against its scrollable ancestor, checks the response, then
+freshly inspects and invokes only a visible enabled button. This does not use
+coordinates or invoke an offscreen control; the default connection layout's
+need to scroll remains a separate product usability issue.
 Stage polls, CLI commands, startup and shutdown are bounded. An application or Host
 nonzero exit fails the journey even if screenshots and byte checks succeeded.
 Forced teardown after failure does not satisfy normal shutdown.

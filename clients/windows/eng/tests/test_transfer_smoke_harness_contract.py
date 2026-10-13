@@ -69,6 +69,18 @@ class TransferSmokeContract(unittest.TestCase):
         self.assertIn("if ($LASTEXITCODE -ne 0) { throw 'Transfer smoke offline guards failed.' }", WORKFLOW)
         self.assertIn("'clients/windows/eng/tests/test_transfer_smoke_harness_contract.py'", WORKFLOW)
 
+    def test_transfer_workflow_keeps_real_journey_without_playback_dependencies(self):
+        for unused in ("vendor/mpv/", "pip install", "mpv-python", "-MediaRuntimeRoot", "-Publish"):
+            self.assertNotIn(unused, WORKFLOW)
+        for required in ("./eng/Build-Windows.ps1", "go build -o", "./eng/Test-TransferSmoke.ps1 -AppPath",
+                         "./eng/Test-TransferSmoke.ps1 -PreflightOnly"):
+            self.assertIn(required, WORKFLOW)
+        player = (ENG.parents[2] / ".github" / "workflows" / "windows-player-smoke.yml").read_text(encoding="utf-8")
+        for required in ("pip install --require-hashes", "vendor/mpv/resolve-runtime.py",
+                         "vendor/mpv/probe-runtime.py", "-MediaRuntimeRoot"):
+            self.assertIn(required, player)
+        self.assertRegex(player, r"\./eng/Test-PlayerSmoke\.ps1[^\n]* -AppPath [^\n]* -MediaPath ")
+
     def test_output_ownership_is_validated_before_report_write(self):
         self.assertLess(SOURCE.index("'output_contains_unexpected_artifact'"),
                         SOURCE.index("$script:root = $candidateRoot"))
@@ -110,7 +122,7 @@ class TransferSmokeContract(unittest.TestCase):
 
     def test_connection_failure_has_fixed_phase_and_numeric_diagnostics_only(self):
         for stage in ("connect-name", "connect-address", "connect-auth-expand", "connect-auth-select",
-                      "connect-persistence-off", "connect-http-consent", "connect-submit", "connect-browser-ready"):
+                      "connect-persistence-off", "connect-http-consent", "connect-submit-reveal", "connect-submit", "connect-browser-ready"):
             self.assertIn("$script:stage = '" + stage + "'", SOURCE)
         observation = SOURCE.split("Record-Observation 'control-match-counts'", 1)[1].split("Stop-Smoke", 1)[0]
         for field in ("matches", "uniqueSelectors", "buttons", "edits", "comboBoxes", "listItems"):
@@ -130,6 +142,60 @@ class TransferSmokeContract(unittest.TestCase):
         self.assertIn("'inspect_selector_metadata_mismatch'", helper)
         self.assertEqual(SOURCE.count("Unique-Elements (Find-Elements $tree)"), 2)
         self.assertIn("$matches.Count -ne 1", SOURCE)
+
+    def test_connection_scroll_preserves_visible_action_guard(self):
+        helper = SOURCE.split("function Reveal-ConnectionSubmit", 1)[1].split("function Has-Text", 1)[0]
+        self.assertIn("$matches.Count -ne 1", helper)
+        self.assertIn("$_.isEnabled", helper)
+        self.assertIn("$matches[0].isOffscreen", helper)
+        self.assertIn("'ui', 'scroll', $matches[0].selector", helper)
+        self.assertIn("'--to', 'bottom'", helper)
+        self.assertIn("'connection_scroll_contract_mismatch'", helper)
+        self.assertNotIn("'invoke'", helper)
+        self.assertLess(SOURCE.index("Reveal-ConnectionSubmit $script:window"),
+                        SOURCE.index("Act $script:window '^连接并浏览$'"))
+        self.assertIn("$_.isEnabled -and -not $_.isOffscreen", SOURCE)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
+    def test_actual_connection_scroll_helper_guards(self):
+        helper = "function Reveal-ConnectionSubmit" + SOURCE.split("function Reveal-ConnectionSubmit", 1)[1].split("function Has-Text", 1)[0]
+        command = r"""
+Set-StrictMode -Version Latest
+function Stop-Smoke($Code) { throw $Code }
+function Elements($Window) { $script:fixtures }
+function Invoke-WinApp($Arguments) {
+    $script:calls.Add($Arguments)
+    return $script:response
+}
+""" + helper + r"""
+$script:calls = [Collections.Generic.List[object]]::new()
+$script:fixtures = @(@{selector='fixture-submit';type='Button';name='连接并浏览';isEnabled=$true;isOffscreen=$true})
+$script:response = @{elementId='fixture-submit';hwnd=123;to='bottom'}
+Reveal-ConnectionSubmit ([IntPtr]123)
+if ($script:calls.Count -ne 1 -or ($script:calls[0] -join '|') -cne 'ui|scroll|fixture-submit|-w|123|--to|bottom|--json') { throw 'scroll_arguments_mismatch' }
+$script:fixtures[0].isOffscreen = $false
+Reveal-ConnectionSubmit ([IntPtr]123)
+if ($script:calls.Count -ne 1) { throw 'visible_target_scrolled' }
+$script:fixtures[0].isOffscreen = $true
+foreach ($field in @('elementId', 'hwnd', 'to', 'direction', 'wheel')) {
+    $script:response = @{elementId='fixture-submit';hwnd=123;to='bottom'}
+    $script:response[$field] = if ($field -eq 'hwnd') { 999 } else { 'wrong' }
+    $code = $null
+    try { Reveal-ConnectionSubmit ([IntPtr]123) } catch { $code = $_.Exception.Message }
+    if ($code -cne 'connection_scroll_contract_mismatch') { throw 'response_not_rejected' }
+}
+$script:fixtures += @(@{selector='fixture-second';type='Button';name='连接并浏览';isEnabled=$true;isOffscreen=$true})
+$before = $script:calls.Count; $code = $null
+try { Reveal-ConnectionSubmit ([IntPtr]123) } catch { $code = $_.Exception.Message }
+if ($code -cne 'connection_submit_scroll_target_ambiguous' -or $script:calls.Count -ne $before) { throw 'ambiguous_target_scrolled' }
+$script:fixtures = @(@{selector='fixture-disabled';type='Button';name='连接并浏览';isEnabled=$false;isOffscreen=$true})
+$code = $null
+try { Reveal-ConnectionSubmit ([IntPtr]123) } catch { $code = $_.Exception.Message }
+if ($code -cne 'connection_submit_scroll_target_ambiguous' -or $script:calls.Count -ne $before) { throw 'disabled_target_scrolled' }
+"""
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-Command", command],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
     def test_actual_inspection_helper_repeated_and_conflicting_elements(self):

@@ -106,7 +106,9 @@
   </Grid>
   <transfers:TransferCenterControl x:Name="TransfersPanel" Grid.Row="1" Grid.Column="1" Visibility="Collapsed"/>
   <collections:ResourceCollectionsControl x:Name="CollectionsPanel" Grid.Row="1" Grid.Column="1" Visibility="Collapsed"/>
-  <ScrollViewer x:Name="ConnectionPanel" Grid.Row="1" Grid.Column="1" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}" Padding="32" VerticalScrollBarVisibility="Auto">
+  <Grid x:Name="ConnectionPanel" Grid.Row="1" Grid.Column="1" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+   <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <ScrollViewer x:Name="ConnectionFormScroller" Padding="32,32,32,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
    <StackPanel MaxWidth="440" Spacing="20" HorizontalAlignment="Stretch" Margin="0,12,0,20">
     <FontIcon Glyph="&#xE968;" FontSize="40" HorizontalAlignment="Left" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
     <StackPanel Spacing="8"><TextBlock Text="连接你的文件空间" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Text="连接信息保存在本机。保持登录会加密保存会话，密码不会保存。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
@@ -121,8 +123,14 @@
     <CheckBox x:Name="KeepSignedInBox" Content="保持登录（仅在本机加密保存会话）"/>
     <CheckBox x:Name="HttpConsent" Content="我了解 HTTP 会明文传输凭据和文件内容" Visibility="Collapsed"/>
     <InfoBar x:Name="LoginNotice" IsOpen="True" IsClosable="False" Severity="Informational" Message="正在准备本地核心服务…"/>
-    <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource AccentButtonStyle}" Click="Connect_Click" IsEnabled="False" HorizontalAlignment="Stretch"/><Button x:Name="CancelConnectionButton" Grid.Column="1" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click"/><Button x:Name="DismissConnection" Grid.Column="2" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click"/></Grid>
    </StackPanel>
-  </ScrollViewer>
+   </ScrollViewer>
+   <Border Grid.Row="1" Padding="32,12,32,16" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
+    <Grid MaxWidth="440" HorizontalAlignment="Stretch" RowSpacing="8"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource AccentButtonStyle}" Click="Connect_Click" IsEnabled="False" HorizontalAlignment="Stretch"/>
+     <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8"><Button x:Name="CancelConnectionButton" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click"/><Button x:Name="DismissConnection" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click"/></StackPanel>
+    </Grid>
+   </Border>
+  </Grid>
  </Grid>
 </Page>

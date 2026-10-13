@@ -160,6 +160,19 @@ function Set-Value([IntPtr] $Window, [string] $Pattern, [string] $Value) {
     $null = Invoke-WinApp @('ui', 'set-value', $element.selector, $Value, '-w', $Window.ToInt64().ToString(), '--json')
     $null = Invoke-WinApp @('ui', 'wait-for', $element.selector, '-w', $Window.ToInt64().ToString(), '--value', $Value, '--timeout', '5000', '--json')
 }
+function Reveal-ConnectionSubmit([IntPtr] $Window) {
+    # A short CI desktop can put this button below the connection ScrollViewer.
+    # ScrollPattern walks to its nearest scrollable parent; the later Act still
+    # requires a fresh unique, visible and enabled button before invoking it.
+    $matches = @(Elements $Window | Where-Object { $_.type -eq 'Button' -and $_.name -ceq '连接并浏览' -and $_.isEnabled })
+    if ($matches.Count -ne 1) { Stop-Smoke 'connection_submit_scroll_target_ambiguous' }
+    if ($matches[0].isOffscreen) {
+        $result = Invoke-WinApp @('ui', 'scroll', $matches[0].selector, '-w', $Window.ToInt64().ToString(), '--to', 'bottom', '--json')
+        if ($result.hwnd -ne $Window.ToInt64() -or $result.elementId -cne $matches[0].selector -or $result.to -cne 'bottom' -or
+            ($result.Contains('direction') -and $null -ne $result.direction) -or
+            ($result.Contains('wheel') -and $null -ne $result.wheel)) { Stop-Smoke 'connection_scroll_contract_mismatch' }
+    }
+}
 function Has-Text([IntPtr] $Window, [string] $Text) {
     return @(Elements $Window | Where-Object { $_.type -eq 'Text' -and $_.name -ceq $Text -and -not $_.isOffscreen }).Count -gt 0
 }
@@ -333,6 +346,7 @@ public static class FilewayTransferDownloads {
         $script:stage = 'connect-auth-select'; Act $script:window '^无需认证$' 'ListItem' 'select'
         $script:stage = 'connect-persistence-off'; Act $script:window '^保持登录（仅在本机加密保存会话）$' 'CheckBox' 'toggle-off'
         $script:stage = 'connect-http-consent'; Act $script:window '^我了解 HTTP 会明文传输凭据和文件内容$' 'CheckBox' 'toggle-on'
+        $script:stage = 'connect-submit-reveal'; Reveal-ConnectionSubmit $script:window
         $script:stage = 'connect-submit'; Act $script:window '^连接并浏览$'
         $script:stage = 'connect-browser-ready'
         $null = Control $script:window '^上传文件$'
