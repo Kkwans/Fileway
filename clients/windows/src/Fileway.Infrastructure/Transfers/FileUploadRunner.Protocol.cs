@@ -18,10 +18,17 @@ public sealed partial class FileUploadRunner
             var pinned = state.Record.Checkpoint.Source ?? throw Safe(ErrorCode.SourceChanged);
             bool resume = state.Record.Checkpoint.ConfirmedOffset is not null ||
                 state.Record.Checkpoint.Uncertainty != TransferUncertainty.None;
-            if (!resume && state.Record.Plan.Conflict == FileConflictPolicy.Skip && await TargetExistsAsync(state).ConfigureAwait(false))
+            if (!resume && state.Record.Plan.Conflict is FileConflictPolicy.Skip or FileConflictPolicy.Fail)
             {
-                await SaveAsync(state, state.Record.Checkpoint with { Phase = TransferPhase.Skipped, Error = null }, release: true).ConfigureAwait(false);
-                return state.Record;
+                bool exists = await TargetExistsAsync(state).ConfigureAwait(false);
+                await CheckIntentAsync(state, cancellation: false).ConfigureAwait(false);
+                if (exists)
+                {
+                    // Reject known conflicts before POST: a dispatched 409 can follow a remote mutation.
+                    if (state.Record.Plan.Conflict == FileConflictPolicy.Fail) throw Safe(ErrorCode.Conflict);
+                    await SaveAsync(state, state.Record.Checkpoint with { Phase = TransferPhase.Skipped, Error = null }, release: true).ConfigureAwait(false);
+                    return state.Record;
+                }
             }
             if (resume && state.Record.Checkpoint.Phase != TransferPhase.Reconciling)
                 await SaveAsync(state, state.Record.Checkpoint with { Phase = TransferPhase.Reconciling }, release: false).ConfigureAwait(false);

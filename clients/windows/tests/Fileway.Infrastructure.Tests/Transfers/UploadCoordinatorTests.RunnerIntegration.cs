@@ -139,7 +139,7 @@ public sealed class UploadCoordinatorRunnerIntegrationTests
             Store = store;
             Task = plan.Reference;
             Http = new(this);
-            var runner = new FileUploadRunner(store, Leases, Sources, Locks, new UnusedFiles(), Http,
+            var runner = new FileUploadRunner(store, Leases, Sources, Locks, new MissingFiles(), Http,
                 new FileUploadRunnerOptions { ChunkSizeBytes = 4 });
             Coordinator = new(store, runner, new UploadCoordinatorOptions { MaximumConcurrentUploads = 1 });
         }
@@ -280,9 +280,10 @@ public sealed class UploadCoordinatorRunnerIntegrationTests
         public ValueTask DisposeAsync() { Interlocked.Exchange(ref _disposed, 1); return ValueTask.CompletedTask; }
     }
 
-    private sealed class UnusedFiles : IFileRepository
+    private sealed class MissingFiles : IFileRepository
     {
-        public Task<RemoteFile> GetAsync(RemoteResourceRef resource, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<RemoteFile> GetAsync(RemoteResourceRef resource, CancellationToken cancellationToken) =>
+            throw new FilewayException(new(ErrorCode.SourceChanged, "fixture missing", 404));
         public Task<RemoteResourceRef> GetRootAsync(ConnectionSession session, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<DirectoryPage> ListAsync(RemoteResourceRef directory, DirectoryQuery query, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<FileOperationResult> CreateDirectoryAsync(RemoteResourceRef parent, string name, CancellationToken cancellationToken) => throw new NotSupportedException();

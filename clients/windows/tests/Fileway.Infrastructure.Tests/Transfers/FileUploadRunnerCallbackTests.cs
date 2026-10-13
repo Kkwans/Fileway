@@ -284,7 +284,7 @@ public sealed class FileUploadRunnerCallbackTests
             Workers = workers;
             Leases = new(workers);
             Http = new(this);
-            Runner = new(Store, Leases, new Sources(workers), new Locks(workers), new UnusedFiles(), Http,
+            Runner = new(Store, Leases, new Sources(workers), new Locks(workers), new MissingFiles(), Http,
                 new() { ChunkSizeBytes = 4 });
         }
         internal FaultStore Store { get; }
@@ -490,9 +490,9 @@ public sealed class FileUploadRunnerCallbackTests
         }
     }
 
-    private sealed class UnusedFiles : IFileRepository
+    private sealed class MissingFiles : IFileRepository
     {
-        public Task<RemoteFile> GetAsync(RemoteResourceRef resource, CancellationToken cancellationToken) => throw new InvalidOperationException("Unexpected metadata access.");
+        public Task<RemoteFile> GetAsync(RemoteResourceRef resource, CancellationToken cancellationToken) => throw new FilewayException(new(ErrorCode.SourceChanged, "fixture missing", 404));
         public Task<RemoteResourceRef> GetRootAsync(ConnectionSession session, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<DirectoryPage> ListAsync(RemoteResourceRef directory, DirectoryQuery query, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<FileOperationResult> CreateDirectoryAsync(RemoteResourceRef parent, string name, CancellationToken cancellationToken) => throw new NotSupportedException();

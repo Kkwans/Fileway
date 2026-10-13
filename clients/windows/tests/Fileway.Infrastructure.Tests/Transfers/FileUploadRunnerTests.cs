@@ -78,10 +78,79 @@ public sealed class FileUploadRunnerTests
         else Assert.All(fixture.Leases.Requests, request => Assert.False(request.Overwrite));
     }
 
-    [Fact]
-    public async Task SkipMetadataPermissionFailureDoesNotBecomeAbsent()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public async Task FailExistingTargetConflictsBeforeAcquiringLeaseOrMutating(int length)
     {
-        await using var fixture = await Fixture.CreateAsync(FileConflictPolicy.Skip);
+        await using var fixture = await Fixture.CreateAsync(data: Data[..length]);
+        fixture.Files.Exists = true;
+
+        var result = await fixture.Runner.RunAsync(fixture.Task, recovery: false, Token);
+
+        Assert.Equal(TransferPhase.Conflict, result.Checkpoint.Phase);
+        Assert.Equal(ErrorCode.Conflict, result.Checkpoint.Error!.Code);
+        Assert.Equal(TransferUncertainty.None, result.Checkpoint.Uncertainty);
+        Assert.Null(result.Checkpoint.ConfirmedOffset);
+        Assert.False(result.Checkpoint.RemotePublished);
+        Assert.Null(result.Run);
+        Assert.Equal(1, fixture.Files.Reads);
+        Assert.Empty(fixture.Leases.Requests);
+        Assert.Empty(fixture.Http.Requests);
+        Assert.All(fixture.Sources.Opened, source => Assert.True(source.Disposed));
+        Assert.False(fixture.Locks.IsHeld(fixture.Task));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public async Task FailMissingTargetOnlyCreatesAfterTyped404(int length)
+    {
+        await using var fixture = await Fixture.CreateAsync(data: Data[..length]);
+
+        var result = await fixture.Runner.RunAsync(fixture.Task, recovery: false, Token);
+
+        Assert.Equal(TransferPhase.Completed, result.Checkpoint.Phase);
+        Assert.Equal(1, fixture.Files.Reads);
+        Assert.Single(fixture.Http.Requests, request => request.Method == "POST");
+        Assert.All(fixture.Leases.Requests, request => Assert.False(request.Overwrite));
+        Assert.Equal(Data[..length], fixture.Http.RemoteBytes);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(4)]
+    public async Task ConflictAfterCreationDispatchRemainsUnknownAndRecoveryDoesNotPreflight(int length)
+    {
+        await using var fixture = await Fixture.CreateAsync(data: Data[..length]);
+        fixture.Http.PostStatus = HttpStatusCode.Conflict;
+
+        var unknown = await fixture.Runner.RunAsync(fixture.Task, recovery: false, Token);
+
+        Assert.Equal(TransferPhase.OutcomeUnknown, unknown.Checkpoint.Phase);
+        Assert.Equal(ErrorCode.Conflict, unknown.Checkpoint.Error!.Code);
+        Assert.Equal(409, unknown.Checkpoint.Error.HttpStatus);
+        Assert.Equal(TransferUncertainty.RemoteWrite, unknown.Checkpoint.Uncertainty);
+        Assert.Null(unknown.Checkpoint.ConfirmedOffset);
+        Assert.Equal("POST", Assert.Single(fixture.Http.Requests).Method);
+        Assert.Equal(1, fixture.Files.Reads);
+        fixture.Files.Exists = true;
+
+        var resumed = await fixture.Runner.RunAsync(fixture.Task, recovery: true, Token);
+
+        Assert.Equal(TransferPhase.Completed, resumed.Checkpoint.Phase);
+        Assert.Equal(1, fixture.Files.Reads);
+        Assert.Equal("HEAD", fixture.Http.Requests.ToArray()[1].Method);
+        Assert.Single(fixture.Http.Requests, request => request.Method == "POST");
+        Assert.True(fixture.Leases.Requests.ToArray()[1].Resume);
+    }
+
+    [Theory]
+    [InlineData(FileConflictPolicy.Skip)]
+    [InlineData(FileConflictPolicy.Fail)]
+    public async Task MetadataPermissionFailureDoesNotBecomeAbsent(FileConflictPolicy conflict)
+    {
+        await using var fixture = await Fixture.CreateAsync(conflict);
         fixture.Files.Failure = new(ErrorCode.PermissionDenied, "fixture metadata rejection", 403);
 
         var result = await fixture.Runner.RunAsync(fixture.Task, recovery: false, Token);
@@ -90,6 +159,55 @@ public sealed class FileUploadRunnerTests
         Assert.Equal(ErrorCode.PermissionDenied, result.Checkpoint.Error!.Code);
         Assert.Empty(fixture.Http.Requests);
         Assert.Empty(fixture.Leases.Requests);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StopDuringFailPreflightDoesNotConflictOrMutate(bool exists)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        using var caller = CancellationTokenSource.CreateLinkedTokenSource(Token);
+        fixture.Files.Exists = exists;
+        fixture.Files.BeforeResult = caller.Cancel;
+
+        var result = await fixture.Runner.RunAsync(fixture.Task, recovery: false, caller.Token);
+
+        Assert.Equal(TransferPhase.Paused, result.Checkpoint.Phase);
+        Assert.Equal(TransferIntent.Pause, result.Intent);
+        Assert.Equal(TransferUncertainty.None, result.Checkpoint.Uncertainty);
+        Assert.Empty(fixture.Leases.Requests);
+        Assert.Empty(fixture.Http.Requests);
+    }
+
+    [Fact]
+    public async Task SourceChangeDuringFailPreflightPreventsCreation()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Files.BeforeResult = () => fixture.Sources.Changed = true;
+
+        var result = await fixture.Runner.RunAsync(fixture.Task, recovery: false, Token);
+
+        Assert.Equal(TransferPhase.SourceChanged, result.Checkpoint.Phase);
+        Assert.Equal(TransferUncertainty.None, result.Checkpoint.Uncertainty);
+        Assert.Empty(fixture.Leases.Requests);
+        Assert.Empty(fixture.Http.Requests);
+    }
+
+    [Fact]
+    public async Task FailPreflightRejectsMetadataForDifferentSession()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Files.Exists = true;
+        fixture.Files.ResultResource = fixture.Plan.Remote with { Account = new(Guid.NewGuid(), Guid.NewGuid(), "other") };
+
+        var result = await fixture.Runner.RunAsync(fixture.Task, recovery: false, Token);
+
+        Assert.Equal(TransferPhase.Failed, result.Checkpoint.Phase);
+        Assert.Equal(ErrorCode.ProtocolMismatch, result.Checkpoint.Error!.Code);
+        Assert.Equal(TransferUncertainty.None, result.Checkpoint.Uncertainty);
+        Assert.Empty(fixture.Leases.Requests);
+        Assert.Empty(fixture.Http.Requests);
     }
 
     [Fact]
@@ -629,14 +747,17 @@ public sealed class FileUploadRunnerTests
     {
         internal bool Exists { get; set; }
         internal ErrorInfo? Failure { get; set; }
+        internal Action? BeforeResult { get; set; }
+        internal RemoteResourceRef? ResultResource { get; set; }
         internal int Reads;
         public Task<RemoteFile> GetAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Interlocked.Increment(ref Reads);
+            BeforeResult?.Invoke();
             if (Failure is { } failure) throw new FilewayException(failure);
             if (!Exists) throw new FilewayException(new(ErrorCode.SourceChanged, "fixture missing", 404));
-            return Task.FromResult(new RemoteFile(target, false, 1, null));
+            return Task.FromResult(new RemoteFile(ResultResource ?? target, false, 1, null));
         }
         public Task<RemoteResourceRef> GetRootAsync(ConnectionSession session, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<DirectoryPage> ListAsync(RemoteResourceRef directory, DirectoryQuery query, CancellationToken cancellationToken) => throw new NotSupportedException();
@@ -652,6 +773,7 @@ public sealed class FileUploadRunnerTests
         internal ConcurrentQueue<ObservedRequest> Requests { get; } = new();
         internal byte[] RemoteBytes { get; } = new byte[length];
         internal long RemoteOffset { get; set; }
+        internal HttpStatusCode PostStatus { get; set; } = HttpStatusCode.Created;
         internal HttpStatusCode HeadStatus { get; set; } = HttpStatusCode.OK;
         internal HttpStatusCode DeleteStatus { get; set; } = HttpStatusCode.NoContent;
         internal Func<CancellationToken, Task<HttpResponseMessage>?>? AfterPatch { get; set; }
@@ -678,7 +800,7 @@ public sealed class FileUploadRunnerTests
                 Assert.Empty(body);
                 Assert.Equal(0, request.Content!.Headers.ContentLength);
                 Assert.Equal(length.ToString(CultureInfo.InvariantCulture), request.Headers.GetValues("Upload-Length").Single());
-                var created = Response(HttpStatusCode.Created);
+                var created = Response(PostStatus);
                 created.Headers.Location = request.RequestUri;
                 return created;
             }

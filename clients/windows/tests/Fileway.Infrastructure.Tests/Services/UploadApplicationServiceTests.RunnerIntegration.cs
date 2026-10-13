@@ -209,6 +209,9 @@ public sealed partial class UploadApplicationServiceTests
             Store = new(new InMemoryProfileStore(), order);
             Connection = new(Store.Inner, order);
             Http = new(this);
+            Files.OnGet = (resource, _) => resource.WirePath == Parent.WirePath
+                ? System.Threading.Tasks.Task.FromResult(new RemoteFile(resource, true, 0, null))
+                : System.Threading.Tasks.Task.FromException<RemoteFile>(new FilewayException(new(ErrorCode.SourceChanged, "fixture missing", 404)));
             var runner = new FileUploadRunner(Store, Leases, Sources, Locks, Files, Http,
                 new FileUploadRunnerOptions { ChunkSizeBytes = 4 });
             var queue = new UploadCoordinator(Store, runner, new UploadCoordinatorOptions { MaximumConcurrentUploads = 1 });

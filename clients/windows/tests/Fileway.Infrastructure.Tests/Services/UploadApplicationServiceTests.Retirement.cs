@@ -18,7 +18,9 @@ public sealed partial class UploadApplicationServiceTests
             Dispatch = (call, _) => call.Operation switch
             {
                 "upload_lease" => Task.FromException<object>(new FilewayException(new(ErrorCode.Timeout, "private lease timeout"))),
-                "request" => Task.FromResult(CoreReadHost.Http(CoreReadHost.Metadata("/", directory: true))),
+                "request" => Task.FromResult(CoreReadHost.Endpoint(call) == "/api/resources/?metadata=1"
+                    ? CoreReadHost.Http(CoreReadHost.Metadata("/", directory: true))
+                    : CoreReadHost.Http(null, 404)),
                 _ => Task.FromException<object>(new InvalidOperationException("Unexpected retirement fixture command.")),
             },
         };
