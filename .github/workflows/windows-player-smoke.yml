@@ -9,6 +9,9 @@ on:
       - 'clients/windows/vendor/mpv/runtime-packages.lock.json'
       - 'clients/windows/vendor/mpv/resolve-runtime.py'
       - 'clients/windows/vendor/mpv/requirements-restore.txt'
+      - 'clients/windows/src/Fileway.App/App.xaml.cs'
+      - 'clients/windows/src/Fileway.App/MainWindow.xaml.cs'
+      - 'clients/windows/src/Fileway.Playback/**'
       - 'clients/windows/src/Fileway.App/MediaSurfaces/**'
       - 'clients/windows/src/Fileway.App/Controls/Playback/**'
   workflow_dispatch:

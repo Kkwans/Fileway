@@ -1099,11 +1099,14 @@ public sealed class FileDownloadRunnerTests
         public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
+            // Register the cooperative delay first so the later throwing callback runs before its
+            // cancellation continuation can dispose that callback registration.
+            var delay = Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
             using var registration = ThrowOnCancellation
                 ? cancellationToken.Register(() => throw new InvalidOperationException("private callback failure"))
                 : default;
             Entered.TrySetResult();
-            try { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); }
+            try { await delay; }
             catch (OperationCanceledException) { await checkCancellation(); CancellationObserved = true; throw; }
             throw new InvalidOperationException("unreachable fixture");
         }

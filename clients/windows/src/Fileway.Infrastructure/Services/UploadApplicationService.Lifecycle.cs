@@ -137,10 +137,20 @@ public sealed partial class UploadApplicationService
         var binding = _current;
         _current = null;
         _updates.Clear();
+        _downloadUpdates.Clear();
         if (binding is not null)
-            _drains.Add(Task.Run(() => _coordinator.StopAndDrainAsync(binding.Activation, CancellationToken.None)));
+        {
+            // Mark the token immediately, but run cancellation callbacks off this retiring caller's stack.
+            // Runner admission may still be awaiting its initial durable read when its drain begins.
+            CancelDownloadWorkLocked(binding);
+            _drains.Add(Task.Run(() => DrainBindingAsync(binding)));
+        }
         return binding;
     }
+
+    private Task DrainBindingAsync(Binding binding) => Task.WhenAll(
+        Task.Run(() => _coordinator.StopAndDrainAsync(binding.Activation, CancellationToken.None)),
+        Task.Run(() => DrainDownloadsAsync(binding)));
 
     private async Task AwaitDrainsAsync()
     {
@@ -156,7 +166,16 @@ public sealed partial class UploadApplicationService
             if (_disposed) return;
             if (_opening is { } opening) opening.Updates[(session.Account, session.Id)] = session;
             if (_current is { } current && current.Context.Account == session.Account && current.Context.SessionId == session.Id)
+            {
+                bool downloadWithdrawn = current.Session.Permissions.Download && !session.Permissions.Download;
                 current.Session = session;
+                if (downloadWithdrawn && _downloads is not null)
+                {
+                    CancelDownloadWorkLocked(current);
+                    current.DownloadDraining = true;
+                    _drains.Add(Task.Run(() => DrainDownloadPermissionAsync(current)));
+                }
+            }
         }
         PublishEvent(this, SessionUpdated, session);
     }
@@ -186,6 +205,7 @@ public sealed partial class UploadApplicationService
         _connection.SessionUpdated -= ConnectionSessionUpdated;
         _connection.ConnectionIssue -= ConnectionIssueReceived;
         _coordinator.TaskChanged -= QueueTaskChanged;
+        if (_downloads is not null) _downloads.Runner.ProgressChanged -= DownloadProgressChanged;
         _ = DisposeCoreAsync(completion);
         return new(completion.Task);
     }
@@ -200,6 +220,11 @@ public sealed partial class UploadApplicationService
             catch (Exception error) { failure = Normalize(error); }
             try { await _coordinator.DisposeAsync().ConfigureAwait(false); }
             catch (Exception error) { failure ??= Normalize(error); }
+            if (_downloads is not null)
+            {
+                try { await _downloads.Runner.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception error) { failure ??= Normalize(error); }
+            }
         }
         finally { _commands.Release(); }
         if (failure is not null) completion.TrySetException(failure);

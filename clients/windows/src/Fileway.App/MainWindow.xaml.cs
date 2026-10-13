@@ -28,6 +28,8 @@ public sealed partial class MainWindow : Window, IDisposable
     }
     public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
         => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails);
+    public void SetDownloadService(IDownloadService downloads)
+        => ((MainPage)RootFrame.Content).SetDownloadService(downloads);
     public void SetUploadService(IUploadService uploads)
         => ((MainPage)RootFrame.Content).SetUploadService(uploads, AppWindow.Id);
     public void SetStorageSettings(ILocalStorageSettingsService settings)

@@ -10,8 +10,12 @@ public sealed record UploadApplicationServiceOptions
     public TimeSpan PersistenceTimeout { get; init; } = TimeSpan.FromSeconds(30);
 }
 
+/// <summary>Immutable optional fresh-download dependencies. The application owns only the runner's lifetime.</summary>
+public sealed record DownloadApplicationDependencies(IFileDownloadRunner Runner, IDownloadSourceProvider Sources,
+    ILocalStorageSettingsService StorageSettings);
+
 /// <summary>Application authority and explicit single-file submission. Owns the coordinator, not the decorated services.</summary>
-public sealed partial class UploadApplicationService : IConnectionService, IConnectionCatalog, IUploadService, IAsyncDisposable
+public sealed partial class UploadApplicationService : IConnectionService, IConnectionCatalog, IUploadService, IDownloadService, IAsyncDisposable
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private readonly IConnectionService _connection;
@@ -19,6 +23,7 @@ public sealed partial class UploadApplicationService : IConnectionService, IConn
     private readonly IFileRepository _files;
     private readonly ITransferTaskStore _tasks;
     private readonly IUploadCoordinator _coordinator;
+    private readonly DownloadApplicationDependencies? _downloads;
     private readonly UploadApplicationServiceOptions _options;
     private readonly SemaphoreSlim _commands = new(1, 1);
     private readonly object _gate = new();
@@ -41,7 +46,11 @@ public sealed partial class UploadApplicationService : IConnectionService, IConn
         internal ConnectionSession Session { get; set; } = session;
         internal UploadActivationToken Activation { get; } = activation;
         internal UploadContext Context { get; } = new(activation.Account, activation.SessionId, activation.Id);
+        internal DownloadContext DownloadContext { get; } = new(activation.Account, activation.SessionId, activation.Id);
         internal Dictionary<TransferTaskRef, Presentation> Items { get; } = [];
+        internal Dictionary<DownloadDraftRef, DownloadDraft> DownloadDrafts { get; } = [];
+        internal Dictionary<TransferTaskRef, DownloadPresentation> DownloadItems { get; } = [];
+        internal bool DownloadDraining { get; set; }
     }
 
     private sealed class Presentation(RemoteResourceRef parent, string name, string destination)
@@ -56,19 +65,28 @@ public sealed partial class UploadApplicationService : IConnectionService, IConn
     }
 
     public UploadApplicationService(IConnectionService connection, IConnectionCatalog catalog, IFileRepository files,
-        ITransferTaskStore tasks, IUploadCoordinator coordinator, UploadApplicationServiceOptions? options = null)
+        ITransferTaskStore tasks, IUploadCoordinator coordinator, UploadApplicationServiceOptions? options = null,
+        DownloadApplicationDependencies? downloads = null)
     {
         _connection = connection ?? throw new ArgumentNullException(nameof(connection));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _files = files ?? throw new ArgumentNullException(nameof(files));
         _tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
         _coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+        _downloads = downloads;
+        if (downloads is not null)
+        {
+            ArgumentNullException.ThrowIfNull(downloads.Runner);
+            ArgumentNullException.ThrowIfNull(downloads.Sources);
+            ArgumentNullException.ThrowIfNull(downloads.StorageSettings);
+        }
         _options = options ?? new();
         if (_options.PersistenceTimeout <= TimeSpan.Zero || _options.PersistenceTimeout > TimeSpan.FromMinutes(5))
             throw Safe(ErrorCode.InvalidRequest);
         _connection.SessionUpdated += ConnectionSessionUpdated;
         _connection.ConnectionIssue += ConnectionIssueReceived;
         _coordinator.TaskChanged += QueueTaskChanged;
+        if (_downloads is not null) _downloads.Runner.ProgressChanged += DownloadProgressChanged;
     }
 
     public event EventHandler<ConnectionSession>? SessionUpdated;

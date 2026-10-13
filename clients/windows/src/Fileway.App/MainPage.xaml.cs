@@ -177,6 +177,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed) return;
         DisposeUploadPresentation();
+        DisposeDownloadPresentation();
         _browserDialog?.Hide();
         _storageDialog?.Hide(); _storageControl?.Dispose();
         _disposed = true; CollectionsPanel.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
@@ -355,6 +356,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         HideCollections();
         ClearUploadPresentation();
+        ClearDownloadPresentation();
         _session = null; _root = null; _directory = null; ++_generation; _loadCancellation?.Cancel();
         CollectionsPanel.SetContext(null, null, null, null);
         SidebarCollections.SetSnapshot(null); SidebarCollections.IsEnabled = false;
@@ -605,7 +607,7 @@ public sealed partial class MainPage : Page, IDisposable
         DetailsOpenButton.IsEnabled = row is not null && !_connecting;
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
-        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext();
+        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)
     {
@@ -739,6 +741,7 @@ public sealed partial class MainPage : Page, IDisposable
         if (XamlRoot?.Content is FrameworkElement windowRoot) windowRoot.RequestedTheme = theme;
         Shell.RequestedTheme = theme;
         if (_uploadDialog is not null) _uploadDialog.RequestedTheme = theme;
+        if (_downloadDialog is not null) _downloadDialog.RequestedTheme = theme;
         foreach (var window in _imageWindows) window.SetTheme(theme);
     }
     private void Workspace_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateDetailsLayout(); }

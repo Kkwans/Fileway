@@ -12,6 +12,7 @@
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackSnapshotDispatcher.cs" Link="Playback\PlaybackSnapshotDispatcher.cs" />
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackResponsivenessDiagnostics.cs" Link="Playback\PlaybackResponsivenessDiagnostics.cs" />
     <Compile Include="..\..\src\Fileway.App\UploadPresentationPolicy.cs" Link="Transfers\UploadPresentationPolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\DownloadPresentationPolicy.cs" Link="Transfers\DownloadPresentationPolicy.cs" />
     <Compile Include="..\..\src\Fileway.App\Controls\Playback\ScreenboxBufferedTimelineLayout.cs" Link="Playback\ScreenboxBufferedTimelineLayout.cs" />
     <PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" />
     <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.1" />

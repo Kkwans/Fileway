@@ -20,6 +20,7 @@ public partial class App : Application, IAsyncDisposable
     private GoHostClient? _host;
     private FilewayClientServices? _services;
     private UploadCoordinator? _uploadCoordinator;
+    private FileDownloadRunner? _downloadRunner;
     private UploadApplicationService? _uploads;
     private MpvPlaybackService? _playback;
     private ILocalStorageSettingsService? _storageSettings;
@@ -111,12 +112,15 @@ public partial class App : Application, IAsyncDisposable
             var uploadFiles = new WindowsUploadFileAccess(executionDirectory);
             var uploadRunner = new FileUploadRunner(profiles, _services, uploadFiles, uploadFiles, _services);
             _uploadCoordinator = new UploadCoordinator(profiles, uploadRunner);
-            _uploads = new UploadApplicationService(_services, _services, _services, profiles, _uploadCoordinator);
+            _downloadRunner = new FileDownloadRunner(profiles, _services, new WindowsDownloadFileAccess(), uploadFiles);
+            _uploads = new UploadApplicationService(_services, _services, _services, profiles, _uploadCoordinator,
+                downloads: new DownloadApplicationDependencies(_downloadRunner, _services, storageSettings));
             _playback = new MpvPlaybackService(_services,
                 new PlaybackWindowFactory(_window!.DispatcherQueue),
                 Path.Combine(directory, "media"), _services);
             _window.SetStorageSettings(storageSettings);
             _window.SetUploadService(_uploads);
+            _window.SetDownloadService(_uploads);
             await _window.SetServicesAsync(_uploads, _services, _services, _playback, _uploads, _services);
             try { await storageSettings.InitializeCacheAsync(_lifetime.Token); }
             catch (OperationCanceledException) when (_closing) { }
@@ -182,7 +186,11 @@ public partial class App : Application, IAsyncDisposable
         try
         {
             if (_uploads is not null) await _uploads.DisposeAsync();
-            else if (_uploadCoordinator is not null) await _uploadCoordinator.DisposeAsync();
+            else
+            {
+                try { if (_uploadCoordinator is not null) await _uploadCoordinator.DisposeAsync(); }
+                finally { if (_downloadRunner is not null) await _downloadRunner.DisposeAsync(); }
+            }
         }
         catch (Exception error) { RecordStartupFailure(error); }
         // Stop native readers before revoking their HTTP resource leases and the Host.

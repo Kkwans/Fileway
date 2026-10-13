@@ -56,7 +56,7 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
         {
             var failure = SessionCanceled(state, cancellationToken);
             if (captured is not null) await captured.DisposeAsync().ConfigureAwait(false);
-            else if (attempted) await RetireAsync(state).ConfigureAwait(false);
+            else if (attempted) await RetireDownloadOwnerAsync(state, failure.Error).ConfigureAwait(false);
             throw failure;
         }
         catch (FilewayException error)
@@ -68,9 +68,24 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
                 // An unseen or malformed control response can hide a live
                 // capability. Closing its original session retires it without
                 // replaying acquisition or affecting a replacement session.
-                await RetireAsync(state).ConfigureAwait(false);
+                await RetireDownloadOwnerAsync(state, error.Error).ConfigureAwait(false);
             }
             throw;
+        }
+    }
+
+    private async Task RetireDownloadOwnerAsync(SessionState state, ErrorInfo error)
+    {
+        try { _ = await RetireAsync(state).ConfigureAwait(false); }
+        catch (FilewayException cleanupError)
+        {
+            error = cleanupError.Error;
+            throw;
+        }
+        finally
+        {
+            // Fence the original application's authority without waiting for its runner from this acquisition stack.
+            PublishConnectionIssue(state, error);
         }
     }
 
@@ -206,7 +221,8 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
             // retirement. Fallback belongs here, outside its inner release, so
             // a failed revoke during logout cannot form a Retirement wait cycle.
             if (!await inner.TryDisposeConfirmedAsync().ConfigureAwait(false))
-                await owner.RetireAsync(inner.State).ConfigureAwait(false);
+                await owner.RetireDownloadOwnerAsync(inner.State,
+                    new(ErrorCode.OutcomeUnknown, Message(ErrorCode.OutcomeUnknown))).ConfigureAwait(false);
         }
     }
 }

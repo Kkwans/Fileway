@@ -40,7 +40,7 @@
                     <TextBox x:Name="DownloadDirectoryBox" Header="默认下载目录" IsReadOnly="True" AutomationProperties.Name="默认下载目录"/>
                     <Button Grid.Column="1" Content="选择…" Click="ChooseDownload_Click" VerticalAlignment="Bottom" AutomationProperties.Name="选择默认下载目录"/>
                 </Grid>
-                <TextBlock Text="此目录用于后续下载功能，当前版本尚未提供下载。下载目录独立于缓存，不参与缓存清理。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Text="单文件下载使用已生效的默认目录，开始前会显示实际保存位置。目录变更在重启后生效；下载文件独立于缓存，不参与缓存清理。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <TextBlock x:Name="PendingSettingsText" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
               </StackPanel>
             </ContentControl>
