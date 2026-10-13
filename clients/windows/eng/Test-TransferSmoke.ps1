@@ -400,6 +400,17 @@ function Read-ChecksumDialog {
 function Has-ChecksumText($Elements, [string] $Text) {
     return @($Elements | Where-Object { $_.type -eq 'Text' -and $_.Contains('name') -and $_.name -ceq $Text -and -not $_.isOffscreen }).Count -gt 0
 }
+function Test-ChecksumReady($Elements, [string] $RemoteName) {
+    if (-not (Has-ChecksumText $Elements $RemoteName)) { return $false }
+    $algorithms = @($Elements | Where-Object { $_.type -eq 'ComboBox' -and $_.Contains('name') -and $_.name -ceq '算法' -and
+        $_.isEnabled -and -not $_.isOffscreen })
+    if ($algorithms.Count -ne 1) { return $false }
+    # A collapsed WinUI ComboBox exposes its selected item through SelectionPattern;
+    # it need not expose that label as a separate Text element in the dialog tree.
+    $result = Invoke-WinApp @('ui', 'get-value', $algorithms[0].selector, '-w', $script:window.ToInt64().ToString(), '--json')
+    return ($result -is [Collections.IDictionary] -and $result.Contains('elementId') -and $result.elementId -is [string] -and
+        $result.elementId -ceq $algorithms[0].selector -and $result.Contains('text') -and $result.text -is [string] -and $result.text -ceq 'SHA-256')
+}
 function Test-ChecksumResult($Elements, [string] $ExpectedHash) {
     if ($ExpectedHash -cnotmatch '^[A-Fa-f0-9]{64}$') { Stop-Smoke 'checksum_expected_hash_contract_mismatch' }
     $digests = @($Elements | Where-Object { $_.type -eq 'Text' -and $_.Contains('name') -and $_.name -cmatch '^[A-Fa-f0-9]{64}$' -and -not $_.isOffscreen })
@@ -431,7 +442,7 @@ function Verify-Checksum([string] $RemoteName, [string] $ExpectedHash) {
     $script:stage = 'checksum-ready'
     Wait-Text '文件校验和'
     $elements = Read-ChecksumDialog
-    if (-not (Has-ChecksumText $elements $RemoteName) -or -not (Has-ChecksumText $elements 'SHA-256')) { Stop-Smoke 'checksum_ready_identity_or_algorithm_mismatch' }
+    if (-not (Test-ChecksumReady $elements $RemoteName)) { Stop-Smoke 'checksum_ready_identity_or_algorithm_mismatch' }
     Set-Value $script:window '^预期校验和（可选）$' $ExpectedHash
     Capture 'checksum-ready.png'
     $script:stage = 'checksum-submit'

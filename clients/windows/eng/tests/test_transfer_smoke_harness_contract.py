@@ -620,7 +620,7 @@ if($actual.Count -ne 1 -or $script:reads -ne 1 -or $script:delays -ne 0){throw '
     def test_checksum_uses_real_dialog_and_preserves_previous_bytes_gates(self):
         helper = SOURCE[SOURCE.index('function Verify-Checksum'):SOURCE.index('function Assert-Payload')]
         for value in ("Open-FileContextMenu $script:window $RemoteName 'checksum'", "Invoke-OwnedFileMenuItem $script:window '计算校验和…'",
-                      "Wait-Text '文件校验和'", "Has-ChecksumText $elements $RemoteName", "Has-ChecksumText $elements 'SHA-256'",
+                      "Wait-Text '文件校验和'", "Test-ChecksumReady $elements $RemoteName",
                       "Set-Value $script:window '^预期校验和（可选）$' $ExpectedHash", "Capture 'checksum-ready.png'",
                       "Act $script:window '^计算校验和$'", "Test-ChecksumResult (Read-ChecksumDialog) $ExpectedHash",
                       "Capture 'checksum-result.png'", "Close-TransferDialog '文件校验和'"):
@@ -640,6 +640,59 @@ if($actual.Count -ne 1 -or $script:reads -ne 1 -or $script:delays -ne 0){throw '
             self.assertIn(value, app)
         for guard in ('application_exit_code_nonzero', 'owned_host_exit_code_nonzero'):
             self.assertLess(SOURCE.index(guard), SOURCE.index("Write-Report 'passed' 'transfer_smoke_ok'"))
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual checksum readiness runs in Windows CI")
+    def test_actual_checksum_ready_requires_original_source_and_unique_selected_algorithm(self):
+        helper = SOURCE[SOURCE.index('function Has-ChecksumText'):SOURCE.index('function Test-ChecksumResult')]
+        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;" + helper + r"""
+$script:window=[IntPtr]7;$script:reads=0
+function Invoke-WinApp {param([string[]]$Arguments)
+    if(($Arguments -join '|') -cne 'ui|get-value|algorithm|-w|7|--json'){throw 'unexpected_or_mutating_command'}
+    $script:reads++;return $script:response
+}
+$source=@{selector='source';type='Text';name='fixture.bin';isEnabled=$true;isOffscreen=$false}
+$algorithm=@{selector='algorithm';type='ComboBox';name='算法';isEnabled=$true;isOffscreen=$false}
+$anonymous=@{selector='anonymous';type='Pane';isEnabled=$true;isOffscreen=$false}
+$valid=@($source,$algorithm,$anonymous)
+$script:response=@{elementId='algorithm';text='SHA-256'}
+if(-not (Test-ChecksumReady $valid 'fixture.bin') -or $script:reads -ne 1){throw 'selected_sha256_rejected_without_text_node'}
+foreach($case in @('sourceMissing','sourceWrong','sourceHidden','algorithmMissing','algorithmHidden','algorithmDisabled','algorithmWrongName','algorithmWrongType','algorithmAmbiguous')){
+    $items=@($source.Clone(),$algorithm.Clone(),$anonymous)
+    switch($case){
+        'sourceMissing' {$items=@($algorithm,$anonymous)}
+        'sourceWrong' {$items[0].name='other.bin'}
+        'sourceHidden' {$items[0].isOffscreen=$true}
+        'algorithmMissing' {$items=@($source,$anonymous)}
+        'algorithmHidden' {$items[1].isOffscreen=$true}
+        'algorithmDisabled' {$items[1].isEnabled=$false}
+        'algorithmWrongName' {$items[1].name='other'}
+        'algorithmWrongType' {$items[1].type='Text'}
+        'algorithmAmbiguous' {$other=$algorithm.Clone();$other.selector='other-algorithm';$items+=,$other}
+    }
+    $before=$script:reads
+    if(Test-ChecksumReady $items 'fixture.bin'){throw 'inconsistent_checksum_identity_accepted'}
+    if($script:reads -ne $before){throw 'missing_or_ambiguous_control_was_read'}
+}
+# A SHA-256 Text label cannot substitute for the actual selected value.
+$withLabel=$valid+@(@{selector='label';type='Text';name='SHA-256';isEnabled=$true;isOffscreen=$false})
+foreach($case in @('wrongTarget','wrongAlgorithm','missingTarget','missingText','arrayTarget','arrayText','nullResult','scalarResult','arrayResult')){
+    $script:response=@{elementId='algorithm';text='SHA-256'}
+    switch($case){
+        'wrongTarget' {$script:response.elementId='foreign'}
+        'wrongAlgorithm' {$script:response.text='SHA-512'}
+        'missingTarget' {$script:response.Remove('elementId')}
+        'missingText' {$script:response.Remove('text')}
+        'arrayTarget' {$script:response.elementId=@('algorithm','foreign')}
+        'arrayText' {$script:response.text=@('SHA-256','SHA-512')}
+        'nullResult' {$script:response=$null}
+        'scalarResult' {$script:response='SHA-256'}
+        'arrayResult' {$script:response=@($script:response,$script:response.Clone())}
+    }
+    if(Test-ChecksumReady $withLabel 'fixture.bin'){throw 'wrong_selected_value_or_schema_accepted'}
+}
+"""
+        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual digest policy runs in Windows CI")
     def test_actual_checksum_result_requires_unique_visible_digest_algorithm_and_match(self):
@@ -704,7 +757,11 @@ if($null -eq $code -or $script:invokes -ne 2 -or $script:controls -ne 2){throw '
     def test_checksum_ready_failure_keeps_gate_and_owned_main_capture(self):
         self.assertIn("$script:stage -eq 'checksum-ready'", SOURCE)
         self.assertIn("Capture 'checksum-ready-failure.png'", SOURCE)
-        self.assertIn("Has-ChecksumText $elements 'SHA-256'", SOURCE[SOURCE.index('function Verify-Checksum'):SOURCE.index('function Assert-Payload')])
+        self.assertIn("Test-ChecksumReady $elements $RemoteName", SOURCE[SOURCE.index('function Verify-Checksum'):SOURCE.index('function Assert-Payload')])
+        readiness = SOURCE[SOURCE.index('function Test-ChecksumReady'):SOURCE.index('function Test-ChecksumResult')]
+        for guard in ("Has-ChecksumText $Elements $RemoteName", "$algorithms.Count -ne 1", "'get-value', $algorithms[0].selector",
+                      "$result.elementId -ceq $algorithms[0].selector", "$result.text -ceq 'SHA-256'"):
+            self.assertIn(guard, readiness)
         helper = SOURCE[SOURCE.index('function Observe-ChecksumReady'):SOURCE.index('function Verify-Checksum')]
         self.assertIn("'get-value', $algorithms[0].selector", helper)
         self.assertIn("$result.Contains('text') -and $result.text -ceq 'SHA-256'", helper)
