@@ -101,9 +101,10 @@ try {
         Add-Type -TypeDefinition (Get-RemoteImagePixelSource)
         $name = 'fileway-image-ci-' + [Guid]::NewGuid().ToString('N') + '.png'
         $remote = Join-Path $privateRoot 'remote'; $null = New-Item -ItemType Directory -Path $remote
-        $script:stage = 'synthetic-image-fixture'
+        $script:stage = 'synthetic-image-fixture-process'
         $fixture = Invoke-BoundedProcess (Get-Command python -CommandType Application).Source @((Join-Path $PSScriptRoot 'New-RemoteImageSmokeFixture.py'), '--output', (Join-Path $remote $name)) 15000
         if ($fixture.exitCode -ne 0) { Stop-Smoke 'synthetic_fixture_failed' }
+        $script:stage = 'synthetic-image-fixture-contract'
         $metadata = $fixture.stdout | ConvertFrom-Json -AsHashtable
         $hash = '5a05232336535f96c4c698007a8e562019af15240b901fc3ecd4908b16f6874c'
         if ($metadata.bytes -ne 461223 -or $metadata.width -ne 480 -or $metadata.height -ne 320 -or $metadata.sha256 -cne $hash -or
@@ -185,7 +186,11 @@ try {
 } catch {
     $code = 'unexpected_failure'; $status = 'failed'
     if ($_.Exception.Data.Contains('smokeCode')) { $code = [string]$_.Exception.Data['smokeCode']; $status = [string]$_.Exception.Data['smokeStatus'] }
-    if ($script:root) { Write-Report $status $code }
+    if ($script:root) {
+        Write-Report $status $code
+        Record-Observation 'failure-category' @{ category = [int]$_.CategoryInfo.Category; hresult = $_.Exception.HResult;
+            missingProperty = [int]($_.FullyQualifiedErrorId -match 'PropertyNotFound'); invalidArgument = [int]($_.CategoryInfo.Category -eq 'InvalidArgument') }
+    }
     Write-Host ('Remote image smoke: ' + $status + ' (' + $code + ').')
     $exitCode = $(if ($status -eq 'environment-blocked') { 2 } else { 1 })
 } finally {

@@ -165,6 +165,28 @@ $bad=$entry.Clone();$bad.accessedAt=$now+100000
 if(Test-RemoteImageRecentEntry @($bad) $name $now) {throw 'future_passed'}
 """)
 
+    @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual process/fixture call runs in Windows CI')
+    def test_actual_bounded_python_fixture_process(self):
+        start = SOURCE.index('function Invoke-BoundedProcess')
+        helper = SOURCE[start:SOURCE.index('function Get-ServerRecents', start)]
+        fixture_script = str(ENG / 'New-RemoteImageSmokeFixture.py').replace("'", "''")
+        self.pwsh('. (Get-RemoteSmokeFunctions); ' + helper + r"""
+$directory=Join-Path ([IO.Path]::GetTempPath()) ('FilewayRemoteImageHelper-' + [Guid]::NewGuid().ToString('N'))
+$null=New-Item -ItemType Directory -Path $directory
+$path=Join-Path $directory 'synthetic.png'
+try {
+    $fixture=Invoke-BoundedProcess (Get-Command python -CommandType Application).Source @('FIXTURE','--output',$path) 15000
+    if($fixture.exitCode -ne 0){throw 'actual_fixture_process_failed'}
+    $metadata=$fixture.stdout | ConvertFrom-Json -AsHashtable
+    if($metadata.bytes -ne 461223 -or $metadata.sha256 -cne '5a05232336535f96c4c698007a8e562019af15240b901fc3ecd4908b16f6874c') {throw 'actual_fixture_metadata_wrong'}
+    if((Get-FileHash -LiteralPath $path).Hash.ToLowerInvariant() -cne $metadata.sha256){throw 'actual_fixture_hash_wrong'}
+} finally {
+    # Only the exact unique fixture created by this test is removed.
+    if([IO.File]::Exists($path)){[IO.File]::Delete($path)}
+    [IO.Directory]::Delete($directory)
+}
+""".replace('FIXTURE', fixture_script))
+
     @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual open helper runs in Windows CI')
     def test_actual_open_key_precise_target_and_response_guards(self):
         start = SOURCE.index('function Send-OpenKey')
