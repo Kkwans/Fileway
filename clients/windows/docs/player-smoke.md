@@ -193,7 +193,14 @@ module-relative offset, with mapping 0 (unavailable/ambiguous), 1 (loaded), or 2
 parameter does not identify the invalid call target. Legacy logs without a
 `NumberParameters` line retain `parameterCount=-1` and export no parameter
 mappings. Only fixed basename aliases, including the shipped `libmpv-2.dll`,
-are accepted in unloaded listings; path-bearing names remain rejected. Unknown symbol text is never
+are accepted in unloaded listings; path-bearing names remain rejected. Unknown
+loaded/unloaded module ranges participate anonymously in overlap rejection, so
+an unknown image reusing an unloaded known image's address cannot be mislabeled
+as that known image. At most 512 anonymous ranges and 64 total unloaded ranges
+are admitted; no unknown name or address is retained in the output. Current
+logs delimit `lm` output explicitly to prevent disassembly from looking like a
+module row. Legacy unmarked logs admit only module-list-shaped unknown rows.
+Unknown symbol text is never
 exported. It can yield a module-relative offset only when private exception/return
 addresses fit that allowed module's validated `lm` range; otherwise that frame
 retains its module only. Duplicate exception or module records reject the evidence.
@@ -231,6 +238,14 @@ mapping. No extra register-read command or live breakpoint is added. Missing,
 duplicate or malformed contexts and mismatched data flow produce no candidate.
 This is the helper's candidate argument, not proof of the invalid call target
 or its cause; entry-argument semantics still need independent caller evidence.
+Its fixed `classification` distinguishes 0 (overlapping/ambiguous), 1 (zero),
+2 (unique known loaded image), 3 (unique known unloaded image), 4 (unique anonymous
+loaded image), 5 (unique anonymous unloaded image), and 6 (outside the observed
+module ranges). This classification uses only the already parsed private value
+and range metadata, without a new memory read. Classes other than 2/3 always
+retain mapping 0, empty module and zero offset; none reveals a raw address or an
+unknown module name. Class 6 does not establish whether memory is valid, freed,
+managed or executable.
 
 Reports include `shutdownDebuggerAttached` and `normalShutdownVerified`. An
 attached-debugger run cannot establish normal production-path shutdown even when

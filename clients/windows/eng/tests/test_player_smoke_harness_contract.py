@@ -164,6 +164,7 @@ class HarnessGuards(unittest.TestCase):
         self.assertNotIn(".frame /r", powershell)
         self.assertIn("ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4", powershell)
         self.assertNotIn("@rdx", powershell)
+        self.assertIn("FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END", powershell)
         self.assertIn("FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END", powershell)
         self.assertIn("normalShutdownVerified = (-not $script:shutdownDebuggerAttached)", powershell)
         self.assertIn("normalShutdownVerified = $false", powershell)
@@ -386,6 +387,14 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             debugger_case("invalid-parameter-index", header + "Parameter[15]: 1234\n")
             debugger_case("parameter-private-text", header + "Parameter[1]: private\n")
             debugger_case("duplicate-module", header + "1000 2000 ntdll (deferred)\n1000 2000 ntdll (deferred)\n")
+            debugger_case("duplicate-module-marker", header + "FILEWAY_CFG_MODULES_BEGIN\nFILEWAY_CFG_MODULES_BEGIN\nFILEWAY_CFG_MODULES_END\n")
+            debugger_case("duplicate-module-end", header + "FILEWAY_CFG_MODULES_BEGIN\nFILEWAY_CFG_MODULES_END\nFILEWAY_CFG_MODULES_END\n")
+            debugger_case("missing-module-end", header + "FILEWAY_CFG_MODULES_BEGIN\n1000 2000 ntdll (deferred)\n")
+            debugger_case("missing-module-begin", header + "FILEWAY_CFG_MODULES_END\n")
+            debugger_case("reversed-module-markers", header + "FILEWAY_CFG_MODULES_END\nFILEWAY_CFG_MODULES_BEGIN\n")
+            debugger_case("anonymous-cap-exceeded", header + "FILEWAY_CFG_MODULES_BEGIN\n" + "1000 2000 PrivateLoaded (deferred)\n" * 513 + "FILEWAY_CFG_MODULES_END\n")
+            debugger_case("all-unloaded-cap-exceeded", header + "FILEWAY_CFG_MODULES_BEGIN\nUnloaded modules:\n" + "1000 2000 PrivateUnloaded.dll\n" * 65 + "FILEWAY_CFG_MODULES_END\n")
+
             for index, target in enumerate(("ntdll!C:\\private+0x1", "ntdll!private/path+0x1", "ntdll!private=token+0x1",
                                              'ntdll!"private"+0x1', "ntdll!private%20name+0x1", "ntdll!private\u2603+0x1",
                                              "ntdll!RtlFailFast2+0x100000000", "ntdll!RtlFailFast2+0xZZ", "ntdll+0x1!bad",
@@ -488,13 +497,22 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             def tail_case(name, tail=tail_body, context=tail_context, frames=tail_frames, header=tail_header,
                           ranges=tail_ranges, prefix=tail_prefix, expected_status=1, expected_argument="", expected_count=4):
                 path = f"tail-{name}.log"
-                (root / path).write_text(header + frames + ranges + context + prefix + tail, encoding="utf-8")
+                (root / path).write_text(header + frames + "FILEWAY_CFG_MODULES_BEGIN\n" + ranges + "FILEWAY_CFG_MODULES_END\n" + context + prefix + tail, encoding="utf-8")
                 tail_vectors.append(f'CheckTail("{path}",{expected_status},{expected_count},{json.dumps(expected_argument)});')
 
             tail_case("unloaded", expected_argument="2|libmpv_2|564")
             tail_case("loaded", context=tail_context.replace("0000000000004234", "0000000000001234"), expected_argument="1|ntdll|564")
             tail_case("unmapped", context=tail_context.replace("0000000000004234", "1122334455667788"), expected_argument="0||0")
             tail_case("ambiguous", ranges=tail_ranges + "4200 4300 libwinpthread-1.dll\n", expected_argument="0||0")
+            tail_case("unknown-loaded-overlap", ranges="1000 3000 ntdll (pdb symbols)\n4200 4300 PrivateLoaded (deferred)\nUnloaded modules:\n4000 5000 libmpv-2.dll\n", expected_argument="0||0")
+            tail_case("unknown-unloaded-overlap", ranges=tail_ranges + "4200 4300 PrivateUnloaded.dll\n", expected_argument="0||0")
+            tail_case("known-loaded-unknown-overlap", ranges="1000 3000 ntdll (pdb symbols)\n1200 1300 PrivateLoaded (deferred)\n", context=tail_context.replace("0000000000004234", "0000000000001234"), expected_argument="0||0")
+            tail_case("unknown-only", ranges="1000 3000 ntdll (pdb symbols)\n4000 5000 PrivateLoaded (deferred)\n", expected_argument="0||0")
+            tail_case("private-path-overlap", ranges="1000 3000 ntdll (pdb symbols)\n4000 5000 C:\\private\\name.dll (deferred)\nUnloaded modules:\n4000 5000 libmpv-2.dll\n", expected_argument="0||0")
+            tail_case("duplicate-known-unloaded", ranges=tail_ranges + "4000 5000 libmpv-2.dll\n", expected_argument="0||0")
+            tail_case("outside-marked-range-ignored", context="4200 4300 PrivateLoaded (deferred)\n" + tail_context, expected_argument="2|libmpv_2|564")
+            tail_case("null", context=tail_context.replace("0000000000004234", "0000000000000000"), expected_argument="0||0")
+            tail_case("unknown-unloaded-only", ranges="1000 3000 ntdll (pdb symbols)\nUnloaded modules:\n4000 5000 PrivateUnloaded.dll\n", expected_argument="0||0")
             tail_case("missing-context", context="")
             tail_case("missing-register", context=tail_context.replace("rdx=", "zzz="))
             tail_case("duplicate-context", context=tail_context * 2)
@@ -569,6 +587,15 @@ class Program {
   if(actual!=expectedArgument) throw new Exception(path+": incorrect candidate argument "+actual);
   if(count==4&&(fault.TailInstructions[0].Offset!=0x4e||fault.TailInstructions[3].Offset!=0x58)) throw new Exception("incorrect tail-relative offsets");
  }
+ static void CheckCandidateClassifications() {
+  foreach(var item in new (string Name,int Expected)[]{("unloaded",3),("loaded",2),("unmapped",6),("ambiguous",0),
+    ("null",1),("unknown-only",4),("unknown-unloaded-only",5),("unknown-loaded-overlap",0),("unknown-unloaded-overlap",0),
+    ("known-loaded-unknown-overlap",0),("private-path-overlap",0),("duplicate-known-unloaded",0)}) {
+   var argument=DebuggerEvidence.Read("tail-"+item.Name+".log").HelperArgument;
+   if(argument==null||argument.Classification!=item.Expected) throw new Exception("incorrect candidate classification "+item.Name);
+   if(argument.Classification!=2&&argument.Classification!=3&&(argument.Mapping!=0||argument.Module!=""||argument.Offset!=0)) throw new Exception("nonunique candidate leaked mapping");
+  }
+ }
  static void RejectDebugger(string path) {
   bool rejected=false;
   try { DebuggerEvidence.Read(path); }
@@ -590,6 +617,8 @@ class Program {
   if(missing.ParameterCount!=-1||missing.Parameters.Length!=0) throw new Exception("missing parameter metadata invented a target");
   var privateAlias=DebuggerEvidence.Parse(header+"1000 2000 C:\\\\private\\\\ntdll.dll (pdb symbols)\\nUnloaded modules:\\n2000 3000 SyntheticPrivate.dll\\n");
   foreach(var parameter in privateAlias.Parameters) if(parameter.Mapping!=0||parameter.Module!=""||parameter.Offset!=0) throw new Exception("path or private module alias accepted");
+  var hiddenOverlap=DebuggerEvidence.Parse(header+"1000 2000 Microsoft_UI_Xaml (pdb symbols)\\n1000 2000 PrivateLoaded (deferred)\\nUnloaded modules:\\n2000 3000 libmpv-2.dll\\n2000 3000 PrivateUnloaded.dll\\n");
+  foreach(var parameter in hiddenOverlap.Parameters) if(parameter.Mapping!=0||parameter.Module!=""||parameter.Offset!=0) throw new Exception("anonymous overlap assigned a known module");
   var maximum="ExceptionCode: c0000409\\nNumberParameters: 15\\nParameter[0]: a\\n";
   for(int i=1;i<15;i++) maximum+="Parameter["+i+"]: "+(0x1000+i).ToString("x")+"\\n";
   var bounded=DebuggerEvidence.Parse(maximum+"1000 2000 msctf.dll (pdb symbols)\\n");
@@ -654,7 +683,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors) + '''
+ static void Main() { CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

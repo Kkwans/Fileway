@@ -307,10 +307,10 @@ namespace Fileway.PlayerSmoke {
         }
     }
     public sealed class DebuggerParameter {
-        public readonly int Index, Mapping;
+        public readonly int Index, Mapping, Classification;
         public readonly string Module;
         public readonly ulong Offset;
-        internal DebuggerParameter(int index,int mapping,string module,ulong offset) { Index=index; Mapping=mapping; Module=module; Offset=offset; }
+        internal DebuggerParameter(int index,int mapping,string module,ulong offset,int classification) { Index=index; Mapping=mapping; Module=module; Offset=offset; Classification=classification; }
     }
     public sealed class DebuggerInstruction {
         public readonly int Index, Decoded, FirstKind, SecondKind, FirstDisplacement, SecondDisplacement;
@@ -481,16 +481,18 @@ namespace Fileway.PlayerSmoke {
             helperBase=first; status=1; return result.ToArray();
         }
 
-        static DebuggerParameter MapAddress(int index,ulong value,Dictionary<string,ulong[]> ranges,List<KeyValuePair<string,ulong[]>> unloaded) {
-            int mapping=0,matches=0; string module=""; ulong offset=0;
+        static DebuggerParameter MapAddress(int index,ulong value,Dictionary<string,ulong[]> ranges,List<KeyValuePair<string,ulong[]>> unloaded,List<ulong[]> anonymous) {
+            int mapping=0,matches=0,classification=6; string module=""; ulong offset=0;
             foreach(var range in ranges) if(value>=range.Value[0]&&value<range.Value[1]&&value-range.Value[0]<=uint.MaxValue) {
-                matches++; mapping=1; module=range.Key; offset=value-range.Value[0];
+                matches++; mapping=1; classification=2; module=range.Key; offset=value-range.Value[0];
             }
             foreach(var range in unloaded) if(value>=range.Value[0]&&value<range.Value[1]&&value-range.Value[0]<=uint.MaxValue) {
-                matches++; mapping=2; module=range.Key; offset=value-range.Value[0];
+                matches++; mapping=2; classification=3; module=range.Key; offset=value-range.Value[0];
             }
-            if(matches!=1) { mapping=0; module=""; offset=0; }
-            return new DebuggerParameter(index,mapping,module,offset);
+            foreach(var range in anonymous) if(value>=range[0]&&value<range[1]) { matches++; classification=range[2]==1?4:5; }
+            if(value==0) { classification=1; mapping=0; module=""; offset=0; }
+            else if(matches!=1) { classification=matches==0?6:0; mapping=0; module=""; offset=0; }
+            return new DebuggerParameter(index,mapping,module,offset,classification);
         }
         static bool FrameIs(DebuggerFrame frame,int index,string symbol,ulong offset) {
             return frame.Index==index&&frame.Module=="ntdll"&&frame.Symbol==symbol&&frame.Offset==offset&&frame.OffsetKind==2;
@@ -544,8 +546,21 @@ namespace Fileway.PlayerSmoke {
             uint code=0; int subcode=-1,codeCount=0,parameterCount=-1; ulong faultAddress=0;
             var ranges=new Dictionary<string,ulong[]>(StringComparer.Ordinal);
             var unloadedRanges=new List<KeyValuePair<string,ulong[]>>(); bool unloaded=false;
+            var anonymousRanges=new List<ulong[]>(); int unloadedCount=0,modulesBegin=-1,modulesEnd=-1;
+            for(int i=0;i<lines.Length;i++) {
+                string marker=lines[i].TrimEnd('\r');
+                if(marker=="FILEWAY_CFG_MODULES_BEGIN") {
+                    if(modulesBegin!=-1) throw new InvalidDataException("debugger_module_section_invalid"); modulesBegin=i;
+                }
+                if(marker=="FILEWAY_CFG_MODULES_END") {
+                    if(modulesEnd!=-1) throw new InvalidDataException("debugger_module_section_invalid"); modulesEnd=i;
+                }
+            }
+            if((modulesBegin>=0||modulesEnd>=0)&&(modulesBegin<0||modulesEnd<=modulesBegin||modulesEnd-modulesBegin>1024))
+                throw new InvalidDataException("debugger_module_section_invalid");
             var parameters=new Dictionary<int,ulong>();
-            foreach(string raw in lines) {
+            for(int lineIndex=0;lineIndex<lines.Length;lineIndex++) {
+                string raw=lines[lineIndex];
                 if(raw.Length>2048) continue;
                 string line=raw.Trim();
                 string[] parts=line.Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
@@ -572,12 +587,20 @@ namespace Fileway.PlayerSmoke {
                 else if(line.StartsWith("ExceptionAddress:",StringComparison.Ordinal)) {
                     if(parts.Length>=2&&Address(parts[1],out number)) faultAddress=number;
                 }
-                if(line=="Unloaded modules:") unloaded=true;
-                if(parts.Length>=3&&Address(parts[0],out number)&&Address(parts[1],out end)&&number<end) {
+                bool moduleScope=modulesBegin<0||(lineIndex>modulesBegin&&lineIndex<modulesEnd);
+                if(moduleScope&&line=="Unloaded modules:") unloaded=true;
+                if(moduleScope&&parts.Length>=3&&Address(parts[0],out number)&&Address(parts[1],out end)&&number<end) {
                     string module=Module(parts[2]);
-                    if(module!=null) {
+                    // Current logs delimit lm so instruction bytes/operands can
+                    // never masquerade as an anonymous module range. Legacy logs
+                    // admit only lm-shaped unknown rows, never retain their names.
+                    bool moduleRow=module!=null||modulesBegin>=0||(!unloaded&&parts.Length>=4&&parts[3].StartsWith("(",StringComparison.Ordinal))||(unloaded&&parts.Length==3);
+                    if(moduleRow&&unloaded&&++unloadedCount>64) throw new InvalidDataException("debugger_unloaded_modules_exceeded");
+                    if(module==null&&moduleRow) {
+                        if(anonymousRanges.Count>=512) throw new InvalidDataException("debugger_anonymous_modules_exceeded");
+                        anonymousRanges.Add(new ulong[]{number,end,unloaded?2UL:1UL});
+                    } else if(module!=null) {
                         if(unloaded) {
-                            if(unloadedRanges.Count>=64) throw new InvalidDataException("debugger_unloaded_modules_exceeded");
                             unloadedRanges.Add(new KeyValuePair<string,ulong[]>(module,new ulong[]{number,end}));
                         } else {
                             if(ranges.ContainsKey(module)) throw new InvalidDataException("debugger_duplicate_module");
@@ -624,7 +647,7 @@ namespace Fileway.PlayerSmoke {
             for(int parameterIndex=1;parameterIndex<15;parameterIndex++) {
                 ulong parameterValue;
                 if(parameterCount<0||!parameters.TryGetValue(parameterIndex,out parameterValue)) continue;
-                mapped.Add(MapAddress(parameterIndex,parameterValue,ranges,unloadedRanges));
+                mapped.Add(MapAddress(parameterIndex,parameterValue,ranges,unloadedRanges,anonymousRanges));
             }
             int helperStatus,tailStatus; ulong helperBase,unusedBase;
             var instructions=Helper(lines,ranges,out helperStatus,out helperBase);
@@ -632,7 +655,7 @@ namespace Fileway.PlayerSmoke {
             DebuggerParameter argument=null; ulong candidate;
             if(subcode==10&&parameterCount>=1&&frames.Count>=2&&FrameIs(frames[0],0,"RtlFailFast2",0)&&
                 FrameIs(frames[1],1,"RtlpHandleInvalidUserCallTarget",0x5d)&&TailHasArgumentFlow(tail)&&ContextArgument(lines,out candidate))
-                argument=MapAddress(0,candidate,ranges,unloadedRanges);
+                argument=MapAddress(0,candidate,ranges,unloadedRanges,anonymousRanges);
             return new DebuggerFault(code,subcode,parameterCount,frames.ToArray(),mapped.ToArray(),helperStatus,instructions,tailStatus,tail,argument);
         }
     }
@@ -1106,7 +1129,7 @@ function Record-SafeDebuggerEvidence {
     $start.WorkingDirectory = $script:privateRoot
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
     foreach ($argument in @('-z', $dump, '-sins', '-noshell', '-y', "srv*$symbols*https://msdl.microsoft.com/download/symbols",
-        '-logo', $log, '-c', '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; lm; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; q')) { $start.ArgumentList.Add($argument) }
+        '-logo', $log, '-c', '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; .echo FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; q')) { $start.ArgumentList.Add($argument) }
     $analysis = [Diagnostics.Process]::Start($start)
     try {
         $stdout = $analysis.StandardOutput.ReadToEndAsync(); $stderr = $analysis.StandardError.ReadToEndAsync()
@@ -1139,7 +1162,7 @@ function Record-SafeDebuggerEvidence {
           }
         }
         if ($null -ne $fault.HelperArgument) {
-            Record-Observation 'shutdown-cfg-helper-argument' @{ mapping = [int]$fault.HelperArgument.Mapping; module = [string]$fault.HelperArgument.Module; offset = [uint64]$fault.HelperArgument.Offset }
+            Record-Observation 'shutdown-cfg-helper-argument' @{ classification = [int]$fault.HelperArgument.Classification; mapping = [int]$fault.HelperArgument.Mapping; module = [string]$fault.HelperArgument.Module; offset = [uint64]$fault.HelperArgument.Offset }
         }
     } catch { Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_evidence_rejected' } }
     finally { $analysis.Dispose() }
