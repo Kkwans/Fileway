@@ -561,6 +561,7 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
+        if (TransfersPanel.Visibility == Visibility.Visible) { await RefreshTransferCenterAsync(); return; }
         if (_directory is not null) await LoadAsync(_directory);
         if (!_disposed && !_connecting && _session is not null) { UpdateCollectionsContext(); await CollectionsPanel.RefreshAsync(); }
     }

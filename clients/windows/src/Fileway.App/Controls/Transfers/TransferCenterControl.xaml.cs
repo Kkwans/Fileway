@@ -40,7 +40,7 @@ public sealed partial class TransferCenterControl : UserControl
     public void Present(ObservableCollection<TransferCenterRow> rows, bool loading, bool hasLoaded, bool canLoadMore, string? error)
     {
         if (!ReferenceEquals(_rows, rows)) { _rows = rows; Records.ItemsSource = rows; }
-        Loading.IsActive = loading;
+        HistoryLoadingRing.IsActive = loading;
         RefreshButton.IsEnabled = !loading;
         MoreButton.IsEnabled = !loading;
         MoreButton.Visibility = hasLoaded && (canLoadMore || loading) ? Visibility.Visible : Visibility.Collapsed;

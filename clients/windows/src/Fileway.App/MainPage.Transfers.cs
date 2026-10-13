@@ -29,12 +29,7 @@ public sealed partial class MainPage
         };
         TransfersPanel.DirectionChanged += async (_, _) => { RenderTransferCenter(); await LoadInitialTransferPageAsync(); };
         TransfersPanel.MoreRequested += async (_, _) => await LoadTransferPageAsync();
-        TransfersPanel.RefreshRequested += async (_, _) =>
-        {
-            if (TransfersPanel.Direction == TransferDirection.Upload) _transferUploads.BeginRefresh();
-            else _transferDownloads.BeginRefresh();
-            await LoadTransferPageAsync();
-        };
+        TransfersPanel.RefreshRequested += async (_, _) => await RefreshTransferCenterAsync();
         TransfersPanel.DetailsRequested += async (_, task) =>
         {
             if (TransfersPanel.Direction == TransferDirection.Upload) await ShowUploadDetailsAsync(task);
@@ -63,6 +58,22 @@ public sealed partial class MainPage
         RenderTransferCenter();
         UpdateSelection();
         await LoadInitialTransferPageAsync();
+    }
+
+    private async Task RefreshTransferCenterAsync()
+    {
+        if (_disposed || _connecting || TransfersPanel.Visibility != Visibility.Visible || _browserDialog is not null || _storageDialog is not null) return;
+        if (TransfersPanel.Direction == TransferDirection.Upload)
+        {
+            if (_transferUploads.IsLoading) return;
+            _transferUploads.BeginRefresh();
+        }
+        else
+        {
+            if (_transferDownloads.IsLoading) return;
+            _transferDownloads.BeginRefresh();
+        }
+        await LoadTransferPageAsync();
     }
 
     private Task LoadInitialTransferPageAsync() => (TransfersPanel.Direction == TransferDirection.Upload ? _transferUploads.HasLoaded : _transferDownloads.HasLoaded)
