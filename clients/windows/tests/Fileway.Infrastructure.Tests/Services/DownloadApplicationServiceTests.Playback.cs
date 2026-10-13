@@ -506,12 +506,13 @@ public sealed partial class DownloadApplicationServiceTests
         internal IDownloadService Downloads => Bridge;
         internal IDownloadPlaybackSourceProvider Playback => Bridge;
         internal DownloadContext Context => Assert.IsType<DownloadContext>(Downloads.CurrentContext);
-        internal PlaybackFixture()
+        internal PlaybackFixture(IDownloadSourceProvider? downloadSources = null)
         {
             Connection = new(Store.Inner);
             Runner = new(Store.Inner);
             var sources = new FakeSources();
-            Bridge = new(Connection, Connection, sources, Store, new FakeUpload(), downloads: new(Runner, sources, new FakeSettings()));
+            Bridge = new(Connection, Connection, sources, Store, new FakeUpload(),
+                downloads: new(Runner, downloadSources ?? sources, new FakeSettings()));
         }
         internal TaskCompletionSource Gate() { var gate = Signal(); _gates.Add(gate); return gate; }
         internal Task<ConnectionSession> ConnectAsync() => Bridge.ConnectAsync(Connection.Profile, new(AuthenticationMode.NoAuthentication), Token);
@@ -535,6 +536,7 @@ public sealed partial class DownloadApplicationServiceTests
         internal FakeDownload Inner { get; } = new(store);
         internal TaskCompletionSource AcquireEntered { get; } = Signal();
         internal TaskCompletionSource ConcurrentDrainRequested { get; } = Signal();
+        internal TaskCompletionSource CancelReturned { get; } = Signal();
         private readonly object _drainGate = new();
         private Task? _drain;
         private int _drainRequests;
@@ -546,7 +548,11 @@ public sealed partial class DownloadApplicationServiceTests
         public event EventHandler<DownloadTaskProgress>? ProgressChanged
         { add => Inner.ProgressChanged += value; remove => Inner.ProgressChanged -= value; }
         public Task<TransferTaskRecord> RunAsync(TransferTaskRef task, CancellationToken cancellationToken) => Inner.RunAsync(task, cancellationToken);
-        public Task<TransferTaskRecord> CancelAsync(TransferTaskRef task, CancellationToken cancellationToken) => Inner.CancelAsync(task, cancellationToken);
+        public async Task<TransferTaskRecord> CancelAsync(TransferTaskRef task, CancellationToken cancellationToken)
+        {
+            try { return await Inner.CancelAsync(task, cancellationToken); }
+            finally { CancelReturned.TrySetResult(); }
+        }
         public Task<TransferTaskRecord> ReconcileAsync(TransferTaskRef task, CancellationToken cancellationToken) => Inner.ReconcileAsync(task, cancellationToken);
         public Task StopAndDrainAsync(CancellationToken cancellationToken)
         {

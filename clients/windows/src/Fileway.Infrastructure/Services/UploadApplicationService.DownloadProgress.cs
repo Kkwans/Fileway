@@ -55,9 +55,14 @@ public sealed partial class UploadApplicationService
     {
         if (_downloads is null) return;
         DownloadWork[] pending;
-        lock (_gate) pending = _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)).ToArray();
+        Task readers;
+        lock (_gate)
+        {
+            pending = _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)).ToArray();
+            readers = RevokePlaybackReadersLocked(binding);
+        }
         FilewayException? failure = null;
-        try { await _downloads.Runner.StopAndDrainAsync(CancellationToken.None).ConfigureAwait(false); }
+        try { await Task.WhenAll(_downloads.Runner.StopAndDrainAsync(CancellationToken.None), readers).ConfigureAwait(false); }
         catch (Exception error) { failure = NormalizeDownload(error); }
         // Runner release precedes application retirement. Completion callbacks retain their original binding even on failure.
         if (pending.Length != 0) await Task.WhenAll(pending.Select(work => work.Completion.Task)).ConfigureAwait(false);
@@ -67,6 +72,7 @@ public sealed partial class UploadApplicationService
     // Caller holds _gate. CancelAsync marks tokens synchronously but never executes callbacks on this stack.
     private void CancelDownloadWorkLocked(Binding binding)
     {
+        _ = RevokePlaybackReadersLocked(binding);
         foreach (var work in _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)))
         {
             work.StopRequested ??= work.Stop.CancelAsync();

@@ -81,6 +81,22 @@ it does not establish a fix for native interaction stalls.
 
 ## Teardown
 
+Active-download playback prefers the same retained file object's readable prefix.
+Missing bytes may use fresh authenticated loopback ranges when source length and
+modification time can be observed before and after each fill. Strict range validation
+and account/task/run/permission fences apply before bytes are returned. This observed
+identity is not an immutable version or resume guarantee. At most four readers each
+retain one 1 MiB read-ahead buffer; remote bytes never advance persisted download
+progress or establish an offline playable time range. Without modification evidence,
+reads retain the local prefix wait behavior.
+
+Transfer cancellation, permission withdrawal and account retirement drain actual
+reader I/O and remote lease release, without awaiting native destruction, final reader
+disposal or window close. The playback session still owns its callbacks and retained
+reader until native destruction actually returns. A failed capability release remains
+an explicit unknown outcome. Completed-history reopen and real MP4/MKV tail-index
+acceptance are separate unfinished work.
+
 1. Mark closing, fence new callbacks and preserve the latest confirmed position.
 2. Detach XAML/native composition references on their owning UI thread, without blocking that thread on an event pump that needs the dispatcher.
 3. Stop media reads, drain the necessary end events, stop callbacks/pump, and destroy the native player using the ordering verified against the pinned client API.

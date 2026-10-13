@@ -227,6 +227,7 @@ public sealed partial class UploadApplicationService
     {
         await EnterAsync(cancellationToken).ConfigureAwait(false);
         Binding? binding = null;
+        Task readers = Task.CompletedTask;
         try
         {
             binding = RequireDownloadContext(context, task);
@@ -243,10 +244,15 @@ public sealed partial class UploadApplicationService
                 var item = binding.DownloadItems[task];
                 item.Control = reconcile ? DownloadStatus.Reconciling : DownloadStatus.Canceling;
                 QueueDownloadUpdateLocked(ProjectDownload(binding, item));
+                readers = reconcile ? Task.CompletedTask : RevokePlaybackReadersLocked(binding, task);
                 pending = reconcile ? _downloads!.Runner.ReconcileAsync(task, cancellationToken)
                     : _downloads!.Runner.CancelAsync(task, cancellationToken);
             }
-            var result = await pending.ConfigureAwait(false);
+            // A retained native reader is allowed to outlive this command. Only its canceled
+            // actual local/network operations and remote capability releases must settle here.
+            TransferTaskRecord result;
+            try { result = await pending.ConfigureAwait(false); }
+            finally { await readers.ConfigureAwait(false); }
             RequireCurrent(binding);
             lock (_gate) binding.DownloadItems[task].Control = null;
             return ObserveDownload(binding, result);
@@ -268,7 +274,12 @@ public sealed partial class UploadApplicationService
             }
             throw NormalizeDownload(error);
         }
-        finally { _commands.Release(); }
+        finally
+        {
+            // A synchronously throwing runner cannot abandon already-revoked network operations.
+            try { await readers.ConfigureAwait(false); }
+            finally { _commands.Release(); }
+        }
     }
 
     private static FilewayException NormalizeDownload(Exception error) => DownloadSafe(error switch

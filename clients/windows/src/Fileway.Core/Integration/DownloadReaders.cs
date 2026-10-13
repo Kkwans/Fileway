@@ -3,8 +3,10 @@ using Fileway.Core.Contracts;
 namespace Fileway.Core.Integration;
 
 /// <summary>
-/// Read-only access to one already-owned download object and execution generation.
-/// No path, native handle, or network capability is exposed. Disposal releases this reader only.
+/// Read-only access bound to one already-owned download object and execution generation.
+/// An application reader may obtain missing bytes through authenticated, observation-checked ranges;
+/// those bytes do not advance the owned file's prefix. No path, native handle, or network capability
+/// is exposed. Disposal releases this reader only.
 /// </summary>
 public interface IDownloadReadLease : IAsyncDisposable
 {
@@ -17,7 +19,9 @@ public interface IDownloadReadLease : IAsyncDisposable
     /// </summary>
     long ReadablePrefixBytes { get; }
     /// <summary>
-    /// Reads at an absolute offset. Waits without holding writer/I/O locks when bytes may still arrive.
+    /// Reads at an absolute offset. Missing bytes may use an authorized remote range or wait without
+    /// holding writer/I/O locks when bytes may still arrive. A range read does not establish resume
+    /// authority, persisted progress, or an offline playable time range.
     /// Zero denotes declared EOF or an empty buffer, never temporary prefix exhaustion.
     /// A canceled call does not cancel the writer; revoked or irrecoverably ended sources must fail promptly.
     /// </summary>
