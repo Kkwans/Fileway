@@ -90,6 +90,7 @@ public sealed partial class MainPage : Page, IDisposable
         InitializeBrowserShell();
         InitializeTransferCenter();
         InitializeRecentAccess();
+        InitializeApplicationMenus();
         ApplyBrowserPresentation();
         Loaded += (_, _) => { ApplyTheme(); UpdateThumbnailContext(); };
         Unloaded += (_, _) => _thumbnailController.SetContext(null, null);
@@ -161,6 +162,7 @@ public sealed partial class MainPage : Page, IDisposable
         ConnectButton.IsEnabled = true;
         LoginNotice.Message = "核心服务已就绪。填写服务器地址并选择认证方式即可连接。";
         Notice.IsOpen = false;
+        UpdateApplicationMenus();
         try
         {
             await RefreshSavedConnectionsAsync();
@@ -179,6 +181,7 @@ public sealed partial class MainPage : Page, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        DisposeApplicationMenus();
         DisposeUploadPresentation();
         DisposeDownloadPresentation();
         RetireChecksumDialog();
@@ -536,7 +539,7 @@ public sealed partial class MainPage : Page, IDisposable
         }
         else await OpenFileAsync(new FileRow(file), [file.Resource]);
     }
-    private void SetLoading(bool loading) { LoadingRing.IsActive = loading; LoadingRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed; CancelButton.Visibility = loading ? Visibility.Visible : Visibility.Collapsed; if (loading) StatusText.Text = "正在加载目录…"; }
+    private void SetLoading(bool loading) { LoadingRing.IsActive = loading; LoadingRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed; CancelButton.Visibility = loading ? Visibility.Visible : Visibility.Collapsed; if (loading) StatusText.Text = "正在加载目录…"; UpdateApplicationMenus(); }
     private void SetNotice(string title, string message, InfoBarSeverity severity) { Notice.Title = title; Notice.Message = message; Notice.Severity = severity; Notice.IsOpen = true; }
     private void LoginError(string message) { LoginNotice.Severity = InfoBarSeverity.Error; LoginNotice.Message = message; LoginNotice.IsOpen = true; }
     internal static string ErrorMessage(Exception exception) => exception is FilewayException known ? known.Error.Message : "操作未能完成。请检查服务器连接后重试。";
@@ -614,6 +617,7 @@ public sealed partial class MainPage : Page, IDisposable
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
         UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateChecksumContext();
+        UpdateApplicationMenus();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)
     {
@@ -733,22 +737,22 @@ public sealed partial class MainPage : Page, IDisposable
     private void UpdateDetailsLayout()
     {
         if (DetailsColumn is null) return;
-        var narrow = Workspace.ActualWidth < 900;
+        var narrow = Workspace.ActualWidth < 800;
         Grid.SetColumn(DetailsPanel, narrow ? 0 : 1); Grid.SetRow(DetailsPanel, narrow ? 1 : 0); Grid.SetColumnSpan(DetailsPanel, narrow ? 2 : 1);
         DetailsColumn.Width = new GridLength(_detailsVisible && !narrow ? 288 : 0);
         DetailsRow.Height = new GridLength(_detailsVisible && narrow ? Math.Min(240, BrowserBody.ActualHeight * 0.45) : 0);
         DetailsPanel.BorderThickness = narrow ? new Thickness(0, 1, 0, 0) : new Thickness(1, 0, 0, 0);
     }
-    private void Theme_Changed(object sender, SelectionChangedEventArgs e) => ApplyTheme();
     private void ApplyTheme()
     {
-        if (Shell is null || ThemeBox is null) return;
-        var theme = ThemeBox.SelectedIndex switch { 1 => ElementTheme.Light, 2 => ElementTheme.Dark, _ => ElementTheme.Default };
+        if (Shell is null) return;
+        var theme = _applicationTheme;
         if (XamlRoot?.Content is FrameworkElement windowRoot) windowRoot.RequestedTheme = theme;
         Shell.RequestedTheme = theme;
         if (_uploadDialog is not null) _uploadDialog.RequestedTheme = theme;
         if (_downloadDialog is not null) _downloadDialog.RequestedTheme = theme;
         foreach (var window in _imageWindows) window.SetTheme(theme);
+        UpdateApplicationMenus();
     }
     private void Workspace_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateDetailsLayout(); }
 }

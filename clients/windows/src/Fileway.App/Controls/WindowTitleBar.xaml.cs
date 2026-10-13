@@ -35,11 +35,12 @@ public sealed partial class WindowTitleBar : UserControl
     public double MinimumWindowWidth { get; private set; }
     public double MinimumWindowHeight { get; private set; }
 
-    /// <summary>Only the browser opts into compact navigation; image-window defaults stay intact.</summary>
-    public void SetBrowserNavigation(UIElement content, IReadOnlyList<FrameworkElement> interactiveRegions)
+    /// <summary>Browser application commands occupy the caption; folder navigation stays in its page.</summary>
+    public void SetBrowserMenu(UIElement content, IReadOnlyList<FrameworkElement> interactiveRegions)
     {
         Height = MinimizeButton.Height = MaximizeButton.Height = CloseButton.Height = 40;
         MinimumWindowWidth = 800; MinimumWindowHeight = 600;
+        BrandColumn.Width = GridLength.Auto;
         BrandSurface.Visibility = Visibility.Collapsed;
         ToolTipService.SetToolTip(DragSurface, null);
         NavigationPresenter.Content = content;
@@ -50,6 +51,8 @@ public sealed partial class WindowTitleBar : UserControl
     public event EventHandler? MinimizeRequested;
     public event EventHandler? MaximizeRequested;
     public event EventHandler? CloseRequested;
+
+    internal void RequestClose() => CloseRequested?.Invoke(this, EventArgs.Empty);
 
     public void SetMaximized(bool maximized)
     {
@@ -104,5 +107,5 @@ public sealed partial class WindowTitleBar : UserControl
 
     private void Minimize_Click(object sender, RoutedEventArgs args) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
     private void Maximize_Click(object sender, RoutedEventArgs args) => MaximizeRequested?.Invoke(this, EventArgs.Empty);
-    private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
+    private void Close_Click(object sender, RoutedEventArgs args) => RequestClose();
 }

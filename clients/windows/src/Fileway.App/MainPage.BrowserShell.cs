@@ -18,8 +18,9 @@ public sealed partial class MainPage
 
     internal void AttachTitleBar(WindowTitleBar titleBar)
     {
-        Shell.Children.Remove(NavigationHeader);
-        titleBar.SetBrowserNavigation(NavigationHeader, [PaneButton, NavigationCommands, PathBreadcrumb, PathBox, EditPathButton, SearchBox]);
+        _applicationTitleBar = titleBar;
+        Shell.Children.Remove(ApplicationMenus);
+        titleBar.SetBrowserMenu(ApplicationMenus, [ApplicationMenus]);
         AddNavigationAccelerators(titleBar);
         titleBar.KeyDown += Overlay_KeyDown;
     }
@@ -110,14 +111,16 @@ public sealed partial class MainPage
     private void EditPath_Click(object sender, RoutedEventArgs args) => BeginPathEdit();
     private void BeginPathEdit()
     {
-        if (_directory is null || _disposed || _connecting) return;
+        if (_directory is null || _disposed || _connecting || Workspace.Visibility != Visibility.Visible || ConnectionPanel.Visibility == Visibility.Visible) return;
         PathBox.Text = _directory.WirePath;
         PathBreadcrumb.Visibility = Visibility.Collapsed; PathBox.Visibility = Visibility.Visible;
+        EditPathButton.Visibility = Visibility.Collapsed;
         PathBox.Focus(FocusState.Keyboard); PathBox.SelectAll();
     }
     private void EndPathEdit()
     {
         PathBox.Visibility = Visibility.Collapsed; PathBreadcrumb.Visibility = Visibility.Visible;
+        EditPathButton.Visibility = Visibility.Visible;
     }
     private void PathBox_LostFocus(object sender, RoutedEventArgs args) { if (!_pathNavigating) EndPathEdit(); }
     private async void PathBox_KeyDown(object sender, KeyRoutedEventArgs args)

@@ -23,9 +23,9 @@ public sealed class SidebarCollectionsControl : UserControl
 
     public SidebarCollectionsControl()
     {
-        var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new Expander { Header = "收藏夹", IsExpanded = true, Content = _favorites, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
-        panel.Children.Add(new Expander { Header = "标签", IsExpanded = true, Content = _tags, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch });
+        var panel = new StackPanel { Spacing = 24 };
+        panel.Children.Add(Section("收藏夹", _favorites));
+        panel.Children.Add(Section("标签", _tags));
         Content = panel;
         SetSnapshot(null);
     }
@@ -43,7 +43,7 @@ public sealed class SidebarCollectionsControl : UserControl
             var favorites = snapshot.Favorites.Where(item => item.GroupId == group.Id).OrderBy(item => item.Order).ToArray();
             foreach (var favorite in favorites) children.Children.Add(FavoriteButton(favorite));
             if (favorites.Length == 0) children.Children.Add(Empty("此分组暂无收藏"));
-            var expander = new Expander { Header = $"{group.Name} · {favorites.Length}", Content = children, IsExpanded = _expandedGroups.GetValueOrDefault(group.Id), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            var expander = new Expander { Header = $"{group.Name} · {favorites.Length}", Content = children, IsExpanded = _expandedGroups.GetValueOrDefault(group.Id), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 0, 4, 0) };
             AutomationProperties.SetName(expander, $"收藏分组 {group.Name}，{favorites.Length} 项");
             expander.Expanding += (_, _) => { if (generation == _generation) _expandedGroups[group.Id] = true; };
             expander.Collapsed += (_, _) => { if (generation == _generation) _expandedGroups[group.Id] = false; };
@@ -67,7 +67,7 @@ public sealed class SidebarCollectionsControl : UserControl
             AutomationProperties.SetAccessibilityView(dot, AccessibilityView.Raw);
             content.Children.Add(dot);
             var name = new TextBlock { Text = tag.Name, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(name, 1); content.Children.Add(name);
-            var count = new TextBlock { Text = tag.Resources.Count.ToString(System.Globalization.CultureInfo.CurrentCulture), VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(count, 2); content.Children.Add(count);
+            var count = new TextBlock { Text = tag.Resources.Count.ToString(System.Globalization.CultureInfo.CurrentCulture), FontSize = 12, VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(count, 2); content.Children.Add(count);
             var button = NavigationButton(content); AutomationProperties.SetName(button, $"标签 {tag.Name}，{tag.Resources.Count} 个关联");
             button.Click += (_, _) => { if (generation == _generation && _account == tag.Account) TagRequested?.Invoke(this, tag); };
             _tags.Children.Add(button);
@@ -81,17 +81,26 @@ public sealed class SidebarCollectionsControl : UserControl
         var content = new Grid { ColumnSpacing = 8 };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var hint = FileRow.NameTypeHint(favorite.Name);
-        content.Children.Add(new FontIcon { Glyph = hint.Glyph, FontSize = 18 });
+        content.Children.Add(new FontIcon { Glyph = hint.Glyph, FontSize = 16, VerticalAlignment = VerticalAlignment.Center });
         var text = new StackPanel { Spacing = 2 };
         text.Children.Add(new TextBlock { Text = favorite.Name, TextTrimming = TextTrimming.CharacterEllipsis });
         var state = favorite.Reference.Resource is null ? "历史路径身份无法确认" : hint.Kind;
-        text.Children.Add(new TextBlock { Text = state, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis }); Grid.SetColumn(text, 1); content.Children.Add(text);
+        if (favorite.Reference.Resource is null)
+            text.Children.Add(new TextBlock { Text = state, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis });
+        Grid.SetColumn(text, 1); content.Children.Add(text);
         var button = NavigationButton(content); button.IsEnabled = favorite.Reference.Resource is not null;
         AutomationProperties.SetName(button, $"收藏 {favorite.Name}，{state}");
         ToolTipService.SetToolTip(button, favorite.Reference.Resource is null ? "原始资源身份无法确认，请在管理中处理此历史收藏。" : favorite.Reference.DisplayPath);
         button.Click += (_, _) => { if (generation == _generation && _account == favorite.Account) FavoriteRequested?.Invoke(this, favorite); };
         return button;
     }
-    private static Button NavigationButton(UIElement content) => new() { Content = content, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0), Padding = new Thickness(8, 6, 8, 6) };
-    private static TextBlock Empty(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8, 4, 8, 4), FontSize = 12 };
+    private static StackPanel Section(string title, UIElement content)
+    {
+        var section = new StackPanel { Spacing = 4 };
+        section.Children.Add(new TextBlock { Text = title, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(12, 0, 12, 4) });
+        section.Children.Add(content);
+        return section;
+    }
+    private static Button NavigationButton(UIElement content) => new() { Content = content, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(4), FontSize = 14, MinHeight = 36, Padding = new Thickness(12, 8, 12, 8) };
+    private static TextBlock Empty(string text) => new() { Text = text, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(12, 4, 12, 4), FontSize = 12 };
 }

@@ -10,10 +10,10 @@
     Title="栖卷"
     mc:Ignorable="d">
     <Window.SystemBackdrop>
-        <MicaBackdrop />
+        <MicaBackdrop Kind="BaseAlt" />
     </Window.SystemBackdrop>
 
-    <Grid>
+    <Grid Background="Transparent">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -21,6 +21,6 @@
 
         <controls:WindowTitleBar x:Name="AppTitleBar" Caption="栖卷" />
 
-        <Frame x:Name="RootFrame" Grid.Row="1" />
+        <Frame x:Name="RootFrame" Grid.Row="1" Background="Transparent" />
     </Grid>
 </Window>
