@@ -80,6 +80,7 @@ public sealed partial class MainPage : Page, IDisposable
         {
             if (_disposed || _connecting || _session?.Account != tag.Account) return;
             CloseSidebarOverlay();
+            TransfersPanel.Visibility = Visibility.Collapsed;
             UpdateCollectionsContext(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
             UpdateThumbnailContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
         };
@@ -87,6 +88,7 @@ public sealed partial class MainPage : Page, IDisposable
         FileGrid.Loaded += (_, _) => UpdateGridMetrics();
         FileGrid.SizeChanged += (_, _) => UpdateGridMetrics();
         InitializeBrowserShell();
+        InitializeTransferCenter();
         ApplyBrowserPresentation();
         Loaded += (_, _) => { ApplyTheme(); UpdateThumbnailContext(); };
         Unloaded += (_, _) => _thumbnailController.SetContext(null, null);
@@ -487,7 +489,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void Collections_Click(object sender, RoutedEventArgs e)
     {
         if (_disposed || _connecting || _session is null || _collections is null) return;
-        CloseSidebarOverlay(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
+        CloseSidebarOverlay(); TransfersPanel.Visibility = Visibility.Collapsed; CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
         _thumbnailController.SetContext(null, null);
         UpdateCollectionsContext();
         CollectionsPanel.EnterManagementView();
@@ -517,9 +519,10 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private void HideCollections()
     {
-        CollectionsPanel.Visibility = Visibility.Collapsed; Workspace.Visibility = Visibility.Visible;
+        CollectionsPanel.Visibility = Visibility.Collapsed; TransfersPanel.Visibility = Visibility.Collapsed; Workspace.Visibility = Visibility.Visible;
         CollectionsPanel.SuspendView();
         UpdateThumbnailContext();
+        UpdateSelection();
     }
     private async Task OpenCollectionResourceAsync(RemoteFile file)
     {
@@ -542,7 +545,7 @@ public sealed partial class MainPage : Page, IDisposable
         CredentialFields.Visibility = AuthenticationBox.SelectedIndex == 1 ? Visibility.Collapsed : Visibility.Visible;
         if (AuthenticationBox.SelectedIndex == 1) PasswordBox.Password = "";
     }
-    private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); ConnectionPanel.Visibility = Visibility.Visible; }
+    private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); HideCollections(); ConnectionPanel.Visibility = Visibility.Visible; }
     private void DismissConnection_Click(object sender, RoutedEventArgs e) => ConnectionPanel.Visibility = Visibility.Collapsed;
     private void Search_Changed(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) { if (FileList is not null) ApplyFilter(); }
     private void Sort_Changed(object sender, SelectionChangedEventArgs e)

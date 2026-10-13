@@ -56,6 +56,7 @@ public sealed partial class MainPage
         UploadHistoryButton.IsEnabled = current is not null && !_uploadCommandBusy;
         RenderUploadNotice();
         RenderUploadDetails();
+        UpdateTransferCenterContext();
     }
 
     private void ClearUploadPresentation()
@@ -67,6 +68,7 @@ public sealed partial class MainPage
         _uploadErrorTitle = _uploadErrorMessage = null;
         _uploadItems.Clear(); _uploadOrigins.Clear(); _uploadRefreshes.Clear();
         if (UploadNotice is not null) UploadNotice.IsOpen = false;
+        ClearTransferUploadPresentation();
     }
 
     private void DisposeUploadPresentation()
@@ -146,6 +148,7 @@ public sealed partial class MainPage
         _uploadErrorTitle = _uploadErrorMessage = null;
         _uploadItems[item.Snapshot.Task] = item; _latestUpload = item;
         RenderUploadNotice(); RenderUploadDetails();
+        ObserveTransferUpload(item);
         TryRefreshCompletedUpload(item);
     }
 
@@ -277,61 +280,7 @@ public sealed partial class MainPage
         finally { _uploadCommandBusy = false; if (!_disposed) UpdateUploadContext(); }
     }
 
-    private async void UploadHistory_Click(object sender, RoutedEventArgs args)
-    {
-        if (_uploads is not { } service || ActiveUploadContext is not { } context || _browserDialog is not null || _uploadDialog is not null) return;
-        var viewGeneration = _uploadViewGeneration;
-        bool Current() => viewGeneration == _uploadViewGeneration && IsCurrentUploadContext(context);
-        var entries = new StackPanel { Spacing = 8 };
-        var hint = new TextBlock { Text = "只显示当前账号的上传记录。打开记录不会开始上传；选择一项后可手动恢复或核实。", TextWrapping = TextWrapping.Wrap, FontSize = 12 };
-        var more = new Button { Content = "加载更多", HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
-        var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 480 };
-        content.Children.Add(hint); content.Children.Add(new ScrollViewer { Content = entries, MaxHeight = 340, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); content.Children.Add(more);
-        var dialog = new ContentDialog { Title = "上传记录", Content = content, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.Close };
-        _uploadDialog = dialog;
-        TransferTaskRef? selected = null;
-        string? cursor = null;
-        var seenCursors = new HashSet<string>(StringComparer.Ordinal);
-        var seenTasks = new HashSet<TransferTaskRef>();
-        var loading = false;
-        async Task LoadPageAsync()
-        {
-            if (loading || !Current()) return;
-            loading = true; more.IsEnabled = false;
-            try
-            {
-                var page = await service.ListAsync(context, cursor, 30, _lifetime.Token);
-                if (!Current() || !ReferenceEquals(_uploadDialog, dialog)) return;
-                foreach (var entry in page.Items)
-                {
-                    if (entry.Context != context || entry.Snapshot.Task.Account != context.Account) continue;
-                    if (!seenTasks.Add(entry.Snapshot.Task)) continue;
-                    var visible = entry;
-                    if (_uploadItems.TryGetValue(entry.Snapshot.Task, out var known)) visible = PreferUploadItem(known, entry);
-                    _uploadItems[entry.Snapshot.Task] = visible;
-                    var text = new StackPanel { Spacing = 4 };
-                    text.Children.Add(new TextBlock { Text = visible.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 420 });
-                    text.Children.Add(new TextBlock { Text = $"{UploadItemStatusLabel(visible)} · {ConfirmedBytesLabel(visible)}", FontSize = 12, TextWrapping = TextWrapping.Wrap });
-                    text.Children.Add(new TextBlock { Text = visible.DestinationDisplayPath, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 420 });
-                    var button = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(12) };
-                    button.Click += (_, _) => { if (Current()) { selected = entry.Snapshot.Task; dialog.Hide(); } };
-                    entries.Children.Add(button);
-                }
-                cursor = page.NextCursor;
-                if (cursor is not null && !seenCursors.Add(cursor)) throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "上传记录返回了重复的分页标记。"));
-                more.Visibility = cursor is null ? Visibility.Collapsed : Visibility.Visible;
-                if (entries.Children.Count == 0) hint.Text = "当前账号还没有上传记录。";
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception error) { if (Current()) { hint.Text = "上传记录未能加载。" + ErrorMessage(error); more.Content = "重试"; more.Visibility = Visibility.Visible; } }
-            finally { loading = false; more.IsEnabled = true; }
-        }
-        more.Click += async (_, _) => await LoadPageAsync();
-        dialog.Opened += async (_, _) => await LoadPageAsync();
-        try { await ShowBrowserDialogAsync(dialog); }
-        finally { if (ReferenceEquals(_uploadDialog, dialog)) _uploadDialog = null; }
-        if (Current() && selected is { } task) await ShowUploadDetailsAsync(task);
-    }
+    private async void UploadHistory_Click(object sender, RoutedEventArgs args) => await ShowTransferCenterAsync(TransferDirection.Upload);
 
     private void ShowUploadError(string title, Exception error)
     {

@@ -54,6 +54,7 @@ public sealed partial class MainPage
         DownloadFileButton.Visibility = _session?.Permissions.Download == false ? Visibility.Collapsed : Visibility.Visible;
         DownloadHistoryButton.IsEnabled = current is not null && !_downloadOperationBusy;
         RenderDownloadNotice(); RenderDownloadDetails();
+        UpdateTransferCenterContext();
     }
 
     private void ClearDownloadPresentation()
@@ -63,6 +64,7 @@ public sealed partial class MainPage
         _downloadContext = null; _latestDownload = null; _downloadItems.Clear(); _downloadPreparing = false;
         _downloadErrorTitle = _downloadErrorMessage = null;
         if (DownloadNotice is not null) DownloadNotice.IsOpen = false;
+        ClearTransferDownloadPresentation();
     }
 
     private void DisposeDownloadPresentation()
@@ -138,6 +140,7 @@ public sealed partial class MainPage
         _downloadItems[item.Snapshot.Task] = item; _latestDownload = item;
         _downloadErrorTitle = _downloadErrorMessage = null;
         UpdateDownloadContext();
+        ObserveTransferDownload(item);
     }
 
     private void RenderDownloadNotice()
@@ -234,55 +237,7 @@ public sealed partial class MainPage
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
 
-    private async void DownloadHistory_Click(object sender, RoutedEventArgs args)
-    {
-        if (_downloads is not { } service || ActiveDownloadContext is not { } context || _browserDialog is not null || _downloadDialog is not null) return;
-        var viewGeneration = _downloadViewGeneration;
-        bool Current() => viewGeneration == _downloadViewGeneration && IsCurrentDownloadContext(context);
-        var entries = new StackPanel { Spacing = 8 };
-        var hint = new TextBlock { Text = "只显示当前账号的下载记录。打开记录不会下载；未确认的本地结果可手动核实。", TextWrapping = TextWrapping.Wrap, FontSize = 12 };
-        var more = new Button { Content = "加载更多", HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
-        var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 480 };
-        content.Children.Add(hint); content.Children.Add(new ScrollViewer { Content = entries, MaxHeight = 340, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }); content.Children.Add(more);
-        var dialog = new ContentDialog { Title = "下载记录", Content = content, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.Close };
-        _downloadDialog = dialog;
-        TransferTaskRef? selected = null; string? cursor = null; var loading = false;
-        var seenCursors = new HashSet<string>(StringComparer.Ordinal); var seenTasks = new HashSet<TransferTaskRef>();
-        async Task LoadPageAsync()
-        {
-            if (loading || !Current()) return;
-            loading = true; more.IsEnabled = false;
-            try
-            {
-                var page = await service.ListAsync(context, cursor, 30, _lifetime.Token);
-                if (!Current() || !ReferenceEquals(_downloadDialog, dialog)) return;
-                foreach (var entry in page.Items)
-                {
-                    if (entry.Context != context || entry.Snapshot.Task.Account != context.Account || !seenTasks.Add(entry.Snapshot.Task)) continue;
-                    var visible = _downloadItems.TryGetValue(entry.Snapshot.Task, out var known) ? DownloadPolicy.Prefer(known, entry) : entry;
-                    _downloadItems[entry.Snapshot.Task] = visible;
-                    var text = new StackPanel { Spacing = 4 };
-                    text.Children.Add(new TextBlock { Text = visible.Name, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 420 });
-                    text.Children.Add(new TextBlock { Text = DownloadPolicy.Stage(visible), FontSize = 12, TextWrapping = TextWrapping.Wrap });
-                    text.Children.Add(new TextBlock { Text = visible.DestinationDisplayPath, FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 420 });
-                    var button = new Button { Content = text, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(12) };
-                    button.Click += (_, _) => { if (Current()) { selected = entry.Snapshot.Task; dialog.Hide(); } }; entries.Children.Add(button);
-                }
-                cursor = page.NextCursor;
-                if (cursor is not null && !seenCursors.Add(cursor)) throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "下载记录返回了重复的分页标记。"));
-                more.Visibility = cursor is null ? Visibility.Collapsed : Visibility.Visible;
-                if (entries.Children.Count == 0) hint.Text = "当前账号还没有下载记录。";
-                UpdateDownloadContext();
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception error) { if (Current()) { hint.Text = "下载记录未能加载。" + ErrorMessage(error); more.Content = "重试"; more.Visibility = Visibility.Visible; } }
-            finally { loading = false; more.IsEnabled = true; }
-        }
-        more.Click += async (_, _) => await LoadPageAsync(); dialog.Opened += async (_, _) => await LoadPageAsync();
-        try { await ShowBrowserDialogAsync(dialog); }
-        finally { if (ReferenceEquals(_downloadDialog, dialog)) _downloadDialog = null; }
-        if (Current() && selected is { } task) await ShowDownloadDetailsAsync(task);
-    }
+    private async void DownloadHistory_Click(object sender, RoutedEventArgs args) => await ShowTransferCenterAsync(TransferDirection.Download);
 
     private void ShowDownloadError(string title, Exception error)
     {
