@@ -23,6 +23,8 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private readonly NativeVideoWindow.SubclassProc _procedure;
     private readonly nint _window;
     private readonly nint _owner;
+    private readonly PointerEventHandler _videoPressedHandler;
+    private readonly KeyEventHandler _gestureKeyHandler;
     private PlayerSettingsWindow? _settingsWindow;
     private readonly UISettings _policySettings = new();
     private readonly AccessibilitySettings _policyAccessibility = new();
@@ -41,6 +43,8 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         Title = AppBranding.DisplayName + (AppBranding.IsChinese ? " 播放控制" : " playback controls");
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
         _procedure = WindowProcedure;
+        _videoPressedHandler = Controls_VideoPointerPressed;
+        _gestureKeyHandler = Controls_GestureKeyDown;
         try
         {
             _controls = new ScreenboxPlayerControls(session, responsiveness);
@@ -73,6 +77,10 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             _controls.MinimizeRequested += Controls_MinimizeRequested;
             _controls.MaximizeRequested += Controls_MaximizeRequested;
             _controls.KeyDown += Controls_KeyDown;
+            _controls.AddHandler(UIElement.PointerPressedEvent, _videoPressedHandler, true);
+            _controls.AddHandler(UIElement.KeyDownEvent, _gestureKeyHandler, true);
+            _controls.PointerReleased += Controls_VideoPointerReleased;
+            _controls.PointerCanceled += Controls_VideoPointerCanceled;
             _controls.ActualThemeChanged += Controls_ActualThemeChanged;
             _controls.Loaded += Controls_Loaded;
             _controls.MaterialBoundsChanged += Controls_MaterialBoundsChanged;
@@ -103,6 +111,45 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     internal event EventHandler? AddSubtitleRequested;
     internal event EventHandler? MinimizeRequested;
     internal event EventHandler? MaximizeRequested;
+    internal event Action<NativeVideoWindow.NativePoint>? VideoPointerPressed;
+    internal event Action<NativeVideoWindow.NativePoint>? VideoPointerReleased;
+    internal event Action? VideoPointerCanceled;
+
+    private bool TryVideoPointer(PointerRoutedEventArgs args, out NativeVideoWindow.NativePoint screenPoint)
+    {
+        screenPoint = default;
+        if (_disposed || _settingsWindow is not null || args.Handled ||
+            args.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Mouse || _controls.XamlRoot is null)
+            return false;
+        var position = args.GetCurrentPoint(_controls).Position;
+        if (!_controls.IsVideoBackground(position)) return false;
+        for (DependencyObject? source = args.OriginalSource as DependencyObject; source is not null && source != _controls;
+             source = VisualTreeHelper.GetParent(source))
+            if (source is ButtonBase or RangeBase or TextBox or PasswordBox or NumberBox or ComboBox or SelectorItem
+                or ToggleSwitch or ScrollViewer or MenuFlyoutPresenter) return false;
+        var scale = _controls.XamlRoot.RasterizationScale;
+        screenPoint = new NativeVideoWindow.NativePoint { X = (int)Math.Round(position.X * scale), Y = (int)Math.Round(position.Y * scale) };
+        return NativeVideoWindow.ClientToScreen(_window, ref screenPoint);
+    }
+
+    private void Controls_VideoPointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (args.GetCurrentPoint(_controls).Properties.PointerUpdateKind != Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed) return;
+        if (!TryVideoPointer(args, out var point)) { VideoPointerCanceled?.Invoke(); return; }
+        args.Handled = true;
+        VideoPointerPressed?.Invoke(point);
+    }
+
+    private void Controls_VideoPointerReleased(object sender, PointerRoutedEventArgs args)
+    {
+        if (args.GetCurrentPoint(_controls).Properties.PointerUpdateKind != Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased
+            || !TryVideoPointer(args, out var point)) return;
+        args.Handled = true;
+        VideoPointerReleased?.Invoke(point);
+    }
+
+    private void Controls_VideoPointerCanceled(object sender, PointerRoutedEventArgs args) => VideoPointerCanceled?.Invoke();
+    private void Controls_GestureKeyDown(object sender, KeyRoutedEventArgs args) => VideoPointerCanceled?.Invoke();
 
     private void Controls_CloseRequested(object? sender, EventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Controls_ToggleFullscreenRequested(object? sender, EventArgs args) => ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty);
@@ -267,11 +314,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         if (!_disposed) UpdateMaterialVisibility();
     }
 
-    internal void ApplySnapshot(PlaybackSnapshot snapshot)
+    internal void ApplySnapshot(PlaybackSnapshot snapshot, bool transientLoading = false)
     {
         if (!_disposed)
         {
             _controls.ApplySnapshot(snapshot);
+            _controls.SetTransientLoading(transientLoading, snapshot.Status == PlaybackStatus.Seeking);
         }
     }
 
@@ -364,6 +412,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             return NativeVideoWindow.DefSubclassProc(window, message, wParam, (nint)(-1));
         if (!_disposed && message == 0x0014 && ClearBackground((nint)wParam)) return 1;
         if (!_disposed && (message is 0x0006 or 0x001c)) DispatcherQueue.TryEnqueue(RefreshBackdropState);
+        if (!_disposed && message == 0x001c && wParam == 0) VideoPointerCanceled?.Invoke();
         // AccessibilitySettings.HighContrastChanged has no usable event source
         // in this unpackaged desktop runtime (0x80070490). Native setting/theme
         // broadcasts still refresh the material and its high-contrast fallback.
@@ -432,6 +481,10 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         _controls.MinimizeRequested -= Controls_MinimizeRequested;
         _controls.MaximizeRequested -= Controls_MaximizeRequested;
         _controls.KeyDown -= Controls_KeyDown;
+        _controls.RemoveHandler(UIElement.PointerPressedEvent, _videoPressedHandler);
+        _controls.RemoveHandler(UIElement.KeyDownEvent, _gestureKeyHandler);
+        _controls.PointerReleased -= Controls_VideoPointerReleased;
+        _controls.PointerCanceled -= Controls_VideoPointerCanceled;
         _controls.ActualThemeChanged -= Controls_ActualThemeChanged;
         _controls.Loaded -= Controls_Loaded;
         _controls.MaterialBoundsChanged -= Controls_MaterialBoundsChanged;

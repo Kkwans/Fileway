@@ -95,7 +95,7 @@
             </Style>
         </ResourceDictionary>
     </UserControl.Resources>
-    <Grid x:Name="Root" KeyDown="Root_KeyDown" PointerMoved="Root_PointerMoved" PointerPressed="Root_PointerPressed">
+    <Grid x:Name="Root" Background="Transparent" KeyDown="Root_KeyDown" PointerMoved="Root_PointerMoved" PointerPressed="Root_PointerPressed">
         <!-- Screenbox PlayerControls' expanded/AdaptiveHidden/compact pattern:
              overflow real secondary actions instead of wrapping the toolbar. -->
         <VisualStateManager.VisualStateGroups>
@@ -120,6 +120,9 @@
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
+        <ProgressRing x:Name="PlaybackBusyRing" Width="40" Height="40" IsActive="False" Visibility="Collapsed"
+                      IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center"
+                      Foreground="{ThemeResource PlayerForeground}" AutomationProperties.Name="正在加载视频"/>
         <Grid x:Name="Chrome">
             <!-- Native window behavior is owned
                  by the host; these buttons only raise requests. -->

@@ -109,6 +109,22 @@ The public libmpv render API provides OpenGL/SW backends, not a ready D3D11 WinU
 
 Playback rate, volume, mute, chapters and buffered ranges come from native events. Missing reader timestamps or contiguous cache ranges leave the buffered range unknown. The UI requests a change and displays engine-confirmed state; it does not infer a successful change from a button click.
 
+Picture input shares one gesture policy across the video host and its owned WinUI
+input surface. A left single click toggles pause after the system double-click
+interval; a double click cancels that pending single click and toggles fullscreen.
+Title/caption, sliders, buttons, menus and other interactive elements do not become
+picture gestures. Their input, keyboard commands, external deactivation, DPI changes
+and teardown cancel pending actions. Closing uses the existing asynchronous native
+teardown; gesture support does not establish that the open CFG exit defect is fixed.
+
+Seeking and buffering after a frame has already played show a transient loading
+ring in the accepted Screenbox HUD. The old video surface is hidden until the engine
+reports a usable confirmed state, including paused playback after a seek; subtitle
+decoding/flush remains the engine's responsibility. First-open buffering retains
+the existing opening state instead of drawing two loaders. Repeated progress snapshots
+retain the ring's state rather than restarting its animation. Real large-file,
+subtitle/track and seek responsiveness still require native acceptance.
+
 Display dimensions come from native video-output parameters. The first normal
 window can fit the observed display aspect; a user-adjusted, maximized or
 fullscreen window is retained. Original resolution is factual metadata; HLS

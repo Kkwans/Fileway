@@ -147,6 +147,13 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public (double Top, double Bottom) GetMaterialInsets() => ControlsVisible
         ? (TopBar.ActualHeight, BottomBar.ActualHeight) : default;
 
+    // The owned XAML input site can receive the picture click before its parent
+    // HWND's hit test. Edge chrome, menus and their controls are never video gestures.
+    internal bool IsVideoBackground(Windows.Foundation.Point position) =>
+        !_disposed && !_menuOpen && ControlsVisible && ActualWidth > 0 && ActualHeight > 0
+        && position.X >= 0 && position.X < ActualWidth
+        && position.Y >= TopBar.ActualHeight && position.Y < ActualHeight - BottomBar.ActualHeight;
+
     public void SetWindowMaximized(bool maximized)
     {
         MaximizeIcon.IconName = maximized ? "SquareMultiple" : "Square";
@@ -210,6 +217,14 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (snapshot.Error is { } error) ShowError(error.Message);
         if (snapshot.Status != PlaybackStatus.Playing) ShowControls();
         else if (!wasPlaying) NotifyActivity();
+    }
+
+    internal void SetTransientLoading(bool loading, bool seeking)
+    {
+        if (_disposed) return;
+        PlaybackBusyRing.IsActive = loading;
+        PlaybackBusyRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        AutomationProperties.SetName(PlaybackBusyRing, seeking ? "正在跳转视频" : "正在缓冲视频");
     }
 
     public void SetFullscreen(bool fullscreen)
