@@ -86,8 +86,15 @@ internal sealed class MpvDownloadStreamBridge
     /// <summary>Stops admission and wakes readers; does not call libmpv or cancel the download.</summary>
     internal void CancelBeforeDestroy()
     {
-        Volatile.Write(ref _stopping, 1);
-        foreach (var stream in _streams.Values) stream.Cancel();
+        StreamState[] streams;
+        lock (_gate)
+        {
+            Volatile.Write(ref _stopping, 1);
+            // Open publishes under this same admission gate. Every admitted stream
+            // is captured before cancellation starts, without canceling under the gate.
+            streams = _streams.Values.ToArray();
+        }
+        foreach (var stream in streams) stream.Cancel();
     }
 
     /// <summary>
@@ -126,6 +133,7 @@ internal sealed class MpvDownloadStreamBridge
         {
             if (Volatile.Read(ref _stopping) != 0 || userData != _registrationCookie || info == 0 || !MatchesUri(uri))
                 return LoadingFailed;
+            RequireReaderAvailable();
             lock (_gate)
             {
                 if (Volatile.Read(ref _stopping) != 0 || _streams.Count >= MaximumOpenStreams || _nextCookie == nint.MaxValue)
@@ -150,6 +158,13 @@ internal sealed class MpvDownloadStreamBridge
             catch { /* Also contain cleanup failures on the native open boundary. */ }
             return LoadingFailed;
         }
+    }
+
+    private void RequireReaderAvailable()
+    {
+        long prefix = _lease.ReadablePrefixBytes;
+        if (prefix < 0 || prefix > _totalBytes)
+            throw new InvalidOperationException("The download reader has no valid current prefix.");
     }
 
     private bool MatchesUri(nint uri)
@@ -216,14 +231,14 @@ internal sealed class MpvDownloadStreamBridge
                 lock (_ioGate)
                 {
                     var cancellationToken = _cancellation.Token;
-                    cancellationToken.ThrowIfCancellationRequested();
+                    RequireAvailable();
                     if (length == 0 || _position == owner._totalBytes) return 0;
                     if (destination == 0) return -1;
                     int count = (int)Math.Min(Math.Min(length, MaximumReadBytes), (ulong)(owner._totalBytes - _position));
                     _buffer ??= new byte[MaximumReadBytes];
                     int read = owner._lease.ReadAsync(_position, _buffer.AsMemory(0, count), cancellationToken)
                         .AsTask().GetAwaiter().GetResult();
-                    cancellationToken.ThrowIfCancellationRequested();
+                    RequireAvailable();
                     // The lease must wait for future bytes. A broken lease must
                     // fail rather than advertise temporary starvation as EOF.
                     if (read <= 0 || read > count) return -1;
@@ -242,7 +257,7 @@ internal sealed class MpvDownloadStreamBridge
             {
                 lock (_ioGate)
                 {
-                    _cancellation.Token.ThrowIfCancellationRequested();
+                    RequireAvailable();
                     if (offset < 0 || offset > owner._totalBytes) return GenericError;
                     // Seeking ahead does not read unowned bytes. Its next read
                     // waits on the same owner's verified prefix and cancellation.
@@ -256,8 +271,22 @@ internal sealed class MpvDownloadStreamBridge
         internal long Size()
         {
             if (!Enter()) return GenericError;
-            try { return Volatile.Read(ref _canceled) == 0 ? owner._totalBytes : GenericError; }
+            try
+            {
+                RequireAvailable();
+                return Volatile.Read(ref _canceled) == 0 ? owner._totalBytes : GenericError;
+            }
             finally { Exit(); }
+        }
+
+        private void RequireAvailable()
+        {
+            _cancellation.Token.ThrowIfCancellationRequested();
+            if (Volatile.Read(ref owner._stopping) != 0 || Volatile.Read(ref _closed) != 0 || Volatile.Read(ref _canceled) != 0)
+                throw new InvalidOperationException("The download stream has stopped.");
+            owner.RequireReaderAvailable();
+            if (Volatile.Read(ref owner._stopping) != 0 || Volatile.Read(ref _closed) != 0 || Volatile.Read(ref _canceled) != 0)
+                throw new InvalidOperationException("The download stream has stopped.");
         }
 
         internal void Cancel()
@@ -289,9 +318,9 @@ internal sealed class MpvDownloadStreamBridge
 
         private bool Enter()
         {
-            if (Volatile.Read(ref _closed) != 0 || Volatile.Read(ref _canceled) != 0) return false;
+            if (Volatile.Read(ref owner._stopping) != 0 || Volatile.Read(ref _closed) != 0 || Volatile.Read(ref _canceled) != 0) return false;
             Interlocked.Increment(ref _operations);
-            if (Volatile.Read(ref _closed) == 0 && Volatile.Read(ref _canceled) == 0) return true;
+            if (Volatile.Read(ref owner._stopping) == 0 && Volatile.Read(ref _closed) == 0 && Volatile.Read(ref _canceled) == 0) return true;
             Exit();
             return false;
         }

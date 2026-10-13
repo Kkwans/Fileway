@@ -612,7 +612,8 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
                 _downloadObservation?.Stop();
                 _recentOpen?.Dispose();
                 _commands.Writer.TryComplete();
-                Publish(snapshot => snapshot with { Status = PlaybackStatus.Closing, DownloadBytesPerSecond = null }, terminal: true);
+                Publish(snapshot => snapshot with { Status = PlaybackStatus.Closing, DownloadBytesPerSecond = null,
+                    Download = snapshot.Download is { } download ? download with { ReadablePrefixBytes = null } : null }, terminal: true);
                 _stop = Task.Run(StopCoreAsync, CancellationToken.None);
             }
             stop = _stop;
@@ -659,13 +660,16 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             foreach (var lease in _ownedLeases) await lease.DisposeAsync().ConfigureAwait(false);
             _ownedLeases.Clear();
             if (_surface is not null) await _surface.DisposeAsync().ConfigureAwait(false);
-            Publish(snapshot => snapshot with { Status = PlaybackStatus.Stopped, DownloadBytesPerSecond = null }, terminal: true);
+            Publish(snapshot => snapshot with { Status = PlaybackStatus.Stopped, DownloadBytesPerSecond = null,
+                Download = snapshot.Download is { } download ? download with { ReadablePrefixBytes = null } : null }, terminal: true);
             lock (_gate) foreach (var watcher in _watchers) watcher.Writer.TryComplete();
             _released(Id);
         }
         catch (Exception)
         {
-            Publish(snapshot => snapshot with { Status = PlaybackStatus.Failed, Error = new ErrorInfo(ErrorCode.Timeout, "播放器关闭未完成；原生资源保留待恢复。") }, terminal: true);
+            Publish(snapshot => snapshot with { Status = PlaybackStatus.Failed,
+                Download = snapshot.Download is { } download ? download with { ReadablePrefixBytes = null } : null,
+                Error = new ErrorInfo(ErrorCode.Timeout, "播放器关闭未完成；原生资源保留待恢复。") }, terminal: true);
             throw MpvNative.Error(ErrorCode.Timeout, "播放器关闭未完成；原生资源保留待恢复。");
         }
     }

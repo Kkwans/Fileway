@@ -306,12 +306,82 @@ public sealed class DownloadPlaybackSessionTests
         fixture.Provider.Emit(admitted.Item);
         fixture.Provider.Emit(admitted.Item with { PresentationRevision = 13,
             Snapshot = admitted.Item.Snapshot with { Revision = 0 } });
-        // Prefix sampling supplies a deterministic publication barrier without
-        // inventing a new task event or masking a regressed task presentation.
+        // A failed source has no current readable prefix, even if the provider
+        // retains and later increases its historical completed-write count.
         fixture.Reader.Prefix = 30;
+        var latestFailure = failed with { PresentationRevision = 14 };
+        fixture.Provider.Emit(latestFailure);
         var final = await updates.Reader.ReadAsync(Token).AsTask().WaitAsync(Deadline, Token);
-        Assert.Equal(failed, final.Item);
-        Assert.Equal(30, final.ReadablePrefixBytes);
+        Assert.Equal(latestFailure, final.Item);
+        Assert.Null(final.ReadablePrefixBytes);
+    }
+
+    [Fact]
+    public async Task NewerCancellationDuringPrefixSamplingCannotPublishTheOlderTaskState()
+    {
+        var fixture = new Fixture();
+        await using var observation = fixture.Observe();
+        observation.Admit(fixture.Admitted);
+        var entered = Signal();
+        var release = Signal();
+        fixture.Reader.BeforePrefixRead = () =>
+        {
+            entered.TrySetResult();
+            release.Task.GetAwaiter().GetResult();
+        };
+        var updates = Channel.CreateUnbounded<PlaybackDownloadState>();
+        observation.Start(state => updates.Writer.TryWrite(state));
+        try
+        {
+            await entered.Task.WaitAsync(Deadline, Token);
+            var canceled = fixture.At(2) with { Status = DownloadStatus.Canceling };
+            fixture.Provider.Emit(canceled);
+            fixture.Reader.Prefix = 90;
+            release.TrySetResult();
+            var state = await updates.Reader.ReadAsync(Token).AsTask().WaitAsync(Deadline, Token);
+            Assert.Equal(canceled, state.Item);
+            Assert.Null(state.ReadablePrefixBytes);
+            Assert.False(updates.Reader.TryRead(out _));
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [Fact]
+    public async Task PublishingLocalFenceAndVerifiedCompletionKeepTheRetainedReaderEvidence()
+    {
+        var fixture = new Fixture();
+        await using var observation = fixture.Observe();
+        observation.Admit(fixture.Admitted);
+        var updates = Channel.CreateUnbounded<PlaybackDownloadState>();
+        observation.Start(state => updates.Writer.TryWrite(state));
+        var publishing = fixture.At(2) with { Status = DownloadStatus.Publishing,
+            Snapshot = fixture.At(2).Snapshot with { Phase = TransferPhase.Publishing, Uncertainty = TransferUncertainty.LocalPublish } };
+        fixture.Provider.Emit(publishing);
+        var state = await updates.Reader.ReadAsync(Token).AsTask().WaitAsync(Deadline, Token);
+        Assert.Equal(publishing, state.Item);
+        Assert.Equal(17, state.ReadablePrefixBytes);
+        var completed = fixture.At(3) with { Status = DownloadStatus.Completed, Progress = null,
+            Snapshot = fixture.At(3).Snapshot with { Phase = TransferPhase.Completed, LocalPublished = true } };
+        fixture.Provider.Emit(completed);
+        state = await updates.Reader.ReadAsync(Token).AsTask().WaitAsync(Deadline, Token);
+        Assert.Equal(completed, state.Item);
+        Assert.Equal(17, state.ReadablePrefixBytes);
+        Assert.Equal(0, fixture.Reader.DisposeCount);
+        Assert.Equal(0, fixture.Provider.WriterMutations);
+    }
+
+    [Fact]
+    public async Task StoppingObservationClearsCurrentReadabilityAndKeepsOnlyHistoricalTaskEvidence()
+    {
+        var fixture = new Fixture();
+        await using var observation = fixture.Observe();
+        observation.Admit(fixture.Admitted);
+        observation.Stop();
+        Assert.Null(observation.Snapshot.ReadablePrefixBytes);
+        Assert.Equal(fixture.Item, observation.Snapshot.Item);
+        Assert.Equal(0, fixture.Reader.DisposeCount);
+        Assert.Equal(0, fixture.Provider.WriterMutations);
+        Assert.Equal(0, fixture.Provider.Subscribers);
     }
 
     [Fact]
@@ -407,6 +477,7 @@ public sealed class DownloadPlaybackSessionTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => starting);
         await session.DisposeAsync();
         Assert.Equal(PlaybackStatus.Stopped, session.Snapshot.Status);
+        Assert.Null(session.Snapshot.Download!.ReadablePrefixBytes);
         Assert.Equal(1, fixture.Reader.DisposeCount);
         Assert.Equal(1, released);
         Assert.Equal(0, fixture.Provider.Subscribers);
@@ -510,6 +581,7 @@ public sealed class DownloadPlaybackSessionTests
         private int _disposed, _prefixReads;
         internal long Prefix = 17;
         internal bool PrefixError;
+        internal Action? BeforePrefixRead;
         internal int DisposeCount => Volatile.Read(ref _disposed);
         internal int PrefixReads => Volatile.Read(ref _prefixReads);
         public TransferRunToken Run => run;
@@ -519,6 +591,7 @@ public sealed class DownloadPlaybackSessionTests
             get
             {
                 Interlocked.Increment(ref _prefixReads);
+                BeforePrefixRead?.Invoke();
                 if (PrefixError) throw new FilewayException(new(ErrorCode.SourceChanged, "fixture revoked"));
                 return Prefix;
             }

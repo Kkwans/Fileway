@@ -69,7 +69,7 @@ public sealed partial class UploadApplicationService
                     current.Checkpoint.Files.PartialPath != original.Checkpoint.Files.PartialPath)
                     throw DownloadSafe(ErrorCode.SourceChanged);
                 var item = ObserveDownload(binding, current);
-                var reader = new PlaybackReadLease(acquired, run, total);
+                var reader = new PlaybackReadLease(this, binding, context, work, acquired, run, total);
                 acquired = null; // Ownership transfers only after the final authority/evidence check.
                 return new(item, reader);
             }
@@ -95,6 +95,26 @@ public sealed partial class UploadApplicationService
                 lock (_gate)
                     if (ReferenceEquals(_downloadPlaybackAdmission, admission)) _downloadPlaybackAdmission = null;
         }
+    }
+
+    // Existing readers may outlive the successfully published writer, but never their account,
+    // permission or exact execution. This check uses accepted in-memory evidence only.
+    private void RequirePlaybackReaderLocked(Binding binding, DownloadContext context, DownloadWork work,
+        TransferRunToken run, long total)
+    {
+        if (!ReferenceEquals(RequireDownloadContext(context, run.Task), binding)) throw DownloadSafe(ErrorCode.SourceChanged);
+        RequireDownloadPermission(binding);
+        if (binding.DownloadDraining || !binding.DownloadItems.TryGetValue(run.Task, out var item) ||
+            item.Control is not null || item.Snapshot is not { } snapshot || snapshot.Generation != run.Generation ||
+            snapshot.TotalBytes != total || snapshot.Intent != TransferIntent.Run || snapshot.Error is not null)
+            throw DownloadSafe(ErrorCode.SourceChanged);
+        bool complete = snapshot.Phase == TransferPhase.Completed && snapshot.LocalPublished;
+        bool protectedExecution = item.Scheduled && snapshot.Uncertainty == TransferUncertainty.LocalPublish &&
+            (snapshot.Phase is TransferPhase.Publishing or TransferPhase.Reconciling);
+        if ((snapshot.Uncertainty != TransferUncertainty.None && !protectedExecution) ||
+            (!complete && (snapshot.Phase is not (TransferPhase.Running or TransferPhase.Verifying or TransferPhase.Publishing or TransferPhase.Reconciling) ||
+                !item.Scheduled || !_downloadExecutions.TryGetValue(run.Task, out var active) || !ReferenceEquals(active, work))))
+            throw DownloadSafe(ErrorCode.SourceChanged);
     }
 
     // Caller holds only the short in-memory gate; this method never invokes the reader/provider.
@@ -132,7 +152,8 @@ public sealed partial class UploadApplicationService
 
     // Keep private implementation exceptions behind the application boundary after admission too.
     // Disposal is idempotent, preserves a failed result, and releases only this reader.
-    private sealed class PlaybackReadLease(IDownloadReadLease inner, TransferRunToken run, long total) : IDownloadReadLease
+    private sealed class PlaybackReadLease(UploadApplicationService service, Binding binding, DownloadContext context,
+        DownloadWork work, IDownloadReadLease inner, TransferRunToken run, long total) : IDownloadReadLease
     {
         private readonly object _disposeGate = new();
         private TaskCompletionSource? _disposal;
@@ -144,7 +165,9 @@ public sealed partial class UploadApplicationService
             {
                 try
                 {
+                    RequireAvailable();
                     long prefix = inner.ReadablePrefixBytes;
+                    RequireAvailable();
                     if (prefix < 0 || prefix > TotalBytes) throw DownloadSafe(ErrorCode.ProtocolMismatch);
                     return prefix;
                 }
@@ -155,10 +178,23 @@ public sealed partial class UploadApplicationService
         {
             try
             {
-                lock (_disposeGate) if (_disposal is not null) throw DownloadSafe(ErrorCode.SourceChanged);
-                return await inner.ReadAsync(offset, buffer, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                RequireAvailable();
+                if (offset < 0 || offset > TotalBytes) throw DownloadSafe(ErrorCode.InvalidRequest);
+                int received = await inner.ReadAsync(offset, buffer, cancellationToken).ConfigureAwait(false);
+                RequireAvailable();
+                cancellationToken.ThrowIfCancellationRequested();
+                if (received < 0 || received > buffer.Length || received > TotalBytes - offset ||
+                    received == 0 && buffer.Length != 0 && offset < TotalBytes)
+                    throw DownloadSafe(ErrorCode.ProtocolMismatch);
+                return received;
             }
             catch (Exception error) { throw NormalizeDownload(error); }
+        }
+        private void RequireAvailable()
+        {
+            lock (_disposeGate) if (_disposal is not null) throw DownloadSafe(ErrorCode.SourceChanged);
+            lock (service._gate) service.RequirePlaybackReaderLocked(binding, context, work, Run, TotalBytes);
         }
         public ValueTask DisposeAsync()
         {

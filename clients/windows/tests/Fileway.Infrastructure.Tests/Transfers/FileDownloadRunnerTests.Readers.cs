@@ -328,6 +328,8 @@ public sealed partial class FileDownloadRunnerTests
         Assert.Equal(ErrorCode.Canceled, error.Error.Code);
         await reader.DisposeAsync();
         await reader.DisposeAsync();
+        var unavailable = Assert.Throws<FilewayException>(() => reader.ReadablePrefixBytes);
+        Assert.Equal(ErrorCode.SourceChanged, unavailable.Error.Code);
         Assert.Equal(1, Assert.Single(readable.Readers).DisposeCalls);
         Assert.Equal(TransferIntent.Run, (await fixture.ReadAsync()).Intent);
         Assert.False(running.IsCompleted);
@@ -435,9 +437,12 @@ public sealed partial class FileDownloadRunnerTests
         var completed = await running.WaitAsync(TimeSpan.FromSeconds(5), Token);
         Assert.Equal(TransferPhase.Completed, completed.Checkpoint.Phase);
         Assert.Equal(0, readable.RevokeCalls);
+        Assert.Equal(Data.LongLength, reader.ReadablePrefixBytes);
         Task control = dispose ? fixture.Runner.DisposeAsync().AsTask() : fixture.Runner.StopAndDrainAsync(Token);
         await control.WaitAsync(TimeSpan.FromSeconds(5), Token);
         Assert.Equal(1, readable.RevokeCalls);
+        var unavailable = Assert.Throws<FilewayException>(() => reader.ReadablePrefixBytes);
+        Assert.Equal(ErrorCode.SourceChanged, unavailable.Error.Code);
         var error = await Assert.ThrowsAsync<FilewayException>(() => reader.ReadAsync(0, new byte[4], Token).AsTask());
         Assert.Equal(ErrorCode.SourceChanged, error.Error.Code);
         Assert.Equal(completed, await fixture.ReadAsync());

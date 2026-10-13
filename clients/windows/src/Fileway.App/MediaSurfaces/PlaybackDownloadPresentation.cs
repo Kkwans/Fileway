@@ -39,7 +39,7 @@ internal static class PlaybackDownloadPresentation
             ? received.Value * 100m / total.Value : null;
         var bytesText = $"接收 {FormatBytes(received)} / {FormatBytes(total, "总量未知")}"
             + (percent is { } knownPercent ? " (" + (decimal.Truncate(knownPercent * 10) / 10).ToString("0.#", CultureInfo.CurrentCulture) + "%)" : "")
-            + $" · 落盘 {FormatBytes(confirmed)} · 可读前缀 {FormatBytes(readable)}";
+            + $" · 落盘 {FormatBytes(confirmed)} · 当前可读前缀 {FormatBytes(readable, "不可用")}";
         var indeterminate = percent is null || !complete
             && status is DownloadStatus.Verifying or DownloadStatus.Publishing or DownloadStatus.Reconciling;
         // Reception may honestly reach 100% before verification/publication. The
@@ -58,7 +58,7 @@ internal static class PlaybackDownloadPresentation
             _ => "接收进度不代表文件已保存。",
         };
         var help = $"{statusText}。{bytesText}。{detail}"
-            + "落盘是磁盘已持久确认的写入；可读前缀是当前拥有文件中已完成写入的连续字节，不代表可播放时长。"
+            + "落盘是磁盘已持久确认的写入；当前可读前缀仅在读取授权有效时显示，停止或撤销后为不可用，不代表可播放时长。"
             + "暂停播放不会暂停下载；预加载速度由播放器单独报告。";
         if (snapshot.Error is { } error) help += " " + error.Message;
         return new(statusText, bytesText, help, indeterminate, value, active || !indeterminate,

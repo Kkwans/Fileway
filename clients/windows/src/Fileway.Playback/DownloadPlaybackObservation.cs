@@ -17,7 +17,7 @@ internal sealed class DownloadPlaybackObservation : IAsyncDisposable
     private DownloadPlaybackSource? _source;
     private DownloadItem? _latest;
     private PlaybackDownloadState? _snapshot;
-    private Task? _pump, _disposal;
+    private Task? _pump, _cancellation, _disposal;
     private bool _stopped;
 
     internal DownloadPlaybackObservation(IDownloadPlaybackSourceProvider provider, DownloadPlaybackInput input)
@@ -133,6 +133,9 @@ internal sealed class DownloadPlaybackObservation : IAsyncDisposable
                 lock (_gate)
                 {
                     if (_stopped) return;
+                    // A newer task event may have arrived while the reader's current
+                    // capability was sampled. Never publish that superseded evidence.
+                    if (!ReferenceEquals(item, _latest)) continue;
                     if (_snapshot == snapshot) continue;
                     _snapshot = snapshot;
                 }
@@ -147,11 +150,34 @@ internal sealed class DownloadPlaybackObservation : IAsyncDisposable
         long? prefix = null;
         try
         {
-            long observed = reader.ReadablePrefixBytes;
-            if (observed >= 0 && observed <= reader.TotalBytes) prefix = observed;
+            if (TaskCanRemainReadable(item))
+            {
+                long observed = reader.ReadablePrefixBytes;
+                if (observed >= 0 && observed <= reader.TotalBytes) prefix = observed;
+            }
         }
         catch (Exception) { /* Revocation or unavailable evidence must not invent a readable prefix. */ }
         return new(item, prefix);
+    }
+
+    private static bool TaskCanRemainReadable(DownloadItem item)
+    {
+        var snapshot = item.Snapshot;
+        if (snapshot.Intent != TransferIntent.Run || snapshot.Error is not null) return false;
+        // LocalPublish is a normal writer fence while publication/reconciliation
+        // is still active. The same retained owner remains the read authority.
+        bool finalizing = (item.Status is DownloadStatus.Publishing or DownloadStatus.Reconciling) &&
+            (snapshot.Phase is TransferPhase.Publishing or TransferPhase.Reconciling);
+        if (snapshot.Uncertainty != TransferUncertainty.None &&
+            !(finalizing && snapshot.Uncertainty == TransferUncertainty.LocalPublish)) return false;
+        return item.Status switch
+        {
+            DownloadStatus.Downloading => snapshot.Phase == TransferPhase.Running,
+            DownloadStatus.Verifying => snapshot.Phase == TransferPhase.Verifying,
+            DownloadStatus.Publishing or DownloadStatus.Reconciling => finalizing,
+            DownloadStatus.Completed => snapshot.Phase == TransferPhase.Completed && snapshot.LocalPublished,
+            _ => false,
+        };
     }
 
     internal void Stop()
@@ -160,8 +186,9 @@ internal sealed class DownloadPlaybackObservation : IAsyncDisposable
         {
             if (_stopped) return;
             _stopped = true;
+            if (_snapshot is not null) _snapshot = _snapshot with { ReadablePrefixBytes = null };
             _provider.TaskChanged -= Changed;
-            _ = _stop.CancelAsync();
+            _cancellation = _stop.CancelAsync();
         }
     }
 
@@ -173,7 +200,11 @@ internal sealed class DownloadPlaybackObservation : IAsyncDisposable
 
     private async Task DisposeCoreAsync()
     {
-        if (_pump is not null) await _pump.ConfigureAwait(false);
-        _stop.Dispose();
+        try
+        {
+            if (_cancellation is not null) await _cancellation.ConfigureAwait(false);
+            if (_pump is not null) await _pump.ConfigureAwait(false);
+        }
+        finally { _stop.Dispose(); }
     }
 }

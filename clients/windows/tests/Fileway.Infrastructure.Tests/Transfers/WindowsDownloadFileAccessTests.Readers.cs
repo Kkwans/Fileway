@@ -7,6 +7,39 @@ namespace Fileway.Infrastructure.Tests.Transfers;
 
 public sealed partial class WindowsDownloadFileAccessTests
 {
+    [Theory]
+    [InlineData("reader")]
+    [InlineData("owner")]
+    [InlineData("writer")]
+    public async Task HistoricalPrefixIsUnavailableAsSoonAsReaderOrOwnerReleaseBegins(string release)
+    {
+        using var fixture = new NativeFixture();
+        await using var destination = await new WindowsDownloadFileAccess().CreateFreshAsync(fixture.FinalPath, Token);
+        var readable = Assert.IsAssignableFrom<IReadableDownloadDestination>(destination);
+        await using var reader = await readable.AcquireReadLeaseAsync(ReaderRun(), Payload.Length, Token);
+        await destination.WriteAsync(Payload.AsMemory(0, 3), Token);
+        Assert.Equal(3, reader.ReadablePrefixBytes);
+        var serial = DestinationSerial(destination);
+        await serial.WaitAsync(Token);
+        Task stopping;
+        try
+        {
+            stopping = release switch
+            {
+                "reader" => reader.DisposeAsync().AsTask(),
+                "owner" => readable.RevokeReadersAsync(Token),
+                _ => destination.DisposeAsync().AsTask(),
+            };
+            Assert.False(stopping.IsCompleted);
+            var unavailable = Assert.Throws<FilewayException>(() => reader.ReadablePrefixBytes);
+            Assert.Equal(ErrorCode.OutcomeUnknown, unavailable.Error.Code);
+            AssertSafeFailure(unavailable, fixture.Root);
+        }
+        finally { serial.Release(); }
+        await stopping.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        Assert.Throws<FilewayException>(() => reader.ReadablePrefixBytes);
+    }
+
     [Fact]
     public async Task ProgressiveReaderUsesVerifiedWritesBeforeFlushAndNeverReturnsTemporaryEof()
     {
@@ -199,11 +232,15 @@ public sealed partial class WindowsDownloadFileAccessTests
             await AssertReaderUnknownAsync(() => readable.AcquireReadLeaseAsync(run, Payload.Length, Token), fixture.Root);
             // Rejected writer/admission operations cannot invalidate existing retained readers.
             await AssertReaderUnknownAsync(() => destination.FlushToDiskAsync(Token), fixture.Root);
+            Assert.Equal(Payload.Length, first.ReadablePrefixBytes);
+            Assert.Equal(Payload.Length, second.ReadablePrefixBytes);
             byte[] buffer = new byte[Payload.Length];
             Assert.Equal(Payload.Length, await first.ReadAsync(0, buffer, Token));
             Assert.Equal(Payload, buffer);
             Assert.Equal(0, await first.ReadAsync(Payload.Length, buffer, Token));
             await first.DisposeAsync();
+            Assert.Throws<FilewayException>(() => first.ReadablePrefixBytes);
+            Assert.Equal(Payload.Length, second.ReadablePrefixBytes);
             Assert.Throws<IOException>(() => File.Move(fixture.FinalPath, Path.Combine(fixture.DestinationDirectory, "moved.bin")));
             Assert.Equal(Payload.Length, await second.ReadAsync(0, buffer, Token));
         }
@@ -414,7 +451,9 @@ public sealed partial class WindowsDownloadFileAccessTests
         DestinationField(destination, "_length").SetValue(destination, 4L);
         await AssertReaderUnknownAsync(() => second.ReadAsync(0, new byte[1], Token).AsTask(), fixture.Root);
         await AssertReaderUnknownAsync(() => future, fixture.Root);
-        Assert.Equal(3, first.ReadablePrefixBytes);
+        var unavailable = Assert.Throws<FilewayException>(() => first.ReadablePrefixBytes);
+        Assert.Equal(ErrorCode.OutcomeUnknown, unavailable.Error.Code);
+        AssertSafeFailure(unavailable, fixture.Root);
         await AssertReaderUnknownAsync(() => readable.AcquireReadLeaseAsync(run, Payload.Length, Token), fixture.Root);
         Assert.False(File.Exists(fixture.FinalPath));
     }

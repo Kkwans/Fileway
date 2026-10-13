@@ -313,7 +313,9 @@ public sealed partial class FileDownloadRunner
             {
                 try
                 {
+                    RequireAvailable();
                     long value = inner.ReadablePrefixBytes;
+                    RequireAvailable();
                     return value >= 0 && value <= TotalBytes ? value : throw Safe(ErrorCode.ProtocolMismatch);
                 }
                 catch (Exception error) { throw Normalize(error); }
@@ -322,17 +324,25 @@ public sealed partial class FileDownloadRunner
         public async ValueTask<int> ReadAsync(long offset, Memory<byte> buffer, CancellationToken cancellationToken)
         {
             if (offset < 0 || offset > TotalBytes || buffer.Length > MaximumReadBytes) throw Safe(ErrorCode.InvalidRequest);
-            lock (runner._gate)
-                if (Volatile.Read(ref _closed) != 0 || reservation.Owner!.Revoked) throw Safe(ErrorCode.SourceChanged);
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
+                RequireAvailable();
                 int received = await inner.ReadAsync(offset, buffer, cancellationToken).ConfigureAwait(false);
+                // An in-flight provider result cannot outlive reader disposal or its execution fence.
+                RequireAvailable();
+                cancellationToken.ThrowIfCancellationRequested();
                 if (received < 0 || received > buffer.Length || received > Math.Max(0, TotalBytes - offset) ||
                     received == 0 && buffer.Length != 0 && offset < TotalBytes)
                     throw Safe(ErrorCode.ProtocolMismatch);
                 return received;
             }
             catch (Exception error) { throw Normalize(error); }
+        }
+        private void RequireAvailable()
+        {
+            lock (runner._gate)
+                if (Volatile.Read(ref _closed) != 0 || reservation.Owner!.Revoked) throw Safe(ErrorCode.SourceChanged);
         }
         public ValueTask DisposeAsync()
         {

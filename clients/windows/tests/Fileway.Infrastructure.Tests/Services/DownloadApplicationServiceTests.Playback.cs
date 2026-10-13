@@ -277,6 +277,126 @@ public sealed partial class DownloadApplicationServiceTests
         Assert.Equal(0, fixture.Runner.Inner.Cancels);
     }
 
+    [Theory]
+    [InlineData("disconnect")]
+    [InlineData("reconnect")]
+    [InlineData("invalidate")]
+    [InlineData("permission")]
+    [InlineData("cancel")]
+    [InlineData("reader-dispose")]
+    [InlineData("dispose")]
+    public async Task AdmittedPlaybackReaderCannotExposeHistoricalPrefixAfterAuthorityEnds(string retirement)
+    {
+        await using var fixture = new PlaybackFixture();
+        var task = await fixture.StartAsync();
+        var context = fixture.Context;
+        fixture.Runner.Transform = reader => reader.Prefix = 4;
+        var source = await fixture.Playback.AcquirePlaybackAsync(context, task, Token);
+        try
+        {
+            Assert.Equal(4, source.Reader.ReadablePrefixBytes);
+            switch (retirement)
+            {
+                case "disconnect": await fixture.Bridge.DisconnectAsync(context.Account, Token).WaitAsync(Timeout, Token); break;
+                case "reconnect": await fixture.ConnectAsync().WaitAsync(Timeout, Token); break;
+                case "invalidate": fixture.Connection.Invalidate(); break;
+                case "permission": fixture.Connection.EmitSession(fixture.Connection.Active! with
+                    { Permissions = fixture.Connection.Active.Permissions with { Download = false } }); break;
+                case "cancel": await fixture.Downloads.CancelAsync(context, task, Token); break;
+                case "reader-dispose": await source.Reader.DisposeAsync(); break;
+                case "dispose": await fixture.Bridge.DisposeAsync().AsTask().WaitAsync(Timeout, Token); break;
+            }
+            var unavailable = Assert.Throws<FilewayException>(() => source.Reader.ReadablePrefixBytes);
+            Assert.Equal(retirement == "permission" ? ErrorCode.PermissionDenied : ErrorCode.SourceChanged, unavailable.Error.Code);
+            // The provider deliberately keeps its positive historical count. The application
+            // boundary must fence it without depending on a cooperative provider getter.
+            Assert.Equal(4, fixture.Runner.LastReader!.ReadablePrefixBytes);
+            await FailureAsync(unavailable.Error.Code, () => source.Reader.ReadAsync(0, new byte[1], Token).AsTask());
+        }
+        finally { await source.Reader.DisposeAsync(); }
+        Assert.Equal(1, fixture.Runner.LastReader!.Disposals);
+    }
+
+    [Theory]
+    [InlineData("generation")]
+    [InlineData("uncertain")]
+    [InlineData("failed")]
+    public async Task AcceptedTaskChangesFenceAnAlreadyAdmittedReader(string change)
+    {
+        await using var fixture = new PlaybackFixture();
+        var task = await fixture.StartAsync();
+        fixture.Runner.Transform = reader => reader.Prefix = 4;
+        var source = await fixture.Playback.AcquirePlaybackAsync(fixture.Context, task, Token);
+        try
+        {
+            fixture.Store.Transform = record => change switch
+            {
+                "generation" => record with { Generation = record.Generation + 1,
+                    Run = record.Run!.Value with { Generation = record.Generation + 1 } },
+                "uncertain" => record with { Checkpoint = record.Checkpoint with { Uncertainty = TransferUncertainty.LocalPublish } },
+                _ => record with { Checkpoint = record.Checkpoint with { Error = new(ErrorCode.SourceChanged, "private source detail") } },
+            };
+            await fixture.Downloads.ListAsync(fixture.Context, null, 50, Token);
+            var unavailable = Assert.Throws<FilewayException>(() => source.Reader.ReadablePrefixBytes);
+            Assert.Equal(ErrorCode.SourceChanged, unavailable.Error.Code);
+            await FailureAsync(ErrorCode.SourceChanged, () => source.Reader.ReadAsync(0, new byte[1], Token).AsTask());
+        }
+        finally { await source.Reader.DisposeAsync(); }
+    }
+
+    [Fact]
+    public async Task PublishingFenceAndVerifiedCompletionRetainTheOriginalAdmittedReader()
+    {
+        await using var fixture = new PlaybackFixture();
+        var task = await fixture.StartAsync();
+        fixture.Runner.Transform = reader => { reader.Prefix = 8; reader.ReadOperation = (_, _, _) => ValueTask.FromResult(1); };
+        var source = await fixture.Playback.AcquirePlaybackAsync(fixture.Context, task, Token);
+        try
+        {
+            fixture.Store.Transform = record => record with { Checkpoint = record.Checkpoint with
+                { Phase = TransferPhase.Publishing, Uncertainty = TransferUncertainty.LocalPublish } };
+            await fixture.Downloads.ListAsync(fixture.Context, null, 50, Token);
+            Assert.Equal(8, source.Reader.ReadablePrefixBytes);
+            Assert.Equal(1, await source.Reader.ReadAsync(0, new byte[1], Token));
+            fixture.Store.Transform = null;
+            await fixture.Runner.Inner.CompleteAsync(task, Token);
+            var page = await fixture.Downloads.ListAsync(fixture.Context, null, 50, Token);
+            Assert.Equal(DownloadStatus.Completed, Assert.Single(page.Items).Status);
+            Assert.Equal(8, source.Reader.ReadablePrefixBytes);
+            Assert.Equal(1, await source.Reader.ReadAsync(0, new byte[1], Token));
+            Assert.Equal(1, fixture.Runner.Acquisitions);
+            Assert.Equal(0, fixture.Runner.LastReader!.Disposals);
+            Assert.Equal(0, fixture.Runner.Inner.Cancels);
+        }
+        finally { await source.Reader.DisposeAsync(); }
+    }
+
+    [Fact]
+    public async Task AuthorityWithdrawalRejectsAnInFlightProviderResponse()
+    {
+        await using var fixture = new PlaybackFixture();
+        var task = await fixture.StartAsync();
+        var entered = Signal();
+        var release = fixture.Gate();
+        fixture.Runner.Transform = reader => reader.ReadOperation = async (_, _, _) =>
+        {
+            entered.TrySetResult();
+            await release.Task;
+            return 1;
+        };
+        var source = await fixture.Playback.AcquirePlaybackAsync(fixture.Context, task, Token);
+        try
+        {
+            var reading = source.Reader.ReadAsync(0, new byte[1], Token).AsTask();
+            await entered.Task.WaitAsync(Timeout, Token);
+            fixture.Connection.EmitSession(fixture.Connection.Active! with
+                { Permissions = fixture.Connection.Active.Permissions with { Download = false } });
+            release.TrySetResult();
+            await FailureAsync(ErrorCode.PermissionDenied, () => reading.WaitAsync(Timeout, Token));
+        }
+        finally { release.TrySetResult(); await source.Reader.DisposeAsync(); }
+    }
+
     [Fact]
     public async Task PlaybackConcurrentAdmissionIsBoundedUntilProviderReturns()
     {
@@ -410,12 +530,14 @@ public sealed partial class DownloadApplicationServiceTests
         internal bool GetterFails { get; set; }
         internal Task? DisposalWait { get; set; }
         internal Func<Task>? OnDispose { get; set; }
+        internal Func<long, Memory<byte>, CancellationToken, ValueTask<int>>? ReadOperation { get; set; }
         internal TaskCompletionSource DisposalEntered { get; } = Signal();
         public TransferRunToken Run => GetterFails ? throw new IOException("private reader identity") : Identity;
         public long TotalBytes => Total;
         public long ReadablePrefixBytes => Prefix;
         public ValueTask<int> ReadAsync(long offset, Memory<byte> buffer, CancellationToken cancellationToken) =>
-            ValueTask.FromException<int>(new IOException("private local path and token"));
+            ReadOperation is { } read ? read(offset, buffer, cancellationToken)
+                : ValueTask.FromException<int>(new IOException("private local path and token"));
         public async ValueTask DisposeAsync()
         {
             Interlocked.Increment(ref Disposals);
@@ -434,7 +556,11 @@ public sealed partial class DownloadApplicationServiceTests
         public Task<TransferTaskRecord> CreateTransferAsync(TransferPlan plan, CancellationToken cancellationToken) => Inner.CreateTransferAsync(plan, cancellationToken);
         public async Task<TransferTaskRecord?> GetTransferAsync(TransferTaskRef task, CancellationToken cancellationToken)
         { var record = await Inner.GetTransferAsync(task, cancellationToken); return record is not null && Transform is { } transform ? transform(record) : record; }
-        public Task<TransferTaskPage> ListTransfersAsync(AccountKey account, string? cursor, int limit, CancellationToken cancellationToken) => Inner.ListTransfersAsync(account, cursor, limit, cancellationToken);
+        public async Task<TransferTaskPage> ListTransfersAsync(AccountKey account, string? cursor, int limit, CancellationToken cancellationToken)
+        {
+            var page = await Inner.ListTransfersAsync(account, cursor, limit, cancellationToken);
+            return Transform is { } transform ? page with { Items = page.Items.Select(transform).ToArray() } : page;
+        }
         public Task<bool> HasProtectedTransfersAsync(AccountKey account, CancellationToken cancellationToken) => Inner.HasProtectedTransfersAsync(account, cancellationToken);
         public Task<TransferTaskRecord> SetTransferIntentAsync(TransferTaskRef task, long expectedRevision, TransferIntent intent, CancellationToken cancellationToken) => Inner.SetTransferIntentAsync(task, expectedRevision, intent, cancellationToken);
         public Task<TransferTaskRecord> ClaimTransferAsync(TransferTaskRef task, long expectedRevision, Guid runId, bool recovery, CancellationToken cancellationToken) => Inner.ClaimTransferAsync(task, expectedRevision, runId, recovery, cancellationToken);

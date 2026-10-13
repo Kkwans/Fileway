@@ -185,7 +185,7 @@ public sealed class MpvDownloadStreamBridgeTests
         await using var fixture = new NativeFixture(lease);
         var stream = fixture.Open();
         using var buffer = new NativeBuffer();
-        var read = Task.Run(() => Native.Read(stream, buffer.Address, 1));
+        var read = Task.Run(() => Native.Read(stream, buffer.Address, 1), TestContext.Current.CancellationToken);
         try
         {
             await entered.Task.WaitAsync(Deadline, TestContext.Current.CancellationToken);
@@ -261,6 +261,88 @@ public sealed class MpvDownloadStreamBridgeTests
         lease.ReadOverride = (_, _, _) => ValueTask.FromException<int>(new ObjectDisposedException("reader"));
         Assert.Equal(-1, Native.Read(stream, buffer.Address, 1));
         Assert.Equal(0, lease.LastOffset);
+    }
+
+    [Fact]
+    public async Task RevokedReaderCannotAdvertiseSizeSeekOrEofFromHistoricalMetadata()
+    {
+        var lease = new TestLease(10, 10);
+        await using var fixture = new NativeFixture(lease);
+        var stream = fixture.Open();
+        Assert.Equal(10, Native.Seek(stream, 10));
+        lease.PrefixFailure = new IOException("private revoked reader path");
+        using var buffer = new NativeBuffer();
+        Assert.Equal(MpvDownloadStreamBridge.LoadingFailed, fixture.TryOpen(fixture.Bridge.Uri).Result);
+        Assert.Equal(MpvDownloadStreamBridge.GenericError, Native.Size(stream));
+        Assert.Equal(MpvDownloadStreamBridge.GenericError, Native.Seek(stream, 0));
+        Assert.Equal(-1, Native.Read(stream, buffer.Address, 1));
+        Assert.Equal(-1, Native.Read(stream, 0, 0));
+        Assert.Equal(0xA5, buffer.ReadByte());
+        Assert.Equal(0, lease.DisposeCount);
+    }
+
+    [Fact]
+    public async Task ReaderRevocationDuringIoCannotCopyLateBytesIntoTheNativeBuffer()
+    {
+        var entered = Signal();
+        var release = Signal();
+        var lease = new TestLease(10, 10)
+        {
+            ReadOverride = async (_, buffer, _) =>
+            {
+                entered.TrySetResult();
+                await release.Task;
+                buffer.Span[0] = 0x11;
+                return 1;
+            },
+        };
+        await using var fixture = new NativeFixture(lease);
+        var stream = fixture.Open();
+        using var buffer = new NativeBuffer();
+        var read = Task.Run(() => Native.Read(stream, buffer.Address, 1));
+        try
+        {
+            await entered.Task.WaitAsync(Deadline, TestContext.Current.CancellationToken);
+            lease.PrefixFailure = new IOException("private revoked reader path");
+            release.TrySetResult();
+            Assert.Equal(-1, await read.WaitAsync(Deadline, TestContext.Current.CancellationToken));
+            Assert.Equal(0xA5, buffer.ReadByte());
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [Fact]
+    public async Task CloseDuringReaderSamplingDrainsBeforeLeaseReleaseAndCannotReturnLateBytes()
+    {
+        var entered = Signal();
+        var release = Signal();
+        int readerCalls = 0;
+        var lease = new TestLease(10, 10)
+        { ReadOverride = (_, _, _) => { Interlocked.Increment(ref readerCalls); return ValueTask.FromResult(1); } };
+        await using var fixture = new NativeFixture(lease);
+        var stream = fixture.Open();
+        lease.BeforePrefixRead = () =>
+        {
+            entered.TrySetResult();
+            release.Task.GetAwaiter().GetResult();
+        };
+        using var buffer = new NativeBuffer();
+        var read = Task.Run(() => Native.Read(stream, buffer.Address, 1));
+        try
+        {
+            await entered.Task.WaitAsync(Deadline, TestContext.Current.CancellationToken);
+            await Task.Run(() => Native.Close(stream), TestContext.Current.CancellationToken).WaitAsync(Deadline, TestContext.Current.CancellationToken);
+            Task releasing = fixture.Bridge.ReleaseAfterDestroyAsync();
+            Assert.False(releasing.IsCompleted);
+            Assert.Equal(0, lease.DisposeCount);
+            release.TrySetResult();
+            Assert.Equal(-1, await read.WaitAsync(Deadline, TestContext.Current.CancellationToken));
+            await releasing.WaitAsync(Deadline, TestContext.Current.CancellationToken);
+            Assert.Equal(0, readerCalls);
+            Assert.Equal(0xA5, buffer.ReadByte());
+            Assert.Equal(1, lease.DisposeCount);
+        }
+        finally { release.TrySetResult(); }
     }
 
     [Fact]
@@ -519,12 +601,21 @@ public sealed class MpvDownloadStreamBridgeTests
 
         public TransferRunToken Run => default;
         public long TotalBytes => totalBytes;
-        public long ReadablePrefixBytes { get { lock (_gate) return _prefix; } }
+        public long ReadablePrefixBytes
+        {
+            get
+            {
+                BeforePrefixRead?.Invoke();
+                lock (_gate) return PrefixFailure is { } failure ? throw failure : _prefix;
+            }
+        }
         internal int DisposeCount => Volatile.Read(ref _disposed);
         internal long LastOffset { get; private set; }
         internal int MaximumRequested { get; private set; }
         internal TaskCompletionSource Waiting { get; } = Signal();
         internal Func<long, Memory<byte>, CancellationToken, ValueTask<int>>? ReadOverride { get; set; }
+        internal Exception? PrefixFailure { get; set; }
+        internal Action? BeforePrefixRead { get; set; }
 
         public async ValueTask<int> ReadAsync(long offset, Memory<byte> buffer, CancellationToken cancellationToken)
         {

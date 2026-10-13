@@ -18,7 +18,7 @@ public sealed class PlaybackDownloadPresentationTests
         var view = Present(State(received: 512, confirmed: 64, readable: 384));
 
         Assert.Equal("下载中", view.StatusText);
-        Assert.Equal("接收 512 B / 1 KiB (50%) · 落盘 64 B · 可读前缀 384 B", view.BytesText);
+        Assert.Equal("接收 512 B / 1 KiB (50%) · 落盘 64 B · 当前可读前缀 384 B", view.BytesText);
         Assert.Equal(512, view.ReceivedBytes);
         Assert.Equal(64, view.ConfirmedBytes);
         Assert.Equal(384, view.ReadablePrefixBytes);
@@ -42,7 +42,8 @@ public sealed class PlaybackDownloadPresentationTests
         Assert.Equal(512, view.ReceivedBytes);
         Assert.Null(view.ConfirmedBytes);
         Assert.Null(view.ReadablePrefixBytes);
-        Assert.Contains("落盘 — · 可读前缀 —", view.BytesText, StringComparison.Ordinal);
+        Assert.Contains("落盘 — · 当前可读前缀 不可用", view.BytesText, StringComparison.Ordinal);
+        Assert.Contains("停止或撤销后为不可用", view.HelpText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -120,6 +121,20 @@ public sealed class PlaybackDownloadPresentationTests
         Assert.False(view.IsIndeterminate);
         Assert.True(view.ShowProgress);
         Assert.Equal(100, view.ProgressValue);
+        Assert.Contains("文件已校验并保存", view.HelpText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void UnavailableCurrentReaderPreservesHistoricalReceptionFlushAndPublicationFacts()
+    {
+        var view = Present(State(status: DownloadStatus.Completed, phase: TransferPhase.Completed,
+            received: 1024, confirmed: 1024, readable: null, published: true));
+
+        Assert.True(view.IsComplete);
+        Assert.Equal(1024, view.ReceivedBytes);
+        Assert.Equal(1024, view.ConfirmedBytes);
+        Assert.Null(view.ReadablePrefixBytes);
+        Assert.Contains("当前可读前缀 不可用", view.BytesText, StringComparison.Ordinal);
         Assert.Contains("文件已校验并保存", view.HelpText, StringComparison.Ordinal);
     }
 
@@ -231,7 +246,7 @@ public sealed class PlaybackDownloadPresentationTests
         Assert.Null(view.ConfirmedBytes);
         Assert.Null(view.ReadablePrefixBytes);
         Assert.True(view.IsIndeterminate);
-        Assert.Equal("接收 — / 1 KiB · 落盘 — · 可读前缀 —", view.BytesText);
+        Assert.Equal("接收 — / 1 KiB · 落盘 — · 当前可读前缀 不可用", view.BytesText);
     }
 
     [Fact]

@@ -939,8 +939,8 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
         private void RequireReadable(DownloadReadLease reader)
         {
             if (_readersRevoked || _readerFaulted || _handleClosed || _deleted || _deleteUncertain ||
-                _writeFaulted || _disposed && !_published || _readerRun != reader.Run ||
-                _readerTotal != reader.TotalBytes) throw Unknown();
+                _writeFaulted || _disposed && !_published || _disposal is not null && !_publicationVerified ||
+                _readerRun != reader.Run || _readerTotal != reader.TotalBytes) throw Unknown();
         }
 
         private void AdvanceReadablePrefix(long next)
@@ -1017,7 +1017,23 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
             private bool _stopped, _stopIssued, _stopFailed;
             public TransferRunToken Run => run;
             public long TotalBytes => totalBytes;
-            public long ReadablePrefixBytes => Interlocked.Read(ref owner._readablePrefix);
+            public long ReadablePrefixBytes
+            {
+                get
+                {
+                    lock (_gate)
+                    {
+                        if (_stopped) throw Unknown();
+                        lock (owner._readerGate)
+                        {
+                            // The retained count is historical after revocation or this lease's
+                            // disposal. Only a currently readable owner can grant this evidence.
+                            owner.RequireReadable(this);
+                            return owner._readablePrefix;
+                        }
+                    }
+                }
+            }
             internal Task Drained => _drained.Task;
             internal bool StopFailed { get { lock (_gate) return _stopFailed; } }
 

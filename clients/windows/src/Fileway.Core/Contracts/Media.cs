@@ -76,7 +76,11 @@ public sealed record PlaybackDiagnostics(
 /// <summary>An engine-observed seekable buffer interval; never inferred from downloaded byte ratios.</summary>
 public readonly record struct BufferedTimeRange(TimeSpan Start, TimeSpan End);
 
-/// <summary>Actual download task evidence, separate from engine buffering and indexed playable time.</summary>
+/// <summary>
+/// Actual download task evidence, separate from engine buffering and indexed playable time.
+/// ReadablePrefixBytes is null when current read authorization is unavailable or unconfirmed;
+/// Item may still retain historical transfer evidence after playback has stopped.
+/// </summary>
 public sealed record PlaybackDownloadState(DownloadItem Item, long? ReadablePrefixBytes)
 {
     public override string ToString() => "PlaybackDownloadState (task details redacted)";

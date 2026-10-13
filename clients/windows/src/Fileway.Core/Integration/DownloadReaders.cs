@@ -10,7 +10,11 @@ public interface IDownloadReadLease : IAsyncDisposable
 {
     TransferRunToken Run { get; }
     long TotalBytes { get; }
-    /// <summary>Owner-verified completed writes, not a flush, publication, or offline-playability guarantee.</summary>
+    /// <summary>
+    /// Current owner-verified completed writes, not a flush/publication/offline-playability guarantee.
+    /// Revocation, disposal or source/authorization failure throws a safe exception rather than returning
+    /// a historical prefix. Successful publication may remain readable through the same retained object.
+    /// </summary>
     long ReadablePrefixBytes { get; }
     /// <summary>
     /// Reads at an absolute offset. Waits without holding writer/I/O locks when bytes may still arrive.
