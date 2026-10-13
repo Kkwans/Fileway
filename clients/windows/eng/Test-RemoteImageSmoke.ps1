@@ -45,6 +45,15 @@ function Invoke-BoundedProcess([string] $Executable, [string[]] $Arguments, [int
         return @{ exitCode = $process.ExitCode; stdout = $raw }
     } finally { $process.Dispose() }
 }
+function Resolve-PythonExecutable {
+    # Get-Command can return both setup-python and the WindowsApps alias.
+    # Resolve the real PATH winner, never concatenate all application paths.
+    $commands = @(Get-Command python -CommandType Application -TotalCount 1 -ErrorAction SilentlyContinue)
+    if ($commands.Count -ne 1) { Stop-Smoke 'python_executable_not_resolved' -EnvironmentBlocked }
+    $path = $commands[0].Source
+    if ($path -isnot [string] -or -not [IO.Path]::IsPathFullyQualified($path) -or -not [IO.File]::Exists($path)) { Stop-Smoke 'python_executable_invalid' -EnvironmentBlocked }
+    return $path
+}
 function Get-ServerRecents([string] $BaseAddress) {
     $uri = [Uri]::new($BaseAddress)
     if ($uri.Scheme -cne 'http' -or $uri.Host -cne '127.0.0.1' -or $uri.AbsolutePath -cne '/' -or $uri.Query -ne '' -or $uri.UserInfo -ne '') { Stop-Smoke 'loopback_recents_required' }
@@ -102,7 +111,7 @@ try {
         $name = 'fileway-image-ci-' + [Guid]::NewGuid().ToString('N') + '.png'
         $remote = Join-Path $privateRoot 'remote'; $null = New-Item -ItemType Directory -Path $remote
         $script:stage = 'synthetic-image-fixture-process'
-        $fixture = Invoke-BoundedProcess (Get-Command python -CommandType Application).Source @((Join-Path $PSScriptRoot 'New-RemoteImageSmokeFixture.py'), '--output', (Join-Path $remote $name)) 15000
+        $fixture = Invoke-BoundedProcess (Resolve-PythonExecutable) @((Join-Path $PSScriptRoot 'New-RemoteImageSmokeFixture.py'), '--output', (Join-Path $remote $name)) 15000
         if ($fixture.exitCode -ne 0) { Stop-Smoke 'synthetic_fixture_failed' }
         $script:stage = 'synthetic-image-fixture-contract'
         $metadata = $fixture.stdout | ConvertFrom-Json -AsHashtable

@@ -165,6 +165,38 @@ $bad=$entry.Clone();$bad.accessedAt=$now+100000
 if(Test-RemoteImageRecentEntry @($bad) $name $now) {throw 'future_passed'}
 """)
 
+    def test_python_resolution_uses_path_precedence_and_validates_single_executable(self):
+        self.assertIn('Get-Command python -CommandType Application -TotalCount 1', SOURCE)
+        self.assertIn('$commands.Count -ne 1', SOURCE)
+        self.assertIn('[IO.Path]::IsPathFullyQualified($path)', SOURCE)
+        self.assertIn('[IO.File]::Exists($path)', SOURCE)
+        self.assertIn('Invoke-BoundedProcess (Resolve-PythonExecutable)', SOURCE)
+        self.assertNotIn('(Get-Command python -CommandType Application).Source', SOURCE)
+
+    @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual resolver tests run in Windows CI')
+    def test_actual_resolver_validates_result_and_requested_resolution_contract(self):
+        start = SOURCE.index('function Resolve-PythonExecutable')
+        helper = SOURCE[start:SOURCE.index('function Get-ServerRecents', start)]
+        self.pwsh('. (Get-RemoteSmokeFunctions); ' + helper + r"""
+$executable=Join-Path $PSHOME $(if($IsWindows){'pwsh.exe'}else{'pwsh'})
+$script:results=@(@{Source=$executable});$script:requests=0
+function Get-Command {param($Name,$CommandType,$TotalCount,$ErrorAction)
+    if($Name -cne 'python' -or $CommandType -cne 'Application' -or $TotalCount -ne 1 -or $ErrorAction -cne 'SilentlyContinue'){throw 'wrong_resolution_contract'}
+    $script:requests++;return $script:results
+}
+if((Resolve-PythonExecutable) -cne $executable){throw 'resolved_executable_wrong'}
+foreach($shape in @('empty','duplicate','relative','missing')) {
+    $script:results=switch($shape){
+        'empty' {@()};'duplicate' {@(@{Source=$executable},@{Source=$executable})};
+        'relative' {@(@{Source='relative.exe'})};'missing' {@(@{Source=(Join-Path ([IO.Path]::GetTempPath()) ('absent-' + [Guid]::NewGuid().ToString('N') + '.exe'))})}
+    }
+    $code=$null;try{$null=Resolve-PythonExecutable}catch{$code=$_.Exception.Message}
+    $expected=if($shape -in @('empty','duplicate')){'python_executable_not_resolved'}else{'python_executable_invalid'}
+    if($code -cne $expected){throw ('invalid_executable_accepted:'+$shape+':'+$code)}
+}
+if($script:requests -ne 5){throw 'not_all_resolution_checks_executed'}
+""")
+
     @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual process/fixture call runs in Windows CI')
     def test_actual_bounded_python_fixture_process(self):
         start = SOURCE.index('function Invoke-BoundedProcess')
@@ -175,7 +207,7 @@ $directory=Join-Path ([IO.Path]::GetTempPath()) ('FilewayRemoteImageHelper-' + [
 $null=New-Item -ItemType Directory -Path $directory
 $path=Join-Path $directory 'synthetic.png'
 try {
-    $fixture=Invoke-BoundedProcess (Get-Command python -CommandType Application).Source @('FIXTURE','--output',$path) 15000
+    $fixture=Invoke-BoundedProcess (Resolve-PythonExecutable) @('FIXTURE','--output',$path) 15000
     if($fixture.exitCode -ne 0){throw 'actual_fixture_process_failed'}
     $metadata=$fixture.stdout | ConvertFrom-Json -AsHashtable
     if($metadata.bytes -ne 461223 -or $metadata.sha256 -cne '5a05232336535f96c4c698007a8e562019af15240b901fc3ecd4908b16f6874c') {throw 'actual_fixture_metadata_wrong'}
