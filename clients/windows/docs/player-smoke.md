@@ -238,6 +238,29 @@ its observed app and Host exits are zero. Capture/analysis failures are fixed
 codes and cannot convert an abnormal application exit into a pass. A subsequent
 run without the debugger is required to verify a shutdown fix.
 
+### Existing internal responsiveness intervals
+
+When the bounded numeric responsiveness report is copied, the harness emits
+`player-internal-timing` records once, without adding product instrumentation.
+Metric 1 pairs SettingsInput with SettingsActivateEnd; metric 2 pairs a
+FullscreenInput/NativeFullscreenInput through an intervening FullscreenUiEntered
+with the matching FullscreenPresenterEnd; metric 3 pairs FullscreenUiEntered
+with its matching FullscreenPresenterEnd. Each numeric record retains the start
+event ID, settings action or fullscreen state, endpoint sequence numbers and
+elapsed microseconds. Input is limited to 512 validated entries. Missing entries,
+overlapping starts, mismatched states, absent endpoints and negative intervals
+produce no sample. A malformed report suffix rejects the whole derived set.
+`player-internal-timing-result` status 1 means parsing finished (possibly with
+zero usable samples); status 2 means unavailable. Neither grants latency
+acceptance or changes any interaction/exit gate.
+
+These are paired internal event intervals, not operation-ID correlation or
+physical input-to-visible-pixel measurements. CLI command durations include
+process startup, discovery and automation overhead; whole-step deltas also
+include deliberate waits and screenshots. Neither should be relabeled as UI
+response latency. Presenter/activation completion does not establish when the
+compositor first presented the new pixels.
+
 Offline tests/compilation establish file and decoder contracts, not functioning
 Windows capture, UIA delivery or native playback. An executed hosted Windows
 smoke proves only those explicit assertions on that runner. It does not prove

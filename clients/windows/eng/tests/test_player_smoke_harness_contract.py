@@ -180,6 +180,21 @@ class HarnessGuards(unittest.TestCase):
         for private in (".dmp", "shutdown-stack.log", "symbols", "Fileway-private"):
             self.assertNotIn(private, upload)
 
+    def test_internal_timings_use_existing_numeric_events_not_latency_acceptance(self):
+        _, native, powershell = source_parts()
+        self.assertIn("[Fileway.PlayerSmoke.ResponsivenessEvidence]::Pair($rows.ToArray())", powershell)
+        self.assertIn("if (-not $script:responsivenessTimingsRecorded)", powershell)
+        self.assertIn("Record-Observation 'player-internal-timing' @{", powershell)
+        self.assertNotIn("Record-Observation 'player-internal-timing' $timing", powershell)
+        self.assertIn("rows.Length>512", native)
+        self.assertIn("row[0]-previous!=1", native)
+        self.assertNotIn("latencyAccepted", powershell)
+        app = (ENG.parent / "src/Fileway.App/MediaSurfaces/PlaybackResponsivenessDiagnostics.cs").read_text(encoding="utf-8")
+        entries = [line.strip().rstrip(",") for line in app.split("internal enum PlaybackDiagnosticEvent", 1)[1].split("{", 1)[1].split("}", 1)[0].splitlines() if line.strip()]
+        self.assertEqual(len(entries), 29)
+        for index, name in {2:"FullscreenInput",3:"SettingsInput",5:"NativeFullscreenInput",6:"FullscreenUiEntered",8:"FullscreenPresenterEnd",18:"SettingsActivateEnd"}.items():
+            self.assertEqual(entries[index], name)
+
     def test_artifact_allowlist_contains_only_named_json_and_png(self):
         text, _, _ = source_parts()
         block = re.search(r"\$allowedArtifacts = @\((.*?)\)\n", text, re.S).group(1)
@@ -198,6 +213,45 @@ class HarnessGuards(unittest.TestCase):
         result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-Command", command],
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
+    def test_actual_internal_timing_emission_is_numeric_and_once_under_strictmode(self):
+        text, native, _ = source_parts()
+        copy = "function Copy-SafeDiagnostics {" + text.split("function Copy-SafeDiagnostics {", 1)[1].split("function Assert-SdkDebugger", 1)[0]
+        with tempfile.TemporaryDirectory(prefix="Fileway timing emission ") as temporary:
+            root = Path(temporary)
+            (root / "Native.cs").write_text(native, encoding="utf-8")
+            (root / "diagnostics").mkdir()
+            report = dict(Format=1, EventsRecorded=2, ContendedWrites=0, HitTests=0, SnapshotApplications=0,
+                          ProbePending=False, ProbeAgeMicroseconds=0, Entries=[
+                              dict(Sequence=1,ElapsedMicroseconds=100,Event=3,Value=3),
+                              dict(Sequence=2,ElapsedMicroseconds=200,Event=18,Value=0)])
+            (root / "diagnostics/player-responsiveness.json").write_text(json.dumps(report), encoding="utf-8")
+            script = r'''$ErrorActionPreference='Stop'; Set-StrictMode -Version Latest
+Add-Type -Path (Join-Path $PSScriptRoot 'Native.cs')
+$script:privateRoot=$PSScriptRoot; $script:responsivenessTimingsRecorded=$false
+$script:seen=[System.Collections.Generic.List[object]]::new()
+function Write-Json([string]$Name,$Value) { if($Name -ne 'player-responsiveness.json'){throw 'wrong report'} }
+function Record-Observation([string]$Name,$Value) { $script:seen.Add(@{name=$Name; value=$Value}) }
+''' + copy + r'''
+$null=Copy-SafeDiagnostics; $null=Copy-SafeDiagnostics
+if($script:seen.Count -ne 2){throw 'duplicate timing emission'}
+$row=$script:seen[0]
+if($row.name -ne 'player-internal-timing' -or $row.value.Count -ne 6 -or $row.value.durationMicroseconds -ne 100){throw 'wrong timing payload'}
+foreach($value in $row.value.Values){if($value -isnot [int] -and $value -isnot [long]){throw 'nonnumeric timing'}}
+if($script:seen[1].value.status -ne 1 -or $script:seen[1].value.count -ne 1){throw 'wrong timing status'}
+$report=Get-Content -Raw (Join-Path $PSScriptRoot 'diagnostics/player-responsiveness.json')|ConvertFrom-Json -AsHashtable
+$report.Entries[1].Sequence=1
+$report|ConvertTo-Json -Depth 8|Set-Content (Join-Path $PSScriptRoot 'diagnostics/player-responsiveness.json')
+$script:seen.Clear(); $script:responsivenessTimingsRecorded=$false
+$null=Copy-SafeDiagnostics
+if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing-result' -or $script:seen[0].value.status -ne 2){throw 'invalid timing accepted'}
+'''
+            script_path = root / "check.ps1"
+            script_path.write_text(script, encoding="utf-8")
+            result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-File", str(script_path)],
+                                    cwd=root, capture_output=True, text=True, timeout=45)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(DOTNET, "Optional production C# checks require an already installed .NET SDK")
     def test_production_decoder_png_writer_and_shutdown_reader_with_existing_sdk(self):
@@ -544,6 +598,49 @@ class Program {
   var single=DebuggerEvidence.Parse("ExceptionCode: c0000409\\nNumberParameters: 1\\nParameter[0]: a\\n");
   if(single.ParameterCount!=1||single.Parameters.Length!=0) throw new Exception("invented invalid call target");
  }
+ static void CheckInternalTimings() {
+  long[] Row(long sequence,long time,int kind,long value=0) => new long[]{sequence,time,kind,value};
+  string Read(params long[][] rows) {
+   var values=ResponsivenessEvidence.Pair(rows); var text=new System.Collections.Generic.List<string>();
+   foreach(var value in values) {
+    foreach(var field in value.GetType().GetFields()) if(field.FieldType!=typeof(int)&&field.FieldType!=typeof(long)) throw new Exception("nonnumeric timing field");
+    text.Add(value.Metric+"|"+value.StartEvent+"|"+value.Value+"|"+value.StartSequence+"|"+value.EndSequence+"|"+value.DurationMicroseconds);
+   }
+   return string.Join(";",text);
+  }
+  void Equal(string expected,params long[][] rows) { if(Read(rows)!=expected) throw new Exception("incorrect timing pair"); }
+  void Reject(params long[][] rows) {
+   bool rejected=false; try { ResponsivenessEvidence.Pair(rows); } catch(InvalidDataException) { rejected=true; }
+   if(!rejected) throw new Exception("invalid timing data accepted");
+  }
+  Equal("1|3|6|1|3|150",Row(1,100,3,6),Row(2,101,4),Row(3,250,18));
+  Equal("2|2|1|1|4|80;3|6|1|2|4|70",Row(1,100,2),Row(2,110,6,1),Row(3,120,7,1),Row(4,180,8,1));
+  Equal("2|5|0|1|3|80;3|6|0|2|3|70",Row(1,100,5),Row(2,110,6),Row(3,180,8));
+  Equal("3|6|1|7|8|100",Row(7,100,6,1),Row(8,200,8,1));
+  Equal("",Row(1,100,2),Row(2,200,8,1)); // Missing UI-entry must not bridge an unrelated action.
+  Equal("",Row(1,100,6,1),Row(2,200,8));
+  Equal("",Row(1,100,2),Row(2,110,6,1),Row(3,200,8));
+  Equal("",Row(1,100,3,3));
+  Equal("",Row(1,200,18));
+  Equal("",Row(1,100,3,3),Row(3,200,18)); // Lost ring entry.
+  Equal("",Row(1,100,3,3),Row(2,120,3,3),Row(3,200,18));
+  Equal("1|3|3|4|5|70",Row(1,100,3,3),Row(2,120,3,3),Row(3,200,18),Row(4,250,3,3),Row(5,320,18));
+  Equal("3|6|1|3|4|60",Row(1,100,2),Row(2,110,5),Row(3,120,6,1),Row(4,180,8,1));
+  Equal("",Row(1,100,2),Row(2,110,6,1),Row(3,120,6,1),Row(4,180,8,1));
+  Equal("",Row(1,100,3,3),Row(2,90,18));
+  Equal("1|3|3|10|11|0",Row(10,100,3,3),Row(11,100,18));
+  Equal("",Row(1,100,2),Row(3,110,6),Row(5,200,8));
+  Equal("1|3|3|1|3|100;2|2|1|2|5|150;3|6|1|4|5|30",Row(1,100,3,3),Row(2,110,2),Row(3,200,18),Row(4,230,6,1),Row(5,260,8,1));
+  Reject(null); Reject(new long[3]); Reject(Row(0,0,3,3)); Reject(Row(1,-1,3,3));
+  Reject(Row(1,100,3,0)); Reject(Row(1,100,3,9)); Reject(Row(1,100,2,1)); Reject(Row(1,100,5,1));
+  Reject(Row(1,100,6,2)); Reject(Row(1,100,8,2)); Reject(Row(1,100,18,1)); Reject(Row(1,100,29));
+  Reject(Row(1,100,3,3),Row(1,110,18)); Reject(Row(2,100,3,3),Row(1,110,18));
+  Reject(Row(1,100,3,3),Row(2,110,18),Row(3,120,-1)); // No valid prefix on bad suffix.
+  var capacity=new long[512][];
+  for(int i=0;i<capacity.Length;i++) capacity[i]=Row(i+1,i,i%2==0?3:18,i%2==0?3:0);
+  if(ResponsivenessEvidence.Pair(capacity).Length!=256) throw new Exception("timing capacity lost");
+  Reject(new long[513][]);
+ }
  static void CheckDebuggerReady() {
   const string path="shared-debugger-ready.log";
   using(var writer=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.ReadWrite)) {
@@ -557,7 +654,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors) + '''
+ static void Main() { CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

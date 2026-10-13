@@ -33,6 +33,7 @@ $script:ntdllPath = $null
 $script:appStartTicks = 0L
 $script:shutdownDebuggerAttached = $false
 $script:debuggerAttachPhase = 0
+$script:responsivenessTimingsRecorded = $false
 $script:hosts = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 $script:stage = 'output-validation'
 $script:completed = [System.Collections.Generic.List[string]]::new()
@@ -233,6 +234,67 @@ namespace Fileway.PlayerSmoke {
                 records.Add(new ShutdownStage(stage,uiThread));
             }
             return records.ToArray();
+        }
+    }
+
+    public sealed class InternalTiming {
+        public readonly int Metric, StartEvent, Value;
+        public readonly long StartSequence, EndSequence, DurationMicroseconds;
+        internal InternalTiming(int metric,int startEvent,int value,long start,long end,long duration) {
+            Metric=metric; StartEvent=startEvent; Value=value; StartSequence=start; EndSequence=end; DurationMicroseconds=duration;
+        }
+    }
+    public static class ResponsivenessEvidence {
+        // Existing app-handler/presenter events only: never physical input-to-pixel
+        // latency. A missing or ambiguous endpoint cannot produce a measurement.
+        sealed class Pending {
+            internal int State, Event, Value;
+            internal long Sequence, Time;
+            internal void Begin(long[] row) {
+                if(State!=0) { State=-1; return; }
+                State=1; Sequence=row[0]; Time=row[1]; Event=(int)row[2]; Value=(int)row[3];
+            }
+            internal void End(List<InternalTiming> result,long[] row,int metric,bool matchValue) {
+                if(State==1&&row[1]>=Time&&(!matchValue||Value==row[3]))
+                    result.Add(new InternalTiming(metric,Event,metric==1?Value:(int)row[3],Sequence,row[0],row[1]-Time));
+                State=0;
+            }
+        }
+        public static InternalTiming[] Pair(long[][] rows) {
+            if(rows==null||rows.Length>512) throw new InvalidDataException("timing_rows_invalid");
+            long previous=0;
+            // Validate everything before deriving records, so invalid suffixes
+            // cannot leave an apparently valid prefix in exported evidence.
+            foreach(var row in rows) {
+                if(row==null||row.Length!=4||row[0]<=previous||row[1]<0||row[2]<0||row[2]>28||row[3]<0)
+                    throw new InvalidDataException("timing_row_invalid");
+                if((row[2]==3&&(row[3]<1||row[3]>8))||((row[2]==6||row[2]==7||row[2]==8)&&row[3]>1)||
+                    ((row[2]==2||row[2]==5||row[2]==18)&&row[3]!=0)) throw new InvalidDataException("timing_event_value_invalid");
+                previous=row[0];
+            }
+            previous=0; var settings=new Pending(); var fullscreenInput=new Pending(); var fullscreenUi=new Pending();
+            var result=new List<InternalTiming>();
+            foreach(var row in rows) {
+                if(previous!=0&&row[0]-previous!=1) settings.State=fullscreenInput.State=fullscreenUi.State=0;
+                previous=row[0];
+                switch(row[2]) {
+                    case 3: settings.Begin(row); break;
+                    case 18: settings.End(result,row,1,false); break;
+                    case 2: case 5:
+                        fullscreenInput.Begin(row);
+                        if(fullscreenInput.State==1) fullscreenInput.Value=-1;
+                        break;
+                    case 6:
+                        if(fullscreenUi.State!=0) fullscreenInput.State=-1;
+                        else if(fullscreenInput.State==1) fullscreenInput.Value=(int)row[3];
+                        fullscreenUi.Begin(row); break;
+                    case 8:
+                        fullscreenInput.End(result,row,2,true);
+                        fullscreenUi.End(result,row,3,true);
+                        break;
+                }
+            }
+            return result.ToArray();
         }
     }
 
@@ -923,6 +985,23 @@ function Copy-SafeDiagnostics {
         foreach ($value in $entry.Values) { if ($value -isnot [long] -and $value -isnot [int]) { Stop-Smoke 'diagnostic_nonnumeric_entry' } }
     }
     Write-Json 'player-responsiveness.json' $report
+    if (-not $script:responsivenessTimingsRecorded) {
+        $script:responsivenessTimingsRecorded = $true
+        try {
+            $rows = [System.Collections.Generic.List[long[]]]::new()
+            foreach ($entry in $report.Entries) {
+                $rows.Add([long[]]@([long]$entry.Sequence, [long]$entry.ElapsedMicroseconds, [long]$entry.Event, [long]$entry.Value))
+            }
+            $timings = @([Fileway.PlayerSmoke.ResponsivenessEvidence]::Pair($rows.ToArray()))
+            foreach ($timing in $timings) {
+                Record-Observation 'player-internal-timing' @{
+                    metric = [int]$timing.Metric; startEvent = [int]$timing.StartEvent; value = [int]$timing.Value
+                    startSequence = [long]$timing.StartSequence; endSequence = [long]$timing.EndSequence; durationMicroseconds = [long]$timing.DurationMicroseconds
+                }
+            }
+            Record-Observation 'player-internal-timing-result' @{ status = 1; count = [int]$timings.Length }
+        } catch { Record-Observation 'player-internal-timing-result' @{ status = 2; count = 0 } }
+    }
     return $true
 }
 
