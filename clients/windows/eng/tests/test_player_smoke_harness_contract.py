@@ -7,6 +7,7 @@ parser check runs only when PowerShell is already available.
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import importlib.util
 import json
@@ -17,6 +18,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 import zlib
 from pathlib import Path
 
@@ -54,6 +56,16 @@ def scaled_bgra(index, width=480, height=270):
 
 
 class HarnessGuards(unittest.TestCase):
+    def test_every_text_fixture_io_has_explicit_utf8(self):
+        tree = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and isinstance(node.func, ast.Attribute) and node.func.attr in ("read_text", "write_text")]
+        self.assertGreater(len(calls), 10)
+        for call in calls:
+            encoding = next((keyword.value for keyword in call.keywords if keyword.arg == "encoding"), None)
+            self.assertIsInstance(encoding, ast.Constant, f"Implicit text encoding at line {call.lineno}")
+            self.assertEqual(encoding.value, "utf-8", f"Non-UTF8 fixture at line {call.lineno}")
+
     def test_diagnostic_workflow_runs_both_cases_but_requires_both_outcomes(self):
         workflow = (ENG.parents[2] / ".github/workflows/windows-player-shutdown-diagnostics.yml").read_text(encoding="utf-8")
         self.assertEqual(workflow.count("id: build"), 1)
@@ -306,6 +318,8 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(DOTNET, "Optional production C# checks require an already installed .NET SDK")
+    # Emulate Windows legacy defaults even when this suite runs on Linux.
+    @mock.patch("io.text_encoding", lambda encoding, *args: encoding or "cp1252")
     def test_production_decoder_png_writer_and_shutdown_reader_with_existing_sdk(self):
         with tempfile.TemporaryDirectory(prefix="Fileway Smoke CSharp ", dir=os.environ.get("FILEWAY_MPV_CHECK_TMP")) as temporary:
             root = Path(temporary)
@@ -317,8 +331,8 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 self.skipTest("No installed .NET 6+ SDK; no download attempted")
             (root / "Native.cs").write_text(source_parts()[1], encoding="utf-8")
             (root / "Offline.csproj").write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net' + str(max(majors))
-                + '.0</TargetFramework><OutputType>Exe</OutputType><EnableNETAnalyzers>false</EnableNETAnalyzers></PropertyGroup></Project>')
-            (root / "NuGet.Config").write_text('<configuration><packageSources><clear /></packageSources></configuration>')
+                + '.0</TargetFramework><OutputType>Exe</OutputType><EnableNETAnalyzers>false</EnableNETAnalyzers></PropertyGroup></Project>', encoding="utf-8")
+            (root / "NuGet.Config").write_text('<configuration><packageSources><clear /></packageSources></configuration>', encoding="utf-8")
             vectors = []
             for index in (0, 1, 12, 127, 128, 255, 256, 1439, 2159):
                 path = root / f"frame-{index}.bgra"
@@ -664,8 +678,8 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 region_case(f"bad-protect-{index}", full_region.replace("00000020PAGE_EXECUTE_READ",value))
             region_case("zero-candidate", full_region, candidate=0)
             # Exercise the production file reader and revalidation, not a replica.
-            verified = (root / "tail-unmapped.log").read_text()
-            (root / "region-bound.log").write_text(verified + full_region)
+            verified = (root / "tail-unmapped.log").read_text(encoding="utf-8")
+            (root / "region-bound.log").write_text(verified + full_region, encoding="utf-8")
             region_vectors.append('CheckBoundRegion("tail-unmapped.log","region-bound.log",true);')
             for name, changed in {
                 "different-context": verified.replace("1122334455667788","1122334455667789"),
@@ -678,7 +692,7 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 "missing-query-validation": tail_context.replace("0000000000004234","1122334455667788"),
             }.items():
                 path = f"region-bound-{name}.log"
-                (root / path).write_text(changed+full_region)
+                (root / path).write_text(changed+full_region, encoding="utf-8")
                 region_vectors.append(f'CheckBoundRegion("tail-unmapped.log","{path}",false);')
             region_vectors.append('CheckBoundRegion("tail-wrong-source.log","region-bound.log",false);')
             region_vectors.append('CheckBoundRegion("tail-loaded.log","region-bound.log",false);')
@@ -858,7 +872,8 @@ class Program {
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");
   Console.WriteLine("14 pixel vectors and no-clobber PNG writer passed");
  }
-}''')
+}''', encoding="utf-8")
+            self.assertIn("栖卷".encode("utf-8"), (root / "Program.cs").read_bytes())
             commands = ([DOTNET, "restore", "Offline.csproj", "--configfile", "NuGet.Config", "--verbosity", "quiet"],
                         [DOTNET, "run", "--project", "Offline.csproj", "--no-restore", "--verbosity", "quiet"])
             for command in commands:

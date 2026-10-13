@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/windows-player-smoke.yml'
       - 'clients/windows/eng/Test-PlayerSmoke.ps1'
+      - 'clients/windows/eng/tests/test_player_smoke_harness_contract.py'
       - 'clients/windows/eng/New-PlayerSmokeFixture.py'
       - 'clients/windows/vendor/mpv/runtime-packages.lock.json'
       - 'clients/windows/vendor/mpv/resolve-runtime.py'
