@@ -18,14 +18,14 @@ internal static class Program
         {
             string directory = arguments[1];
             await using var client = await GoHostClient.StartAsync(new HostClientOptions(Path.Combine(directory, "fileway-host.exe"), Path.Combine(directory, "host-build.json")), CancellationToken.None);
-            await File.WriteAllTextAsync(arguments[2], client.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            await PidReceipt.PublishAsync(arguments[2], client.ProcessId, CancellationToken.None);
             await Task.Delay(Timeout.InfiniteTimeSpan);
             return;
         }
         using var configuration = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "harness-mode.json")));
         string mode = configuration.RootElement.GetProperty("mode").GetString()!;
         int delay = configuration.RootElement.TryGetProperty("delayMilliseconds", out var configuredDelay) ? configuredDelay.GetInt32() : 150;
-        await File.WriteAllTextAsync(Path.Combine(AppContext.BaseDirectory, "process.pid"), Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        await PidReceipt.PublishAsync(Path.Combine(AppContext.BaseDirectory, "process.pid"), Environment.ProcessId, CancellationToken.None);
         while (true)
         {
             JsonElement request;
