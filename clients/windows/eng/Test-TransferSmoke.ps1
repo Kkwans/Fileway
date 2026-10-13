@@ -16,7 +16,8 @@ Set-StrictMode -Version Latest
 $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png',
     'upload-confirm.png', 'upload-completed.png', 'download-confirm.png',
     'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png',
-    'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png', 'upload-result-failure.png')
+    'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png', 'upload-result-failure.png',
+    'download-save-as-confirm.png', 'download-save-as-completed.png')
 $script:root = $null
 $script:app = $null
 $script:server = $null
@@ -55,7 +56,7 @@ function Artifact-Path([string] $Name) {
 function Write-Report([string] $Status, [string] $Code) {
     $value = [ordered]@{ schemaVersion = 1; scope = $(if ($PreflightOnly) { 'preflight' } else { 'native-transfer-smoke' });
         status = $Status; code = $Code; stage = $script:stage; completedSteps = @($script:completed);
-        nativeTransferVerified = ($Status -eq 'passed'); cancellationUiVerified = $false; unknownOutcomeUiVerified = $false;
+        nativeTransferVerified = ($Status -eq 'passed'); cancellationUiVerified = $false; unknownOutcomeUiVerified = $false; saveAsUiVerified = ($Status -eq 'passed');
         elapsedMilliseconds = $script:clock.ElapsedMilliseconds }
     [IO.File]::WriteAllText((Artifact-Path 'report.json'), ($value | ConvertTo-Json -Depth 4) + "`n", [Text.UTF8Encoding]::new($false))
 }
@@ -306,6 +307,39 @@ function Download-File([string] $Destination, [string] $ExpectedStage, [string] 
     $script:stage = 'download-close-detail'
     Close-TransferDialog '文件下载'
 }
+function Open-SaveAsMenu([IntPtr] $Window, [string] $RemoteName) {
+    if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'save_as_window_owner_mismatch' }
+    Act $Window ('^' + [regex]::Escape($RemoteName) + '$') 'ListItem' 'select'
+    $element = Control $Window ('^' + [regex]::Escape($RemoteName) + '$') 'ListItem'
+    # Standard ContextFlyout keyboard invocation; exact selector receives focus.
+    # v0.7.1 documents f1-f16 and modifier combos, with guarded SendInput.
+    $result = Invoke-WinApp @('ui', 'send-keys', 'shift+f10', '--target', $element.selector, '-w', $Window.ToInt64().ToString(), '--via', 'send-input', '--json')
+    if ($result.hwnd -ne $Window.ToInt64() -or $result.keys -cne 'shift+f10' -or $result.via -cne 'send-input' -or
+        $result.target -cne $element.selector -or $result.actionCount -ne 1 -or @($result.warnings).Count -ne 0) { Stop-Smoke 'save_as_menu_keyboard_contract_mismatch' }
+}
+function Download-SaveAs([string] $RemoteName, [string] $LocalName, [string] $Destination) {
+    $script:stage = 'download-save-as-menu'
+    Open-SaveAsMenu $script:window $RemoteName
+    Act $script:window '^下载另存为…$' 'MenuItem'
+    $script:stage = 'download-save-as-edit'
+    Wait-Text '下载另存为'
+    Set-Value $script:window '^下载另存为的本地文件名$' $LocalName
+    $script:stage = 'download-save-as-prepare'
+    Act $script:window '^核对保存位置$'
+    $null = Control $script:window '^开始下载$'
+    if (-not (Has-Text $script:window ('远端文件：' + $RemoteName)) -or
+        -not (Has-Text $script:window ('本地文件名：' + $LocalName)) -or
+        -not (Has-Text $script:window ('保存到：' + $Destination))) { Stop-Smoke 'save_as_confirmation_identity_mismatch' }
+    Capture 'download-save-as-confirm.png'
+    $script:stage = 'download-save-as-submit'
+    Act $script:window '^开始下载$'
+    $script:stage = 'download-save-as-result'
+    Wait-Text '下载已完成'
+    if (-not (Has-Text $script:window ('保存到：' + $Destination))) { Stop-Smoke 'save_as_result_destination_mismatch' }
+    Capture 'download-save-as-completed.png'
+    $script:stage = 'download-save-as-close-detail'
+    Close-TransferDialog '文件下载'
+}
 function Assert-Payload([string] $Path, [string] $Hash) {
     if (-not [IO.File]::Exists($Path) -or ([IO.FileInfo]::new($Path)).Length -ne 1048576 -or
         (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -cne $Hash) { Stop-Smoke 'synthetic_payload_mismatch' }
@@ -373,6 +407,8 @@ public static class FilewayTransferDownloads {
         if (-not [IO.Directory]::Exists($downloads)) { Stop-Smoke 'downloads_directory_unavailable' -EnvironmentBlocked }
         $name = 'fileway-ci-' + [Guid]::NewGuid().ToString('N') + '.bin'
         $destination = Join-Path $downloads $name
+        $saveAsName = $name.Replace('.bin', '-save-as.bin'); $saveAsDestination = Join-Path $downloads $saveAsName
+        if ([IO.File]::Exists($saveAsDestination) -or [IO.Directory]::Exists($saveAsDestination)) { Stop-Smoke 'save_as_destination_already_exists' }
         if ([IO.File]::Exists($destination) -or [IO.Directory]::Exists($destination)) { Stop-Smoke 'download_destination_already_exists' }
         $remote = Join-Path $script:privateRoot 'remote'; $inputs = Join-Path $script:privateRoot 'inputs'; $alternate = Join-Path $script:privateRoot 'alternate'
         foreach ($folder in @($remote, $inputs, $alternate)) { $null = New-Item -ItemType Directory -Path $folder }
@@ -444,6 +480,11 @@ public static class FilewayTransferDownloads {
         Download-File $destination '本地存在同名文件' 'download-conflict.png'
         Assert-Payload $destination $expectedHash
         Complete-Step 'native-download-conflict-preserved' @{ hashEqual = $true }
+        $script:stage = 'native-download-save-as'
+        Download-SaveAs $name $saveAsName $saveAsDestination
+        Assert-Payload $saveAsDestination $expectedHash
+        Assert-Payload $remoteFile $expectedHash
+        Complete-Step 'native-download-save-as-and-local-bytes' @{ bytes = 1048576; hashEqual = $true; remotePreserved = $true }
         $script:stage = 'native-upload-conflict'
         Upload-File $alternateFile '目标存在同名项目' 'upload-conflict.png'
         Assert-Payload $remoteFile $expectedHash

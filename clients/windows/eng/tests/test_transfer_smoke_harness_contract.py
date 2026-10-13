@@ -131,6 +131,61 @@ class TransferSmokeContract(unittest.TestCase):
             self.assertRegex(categories, field + r"\s*= \[int\]")
         self.assertNotRegex(categories, r"(?:Message|StackTrace|ToString|name|path)\s*=")
 
+    def test_save_as_real_two_phase_confirmation_and_independent_bytes(self):
+        helper = SOURCE[SOURCE.index('function Download-SaveAs'):SOURCE.index('function Assert-Payload')]
+        for value in ("'^下载另存为…$' 'MenuItem'", "'^下载另存为的本地文件名$'", "'^核对保存位置$'", "'^开始下载$'",
+                      "'远端文件：' + $RemoteName", "'本地文件名：' + $LocalName", "'保存到：' + $Destination",
+                      "Wait-Text '下载已完成'", "Close-TransferDialog '文件下载'"):
+            self.assertIn(value, helper)
+        self.assertLess(helper.index('save_as_confirmation_identity_mismatch'), helper.index("Capture 'download-save-as-confirm.png'"))
+        self.assertLess(helper.index("Capture 'download-save-as-confirm.png'"), helper.index("$script:stage = 'download-save-as-submit'"))
+        self.assertIn("saveAsUiVerified = ($Status -eq 'passed')", SOURCE)
+        for value in ('save_as_destination_already_exists', 'Assert-Payload $saveAsDestination $expectedHash',
+                      "native-download-save-as-and-local-bytes", 'remotePreserved = $true'):
+            self.assertIn(value, SOURCE)
+        self.assertIn("$saveAsName = $name.Replace('.bin', '-save-as.bin')", SOURCE)
+        app = (APP / 'MainPage.Downloads.cs').read_text(encoding='utf-8')
+        for value in ('下载另存为的本地文件名', '核对保存位置', '本地文件名：', '远端文件：'):
+            self.assertIn(value, app)
+        self.assertIn('下载另存为…', (APP / 'MainPage.FileCommands.cs').read_text(encoding='utf-8'))
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual context-menu helper runs in Windows CI")
+    def test_actual_save_as_context_key_ownership_target_and_response(self):
+        helper = SOURCE[SOURCE.index('function Open-SaveAsMenu'):SOURCE.index('function Download-SaveAs')]
+        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helper + r"""
+Add-Type 'namespace Fileway.PlayerSmoke { public static class Native { public static uint ProcessId(System.IntPtr w) { return 123; } } }'
+$script:app=@{Id=123};$script:actions=0
+function Act {param($Window,$Pattern,$Type,$Action)
+    if($Window -ne 7 -or $Pattern -cne '^remote\.bin$' -or $Type -cne 'ListItem' -or $Action -cne 'select'){throw 'wrong_select'}
+    $script:actions++
+}
+function Control {param($Window,$Pattern,$Type)
+    if($Window -ne 7 -or $Pattern -cne '^remote\.bin$' -or $Type -cne 'ListItem'){throw 'wrong_control'}
+    return @{selector='owned-selected-row'}
+}
+$valid=@{hwnd=7;keys='shift+f10';via='send-input';target='owned-selected-row';actionCount=1;warnings=@()}
+$script:response=$valid.Clone()
+function Invoke-WinApp {param([string[]]$Arguments)
+    if(($Arguments -join '|') -cne 'ui|send-keys|shift+f10|--target|owned-selected-row|-w|7|--via|send-input|--json'){throw 'wrong_argv'}
+    return $script:response
+}
+Open-SaveAsMenu ([IntPtr]7) 'remote.bin'
+if($script:actions -ne 1){throw 'selection_missing'}
+$bad=@{hwnd=8;keys='enter';via='post-message';target='foreign';actionCount=0;warnings=@('warning')};$rejected=0
+foreach($field in @('hwnd','keys','via','target','actionCount','warnings')) {
+    $script:response=$valid.Clone();$script:response[$field]=$bad[$field];$code=$null
+    try{Open-SaveAsMenu ([IntPtr]7) 'remote.bin'}catch{$code=$_.Exception.Message}
+    if($code -cne 'save_as_menu_keyboard_contract_mismatch'){throw ('invalid_response_accepted:'+$field)}
+    $rejected++
+}
+if($rejected -ne 6){throw 'response_checks_not_all_executed'}
+$before=$script:actions;$script:app.Id=124;$code=$null
+try{Open-SaveAsMenu ([IntPtr]7) 'remote.bin'}catch{$code=$_.Exception.Message}
+if($code -cne 'save_as_window_owner_mismatch' -or $script:actions -ne $before){throw 'foreign_window_not_rejected_before_select'}
+"""
+        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
     def test_actual_nullable_name_and_dialog_helpers_under_strictmode(self):
         definitions = "function Find-Elements" + SOURCE.split("function Find-Elements", 1)[1].split("function Elements", 1)[0]
@@ -404,7 +459,7 @@ if ($code -cne 'inspect_selector_missing') { throw 'invalid_identity_not_rejecte
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_conflict_asserts_same_bytes_after_real_ui_operation(self):
-        self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 2)
+        self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 3)
         self.assertEqual(SOURCE.count("Assert-Payload $destination $expectedHash"), 2)
         self.assertIn("$payload[0] = 255", SOURCE)
         self.assertIn("'download_destination_already_exists'", SOURCE)

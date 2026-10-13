@@ -55,11 +55,16 @@ in its native confirmation; no setting, safety guard or destination is changed.
 3. Native row selection and download confirmation, completed UI and matching
    length/SHA256 at the explicitly confirmed local target.
 4. Repeated download produces the real local-name conflict and preserves bytes.
-5. Same-name upload of different synthetic bytes produces the real remote-name
+5. From the same selected remote file, invoke the native context menu and
+   choose Download Save As. Enter a different unique local leaf name, prepare
+   read-only, observe the exact remote name/local name/Active directory preview,
+   then explicitly start. Require completed UI, matching local one-MiB SHA256
+   and unchanged original remote bytes. The existing local file stays untouched.
+6. Same-name upload of different synthetic bytes produces the real remote-name
    conflict and preserves the original bytes.
-6. Read-only transfer center shows the observed completed/conflict upload and
+7. Read-only transfer center shows the observed completed/conflict upload and
    download records, without selecting a record or starting recovery work.
-7. Normal application close and owned Host exit both return zero within budgets.
+8. Normal application close and owned Host exit both return zero within budgets.
 
 Only explicit UI actions initiate transfers. HTTP is used solely for `/health`.
 UIA selectors are freshly inspected and required to be unique, enabled and
@@ -123,10 +128,18 @@ pass; a rejected capture records only a numeric saved/not-saved observation.
 `connect-ready.png` captures the same isolated synthetic connection page after
 NoAuth/HTTP consent and revealing the submit button, before connecting. The two
 `transfer-center-*.png` captures require the real completed/conflict statuses
-after all four byte-preservation checks. All use the same owned-App guards.
+after all original transfer/conflict checks plus Save As byte verification. All use the same owned-App guards.
 `upload-result-failure.png` is confined to the synthetic owned App's upload-result
 surface, with fixed known-status presence flags. The original expected-status
 failure remains a failure even if capture or diagnostic close succeeds.
+
+`download-save-as-confirm.png` requires the actual two-phase native editor's
+confirmed source, new local name and exact Active target. The completed capture
+requires the real completed status and same target. The action opens the
+standard context flyout through focused `shift+f10`, then chooses the fresh,
+unique enabled Save As menu item. No remote rename or full destination path is
+submitted to the product; it receives only a different local filename.
+`saveAsUiVerified` is true only after the complete journey and normal exit.
 
 No file is recursively or wildcard-deleted. Unique synthetic input, private
 server/App state and the exact downloaded file are left on the disposable runner
