@@ -251,9 +251,10 @@ unknown module name. Class 6 does not establish whether memory is valid, freed,
 managed or executable.
 
 Only classification 6 enables one additional address-qualified
-[`!address @rdx`](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/-address)
-query in that same private dump. It never runs unscoped `!address`, reads memory
-pages, scans registers, or follows the debugger's suggested commands. The second
+[`!vprot @rdx`](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/-vprot)
+query in that same private dump. This command reports basic protection metadata
+and supports dump debugging. It never invokes `!address` classification, omits
+the address argument, reads memory pages, or scans registers. The second
 pass repeats the exact bounded exception/context/frames/helper-tail validation;
 its unique candidate must equal the first pass's private candidate before any
 region evidence is accepted. The dump's uppercase
@@ -261,8 +262,10 @@ region evidence is accepted. The dump's uppercase
 option includes basic memory layout, not lowercase `/mf` full memory.
 
 The single region section admits at most 64 lines within the existing 1 MiB /
-4,096-line limits. Unique base/end addresses must privately contain the candidate
-in a half-open range. Only rebuilt numeric `shutdown-cfg-region` fields leave the
+4,096-line limits. Exactly seven unique fields are required: BaseAddress, AllocationBase,
+AllocationProtect, RegionSize, State, Protect and Type. BaseAddress plus nonzero
+RegionSize must not overflow and must privately contain the candidate in a
+half-open range. Allocation fields are validated but never exported. Only rebuilt numeric `shutdown-cfg-region` fields leave the
 private directory: State (`0x1000` committed, `0x2000` reserved, `0x10000` free),
 Type (`0x20000` private, `0x40000` mapped, `0x1000000` image), and Protection.
 Protection requires one known PAGE base bit (`0x01` through `0x80`) and only valid
@@ -274,10 +277,15 @@ export Type=0 and Protection=0, and reserved regions export Protection=0, becaus
 these fields are
 [undefined](https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_memory_info)
 in those states. Printed undefined values are discarded, never interpreted.
-Missing undefined fields are allowed; present fields must still use the fixed
-numeric/token grammar. No region address, size, allocation detail, name or raw
+Even undefined fields must be present and use the fixed numeric/token grammar;
+they are never used to infer an allocation or protection state. No region address, size, allocation detail, name or raw
 line is exported. Failure emits only `shutdown-cfg-region-result` status 2
-(rejected/unavailable) or 3 (timeout). A free or executable result describes the
+(rejected/unavailable) or 3 (timeout). Timeouts may also include `phase`, derived
+only from complete, unique, ordered existing marker lines: 0 unavailable,
+1 context begin, 2 context end, 3 tail begin, 4 tail end, 5 region begin,
+6 region end. An echoed command is not a marker; duplicates or reordered markers
+produce phase 0. The timeout remains a failure even if a later marker was seen.
+A free or executable result describes the
 candidate region at capture time; it does not establish the target's semantic
 identity, ownership, CFG validity, or who released it.
 

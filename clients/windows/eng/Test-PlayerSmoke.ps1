@@ -401,29 +401,26 @@ namespace Fileway.PlayerSmoke {
                 if(line=="FILEWAY_CFG_REGION_END") { if(end!=-1) throw Invalid(); end=i; }
             }
             if(begin<0||end<=begin||end-begin>65||end==lines.Length-1) throw Invalid();
-            var fields=new Dictionary<string,string>(StringComparer.Ordinal); int moreInfo=0;
+            var fields=new Dictionary<string,string>(StringComparer.Ordinal);
             for(int i=begin+1;i<end;i++) {
                 string line=lines[i].Trim();
                 if(line.Length==0) continue;
                 int colon=line.IndexOf(':');
                 if(colon<1) throw Invalid();
                 string key=line.Substring(0,colon).TrimEnd(),value=line.Substring(colon+1).Trim();
-                if(key=="More info") { if(++moreInfo>8||value.Length==0) throw Invalid(); continue; }
-                if(key!="Base Address"&&key!="End Address"&&key!="State"&&key!="Type"&&key!="Protect"&&
-                    key!="Usage"&&key!="Allocation Base"&&key!="Allocation Protect"&&key!="Region Size") throw Invalid();
+                if(key!="BaseAddress"&&key!="AllocationBase"&&key!="AllocationProtect"&&key!="RegionSize"&&
+                    key!="State"&&key!="Type"&&key!="Protect") throw Invalid();
                 if(value.Length==0||fields.ContainsKey(key)) throw Invalid();
                 fields.Add(key,value);
             }
-            string stateText,baseText,endText,typeText,protectText;
-            if(!fields.TryGetValue("State",out stateText)||!fields.TryGetValue("Base Address",out baseText)||!fields.TryGetValue("End Address",out endText)) throw Invalid();
-            ulong low=AddressValue(baseText),high=AddressValue(endText);
-            if(low>=high||candidate<low||candidate>=high) throw Invalid();
+            if(fields.Count!=7) throw Invalid();
+            string stateText=fields["State"],typeText=fields["Type"],protectText=fields["Protect"];
+            ulong low=AddressValue(fields["BaseAddress"]),size=AddressValue(fields["RegionSize"]);
+            AddressValue(fields["AllocationBase"]); ProtectionValue(fields["AllocationProtect"],true);
+            if(size==0||low>ulong.MaxValue-size||candidate<low||candidate>=low+size) throw Invalid();
             uint state=EnumValue(stateText,States),type=0,protection=0;
-            bool hasType=fields.TryGetValue("Type",out typeText),hasProtect=fields.TryGetValue("Protect",out protectText);
-            if(state!=0x10000&&!hasType) throw Invalid();
-            if(state==0x1000&&!hasProtect) throw Invalid();
-            if(hasType) type=EnumValue(typeText,Types,state==0x10000);
-            if(hasProtect) protection=ProtectionValue(protectText,state!=0x1000);
+            type=EnumValue(typeText,Types,state==0x10000);
+            protection=ProtectionValue(protectText,state!=0x1000);
             // These fields are explicitly undefined for FREE / RESERVE. Never
             // assign semantic meaning to whatever the debugger printed there.
             if(state==0x10000) type=0;
@@ -625,6 +622,21 @@ namespace Fileway.PlayerSmoke {
             return false;
         }
         public static DebuggerFault Read(string path) { return Parse(ReadBounded(path,FileShare.Read)); }
+        public static int RegionProgress(string path) {
+            // Existing exact marker lines only; never retain command/log text.
+            string text=ReadBounded(path,FileShare.ReadWrite); string[] lines=text.Split('\n');
+            if(lines.Length>4096||Array.Exists(lines,line=>line.Length>2048)) return 0;
+            string[] markers={"FILEWAY_CFG_CONTEXT_BEGIN","FILEWAY_CFG_CONTEXT_END","FILEWAY_CFG_TAIL_BEGIN",
+                "FILEWAY_CFG_TAIL_END","FILEWAY_CFG_REGION_BEGIN","FILEWAY_CFG_REGION_END"};
+            int next=0;
+            for(int i=0;i<lines.Length-1;i++) {
+                int index=Array.IndexOf(markers,lines[i].TrimEnd('\r'));
+                if(index<0) continue;
+                if(index!=next) return 0;
+                next++;
+            }
+            return next;
+        }
         public static RegionMetadata ReadCandidateRegion(string stackPath,string regionPath) {
             string stack=ReadBounded(stackPath,FileShare.Read); var fault=Parse(stack);
             ulong candidate,queryCandidate;
@@ -1238,8 +1250,8 @@ function Stop-ShutdownDebugger {
 
 function Record-SafeCandidateRegion([string] $Dump, [string] $StackLog, [string] $Symbols, [Diagnostics.Stopwatch] $Budget) {
     # Only the already verified, outside-module candidate can reach this function.
-    # @rdx is evaluated in the same dump exception context; never run !address
-    # without its one-address argument and never enumerate/search memory pages.
+    # @rdx is evaluated in the same dump exception context. Query only its
+    # basic protection metadata, never enumerate/search memory pages.
     $remaining = 120000 - $Budget.ElapsedMilliseconds
     if ($remaining -le 0) { Record-Observation 'shutdown-cfg-region-result' @{ status = 3 }; return }
     $log = Join-Path $script:privateRoot 'shutdown-region.log'
@@ -1248,7 +1260,7 @@ function Record-SafeCandidateRegion([string] $Dump, [string] $StackLog, [string]
     $start.WorkingDirectory = $script:privateRoot
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
     foreach ($argument in @('-z', $Dump, '-sins', '-noshell', '-y', "srv*$Symbols*https://msdl.microsoft.com/download/symbols",
-        '-logo', $log, '-c', '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; .echo FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; .echo FILEWAY_CFG_REGION_BEGIN; !address @rdx; .echo FILEWAY_CFG_REGION_END; q')) { $start.ArgumentList.Add($argument) }
+        '-logo', $log, '-c', '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; .echo FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; .echo FILEWAY_CFG_REGION_BEGIN; !vprot @rdx; .echo FILEWAY_CFG_REGION_END; q')) { $start.ArgumentList.Add($argument) }
     $regionProcess = $null
     try {
         $regionProcess = [Diagnostics.Process]::Start($start)
@@ -1256,7 +1268,9 @@ function Record-SafeCandidateRegion([string] $Dump, [string] $StackLog, [string]
         $remaining = [Math]::Min(30000, [Math]::Max(0, 120000 - $Budget.ElapsedMilliseconds))
         if (-not $regionProcess.WaitForExit([int]$remaining)) {
             $regionProcess.Kill($true); $null = $regionProcess.WaitForExit(5000)
-            Record-Observation 'shutdown-cfg-region-result' @{ status = 3 }; return
+            $phase = 0
+            try { $phase = [Fileway.PlayerSmoke.DebuggerEvidence]::RegionProgress($log) } catch { }
+            Record-Observation 'shutdown-cfg-region-result' @{ status = 3; phase = [int]$phase }; return
         }
         if ($regionProcess.ExitCode -ne 0) { Record-Observation 'shutdown-cfg-region-result' @{ status = 2 }; return }
         $region = [Fileway.PlayerSmoke.DebuggerEvidence]::ReadCandidateRegion($StackLog, $log)

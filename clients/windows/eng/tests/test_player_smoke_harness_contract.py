@@ -193,8 +193,11 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("debugger_system_module_identity_mismatch", powershell)
         self.assertNotIn(".frame /r", powershell)
         self.assertIn("ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4", powershell)
-        self.assertEqual(powershell.count("!address @rdx;"), 1)
-        self.assertNotRegex(powershell, r"!address[ \t]*;")
+        self.assertEqual(powershell.count("!vprot @rdx;"), 1)
+        self.assertNotIn("!address", powershell)
+        self.assertNotRegex(powershell, r"!vprot[ \t]*;")
+        self.assertIn("[Fileway.PlayerSmoke.DebuggerEvidence]::RegionProgress($log)", powershell)
+        self.assertIn("status = 3; phase = [int]$phase", powershell)
         self.assertIn("if ($fault.HelperArgument.Classification -eq 6) { Record-SafeCandidateRegion", powershell)
         self.assertIn("[Math]::Min(30000, [Math]::Max(0, 120000 - $Budget.ElapsedMilliseconds))", powershell)
         self.assertIn("queriedFault.HelperArgument.Classification!=6", native)
@@ -608,8 +611,8 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
 
             region_vectors = []
             region_begin, region_end = "FILEWAY_CFG_REGION_BEGIN\n", "FILEWAY_CFG_REGION_END\n"
-            region_body = ("Usage: VAR\nBase Address: 11223344`55667000\nEnd Address: 11223344`55668000\n"
-                           "Region Size: 00000000`00001000 (4.000 kB)\n"
+            region_body = ("BaseAddress: 11223344`55667000\nAllocationBase: 11223344`55667000\n"
+                           "AllocationProtect: 00000000\nRegionSize: 00000000`00001000\n"
                            "Type: 00020000MEM_PRIVATE\nState: 00001000MEM_COMMIT\nProtect: 00000020PAGE_EXECUTE_READ\n")
             def region_case(name, text, expected=None, candidate=0x1122334455667788):
                 path = f"region-{name}.log"
@@ -626,11 +629,11 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             free = full_region.replace("00001000MEM_COMMIT", "00010000MEM_FREE").replace("00020000MEM_PRIVATE", "00000000").replace("00000020PAGE_EXECUTE_READ", "00000001PAGE_NOACCESS")
             region_case("free-undefined", free, (0x10000,0,0))
             region_case("free-zero", free.replace("00000001PAGE_NOACCESS", "00000000"), (0x10000,0,0))
-            region_case("free-omitted", free.replace("Type: 00000000\n", "").replace("Protect: 00000001PAGE_NOACCESS\n", ""), (0x10000,0,0))
+            region_case("free-omitted", free.replace("Type: 00000000\n", "").replace("Protect: 00000001PAGE_NOACCESS\n", ""))
             reserve = full_region.replace("00001000MEM_COMMIT", "00002000MEM_RESERVE")
             region_case("reserved-undefined", reserve, (0x2000,0x20000,0))
-            region_case("reserved-omitted", reserve.replace("Protect: 00000020PAGE_EXECUTE_READ\n", ""), (0x2000,0x20000,0))
-            region_case("ignored-private", full_region.replace(region_end, "Allocation Base: 11223344`55667000\nAllocation Protect: 00000040 PAGE_EXECUTE_READWRITE\nMore info: ln 0x1122334455667788 private-secret\n" + region_end), (0x1000,0x20000,0x20))
+            region_case("reserved-omitted", reserve.replace("Protect: 00000020PAGE_EXECUTE_READ\n", ""))
+            region_case("allocation-protection", full_region.replace("AllocationProtect: 00000000", "AllocationProtect: 00000040 PAGE_EXECUTE_READWRITE"), (0x1000,0x20000,0x20))
             for value, token in ((1,"NOACCESS"),(2,"READONLY"),(4,"READWRITE"),(8,"WRITECOPY"),(0x10,"EXECUTE"),(0x20,"EXECUTE_READ"),(0x40,"EXECUTE_READWRITE"),(0x80,"EXECUTE_WRITECOPY")):
                 region_case(f"base-{value}", full_region.replace("00000020PAGE_EXECUTE_READ", f"{value:08X}PAGE_{token}"), (0x1000,0x20000,value))
             for value, tokens in ((0x104,"PAGE_READWRITE | PAGE_GUARD"),(0x204,"PAGE_NOCACHE|PAGE_READWRITE"),(0x440,"PAGE_EXECUTE_READWRITE|PAGE_WRITECOMBINE")):
@@ -646,12 +649,13 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 "debugger-error": region_begin+"Unable to read memory\n"+region_body+region_end,
                 "unknown-field": full_region.replace(region_end, "Private secret: must not export\n"+region_end),
                 "too-many-region-lines": region_begin+"\n"*65+region_body+region_end,
-                "oversized-line": full_region.replace("Usage: VAR", "Usage: "+"x"*2049),
+                "oversized-line": full_region.replace("Type: 00020000MEM_PRIVATE", "Type: "+"x"*2049),
                 "too-many-lines": "\n"*4096+full_region,
                 "oversized-text": "x"*1048577,
                 "outside-low": full_region.replace("55667000", "55667789"),
-                "outside-high-exclusive": full_region.replace("55668000", "55667788"),
-                "reversed-region": full_region.replace("55667000", "55669000"),
+                "outside-high-exclusive": full_region.replace("RegionSize: 00000000`00001000", "RegionSize: 00000000`00000788"),
+                "zero-region": full_region.replace("RegionSize: 00000000`00001000", "RegionSize: 0"),
+                "overflow-region": full_region.replace("RegionSize: 00000000`00001000", "RegionSize: ffffffff`ffffffff"),
                 "private-address": full_region.replace("11223344`55667000", "C:\\private\\secret"),
                 "oversized-address": full_region.replace("11223344`55667000", "112233445566778899"),
                 "malformed-backtick": full_region.replace("11223344`55667000", "1122`334455667000"),
@@ -663,9 +667,12 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 "reserve-missing-type": reserve.replace("Type: 00020000MEM_PRIVATE\n", ""),
                 "free-unknown-protect": free.replace("00000001PAGE_NOACCESS", "PRIVATE_SECRET"),
                 "too-many-more-info": full_region.replace(region_end, "More info: private\n"*9+region_end),
+                "old-address-fields": full_region.replace("BaseAddress:", "Base Address:"),
+                "private-allocation": full_region.replace("AllocationBase: 11223344`55667000", "AllocationBase: PRIVATE_SECRET"),
+                "private-allocation-protect": full_region.replace("AllocationProtect: 00000000", "AllocationProtect: PRIVATE_SECRET"),
             }.items():
                 region_case(name, bad)
-            for field in ("Base Address", "End Address", "State", "Type", "Protect"):
+            for field in ("BaseAddress", "AllocationBase", "AllocationProtect", "RegionSize", "State", "Type", "Protect"):
                 line = next(line for line in region_body.splitlines(True) if line.startswith(field+":"))
                 region_case("duplicate-"+field.replace(" ","-"), full_region.replace(region_end,line+region_end))
                 region_case("missing-"+field.replace(" ","-"), full_region.replace(line,""))
@@ -696,6 +703,25 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 region_vectors.append(f'CheckBoundRegion("tail-unmapped.log","{path}",false);')
             region_vectors.append('CheckBoundRegion("tail-wrong-source.log","region-bound.log",false);')
             region_vectors.append('CheckBoundRegion("tail-loaded.log","region-bound.log",false);')
+
+            progress_markers = ("FILEWAY_CFG_CONTEXT_BEGIN", "FILEWAY_CFG_CONTEXT_END", "FILEWAY_CFG_TAIL_BEGIN",
+                                "FILEWAY_CFG_TAIL_END", "FILEWAY_CFG_REGION_BEGIN", "FILEWAY_CFG_REGION_END")
+            def progress_case(name, content, expected):
+                path = f"region-progress-{name}.log"
+                (root / path).write_text(content, encoding="utf-8")
+                region_vectors.append(f'CheckRegionProgress("{path}",{expected});')
+            for index in range(7):
+                progress_case(str(index), "\n".join(progress_markers[:index])+"\n", index)
+            progress_case("private", "private SECRET 1122334455667788\n"+"\n".join(progress_markers)+"\n", 6)
+            progress_case("echo", "0:000> .echo FILEWAY_CFG_CONTEXT_BEGIN\n", 0)
+            progress_case("duplicate", progress_markers[0]+"\n"+progress_markers[0]+"\n", 0)
+            progress_case("out-of-order", progress_markers[1]+"\n", 0)
+            progress_case("missing-prior", progress_markers[0]+"\n"+progress_markers[2]+"\n", 0)
+            progress_case("unterminated", progress_markers[0], 0)
+            progress_case("long-unterminated", "\n".join(progress_markers)+"\n"+"x"*2049, 0)
+            progress_case("long-line", "x"*2049+"\n"+"\n".join(progress_markers)+"\n", 0)
+            progress_case("line-cap", "\n"*4096+"\n".join(progress_markers)+"\n", 0)
+
 
             (root / "Program.cs").write_text('''using System; using System.IO; using Fileway.PlayerSmoke;
 class Program {
@@ -785,6 +811,9 @@ class Program {
   if(single.ParameterCount!=1||single.Parameters.Length!=0) throw new Exception("invented invalid call target");
  }
 
+ static void CheckRegionProgress(string path,int expected) {
+  if(DebuggerEvidence.RegionProgress(path)!=expected) throw new Exception("incorrect region progress enum");
+ }
  static void CheckRegion(string path,ulong candidate,uint state,uint type,uint protection) {
   var region=SingleRegionEvidence.Parse(File.ReadAllText(path),candidate);
   if(region.State!=state||region.Type!=type||region.Protection!=protection) throw new Exception("incorrect region enums");
