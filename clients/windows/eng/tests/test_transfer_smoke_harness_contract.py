@@ -149,6 +149,42 @@ class TransferSmokeContract(unittest.TestCase):
             self.assertIn(value, app)
         self.assertIn('下载另存为…', (APP / 'MainPage.FileCommands.cs').read_text(encoding='utf-8'))
 
+    def test_save_as_failure_evidence_is_fixed_owned_main_and_acceptance_unchanged(self):
+        for value in ('download-save-as-row-select', 'download-save-as-menu-key', 'download-save-as-menu-choice',
+                      "Capture 'download-save-as-menu-failure.png'", 'actualWindowOwned = [int]', 'actualActionNone = [int]'):
+            self.assertIn(value, SOURCE)
+        self.assertIn("$result.hwnd -ne $Window.ToInt64() -or $result.performedAction -notin $performed", SOURCE)
+        self.assertIn("Stop-Smoke 'invoke_effect_contract_mismatch'", SOURCE)
+        self.assertIn('Native]::ProcessId($script:window) -ne $script:app.Id', SOURCE)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual mismatch helper runs in Windows CI")
+    def test_actual_invoke_mismatch_keeps_failure_and_only_numeric_diagnostics(self):
+        helper = SOURCE[SOURCE.index('function Act('):SOURCE.index('function Set-Value')]
+        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helper + r"""
+Add-Type 'namespace Fileway.PlayerSmoke { public static class Native { public static uint ProcessId(System.IntPtr w) { return w.ToInt64()==8 ? 123u : 0u; } } }'
+$script:app=@{Id=123};$script:observations=@()
+function Control {param($Window,$Pattern,$Type) return @{selector='owned-menu-item'} }
+function Invoke-WinApp {param([string[]]$Arguments) return $script:response }
+function Record-Observation {param($Name,$Details)
+    if($Name -cne 'invoke-effect-mismatch'){throw 'unexpected_observation'}
+    foreach($value in $Details.Values){if($value -isnot [int] -or $value -notin @(0,1)){throw 'non_boolean_diagnostic'}}
+    $script:observations+=,$Details
+}
+$script:response=@{hwnd=7;performedAction='invoke'}
+Act ([IntPtr]7) '^synthetic$'
+if($script:observations.Count -ne 0){throw 'valid_action_changed'}
+$script:response=@{hwnd=8;performedAction='invoke'};$code=$null
+try{Act ([IntPtr]7) '^synthetic$'}catch{$code=$_.Exception.Message}
+if($code -cne 'invoke_effect_contract_mismatch'){throw 'wrong_window_accepted'}
+if($script:observations.Count -ne 1 -or $script:observations[0].sameWindow -ne 0 -or $script:observations[0].actualWindowOwned -ne 1 -or
+    $script:observations[0].expectedActionMatches -ne 1){throw 'wrong_mismatch_diagnostics'}
+$script:response=@{hwnd=7;performedAction='none'};$code=$null
+try{Act ([IntPtr]7) '^synthetic$'}catch{$code=$_.Exception.Message}
+if($code -cne 'invoke_effect_contract_mismatch' -or $script:observations.Count -ne 2 -or $script:observations[1].actualActionNone -ne 1){throw 'none_action_accepted'}
+"""
+        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual context-menu helper runs in Windows CI")
     def test_actual_save_as_context_key_ownership_target_and_response(self):
         helper = SOURCE[SOURCE.index('function Open-SaveAsMenu'):SOURCE.index('function Download-SaveAs')]

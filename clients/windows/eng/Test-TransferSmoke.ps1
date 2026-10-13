@@ -17,7 +17,7 @@ $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight
     'upload-confirm.png', 'upload-completed.png', 'download-confirm.png',
     'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png',
     'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png', 'upload-result-failure.png',
-    'download-save-as-confirm.png', 'download-save-as-completed.png')
+    'download-save-as-confirm.png', 'download-save-as-completed.png', 'download-save-as-menu-failure.png')
 $script:root = $null
 $script:app = $null
 $script:server = $null
@@ -172,7 +172,15 @@ function Act([IntPtr] $Window, [string] $Pattern, [string] $Type = 'Button', [st
     $element = Control $Window $Pattern $Type
     $result = Invoke-WinApp @('ui', 'invoke', $element.selector, '-w', $Window.ToInt64().ToString(), '--action', $Action, '--json')
     $performed = switch ($Action) { 'toggle-on' { @('toggle', 'none') } 'toggle-off' { @('toggle', 'none') } default { @($Action) } }
-    if ($result.hwnd -ne $Window.ToInt64() -or $result.performedAction -notin $performed) { Stop-Smoke 'invoke_effect_contract_mismatch' }
+    if ($result.hwnd -ne $Window.ToInt64() -or $result.performedAction -notin $performed) {
+        Record-Observation 'invoke-effect-mismatch' ([ordered]@{
+            sameWindow = [int]($result.hwnd -eq $Window.ToInt64()); actualWindowZero = [int]($result.hwnd -eq 0);
+            actualWindowOwned = [int]($script:app -and [Fileway.PlayerSmoke.Native]::ProcessId([IntPtr]$result.hwnd) -eq $script:app.Id);
+            actualActionSelect = [int]($result.performedAction -ceq 'select'); actualActionInvoke = [int]($result.performedAction -ceq 'invoke');
+            actualActionNone = [int]($result.performedAction -ceq 'none'); expectedActionMatches = [int]($result.performedAction -in $performed);
+        })
+        Stop-Smoke 'invoke_effect_contract_mismatch'
+    }
 }
 function Set-Value([IntPtr] $Window, [string] $Pattern, [string] $Value) {
     $element = Control $Window $Pattern 'Edit'
@@ -309,10 +317,12 @@ function Download-File([string] $Destination, [string] $ExpectedStage, [string] 
 }
 function Open-SaveAsMenu([IntPtr] $Window, [string] $RemoteName) {
     if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'save_as_window_owner_mismatch' }
+    $script:stage = 'download-save-as-row-select'
     Act $Window ('^' + [regex]::Escape($RemoteName) + '$') 'ListItem' 'select'
     $element = Control $Window ('^' + [regex]::Escape($RemoteName) + '$') 'ListItem'
     # Standard ContextFlyout keyboard invocation; exact selector receives focus.
     # v0.7.1 documents f1-f16 and modifier combos, with guarded SendInput.
+    $script:stage = 'download-save-as-menu-key'
     $result = Invoke-WinApp @('ui', 'send-keys', 'shift+f10', '--target', $element.selector, '-w', $Window.ToInt64().ToString(), '--via', 'send-input', '--json')
     if ($result.hwnd -ne $Window.ToInt64() -or $result.keys -cne 'shift+f10' -or $result.via -cne 'send-input' -or
         $result.target -cne $element.selector -or $result.actionCount -ne 1 -or @($result.warnings).Count -ne 0) { Stop-Smoke 'save_as_menu_keyboard_contract_mismatch' }
@@ -320,6 +330,7 @@ function Open-SaveAsMenu([IntPtr] $Window, [string] $RemoteName) {
 function Download-SaveAs([string] $RemoteName, [string] $LocalName, [string] $Destination) {
     $script:stage = 'download-save-as-menu'
     Open-SaveAsMenu $script:window $RemoteName
+    $script:stage = 'download-save-as-menu-choice'
     Act $script:window '^下载另存为…$' 'MenuItem'
     $script:stage = 'download-save-as-edit'
     Wait-Text '下载另存为'
@@ -539,6 +550,11 @@ catch {
         # surface. The tested capture guard refuses foreign/obscuring windows.
         try { Capture 'connect-failure.png'; Record-Observation 'connect-failure-capture' @{ saved = 1 } }
         catch { Record-Observation 'connect-failure-capture' @{ saved = 0 } }
+    }
+    if ($script:root -and $script:app -and -not $script:app.HasExited -and $script:window -ne [IntPtr]::Zero -and
+        $script:stage -in @('download-save-as-row-select', 'download-save-as-menu-key', 'download-save-as-menu-choice')) {
+        try { Capture 'download-save-as-menu-failure.png'; Record-Observation 'save-as-menu-failure-capture' @{ saved = 1 } }
+        catch { Record-Observation 'save-as-menu-failure-capture' @{ saved = 0 } }
     }
     if ($script:root -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) { Write-Report $status $code }
     if ($script:root -and $script:app -and $script:ownedHost -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) {

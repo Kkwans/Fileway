@@ -139,6 +139,11 @@ requires the real completed status and same target. The action opens the
 standard context flyout through focused `shift+f10`, then chooses the fresh,
 unique enabled Save As menu item. No remote rename or full destination path is
 submitted to the product; it receives only a different local filename.
+`download-save-as-menu-failure.png` is allowed only at the fixed row-selection,
+context-key or menu-choice failure phases, using the same exact owned-main
+capture guards. Invoke mismatch diagnostics contain only fixed window-owner
+and known-action boolean flags, never handles, selectors or UIA data. Their
+original strict HWND/action acceptance condition remains unchanged.
 `saveAsUiVerified` is true only after the complete journey and normal exit.
 
 No file is recursively or wildcard-deleted. Unique synthetic input, private
