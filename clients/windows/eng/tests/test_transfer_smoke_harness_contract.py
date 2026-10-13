@@ -108,6 +108,19 @@ class TransferSmokeContract(unittest.TestCase):
         self.assertIn("$buttons.Count -ne 1", SOURCE)
         self.assertNotIn("'--root', $dialog.selector", SOURCE)
 
+    def test_connection_failure_has_fixed_phase_and_numeric_diagnostics_only(self):
+        for stage in ("connect-name", "connect-address", "connect-auth-expand", "connect-auth-select",
+                      "connect-persistence-off", "connect-http-consent", "connect-submit", "connect-browser-ready"):
+            self.assertIn("$script:stage = '" + stage + "'", SOURCE)
+        observation = SOURCE.split("Record-Observation 'control-match-counts'", 1)[1].split("Stop-Smoke", 1)[0]
+        for field in ("matches", "uniqueSelectors", "buttons", "edits", "comboBoxes", "listItems"):
+            self.assertRegex(observation, field + r"\s*=.*\.Count")
+        self.assertNotRegex(observation, r"(?:name|value|pattern|slug)\s*=")
+        self.assertIn("Capture 'connect-failure.png'", SOURCE)
+        self.assertIn("$script:stage.StartsWith('connect-'", SOURCE)
+        self.assertIn("$script:app.HasExited", SOURCE)
+        self.assertNotIn("Capture 'picker", SOURCE)
+
     def test_conflict_asserts_same_bytes_after_real_ui_operation(self):
         self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 2)
         self.assertEqual(SOURCE.count("Assert-Payload $destination $expectedHash"), 2)

@@ -15,7 +15,7 @@ Set-StrictMode -Version Latest
 # No HTTP substitute performs a product operation. Only /health is probed here.
 $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png',
     'upload-confirm.png', 'upload-completed.png', 'download-confirm.png',
-    'download-completed.png', 'download-conflict.png', 'upload-conflict.png')
+    'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png')
 $script:root = $null
 $script:app = $null
 $script:server = $null
@@ -63,6 +63,10 @@ function Complete-Step([string] $Name, $Details = @{}) {
     $value = [ordered]@{ step = $Name; status = 'passed'; elapsedMilliseconds = $script:clock.ElapsedMilliseconds; details = $Details }
     [IO.File]::AppendAllText((Artifact-Path 'events.jsonl'), ($value | ConvertTo-Json -Depth 4 -Compress) + "`n", [Text.UTF8Encoding]::new($false))
 }
+function Record-Observation([string] $Name, $Details) {
+    $value = [ordered]@{ observation = $Name; stage = $script:stage; elapsedMilliseconds = $script:clock.ElapsedMilliseconds; details = $Details }
+    [IO.File]::AppendAllText((Artifact-Path 'events.jsonl'), ($value | ConvertTo-Json -Depth 4 -Compress) + "`n", [Text.UTF8Encoding]::new($false))
+}
 function Wait-Condition([scriptblock] $Predicate, [string] $Code, [int] $TimeoutMilliseconds = 15000) {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     while ($watch.ElapsedMilliseconds -lt $TimeoutMilliseconds) {
@@ -108,9 +112,21 @@ function Elements([IntPtr] $Window) {
     return @(Find-Elements $tree)
 }
 function Find-Control([IntPtr] $Window, [string] $NamePattern, [string] $Type = 'Button', [switch] $Optional) {
-    $matches = @(Elements $Window | Where-Object { $_.type -eq $Type -and $_.name -match $NamePattern -and $_.isEnabled -and -not $_.isOffscreen })
+    $visible = @(Elements $Window | Where-Object { $_.isEnabled -and -not $_.isOffscreen })
+    $matches = @($visible | Where-Object { $_.type -eq $Type -and $_.name -match $NamePattern })
     if ($matches.Count -eq 0 -and $Optional) { return $null }
-    if ($matches.Count -ne 1) { Stop-Smoke 'control_missing_or_ambiguous' }
+    if ($matches.Count -ne 1) {
+        # Only numeric structure is retained: never UIA names, values, slugs or
+        # the selector pattern, which can include a synthetic local filename.
+        Record-Observation 'control-match-counts' ([ordered]@{
+            matches = $matches.Count; uniqueSelectors = @($matches | ForEach-Object { $_.selector } | Sort-Object -Unique).Count;
+            buttons = @($visible | Where-Object type -eq 'Button').Count;
+            edits = @($visible | Where-Object type -eq 'Edit').Count;
+            comboBoxes = @($visible | Where-Object type -eq 'ComboBox').Count;
+            listItems = @($visible | Where-Object type -eq 'ListItem').Count;
+        })
+        Stop-Smoke 'control_missing_or_ambiguous'
+    }
     return $matches[0]
 }
 function Control([IntPtr] $Window, [string] $Pattern, [string] $Type = 'Button') {
@@ -294,13 +310,14 @@ public static class FilewayTransferDownloads {
         $script:ownedHost = [Diagnostics.Process]::GetProcessById($hostIds[0]); $null = $script:ownedHost.Handle
         if (-not [IO.Path]::GetFullPath($script:ownedHost.MainModule.FileName).Equals((Join-Path ([IO.Path]::GetDirectoryName($AppPath)) 'fileway-host.exe'), [StringComparison]::OrdinalIgnoreCase) -or
             $script:ownedHost.StartTime -lt $script:app.StartTime) { Stop-Smoke 'owned_host_identity_mismatch' }
-        Set-Value $script:window '^连接名称（可选）$' 'fileway-ci'
-        Set-Value $script:window '^服务器地址$' $baseAddress
-        Act $script:window '^认证方式$' 'ComboBox' 'expand'
-        Act $script:window '^无需认证$' 'ListItem' 'select'
-        Act $script:window '^保持登录（仅在本机加密保存会话）$' 'CheckBox' 'toggle-off'
-        Act $script:window '^我了解 HTTP 会明文传输凭据和文件内容$' 'CheckBox' 'toggle-on'
-        Act $script:window '^连接并浏览$'
+        $script:stage = 'connect-name'; Set-Value $script:window '^连接名称（可选）$' 'fileway-ci'
+        $script:stage = 'connect-address'; Set-Value $script:window '^服务器地址$' $baseAddress
+        $script:stage = 'connect-auth-expand'; Act $script:window '^认证方式$' 'ComboBox' 'expand'
+        $script:stage = 'connect-auth-select'; Act $script:window '^无需认证$' 'ListItem' 'select'
+        $script:stage = 'connect-persistence-off'; Act $script:window '^保持登录（仅在本机加密保存会话）$' 'CheckBox' 'toggle-off'
+        $script:stage = 'connect-http-consent'; Act $script:window '^我了解 HTTP 会明文传输凭据和文件内容$' 'CheckBox' 'toggle-on'
+        $script:stage = 'connect-submit'; Act $script:window '^连接并浏览$'
+        $script:stage = 'connect-browser-ready'
         $null = Control $script:window '^上传文件$'
         Complete-Step 'native-noauth-connect'
         $script:stage = 'native-upload'
@@ -336,6 +353,13 @@ catch {
     $status = 'failed'; $code = 'unexpected_harness_error'; $errorObject = $_.Exception
     while ($errorObject -and -not $errorObject.Data.Contains('smokeCode')) { $errorObject = $errorObject.InnerException }
     if ($errorObject) { $status = $errorObject.Data['smokeStatus']; $code = $errorObject.Data['smokeCode'] }
+    if ($script:root -and $script:app -and -not $script:app.HasExited -and $script:window -ne [IntPtr]::Zero -and
+        ($script:stage -eq 'native-connect' -or $script:stage.StartsWith('connect-', [StringComparison]::Ordinal))) {
+        # The only failure image is the synthetic, isolated App's connection
+        # surface. The tested capture guard refuses foreign/obscuring windows.
+        try { Capture 'connect-failure.png'; Record-Observation 'connect-failure-capture' @{ saved = 1 } }
+        catch { Record-Observation 'connect-failure-capture' @{ saved = 0 } }
+    }
     if ($script:root -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) { Write-Report $status $code }
     Write-Host "Transfer smoke $status at $($script:stage): $code"
     $exitCode = if ($status -eq 'environment-blocked') { 2 } else { 1 }

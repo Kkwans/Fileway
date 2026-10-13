@@ -105,4 +105,5 @@ jobs:
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-completed.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-conflict.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/upload-conflict.png
+            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/connect-failure.png
           if-no-files-found: ignore

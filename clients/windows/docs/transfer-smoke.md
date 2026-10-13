@@ -73,6 +73,13 @@ use player smoke's tested foreground/foreign-window safety checks. Never capture
 the system picker. Do not upload UIA trees, CLI output, exception text, paths,
 URLs, databases, logs, Host capabilities or tokens. Reports contain fixed stage
 codes, byte counts, hash equality and exit-code checks, not raw runtime data.
+Connection actions have fixed individual stage codes. An ambiguous control
+records only numeric match/unique-selector counts and control-type counts.
+`connect-failure.png` is allowed only when the isolated synthetic App fails on
+its connection/browser-ready surface; the same owned-window/foreground guards
+apply. It may show the synthetic name and local loopback address, never a picker,
+foreign window or a raw UIA tree. Failure capture never turns a failed run into a
+pass; a rejected capture records only a numeric saved/not-saved observation.
 
 No file is recursively or wildcard-deleted. Unique synthetic input, private
 server/App state and the exact downloaded file are left on the disposable runner
