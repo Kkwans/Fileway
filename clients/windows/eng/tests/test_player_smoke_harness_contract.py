@@ -149,7 +149,7 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("$script:process.StartTime.ToUniversalTime().Ticks -ne $script:appStartTicks", powershell)
         self.assertIn("$script:process.MainModule.FileName", powershell)
         self.assertIn("'-p', $script:process.Id.ToString(), '-pd', '-G', '-sins', '-noshell'", powershell)
-        self.assertIn(".dump /m /o shutdown.dmp; gn", powershell)
+        self.assertIn(".dump /mu /o shutdown.dmp; gn", powershell)
         self.assertNotIn("; gh", powershell)
         self.assertIn("$watch.ElapsedMilliseconds -lt 10000", powershell)
         self.assertIn("$analysis.WaitForExit(120000)", powershell)
@@ -316,6 +316,15 @@ class HarnessGuards(unittest.TestCase):
             debugger_case("wrong-code", header.replace("c0000409", "c0000005"))
             debugger_case("duplicate-code", header + header)
             debugger_case("missing-code", frame + "ntdll!RtlFailFast2+0x1\n")
+            debugger_case("duplicate-parameter", header + "Parameter[0]: a\n")
+            debugger_case("parameter-count-mismatch", header + "NumberParameters: 2\n")
+            debugger_case("too-many-parameters", header + "NumberParameters: 16\n")
+            debugger_case("oversized-parameter", header + "Parameter[1]: 123456789abcdef01\n")
+            debugger_case("parameter-hole", header + "NumberParameters: 2\nParameter[2]: 1234\n")
+            debugger_case("negative-parameter-count", header + "NumberParameters: -1\n")
+            debugger_case("unloaded-cap-exceeded", header + "Unloaded modules:\n" + "2000 3000 libmpv-2.dll\n" * 65)
+            debugger_case("invalid-parameter-index", header + "Parameter[15]: 1234\n")
+            debugger_case("parameter-private-text", header + "Parameter[1]: private\n")
             debugger_case("duplicate-module", header + "1000 2000 ntdll (deferred)\n1000 2000 ntdll (deferred)\n")
             for index, target in enumerate(("ntdll!C:\\private+0x1", "ntdll!private/path+0x1", "ntdll!private=token+0x1",
                                              'ntdll!"private"+0x1', "ntdll!private%20name+0x1", "ntdll!private\u2603+0x1",
@@ -374,6 +383,28 @@ class Program {
   catch(System.Text.DecoderFallbackException) { rejected=true; }
   if(!rejected) throw new Exception(path+": invalid debugger evidence accepted");
  }
+ static void CheckDebuggerParameterMapping() {
+  const string header="ExceptionCode: c0000409\\nNumberParameters: 4\\nParameter[0]: a\\nParameter[1]: 1123\\nParameter[2]: 2234\\nParameter[3]: 9900\\n";
+  var fault=DebuggerEvidence.Parse(header+"1000 2000 Microsoft_UI_Xaml (pdb symbols)\\nUnloaded modules:\\n2000 3000 libmpv-2.dll\\n9000 a000 PrivateModule\\n");
+  if(fault.ParameterCount!=4||fault.Parameters.Length!=3||fault.FastFailSubcode!=10) throw new Exception("wrong parameter metadata");
+  var loaded=fault.Parameters[0]; var unloaded=fault.Parameters[1]; var unknown=fault.Parameters[2];
+  if(loaded.Index!=1||loaded.Mapping!=1||loaded.Module!="Microsoft_UI_Xaml"||loaded.Offset!=0x123) throw new Exception("wrong loaded module mapping");
+  if(unloaded.Index!=2||unloaded.Mapping!=2||unloaded.Module!="libmpv_2"||unloaded.Offset!=0x234) throw new Exception("wrong unloaded module mapping");
+  if(unknown.Index!=3||unknown.Mapping!=0||unknown.Module!=""||unknown.Offset!=0) throw new Exception("private parameter leaked");
+  var ambiguous=DebuggerEvidence.Parse(header+"1000 3000 ntdll (pdb symbols)\\nUnloaded modules:\\n1000 3000 libmpv_2\\n");
+  foreach(var parameter in ambiguous.Parameters) if(parameter.Mapping!=0||parameter.Module!=""||parameter.Offset!=0) throw new Exception("ambiguous target exported");
+  var missing=DebuggerEvidence.Parse("ExceptionCode: c0000409\\nParameter[0]: a\\nParameter[1]: 1234\\n1000 2000 ntdll (pdb symbols)\\n");
+  if(missing.ParameterCount!=-1||missing.Parameters.Length!=0) throw new Exception("missing parameter metadata invented a target");
+  var privateAlias=DebuggerEvidence.Parse(header+"1000 2000 C:\\\\private\\\\ntdll.dll (pdb symbols)\\nUnloaded modules:\\n2000 3000 SyntheticPrivate.dll\\n");
+  foreach(var parameter in privateAlias.Parameters) if(parameter.Mapping!=0||parameter.Module!=""||parameter.Offset!=0) throw new Exception("path or private module alias accepted");
+  var maximum="ExceptionCode: c0000409\\nNumberParameters: 15\\nParameter[0]: a\\n";
+  for(int i=1;i<15;i++) maximum+="Parameter["+i+"]: "+(0x1000+i).ToString("x")+"\\n";
+  var bounded=DebuggerEvidence.Parse(maximum+"1000 2000 msctf.dll (pdb symbols)\\n");
+  if(bounded.Parameters.Length!=14) throw new Exception("maximum parameter count lost");
+  foreach(var parameter in bounded.Parameters) if(parameter.Mapping!=1||parameter.Module!="msctf"||parameter.Offset!=(ulong)parameter.Index) throw new Exception("incorrect bounded mapping");
+  var single=DebuggerEvidence.Parse("ExceptionCode: c0000409\\nNumberParameters: 1\\nParameter[0]: a\\n");
+  if(single.ParameterCount!=1||single.Parameters.Length!=0) throw new Exception("invented invalid call target");
+ }
  static void CheckDebuggerReady() {
   const string path="shared-debugger-ready.log";
   using(var writer=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.ReadWrite)) {
@@ -387,7 +418,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckDebuggerReady(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors) + '''
+ static void Main() { CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

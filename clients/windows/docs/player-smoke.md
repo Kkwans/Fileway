@@ -174,7 +174,7 @@ marker. The bounded ready reader permits concurrent debugger writes and accepts
 only a complete marker line, not the echoed command. Attach failures retain only
 a fixed numeric location and HResult. `-pd` prevents debugger exit from killing the target; `-sins` ignores
 ambient symbol paths and `-noshell` disables debugger shell commands. A targeted
-`0xC0000409` exception command writes a minimal dump in the fresh private app-data
+`0xC0000409` exception command writes a minimal `/mu` dump (including unloaded-module metadata) in the fresh private app-data
 directory, then uses `gn` (not handled) so the original fault still terminates the
 app. The existing 15-second exit deadline and nonzero-exit failure remain intact.
 
@@ -185,7 +185,15 @@ module paths, memory, registers and symbol caches never enter the upload root.
 The decoder accepts at most 1 MiB of UTF-8, 4,096 lines and 2,048 characters per
 parsed line. Only the expected exception code, a bounded numeric fast-fail
 subcode, explicitly allowlisted module names and explicitly allowlisted public
-symbol names are exported as rebuilt observations. Unknown symbol text is never
+symbol names are exported as rebuilt observations. At most 15 exception parameters
+are accepted. Parameter 0 is the numeric fast-fail code; other parameters are
+never exported as addresses. Each yields only its index and a unique allowed
+module-relative offset, with mapping 0 (unavailable/ambiguous), 1 (loaded), or 2
+(unloaded). A CFG exception may have only parameter 0; absence of another
+parameter does not identify the invalid call target. Legacy logs without a
+`NumberParameters` line retain `parameterCount=-1` and export no parameter
+mappings. Only fixed basename aliases, including the shipped `libmpv-2.dll`,
+are accepted in unloaded listings; path-bearing names remain rejected. Unknown symbol text is never
 exported. It can yield a module-relative offset only when private exception/return
 addresses fit that allowed module's validated `lm` range; otherwise that frame
 retains its module only. Duplicate exception or module records reject the evidence.

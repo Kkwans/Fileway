@@ -243,11 +243,20 @@ namespace Fileway.PlayerSmoke {
             Index=index; Module=module; Symbol=symbol; Offset=offset; OffsetKind=offsetKind;
         }
     }
+    public sealed class DebuggerParameter {
+        public readonly int Index, Mapping;
+        public readonly string Module;
+        public readonly ulong Offset;
+        internal DebuggerParameter(int index,int mapping,string module,ulong offset) { Index=index; Mapping=mapping; Module=module; Offset=offset; }
+    }
     public sealed class DebuggerFault {
         public readonly uint ExceptionCode;
-        public readonly int FastFailSubcode;
+        public readonly int FastFailSubcode, ParameterCount;
         public readonly DebuggerFrame[] Frames;
-        internal DebuggerFault(uint code,int subcode,DebuggerFrame[] frames) { ExceptionCode=code; FastFailSubcode=subcode; Frames=frames; }
+        public readonly DebuggerParameter[] Parameters;
+        internal DebuggerFault(uint code,int subcode,int parameterCount,DebuggerFrame[] frames,DebuggerParameter[] parameters) {
+            ExceptionCode=code; FastFailSubcode=subcode; ParameterCount=parameterCount; Frames=frames; Parameters=parameters;
+        }
     }
     public static class DebuggerEvidence {
         // Only shipped application/framework modules. Never retain an arbitrary
@@ -255,10 +264,15 @@ namespace Fileway.PlayerSmoke {
         static readonly string[] Modules={"Microsoft_UI_Xaml","Microsoft_UI_Input","Microsoft_UI_Windowing_Core",
             "Microsoft_UI_Composition","Microsoft_WindowsAppRuntime","Microsoft_InteractiveExperiences_Projection",
             "CoreMessaging","CoreUIComponents","inputhost","windows_ui","dcomp","twinapi_appcore",
-            "combase","ole32","ntdll","KERNELBASE","KERNEL32","USER32","win32u","COMCTL32","ucrtbase","coreclr","Fileway_App"};
+            "combase","ole32","ntdll","KERNELBASE","KERNEL32","USER32","win32u","COMCTL32","ucrtbase","coreclr","Fileway_App",
+            "Microsoft_Internal_FrameworkUdk","Microsoft_Internal_FrameworkUdk_System","Microsoft_WinUI",
+            "libmpv_2","libwinpthread_1","libgcc_s_seh_1","UIAutomationCore","msctf"};
         // Explicit public names, not a character-class permission to export text.
         // Unlisted symbols retain only a validated module-relative offset from lm.
         static readonly string[] Symbols={"RtlFailFast2","RtlFailFast","RtlReportFatalFailure","RtlReportCriticalFailure",
+            "RtlpHandleInvalidUserCallTarget","LdrpValidateUserCallTarget",
+            "UserCallWinProcCheckWow","DispatchClientMessage","__fnDWORD",
+            "KiUserCallbackDispatcher","KiUserCallbackDispatcherContinue","DefSubclassProc","CallNextSubclassProc",
             "RaiseFailFastException","RaiseException","RoFailFastWithErrorContext","RoFailFastWithErrorContextInternal2",
             "abort","terminate","_invoke_watson","__report_gsfailure","__GSHandlerCheck","DispatchMessageW",
             "DispatchMessageWorker","DestroyWindow","NtUserDestroyWindow","NtUserMessageCall","SendMessageW",
@@ -281,7 +295,26 @@ namespace Fileway.PlayerSmoke {
             foreach(char c in name) if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||"_:<>,.~$@".IndexOf(c)>=0)) return false;
             return true;
         }
-        static string Module(string name) { return Array.Find(Modules,item=>item.Equals(name,StringComparison.OrdinalIgnoreCase)); }
+        static readonly Dictionary<string,string> ModuleFiles=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase) {
+            {"Microsoft.UI.Xaml.dll","Microsoft_UI_Xaml"}, {"Microsoft.UI.Input.dll","Microsoft_UI_Input"},
+            {"Microsoft.UI.Windowing.Core.dll","Microsoft_UI_Windowing_Core"}, {"Microsoft.UI.Composition.dll","Microsoft_UI_Composition"},
+            {"Microsoft.WindowsAppRuntime.dll","Microsoft_WindowsAppRuntime"}, {"Microsoft.InteractiveExperiences.Projection.dll","Microsoft_InteractiveExperiences_Projection"},
+            {"Microsoft.Internal.FrameworkUdk.dll","Microsoft_Internal_FrameworkUdk"}, {"Microsoft.Internal.FrameworkUdk.System.dll","Microsoft_Internal_FrameworkUdk_System"},
+            {"Microsoft.WinUI.dll","Microsoft_WinUI"}, {"Fileway.App.exe","Fileway_App"},
+            {"libmpv-2.dll","libmpv_2"}, {"libwinpthread-1.dll","libwinpthread_1"}, {"libgcc_s_seh-1.dll","libgcc_s_seh_1"},
+            {"UIAutomationCore.dll","UIAutomationCore"}, {"msctf.dll","msctf"},
+            {"ntdll.dll","ntdll"}, {"user32.dll","USER32"}, {"kernel32.dll","KERNEL32"}, {"kernelbase.dll","KERNELBASE"},
+            {"win32u.dll","win32u"}, {"comctl32.dll","COMCTL32"}, {"combase.dll","combase"}, {"ole32.dll","ole32"},
+            {"coreclr.dll","coreclr"}, {"ucrtbase.dll","ucrtbase"}, {"CoreMessaging.dll","CoreMessaging"},
+            {"CoreUIComponents.dll","CoreUIComponents"}, {"inputhost.dll","inputhost"}, {"windows.ui.dll","windows_ui"},
+            {"dcomp.dll","dcomp"}, {"twinapi.appcore.dll","twinapi_appcore"}
+        };
+        static string Module(string name) {
+            string module;
+            if(ModuleFiles.TryGetValue(name,out module)) return module;
+            return Array.Find(Modules,item=>item.Equals(name,StringComparison.OrdinalIgnoreCase));
+        }
+
         public static bool HasReadyMarker(string path) {
             string text=ReadBounded(path,FileShare.ReadWrite);
             string[] lines=text.Split('\n');
@@ -302,8 +335,10 @@ namespace Fileway.PlayerSmoke {
             if(text==null||text.Length>1048576) throw new InvalidDataException("debugger_evidence_too_large");
             string[] lines=text.Split('\n');
             if(lines.Length>4096) throw new InvalidDataException("debugger_evidence_too_many_lines");
-            uint code=0; int subcode=-1,codeCount=0; ulong faultAddress=0;
+            uint code=0; int subcode=-1,codeCount=0,parameterCount=-1; ulong faultAddress=0;
             var ranges=new Dictionary<string,ulong[]>(StringComparer.Ordinal);
+            var unloadedRanges=new List<KeyValuePair<string,ulong[]>>(); bool unloaded=false;
+            var parameters=new Dictionary<int,ulong>();
             foreach(string raw in lines) {
                 if(raw.Length>2048) continue;
                 string line=raw.Trim();
@@ -314,17 +349,34 @@ namespace Fileway.PlayerSmoke {
                         throw new InvalidDataException("debugger_exception_not_expected");
                     code=(uint)number;
                 }
-                else if(line.StartsWith("Parameter[0]:",StringComparison.Ordinal)) {
-                    if(parts.Length==2&&Hex(parts[1],out number)&&number<=65535) subcode=(int)number;
+                else if(line.StartsWith("NumberParameters:",StringComparison.Ordinal)) {
+                    int count;
+                    if(parameterCount!=-1||parts.Length!=2||!int.TryParse(parts[1],System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out count)||count<0||count>15)
+                        throw new InvalidDataException("debugger_invalid_parameter_count");
+                    parameterCount=count;
+                }
+                else if(line.StartsWith("Parameter[",StringComparison.Ordinal)) {
+                    var match=System.Text.RegularExpressions.Regex.Match(line,@"^Parameter\[([0-9]|1[0-4])\]:[ \t]+([0-9a-fA-F]{1,16})$");
+                    int index;
+                    if(!match.Success||!int.TryParse(match.Groups[1].Value,out index)||!Hex(match.Groups[2].Value,out number)||parameters.ContainsKey(index))
+                        throw new InvalidDataException("debugger_invalid_parameter");
+                    parameters.Add(index,number);
+                    if(index==0&&number<=65535) subcode=(int)number;
                 }
                 else if(line.StartsWith("ExceptionAddress:",StringComparison.Ordinal)) {
                     if(parts.Length>=2&&Address(parts[1],out number)) faultAddress=number;
                 }
+                if(line=="Unloaded modules:") unloaded=true;
                 if(parts.Length>=3&&Address(parts[0],out number)&&Address(parts[1],out end)&&number<end) {
                     string module=Module(parts[2]);
                     if(module!=null) {
-                        if(ranges.ContainsKey(module)) throw new InvalidDataException("debugger_duplicate_module");
-                        ranges.Add(module,new ulong[]{number,end});
+                        if(unloaded) {
+                            if(unloadedRanges.Count>=64) throw new InvalidDataException("debugger_unloaded_modules_exceeded");
+                            unloadedRanges.Add(new KeyValuePair<string,ulong[]>(module,new ulong[]{number,end}));
+                        } else {
+                            if(ranges.ContainsKey(module)) throw new InvalidDataException("debugger_duplicate_module");
+                            ranges.Add(module,new ulong[]{number,end});
+                        }
                     }
                 }
             }
@@ -358,7 +410,29 @@ namespace Fileway.PlayerSmoke {
                 }
                 frames.Add(new DebuggerFrame((int)index,known,symbol,offset,kind));
             }
-            return new DebuggerFault(code,subcode,frames.ToArray());
+            if(parameterCount>=0) {
+                if(parameters.Count!=parameterCount) throw new InvalidDataException("debugger_parameter_count_mismatch");
+                foreach(int index in parameters.Keys) if(index>=parameterCount) throw new InvalidDataException("debugger_parameter_count_mismatch");
+            }
+            var mapped=new List<DebuggerParameter>();
+            for(int parameterIndex=1;parameterIndex<15;parameterIndex++) {
+                ulong parameterValue;
+                if(parameterCount<0||!parameters.TryGetValue(parameterIndex,out parameterValue)) continue;
+                int mapping=0,matches=0; string module=""; ulong offset=0;
+                foreach(var range in ranges) {
+                    if(parameterValue>=range.Value[0]&&parameterValue<range.Value[1]&&parameterValue-range.Value[0]<=uint.MaxValue) {
+                        matches++; mapping=1; module=range.Key; offset=parameterValue-range.Value[0];
+                    }
+                }
+                foreach(var range in unloadedRanges) {
+                    if(parameterValue>=range.Value[0]&&parameterValue<range.Value[1]&&parameterValue-range.Value[0]<=uint.MaxValue) {
+                        matches++; mapping=2; module=range.Key; offset=parameterValue-range.Value[0];
+                    }
+                }
+                if(matches!=1) { mapping=0; module=""; offset=0; }
+                mapped.Add(new DebuggerParameter(parameterIndex,mapping,module,offset));
+            }
+            return new DebuggerFault(code,subcode,parameterCount,frames.ToArray(),mapped.ToArray());
         }
     }
 
@@ -736,7 +810,7 @@ function Start-ShutdownDebugger {
     # Relative dump name is interpreted only in the fresh private working directory.
     # gn preserves NOT HANDLED semantics. -pd prevents debugger cleanup from killing
     # the app. Neither WER nor any system-wide debugger/security setting is changed.
-    $commands = 'sxe -c ".dump /m /o shutdown.dmp; gn" -c2 ".dump /m /o shutdown.dmp; gn" 0xc0000409' + "`n" +
+    $commands = 'sxe -c ".dump /mu /o shutdown.dmp; gn" -c2 ".dump /mu /o shutdown.dmp; gn" 0xc0000409' + "`n" +
         '.echo FILEWAY_SHUTDOWN_DEBUGGER_READY' + "`n" + 'g' + "`n"
     $commandFile = Join-Path $script:privateRoot 'shutdown-debugger.cmd'
     $log = Join-Path $script:privateRoot 'shutdown-debugger.log'
@@ -813,7 +887,10 @@ function Record-SafeDebuggerEvidence {
         }
         if ($analysis.ExitCode -ne 0) { Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_failed' }; return }
         $fault = [Fileway.PlayerSmoke.DebuggerEvidence]::Read($log)
-        Record-Observation 'shutdown-native-exception' @{ exceptionCode = [uint32]$fault.ExceptionCode; fastFailSubcode = [int]$fault.FastFailSubcode }
+        Record-Observation 'shutdown-native-exception' @{ exceptionCode = [uint32]$fault.ExceptionCode; fastFailSubcode = [int]$fault.FastFailSubcode; parameterCount = [int]$fault.ParameterCount }
+        foreach ($parameter in $fault.Parameters) {
+            Record-Observation 'shutdown-native-parameter' @{ index = [int]$parameter.Index; mapping = [int]$parameter.Mapping; module = [string]$parameter.Module; offset = [uint64]$parameter.Offset }
+        }
         foreach ($frame in $fault.Frames) {
             Record-Observation 'shutdown-native-frame' @{
                 index = [int]$frame.Index; module = [string]$frame.Module; symbol = [string]$frame.Symbol
