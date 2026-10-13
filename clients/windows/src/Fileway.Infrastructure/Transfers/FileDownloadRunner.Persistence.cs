@@ -168,7 +168,7 @@ public sealed partial class FileDownloadRunner
                         // before releasing handles, so restart can reconcile an unconfirmed deletion.
                         failure = Safe(ErrorCode.OutcomeUnknown);
                         try { await RetainRejectedDestinationAsync(state, captured).ConfigureAwait(false); }
-                        catch (Exception error) { failure = error; }
+                        catch (Exception error) { state.PersistenceFailed = true; failure = error; }
                     }
                 }
             }

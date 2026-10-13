@@ -1150,6 +1150,73 @@ public sealed class FileDownloadRunnerTests
         fixture.AssertDrained();
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LateCreatedPartialEvidenceSaveConflictThenReadFailureRetainsExactProtectedRunAndStorageFailure(bool releaseFails)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Destinations.File.DeleteFailure = new IOException("private rejected delete detail: " + fixture.Plan.LocalPath);
+        if (releaseFails) fixture.Destinations.File.DisposeFailure = new FilewayException(new(ErrorCode.HostExited,
+            "private destination release detail: " + fixture.Plan.LocalPath));
+        int evidenceSaveAttempts = 0;
+        int releaseSaveAttempts = 0;
+        int failNextRead = 0;
+        int readFailures = 0;
+        fixture.Store.BeforeRead = (_, _) =>
+        {
+            if (Interlocked.CompareExchange(ref failNextRead, 0, 1) != 1) return Task.CompletedTask;
+            Interlocked.Increment(ref readFailures);
+            return Task.FromException(new FilewayException(new(ErrorCode.LocalStorageUnavailable,
+                "private evidence read detail: " + fixture.Plan.LocalPath)));
+        };
+        fixture.Store.BeforeSave = (_, _, checkpoint, release, _) =>
+        {
+            if (release) Interlocked.Increment(ref releaseSaveAttempts);
+            if (checkpoint.Files is null) return Task.CompletedTask;
+            Interlocked.Increment(ref evidenceSaveAttempts);
+            Assert.Equal(0, Interlocked.Exchange(ref failNextRead, 1));
+            return Task.FromException(new FilewayException(new(ErrorCode.Conflict,
+                "private evidence conflict detail: " + fixture.Plan.LocalPath)));
+        };
+
+        var pending = await ReleaseLateCreateAfterCancelAsync(fixture, stop: true);
+        var drainError = await Assert.ThrowsAsync<FilewayException>(() => pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        var runError = await Assert.ThrowsAsync<FilewayException>(() => pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token));
+
+        AssertDisposeSafe(drainError, fixture, ErrorCode.LocalStorageUnavailable);
+        AssertDisposeSafe(runError, fixture, ErrorCode.LocalStorageUnavailable);
+        Assert.DoesNotContain("private evidence read detail", runError.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private evidence conflict detail", runError.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private destination release detail", runError.ToString(), StringComparison.Ordinal);
+        Assert.Equal(1, evidenceSaveAttempts);
+        Assert.Equal(1, readFailures);
+        Assert.Equal(0, Volatile.Read(ref failNextRead));
+        Assert.Equal(0, releaseSaveAttempts);
+        var durable = await fixture.ReadAsync();
+        Assert.Equal(pending.CanceledBeforeRelease, durable);
+        Assert.Equal(TransferIntent.Cancel, durable.Intent);
+        Assert.Equal(pending.Claimed.Run, durable.Run);
+        Assert.NotNull(durable.Run);
+        Assert.Equal(pending.Claimed.Generation, durable.Generation);
+        Assert.Equal(pending.Claimed.Checkpoint.Source, durable.Checkpoint.Source);
+        Assert.Null(durable.Checkpoint.Files);
+        Assert.True(await fixture.Store.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        var replay = await Assert.ThrowsAsync<FilewayException>(() => fixture.Runner.RunAsync(fixture.Task, Token));
+        Assert.Equal(ErrorCode.InvalidRequest, replay.Error.Code);
+        Assert.Equal(durable, await fixture.ReadAsync());
+        Assert.Equal(1, fixture.Destinations.CreateCalls);
+        Assert.Equal(0, fixture.Destinations.OpenCalls);
+        Assert.Equal(1, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(0, fixture.Destinations.File.DeleteCalls);
+        Assert.Equal(1, fixture.Destinations.File.DisposeCalls);
+        Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        Assert.Empty(fixture.Http.Requests);
+        Assert.Empty(fixture.Sources.Acquired);
+        Assert.Empty(fixture.Sources.Checksums);
+        fixture.AssertDrained();
+    }
+
     private static async Task<(Task<TransferTaskRecord> Running, Task Control, TransferTaskRecord Claimed,
         TransferTaskRecord CanceledBeforeRelease)> ReleaseLateCreateAfterCancelAsync(Fixture fixture, bool stop,
         bool callerCancellation = false)
