@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Fileway.Infrastructure.Persistence;
+using Fileway.Infrastructure.Tests.Persistence;
 using Fileway.Infrastructure.Transfers;
 
 namespace Fileway.Infrastructure.Tests.Transfers;
@@ -887,6 +888,352 @@ public sealed class FileDownloadRunnerTests
         fixture.AssertDrained();
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task LateCreatedPartialCleanupFailurePreservesExactOwnedEvidenceAfterDurableCancel(bool outcomeUnknown, bool stop)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Destinations.File.DeleteFailure = outcomeUnknown
+            ? new FilewayException(new(ErrorCode.OutcomeUnknown, "private rejected delete detail: " + fixture.Plan.LocalPath))
+            : new IOException("private rejected delete detail: " + fixture.Plan.LocalPath);
+        fixture.Store.BeforeSave = async (_, _, checkpoint, release, _) =>
+        {
+            if (checkpoint.Phase != TransferPhase.OutcomeUnknown) return;
+            var durable = await fixture.ReadAsync();
+            Assert.NotNull(durable.Run);
+            Assert.Equal(fixture.Destinations.File.Files, durable.Checkpoint.Files);
+            Assert.Equal(TransferUncertainty.LocalPublish, durable.Checkpoint.Uncertainty);
+            Assert.True(release);
+        };
+
+        var pending = await ReleaseLateCreateAfterCancelAsync(fixture, stop);
+        await pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        var unknown = await pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token);
+
+        await AssertRejectedCreateUnknownAsync(fixture, unknown, pending.Claimed);
+        Assert.Equal(unknown, await fixture.ReadAsync());
+        var replay = await Assert.ThrowsAsync<FilewayException>(() => fixture.Runner.RunAsync(fixture.Task, Token));
+        Assert.Equal(ErrorCode.InvalidRequest, replay.Error.Code);
+        Assert.Equal(unknown, await fixture.ReadAsync());
+        Assert.Equal(1, fixture.Destinations.CreateCalls);
+        Assert.Equal(1, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(1, fixture.Destinations.File.DisposeCalls);
+        fixture.AssertDrained();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LateCreatedPartialCleanupFailureAfterCallerCancellationPersistsCancelWithExactOwnedUnknown(bool outcomeUnknown)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Destinations.File.DeleteFailure = outcomeUnknown
+            ? new FilewayException(new(ErrorCode.OutcomeUnknown, "private rejected delete detail: " + fixture.Plan.LocalPath))
+            : new IOException("private rejected delete detail: " + fixture.Plan.LocalPath);
+        int evidenceBeforeCancel = 0;
+        int unknownAfterCancel = 0;
+        fixture.Store.BeforeSave = async (_, _, checkpoint, release, _) =>
+        {
+            if (checkpoint.Files is null) return;
+            var durable = await fixture.ReadAsync();
+            if (checkpoint.Phase == TransferPhase.OutcomeUnknown)
+            {
+                Assert.Equal(TransferIntent.Cancel, durable.Intent);
+                Assert.Equal(fixture.Destinations.File.Files, durable.Checkpoint.Files);
+                Assert.Equal(TransferUncertainty.LocalPublish, durable.Checkpoint.Uncertainty);
+                Assert.True(release);
+                Interlocked.Increment(ref unknownAfterCancel);
+            }
+            else
+            {
+                Assert.Equal(TransferIntent.Run, durable.Intent);
+                Assert.NotNull(durable.Run);
+                Assert.Null(durable.Checkpoint.Files);
+                Assert.Equal(TransferUncertainty.None, durable.Checkpoint.Uncertainty);
+                Assert.Equal(fixture.Destinations.File.Files, checkpoint.Files);
+                Assert.Equal(TransferUncertainty.LocalPublish, checkpoint.Uncertainty);
+                Assert.False(release);
+                Interlocked.Increment(ref evidenceBeforeCancel);
+            }
+        };
+
+        var pending = await ReleaseLateCreateAfterCancelAsync(fixture, stop: false, callerCancellation: true);
+        await pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        var unknown = await pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token);
+
+        Assert.Equal(TransferIntent.Run, pending.CanceledBeforeRelease.Intent);
+        await AssertRejectedCreateUnknownAsync(fixture, unknown, pending.Claimed);
+        Assert.Equal(unknown, await fixture.ReadAsync());
+        Assert.Equal(1, evidenceBeforeCancel);
+        Assert.Equal(1, unknownAfterCancel);
+        Assert.Equal(1, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(1, fixture.Destinations.File.DisposeCalls);
+        fixture.AssertDrained();
+    }
+
+    [Theory]
+    [InlineData("same-final")]
+    [InlineData("cross-parent")]
+    [InlineData("blank-identity")]
+    public async Task LateCreatedInvalidPartialEvidenceCannotAuthorizeDeletionOrBecomeDurableOwnedFiles(string invalid)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Destinations.File.Files = invalid switch
+        {
+            "same-final" => fixture.Destinations.File.Files with { PartialPath = fixture.Plan.LocalPath },
+            "cross-parent" => fixture.Destinations.File.Files with { PartialPath = @"C:\private-other-parent\fixture.owned-partial" },
+            "blank-identity" => fixture.Destinations.File.Files with { PartialIdentity = " " },
+            _ => throw new InvalidOperationException(),
+        };
+
+        var pending = await ReleaseLateCreateAfterCancelAsync(fixture, stop: true);
+        await pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        var unknown = await pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token);
+
+        Assert.Equal(TransferIntent.Cancel, unknown.Intent);
+        Assert.Equal(TransferPhase.OutcomeUnknown, unknown.Checkpoint.Phase);
+        Assert.Equal(TransferUncertainty.LocalPublish, unknown.Checkpoint.Uncertainty);
+        Assert.Null(unknown.Run);
+        Assert.Null(unknown.Checkpoint.Files);
+        Assert.Equal(pending.Claimed.Generation, unknown.Generation);
+        Assert.Equal(pending.Claimed.Checkpoint.Source, unknown.Checkpoint.Source);
+        Assert.Equal(unknown, await fixture.ReadAsync());
+        Assert.True(await fixture.Store.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        AssertSafe(unknown.Checkpoint.Error!, fixture);
+        Assert.Equal(1, fixture.Destinations.CreateCalls);
+        Assert.Equal(0, fixture.Destinations.OpenCalls);
+        Assert.Equal(0, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(0, fixture.Destinations.File.DeleteCalls);
+        Assert.Equal(1, fixture.Destinations.File.DisposeCalls);
+        Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        Assert.Empty(fixture.Http.Requests);
+        Assert.Empty(fixture.Sources.Acquired);
+        Assert.Empty(fixture.Sources.Checksums);
+        fixture.AssertDrained();
+    }
+
+    [Fact]
+    public async Task ReopenedSqliteRetainsLateCreatedPartialEvidenceAndReconcilesOnlyMatchingLocalIdentity()
+    {
+        using var directory = new StorageTestDirectory();
+        await using var fixture = await Fixture.CreateAsync(store: new SqliteProfileStore(directory.DatabasePath));
+        fixture.Destinations.File.DeleteFailure = new IOException("private rejected delete detail: " + fixture.Plan.LocalPath);
+        var pending = await ReleaseLateCreateAfterCancelAsync(fixture, stop: true);
+        await pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        var unknown = await pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        await AssertRejectedCreateUnknownAsync(fixture, unknown, pending.Claimed);
+        fixture.AssertDrained();
+        await fixture.Runner.DisposeAsync();
+
+        var reopened = new SqliteProfileStore(directory.DatabasePath);
+        var durable = Assert.IsType<TransferTaskRecord>(await reopened.GetTransferAsync(fixture.Task, Token));
+        Assert.Equal(unknown, durable);
+        Assert.Equal(unknown.Generation, durable.Generation);
+        Assert.Equal(unknown.Checkpoint.Source, durable.Checkpoint.Source);
+        Assert.Equal(unknown.Checkpoint.Files, durable.Checkpoint.Files);
+        Assert.Null(durable.Run);
+        Assert.True(await reopened.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        var localHttp = new DownloadHandler(fixture, Data);
+        await using var restarted = new FileDownloadRunner(reopened, fixture.Sources, fixture.Destinations,
+            fixture.Locks, localHttp, new() { BufferSizeBytes = 4 });
+        fixture.Destinations.File.DeleteFailure = null;
+        fixture.Destinations.MutateOpenedFiles = files => files with { PartialIdentity = "fixture-volume:replaced" };
+
+        var mismatched = await restarted.ReconcileAsync(fixture.Task, Token);
+
+        Assert.Equal(TransferPhase.OutcomeUnknown, mismatched.Checkpoint.Phase);
+        Assert.Equal(TransferUncertainty.LocalPublish, mismatched.Checkpoint.Uncertainty);
+        Assert.Equal(durable.Checkpoint.Files, mismatched.Checkpoint.Files);
+        Assert.Equal(1, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(0, fixture.Destinations.File.DeleteCalls);
+        Assert.True(await reopened.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        fixture.AssertDrained();
+        fixture.Destinations.File.Files = durable.Checkpoint.Files!;
+        fixture.Destinations.MutateOpenedFiles = null;
+
+        var reconciled = await restarted.ReconcileAsync(fixture.Task, Token);
+
+        Assert.Equal(TransferIntent.Cancel, reconciled.Intent);
+        Assert.Equal(TransferPhase.Canceled, reconciled.Checkpoint.Phase);
+        Assert.Equal(TransferUncertainty.None, reconciled.Checkpoint.Uncertainty);
+        Assert.Null(reconciled.Run);
+        Assert.Equal(durable.Checkpoint.Source, reconciled.Checkpoint.Source);
+        Assert.Equal(durable.Checkpoint.Files, reconciled.Checkpoint.Files);
+        Assert.True(reconciled.Generation > durable.Generation);
+        Assert.Equal(reconciled, await new SqliteProfileStore(directory.DatabasePath).GetTransferAsync(fixture.Task, Token));
+        Assert.False(await reopened.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        Assert.Equal(1, fixture.Destinations.CreateCalls);
+        Assert.Equal(2, fixture.Destinations.OpenCalls);
+        Assert.Equal(2, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(1, fixture.Destinations.File.DeleteCalls);
+        Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        Assert.Equal(1, fixture.Sources.PrepareCalls);
+        Assert.Empty(fixture.Sources.Acquired);
+        Assert.Empty(fixture.Sources.Checksums);
+        Assert.Empty(fixture.Http.Requests);
+        Assert.Empty(localHttp.Requests);
+        fixture.AssertDrained();
+    }
+
+    [Fact]
+    public async Task LateCreatedPartialDeleteAndDisposeFailuresPreserveOwnedUnknownAndReportSafeReleaseFailure()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Destinations.File.DeleteFailure = new IOException("private rejected delete detail: " + fixture.Plan.LocalPath);
+        fixture.Destinations.File.DisposeFailure = new FilewayException(new(ErrorCode.HostExited,
+            "private destination release detail: " + fixture.Plan.LocalPath));
+
+        var pending = await ReleaseLateCreateAfterCancelAsync(fixture, stop: true);
+        var drainError = await Assert.ThrowsAsync<FilewayException>(() => pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        var runError = await Assert.ThrowsAsync<FilewayException>(() => pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token));
+
+        AssertDisposeSafe(drainError, fixture, ErrorCode.HostExited);
+        AssertDisposeSafe(runError, fixture, ErrorCode.HostExited);
+        Assert.DoesNotContain("private destination release detail", drainError.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private destination release detail", runError.ToString(), StringComparison.Ordinal);
+        await AssertRejectedCreateUnknownAsync(fixture, await fixture.ReadAsync(), pending.Claimed);
+        Assert.Equal(1, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(1, fixture.Destinations.File.DisposeCalls);
+        fixture.AssertDrained();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LateCreatedPartialEvidenceSaveFailureRetainsProtectedActiveRunWithoutRetryOrReplacement(bool releaseFails)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Destinations.File.DeleteFailure = new IOException("private rejected delete detail: " + fixture.Plan.LocalPath);
+        if (releaseFails) fixture.Destinations.File.DisposeFailure = new FilewayException(new(ErrorCode.HostExited,
+            "private destination release detail: " + fixture.Plan.LocalPath));
+        int evidenceSaveAttempts = 0;
+        fixture.Store.BeforeSave = (_, _, checkpoint, _, _) =>
+        {
+            if (checkpoint.Files is null) return Task.CompletedTask;
+            Interlocked.Increment(ref evidenceSaveAttempts);
+            return Task.FromException(new FilewayException(new(ErrorCode.LocalStorageUnavailable,
+                "private evidence storage detail: " + fixture.Plan.LocalPath)));
+        };
+
+        var pending = await ReleaseLateCreateAfterCancelAsync(fixture, stop: true);
+        var drainError = await Assert.ThrowsAsync<FilewayException>(() => pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        var runError = await Assert.ThrowsAsync<FilewayException>(() => pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token));
+
+        AssertDisposeSafe(drainError, fixture, ErrorCode.LocalStorageUnavailable);
+        AssertDisposeSafe(runError, fixture, ErrorCode.LocalStorageUnavailable);
+        Assert.DoesNotContain("private evidence storage detail", runError.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private destination release detail", runError.ToString(), StringComparison.Ordinal);
+        var durable = await fixture.ReadAsync();
+        Assert.Equal(pending.CanceledBeforeRelease, durable);
+        Assert.Equal(TransferIntent.Cancel, durable.Intent);
+        Assert.Equal(pending.Claimed.Run, durable.Run);
+        Assert.NotNull(durable.Run);
+        Assert.Equal(pending.Claimed.Generation, durable.Generation);
+        Assert.Equal(pending.Claimed.Checkpoint.Source, durable.Checkpoint.Source);
+        Assert.Null(durable.Checkpoint.Files);
+        Assert.True(await fixture.Store.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        Assert.Equal(1, evidenceSaveAttempts);
+        var replay = await Assert.ThrowsAsync<FilewayException>(() => fixture.Runner.RunAsync(fixture.Task, Token));
+        Assert.Equal(ErrorCode.InvalidRequest, replay.Error.Code);
+        Assert.Equal(durable, await fixture.ReadAsync());
+        Assert.Equal(1, fixture.Destinations.CreateCalls);
+        Assert.Equal(1, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(0, fixture.Destinations.File.DeleteCalls);
+        Assert.Equal(1, fixture.Destinations.File.DisposeCalls);
+        Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        Assert.Empty(fixture.Http.Requests);
+        Assert.Empty(fixture.Sources.Acquired);
+        Assert.Empty(fixture.Sources.Checksums);
+        fixture.AssertDrained();
+    }
+
+    private static async Task<(Task<TransferTaskRecord> Running, Task Control, TransferTaskRecord Claimed,
+        TransferTaskRecord CanceledBeforeRelease)> ReleaseLateCreateAfterCancelAsync(Fixture fixture, bool stop,
+        bool callerCancellation = false)
+    {
+        using var release = new ManualResetEventSlim();
+        using var caller = callerCancellation ? CancellationTokenSource.CreateLinkedTokenSource(Token) : null;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelPersisted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Destinations.BeforeCreate = cancellationToken =>
+        {
+            using var registration = cancellationToken.Register(() => stopObserved.TrySetResult());
+            entered.TrySetResult();
+            try
+            {
+                if (!release.Wait(TimeSpan.FromSeconds(10), CancellationToken.None))
+                    throw new TimeoutException("bounded rejected create wait expired");
+            }
+            finally { exited.TrySetResult(); }
+        };
+        fixture.Store.AfterIntent = record =>
+        {
+            if (record.Intent == TransferIntent.Cancel) cancelPersisted.TrySetResult();
+        };
+        var running = fixture.Runner.RunAsync(fixture.Task, caller?.Token ?? Token);
+        Task? control = null;
+        TransferTaskRecord? claimed = null;
+        TransferTaskRecord? canceled = null;
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3), Token);
+            claimed = await fixture.ReadAsync();
+            Assert.NotNull(claimed.Run);
+            Assert.Null(claimed.Checkpoint.Files);
+            control = callerCancellation ? caller!.CancelAsync()
+                : stop ? fixture.Runner.StopAndDrainAsync(Token) : fixture.Runner.CancelAsync(fixture.Task, Token);
+            if (!callerCancellation) await cancelPersisted.Task.WaitAsync(TimeSpan.FromSeconds(3), Token);
+            await stopObserved.Task.WaitAsync(TimeSpan.FromSeconds(3), Token);
+            canceled = await fixture.ReadAsync();
+            Assert.Equal(callerCancellation ? TransferIntent.Run : TransferIntent.Cancel, canceled.Intent);
+            Assert.Equal(claimed.Run, canceled.Run);
+            if (!callerCancellation) Assert.False(control.IsCompleted);
+            Assert.False(running.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+            if (entered.Task.IsCompleted) await exited.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        }
+        return (running, control!, claimed!, canceled!);
+    }
+
+    private static async Task AssertRejectedCreateUnknownAsync(Fixture fixture, TransferTaskRecord unknown,
+        TransferTaskRecord claimed)
+    {
+        Assert.Equal(TransferIntent.Cancel, unknown.Intent);
+        Assert.Equal(TransferPhase.OutcomeUnknown, unknown.Checkpoint.Phase);
+        Assert.Equal(TransferUncertainty.LocalPublish, unknown.Checkpoint.Uncertainty);
+        Assert.Null(unknown.Run);
+        Assert.Equal(claimed.Generation, unknown.Generation);
+        Assert.Equal(claimed.Checkpoint.Source, unknown.Checkpoint.Source);
+        Assert.Equal(new TransferSourceSnapshot(Data.LongLength, Modified), unknown.Checkpoint.Source);
+        var files = Assert.IsType<TransferWorkFiles>(unknown.Checkpoint.Files);
+        string partialPath = Assert.IsType<string>(files.PartialPath);
+        Assert.Equal(fixture.Destinations.File.Files, files);
+        Assert.Equal(fixture.Plan.LocalPath + ".owned-partial", partialPath);
+        Assert.Equal("fixture-volume:partial-1", files.PartialIdentity);
+        Assert.Equal(fixture.Plan.LocalPath[..fixture.Plan.LocalPath.LastIndexOf('\\')],
+            partialPath[..partialPath.LastIndexOf('\\')]);
+        Assert.Null(files.PublishedFileIdentity);
+        Assert.True(await fixture.Store.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        AssertSafe(unknown.Checkpoint.Error!, fixture);
+        Assert.Equal(1, fixture.Destinations.CreateCalls);
+        Assert.Equal(0, fixture.Destinations.OpenCalls);
+        Assert.Equal(0, fixture.Destinations.File.DeleteCalls);
+        Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        Assert.Equal(1, fixture.Sources.PrepareCalls);
+        Assert.Empty(fixture.Sources.Acquired);
+        Assert.Empty(fixture.Sources.Checksums);
+        Assert.Empty(fixture.Http.Requests);
+        fixture.AssertDrained();
+    }
+
     private static void AssertDisposeSafe(FilewayException error, Fixture fixture, ErrorCode expected)
     {
         Assert.Equal(expected, error.Error.Code);
@@ -927,12 +1274,12 @@ public sealed class FileDownloadRunnerTests
         internal DownloadHandler Http { get; }
         internal FileDownloadRunner Runner { get; }
         internal static async Task<Fixture> CreateAsync(byte[]? data = null, FileDownloadRunnerOptions? options = null,
-            Func<TransferPlan, TransferPlan>? mutatePlan = null)
+            Func<TransferPlan, TransferPlan>? mutatePlan = null, ITransferTaskStore? store = null)
         {
-            var inner = new InMemoryProfileStore();
+            var inner = store ?? new InMemoryProfileStore();
             var saved = new SavedConnection(new(Guid.NewGuid(), Guid.NewGuid(), "download runner fixture", new("https://fixture.invalid/"),
                 NetworkMode.SystemNetwork, new(ProxyMode.Direct)), AuthenticationMode.Password, "fixture", "7", false, DateTimeOffset.UtcNow);
-            await inner.SaveAsync(saved, Token);
+            await ((IProfileStore)inner).SaveAsync(saved, Token);
             var plan = new TransferPlan(new(saved.Account, Guid.NewGuid()), TransferDirection.Download,
                 new(saved.Account, "/fixture.bin", "fixture.bin", "/fixture.bin"), @"C:\synthetic-download\fixture.bin");
             plan = mutatePlan?.Invoke(plan) ?? plan;
@@ -958,15 +1305,15 @@ public sealed class FileDownloadRunnerTests
         public ValueTask DisposeAsync() => Runner.DisposeAsync();
     }
 
-    private sealed class FaultStore(InMemoryProfileStore inner) : ITransferTaskStore
+    private sealed class FaultStore(ITransferTaskStore inner) : ITransferTaskStore
     {
-        internal InMemoryProfileStore Inner { get; } = inner;
+        internal ITransferTaskStore Inner { get; } = inner;
         internal Func<TransferRunToken, long, TransferCheckpoint, bool, CancellationToken, Task>? BeforeSave { get; set; }
         internal Func<TransferTaskRef, long, TransferIntent, CancellationToken, Task>? BeforeIntent { get; set; }
         internal Action<TransferTaskRecord>? AfterIntent { get; set; }
         internal Func<TransferTaskRef, CancellationToken, Task>? BeforeRead { get; set; }
         internal bool IgnoreReadCancellation { get; set; }
-        public bool IsPersistent => false;
+        public bool IsPersistent => Inner.IsPersistent;
         public Task<TransferTaskRecord> CreateTransferAsync(TransferPlan plan, CancellationToken cancellationToken) => Inner.CreateTransferAsync(plan, cancellationToken);
         public async Task<TransferTaskRecord?> GetTransferAsync(TransferTaskRef task, CancellationToken cancellationToken)
         {
@@ -1054,6 +1401,7 @@ public sealed class FileDownloadRunnerTests
         internal Exception? OpenFailure { get; set; }
         internal Exception? CreateFailure { get; set; }
         internal Action<CancellationToken>? BeforeCreate { get; set; }
+        internal Func<TransferWorkFiles, TransferWorkFiles>? MutateOpenedFiles { get; set; }
         public Task<IDownloadDestination> CreateFreshAsync(string path, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1071,6 +1419,7 @@ public sealed class FileDownloadRunnerTests
             Interlocked.Increment(ref OpenCalls);
             if (OpenFailure is { } failure) throw failure;
             File.Disposed = false;
+            if (MutateOpenedFiles is { } mutate) File.Files = mutate(File.Files);
             return Task.FromResult<IDownloadDestination>(File);
         }
     }
@@ -1080,16 +1429,20 @@ public sealed class FileDownloadRunnerTests
         private readonly List<byte> _bytes = [];
         internal byte[] Bytes => _bytes.ToArray();
         internal bool Disposed { get; set; }
+        internal int DisposeCalls;
+        internal int DeleteAttempts;
         internal int DeleteCalls;
         internal int PublishCalls;
         internal ConcurrentQueue<string> Events { get; } = new();
         internal string? FailOperation { get; set; }
+        internal Exception? DeleteFailure { get; set; }
+        internal Exception? DisposeFailure { get; set; }
         internal Func<DownloadLocalFileHash, DownloadLocalFileHash>? MutateHash { get; set; }
         internal Func<CancellationToken, Task>? BeforePublish { get; set; }
         internal Func<CancellationToken, Task>? AfterPublish { get; set; }
         internal bool PublishUnknown { get; set; }
         internal bool PublishDespiteUnknown { get; set; }
-        public TransferWorkFiles Files { get; private set; } = new(finalPath + ".owned-partial", "fixture-volume:partial-1");
+        public TransferWorkFiles Files { get; internal set; } = new(finalPath + ".owned-partial", "fixture-volume:partial-1");
         public bool IsPublished { get; private set; }
         public long Length => _bytes.Count;
         public Task WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
@@ -1131,8 +1484,10 @@ public sealed class FileDownloadRunnerTests
         }
         public Task DeleteOwnedPartialAsync(CancellationToken cancellationToken)
         {
+            Interlocked.Increment(ref DeleteAttempts);
             Check("delete", cancellationToken);
             Assert.False(IsPublished);
+            if (DeleteFailure is { } failure) throw failure;
             Interlocked.Increment(ref DeleteCalls);
             return Task.CompletedTask;
         }
@@ -1142,7 +1497,12 @@ public sealed class FileDownloadRunnerTests
             Assert.False(Disposed);
             if (FailOperation == operation) throw new IOException(finalPath);
         }
-        public ValueTask DisposeAsync() { Disposed = true; return ValueTask.CompletedTask; }
+        public ValueTask DisposeAsync()
+        {
+            Interlocked.Increment(ref DisposeCalls);
+            Disposed = true;
+            return DisposeFailure is { } failure ? ValueTask.FromException(failure) : ValueTask.CompletedTask;
+        }
     }
 
     private sealed class FakeLocks : ITransferExecutionLockProvider

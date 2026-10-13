@@ -183,8 +183,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
             var snapshot = new TransferSourceSnapshot(metadata.Size, metadata.Modified?.ToUniversalTime());
             await SaveAsync(state, state.Record.Checkpoint with { Source = snapshot }, release: false).ConfigureAwait(false);
             await CheckIntentAsync(state).ConfigureAwait(false);
-            destination = await AcquireOwnedAsync(token => _destinations.CreateFreshAsync(state.Record.Plan.LocalPath, token),
-                state.Execution.Stop.Token, deleteRejectedPartial: true).ConfigureAwait(false);
+            destination = await AcquireFreshDestinationAsync(state).ConfigureAwait(false);
             RequireFreshDestination(state, destination);
             state.DestinationAccepted = true;
             await SaveAsync(state, state.Record.Checkpoint with
@@ -228,7 +227,11 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
         }
         catch (Exception error) when (error is FilewayException or OperationCanceledException or IOException or
             UnauthorizedAccessException or HttpRequestException or InvalidOperationException)
-        { return await FinishFailureAsync(state, destination, Normalize(error)).ConfigureAwait(false); }
+        {
+            var result = await FinishFailureAsync(state, destination, Normalize(error)).ConfigureAwait(false);
+            if (state.RejectedDestinationReleaseFailure is { } releaseFailure) throw releaseFailure;
+            return result;
+        }
         finally
         {
             try { if (lease is not null) await lease.DisposeAsync().ConfigureAwait(false); }
@@ -292,8 +295,10 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
 
     private async Task<TransferTaskRecord> FinishFailureAsync(RunState state, IDownloadDestination? destination, FilewayException failure)
     {
-        if (failure.Error.Code == ErrorCode.Canceled)
+        if (failure.Error.Code == ErrorCode.Canceled || state.RejectedDestinationWasCanceled)
         {
+            // Caller cancellation remains durable even when an unconfirmed rejected-file
+            // cleanup takes precedence over its Canceled result.
             var canceled = await SetCancelAsync(state.Run.Task, CancellationToken.None).ConfigureAwait(false);
             if (canceled.Run != state.Run) throw Safe(ErrorCode.Conflict);
             state.Record = canceled;
@@ -490,5 +495,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
         internal bool DestinationAccepted;
         internal bool PublishAttempted;
         internal bool PersistenceFailed;
+        internal bool RejectedDestinationWasCanceled;
+        internal FilewayException? RejectedDestinationReleaseFailure;
     }
 }

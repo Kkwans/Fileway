@@ -132,8 +132,68 @@ public sealed partial class FileDownloadRunner
         { throw Safe(cancellationToken.IsCancellationRequested ? ErrorCode.Canceled : ErrorCode.Timeout); }
     }
 
+    private async Task<IDownloadDestination> AcquireFreshDestinationAsync(RunState state)
+    {
+        using var budget = CancellationTokenSource.CreateLinkedTokenSource(state.Execution.Stop.Token);
+        budget.CancelAfter(_options.ControlCallTimeout);
+        IDownloadDestination? captured = null;
+        Exception failure;
+        try
+        {
+            captured = await _destinations.CreateFreshAsync(state.Record.Plan.LocalPath, budget.Token).ConfigureAwait(false);
+            if (captured is null) throw Safe(ErrorCode.ProtocolMismatch);
+            budget.Token.ThrowIfCancellationRequested();
+            return captured;
+        }
+        catch (OperationCanceledException)
+        {
+            bool canceled = state.Execution.Stop.IsCancellationRequested;
+            state.RejectedDestinationWasCanceled = captured is not null && canceled;
+            failure = Safe(canceled ? ErrorCode.Canceled : ErrorCode.Timeout);
+        }
+        catch (Exception error) { failure = error; }
+        if (captured is not null)
+        {
+            try
+            {
+                bool valid = true;
+                try { RequireFreshDestination(state, captured); }
+                catch (Exception) { valid = false; failure = Safe(ErrorCode.OutcomeUnknown); }
+                if (valid)
+                {
+                    try { await captured.DeleteOwnedPartialAsync(CancellationToken.None).ConfigureAwait(false); }
+                    catch (Exception)
+                    {
+                        // The caller never received this capability. Retain its validated ownership
+                        // before releasing handles, so restart can reconcile an unconfirmed deletion.
+                        failure = Safe(ErrorCode.OutcomeUnknown);
+                        try { await RetainRejectedDestinationAsync(state, captured).ConfigureAwait(false); }
+                        catch (Exception error) { failure = error; }
+                    }
+                }
+            }
+            finally
+            {
+                try { await captured.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception error)
+                {
+                    state.RejectedDestinationReleaseFailure = NormalizeReleaseFailure(error);
+                }
+            }
+        }
+        return await Task.FromException<IDownloadDestination>(failure).ConfigureAwait(false);
+    }
+
+    private async Task RetainRejectedDestinationAsync(RunState state, IDownloadDestination destination)
+    {
+        try { RequireFreshDestination(state, destination); }
+        catch (FilewayException) { return; /* Untrusted file evidence cannot become deletion authority. */ }
+        await SaveAsync(state, state.Record.Checkpoint with { Files = destination.Files,
+            ConfirmedOffset = 0, Uncertainty = TransferUncertainty.LocalPublish }, release: false).ConfigureAwait(false);
+    }
+
     private async Task<T> AcquireOwnedAsync<T>(Func<CancellationToken, Task<T>> acquire,
-        CancellationToken cancellationToken, bool deleteRejectedPartial = false) where T : class, IAsyncDisposable
+        CancellationToken cancellationToken) where T : class, IAsyncDisposable
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         budget.CancelAfter(_options.ControlCallTimeout);
@@ -153,12 +213,7 @@ public sealed partial class FileDownloadRunner
         {
             if (!returned && captured is not null)
             {
-                try
-                {
-                    if (deleteRejectedPartial && captured is IDownloadDestination { IsPublished: false } partial)
-                        await partial.DeleteOwnedPartialAsync(CancellationToken.None).ConfigureAwait(false);
-                }
-                finally { await captured.DisposeAsync().ConfigureAwait(false); }
+                await captured.DisposeAsync().ConfigureAwait(false);
             }
         }
     }
@@ -173,6 +228,13 @@ public sealed partial class FileDownloadRunner
 
     private static bool IsTerminal(TransferTaskRecord record) => record.Checkpoint.Phase is
         TransferPhase.Completed or TransferPhase.Canceled or TransferPhase.Skipped;
+
+    private static FilewayException NormalizeReleaseFailure(Exception error)
+    {
+        var failure = Normalize(error);
+        // An interrupted lifetime release is not proof that ordinary cancellation finished cleanup.
+        return failure.Error.Code == ErrorCode.Canceled ? Safe(ErrorCode.Unknown) : failure;
+    }
 
     private static FilewayException Normalize(Exception error) => error switch
     {
