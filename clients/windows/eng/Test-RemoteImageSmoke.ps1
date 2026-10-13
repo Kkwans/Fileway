@@ -87,6 +87,37 @@ function Send-OpenKey([IntPtr] $Window, [string] $Name) {
     if ($result.hwnd -ne $Window.ToInt64() -or $result.keys -cne 'enter' -or $result.via -cne 'send-input' -or
         $result.target -cne $element.selector -or $result.actionCount -ne 1 -or @($result.warnings).Count -ne 0) { Stop-Smoke 'image_open_keyboard_contract_mismatch' }
 }
+function Observe-ImageOpenState([IntPtr] $Window, [string] $Name) {
+    # Read-only, fixed numeric diagnostics. Never retain UIA trees, native titles
+    # or selectors; the caller has already selected this synthetic owned row.
+    if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'open_diagnostic_owner_mismatch' }
+    try {
+        $row = Control $Window ('^' + [regex]::Escape($Name) + '$') 'ListItem'
+        $focused = Invoke-WinApp @('ui', 'get-focused', '-w', $Window.ToInt64().ToString(), '--json')
+        $same = $focused.Contains('hasFocus') -and $focused.hasFocus -and $focused.Contains('element') -and
+            $focused.element -is [Collections.IDictionary] -and $focused.element.Contains('selector') -and $focused.element.selector -ceq $row.selector
+        Record-Observation 'image-open-focused-row' @{ sameTarget = [int]$same }
+    } catch { Record-Observation 'image-open-focused-row' @{ error = 1 } }
+    $counts = @{ emptyTitle = 0; knownAppTitle = 0; knownTooltipTitle = 0; knownImageTitle = 0; otherTitle = 0; viewerCommandWindows = 0; inspectionErrors = 0 }
+    foreach ($other in @([Fileway.PlayerSmoke.Native]::Windows($script:app.Id) | Where-Object { $_ -ne $Window })) {
+        if ([Fileway.PlayerSmoke.Native]::ProcessId($other) -ne $script:app.Id) { Stop-Smoke 'open_diagnostic_owner_mismatch' }
+        $title = [Fileway.PlayerSmoke.Native]::Title($other)
+        if ([string]::IsNullOrEmpty($title)) { $counts.emptyTitle++ }
+        elseif ($title -cin @('Fileway', '栖卷')) { $counts.knownAppTitle++ }
+        elseif ($title -ceq 'Ctrl+L') { $counts.knownTooltipTitle++ }
+        elseif ($title -cin @(($Name + ' · Fileway'), ($Name + ' · 栖卷'))) { $counts.knownImageTitle++ }
+        else { $counts.otherTitle++ }
+        try {
+            $elements = @(Elements $other)
+            $matched = 0
+            foreach ($label in @('适应窗口', '100%', '上一张', '下一张')) {
+                if (@($elements | Where-Object { $_.type -eq 'Button' -and $_.Contains('name') -and $_.name -ceq $label -and -not $_.isOffscreen }).Count -eq 1) { $matched++ }
+            }
+            if ($matched -eq 4) { $counts.viewerCommandWindows++ }
+        } catch { $counts.inspectionErrors++ }
+    }
+    Record-Observation 'image-open-window-classification' $counts
+}
 $exitCode = 1
 try {
     $candidate = Assert-ExternalPath $OutputRoot; $reuse = $false
@@ -194,7 +225,7 @@ try {
             $capture = [Fileway.PlayerSmoke.Native]::Capture($imageWindow)
             if ([FilewayRemoteImagePixels]::OrderedBandRows($capture.Pixels, $capture.Width, $capture.Height) -ge 32) { $capture }
         } 'decoded_rgb_pixels_not_observed' 15000
-        $image.SavePng((Artifact-Path 'remote-image-ready.png', 'remote-image-open-failure.png'))
+        $image.SavePng((Artifact-Path 'remote-image-ready.png'))
         Complete-Step 'native-remote-image-decoded-pixels' @{ orderedRgbRows = [FilewayRemoteImagePixels]::OrderedBandRows($image.Pixels, $image.Width, $image.Height); width = 480; height = 320 }
         $script:stage = 'server-recent-verification'
         $null = Wait-Condition { Test-RemoteImageRecentEntry (Get-ServerRecents $baseAddress $verifierToken) $name $notBefore } 'native_open_recent_not_recorded' 15000
@@ -224,6 +255,8 @@ try {
             $others = @($windows | Where-Object { $_ -ne $script:window })
             $known = @($others | Where-Object { [Fileway.PlayerSmoke.Native]::Title($_) -cin @(($name + ' · Fileway'), ($name + ' · 栖卷')) })
             Record-Observation 'image-open-window-counts' @{ owned = $windows.Count; nonMain = $others.Count; knownTitle = $known.Count }
+            try { Observe-ImageOpenState $script:window $name }
+            catch { Record-Observation 'image-open-window-classification' @{ error = 1 } }
             try {
                 Record-Observation 'image-open-known-error-notices' @{
                     openFailed = [int](Has-Text $script:window '无法打开文件'); canceled = [int](Has-Text $script:window '打开已取消');

@@ -275,6 +275,68 @@ if($script:requests -ne 1){throw 'unapproved_request_sent'}
         self.assertNotIn('Capture($others[0])', SOURCE)
         self.assertLess(SOURCE.index('Write-Report $status $code'), SOURCE.index("Record-Observation 'image-open-window-counts'"))
 
+    def test_every_artifact_path_call_is_a_single_fixed_leaf(self):
+        preflight = "Artifact-Path $(if ($reuse) { 'preflight-smoke.png' } else { 'preflight.png' })"
+        self.assertEqual(SOURCE.count(preflight), 1)
+        calls = re.findall(r"Artifact-Path ([^\r\n)]*)", SOURCE.replace(preflight, "Artifact-Path 'preflight.png'"))
+        self.assertGreaterEqual(len(calls), 4)
+        for arguments in calls:
+            self.assertRegex(arguments, r"^'[a-z0-9-]+\.(?:json|jsonl|png)'$")
+        self.assertIn("$image.SavePng((Artifact-Path 'remote-image-ready.png'))", SOURCE)
+
+    @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual artifact helper runs in Windows CI')
+    def test_actual_artifact_paths_reject_multiple_or_unknown_leaves(self):
+        helper = SOURCE[SOURCE.index('function Artifact-Path'):SOURCE.index('function Record-Observation')]
+        self.pwsh("function Stop-Smoke($Code){throw $Code};" + helper + r"""
+$allowedArtifacts=@('remote-image-ready.png','remote-image-open-failure.png');$script:root=Join-Path ([IO.Path]::GetTempPath()) 'synthetic-image-evidence'
+$expected=Join-Path (Join-Path $script:root 'screenshots') 'remote-image-ready.png'
+if((Artifact-Path 'remote-image-ready.png') -cne $expected){throw 'wrong_ready_leaf'}
+foreach($name in @('remote-image-ready.png remote-image-open-failure.png','unknown.png','../remote-image-ready.png')){
+    $code=$null;try{$null=Artifact-Path $name}catch{$code=$_.Exception.Message}
+    if($code -cne 'artifact_name_not_allowed'){throw 'invalid_artifact_accepted'}
+}
+$code=$null;try{$null=Artifact-Path @('remote-image-ready.png','remote-image-open-failure.png')}catch{$code=$_.Exception.Message}
+if($code -cne 'artifact_name_not_allowed'){throw 'multiple_artifacts_accepted'}
+""")
+
+    @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual read-only diagnostic runs in Windows CI')
+    def test_actual_open_diagnostics_keep_titles_and_focus_private(self):
+        helper = SOURCE[SOURCE.index('function Observe-ImageOpenState'):SOURCE.index('$exitCode = 1')]
+        self.pwsh("function Stop-Smoke($Code){throw $Code};" + helper + r"""
+Add-Type 'namespace Fileway.PlayerSmoke { public static class Native { public static string Caption=""; public static uint ProcessId(System.IntPtr w){return w.ToInt64()==7 || w.ToInt64()==8 ? 123u : 0u;} public static System.IntPtr[] Windows(int pid){return new[]{new System.IntPtr(7),new System.IntPtr(8)};} public static string Title(System.IntPtr w){return Caption;} } }'
+$script:app=@{Id=123};$script:events=@();$script:inspectionCalls=0
+function Control {param($Window,$Pattern,$Type)
+    if($Window -ne 7 -or $Pattern -cne '^fixture\.png$' -or $Type -cne 'ListItem'){throw 'wrong_row'}
+    return @{selector='exact-row'}
+}
+function Invoke-WinApp {param([string[]]$Arguments)
+    if(($Arguments -join '|') -cne 'ui|get-focused|-w|7|--json'){throw 'unexpected_mutating_command'}
+    return $script:focused
+}
+function Elements {param($Window)
+    if($Window -ne 8){throw 'foreign_inspection'};$script:inspectionCalls++;return $script:elements
+}
+function Record-Observation {param($Name,$Details)
+    if($Name -cnotin @('image-open-focused-row','image-open-window-classification')){throw 'unexpected_event'}
+    foreach($value in $Details.Values){if($value -isnot [int]){throw 'private_value_exported'}}
+    $script:events+=,@{event=$Name;details=$Details}
+}
+$script:focused=@{hasFocus=$true;element=@{selector='exact-row'}}
+$script:elements=@();Observe-ImageOpenState ([IntPtr]7) 'fixture.png'
+if($script:events[0].details.sameTarget -ne 1 -or $script:events[1].details.emptyTitle -ne 1 -or $script:events[1].details.viewerCommandWindows -ne 0){throw 'empty_window_classification_wrong'}
+$script:events=@();[Fileway.PlayerSmoke.Native]::Caption='private-unrecognized-title';$script:focused=@{hasFocus=$false}
+$script:elements=@(@{type='Pane'},@{type='Button';isOffscreen=$false})
+foreach($name in @('适应窗口','100%','上一张','下一张')){$script:elements+=@{type='Button';name=$name;isOffscreen=$false}}
+Observe-ImageOpenState ([IntPtr]7) 'fixture.png'
+if($script:events[0].details.sameTarget -ne 0 -or $script:events[1].details.otherTitle -ne 1 -or $script:events[1].details.viewerCommandWindows -ne 1){throw 'viewer_classification_wrong'}
+$script:events=@();$script:elements=$script:elements | Where-Object { -not $_.Contains('name') -or $_.name -cne '100%' }
+Observe-ImageOpenState ([IntPtr]7) 'fixture.png'
+if($script:events[1].details.viewerCommandWindows -ne 0){throw 'partial_commands_accepted'}
+$script:events=@();$before=$script:inspectionCalls;$script:app.Id=124;$code=$null
+try{Observe-ImageOpenState ([IntPtr]7) 'fixture.png'}catch{$code=$_.Exception.Message}
+if($code -cne 'open_diagnostic_owner_mismatch' -or $script:events.Count -ne 0 -or $script:inspectionCalls -ne $before){throw 'foreign_diagnostic_not_rejected'}
+""")
+
     def test_noauth_verifier_session_is_owned_bounded_memory_only(self):
         for value in ('Get-NoAuthVerifierToken $baseAddress', '$uri.Port -ne $script:ownedServerPort', '$script:server.HasExited', '$uri.Fragment -ne', '-MaximumRedirection 0',
                       "$BaseAddress + '/api/login'", "$response.Content.Length -gt 16384", "-Headers @{ 'X-Auth' = $Token }",

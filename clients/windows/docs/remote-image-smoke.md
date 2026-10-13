@@ -66,8 +66,14 @@ Only these artifacts are allowed: `report.json`, `events.jsonl`,
 `screenshots/remote-image-open-failure.png`. The last capture is only the exact
 owned main window on fixed image-open/window-observation/decode failure phases;
 it retains the original failure. Fixed diagnostics record only owned/non-main/
-known-title window counts and saved/not-saved, without raw names or handles. The screenshot is the guarded owned image
-window containing the synthetic fixture. No picker/desktop/foreign window,
+known-title window counts and saved/not-saved, without raw names or handles.
+Failure diagnostics also read pinned winapp's `ui get-focused` and record only
+whether focus matches the freshly inspected selected synthetic row. Other
+same-App windows are classified by fixed title categories and the four known
+image-viewer buttons; only numeric category/match/error counts are kept. No
+other-window capture is taken, and these reads do not alter Enter acceptance.
+The ready screenshot is the guarded owned image window containing the synthetic
+fixture. Each artifact-path call resolves one allowlisted leaf. No picker/desktop/foreign window,
 raw UIA tree, URL, credential, profile/database, log or local path is exported.
 Reports contain fixed step/code strings and numeric/boolean checks. Private
 unique fixtures are retained outside Git; no unrelated files are deleted.
