@@ -189,6 +189,46 @@ public sealed partial class DownloadApplicationServiceTests
     }
 
     [Fact]
+    public async Task PermissionRetirementAndApplicationDisposalShareTheDownloadRunnerDrain()
+    {
+        var fixture = new PlaybackFixture();
+        var finishCancellation = fixture.Gate();
+        Task? disposing = null;
+        string? disposalFailure = null, cleanupFailure = null;
+        try
+        {
+            await fixture.StartAsync();
+            var intentStored = Signal();
+            fixture.Runner.Inner.AfterCancelIntent = (_, _) =>
+            {
+                intentStored.TrySetResult();
+                return finishCancellation.Task;
+            };
+            fixture.Connection.EmitSession(fixture.Connection.Active! with
+                { Permissions = fixture.Connection.Active.Permissions with { Download = false } });
+            await intentStored.Task.WaitAsync(Timeout, Token);
+            // Permission retirement still owns a cancellation between its durable intent
+            // and checkpoint. Application disposal must join it, not mutate that revision again.
+            disposing = fixture.Bridge.DisposeAsync().AsTask();
+            await fixture.Runner.ConcurrentDrainRequested.Task.WaitAsync(Timeout, Token);
+            Assert.False(disposing.IsCompleted);
+        }
+        finally
+        {
+            finishCancellation.TrySetResult();
+            // Keep the primary disposal outcome distinct from fixture cleanup, so teardown
+            // cannot mask the operation or assertion which actually failed.
+            try { if (disposing is not null) await disposing.WaitAsync(Timeout, Token); }
+            catch (Exception error) { disposalFailure = error.ToString(); }
+            try { await fixture.DisposeAsync(); }
+            catch (Exception error) { cleanupFailure = error.ToString(); }
+        }
+        Assert.Null(disposalFailure);
+        Assert.Null(cleanupFailure);
+        Assert.Equal(1, fixture.Runner.Inner.Cancels);
+    }
+
+    [Fact]
     public async Task PlaybackRejectsCompletionDuringReadinessWithoutReopeningPublishedFile()
     {
         await using var fixture = new PlaybackFixture();
@@ -494,6 +534,10 @@ public sealed partial class DownloadApplicationServiceTests
     {
         internal FakeDownload Inner { get; } = new(store);
         internal TaskCompletionSource AcquireEntered { get; } = Signal();
+        internal TaskCompletionSource ConcurrentDrainRequested { get; } = Signal();
+        private readonly object _drainGate = new();
+        private Task? _drain;
+        private int _drainRequests;
         internal Task? WaitBeforeReturn { get; set; }
         internal Action<PlaybackReader>? Transform { get; set; }
         internal PlaybackReader? LastReader { get; private set; }
@@ -504,7 +548,20 @@ public sealed partial class DownloadApplicationServiceTests
         public Task<TransferTaskRecord> RunAsync(TransferTaskRef task, CancellationToken cancellationToken) => Inner.RunAsync(task, cancellationToken);
         public Task<TransferTaskRecord> CancelAsync(TransferTaskRef task, CancellationToken cancellationToken) => Inner.CancelAsync(task, cancellationToken);
         public Task<TransferTaskRecord> ReconcileAsync(TransferTaskRef task, CancellationToken cancellationToken) => Inner.ReconcileAsync(task, cancellationToken);
-        public Task StopAndDrainAsync(CancellationToken cancellationToken) => Inner.StopAndDrainAsync(cancellationToken);
+        public Task StopAndDrainAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Task drain;
+            lock (_drainGate)
+            {
+                // Match FileDownloadRunner.BeginDrain: permission withdrawal and account
+                // retirement join one unfinished drain instead of repeating cancellation CAS.
+                drain = _drain is { IsCompleted: false } pending ? pending
+                    : _drain = Task.Run(() => Inner.StopAndDrainAsync(CancellationToken.None), CancellationToken.None);
+            }
+            if (Interlocked.Increment(ref _drainRequests) > 1) ConcurrentDrainRequested.TrySetResult();
+            return drain;
+        }
         public ValueTask DisposeAsync() => Inner.DisposeAsync();
         public async Task<IDownloadReadLease> AcquireReadLeaseAsync(TransferTaskRef task, CancellationToken cancellationToken)
         {
