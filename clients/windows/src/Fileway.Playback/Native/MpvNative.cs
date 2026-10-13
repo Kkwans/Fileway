@@ -17,6 +17,7 @@ internal sealed class MpvNative : IDisposable
     private readonly WakeFunction _wake;
     private readonly StringFunction _string;
     private readonly FreeFunction _free;
+    private readonly AddReadOnlyStreamFunction _addReadOnlyStream;
     private int _disposed;
 
     internal MpvNative(string runtimeDirectory)
@@ -43,6 +44,7 @@ internal sealed class MpvNative : IDisposable
             _wake = Export<WakeFunction>("mpv_wakeup");
             _string = Export<StringFunction>("mpv_get_property_string");
             _free = Export<FreeFunction>("mpv_free");
+            _addReadOnlyStream = Export<AddReadOnlyStreamFunction>("mpv_stream_cb_add_ro");
         }
         catch { _ = MpvLibraryMethods.FreeLibrary(_library); throw; }
     }
@@ -54,6 +56,8 @@ internal sealed class MpvNative : IDisposable
     internal void Observe(nint handle, ulong id, string name, int format) => Check(_observe(handle, id, name, format));
     internal void Wake(nint handle) => _wake(handle);
     internal void Destroy(nint handle) => _destroy(handle);
+    internal void AddReadOnlyStreamProtocol(nint handle, string protocol, nint userData,
+        MpvDownloadStreamBridge.OpenCallback open) => Check(_addReadOnlyStream(handle, protocol, userData, open));
 
     internal string? String(nint handle, string name)
     {
@@ -164,6 +168,8 @@ internal sealed class MpvNative : IDisposable
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void WakeFunction(nint handle);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate nint StringFunction(nint handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate void FreeFunction(nint value);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] private delegate int AddReadOnlyStreamFunction(nint handle,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string protocol, nint userData, MpvDownloadStreamBridge.OpenCallback open);
 }
 
 internal sealed record MpvEvent(int Id, int Error, ulong User, MpvProperty? Property, int EndReason, string[]? Messages);
