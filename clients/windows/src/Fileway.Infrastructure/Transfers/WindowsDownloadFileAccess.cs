@@ -208,7 +208,13 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
             if (status < 0)
             {
                 int code = unchecked((int)UploadFileNative.RtlNtStatusToDosError(status));
+                handle.Dispose();
+                handle = null; // A failed create/open conveys no ownership; release it before a metadata probe.
                 if (create && code is 80 or 183 || !create && code is 2 or 3) return null;
+                // NT can report AccessDenied when a create-only non-directory request collides with
+                // a directory/reparse entry. Do not confuse that with insufficient parent permissions.
+                if (create && context == AccessContext.Fresh && code == 5 &&
+                    IsExistingDirectoryOrReparseEntry(directory, name)) return null;
                 throw NativeFailure(code, context);
             }
             if (status != 0 || !CompletionSucceeded(completion) || handle.IsInvalid ||
@@ -218,6 +224,55 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
             handle = null;
             return opened;
         }
+        finally
+        {
+            handle?.Dispose();
+            if (directoryReferenced) directory.DangerousRelease();
+            if (namePointer != 0) Marshal.FreeHGlobal(namePointer);
+            if (nameBuffer != 0) Marshal.FreeHGlobal(nameBuffer);
+        }
+    }
+
+    private static bool IsExistingDirectoryOrReparseEntry(SafeFileHandle directory, string name)
+    {
+        // A collision observation never grants ownership, content, write or delete authority. This
+        // basename is one generated ASCII component; the retained parent is already guarded and pinned.
+        if (!IsPartialName(name)) return false;
+        nint nameBuffer = 0, namePointer = 0;
+        bool directoryReferenced = false;
+        SafeFileHandle? handle = null;
+        try
+        {
+            nameBuffer = Marshal.StringToHGlobalUni(name);
+            ushort nameBytes = checked((ushort)(name.Length * sizeof(char)));
+            var nativeName = new UploadFileNative.UnicodeString
+            {
+                Length = nameBytes, MaximumLength = checked((ushort)(nameBytes + sizeof(char))), Buffer = nameBuffer,
+            };
+            namePointer = Marshal.AllocHGlobal(Marshal.SizeOf<UploadFileNative.UnicodeString>());
+            Marshal.StructureToPtr(nativeName, namePointer, fDeleteOld: false);
+            directory.DangerousAddRef(ref directoryReferenced);
+            var attributes = new UploadFileNative.ObjectAttributes
+            {
+                Length = checked((uint)Marshal.SizeOf<UploadFileNative.ObjectAttributes>()),
+                RootDirectory = directory.DangerousGetHandle(), ObjectName = namePointer,
+                // OBJ_DONT_REPARSE rejects a reparse entry. Here FILE_OPEN_REPARSE_POINT opens the
+                // leaf object itself; the single basename cannot introduce intermediate traversal.
+                Attributes = UploadFileNative.ObjectCaseInsensitive,
+            };
+            int status = UploadFileNative.NtCreateFile(out handle, DownloadFileNative.MetadataAccess, in attributes,
+                out var completion, allocationSize: 0, UploadFileNative.NormalAttributes, DownloadFileNative.ShareAll,
+                DownloadFileNative.NtOpen, UploadFileNative.SynchronousNonAlert |
+                UploadFileNative.OpenReparsePoint | DownloadFileNative.NtOpenNoRecall, eaBuffer: 0, eaLength: 0);
+            if (status != 0 || !CompletionSucceeded(completion) || handle.IsInvalid ||
+                completion.Information != UploadFileNative.FileOpened || UploadFileNative.GetFileType(handle) != UploadFileNative.DiskType)
+                return false;
+            if (!UploadFileNative.GetBasicInformation(handle, 0, out var basic,
+                checked((uint)Marshal.SizeOf<UploadFileNative.BasicInformation>()))) return false;
+            const uint directoryOrReparse = 0x00000010 | 0x00000400;
+            return (basic.Attributes & directoryOrReparse) != 0;
+        }
+        catch (Exception error) when (IsFileFailure(error)) { return false; }
         finally
         {
             handle?.Dispose();
@@ -606,6 +661,7 @@ internal static partial class DownloadFileNative
 {
     internal const uint NtOpen = 1, NtCreate = 2, DeleteAccess = 0x00010000, NtOpenNoRecall = 0x00400000;
     internal const uint OwnedAccess = UploadFileNative.FileGenericRead | UploadFileNative.FileGenericWrite | DeleteAccess;
+    internal const uint MetadataAccess = 0x00100080, ShareAll = 7; // SYNCHRONIZE | FILE_READ_ATTRIBUTES; READ/WRITE/DELETE sharing.
     internal const uint FixedDrive = 3;
     internal const int FileRenameInformation = 10, FileDispositionInformation = 13;
 

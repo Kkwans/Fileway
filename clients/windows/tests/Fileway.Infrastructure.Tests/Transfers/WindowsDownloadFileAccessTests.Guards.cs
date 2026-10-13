@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Fileway.Infrastructure.Transfers;
@@ -89,6 +91,100 @@ public sealed partial class WindowsDownloadFileAccessTests
         finally
         {
             if (junction) Directory.Delete(collisionPath); // Remove only the fixture junction, never its target.
+        }
+        string moved = Path.Combine(fixture.Root, "released-output");
+        Directory.Move(fixture.DestinationDirectory, moved);
+        Directory.Move(moved, fixture.DestinationDirectory);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DirectoryOrJunctionNameCollisionRetriesOnlyCreationAndTheNextFreshNameIsOwned(bool junction)
+    {
+        using var fixture = new NativeFixture();
+        string collisionPath = Path.Combine(fixture.DestinationDirectory, ForcedName);
+        string target = junction ? Path.Combine(fixture.DestinationDirectory, "target") : collisionPath;
+        Directory.CreateDirectory(target);
+        string marker = Path.Combine(target, "marker.bin");
+        await File.WriteAllBytesAsync(marker, StrangerPayload, Token);
+        TransferSourceSnapshot stranger = await SnapshotAsync(fixture, marker);
+        if (junction)
+            await RunFixtureCommandAsync(fixture.DestinationDirectory,
+                "mklink /j fileway-download-v1-0123456789abcdef0123456789abcdef.partial target");
+        string[] before = Directory.GetFileSystemEntries(fixture.DestinationDirectory).Order(StringComparer.Ordinal).ToArray();
+        FileAttributes originalAttributes = File.GetAttributes(collisionPath);
+        const string availableName = "fileway-download-v1-abcdef0123456789abcdef0123456789.partial";
+        int calls = 0;
+        var access = WithPartialName(() => Interlocked.Increment(ref calls) == 1 ? ForcedName : availableName);
+        try
+        {
+            TransferWorkFiles files;
+            await using (var destination = await access.CreateFreshAsync(fixture.FinalPath, Token))
+            {
+                files = destination.Files;
+                Assert.Equal(2, calls);
+                AssertFreshEvidence(fixture.FinalPath, files);
+                Assert.Equal(Path.Combine(fixture.DestinationDirectory, availableName), files.PartialPath);
+                Assert.NotEqual(stranger.NativeFileIdentity, files.PartialIdentity);
+                await destination.WriteAsync(Payload, Token);
+                await destination.FlushToDiskAsync(Token);
+                await destination.DeleteOwnedPartialAsync(Token);
+            }
+            Assert.Equal(2, calls);
+            Assert.False(File.Exists(files.PartialPath));
+            Assert.Equal(before, Directory.GetFileSystemEntries(fixture.DestinationDirectory).Order(StringComparer.Ordinal).ToArray());
+            Assert.True(Directory.Exists(collisionPath));
+            Assert.Equal(originalAttributes, File.GetAttributes(collisionPath));
+            Assert.Equal(junction, (File.GetAttributes(collisionPath) & FileAttributes.ReparsePoint) != 0);
+            Assert.Equal(marker, Assert.Single(Directory.GetFiles(target)));
+            Assert.Equal(StrangerPayload, await File.ReadAllBytesAsync(marker, Token));
+            Assert.Equal(stranger, await SnapshotAsync(fixture, marker));
+            Assert.False(File.Exists(fixture.FinalPath));
+        }
+        finally
+        {
+            if (junction) Directory.Delete(collisionPath); // Remove only the fixture junction, never its target.
+        }
+        string moved = Path.Combine(fixture.Root, "released-output");
+        Directory.Move(fixture.DestinationDirectory, moved);
+        Directory.Move(moved, fixture.DestinationDirectory);
+    }
+
+    [Fact]
+    public async Task AbsentGeneratedEntryWithParentCreateFilesDeniedRemainsPermissionDeniedAndReleasesAllHandles()
+    {
+        using var fixture = new NativeFixture();
+        var directory = new DirectoryInfo(fixture.DestinationDirectory);
+        DirectorySecurity originalAccess = directory.GetAccessControl(AccessControlSections.Access);
+        byte[] originalAccessDescriptor = originalAccess.GetSecurityDescriptorBinaryForm();
+        DirectorySecurity deniedAccess = directory.GetAccessControl(AccessControlSections.Access);
+        using var identity = WindowsIdentity.GetCurrent();
+        SecurityIdentifier sid = identity.User ?? throw new InvalidOperationException("Synthetic fixture requires an authenticated Windows user.");
+        // Deny only file creation on this newly owned directory; retain its read/traverse rules and do not inherit.
+        deniedAccess.AddAccessRule(new FileSystemAccessRule(sid, FileSystemRights.CreateFiles,
+            InheritanceFlags.None, PropagationFlags.None, AccessControlType.Deny));
+        int calls = 0;
+        var access = WithPartialName(() => { Interlocked.Increment(ref calls); return ForcedName; });
+        string partialPath = Path.Combine(fixture.DestinationDirectory, ForcedName);
+        try
+        {
+            directory.SetAccessControl(deniedAccess);
+            var denied = await Assert.ThrowsAsync<FilewayException>(() => access.CreateFreshAsync(fixture.FinalPath, Token));
+            Assert.Equal(ErrorCode.PermissionDenied, denied.Error.Code);
+            Assert.Equal(1, calls);
+            AssertSafeFailure(denied, fixture.Root);
+            AssertSafeFailure(denied, ForcedName);
+            Assert.Empty(Directory.GetFileSystemEntries(fixture.DestinationDirectory));
+            Assert.Empty(Directory.GetFiles(fixture.DestinationDirectory));
+            Assert.False(File.Exists(partialPath));
+            Assert.False(File.Exists(fixture.FinalPath));
+        }
+        finally
+        {
+            // Mark the saved access section for persistence, then restore it before fixture teardown.
+            originalAccess.SetSecurityDescriptorBinaryForm(originalAccessDescriptor, AccessControlSections.Access);
+            directory.SetAccessControl(originalAccess);
         }
         string moved = Path.Combine(fixture.Root, "released-output");
         Directory.Move(fixture.DestinationDirectory, moved);

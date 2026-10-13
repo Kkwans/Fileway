@@ -23,7 +23,7 @@ public interface IDownloadDestination : IAsyncDisposable
 
 public interface IDownloadDestinationProvider
 {
-    /// <summary>Exclusively creates a fresh same-directory partial; never opens or replaces an existing name.</summary>
+    /// <summary>Exclusively creates a fresh same-directory partial; never opens an existing name as an owned writable partial or replaces it.</summary>
     Task<IDownloadDestination> CreateFreshAsync(string finalPath, CancellationToken cancellationToken);
     /// <summary>Reopens only positively identified owned partial/final evidence; never creates, renames or deletes.</summary>
     Task<IDownloadDestination> OpenOwnedAsync(string finalPath, TransferWorkFiles files, CancellationToken cancellationToken);
