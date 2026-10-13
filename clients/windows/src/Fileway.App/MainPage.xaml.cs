@@ -80,7 +80,7 @@ public sealed partial class MainPage : Page, IDisposable
         {
             if (_disposed || _connecting || _session?.Account != tag.Account) return;
             CloseSidebarOverlay();
-            TransfersPanel.Visibility = Visibility.Collapsed;
+            TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane();
             UpdateCollectionsContext(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
             UpdateThumbnailContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
         };
@@ -89,6 +89,7 @@ public sealed partial class MainPage : Page, IDisposable
         FileGrid.SizeChanged += (_, _) => UpdateGridMetrics();
         InitializeBrowserShell();
         InitializeTransferCenter();
+        InitializeRecentAccess();
         ApplyBrowserPresentation();
         Loaded += (_, _) => { ApplyTheme(); UpdateThumbnailContext(); };
         Unloaded += (_, _) => _thumbnailController.SetContext(null, null);
@@ -153,7 +154,7 @@ public sealed partial class MainPage : Page, IDisposable
     }
     public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
     {
-        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails;
+        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails;
         UpdateThumbnailContext();
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
@@ -182,7 +183,7 @@ public sealed partial class MainPage : Page, IDisposable
         DisposeDownloadPresentation();
         _browserDialog?.Hide();
         _storageDialog?.Hide(); _storageControl?.Dispose();
-        _disposed = true; CollectionsPanel.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
+        _disposed = true; CollectionsPanel.Dispose(); RecentPane.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
         _connectionCancellation?.Cancel();
         if (_connection is not null)
         {
@@ -489,7 +490,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void Collections_Click(object sender, RoutedEventArgs e)
     {
         if (_disposed || _connecting || _session is null || _collections is null) return;
-        CloseSidebarOverlay(); TransfersPanel.Visibility = Visibility.Collapsed; CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
+        CloseSidebarOverlay(); TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
         _thumbnailController.SetContext(null, null);
         UpdateCollectionsContext();
         CollectionsPanel.EnterManagementView();
@@ -519,7 +520,7 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private void HideCollections()
     {
-        CollectionsPanel.Visibility = Visibility.Collapsed; TransfersPanel.Visibility = Visibility.Collapsed; Workspace.Visibility = Visibility.Visible;
+        CollectionsPanel.Visibility = Visibility.Collapsed; TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); Workspace.Visibility = Visibility.Visible;
         CollectionsPanel.SuspendView();
         UpdateThumbnailContext();
         UpdateSelection();
@@ -562,6 +563,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
         if (TransfersPanel.Visibility == Visibility.Visible) { await RefreshTransferCenterAsync(); return; }
+        if (RecentPane.Visibility == Visibility.Visible) { await RecentPane.RefreshAsync(); return; }
         if (_directory is not null) await LoadAsync(_directory);
         if (!_disposed && !_connecting && _session is not null) { UpdateCollectionsContext(); await CollectionsPanel.RefreshAsync(); }
     }
@@ -611,7 +613,7 @@ public sealed partial class MainPage : Page, IDisposable
         DetailsOpenButton.IsEnabled = row is not null && !_connecting;
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
-        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext();
+        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)
     {
@@ -724,7 +726,7 @@ public sealed partial class MainPage : Page, IDisposable
             }
         }
     }
-    private void UpdateThumbnailContext() => _thumbnailController.SetContext(_connecting || CollectionsPanel.Visibility == Visibility.Visible ? null : _thumbnails, _connecting || CollectionsPanel.Visibility == Visibility.Visible ? null : _session);
+    private void UpdateThumbnailContext() => _thumbnailController.SetContext(_connecting || CollectionsPanel.Visibility == Visibility.Visible || RecentPane.Visibility == Visibility.Visible ? null : _thumbnails, _connecting || CollectionsPanel.Visibility == Visibility.Visible || RecentPane.Visibility == Visibility.Visible ? null : _session);
     private void SetDetailsVisible(bool visible) { _detailsVisible = visible; DetailsPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed; UpdateDetailsLayout(); }
     private void BrowserBody_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateDetailsLayout(); UpdateGridMetrics(); }
     private void FilesArea_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateGridMetrics();
