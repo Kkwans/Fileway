@@ -17,8 +17,7 @@ $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight
     'upload-confirm.png', 'upload-completed.png', 'download-confirm.png',
     'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png',
     'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png', 'upload-result-failure.png',
-    'download-save-as-confirm.png', 'download-save-as-completed.png', 'download-save-as-menu-failure.png',
-    'checksum-ready.png', 'checksum-result.png', 'checksum-ready-failure.png')
+    'download-save-as-confirm.png', 'download-save-as-completed.png', 'download-save-as-menu-failure.png')
 $script:root = $null
 $script:app = $null
 $script:server = $null
@@ -57,7 +56,8 @@ function Artifact-Path([string] $Name) {
 function Write-Report([string] $Status, [string] $Code) {
     $value = [ordered]@{ schemaVersion = 1; scope = $(if ($PreflightOnly) { 'preflight' } else { 'native-transfer-smoke' });
         status = $Status; code = $Code; stage = $script:stage; completedSteps = @($script:completed);
-        nativeTransferVerified = ($Status -eq 'passed'); cancellationUiVerified = $false; unknownOutcomeUiVerified = $false; saveAsUiVerified = ($Status -eq 'passed'); checksumUiVerified = ($Status -eq 'passed');
+        nativeTransferVerified = ($Status -eq 'passed'); cancellationUiVerified = $false; unknownOutcomeUiVerified = $false; saveAsUiVerified = ($Status -eq 'passed');
+        checksumUiVerified = $false; checksumUiExclusionReason = 'product_scope_removed';
         elapsedMilliseconds = $script:clock.ElapsedMilliseconds }
     [IO.File]::WriteAllText((Artifact-Path 'report.json'), ($value | ConvertTo-Json -Depth 4) + "`n", [Text.UTF8Encoding]::new($false))
 }
@@ -326,7 +326,7 @@ function Download-File([string] $Destination, [string] $ExpectedStage, [string] 
     $script:stage = 'download-close-detail'
     Close-TransferDialog '文件下载'
 }
-function Invoke-OwnedFileMenuItem([IntPtr] $Window, [ValidateSet('下载另存为…', '计算校验和…')][string] $MenuLabel) {
+function Invoke-OwnedFileMenuItem([IntPtr] $Window, [ValidateSet('下载另存为…')][string] $MenuLabel) {
     if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'save_as_window_owner_mismatch' }
     $element = Control $Window ('^' + [regex]::Escape($MenuLabel) + '$') 'MenuItem'
     # v0.7.1 ancestors inspection resolves the element's native top-level HWND
@@ -352,7 +352,7 @@ function Invoke-OwnedFileMenuItem([IntPtr] $Window, [ValidateSet('下载另存�
 function Invoke-SaveAsMenuItem([IntPtr] $Window) {
     Invoke-OwnedFileMenuItem $Window '下载另存为…'
 }
-function Open-FileContextMenu([IntPtr] $Window, [string] $RemoteName, [ValidateSet('download-save-as', 'checksum')][string] $StagePrefix) {
+function Open-FileContextMenu([IntPtr] $Window, [string] $RemoteName, [ValidateSet('download-save-as')][string] $StagePrefix) {
     if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'save_as_window_owner_mismatch' }
     $script:stage = $StagePrefix + '-row-select'
     Act $Window ('^' + [regex]::Escape($RemoteName) + '$') 'ListItem' 'select'
@@ -390,68 +390,6 @@ function Download-SaveAs([string] $RemoteName, [string] $LocalName, [string] $De
     Capture 'download-save-as-completed.png'
     $script:stage = 'download-save-as-close-detail'
     Close-TransferDialog '文件下载'
-}
-function Read-ChecksumDialog {
-    $dialog = Find-TransferDialog (Elements $script:window) '文件校验和'
-    if (-not $dialog) { Stop-Smoke 'checksum_dialog_not_observed' }
-    $tree = Invoke-WinApp @('ui', 'inspect', $dialog.selector, '-w', $script:window.ToInt64().ToString(), '--depth', '16', '--json')
-    return @(Unique-Elements (Find-Elements $tree))
-}
-function Has-ChecksumText($Elements, [string] $Text) {
-    return @($Elements | Where-Object { $_.type -eq 'Text' -and $_.Contains('name') -and $_.name -ceq $Text -and -not $_.isOffscreen }).Count -gt 0
-}
-function Test-ChecksumReady($Elements, [string] $RemoteName) {
-    if (-not (Has-ChecksumText $Elements $RemoteName)) { return $false }
-    $algorithms = @($Elements | Where-Object { $_.type -eq 'ComboBox' -and $_.Contains('name') -and $_.name -ceq '算法' -and
-        $_.isEnabled -and -not $_.isOffscreen })
-    if ($algorithms.Count -ne 1) { return $false }
-    # A collapsed WinUI ComboBox exposes its selected item through SelectionPattern;
-    # it need not expose that label as a separate Text element in the dialog tree.
-    $result = Invoke-WinApp @('ui', 'get-value', $algorithms[0].selector, '-w', $script:window.ToInt64().ToString(), '--json')
-    return ($result -is [Collections.IDictionary] -and $result.Contains('elementId') -and $result.elementId -is [string] -and
-        $result.elementId -ceq $algorithms[0].selector -and $result.Contains('text') -and $result.text -is [string] -and $result.text -ceq 'SHA-256')
-}
-function Test-ChecksumResult($Elements, [string] $ExpectedHash) {
-    if ($ExpectedHash -cnotmatch '^[A-Fa-f0-9]{64}$') { Stop-Smoke 'checksum_expected_hash_contract_mismatch' }
-    $digests = @($Elements | Where-Object { $_.type -eq 'Text' -and $_.Contains('name') -and $_.name -cmatch '^[A-Fa-f0-9]{64}$' -and -not $_.isOffscreen })
-    if ($digests.Count -gt 1) { Stop-Smoke 'checksum_digest_ambiguous' }
-    return ($digests.Count -eq 1 -and $digests[0].name -ieq $ExpectedHash -and
-        (Has-ChecksumText $Elements '与预期校验和一致') -and (Has-ChecksumText $Elements 'SHA-256 · 1 MB'))
-}
-function Observe-ChecksumReady([string] $RemoteName) {
-    $elements = @(Read-ChecksumDialog)
-    $combos = @($elements | Where-Object { $_.type -eq 'ComboBox' -and $_.isEnabled -and -not $_.isOffscreen })
-    $algorithms = @($combos | Where-Object { $_.Contains('name') -and $_.name -ceq '算法' })
-    $checks = [ordered]@{ sourceText = [int](Has-ChecksumText $elements $RemoteName); algorithmText = [int](Has-ChecksumText $elements 'SHA-256');
-        comboBoxes = $combos.Count; algorithmHeaderMatches = $algorithms.Count; selectedValueTargetMatches = 0; selectedValueSha256 = 0; selectedValueError = 0 }
-    if ($algorithms.Count -eq 1) {
-        # Pinned get-value can read SelectionPattern's current selected name.
-        # Diagnostic only: no raw value/selector is retained, no gate is relaxed.
-        try {
-            $result = Invoke-WinApp @('ui', 'get-value', $algorithms[0].selector, '-w', $script:window.ToInt64().ToString(), '--json')
-            $checks.selectedValueTargetMatches = [int]($result.elementId -ceq $algorithms[0].selector)
-            $checks.selectedValueSha256 = [int]($result.Contains('text') -and $result.text -ceq 'SHA-256')
-        } catch { $checks.selectedValueError = 1 }
-    }
-    Record-Observation 'checksum-ready-fixed-state' $checks
-}
-function Verify-Checksum([string] $RemoteName, [string] $ExpectedHash) {
-    Open-FileContextMenu $script:window $RemoteName 'checksum'
-    $script:stage = 'checksum-menu-choice'
-    Invoke-OwnedFileMenuItem $script:window '计算校验和…'
-    $script:stage = 'checksum-ready'
-    Wait-Text '文件校验和'
-    $elements = Read-ChecksumDialog
-    if (-not (Test-ChecksumReady $elements $RemoteName)) { Stop-Smoke 'checksum_ready_identity_or_algorithm_mismatch' }
-    Set-Value $script:window '^预期校验和（可选）$' $ExpectedHash
-    Capture 'checksum-ready.png'
-    $script:stage = 'checksum-submit'
-    Act $script:window '^计算校验和$'
-    $script:stage = 'checksum-result'
-    $null = Wait-Condition { Test-ChecksumResult (Read-ChecksumDialog) $ExpectedHash } 'checksum_result_not_observed' 30000
-    Capture 'checksum-result.png'
-    $script:stage = 'checksum-close'
-    Close-TransferDialog '文件校验和'
 }
 function Assert-Payload([string] $Path, [string] $Hash) {
     if (-not [IO.File]::Exists($Path) -or ([IO.FileInfo]::new($Path)).Length -ne 1048576 -or
@@ -598,16 +536,15 @@ public static class FilewayTransferDownloads {
         Assert-Payload $saveAsDestination $expectedHash
         Assert-Payload $remoteFile $expectedHash
         Complete-Step 'native-download-save-as-and-local-bytes' @{ bytes = 1048576; hashEqual = $true; remotePreserved = $true }
-        $script:stage = 'native-checksum'
-        Verify-Checksum $name $expectedHash
-        Assert-Payload $remoteFile $expectedHash
-        Assert-Payload $destination $expectedHash
-        Assert-Payload $saveAsDestination $expectedHash
-        Complete-Step 'native-sha256-checksum-and-bytes-preserved' @{ hashEqual = $true; algorithmSha256 = $true; bytes = 1048576 }
         $script:stage = 'native-upload-conflict'
         Upload-File $alternateFile '目标存在同名项目' 'upload-conflict.png'
         Assert-Payload $remoteFile $expectedHash
         Complete-Step 'native-upload-conflict-preserved' @{ hashEqual = $true }
+        $script:stage = 'transfer-payload-integrity'
+        Assert-Payload $remoteFile $expectedHash
+        Assert-Payload $destination $expectedHash
+        Assert-Payload $saveAsDestination $expectedHash
+        Complete-Step 'native-transfer-bytes-preserved' @{ hashEqual = $true; bytes = 1048576 }
         $script:stage = 'transfer-center-uploads'
         Act $script:window '^传输中心$'
         Wait-Text '上传已完成'; Wait-Text '目标存在同名项目'
@@ -663,12 +600,6 @@ catch {
         $script:stage -in @('download-save-as-row-select', 'download-save-as-menu-key', 'download-save-as-menu-choice')) {
         try { Capture 'download-save-as-menu-failure.png'; Record-Observation 'save-as-menu-failure-capture' @{ saved = 1 } }
         catch { Record-Observation 'save-as-menu-failure-capture' @{ saved = 0 } }
-    }
-    if ($script:root -and $script:app -and -not $script:app.HasExited -and $script:window -ne [IntPtr]::Zero -and $script:stage -eq 'checksum-ready') {
-        try { Observe-ChecksumReady $name }
-        catch { Record-Observation 'checksum-ready-fixed-state' @{ error = 1 } }
-        try { Capture 'checksum-ready-failure.png'; Record-Observation 'checksum-ready-failure-capture' @{ saved = 1 } }
-        catch { Record-Observation 'checksum-ready-failure-capture' @{ saved = 0 } }
     }
     if ($script:root -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) { Write-Report $status $code }
     if ($script:root -and $script:app -and $script:ownedHost -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) {

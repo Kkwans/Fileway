@@ -10,8 +10,6 @@ on:
       - 'clients/windows/src/Fileway.App/App.xaml.cs'
       - 'clients/windows/src/Fileway.App/MainWindow.xaml.cs'
       - 'clients/windows/src/Fileway.App/MainPage.Downloads.cs'
-      - 'clients/windows/src/Fileway.App/MainPage.Checksums.cs'
-      - 'clients/windows/src/Fileway.App/FileChecksumController.cs'
       - 'clients/windows/src/Fileway.App/MainPage.Transfers.cs'
       - 'clients/windows/src/Fileway.App/TransferCenterPresentationPolicy.cs'
       - 'clients/windows/src/Fileway.App/Controls/Transfers/**'
@@ -106,7 +104,4 @@ jobs:
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-save-as-confirm.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-save-as-completed.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-save-as-menu-failure.png
-            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/checksum-ready.png
-            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/checksum-result.png
-            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/checksum-ready-failure.png
           if-no-files-found: ignore

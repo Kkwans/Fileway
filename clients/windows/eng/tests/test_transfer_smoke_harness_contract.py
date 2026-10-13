@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import tempfile
 import unittest
 
 ENG = Path(__file__).resolve().parents[1]
@@ -112,6 +113,50 @@ class TransferSmokeContract(unittest.TestCase):
         self.assertNotIn("'^取消下载$'", SOURCE)
         self.assertNotIn("'^核实本地结果$'", SOURCE)
 
+    def test_manual_checksum_is_explicitly_excluded_from_transfer_scope(self):
+        report = SOURCE[SOURCE.index('function Write-Report'):SOURCE.index('function Complete-Step')]
+        self.assertIn("checksumUiVerified = $false", report)
+        self.assertIn("checksumUiExclusionReason = 'product_scope_removed'", report)
+        self.assertEqual(re.findall(r'checksumUiVerified\s*=\s*([^;]+);', report), ['$false'])
+        self.assertNotRegex(SOURCE, r'(?i)function\s+[\w-]*checksum')
+        self.assertNotRegex(SOURCE, r'(?i)checksum[-_]')
+        for removed in ("'checksum'", '计算校验和', '文件校验和'):
+            self.assertNotIn(removed, SOURCE)
+        for removed in ('MainPage.Checksums.cs', 'FileChecksumController.cs', 'screenshots/checksum-'):
+            self.assertNotIn(removed, WORKFLOW)
+        self.assertIn("[ValidateSet('download-save-as')]", SOURCE)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual report helper runs in Windows CI")
+    def test_actual_report_never_credits_removed_checksum_ui(self):
+        helper = SOURCE[SOURCE.index('function Write-Report'):SOURCE.index('function Complete-Step')]
+        with tempfile.TemporaryDirectory(prefix='fileway-transfer-report-') as directory:
+            path = str(Path(directory) / 'report.json').replace("'", "''")
+            command = ("$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;"
+                       + "$script:reportPath='" + path + "';" + helper + r"""
+function Artifact-Path($Name) {
+    if($Name -cne 'report.json'){throw 'unexpected_report_artifact'}
+    return $script:reportPath
+}
+$script:clock=[Diagnostics.Stopwatch]::StartNew()
+$script:completed=[Collections.Generic.List[string]]::new()
+$script:stage='fixture'
+foreach($PreflightOnly in @($true,$false)) {
+    foreach($status in @('running','environment-ready','passed','failed','environment-blocked')) {
+        Write-Report $status 'fixture'
+        $report=Get-Content -LiteralPath $script:reportPath -Raw | ConvertFrom-Json -AsHashtable
+        if($report.checksumUiVerified -isnot [bool] -or $report.checksumUiVerified -or
+            $report.checksumUiExclusionReason -cne 'product_scope_removed'){throw 'removed_checksum_ui_reported_verified'}
+        if($report.nativeTransferVerified -ne ($status -ceq 'passed') -or
+            $report.saveAsUiVerified -ne ($status -ceq 'passed')){throw 'transfer_report_contract_changed'}
+        $scope=if($PreflightOnly){'preflight'}else{'native-transfer-smoke'}
+        if($report.schemaVersion -ne 1 -or $report.scope -cne $scope -or $report.status -cne $status){throw 'report_identity_changed'}
+    }
+}
+""")
+            result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command],
+                                    capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_dialog_close_is_scoped_away_from_frameless_caption(self):
         self.assertNotIn("Act $script:window '^关闭$'", SOURCE)
         self.assertIn("Close-TransferDialog '文件上传'", SOURCE)
@@ -151,7 +196,7 @@ class TransferSmokeContract(unittest.TestCase):
 
     def test_save_as_menu_resolves_exact_owned_popup_before_mutation(self):
         helper = SOURCE[SOURCE.index('function Invoke-OwnedFileMenuItem'):SOURCE.index('function Open-FileContextMenu')]
-        for value in ("[ValidateSet('下载另存为…', '计算校验和…')]", "'--ancestors'", "@($tree.windows).Count -ne 1",
+        for value in ("[ValidateSet('下载另存为…')]", "'--ancestors'", "@($tree.windows).Count -ne 1",
                       "$context.Contains('hwnd')", "$context.Contains('elements')", "$_.selector -ceq $element.selector",
                       'Native]::ProcessId($popup) -ne $script:app.Id', 'Native]::InFamily($popup, $Window)',
                       "$popup.ToInt64().ToString()", "$result.hwnd -ne $popup.ToInt64()", "$result.performedAction -cne 'invoke'"):
@@ -489,7 +534,7 @@ if ($code -cne 'download_records_not_selected') { throw 'unobserved_effect_accep
         self.assertIn("'type', 'name', 'isEnabled', 'isOffscreen', 'automationId'", helper)
         self.assertIn("[object]::Equals($previous[$field], $element[$field])", helper)
         self.assertIn("'inspect_selector_metadata_mismatch'", helper)
-        self.assertEqual(len(re.findall(r"Unique-Elements \(Find-Elements \$tree\)", SOURCE, re.I)), 3)
+        self.assertEqual(len(re.findall(r"Unique-Elements \(Find-Elements \$tree\)", SOURCE, re.I)), 2)
         self.assertIn("$matches.Count -ne 1", SOURCE)
 
     def test_connection_scroll_preserves_visible_action_guard(self):
@@ -617,118 +662,8 @@ if($actual.Count -ne 1 -or $script:reads -ne 1 -or $script:delays -ne 0){throw '
         result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_checksum_uses_real_dialog_and_preserves_previous_bytes_gates(self):
-        helper = SOURCE[SOURCE.index('function Verify-Checksum'):SOURCE.index('function Assert-Payload')]
-        for value in ("Open-FileContextMenu $script:window $RemoteName 'checksum'", "Invoke-OwnedFileMenuItem $script:window '计算校验和…'",
-                      "Wait-Text '文件校验和'", "Test-ChecksumReady $elements $RemoteName",
-                      "Set-Value $script:window '^预期校验和（可选）$' $ExpectedHash", "Capture 'checksum-ready.png'",
-                      "Act $script:window '^计算校验和$'", "Test-ChecksumResult (Read-ChecksumDialog) $ExpectedHash",
-                      "Capture 'checksum-result.png'", "Close-TransferDialog '文件校验和'"):
-            self.assertIn(value, helper)
-        self.assertLess(helper.index('checksum_ready_identity_or_algorithm_mismatch'), helper.index("Capture 'checksum-ready.png'"))
-        self.assertLess(helper.index("Capture 'checksum-ready.png'"), helper.index("Act $script:window '^计算校验和$'"))
-        scoped = SOURCE[SOURCE.index('function Read-ChecksumDialog'):SOURCE.index('function Verify-Checksum')]
-        self.assertIn("Find-TransferDialog (Elements $script:window) '文件校验和'", scoped)
-        self.assertIn("'inspect', $dialog.selector", scoped)
-        self.assertIn("$digests[0].name -ieq $ExpectedHash", scoped)
-        self.assertIn("'与预期校验和一致'", scoped)
-        self.assertIn("'SHA-256 · 1 MB'", scoped)
-        self.assertIn("checksumUiVerified = ($Status -eq 'passed')", SOURCE)
-        self.assertIn("native-sha256-checksum-and-bytes-preserved", SOURCE)
-        app = (APP / 'MainPage.Checksums.cs').read_text(encoding='utf-8')
-        for value in ('algorithm.SelectedIndex = 2', '预期校验和（可选）', 'IsTextSelectionEnabled = true', '文件校验和', '与预期校验和一致'):
-            self.assertIn(value, app)
-        for guard in ('application_exit_code_nonzero', 'owned_host_exit_code_nonzero'):
-            self.assertLess(SOURCE.index(guard), SOURCE.index("Write-Report 'passed' 'transfer_smoke_ok'"))
-
-    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual checksum readiness runs in Windows CI")
-    def test_actual_checksum_ready_requires_original_source_and_unique_selected_algorithm(self):
-        helper = SOURCE[SOURCE.index('function Has-ChecksumText'):SOURCE.index('function Test-ChecksumResult')]
-        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;" + helper + r"""
-$script:window=[IntPtr]7;$script:reads=0
-function Invoke-WinApp {param([string[]]$Arguments)
-    if(($Arguments -join '|') -cne 'ui|get-value|algorithm|-w|7|--json'){throw 'unexpected_or_mutating_command'}
-    $script:reads++;return $script:response
-}
-$source=@{selector='source';type='Text';name='fixture.bin';isEnabled=$true;isOffscreen=$false}
-$algorithm=@{selector='algorithm';type='ComboBox';name='算法';isEnabled=$true;isOffscreen=$false}
-$anonymous=@{selector='anonymous';type='Pane';isEnabled=$true;isOffscreen=$false}
-$valid=@($source,$algorithm,$anonymous)
-$script:response=@{elementId='algorithm';text='SHA-256'}
-if(-not (Test-ChecksumReady $valid 'fixture.bin') -or $script:reads -ne 1){throw 'selected_sha256_rejected_without_text_node'}
-foreach($case in @('sourceMissing','sourceWrong','sourceHidden','algorithmMissing','algorithmHidden','algorithmDisabled','algorithmWrongName','algorithmWrongType','algorithmAmbiguous')){
-    $items=@($source.Clone(),$algorithm.Clone(),$anonymous)
-    switch($case){
-        'sourceMissing' {$items=@($algorithm,$anonymous)}
-        'sourceWrong' {$items[0].name='other.bin'}
-        'sourceHidden' {$items[0].isOffscreen=$true}
-        'algorithmMissing' {$items=@($source,$anonymous)}
-        'algorithmHidden' {$items[1].isOffscreen=$true}
-        'algorithmDisabled' {$items[1].isEnabled=$false}
-        'algorithmWrongName' {$items[1].name='other'}
-        'algorithmWrongType' {$items[1].type='Text'}
-        'algorithmAmbiguous' {$other=$algorithm.Clone();$other.selector='other-algorithm';$items+=,$other}
-    }
-    $before=$script:reads
-    if(Test-ChecksumReady $items 'fixture.bin'){throw 'inconsistent_checksum_identity_accepted'}
-    if($script:reads -ne $before){throw 'missing_or_ambiguous_control_was_read'}
-}
-# A SHA-256 Text label cannot substitute for the actual selected value.
-$withLabel=$valid+@(@{selector='label';type='Text';name='SHA-256';isEnabled=$true;isOffscreen=$false})
-foreach($case in @('wrongTarget','wrongAlgorithm','missingTarget','missingText','arrayTarget','arrayText','nullResult','scalarResult','arrayResult')){
-    $script:response=@{elementId='algorithm';text='SHA-256'}
-    switch($case){
-        'wrongTarget' {$script:response.elementId='foreign'}
-        'wrongAlgorithm' {$script:response.text='SHA-512'}
-        'missingTarget' {$script:response.Remove('elementId')}
-        'missingText' {$script:response.Remove('text')}
-        'arrayTarget' {$script:response.elementId=@('algorithm','foreign')}
-        'arrayText' {$script:response.text=@('SHA-256','SHA-512')}
-        'nullResult' {$script:response=$null}
-        'scalarResult' {$script:response='SHA-256'}
-        'arrayResult' {$script:response=@($script:response,$script:response.Clone())}
-    }
-    if(Test-ChecksumReady $withLabel 'fixture.bin'){throw 'wrong_selected_value_or_schema_accepted'}
-}
-"""
-        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual digest policy runs in Windows CI")
-    def test_actual_checksum_result_requires_unique_visible_digest_algorithm_and_match(self):
-        helper = SOURCE[SOURCE.index('function Has-ChecksumText'):SOURCE.index('function Verify-Checksum')]
-        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helper + r"""
-$hash='A'*64
-$digest=@{selector='digest';type='Text';name=('a'*64);isOffscreen=$false}
-$comparison=@{selector='comparison';type='Text';name='与预期校验和一致';isOffscreen=$false}
-$metadata=@{selector='metadata';type='Text';name='SHA-256 · 1 MB';isOffscreen=$false}
-$anonymous=@{selector='anonymous';type='Pane';isOffscreen=$false}
-$valid=@($anonymous,$digest,$comparison,$metadata)
-if(-not (Test-ChecksumResult $valid $hash)){throw 'valid_case_insensitive_digest_rejected'}
-foreach($case in @('digestMissing','digestWrong','digestHidden','digestEditOnly','comparisonMissing','comparisonDiffers','algorithmWrong','metadataHidden')){
-    $items=@($anonymous,$digest.Clone(),$comparison.Clone(),$metadata.Clone())
-    switch($case){
-        'digestMissing' {$items=@($anonymous,$comparison,$metadata)}
-        'digestWrong' {$items[1].name='B'*64}
-        'digestHidden' {$items[1].isOffscreen=$true}
-        'digestEditOnly' {$items[1].type='Edit'}
-        'comparisonMissing' {$items=@($anonymous,$digest,$metadata)}
-        'comparisonDiffers' {$items[2].name='与预期校验和不同'}
-        'algorithmWrong' {$items[3].name='SHA-512 · 1 MB'}
-        'metadataHidden' {$items[3].isOffscreen=$true}
-    }
-    if(Test-ChecksumResult $items $hash){throw 'invalid_result_accepted'}
-}
-$code=$null;try{$null=Test-ChecksumResult ($valid+@($digest.Clone())) $hash}catch{$code=$_.Exception.Message}
-if($code -cne 'checksum_digest_ambiguous'){throw 'duplicate_digest_accepted'}
-$code=$null;try{$null=Test-ChecksumResult $valid 'invalid'}catch{$code=$_.Exception.Message}
-if($code -cne 'checksum_expected_hash_contract_mismatch'){throw 'invalid_expected_digest_accepted'}
-"""
-        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual fixed menu core runs in Windows CI")
-    def test_actual_owned_menu_core_accepts_only_two_fixed_labels(self):
+    def test_actual_owned_menu_core_accepts_only_save_as_label(self):
         helpers = SOURCE[SOURCE.index('function Find-Elements'):SOURCE.index('function Elements(')]
         core = SOURCE[SOURCE.index('function Invoke-OwnedFileMenuItem'):SOURCE.index('function Open-FileContextMenu')]
         command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helpers + core + r"""
@@ -746,58 +681,13 @@ function Invoke-WinApp {param([string[]]$Arguments)
     if(($Arguments -join '|') -cne 'ui|invoke|fixed-menu|-w|8|--action|invoke|--json'){throw 'wrong_popup_invoke'}
     $script:invokes++;return @{hwnd=8;performedAction='invoke'}
 }
-foreach($script:label in @('下载另存为…','计算校验和…')){Invoke-OwnedFileMenuItem ([IntPtr]7) $script:label}
-if($script:invokes -ne 2 -or $script:inspections -ne 2 -or $script:controls -ne 2){throw 'fixed_actions_not_verified'}
-$code=$null;try{Invoke-OwnedFileMenuItem ([IntPtr]7) '删除'}catch{$code=$_.FullyQualifiedErrorId}
-if($null -eq $code -or $script:invokes -ne 2 -or $script:controls -ne 2){throw 'other_menu_action_accepted'}
-"""
-        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_checksum_ready_failure_keeps_gate_and_owned_main_capture(self):
-        self.assertIn("$script:stage -eq 'checksum-ready'", SOURCE)
-        self.assertIn("Capture 'checksum-ready-failure.png'", SOURCE)
-        self.assertIn("Test-ChecksumReady $elements $RemoteName", SOURCE[SOURCE.index('function Verify-Checksum'):SOURCE.index('function Assert-Payload')])
-        readiness = SOURCE[SOURCE.index('function Test-ChecksumReady'):SOURCE.index('function Test-ChecksumResult')]
-        for guard in ("Has-ChecksumText $Elements $RemoteName", "$algorithms.Count -ne 1", "'get-value', $algorithms[0].selector",
-                      "$result.elementId -ceq $algorithms[0].selector", "$result.text -ceq 'SHA-256'"):
-            self.assertIn(guard, readiness)
-        helper = SOURCE[SOURCE.index('function Observe-ChecksumReady'):SOURCE.index('function Verify-Checksum')]
-        self.assertIn("'get-value', $algorithms[0].selector", helper)
-        self.assertIn("$result.Contains('text') -and $result.text -ceq 'SHA-256'", helper)
-        self.assertNotRegex(helper, r'Record-Observation.*\$(?:result|elements|combos|algorithms)')
-        self.assertNotIn('Capture ', helper)
-
-    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual checksum diagnostic runs in Windows CI")
-    def test_actual_checksum_ready_diagnostic_reads_selection_without_altering_gate(self):
-        policy = SOURCE[SOURCE.index('function Has-ChecksumText'):SOURCE.index('function Test-ChecksumResult')]
-        helper = SOURCE[SOURCE.index('function Observe-ChecksumReady'):SOURCE.index('function Verify-Checksum')]
-        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;" + policy + helper + r"""
-$script:window=[IntPtr]7;$script:reads=0;$script:events=@()
-function Read-ChecksumDialog { return $script:elements }
-function Invoke-WinApp {param([string[]]$Arguments)
-    if(($Arguments -join '|') -cne 'ui|get-value|algorithm|-w|7|--json'){throw 'unexpected_or_mutating_command'}
-    $script:reads++;return $script:response
+$script:label='下载另存为…'
+Invoke-OwnedFileMenuItem ([IntPtr]7) $script:label
+if($script:invokes -ne 1 -or $script:inspections -ne 1 -or $script:controls -ne 1){throw 'fixed_action_not_verified'}
+foreach($invalidLabel in @('计算校验和…','删除')) {
+    $code=$null;try{Invoke-OwnedFileMenuItem ([IntPtr]7) $invalidLabel}catch{$code=$_.FullyQualifiedErrorId}
+    if($null -eq $code -or $script:invokes -ne 1 -or $script:inspections -ne 1 -or $script:controls -ne 1){throw 'other_menu_action_accepted'}
 }
-function Record-Observation {param($Name,$Details)
-    if($Name -cne 'checksum-ready-fixed-state'){throw 'wrong_observation'}
-    foreach($value in $Details.Values){if($value -isnot [int]){throw 'private_metadata_exported'}}
-    $script:events+=,$Details
-}
-$script:elements=@(@{selector='source';type='Text';name='fixture.bin';isEnabled=$true;isOffscreen=$false},
-    @{selector='algorithm';type='ComboBox';name='算法';isEnabled=$true;isOffscreen=$false},@{type='Pane';isEnabled=$true;isOffscreen=$false})
-# Official UiGetValueResult has elementId/text, not a value property.
-$script:response=@{elementId='algorithm';text='SHA-256'}
-Observe-ChecksumReady 'fixture.bin'
-if($script:reads -ne 1 -or $script:events[0].sourceText -ne 1 -or $script:events[0].algorithmText -ne 0 -or
-    $script:events[0].selectedValueTargetMatches -ne 1 -or $script:events[0].selectedValueSha256 -ne 1){throw 'selection_diagnostics_wrong'}
-$script:elements+=@{selector='other-algorithm';type='ComboBox';name='算法';isEnabled=$true;isOffscreen=$false}
-Observe-ChecksumReady 'fixture.bin'
-if($script:reads -ne 1 -or $script:events[1].algorithmHeaderMatches -ne 2 -or $script:events[1].selectedValueSha256 -ne 0){throw 'ambiguous_selection_read'}
-$script:elements=$script:elements | Where-Object { -not $_.Contains('selector') -or $_.selector -cne 'other-algorithm' }
-$script:response=@{elementId='foreign';text='SHA-512'}
-Observe-ChecksumReady 'fixture.bin'
-if($script:events[2].selectedValueTargetMatches -ne 0 -or $script:events[2].selectedValueSha256 -ne 0){throw 'mismatch_hidden'}
 """
         result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -805,9 +695,22 @@ if($script:events[2].selectedValueTargetMatches -ne 0 -or $script:events[2].sele
     def test_conflict_asserts_same_bytes_after_real_ui_operation(self):
         self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 4)
         self.assertEqual(SOURCE.count("Assert-Payload $destination $expectedHash"), 3)
+        self.assertEqual(SOURCE.count("Assert-Payload $saveAsDestination $expectedHash"), 2)
         self.assertIn("$payload[0] = 255", SOURCE)
         self.assertIn("'download_destination_already_exists'", SOURCE)
         self.assertIn("[Guid]::NewGuid().ToString('N') + '.bin'", SOURCE)
+        payload = SOURCE[SOURCE.index('function Assert-Payload'):SOURCE.index('$exitCode = 1')]
+        for guard in ('[IO.File]::Exists($Path)', '.Length -ne 1048576',
+                      '(Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash -cne $Hash',
+                      "Stop-Smoke 'synthetic_payload_mismatch'"):
+            self.assertIn(guard, payload)
+        integrity = SOURCE[SOURCE.index("$script:stage = 'transfer-payload-integrity'"):
+                           SOURCE.index("$script:stage = 'transfer-center-uploads'")]
+        for path in ('$remoteFile', '$destination', '$saveAsDestination'):
+            self.assertIn('Assert-Payload ' + path + ' $expectedHash', integrity)
+        self.assertIn("Complete-Step 'native-transfer-bytes-preserved'", integrity)
+        self.assertLess(SOURCE.index("Complete-Step 'native-upload-conflict-preserved'"),
+                        SOURCE.index("$script:stage = 'transfer-payload-integrity'"))
 
     def test_success_requires_normal_app_and_owned_host_zero_exit(self):
         passed = SOURCE.index("Write-Report 'passed' 'transfer_smoke_ok'")
