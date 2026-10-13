@@ -91,4 +91,7 @@ jobs:
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-conflict.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/upload-conflict.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/connect-failure.png
+            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/connect-ready.png
+            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/transfer-center-uploads.png
+            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/transfer-center-downloads.png
           if-no-files-found: ignore

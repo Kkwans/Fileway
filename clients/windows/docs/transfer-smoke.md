@@ -57,7 +57,9 @@ in its native confirmation; no setting, safety guard or destination is changed.
 4. Repeated download produces the real local-name conflict and preserves bytes.
 5. Same-name upload of different synthetic bytes produces the real remote-name
    conflict and preserves the original bytes.
-6. Normal application close and owned Host exit both return zero within budgets.
+6. Read-only transfer center shows the observed completed/conflict upload and
+   download records, without selecting a record or starting recovery work.
+7. Normal application close and owned Host exit both return zero within budgets.
 
 Only explicit UI actions initiate transfers. HTTP is used solely for `/health`.
 UIA selectors are freshly inspected and required to be unique, enabled and
@@ -91,11 +93,19 @@ URLs, databases, logs, Host capabilities or tokens. Reports contain fixed stage
 codes, byte counts, hash equality and exit-code checks, not raw runtime data.
 Connection actions have fixed individual stage codes. An ambiguous control
 records only numeric match/unique-selector counts and control-type counts.
+Upload/picker and download actions have fixed individual substages. Ambiguous
+picker matches additionally record only numeric counts for the standard common
+dialog filename/accept automation identifiers; they never choose the first
+candidate, retain identifiers/paths or export picker contents.
 `connect-failure.png` is allowed only when the isolated synthetic App fails on
 its connection/browser-ready surface; the same owned-window/foreground guards
 apply. It may show the synthetic name and local loopback address, never a picker,
 foreign window or a raw UIA tree. Failure capture never turns a failed run into a
 pass; a rejected capture records only a numeric saved/not-saved observation.
+`connect-ready.png` captures the same isolated synthetic connection page after
+NoAuth/HTTP consent and revealing the submit button, before connecting. The two
+`transfer-center-*.png` captures require the real completed/conflict statuses
+after all four byte-preservation checks. All use the same owned-App guards.
 
 No file is recursively or wildcard-deleted. Unique synthetic input, private
 server/App state and the exact downloaded file are left on the disposable runner

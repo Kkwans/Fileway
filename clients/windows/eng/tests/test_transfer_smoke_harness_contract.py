@@ -122,16 +122,39 @@ class TransferSmokeContract(unittest.TestCase):
 
     def test_connection_failure_has_fixed_phase_and_numeric_diagnostics_only(self):
         for stage in ("connect-name", "connect-address", "connect-auth-expand", "connect-auth-select",
-                      "connect-persistence-off", "connect-http-consent", "connect-submit-reveal", "connect-submit", "connect-browser-ready"):
+                      "connect-persistence-off", "connect-http-consent", "connect-submit-reveal", "connect-ready-capture", "connect-submit", "connect-browser-ready"):
             self.assertIn("$script:stage = '" + stage + "'", SOURCE)
         observation = SOURCE.split("Record-Observation 'control-match-counts'", 1)[1].split("Stop-Smoke", 1)[0]
-        for field in ("matches", "uniqueSelectors", "buttons", "edits", "comboBoxes", "listItems"):
+        for field in ("matches", "uniqueSelectors", "buttons", "edits", "comboBoxes", "listItems",
+                      "commonDialogFilenameIds", "commonDialogAcceptIds"):
             self.assertRegex(observation, field + r"\s*=.*\.Count")
         self.assertNotRegex(observation, r"(?:name|value|pattern|slug)\s*=")
         self.assertIn("Capture 'connect-failure.png'", SOURCE)
         self.assertIn("$script:stage.StartsWith('connect-'", SOURCE)
         self.assertIn("$script:app.HasExited", SOURCE)
         self.assertNotIn("Capture 'picker", SOURCE)
+
+    def test_picker_diagnostics_do_not_choose_an_arbitrary_control(self):
+        for stage in ("upload-open-command", "upload-picker-window", "upload-picker-name", "upload-picker-open",
+                      "upload-confirmation", "upload-submit", "upload-result", "upload-close-detail",
+                      "download-open-command", "download-confirmation", "download-submit", "download-result", "download-close-detail"):
+            self.assertIn("$script:stage = '" + stage + "'", SOURCE)
+        self.assertIn("$_.Contains('automationId')", SOURCE)
+        self.assertIn("$_.automationId -ceq '1148'", SOURCE)
+        self.assertIn("$_.automationId -ceq '1'", SOURCE)
+        self.assertNotIn("$matches[0].automationId", SOURCE)
+        self.assertNotIn("Capture 'upload-picker", SOURCE)
+
+    def test_connection_and_terminal_center_captures_are_scoped_real_states(self):
+        self.assertLess(SOURCE.index("Reveal-ConnectionSubmit $script:window"), SOURCE.index("Capture 'connect-ready.png'"))
+        self.assertLess(SOURCE.index("Capture 'connect-ready.png'"), SOURCE.index("Act $script:window '^连接并浏览$'"))
+        captures = SOURCE.split("$script:stage = 'transfer-center-uploads'", 1)[1].split("$script:stage = 'application-shutdown'", 1)[0]
+        for label in ("上传已完成", "目标存在同名项目", "下载已完成", "本地存在同名文件"):
+            self.assertIn("Wait-Text '" + label + "'", captures)
+        self.assertLess(SOURCE.index("Complete-Step 'native-upload-conflict-preserved'"), SOURCE.index("Capture 'transfer-center-uploads.png'"))
+        self.assertNotRegex(captures, r"(?:Resume|Reconcile|Cancel|恢复|核实|取消)")
+        self.assertIn("'^传输中心$'", captures)
+        self.assertIn("'^下载记录$'", captures)
 
     def test_inspection_deduplicates_exact_selector_with_checked_metadata(self):
         helper = SOURCE.split("function Unique-Elements", 1)[1].split("function Elements", 1)[0]

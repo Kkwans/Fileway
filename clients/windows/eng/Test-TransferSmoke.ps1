@@ -15,7 +15,8 @@ Set-StrictMode -Version Latest
 # No HTTP substitute performs a product operation. Only /health is probed here.
 $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png',
     'upload-confirm.png', 'upload-completed.png', 'download-confirm.png',
-    'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png')
+    'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png',
+    'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png')
 $script:root = $null
 $script:app = $null
 $script:server = $null
@@ -141,6 +142,8 @@ function Find-Control([IntPtr] $Window, [string] $NamePattern, [string] $Type = 
             edits = @($visible | Where-Object type -eq 'Edit').Count;
             comboBoxes = @($visible | Where-Object type -eq 'ComboBox').Count;
             listItems = @($visible | Where-Object type -eq 'ListItem').Count;
+            commonDialogFilenameIds = @($matches | Where-Object { $_.Contains('automationId') -and $_.automationId -ceq '1148' }).Count;
+            commonDialogAcceptIds = @($matches | Where-Object { $_.Contains('automationId') -and $_.automationId -ceq '1' }).Count;
         })
         Stop-Smoke 'control_missing_or_ambiguous'
     }
@@ -200,33 +203,46 @@ function Close-TransferDialog([string] $Title) {
     if ($result.performedAction -ne 'invoke' -or $result.hwnd -ne $script:window.ToInt64()) { Stop-Smoke 'dialog_close_effect_mismatch' }
 }
 function Upload-File([string] $Path, [string] $ExpectedStage, [string] $Screenshot) {
+    $script:stage = 'upload-open-command'
     Act $script:window '^上传文件$'
+    $script:stage = 'upload-picker-window'
     $picker = Wait-Condition {
         $windows = @([Fileway.PlayerSmoke.Native]::Windows($script:app.Id) | Where-Object { $_ -ne $script:window -and [Fileway.PlayerSmoke.Native]::Title($_) -match '选择要上传的文件|Open|打开' })
         if ($windows.Count -gt 1) { Stop-Smoke 'picker_window_ambiguous' }
         if ($windows.Count -eq 1) { $windows[0] }
     } 'native_file_picker_not_observed'
     # Standard Common Item Dialog edit (1148) is discovered, not blind input.
+    $script:stage = 'upload-picker-name'
     $edit = Control $picker '^(?:文件名(?:\(N\))?[:：]?|File name[:：]?)$' 'Edit'
     $null = Invoke-WinApp @('ui', 'set-value', $edit.selector, $Path, '-w', $picker.ToInt64().ToString(), '--json')
+    $script:stage = 'upload-picker-open'
     Act $picker '^(?:选择文件|Open(?:\(O\))?|打开(?:\(O\))?)$'
+    $script:stage = 'upload-confirmation'
     Wait-Text '确认上传目标'
     if (-not (Has-Text $script:window ([IO.Path]::GetFileName($Path)))) { Stop-Smoke 'upload_confirmation_name_mismatch' }
     if (-not (Has-Text $script:window '上传到：/')) { Stop-Smoke 'upload_confirmation_directory_mismatch' }
     if ($Screenshot -eq 'upload-completed.png') { Capture 'upload-confirm.png' }
+    $script:stage = 'upload-submit'
     Act $script:window '^开始上传$'
+    $script:stage = 'upload-result'
     Wait-Text $ExpectedStage
     Capture $Screenshot
+    $script:stage = 'upload-close-detail'
     Close-TransferDialog '文件上传'
 }
 function Download-File([string] $Destination, [string] $ExpectedStage, [string] $Screenshot) {
+    $script:stage = 'download-open-command'
     Act $script:window '^下载$'
+    $script:stage = 'download-confirmation'
     Wait-Text '确认下载位置'
     if (-not (Has-Text $script:window ('保存到：' + $Destination))) { Stop-Smoke 'download_confirmation_destination_mismatch' }
     if ($Screenshot -eq 'download-completed.png') { Capture 'download-confirm.png' }
+    $script:stage = 'download-submit'
     Act $script:window '^开始下载$'
+    $script:stage = 'download-result'
     Wait-Text $ExpectedStage
     Capture $Screenshot
+    $script:stage = 'download-close-detail'
     Close-TransferDialog '文件下载'
 }
 function Assert-Payload([string] $Path, [string] $Hash) {
@@ -347,6 +363,7 @@ public static class FilewayTransferDownloads {
         $script:stage = 'connect-persistence-off'; Act $script:window '^保持登录（仅在本机加密保存会话）$' 'CheckBox' 'toggle-off'
         $script:stage = 'connect-http-consent'; Act $script:window '^我了解 HTTP 会明文传输凭据和文件内容$' 'CheckBox' 'toggle-on'
         $script:stage = 'connect-submit-reveal'; Reveal-ConnectionSubmit $script:window
+        $script:stage = 'connect-ready-capture'; Capture 'connect-ready.png'
         $script:stage = 'connect-submit'; Act $script:window '^连接并浏览$'
         $script:stage = 'connect-browser-ready'
         $null = Control $script:window '^上传文件$'
@@ -370,6 +387,15 @@ public static class FilewayTransferDownloads {
         Upload-File $alternateFile '目标存在同名项目' 'upload-conflict.png'
         Assert-Payload $remoteFile $expectedHash
         Complete-Step 'native-upload-conflict-preserved' @{ hashEqual = $true }
+        $script:stage = 'transfer-center-uploads'
+        Act $script:window '^传输中心$'
+        Wait-Text '上传已完成'; Wait-Text '目标存在同名项目'
+        Capture 'transfer-center-uploads.png'
+        $script:stage = 'transfer-center-downloads'
+        Act $script:window '^下载记录$'
+        Wait-Text '下载已完成'; Wait-Text '本地存在同名文件'
+        Capture 'transfer-center-downloads.png'
+        Complete-Step 'native-transfer-center-terminal-records'
         $script:stage = 'application-shutdown'
         if (-not $script:app.CloseMainWindow()) { Stop-Smoke 'application_close_not_accepted' }
         if (-not $script:app.WaitForExit(30000)) { Stop-Smoke 'application_exit_timeout' }
