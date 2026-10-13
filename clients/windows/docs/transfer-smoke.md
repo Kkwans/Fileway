@@ -116,6 +116,11 @@ Upload/picker and download actions have fixed individual substages. Ambiguous
 picker matches additionally record only numeric counts for the standard common
 dialog filename/accept automation identifiers; they never choose the first
 candidate, retain identifiers/paths or export picker contents.
+Live progress can update one selector's metadata during an inspection. Only
+that fixed metadata-conflict error triggers a fresh whole-tree read, with at
+most three inspections. Inconsistent trees and partial output are discarded;
+they are never merged. A third conflict and every other error remain failures.
+All target selection and actions still require a fresh metadata-consistent tree.
 The picker accept action requires the freshly inspected exact owned picker HWND,
 an enabled visible Button with the original Open label and standard `IDOK=1`
 automation identifier. Other Open-labelled shell/navigation buttons are ignored;

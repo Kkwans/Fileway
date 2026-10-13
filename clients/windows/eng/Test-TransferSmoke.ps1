@@ -141,9 +141,19 @@ function Unique-Elements($Elements) {
     }
 }
 function Elements([IntPtr] $Window) {
-    $tree = Invoke-WinApp @('ui', 'inspect', '-w', $Window.ToInt64().ToString(), '--depth', '16', '--json')
-    if (-not $tree.Contains('windows')) { Stop-Smoke 'inspect_windows_contract_missing' }
-    return @(Unique-Elements (Find-Elements $tree))
+    # A progress update can change metadata during one live inspection. Discard
+    # that whole inconsistent tree; never merge identities or use partial output.
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        try {
+            $tree = Invoke-WinApp @('ui', 'inspect', '-w', $Window.ToInt64().ToString(), '--depth', '16', '--json')
+            if (-not $tree.Contains('windows')) { Stop-Smoke 'inspect_windows_contract_missing' }
+            $elements = @(Unique-Elements (Find-Elements $tree))
+            return $elements
+        } catch {
+            if ($_.Exception.Data['smokeCode'] -cne 'inspect_selector_metadata_mismatch' -or $attempt -eq 3) { throw }
+            Start-Sleep -Milliseconds 100
+        }
+    }
 }
 function Find-Control([IntPtr] $Window, [string] $NamePattern, [string] $Type = 'Button', [switch] $Optional) {
     $visible = @(Elements $Window | Where-Object { $_.isEnabled -and -not $_.isOffscreen })

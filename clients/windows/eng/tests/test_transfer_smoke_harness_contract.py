@@ -574,6 +574,49 @@ if ($code -cne 'inspect_selector_missing') { throw 'invalid_identity_not_rejecte
                                 capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_metadata_retry_discards_whole_tree_and_preserves_strict_controls(self):
+        helper = SOURCE[SOURCE.index('function Elements('):SOURCE.index('function Find-Control(')]
+        for value in ('$attempt -le 3', "$_.Exception.Data['smokeCode'] -cne 'inspect_selector_metadata_mismatch'", '$attempt -eq 3',
+                      '$elements = @(Unique-Elements (Find-Elements $tree))', 'return $elements'):
+            self.assertIn(value, helper)
+        self.assertIn("Stop-Smoke 'inspect_selector_metadata_mismatch'", SOURCE)
+        self.assertNotIn('continue', SOURCE[SOURCE.index('function Unique-Elements'):SOURCE.index('function Elements(')])
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual bounded inspector runs in Windows CI")
+    def test_actual_metadata_retry_replaces_tree_and_stops_at_three_reads(self):
+        helpers = SOURCE[SOURCE.index('function Find-Elements'):SOURCE.index('function Find-Control(')]
+        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;" + r"""
+function Stop-Smoke($Code){$error=[InvalidOperationException]::new($Code);$error.Data['smokeCode']=$Code;throw $error}
+function Start-Sleep {param($Milliseconds) if($Milliseconds -ne 100){throw 'wrong_retry_delay'};$script:delays++}
+function Invoke-WinApp {param([string[]]$Arguments)
+    if(($Arguments -join '|') -cne 'ui|inspect|-w|7|--depth|16|--json'){throw 'unexpected_action'}
+    $script:reads++
+    return $script:trees[[Math]::Min($script:reads-1,$script:trees.Count-1)]
+}
+""" + helpers + r"""
+$old=@{selector='progress';type='Text';name='old';isEnabled=$true;isOffscreen=$false}
+$changed=$old.Clone();$changed.name='changed'
+$consistent=@{selector='fresh-result';type='Text';name='done';isEnabled=$true;isOffscreen=$false}
+$conflict=@{windows=@(@{elements=@(@{selector='discard-me';type='Pane';name='old';isEnabled=$true;isOffscreen=$false},$old,$changed)})}
+$success=@{windows=@(@{elements=@($consistent)})}
+$script:trees=@($conflict,$conflict,$success);$script:reads=0;$script:delays=0
+$actual=@(Elements ([IntPtr]7))
+if($script:reads -ne 3 -or $script:delays -ne 2 -or $actual.Count -ne 1 -or $actual[0].selector -cne 'fresh-result'){throw 'inconsistent_trees_merged_or_retry_limit_wrong'}
+$script:trees=@($conflict);$script:reads=0;$script:delays=0;$received=@();$code=$null
+try{$received=@(Elements ([IntPtr]7))}catch{$code=$_.Exception.Data['smokeCode']}
+if($code -cne 'inspect_selector_metadata_mismatch' -or $script:reads -ne 3 -or $script:delays -ne 2 -or $received.Count -ne 0){throw 'persistent_conflict_accepted_or_partial_output_exported'}
+foreach($tree in @(@{},@{windows=@(@{elements=@(@{selector='';type='Text'})})})){
+    $script:trees=@($tree,$success);$script:reads=0;$script:delays=0;$code=$null
+    try{$null=Elements ([IntPtr]7)}catch{$code=$_.Exception.Data['smokeCode']}
+    if($code -notin @('inspect_windows_contract_missing','inspect_selector_missing') -or $script:reads -ne 1 -or $script:delays -ne 0){throw 'unrelated_failure_retried'}
+}
+$script:trees=@($success);$script:reads=0;$script:delays=0
+$actual=@(Elements ([IntPtr]7))
+if($actual.Count -ne 1 -or $script:reads -ne 1 -or $script:delays -ne 0){throw 'stable_inspection_changed'}
+"""
+        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_conflict_asserts_same_bytes_after_real_ui_operation(self):
         self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 3)
         self.assertEqual(SOURCE.count("Assert-Payload $destination $expectedHash"), 2)
