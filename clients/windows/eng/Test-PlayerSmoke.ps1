@@ -336,11 +336,15 @@ namespace Fileway.PlayerSmoke {
         public readonly DebuggerInstruction[] Instructions, TailInstructions;
         public readonly DebuggerParameter HelperArgument;
         internal readonly ulong NtdllStart, NtdllEnd, HelperAddress, CallerReturnAddress, CallerStackPointer;
+        internal readonly Dictionary<string,ulong[]> Ranges;
+        internal readonly Dictionary<int,ulong> DispatchPcs;
         internal DebuggerFault(uint code,int subcode,int parameterCount,DebuggerFrame[] frames,DebuggerParameter[] parameters,int helperStatus,DebuggerInstruction[] instructions,int tailStatus,DebuggerInstruction[] tail,DebuggerParameter helperArgument,
-            ulong ntdllStart,ulong ntdllEnd,ulong helperAddress,ulong callerReturnAddress,ulong callerStackPointer) {
+            ulong ntdllStart,ulong ntdllEnd,ulong helperAddress,ulong callerReturnAddress,ulong callerStackPointer,
+            Dictionary<string,ulong[]> ranges,Dictionary<int,ulong> dispatchPcs) {
             ExceptionCode=code; FastFailSubcode=subcode; ParameterCount=parameterCount; Frames=frames; Parameters=parameters;
             HelperStatus=helperStatus; Instructions=instructions; TailStatus=tailStatus; TailInstructions=tail; HelperArgument=helperArgument;
             NtdllStart=ntdllStart; NtdllEnd=ntdllEnd; HelperAddress=helperAddress; CallerReturnAddress=callerReturnAddress; CallerStackPointer=callerStackPointer;
+            Ranges=ranges; DispatchPcs=dispatchPcs;
         }
     }
     public sealed class DebuggerCaller {
@@ -353,6 +357,29 @@ namespace Fileway.PlayerSmoke {
     public sealed class SavedArguments {
         public readonly int Status, TargetMatches, WindowRole, MessageKind;
         internal SavedArguments(int status,int matches=0,int role=0,int message=0) { Status=status; TargetMatches=matches; WindowRole=role; MessageKind=message; }
+    }
+    public sealed class DispatchIdentity {
+        public readonly int ModuleId, Status, PdbLoaded;
+        public readonly string GuidHex;
+        public readonly uint Age, ImageSize, ImageStamp;
+        internal DispatchIdentity(int module,int status,int loaded=0,string guid="",uint age=0,uint size=0,uint stamp=0) {
+            ModuleId=module; Status=status; PdbLoaded=loaded; GuidHex=guid; Age=age; ImageSize=size; ImageStamp=stamp;
+        }
+    }
+    public sealed class DispatchFrame {
+        public readonly int FrameIndex, Status, SymbolId, ReturnPointMatched;
+        public readonly ulong ProbeRva, FunctionBeginRva, FunctionEndRva;
+        public readonly DebuggerInstruction[] Instructions;
+        internal DispatchFrame(int index,int status,ulong probe,int symbol=0,ulong begin=0,ulong end=0,int matched=0,DebuggerInstruction[] instructions=null) {
+            FrameIndex=index; Status=status; ProbeRva=probe; SymbolId=symbol; FunctionBeginRva=begin; FunctionEndRva=end; ReturnPointMatched=matched;
+            Instructions=instructions??Array.Empty<DebuggerInstruction>();
+        }
+    }
+    public sealed class DispatchEvidence {
+        public readonly DispatchIdentity[] Modules;
+        public readonly DispatchFrame[] Frames;
+        public readonly int InputCandidateMatches;
+        internal DispatchEvidence(DispatchIdentity[] modules,DispatchFrame[] frames,int matches) { Modules=modules; Frames=frames; InputCandidateMatches=matches; }
     }
     public sealed class RegionMetadata {
         public readonly uint State, Type, Protection;
@@ -534,9 +561,14 @@ namespace Fileway.PlayerSmoke {
             if(immediate.Success&&Hex(immediate.Groups[1].Value,out number)) { kind=3; return true; }
             return false;
         }
-        static DebuggerInstruction[] Helper(string[] lines,Dictionary<string,ulong[]> ranges,out int status,out ulong helperBase,bool tail=false,ulong expectedBase=0,bool caller=false,ulong expectedTarget=0) {
-            status=0; helperBase=0; int begin=-1,end=-1,maximum=caller?16:tail?4:24;
-            string prefix=caller?"FILEWAY_CFG_CALLER_":tail?"FILEWAY_CFG_TAIL_":"FILEWAY_CFG_HELPER_";
+        static readonly string[] DispatchSymbols={"","UserCallWinProcCheckWow","DispatchClientMessage","__fnDWORD","DispatchHookW","DispatchHookA",
+            "CallHookWithSEH","__fnHkINLPCWPSTRUCT","__fnHkINLPCWPRETSTRUCT","__ClientCallWinEventProc","_ClientCallWinEventProc","CallWindowProcW","DefWindowProcW"};
+        public static int DispatchSymbolId(string symbol) { return Math.Max(0,Array.IndexOf(DispatchSymbols,symbol)); }
+        static DebuggerInstruction[] Helper(string[] lines,Dictionary<string,ulong[]> ranges,out int status,out ulong helperBase,bool tail=false,ulong expectedBase=0,bool caller=false,ulong expectedTarget=0,int dispatchFrame=0) {
+            bool dispatch=dispatchFrame>=3&&dispatchFrame<=5;
+            status=0; helperBase=0; int begin=-1,end=-1,maximum=dispatch?12:caller?16:tail?4:24;
+            string module=dispatch?"USER32":"ntdll";
+            string prefix=dispatch?"FILEWAY_DISPATCH_FRAME"+dispatchFrame+"_CODE_":caller?"FILEWAY_CFG_CALLER_":tail?"FILEWAY_CFG_TAIL_":"FILEWAY_CFG_HELPER_";
             for(int i=0;i<lines.Length;i++) {
                 string marker=lines[i].TrimEnd('\r');
                 if(marker==prefix+"BEGIN") { if(begin!=-1) { status=2; return Array.Empty<DebuggerInstruction>(); } begin=i; }
@@ -544,15 +576,18 @@ namespace Fileway.PlayerSmoke {
             }
             if(begin==-1&&end==-1) return Array.Empty<DebuggerInstruction>();
             status=2; ulong[] range;
-            if(begin<0||end<=begin||end-begin>maximum+4||!ranges.TryGetValue("ntdll",out range)||(tail&&(expectedBase==0||expectedBase>ulong.MaxValue-0x5d))||
-                (caller&&(expectedBase<=range[0]||expectedBase>=range[1]||expectedTarget<range[0]||expectedTarget>=range[1]))) return Array.Empty<DebuggerInstruction>();
+            if(begin<0||end<=begin||end-begin>maximum+4||!ranges.TryGetValue(module,out range)||(tail&&(expectedBase==0||expectedBase>ulong.MaxValue-0x5d))||
+                (caller&&(expectedBase<=range[0]||expectedBase>=range[1]||expectedTarget<range[0]||expectedTarget>=range[1]))||
+                (dispatch&&(expectedBase<=range[0]||expectedBase>=range[1]))) return Array.Empty<DebuggerInstruction>();
             var result=new List<DebuggerInstruction>(); bool header=false; ulong first=0,next=0,headerOffset=0;
             for(int i=begin+1;i<end;i++) {
                 string line=lines[i].Trim();
                 if(line.Length==0) continue;
                 if(line.Length>2048) return Array.Empty<DebuggerInstruction>();
                 if(!header) {
-                    if(caller) {
+                    if(dispatch) {
+                        if(!System.Text.RegularExpressions.Regex.IsMatch(line,@"^(?:USER32|user32)(?:![A-Za-z_][A-Za-z0-9_]*)?(?:\+0x[0-9a-fA-F]{1,8})?:$")) return Array.Empty<DebuggerInstruction>();
+                    } else if(caller) {
                         // An internal ntdll symbol can label this code. Its name is
                         // not exported; instruction addresses must match the bound RVA.
                         if(!System.Text.RegularExpressions.Regex.IsMatch(line,@"^ntdll(?:![A-Za-z_][A-Za-z0-9_]*)?(?:\+0x[0-9a-fA-F]{1,8})?:$")) return Array.Empty<DebuggerInstruction>();
@@ -567,25 +602,27 @@ namespace Fileway.PlayerSmoke {
                 if(!match.Success||result.Count>=maximum||match.Groups[2].Length%2!=0||!Address(match.Groups[1].Value,out address)||
                     address<range[0]||address>=range[1]||address-range[0]>uint.MaxValue) return Array.Empty<DebuggerInstruction>();
                 if(result.Count==0) {
-                    first=caller?range[0]:tail?expectedBase:address;
+                    first=caller||dispatch?range[0]:tail?expectedBase:address;
                     if(tail&&address!=expectedBase+headerOffset) return Array.Empty<DebuggerInstruction>();
                 }
                 else if(address!=next) return Array.Empty<DebuggerInstruction>();
                 int size=match.Groups[2].Length/2;
-                if(address>ulong.MaxValue-(ulong)size||address+(ulong)size>range[1]||(caller&&address+(ulong)size>expectedBase)) return Array.Empty<DebuggerInstruction>();
+                if(address>ulong.MaxValue-(ulong)size||address+(ulong)size>range[1]||((caller||dispatch)&&address+(ulong)size>expectedBase)) return Array.Empty<DebuggerInstruction>();
                 next=address+(ulong)size;
                 string opcode=Array.Find(Opcodes,name=>name==match.Groups[3].Value)??"";
                 string operands=match.Groups[4].Value.Trim(),r1="",r2="",target=""; int kind1=0,kind2=0,d1=0,d2=0,decoded=0; ulong targetOffset=0;
                 if(opcode.Length!=0) {
                     if(operands.Length==0&&(opcode=="ret"||opcode=="nop"||opcode=="int3")) decoded=1;
                     else if(opcode=="call"||opcode.StartsWith("j",StringComparison.Ordinal)) {
-                        var call=System.Text.RegularExpressions.Regex.Match(operands,@"^ntdll!([A-Za-z0-9_]+)(?:\+0x([0-9a-fA-F]{1,8}))? \(([0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})\)$");
+                        var call=System.Text.RegularExpressions.Regex.Match(operands,"^"+(dispatch?"(?:USER32|user32)":module)+@"!([A-Za-z0-9_]+)(?:\+0x([0-9a-fA-F]{1,8}))? \(([0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})\)$");
                         ulong destination,delta=0;
                         if(call.Success&&Address(call.Groups[3].Value,out destination)&&destination>=range[0]&&destination<range[1]&&
                             (!call.Groups[2].Success||Hex(call.Groups[2].Value,out delta))&&delta<=destination-range[0]) {
-                            string known=Array.Find(Symbols,name=>name==call.Groups[1].Value);
-                            if(known!=null&&(!caller||known!="RtlpHandleInvalidUserCallTarget"||(delta==0&&destination==expectedTarget))) {
-                                decoded=1; kind1=4; target=known; targetOffset=delta;
+                            string known=dispatch?Array.Find(DispatchSymbols,name=>name.Length!=0&&name==call.Groups[1].Value):Array.Find(Symbols,name=>name==call.Groups[1].Value);
+                            if((dispatch||known!=null)&&(!caller||known!="RtlpHandleInvalidUserCallTarget"||(delta==0&&destination==expectedTarget))) {
+                                // Dispatch targets retain a validated module RVA even
+                                // for an unlisted public name; no raw label escapes.
+                                decoded=1; kind1=4; target=known??""; targetOffset=dispatch?destination-range[0]:delta;
                             }
                         } else if(Operand(operands,out kind1,out r1,out d1)&&kind1==1) decoded=1;
                     } else {
@@ -600,7 +637,7 @@ namespace Fileway.PlayerSmoke {
                 if(opcode=="mov"&&decoded==1&&code.Success&&Hex(code.Groups[1].Value,out immediate)&&immediate==10) failFastCode=true;
                 result.Add(new DebuggerInstruction(result.Count,address-first,opcode,decoded,kind1,r1,d1,kind2,r2,d2,target,targetOffset,failFastCode));
             }
-            if(!header||result.Count==0||(tail&&(result.Count!=4||next!=expectedBase+0x5d))||(caller&&next!=expectedBase)) return Array.Empty<DebuggerInstruction>();
+            if(!header||result.Count==0||(tail&&(result.Count!=4||next!=expectedBase+0x5d))||((caller||dispatch)&&next!=expectedBase)) return Array.Empty<DebuggerInstruction>();
             helperBase=first; status=1; return result.ToArray();
         }
 
@@ -653,6 +690,123 @@ namespace Fileway.PlayerSmoke {
             return false;
         }
         public static DebuggerFault Read(string path) { return Parse(ReadBounded(path,FileShare.Read)); }
+        static InvalidDataException DispatchInvalid() { return new InvalidDataException("dispatch_evidence_rejected"); }
+        static string[] DispatchBlock(string[] lines,string prefix,int maximum=128) {
+            int begin=-1,end=-1;
+            for(int i=0;i<lines.Length;i++) {
+                string line=lines[i].TrimEnd('\r');
+                if(line==prefix+"BEGIN") { if(begin!=-1) throw DispatchInvalid(); begin=i; }
+                if(line==prefix+"END") { if(end!=-1) throw DispatchInvalid(); end=i; }
+            }
+            if(begin==-1&&end==-1) return null;
+            if(begin<0||end<=begin||end-begin>maximum||end==lines.Length-1) throw DispatchInvalid();
+            var result=new List<string>();
+            for(int i=begin+1;i<end;i++) { if(lines[i].Length>2048) throw DispatchInvalid(); result.Add(lines[i].TrimEnd('\r')); }
+            return result.ToArray();
+        }
+        static System.Text.RegularExpressions.Match DispatchField(string[] lines,string key,string pattern) {
+            System.Text.RegularExpressions.Match found=null;
+            foreach(string line in lines) {
+                if(!System.Text.RegularExpressions.Regex.IsMatch(line,@"^\s*"+System.Text.RegularExpressions.Regex.Escape(key)+@"\b",
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase)) continue;
+                var match=System.Text.RegularExpressions.Regex.Match(line,pattern,System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                // A second malformed field is still a duplicate, rather than
+                // being silently skipped in favour of the first valid field.
+                if(!match.Success||found!=null) throw DispatchInvalid(); found=match;
+            }
+            if(found==null) throw DispatchInvalid(); return found;
+        }
+        static DispatchIdentity DispatchModule(string[] lines,DebuggerFault fault,int id) {
+            string module=id==1?"USER32":"Microsoft_UI_Input",label=id==1?"user32":"Microsoft.UI.Input";
+            string[] block=DispatchBlock(lines,id==1?"FILEWAY_DISPATCH_USER32_ID_":"FILEWAY_DISPATCH_INPUT_ID_");
+            ulong[] range;
+            if(block==null) return new DispatchIdentity(id,0);
+            if(!fault.Ranges.TryGetValue(module,out range)) throw DispatchInvalid();
+            var named=DispatchField(block,"Module",@"^\s*Module:\s*(\S+)\s*$");
+            if(!string.Equals(named.Groups[1].Value,label,StringComparison.OrdinalIgnoreCase)) throw DispatchInvalid();
+            ulong low,size,stamp;
+            if(!Address(DispatchField(block,"Base Address",@"^\s*Base Address:\s*([0-9a-f]{1,16}|[0-9a-f]{8}`[0-9a-f]{8})\s*$").Groups[1].Value,out low)||low!=range[0]||
+                !Hex(DispatchField(block,"Size",@"^\s*Size:\s*([0-9a-f]{1,8})\s*$").Groups[1].Value,out size)||size==0||size!=range[1]-range[0]||
+                !Hex(DispatchField(block,"Time Stamp",@"^\s*Time Stamp:\s*([0-9a-f]{1,8})(?:\s.*)?$").Groups[1].Value,out stamp)) throw DispatchInvalid();
+            var signature=DispatchField(block,"CODEVIEW",@"^\s*CODEVIEW\s+.*\bRSDS - GUID:\s*\{([0-9a-f-]{36})\}\s*$");
+            Guid guid;
+            if(!Guid.TryParseExact(signature.Groups[1].Value,"D",out guid)||guid==Guid.Empty) throw DispatchInvalid();
+            uint age;
+            if(!uint.TryParse(DispatchField(block,"Age",@"^\s*Age:\s*([0-9]{1,10}),\s*Pdb:.*$").Groups[1].Value,
+                System.Globalization.NumberStyles.None,System.Globalization.CultureInfo.InvariantCulture,out age)) throw DispatchInvalid();
+            string type=DispatchField(block,"Symbol Type",@"^\s*Symbol Type:\s*([A-Z]+)(?:\s.*)?$").Groups[1].Value;
+            return new DispatchIdentity(id,1,type.Equals("PDB",StringComparison.OrdinalIgnoreCase)?1:0,guid.ToString("N").ToUpperInvariant(),age,(uint)size,(uint)stamp);
+        }
+        public static string DispatchQuery(string stackPath) {
+            var fault=Read(stackPath); ulong[] range;
+            if(CallerQuery(stackPath)==null||fault.DispatchPcs.Count!=3||!fault.Ranges.TryGetValue("USER32",out range)) return null;
+            var commands=new List<string> { ".symopt+0x400", ".reload /f user32.dll", ".reload /f Microsoft.UI.Input.dll",
+                ".echo FILEWAY_DISPATCH_USER32_ID_BEGIN", "!lmi USER32", ".echo FILEWAY_DISPATCH_USER32_ID_END",
+                ".echo FILEWAY_DISPATCH_INPUT_ID_BEGIN", "!lmi Microsoft_UI_Input", ".echo FILEWAY_DISPATCH_INPUT_ID_END" };
+            for(int index=3;index<=5;index++) {
+                ulong pc;
+                if(!fault.DispatchPcs.TryGetValue(index,out pc)||pc<=range[0]||pc>=range[1]||pc-range[0]>uint.MaxValue) return null;
+                string target="USER32+0x"+(pc-range[0]).ToString("x",System.Globalization.CultureInfo.InvariantCulture);
+                string prefix="FILEWAY_DISPATCH_FRAME"+index;
+                commands.Add(".echo "+prefix+"_BEGIN"); commands.Add("ln "+target); commands.Add(".fnent "+target);
+                commands.Add(".echo "+prefix+"_CODE_BEGIN"); commands.Add("ub "+target+" L0n12");
+                commands.Add(".echo "+prefix+"_CODE_END"); commands.Add(".echo "+prefix+"_END");
+            }
+            return string.Join("; ",commands);
+        }
+        static DispatchFrame ReadDispatchFrame(string[] lines,DebuggerFault fault,DispatchIdentity identity,int index) {
+            ulong[] range=fault.Ranges["USER32"]; ulong pc=fault.DispatchPcs[index],probe=pc-range[0];
+            string[] block=DispatchBlock(lines,"FILEWAY_DISPATCH_FRAME"+index+"_");
+            if(block==null||identity.Status!=1||identity.PdbLoaded!=1) return new DispatchFrame(index,0,probe);
+            ulong begin,end;
+            if(!Hex(DispatchField(block,"BeginAddress",@"^\s*BeginAddress\s*=\s*([0-9a-f]{1,16}|[0-9a-f]{8}`[0-9a-f]{8})\s*$").Groups[1].Value.Replace("`",""),out begin)||
+                !Hex(DispatchField(block,"EndAddress",@"^\s*EndAddress\s*=\s*([0-9a-f]{1,16}|[0-9a-f]{8}`[0-9a-f]{8})\s*$").Groups[1].Value.Replace("`",""),out end)||
+                begin>=end||end>identity.ImageSize||probe<begin||probe>=end) throw DispatchInvalid();
+            bool found=false; string symbol=""; ulong symbolAddress=0,displacement=0;
+            foreach(string line in block) {
+                string nearest=line.Trim();
+                if(!nearest.StartsWith("(",StringComparison.Ordinal)) continue;
+                var match=System.Text.RegularExpressions.Regex.Match(nearest,@"^\(([0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})\)[ \t]+(?:USER32|user32)!([^\s+|]+)(?:\+0x([0-9a-fA-F]{1,8}))?[ \t]*\|");
+                if(!match.Success) throw DispatchInvalid();
+                ulong address,delta=0;
+                if(!Address(match.Groups[1].Value,out address)||!SymbolToken(match.Groups[2].Value)||
+                    (match.Groups[3].Success&&!Hex(match.Groups[3].Value,out delta))) throw DispatchInvalid();
+                if(found&&(symbolAddress!=address||displacement!=delta||symbol!=match.Groups[2].Value)) throw DispatchInvalid();
+                found=true; symbolAddress=address; displacement=delta; symbol=match.Groups[2].Value;
+            }
+            if(!found) return new DispatchFrame(index,0,probe);
+            if(symbolAddress!=range[0]+begin||displacement!=probe-begin) throw DispatchInvalid();
+            int status; ulong ignored;
+            var rows=Helper(lines,fault.Ranges,out status,out ignored,false,pc,false,0,index);
+            if(status!=1||rows.Length==0||rows[rows.Length-1].Opcode!="call"||Array.Exists(rows,row=>row.Offset<begin||row.Offset>=end))
+                throw DispatchInvalid();
+            return new DispatchFrame(index,1,probe,DispatchSymbolId(symbol),begin,end,1,rows);
+        }
+        public static DispatchEvidence ReadDispatch(string stackPath,string dispatchPath) {
+            if(DispatchQuery(stackPath)==null) throw DispatchInvalid();
+            // Reuse the existing same-directory, exception, helper-code, stack
+            // and restored-target binding; no symbol section can replace it.
+            var caller=ReadCaller(stackPath,dispatchPath);
+            if(caller.Status!=1||caller.PassesRax!=1||caller.HelperSavesRcx!=1) throw DispatchInvalid();
+            var saved=ReadSavedArguments(stackPath,dispatchPath,dispatchPath,0,0,0);
+            if(saved.Status!=1||saved.TargetMatches!=1) throw DispatchInvalid();
+            var fault=Read(stackPath); var query=Read(dispatchPath);
+            foreach(string module in new[]{"USER32","Microsoft_UI_Input"}) {
+                ulong[] originalRange,queryRange;
+                bool original=fault.Ranges.TryGetValue(module,out originalRange),queried=query.Ranges.TryGetValue(module,out queryRange);
+                if(original!=queried||(original&&(originalRange[0]!=queryRange[0]||originalRange[1]!=queryRange[1]))) throw DispatchInvalid();
+            }
+            for(int index=3;index<=5;index++) {
+                ulong pc;
+                if(!query.DispatchPcs.TryGetValue(index,out pc)||pc!=fault.DispatchPcs[index]) throw DispatchInvalid();
+            }
+            string[] lines=ReadBounded(dispatchPath,FileShare.Read).Split('\n');
+            var user32=DispatchModule(lines,fault,1); var input=DispatchModule(lines,fault,2);
+            var frames=new List<DispatchFrame>();
+            for(int index=3;index<=5;index++) frames.Add(ReadDispatchFrame(lines,fault,user32,index));
+            int matches=input.Status==1&&input.PdbLoaded==1&&input.GuidHex=="A5B1A2FA1416A17D718AF294946ACE1A"&&input.Age==1&&input.ImageSize==0x186000&&input.ImageStamp==0x726624e6?1:0;
+            return new DispatchEvidence(new[]{user32,input},frames.ToArray(),matches);
+        }
         static bool SameInstructions(DebuggerInstruction[] left,DebuggerInstruction[] right) {
             if(left.Length!=right.Length) return false;
             for(int index=0;index<left.Length;index++) {
@@ -939,7 +1093,7 @@ namespace Fileway.PlayerSmoke {
                 }
             }
             if(code!=0xc0000409) throw new InvalidDataException("debugger_exception_not_expected");
-            var frames=new List<DebuggerFrame>(); int nextIndex=0; ulong instruction=faultAddress,callerReturnAddress=0,callerStackPointer=0;
+            var frames=new List<DebuggerFrame>(); var dispatchPcs=new Dictionary<int,ulong>(); int nextIndex=0; ulong instruction=faultAddress,callerReturnAddress=0,callerStackPointer=0;
             foreach(string raw in lines) {
                 if(raw.Length>2048) continue;
                 string[] parts=raw.Trim().Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
@@ -970,6 +1124,9 @@ namespace Fileway.PlayerSmoke {
                 if(index==2&&known=="ntdll"&&kind==1&&ranges.TryGetValue("ntdll",out callerRange)&&
                     currentInstruction>=callerRange[0]&&currentInstruction<callerRange[1]&&currentInstruction-callerRange[0]==offset)
                 { callerReturnAddress=currentInstruction; callerStackPointer=ignored; }
+                if(index>=3&&index<=5&&known=="USER32"&&ranges.TryGetValue("USER32",out callerRange)&&
+                    currentInstruction>=callerRange[0]&&currentInstruction<callerRange[1]&&currentInstruction-callerRange[0]<=uint.MaxValue&&
+                    (kind!=1||offset==currentInstruction-callerRange[0])) dispatchPcs.Add((int)index,currentInstruction);
                 frames.Add(new DebuggerFrame((int)index,known,symbol,offset,kind));
             }
             if(parameterCount>=0) {
@@ -991,7 +1148,7 @@ namespace Fileway.PlayerSmoke {
                 argument=MapAddress(0,candidate,ranges,unloadedRanges,anonymousRanges);
             ulong[] ntdllRange; ranges.TryGetValue("ntdll",out ntdllRange);
             return new DebuggerFault(code,subcode,parameterCount,frames.ToArray(),mapped.ToArray(),helperStatus,instructions,tailStatus,tail,argument,
-                ntdllRange==null?0:ntdllRange[0],ntdllRange==null?0:ntdllRange[1],helperBase,callerReturnAddress,callerStackPointer);
+                ntdllRange==null?0:ntdllRange[0],ntdllRange==null?0:ntdllRange[1],helperBase,callerReturnAddress,callerStackPointer,ranges,dispatchPcs);
         }
     }
 
@@ -1608,6 +1765,50 @@ function Record-SafeCallerEvidence([string] $Dump, [string] $StackLog, [string] 
     } catch { Record-Observation 'shutdown-cfg-caller-result' @{ status = 2 } }
 }
 
+function Record-SafeDispatchEvidence([string] $Dump, [string] $StackLog, [string] $Symbols, [Diagnostics.Stopwatch] $Budget) {
+    $dispatchProcess = $null
+    try {
+        $query = [Fileway.PlayerSmoke.DebuggerEvidence]::DispatchQuery($StackLog)
+        if ($null -eq $query) { Record-Observation 'shutdown-dispatch-result' @{ status = 0 }; return }
+        $callerQuery = [Fileway.PlayerSmoke.DebuggerEvidence]::CallerQuery($StackLog)
+        $callerLog = Join-Path $script:privateRoot 'shutdown-caller.log'
+        $savedQuery = [Fileway.PlayerSmoke.DebuggerEvidence]::SavedArgumentsQuery($StackLog, $callerLog)
+        if ($null -eq $savedQuery) { Record-Observation 'shutdown-dispatch-result' @{ status = 0 }; return }
+        $remaining = [Math]::Min(30000, [Math]::Max(0, 120000 - $Budget.ElapsedMilliseconds))
+        if ($remaining -le 0) { Record-Observation 'shutdown-dispatch-result' @{ status = 3 }; return }
+        $commands = '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; .echo FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; ' + $callerQuery + '; ' + $savedQuery + '; ' + $query + '; q'
+        $log = Join-Path $script:privateRoot 'shutdown-dispatch.log'
+        $start = [Diagnostics.ProcessStartInfo]::new($script:cdbPath)
+        $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = $script:privateRoot
+        $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+        foreach ($argument in @('-z', $Dump, '-sins', '-noshell', '-y', "srv*$Symbols*https://msdl.microsoft.com/download/symbols", '-logo', $log, '-c', $commands)) { $start.ArgumentList.Add($argument) }
+        $dispatchProcess = [Diagnostics.Process]::Start($start)
+        $stdout = $dispatchProcess.StandardOutput.ReadToEndAsync(); $stderr = $dispatchProcess.StandardError.ReadToEndAsync()
+        if (-not $dispatchProcess.WaitForExit([int]$remaining)) {
+            $dispatchProcess.Kill($true); $null = $dispatchProcess.WaitForExit(5000)
+            Record-Observation 'shutdown-dispatch-result' @{ status = 3 }; return
+        }
+        if ($dispatchProcess.ExitCode -ne 0) { Record-Observation 'shutdown-dispatch-result' @{ status = 2 }; return }
+        $evidence = [Fileway.PlayerSmoke.DebuggerEvidence]::ReadDispatch($StackLog, $log)
+        foreach ($module in $evidence.Modules) {
+            Record-Observation 'shutdown-dispatch-module' @{ moduleId = [int]$module.ModuleId; status = [int]$module.Status; pdbLoaded = [int]$module.PdbLoaded;
+                rsdsGuid = [string]$module.GuidHex; rsdsAge = [uint32]$module.Age; imageSize = [uint32]$module.ImageSize; imageStamp = [uint32]$module.ImageStamp }
+        }
+        Record-Observation 'shutdown-dispatch-input-candidate' @{ matches = [int]$evidence.InputCandidateMatches }
+        foreach ($frame in $evidence.Frames) {
+            Record-Observation 'shutdown-dispatch-frame' @{ frameIndex = [int]$frame.FrameIndex; status = [int]$frame.Status; symbolId = [int]$frame.SymbolId;
+                probeRva = [uint32]$frame.ProbeRva; functionBeginRva = [uint32]$frame.FunctionBeginRva; functionEndRva = [uint32]$frame.FunctionEndRva; returnPointMatched = [int]$frame.ReturnPointMatched }
+            foreach ($instruction in $frame.Instructions) {
+                Record-Observation 'shutdown-dispatch-instruction' @{ frameIndex = [int]$frame.FrameIndex; index = [int]$instruction.Index; rva = [uint32]$instruction.Offset;
+                    opcode = [string]$instruction.Opcode; decoded = [int]$instruction.Decoded; firstKind = [int]$instruction.FirstKind; firstRegister = [string]$instruction.FirstRegister;
+                    firstDisplacement = [int]$instruction.FirstDisplacement; secondKind = [int]$instruction.SecondKind; secondRegister = [string]$instruction.SecondRegister;
+                    secondDisplacement = [int]$instruction.SecondDisplacement; targetSymbolId = [Fileway.PlayerSmoke.DebuggerEvidence]::DispatchSymbolId($instruction.TargetSymbol); targetRva = [uint32]$instruction.TargetOffset }
+            }
+        }
+    } catch { Record-Observation 'shutdown-dispatch-result' @{ status = 2 } }
+    finally { if ($null -ne $dispatchProcess) { $dispatchProcess.Dispose() } }
+}
+
 function Record-SafeDebuggerEvidence {
     if (-not $script:shutdownDebuggerAttached) { return }
     Stop-ShutdownDebugger
@@ -1659,6 +1860,7 @@ function Record-SafeDebuggerEvidence {
             if ($fault.HelperArgument.Classification -eq 6) { Record-SafeCandidateRegion $dump $log $symbols $analysisBudget }
         }
         Record-SafeCallerEvidence $dump $log $symbols $analysisBudget
+        Record-SafeDispatchEvidence $dump $log $symbols $analysisBudget
     } catch { Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_evidence_rejected' } }
     finally { $analysis.Dispose() }
 }

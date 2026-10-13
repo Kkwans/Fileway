@@ -254,7 +254,7 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("120000 - $Budget.ElapsedMilliseconds", capture)
         self.assertIn("30000", capture)
         self.assertIn("currentInstruction-callerRange[0]==offset", native)
-        self.assertIn("caller&&next!=expectedBase", native)
+        self.assertIn("(caller||dispatch)&&next!=expectedBase", native)
         self.assertIn("delta==0&&destination==expectedTarget", native)
         self.assertIn("candidate!=queriedCandidate", native)
         self.assertIn('" L0n16; .echo FILEWAY_CFG_CALLER_END"', native)
@@ -290,6 +290,31 @@ class HarnessGuards(unittest.TestCase):
             self.assertNotIn(forbidden, exported)
         self.assertNotIn('SetWindow', capture)
         self.assertNotIn('Invoke-WinApp', capture)
+
+    def test_dispatch_probe_is_same_dump_bounded_and_serializes_symbol_ids(self):
+        _, native, powershell = source_parts()
+        capture = powershell.split('function Record-SafeDispatchEvidence', 1)[1].split('function Record-SafeDebuggerEvidence', 1)[0]
+        self.assertIn("'-z', $Dump", capture)
+        self.assertNotIn("'-p'", capture)
+        self.assertNotIn('Invoke-WinApp', capture)
+        self.assertIn('120000 - $Budget.ElapsedMilliseconds', capture)
+        self.assertIn('ReadDispatch($StackLog, $log)', capture)
+        self.assertIn('Record-SafeDispatchEvidence $dump $log $symbols $analysisBudget', powershell)
+        self.assertIn('var caller=ReadCaller(stackPath,dispatchPath)', native)
+        self.assertIn('ReadSavedArguments(stackPath,dispatchPath,dispatchPath,0,0,0)', native)
+        self.assertIn('SavedArgumentsQuery($StackLog, $callerLog)', capture)
+        self.assertIn('DispatchPcs', native)
+        self.assertIn('Guid.TryParseExact', native)
+        self.assertIn('symbolAddress!=range[0]+begin', native)
+        self.assertIn('DispatchSymbolId(symbol)', native)
+        self.assertIn('symbolId = [int]$frame.SymbolId', capture)
+        self.assertIn('rsdsGuid = [string]$module.GuidHex', capture)
+        self.assertIn('targetRva = [uint32]$instruction.TargetOffset', capture)
+        self.assertIn("'-sins', '-noshell'", capture)
+        self.assertIn('[Math]::Min(30000', capture)
+        self.assertIn('$start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true', capture)
+        for forbidden in ('[string]$frame.Symbol', '[string]$instruction.TargetSymbol', 'Write-Host', 'Get-Credential', '.reload /i'):
+            self.assertNotIn(forbidden, capture)
 
     def test_internal_timings_use_existing_numeric_events_not_latency_acceptance(self):
         _, native, powershell = source_parts()
@@ -796,6 +821,117 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             (root / 'other-caller-session/saved.log').write_text(saved_caller + saved_tuple, encoding='utf-8')
             saved_vectors.append('RejectSavedArguments("other-caller-session/saved.log");')
 
+            dispatch_vectors = []
+            dispatch_frames = ('00000000`00030125 ntdll+0x338\n'
+                               '03 00000000`00800010 00000000`00030225 USER32!DispatchHookW+0x25\n'
+                               '04 00000000`00800020 00000000`00030325 USER32!CallHookWithSEH+0x25\n'
+                               '05 00000000`00800030 00000000`00001100 USER32!__fnHkINLPCWPSTRUCT+0x25\n')
+            dispatch_stack = saved_stack.replace('00000000`00002100 ntdll+0x338\n', dispatch_frames).replace(
+                '1000 3000 ntdll (pdb symbols)\n', '1000 3000 ntdll (pdb symbols)\n30000 33000 USER32 (pdb symbols)\n100000 286000 Microsoft_UI_Input (pdb symbols)\n')
+            dispatch_base = dispatch_stack + saved_caller[saved_caller.index('FILEWAY_CFG_CALLER_BEGIN'):]
+            (root / 'dispatch-stack.log').write_text(dispatch_stack, encoding='utf-8')
+            def dispatch_identity(module, low, size, stamp, guid, prefix):
+                return (f'{prefix}BEGIN\nModule: {module}\nBase Address: {low:x}\nSize: {size:x}\nTime Stamp: {stamp:x} (reproducible hash)\n'
+                        f'CODEVIEW 2f, 1234, 1234 RSDS - GUID: {{{guid}}}\nAge: 1, Pdb: C:\\PRIVATE_SECRET\\module.pdb\n'
+                        f'Symbol Type: PDB - Symbols loaded successfully\n{prefix}END\n')
+            dispatch_user32 = dispatch_identity('user32', 0x30000, 0x3000, 0x12345678, '11111111-2222-3333-4444-555555555555', 'FILEWAY_DISPATCH_USER32_ID_')
+            dispatch_input = dispatch_identity('Microsoft.UI.Input', 0x100000, 0x186000, 0x726624e6, 'A5B1A2FA-1416-A17D-718A-F294946ACE1A', 'FILEWAY_DISPATCH_INPUT_ID_')
+            def dispatch_frame(index, symbol, target):
+                begin = 0x100 * (index - 2)
+                address = 0x30000 + begin
+                target_address = {'DispatchHookW': 0x30100, 'CallHookWithSEH': 0x30200, '__fnHkINLPCWPSTRUCT': 0x30300}[target]
+                encoded = 'e8' + struct.pack('<i', target_address - (address + 0x25)).hex()
+                nearest = f'({address:016x}) USER32!{symbol}+0x25 | ({address + 0x50:016x}) USER32!PRIVATE_SECRET\n'
+                return (f'FILEWAY_DISPATCH_FRAME{index}_BEGIN\n' + nearest + nearest +
+                        f'BeginAddress = {begin:016x}\nEndAddress = {begin + 0x50:016x}\nFILEWAY_DISPATCH_FRAME{index}_CODE_BEGIN\n'
+                        f'USER32!{symbol}+0x1d:\n{address + 0x1d:x} 90 nop\n{address + 0x1e:x} 90 nop\n{address + 0x1f:x} 90 nop\n'
+                        f'{address + 0x20:x} {encoded} call USER32!{target} ({target_address:016x})\n'
+                        f'FILEWAY_DISPATCH_FRAME{index}_CODE_END\nFILEWAY_DISPATCH_FRAME{index}_END\n')
+            dispatch_code = dispatch_frame(3, 'DispatchHookW', 'CallHookWithSEH') + dispatch_frame(4, 'CallHookWithSEH', '__fnHkINLPCWPSTRUCT') + dispatch_frame(5, '__fnHkINLPCWPSTRUCT', 'DispatchHookW')
+            dispatch_valid = dispatch_base + saved_tuple + dispatch_user32 + dispatch_input + dispatch_code
+            def dispatch_case(name, content=dispatch_valid, symbol=4, candidate=1, verified=True, identity=1, pdb=1, reject=False):
+                path = f'dispatch-{name}.log'
+                (root / path).write_text(content, encoding='utf-8')
+                dispatch_vectors.append(f'RejectDispatch("{path}");' if reject else
+                                        f'CheckDispatch("{path}",{symbol},{candidate},{str(verified).lower()},{identity},{pdb});')
+            dispatch_case('valid')
+            dispatch_case('unknown-public-symbol', content=dispatch_valid.replace('DispatchHookW', 'PRIVATE_SECRET'), symbol=0)
+            dispatch_case('ordinal-symbol-name', content=dispatch_valid.replace('DispatchHookW', 'DispatchHookw'), symbol=0)
+            dispatch_case('exports-only', content=dispatch_valid.replace(dispatch_user32, dispatch_user32.replace('Symbol Type: PDB', 'Symbol Type: EXPORT')), symbol=0, verified=False, pdb=0)
+            dispatch_case('identity-absent', content=dispatch_valid.replace(dispatch_user32, ''), symbol=0, verified=False, identity=0, pdb=0)
+            dispatch_case('different-input-guid', content=dispatch_valid.replace('A5B1A2FA-1416-A17D-718A-F294946ACE1A', '99999999-8888-7777-6666-555555555555'), candidate=0)
+            dispatch_case('different-input-age', content=dispatch_valid.replace(dispatch_input, dispatch_input.replace('Age: 1,', 'Age: 2,')), candidate=0)
+            dispatch_case('different-input-stamp', content=dispatch_valid.replace('726624e6', '726624e7'), candidate=0)
+            dispatch_case('input-export-only', content=dispatch_valid.replace(dispatch_input, dispatch_input.replace('Symbol Type: PDB', 'Symbol Type: EXPORT')), candidate=0)
+            dispatch_case('input-deferred', content=dispatch_valid.replace(dispatch_input, dispatch_input.replace('Symbol Type: PDB', 'Symbol Type: DEFERRED')), candidate=0)
+            dispatch_case('input-age-zero', content=dispatch_valid.replace(dispatch_input, dispatch_input.replace('Age: 1,', 'Age: 0,')), candidate=0)
+            unknown_target = dispatch_valid.replace('call USER32!CallHookWithSEH (0000000000030200)', 'call USER32!PRIVATE_SECRET (0000000000030200)')
+            dispatch_case('unknown-direct-target', content=unknown_target)
+            unresolved_target = dispatch_valid.replace('call USER32!CallHookWithSEH (0000000000030200)', 'call USER32!PRIVATE_SECRET (1122334455667788)')
+            dispatch_case('unresolved-direct-target', content=unresolved_target)
+            dispatch_vectors += ['CheckDispatchTarget("dispatch-valid.log",6,0x200,1);',
+                                 'CheckDispatchTarget("dispatch-unknown-direct-target.log",0,0x200,1);',
+                                 'CheckDispatchTarget("dispatch-unresolved-direct-target.log",0,0,0);']
+            for name, content in {
+                'wrong-module': dispatch_valid.replace('Module: user32', 'Module: KERNEL32'),
+                'wrong-base': dispatch_valid.replace('Base Address: 30000', 'Base Address: 30010'),
+                'wrong-size': dispatch_valid.replace('Size: 3000', 'Size: 3001'),
+                'bad-guid': dispatch_valid.replace('11111111-2222-3333-4444-555555555555', 'PRIVATE_SECRET'),
+                'bad-age': dispatch_valid.replace('Age: 1, Pdb:', 'Age: PRIVATE_SECRET, Pdb:'),
+                'age-overflow': dispatch_valid.replace('Age: 1, Pdb:', 'Age: 4294967296, Pdb:'),
+                'bad-base-format': dispatch_valid.replace('Base Address: 30000', 'Base Address: 3`0000'),
+                'duplicate-module': dispatch_valid.replace('Module: user32', 'Module: user32\nModule: user32'),
+                'duplicate-rsds': dispatch_valid.replace('Age: 1,', 'CODEVIEW 2f RSDS - GUID: {11111111-2222-3333-4444-555555555555}\nAge: 1,', 1),
+                'malformed-rsds-after-valid': dispatch_valid.replace('Age: 1,', 'CODEVIEW PRIVATE_SECRET\nAge: 1,', 1),
+                'malformed-age-after-valid': dispatch_valid.replace('Age: 1, Pdb:', 'Age: PRIVATE_SECRET\nAge: 1, Pdb:', 1),
+                'duplicate-symbol-type': dispatch_valid.replace('Symbol Type: PDB', 'Symbol Type: EXPORT\nSymbol Type: PDB', 1),
+                'duplicate-identity': dispatch_valid.replace(dispatch_user32, dispatch_user32 * 2),
+                'identity-echo': dispatch_valid.replace('FILEWAY_DISPATCH_USER32_ID_BEGIN', '0:000> .echo FILEWAY_DISPATCH_USER32_ID_BEGIN'),
+                'identity-truncated': dispatch_valid.replace('FILEWAY_DISPATCH_USER32_ID_END', ''),
+                'wrong-function-start': dispatch_valid.replace('BeginAddress = 0000000000000100', 'BeginAddress = 0000000000000101'),
+                'probe-outside-function': dispatch_valid.replace('EndAddress = 0000000000000150', 'EndAddress = 0000000000000125'),
+                'duplicate-boundary': dispatch_valid.replace('BeginAddress = 0000000000000100', 'BeginAddress = 0000000000000100\nBeginAddress = 0000000000000100'),
+                'malformed-boundary-after-valid': dispatch_valid.replace('BeginAddress = 0000000000000100', 'BeginAddress = 0000000000000100\nBeginAddress = PRIVATE_SECRET'),
+                'function-range-outside-image': dispatch_valid.replace('EndAddress = 0000000000000150', 'EndAddress = 0000000000003001'),
+                'function-range-overflow': dispatch_valid.replace('EndAddress = 0000000000000150', 'EndAddress = 0000000100000000'),
+                'nearest-export': dispatch_valid.replace('(0000000000030100) USER32!DispatchHookW+0x25', '(0000000000030000) USER32!DispatchHookW+0x125'),
+                'conflicting-nearest': dispatch_valid.replace('(0000000000030100) USER32!DispatchHookW+0x25', '(0000000000030100) USER32!PRIVATE_SECRET+0x25', 1),
+                'malformed-nearest-after-valid': dispatch_valid.replace('(0000000000030100) USER32!DispatchHookW+0x25', '(PRIVATE_SECRET) USER32!DispatchHookW+0x25', 1),
+                'wrong-nearest-module': dispatch_valid.replace('(0000000000030100) USER32!DispatchHookW+0x25', '(0000000000030100) KERNEL32!DispatchHookW+0x25'),
+                'wrong-probe-displacement': dispatch_valid.replace('USER32!DispatchHookW+0x25 |', 'USER32!DispatchHookW+0x26 |'),
+                'instruction-gap': dispatch_valid.replace('3011e 90 nop', '3011f 90 nop'),
+                'wrong-call-end': dispatch_valid.replace('30120 e8db000000', '30120 e8db0000'),
+                'not-a-call': dispatch_valid.replace('30120 e8db000000 call', '30120 e8db000000 jmp'),
+                'outside-function-code': dispatch_valid.replace('3011d 90 nop', '300ff 90 nop'),
+                'duplicate-code': dispatch_valid.replace('FILEWAY_DISPATCH_FRAME3_CODE_END', 'FILEWAY_DISPATCH_FRAME3_CODE_BEGIN\nFILEWAY_DISPATCH_FRAME3_CODE_END'),
+                'unterminated-code': dispatch_valid.replace('FILEWAY_DISPATCH_FRAME3_CODE_END', ''),
+                'duplicate-frame': dispatch_valid.replace('FILEWAY_DISPATCH_FRAME3_END', 'FILEWAY_DISPATCH_FRAME3_END\nFILEWAY_DISPATCH_FRAME3_END'),
+                'unterminated-frame': dispatch_valid.replace('FILEWAY_DISPATCH_FRAME3_END', ''),
+                'different-context': dispatch_valid.replace('rdx=0000000000004234', 'rdx=0000000000004244'),
+                'different-saved-target': dispatch_valid.replace(saved_tuple, saved_tuple.replace('00004234', '00004244')),
+                'missing-saved-tuple': dispatch_valid.replace(saved_tuple, ''),
+                'duplicate-saved-tuple': dispatch_valid.replace(saved_tuple, saved_tuple * 2),
+                'wrong-saved-slot': dispatch_valid.replace('00800080 00000000`00004234', '00800088 00000000`00004234'),
+                'different-exception': dispatch_valid.replace('c0000409', '80000003'),
+                'different-subcode': dispatch_valid.replace('Parameter[0]: a', 'Parameter[0]: 9'),
+                'different-user32-image': dispatch_valid.replace('30000 33000 USER32', '30000 33010 USER32'),
+                'different-frame-pc': dispatch_valid.replace('00000000`00030225 USER32!DispatchHookW', '00000000`00030226 USER32!DispatchHookW'),
+            }.items():
+                self.assertNotEqual(content, dispatch_valid, name + ': ineffective negative fixture')
+                dispatch_case(name, content=content, reject=True)
+            excessive_code = ''.join(f'{0x30113 + i:x} 90 nop\n' for i in range(13))
+            dispatch_case('too-many-instructions', content=dispatch_valid.replace('3011d 90 nop\n3011e 90 nop\n3011f 90 nop\n', excessive_code), reject=True)
+            dispatch_case('unterminated-log', content=dispatch_valid.rstrip('\n'), reject=True)
+            (root / 'other-caller-session/dispatch.log').write_text(dispatch_valid, encoding='utf-8')
+            dispatch_vectors += ['RejectDispatch("other-caller-session/dispatch.log");', 'CheckDispatchQuery("dispatch-stack.log",true);']
+            # A known symbol's offset is not its module RVA: the query must still use 0x125.
+            (root / 'dispatch-kind2-stack.log').write_text(dispatch_stack.replace('USER32!DispatchHookW+0x25', 'USER32!CallWindowProcW+0x25'), encoding='utf-8')
+            dispatch_vectors.append('CheckDispatchQuery("dispatch-kind2-stack.log",true);')
+            (root / 'dispatch-missing-frame.log').write_text(dispatch_stack.replace('04 00000000`00800020 00000000`00030325 USER32!CallHookWithSEH+0x25\n', ''), encoding='utf-8')
+            dispatch_vectors.append('CheckDispatchQuery("dispatch-missing-frame.log",false);')
+            (root / 'dispatch-frame-pc-outside.log').write_text(dispatch_stack.replace('00000000`00030125 ntdll+0x338', '00000000`00033000 ntdll+0x338'), encoding='utf-8')
+            dispatch_vectors.append('CheckDispatchQuery("dispatch-frame-pc-outside.log",false);')
+
             region_vectors = []
             region_begin, region_end = "FILEWAY_CFG_REGION_BEGIN\n", "FILEWAY_CFG_REGION_END\n"
             region_body = ("BaseAddress: 11223344`55667000\nAllocationBase: 11223344`55667000\n"
@@ -1078,6 +1214,53 @@ class Program {
   catch(InvalidDataException) { rejected=true; }
   if(!rejected) throw new Exception("unbound or partial saved arguments accepted");
  }
+ static void CheckDispatchQuery(string path,bool expected) {
+  string query=DebuggerEvidence.DispatchQuery(path);
+  if(!expected) { if(query!=null) throw new Exception("unbound dispatch query accepted"); return; }
+  if(query==null||!query.Contains(".symopt+0x400")||!query.Contains("!lmi USER32")||!query.Contains("!lmi Microsoft_UI_Input")||
+    !query.Contains(".fnent USER32+0x125")||!query.Contains("ub USER32+0x225 L0n12")||!query.Contains(".fnent USER32+0x325")||query.Contains("PRIVATE_SECRET"))
+   throw new Exception("incorrect or non-RVA dispatch query");
+ }
+ static void CheckDispatch(string path,int firstSymbol,int candidate,bool verified,int identity,int pdb) {
+  var evidence=DebuggerEvidence.ReadDispatch("dispatch-stack.log",path);
+  if(evidence.Modules.Length!=2||evidence.Frames.Length!=3||evidence.InputCandidateMatches!=candidate) throw new Exception("wrong dispatch result shape");
+  if(evidence.Modules[0].ModuleId!=1||evidence.Modules[0].Status!=identity||evidence.Modules[0].PdbLoaded!=pdb||evidence.Modules[1].ModuleId!=2)
+   throw new Exception("wrong bound module identity");
+  foreach(var module in evidence.Modules) {
+   if(module.Status==1&&!System.Text.RegularExpressions.Regex.IsMatch(module.GuidHex,"^[0-9A-F]{32}$")) throw new Exception("invalid or private GUID output");
+   if(module.Status==0&&(module.GuidHex!=""||module.Age!=0||module.ImageSize!=0||module.ImageStamp!=0||module.PdbLoaded!=0)) throw new Exception("unverified identity retained fields");
+   foreach(var field in module.GetType().GetFields()) if(field.FieldType==typeof(string)&&field.Name!="GuidHex") throw new Exception("raw identity text exposed");
+  }
+  if(identity==1&&(evidence.Modules[0].GuidHex!="11111111222233334444555555555555"||evidence.Modules[0].Age!=1||evidence.Modules[0].ImageSize!=0x3000||evidence.Modules[0].ImageStamp!=0x12345678))
+   throw new Exception("wrong reconstructed USER32 identity");
+  if(candidate==1&&(evidence.Modules[1].GuidHex!="A5B1A2FA1416A17D718AF294946ACE1A"||evidence.Modules[1].Age!=1||evidence.Modules[1].ImageSize!=0x186000||evidence.Modules[1].ImageStamp!=0x726624e6||evidence.Modules[1].PdbLoaded!=1))
+   throw new Exception("Input candidate identity was not exact");
+  for(int i=0;i<3;i++) {
+   var frame=evidence.Frames[i];
+   if(frame.FrameIndex!=i+3||frame.ProbeRva!=(ulong)(0x125+i*0x100)||frame.Status!=(verified?1:0)||frame.ReturnPointMatched!=(verified?1:0)) throw new Exception("unbound dispatch frame");
+   if(!verified&&(frame.SymbolId!=0||frame.Instructions.Length!=0)) throw new Exception("EXPORT/absent identity invented symbols");
+   if(verified&&(frame.Instructions.Length!=4||frame.FunctionBeginRva!=(ulong)(0x100+i*0x100)||frame.FunctionEndRva!=(ulong)(0x150+i*0x100))) throw new Exception("wrong bounded instructions");
+   if(i==0&&frame.SymbolId!=firstSymbol) throw new Exception("unknown public symbol was exported or misclassified");
+   foreach(var row in frame.Instructions) {
+    if(row.Offset>=0x3000||row.TargetOffset>=0x3000||row.TargetSymbol.Contains("PRIVATE_SECRET")||row.FirstRegister.Contains("PRIVATE_SECRET")||row.SecondRegister.Contains("PRIVATE_SECRET")) throw new Exception("private dispatch text or address exposed");
+   }
+  }
+ }
+ static void CheckDispatchTarget(string path,int symbol,uint rva,int decoded) {
+  var evidence=DebuggerEvidence.ReadDispatch("dispatch-stack.log",path);
+  var row=evidence.Frames[0].Instructions[3];
+  if(DebuggerEvidence.DispatchSymbolId(row.TargetSymbol)!=symbol||row.TargetOffset!=rva||row.Decoded!=decoded)
+   throw new Exception(path+": unbounded or missing direct target RVA");
+  if(decoded==0&&(row.FirstKind!=0||row.SecondKind!=0||row.FirstRegister!=""||row.SecondRegister!=""||row.FirstDisplacement!=0||row.SecondDisplacement!=0))
+   throw new Exception("undecoded dispatch instruction retained operands");
+ }
+ static void RejectDispatch(string path) {
+  bool rejected=false;
+  try { DebuggerEvidence.ReadDispatch("dispatch-stack.log",path); } catch(InvalidDataException error) {
+   rejected=true; if(error.Message.Contains("PRIVATE_SECRET")) throw new Exception("private dispatch rejection text");
+  }
+  if(!rejected) throw new Exception(path+": inconsistent dispatch evidence accepted");
+ }
  static void CheckCandidateClassifications() {
   foreach(var item in new (string Name,int Expected)[]{("unloaded",3),("loaded",2),("unmapped",6),("ambiguous",0),
     ("null",1),("unknown-only",4),("unknown-unloaded-only",5),("unknown-loaded-overlap",0),("unknown-unloaded-overlap",0),
@@ -1221,7 +1404,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckMainWindowCandidate(); CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors + caller_vectors + saved_vectors + region_vectors) + '''
+ static void Main() { CheckMainWindowCandidate(); CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors + caller_vectors + saved_vectors + dispatch_vectors + region_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");
