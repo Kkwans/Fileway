@@ -182,6 +182,9 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn(".dump /muF /o shutdown.dmp; gn", powershell)
         self.assertNotIn("; gh", powershell)
         self.assertIn("$watch.ElapsedMilliseconds -lt 10000", powershell)
+        self.assertEqual(powershell.count("'lm o'"), 1)
+        self.assertIn('"FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN"', native)
+
         self.assertIn("$analysis.WaitForExit(120000)", powershell)
         self.assertIn("[Fileway.PlayerSmoke.DebuggerEvidence]::HasReadyMarker($log)", powershell)
         self.assertIn("ReadBounded(path,FileShare.ReadWrite)", native)
@@ -206,6 +209,15 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("queriedFault.HelperArgument.Classification!=6", native)
         self.assertIn("queryCandidate!=candidate", native)
         self.assertIn("return SingleRegionEvidence.Parse(region,candidate)", native)
+        self.assertIn("if ($region.State -eq 65536)", powershell)
+        self.assertIn("ReadPreCloseMapping($StackLog, $log, $snapshot)", powershell)
+        self.assertIn("pre_close_session_mismatch", native)
+        self.assertIn("debugger_app_identity_changed", powershell)
+        self.assertIn("ReadCandidateRegion(stackPath,regionPath).State!=0x10000", native)
+        snapshot_export = powershell.split("Record-Observation 'shutdown-cfg-pre-close-module'", 1)[1].split("\n", 1)[0]
+        self.assertNotIn("classification", snapshot_export)
+        self.assertNotIn("address", snapshot_export.lower())
+
         self.assertNotIn(".dump /muf", powershell)
         region_emission = powershell.split("Record-Observation 'shutdown-cfg-region'", 1)[1].split("\n", 1)[0]
         self.assertIn("state = [uint32]$region.State", region_emission)
@@ -721,6 +733,54 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 region_vectors.append(f'CheckBoundRegion("tail-unmapped.log","{path}",false);')
             region_vectors.append('CheckBoundRegion("tail-wrong-source.log","region-bound.log",false);')
             region_vectors.append('CheckBoundRegion("tail-loaded.log","region-bound.log",false);')
+
+            (root / "region-bound-free.log").write_text(verified+free_shape, encoding="utf-8")
+            snapshot_begin = "FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN\nstart             end                 module name\n"
+            snapshot_end = "FILEWAY_CFG_PRE_CLOSE_MODULES_END\n"
+            snapshot_known = "11223344`55667000 11223344`55668000 libmpv_2 (deferred)\n"
+            def snapshot_case(name, text, expected=None, region="region-bound-free.log", stack="tail-unmapped.log"):
+                path = f"pre-close-{name}.log"
+                (root / path).write_text(text, encoding="utf-8")
+                region_vectors.append(f'CheckPreClose("{stack}","{region}","{path}",{json.dumps(expected)});' if expected is not None
+                                      else f'CheckPreClose("{stack}","{region}","{path}",null);')
+            snapshot_case("known", snapshot_begin+snapshot_known+snapshot_end, "1|libmpv_2|1928")
+            snapshot_case("known-alias", snapshot_begin+snapshot_known.replace("libmpv_2", "libmpv-2.dll")+snapshot_end, "1|libmpv_2|1928")
+            snapshot_case("unknown", snapshot_begin+snapshot_known.replace("libmpv_2", "PRIVATE_SECRET")+snapshot_end, "0||0")
+            snapshot_case("private-path", snapshot_begin+snapshot_known.replace("libmpv_2", "C:\\private\\libmpv-2.dll")+snapshot_end, "0||0")
+            snapshot_case("unknown-overlap", snapshot_begin+snapshot_known+snapshot_known.replace("libmpv_2", "PRIVATE_SECRET")+snapshot_end, "0||0")
+            snapshot_case("known-overlap", snapshot_begin+snapshot_known+snapshot_known.replace("libmpv_2", "USER32")+snapshot_end, "0||0")
+            snapshot_case("out-of-range", snapshot_begin+"1000 2000 libmpv_2 (deferred)\n"+snapshot_end, "0||0")
+            for name, text in {
+                "missing-begin": snapshot_known+snapshot_end,
+                "missing-end": snapshot_begin+snapshot_known,
+                "missing-header": snapshot_begin.split("\n",1)[0]+"\n"+snapshot_known+snapshot_end,
+                "duplicate-header": snapshot_begin+"start end module name\n"+snapshot_known+snapshot_end,
+                "duplicate-known": snapshot_begin+snapshot_known*2+snapshot_end,
+                "duplicate-begin": snapshot_begin+snapshot_begin+snapshot_known+snapshot_end,
+                "duplicate-end": snapshot_begin+snapshot_known+snapshot_end*2,
+                "multiple-blocks": (snapshot_begin+snapshot_known+snapshot_end)*2,
+                "unloaded-block": snapshot_begin+"Unloaded modules:\n"+snapshot_known+snapshot_end,
+                "truncated-end": snapshot_begin+snapshot_known+snapshot_end.rstrip("\n"),
+                "malformed-range": snapshot_begin+snapshot_known.replace("55667000", "PRIVATE_SECRET")+snapshot_end,
+                "malformed-backtick": snapshot_begin+snapshot_known.replace("11223344`55667000", "1122`334455667000")+snapshot_end,
+                "reverse-range": snapshot_begin+snapshot_known.replace("55667000", "55669000")+snapshot_end,
+                "oversized-range": snapshot_begin+"1 ffffffffffffffff ntdll (deferred)\n"+snapshot_end,
+                "private-annotation": snapshot_begin+snapshot_known+"PRIVATE_SECRET\n"+snapshot_end,
+                "oversized-line": snapshot_begin+snapshot_known+"x"*2049+"\n"+snapshot_end,
+                "too-many-lines": "\n"*4096+snapshot_begin+snapshot_known+snapshot_end,
+                "too-many-rows": snapshot_begin+snapshot_known.replace("libmpv_2","PRIVATE_SECRET")*513+snapshot_end,
+                "empty": snapshot_begin+snapshot_end,
+                "too-large": "x"*1048577,
+            }.items():
+                snapshot_case(name,text)
+            snapshot_case("not-free",snapshot_begin+snapshot_known+snapshot_end,region="region-bound.log")
+            snapshot_case("invalid-fault",snapshot_begin+snapshot_known+snapshot_end,stack="tail-wrong-subcode.log")
+            (root / "other-session").mkdir()
+            (root / "other-session/snapshot.log").write_text(snapshot_begin+snapshot_known+snapshot_end, encoding="utf-8")
+            (root / "other-session/region.log").write_text(verified+free_shape, encoding="utf-8")
+            region_vectors.append('CheckPreClose("tail-unmapped.log","region-bound-free.log","other-session/snapshot.log",null);')
+            region_vectors.append('CheckPreClose("tail-unmapped.log","other-session/region.log","pre-close-known.log",null);')
+
             region_vectors.append('CheckBoundRegion("tail-loaded.log","region-bound.log",false,2);')
             region_vectors.append('CheckBoundRegion("tail-unmapped.log","region-bound-wrong-subcode.log",false,3);')
             region_vectors.append('CheckBoundRegion("tail-unmapped.log","region-bound-different-context.log",false,4);')
@@ -835,6 +895,15 @@ class Program {
   if(single.ParameterCount!=1||single.Parameters.Length!=0) throw new Exception("invented invalid call target");
  }
 
+ static void CheckPreClose(string stack,string region,string snapshot,string expected) {
+  bool rejected=false; string actual=null;
+  try { var mapped=DebuggerEvidence.ReadPreCloseMapping(stack,region,snapshot); actual=mapped.Mapping+"|"+mapped.Module+"|"+mapped.Offset; }
+  catch(InvalidDataException error) {
+   rejected=true;
+   if(error.Message.Contains("PRIVATE_SECRET")||error.Message.Contains("11223344")||error.Message.Contains("private/")) throw new Exception("unsafe pre-close error");
+  }
+  if(expected==null?!rejected:rejected||actual!=expected) throw new Exception("incorrect pre-close mapping: "+snapshot);
+ }
  static void CheckRegionReason(string path,int reason) {
   bool rejected=false; try { SingleRegionEvidence.Parse(File.ReadAllText(path),0x1122334455667788); }
   catch(InvalidDataException error) { rejected=true; if(error.Message!="region_evidence_rejected"||!Equals(error.Data["regionReason"],reason)) throw new Exception("incorrect region reason"); }

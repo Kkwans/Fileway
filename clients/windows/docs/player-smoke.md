@@ -172,7 +172,11 @@ window. The two explicitly scoped diagnostics attach after their own preceding
 assertions; MainWithOpenPlayer intentionally still has its player open. The target must
 still match this harness's retained process object, PID, launch time and exact
 application executable path. Attach has a 10-second deadline and a fixed ready
-marker. The bounded ready reader permits concurrent debugger writes and accepts
+marker. The existing attach command records one private, delimited `lm o`
+loaded-module snapshot before that marker; no additional debugger attachment,
+detachment or symbol download is introduced. Immediately after readiness, the
+harness rechecks that the retained process is alive with the same start time and
+executable path before it can request main-window close. The bounded ready reader permits concurrent debugger writes and accepts
 only a complete marker line, not the echoed command. Attach failures retain only
 a fixed numeric location and HResult. `-pd` prevents debugger exit from killing the target; `-sins` ignores
 ambient symbol paths and `-noshell` disables debugger shell commands. A targeted
@@ -297,6 +301,27 @@ produce phase 0. The timeout remains a failure even if a later marker was seen.
 A free or executable result describes the
 candidate region at capture time; it does not establish the target's semantic
 identity, ownership, CFG validity, or who released it.
+
+Only a successfully revalidated MEM_FREE candidate enables comparison with that
+same session's pre-close snapshot. Microsoft documents
+[`lm o`](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/lm--list-loaded-modules-)
+as listing only currently loaded images. The reader requires the stack, region
+and snapshot files to share the fresh private directory, revalidates the original
+fault/context and the second-pass region, and accepts one exact bounded module
+section. All ranges participate in overlap rejection, including anonymous unknown
+images. Unknown module names are never retained or exported. Malformed rows,
+duplicate known modules, multiple sections, ranges larger than UInt32, or more
+than 512 anonymous ranges reject the snapshot. The existing log/line bounds and
+attach/analysis deadlines remain unchanged.
+
+`shutdown-cfg-pre-close-module` exports only mapping 1 with an existing allowlisted
+module and a validated relative offset, or mapping 0 with an empty module and zero
+offset. Mapping 1 means the free-region candidate lay inside that image's range
+at the pre-close observation; it does not establish the argument's semantic role
+or which code freed it. Snapshot rejection emits only fixed status 2. This capture
+does not retain a DLL, change window/engine disposal order, or suppress the fault.
+The raw snapshot stays in the already private debugger log, outside the artifact
+allowlist.
 
 Reports include `shutdownDebuggerAttached` and `normalShutdownVerified`. An
 attached-debugger run cannot establish normal production-path shutdown even when
