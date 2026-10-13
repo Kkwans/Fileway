@@ -177,9 +177,12 @@ public sealed partial class FileUploadRunner : IFileUploadRunner
         Execution? execution;
         lock (_gate) _active.TryGetValue(task, out execution);
         if (execution is null) return;
-        await StopAsync(execution).ConfigureAwait(false);
+        var stopFailure = await StopAsync(execution).ConfigureAwait(false);
         try { _ = await execution.Completion.Task.ConfigureAwait(false); }
         catch (FilewayException error) when (error.Error.Code != ErrorCode.LocalStorageUnavailable) { }
+        // Callback failures do not release local ownership. Report them only after the worker has
+        // released its source, capability and execution lock, just like an ordinary successful stop.
+        if (stopFailure is not null) throw stopFailure;
     }
 
     public ValueTask DisposeAsync()
@@ -199,23 +202,34 @@ public sealed partial class FileUploadRunner : IFileUploadRunner
 
     private async Task DisposeCoreAsync(Execution[] executions, TaskCompletionSource completion)
     {
+        FilewayException? failure = null;
         try
         {
             foreach (var execution in executions)
             {
                 try { _ = await SetIntentAsync(execution.Task, TransferIntent.Pause, CancellationToken.None).ConfigureAwait(false); }
                 catch (FilewayException) { }
-                await StopAsync(execution).ConfigureAwait(false);
+                catch (Exception error) { failure ??= Normalize(error); }
+                // Always signal every registered worker, even when an earlier cancellation callback
+                // throws. Cancellation has already been requested; its exception is not a drain ACK.
+                var stopFailure = await StopAsync(execution).ConfigureAwait(false);
+                failure ??= stopFailure;
             }
             foreach (var execution in executions)
             {
                 try { _ = await execution.Completion.Task.ConfigureAwait(false); }
                 catch (FilewayException) { }
+                catch (Exception error) { failure ??= Normalize(error); }
             }
-            _http.Dispose();
-            completion.TrySetResult();
         }
-        catch (Exception error) { completion.TrySetException(Normalize(error)); }
+        catch (Exception error) { failure ??= Normalize(error); }
+        finally
+        {
+            try { _http.Dispose(); }
+            catch (Exception error) { failure ??= Normalize(error); }
+        }
+        if (failure is null) completion.TrySetResult();
+        else completion.TrySetException(failure);
     }
 
     private void EnsureAvailable()
@@ -223,10 +237,11 @@ public sealed partial class FileUploadRunner : IFileUploadRunner
         lock (_gate) ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
-    private static async Task StopAsync(Execution execution)
+    private static async Task<FilewayException?> StopAsync(Execution execution)
     {
-        try { await execution.Stop.CancelAsync().ConfigureAwait(false); }
-        catch (ObjectDisposedException) { /* The execution completed between registry lookup and stop. */ }
+        try { await execution.Stop.CancelAsync().ConfigureAwait(false); return null; }
+        catch (ObjectDisposedException) { return null; /* The execution completed between registry lookup and stop. */ }
+        catch (Exception error) { return Normalize(error); }
     }
 
     private void QueueProgress(RunState state)
