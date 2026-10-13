@@ -583,15 +583,14 @@ public sealed partial class MainPage : Page, IDisposable
             await OpenSelectedAsync();
         }
     }
-    private async void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
+    private void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Handled || IsTextInput(e.OriginalSource as DependencyObject)) return;
         var control = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
         if (control && e.Key == VirtualKey.A) { e.Handled = true; ActiveFiles.SelectAll(); return; }
         if (e.Key == VirtualKey.F2) { e.Handled = true; Rename_Click(sender, e); return; }
         if (e.Key == VirtualKey.Delete) { e.Handled = true; Trash_Click(sender, e); return; }
-        if (e.Key == VirtualKey.Enter) { e.Handled = true; await OpenSelectedAsync(); }
-        else if (e.Key == VirtualKey.Escape && _detailsVisible) { e.Handled = true; SetDetailsVisible(false); }
+        if (e.Key == VirtualKey.Escape && _detailsVisible) { e.Handled = true; SetDetailsVisible(false); }
     }
     private void Details_Click(object sender, RoutedEventArgs e) { SetDetailsVisible(!_detailsVisible); UpdateSelection(); }
     private void CloseDetails_Click(object sender, RoutedEventArgs e) { SetDetailsVisible(false); ActiveFiles.Focus(FocusState.Keyboard); }
