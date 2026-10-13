@@ -192,6 +192,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _volumeControl?.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
         _inlineVolumeControl.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
         UpdateDownloadRate();
+        UpdateDownloadStatus();
         _trackPicker?.ApplyTracks(snapshot.Tracks);
         AudioButton.Visibility = snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio) ? Visibility.Visible : Visibility.Collapsed;
         var hasSubtitles = snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Subtitle);
@@ -401,6 +402,21 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         DownloadRateText.Text = known ? $"预加载 {rate!.Value / 1_000_000:0.00} MB/s" : "";
         AutomationProperties.SetName(DownloadRateText, "上游网络" + DownloadRateText.Text);
         AutomationProperties.SetHelpText(DownloadRateText, "MB/s 使用每秒一百万字节；不包含磁盘缓存命中或交付速度。");
+    }
+
+    private void UpdateDownloadStatus()
+    {
+        var view = PlaybackDownloadPresentation.Create(_snapshot.Download);
+        DownloadStatusRow.Visibility = view is null ? Visibility.Collapsed : Visibility.Visible;
+        DownloadStatusText.Text = view?.StatusText ?? "";
+        DownloadBytesText.Text = view?.BytesText ?? "";
+        DownloadByteProgress.Visibility = view?.ShowProgress == true ? Visibility.Visible : Visibility.Collapsed;
+        DownloadByteProgress.IsIndeterminate = view?.IsIndeterminate == true;
+        DownloadByteProgress.Value = view?.ProgressValue ?? 0;
+        ToolTipService.SetToolTip(DownloadStatusRow, view?.HelpText);
+        AutomationProperties.SetHelpText(DownloadBytesText, view?.HelpText ?? "");
+        AutomationProperties.SetHelpText(DownloadByteProgress, view?.HelpText ?? "");
+        // No notification or activity reset: byte ticks must not keep the HUD open.
     }
 
     private void Chapter_Click(object sender, RoutedEventArgs args)

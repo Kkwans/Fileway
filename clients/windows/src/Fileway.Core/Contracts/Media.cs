@@ -9,6 +9,12 @@ public sealed record RemotePlaybackInput(RemoteResourceRef Resource) : PlaybackI
     public override string ToString() => "RemotePlaybackInput (source redacted)";
 }
 
+/// <summary>References an already-active download; no partial filename or implicit download start.</summary>
+public sealed record DownloadPlaybackInput(DownloadContext Context, TransferTaskRef Task) : PlaybackInput
+{
+    public override string ToString() => "DownloadPlaybackInput (task redacted)";
+}
+
 public sealed record LocalPlaybackInput(
     [property: JsonIgnore] string FullPath,
     string DisplayName,
@@ -70,6 +76,12 @@ public sealed record PlaybackDiagnostics(
 /// <summary>An engine-observed seekable buffer interval; never inferred from downloaded byte ratios.</summary>
 public readonly record struct BufferedTimeRange(TimeSpan Start, TimeSpan End);
 
+/// <summary>Actual download task evidence, separate from engine buffering and indexed playable time.</summary>
+public sealed record PlaybackDownloadState(DownloadItem Item, long? ReadablePrefixBytes)
+{
+    public override string ToString() => "PlaybackDownloadState (task details redacted)";
+}
+
 public sealed record PlaybackSnapshot(
     Guid SessionId,
     long Generation,
@@ -93,7 +105,8 @@ public sealed record PlaybackSnapshot(
     IReadOnlyList<BufferedTimeRange>? BufferedRanges = null,
     double? DownloadBytesPerSecond = null,
     // Engine-confirmed pause is independent of transient buffering/seeking; null means not observed yet.
-    bool? IsPaused = null)
+    bool? IsPaused = null,
+    PlaybackDownloadState? Download = null)
 {
     public override string ToString() => "PlaybackSnapshot (private media details redacted)";
 }

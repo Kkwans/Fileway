@@ -171,6 +171,21 @@
                                    Foreground="{ThemeResource PlayerSecondary}" Margin="0,0,0,6" AutomationProperties.LiveSetting="Polite"/>
                         <InfoBar x:Name="Notice" HorizontalAlignment="Center" MaxWidth="480"
                                  IsOpen="False" IsClosable="True" Severity="Error" Closed="Notice_Closed" />
+                        <!-- Actual file-byte evidence, separate from the seek/cache timeline.
+                             This quiet row follows the existing BottomBar safe-area measurement. -->
+                        <Grid x:Name="DownloadStatusRow" Visibility="Collapsed" ColumnSpacing="10" Margin="0,2,0,4"
+                              AutomationProperties.LiveSetting="Off">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="DownloadStatusText" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource PlayerSecondary}"/>
+                            <TextBlock x:Name="DownloadBytesText" Grid.Column="1" FontSize="12" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" Typography.NumeralAlignment="Tabular"
+                                       Foreground="{ThemeResource PlayerSecondary}"/>
+                            <ProgressBar x:Name="DownloadByteProgress" Grid.Column="2" Width="64" Height="2" VerticalAlignment="Center"
+                                         Minimum="0" Maximum="100" Foreground="{ThemeResource PlayerSecondary}"
+                                         Background="{ThemeResource SliderTrackFill}" AutomationProperties.Name="下载接收字节进度"
+                                         AutomationProperties.LiveSetting="Off"/>
+                        </Grid>
                     </StackPanel>
                     <TextBlock x:Name="PreviewText" Grid.Row="1" Text="00:00" Visibility="Collapsed" Margin="12,0,0,0"
                                Foreground="{ThemeResource PlayerForeground}" Typography.NumeralAlignment="Tabular" FontSize="12" />
