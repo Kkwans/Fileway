@@ -190,7 +190,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
             { Phase = TransferPhase.Running, Files = destination.Files, ConfirmedOffset = 0 }, release: false).ConfigureAwait(false);
             await CheckIntentAsync(state).ConfigureAwait(false);
             lease = await AcquireOwnedAsync(token => _sources.AcquireDownloadAsync(new(state.Source, snapshot.Length), token),
-                state.Execution.Stop.Token).ConfigureAwait(false);
+                state, state.Execution.Stop.Token).ConfigureAwait(false);
             RequireRemote(state, lease.Resource);
             if (lease.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
             if (lease.Length != snapshot.Length) throw Safe(ErrorCode.SourceChanged);
@@ -229,7 +229,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
             UnauthorizedAccessException or HttpRequestException or InvalidOperationException)
         {
             var result = await FinishFailureAsync(state, destination, Normalize(error)).ConfigureAwait(false);
-            if (state.RejectedDestinationReleaseFailure is { } releaseFailure) throw releaseFailure;
+            if (state.RejectedAcquisitionReleaseFailure is { } releaseFailure) throw releaseFailure;
             return result;
         }
         finally
@@ -496,6 +496,6 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
         internal bool PublishAttempted;
         internal bool PersistenceFailed;
         internal bool RejectedDestinationWasCanceled;
-        internal FilewayException? RejectedDestinationReleaseFailure;
+        internal FilewayException? RejectedAcquisitionReleaseFailure;
     }
 }

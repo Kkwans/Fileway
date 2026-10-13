@@ -1217,6 +1217,246 @@ public sealed class FileDownloadRunnerTests
         fixture.AssertDrained();
     }
 
+    [Theory]
+    [InlineData("stop")]
+    [InlineData("cancel")]
+    [InlineData("dispose")]
+    [InlineData("caller")]
+    public async Task LateAcquiredLeaseReleaseFailureRemainsObservableAfterDurableCancellationAndPartialCleanup(string action)
+    {
+        var fixture = await Fixture.CreateAsync();
+        fixture.Sources.MutateLease = lease => lease.DisposeFailure = new FilewayException(new(ErrorCode.HostExited,
+            "private rejected lease release detail: " + fixture.Plan.LocalPath + " " + lease.Address));
+        if (action == "dispose") fixture.Http.BeforeDispose = fixture.AssertDrained;
+
+        var pending = await ReleaseLateLeaseAfterCancellationAsync(fixture, action);
+        FilewayException? controlError = null;
+        if (action == "caller")
+            await pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        else
+        {
+            controlError = await Assert.ThrowsAsync<FilewayException>(() => pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token));
+            AssertRejectedLeaseReleaseSafe(controlError, fixture, ErrorCode.HostExited);
+            fixture.AssertDrained();
+        }
+        var runError = await Assert.ThrowsAsync<FilewayException>(() => pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertRejectedLeaseReleaseSafe(runError, fixture, ErrorCode.HostExited);
+        await AssertRejectedLeaseCanceledAsync(fixture, pending.Claimed);
+        if (action == "dispose")
+        {
+            var repeated = fixture.Runner.DisposeAsync().AsTask();
+            Assert.Same(pending.Control, repeated);
+            Assert.Same(controlError, await Assert.ThrowsAsync<FilewayException>(() => repeated.WaitAsync(TimeSpan.FromSeconds(5), Token)));
+            Assert.Equal(1, fixture.Http.DisposeCalls);
+        }
+        else await fixture.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5), Token);
+    }
+
+    [Fact]
+    public async Task LateAcquiredLeaseInterruptedReleaseReportsUnknownWithoutRetryingCancellationOrStartingGet()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Sources.MutateLease = lease => lease.DisposeFailure = new OperationCanceledException(
+            "private rejected lease release detail: " + fixture.Plan.LocalPath + " " + lease.Address, Token);
+
+        var pending = await ReleaseLateLeaseAfterCancellationAsync(fixture, "stop");
+        var drainError = await Assert.ThrowsAsync<FilewayException>(() => pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertRejectedLeaseReleaseSafe(drainError, fixture, ErrorCode.Unknown);
+        fixture.AssertDrained();
+        var runError = await Assert.ThrowsAsync<FilewayException>(() => pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertRejectedLeaseReleaseSafe(runError, fixture, ErrorCode.Unknown);
+        await AssertRejectedLeaseCanceledAsync(fixture, pending.Claimed);
+        var durable = await fixture.ReadAsync();
+        Assert.Equal(durable, await fixture.Runner.RunAsync(fixture.Task, Token));
+        AssertRejectedLeaseDrained(fixture, deleted: true);
+    }
+
+    [Fact]
+    public async Task LateAcquiredLeaseReleaseAndPartialDeleteFailuresPreserveExactProtectedLocalUnknown()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Sources.MutateLease = lease => lease.DisposeFailure = new FilewayException(new(ErrorCode.HostExited,
+            "private rejected lease release detail: " + fixture.Plan.LocalPath + " " + lease.Address));
+        fixture.Destinations.File.DeleteFailure = new IOException("private rejected lease delete detail: " + fixture.Plan.LocalPath);
+
+        var pending = await ReleaseLateLeaseAfterCancellationAsync(fixture, "stop");
+        var drainError = await Assert.ThrowsAsync<FilewayException>(() => pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertRejectedLeaseReleaseSafe(drainError, fixture, ErrorCode.HostExited);
+        fixture.AssertDrained();
+        var runError = await Assert.ThrowsAsync<FilewayException>(() => pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertRejectedLeaseReleaseSafe(runError, fixture, ErrorCode.HostExited);
+        var durable = await fixture.ReadAsync();
+        Assert.Equal(TransferIntent.Cancel, durable.Intent);
+        Assert.Equal(TransferPhase.OutcomeUnknown, durable.Checkpoint.Phase);
+        Assert.Equal(TransferUncertainty.LocalPublish, durable.Checkpoint.Uncertainty);
+        Assert.Null(durable.Run);
+        Assert.Equal(pending.Claimed.Generation, durable.Generation);
+        Assert.Equal(pending.Claimed.Checkpoint.Source, durable.Checkpoint.Source);
+        Assert.Equal(pending.Claimed.Checkpoint.Files, durable.Checkpoint.Files);
+        Assert.Equal(fixture.Destinations.File.Files, durable.Checkpoint.Files);
+        Assert.Equal(0, durable.Checkpoint.ConfirmedOffset);
+        Assert.Null(durable.Checkpoint.Files!.PublishedFileIdentity);
+        Assert.Equal(ErrorCode.LocalStorageUnavailable, durable.Checkpoint.Error!.Code);
+        AssertSafe(durable.Checkpoint.Error, fixture);
+        Assert.DoesNotContain("private rejected lease delete detail", durable.Checkpoint.Error.Message, StringComparison.Ordinal);
+        Assert.True(await fixture.Store.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        AssertRejectedLeaseDrained(fixture, deleted: false);
+    }
+
+    [Fact]
+    public async Task LateAcquiredLeaseReleaseAndCanceledCheckpointSaveFailuresRetainExactProtectedActiveRunAndStoragePriority()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Sources.MutateLease = lease => lease.DisposeFailure = new FilewayException(new(ErrorCode.HostExited,
+            "private rejected lease release detail: " + fixture.Plan.LocalPath + " " + lease.Address));
+        int terminalSaveAttempts = 0;
+        fixture.Store.BeforeSave = (_, _, checkpoint, release, _) =>
+        {
+            if (checkpoint.Phase != TransferPhase.Canceled || !release) return Task.CompletedTask;
+            Interlocked.Increment(ref terminalSaveAttempts);
+            Assert.Equal(fixture.Destinations.File.Files, checkpoint.Files);
+            Assert.Equal(TransferUncertainty.None, checkpoint.Uncertainty);
+            Assert.Null(checkpoint.Error);
+            return Task.FromException(new FilewayException(new(ErrorCode.LocalStorageUnavailable,
+                "private rejected lease terminal storage detail: " + fixture.Plan.LocalPath)));
+        };
+
+        var pending = await ReleaseLateLeaseAfterCancellationAsync(fixture, "stop");
+        var drainError = await Assert.ThrowsAsync<FilewayException>(() => pending.Control.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertRejectedLeaseReleaseSafe(drainError, fixture, ErrorCode.LocalStorageUnavailable);
+        fixture.AssertDrained();
+        var runError = await Assert.ThrowsAsync<FilewayException>(() => pending.Running.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertRejectedLeaseReleaseSafe(runError, fixture, ErrorCode.LocalStorageUnavailable);
+        Assert.DoesNotContain("private rejected lease terminal storage detail", runError.ToString(), StringComparison.Ordinal);
+        var durable = await fixture.ReadAsync();
+        Assert.Equal(pending.CanceledBeforeRelease, durable);
+        Assert.Equal(TransferIntent.Cancel, durable.Intent);
+        Assert.Equal(TransferPhase.Running, durable.Checkpoint.Phase);
+        Assert.Equal(TransferUncertainty.None, durable.Checkpoint.Uncertainty);
+        Assert.Equal(pending.Claimed.Run, durable.Run);
+        Assert.NotNull(durable.Run);
+        Assert.Equal(pending.Claimed.Generation, durable.Generation);
+        Assert.Equal(pending.Claimed.Checkpoint.Source, durable.Checkpoint.Source);
+        Assert.Equal(pending.Claimed.Checkpoint.Files, durable.Checkpoint.Files);
+        Assert.Equal(fixture.Destinations.File.Files, durable.Checkpoint.Files);
+        Assert.True(await fixture.Store.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        Assert.Equal(1, terminalSaveAttempts);
+        var replay = await Assert.ThrowsAsync<FilewayException>(() => fixture.Runner.RunAsync(fixture.Task, Token));
+        Assert.Equal(ErrorCode.InvalidRequest, replay.Error.Code);
+        Assert.Equal(durable, await fixture.ReadAsync());
+        AssertRejectedLeaseDrained(fixture, deleted: true);
+    }
+
+    private static async Task<(Task<TransferTaskRecord> Running, Task Control, TransferTaskRecord Claimed,
+        TransferTaskRecord CanceledBeforeRelease)> ReleaseLateLeaseAfterCancellationAsync(Fixture fixture, string action)
+    {
+        using var release = new ManualResetEventSlim();
+        using var caller = action == "caller" ? CancellationTokenSource.CreateLinkedTokenSource(Token) : null;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exited = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelPersisted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Sources.BeforeAcquire = cancellationToken =>
+        {
+            using var registration = cancellationToken.Register(() => stopObserved.TrySetResult());
+            entered.TrySetResult();
+            try
+            {
+                // Ignore cancellation until the test confirms that this actual provider token stopped.
+                if (!release.Wait(TimeSpan.FromSeconds(10), CancellationToken.None))
+                    throw new TimeoutException("bounded rejected lease wait expired");
+                Assert.True(cancellationToken.IsCancellationRequested);
+            }
+            finally { exited.TrySetResult(); }
+        };
+        fixture.Store.AfterIntent = record =>
+        {
+            if (record.Intent == TransferIntent.Cancel) cancelPersisted.TrySetResult();
+        };
+        var running = fixture.Runner.RunAsync(fixture.Task, caller?.Token ?? Token);
+        Task? control = null;
+        TransferTaskRecord? claimed = null;
+        TransferTaskRecord? canceled = null;
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3), Token);
+            claimed = await fixture.ReadAsync();
+            Assert.NotNull(claimed.Run);
+            Assert.Equal(TransferPhase.Running, claimed.Checkpoint.Phase);
+            Assert.Equal(fixture.Destinations.File.Files, claimed.Checkpoint.Files);
+            Assert.Single(fixture.Sources.Acquired);
+            Assert.Empty(fixture.Sources.Issued);
+            control = action switch
+            {
+                "stop" => fixture.Runner.StopAndDrainAsync(Token),
+                "cancel" => fixture.Runner.CancelAsync(fixture.Task, Token),
+                "dispose" => fixture.Runner.DisposeAsync().AsTask(),
+                "caller" => caller!.CancelAsync(),
+                _ => throw new InvalidOperationException(),
+            };
+            if (action == "dispose") Assert.Same(control, fixture.Runner.DisposeAsync().AsTask());
+            if (action != "caller") await cancelPersisted.Task.WaitAsync(TimeSpan.FromSeconds(3), Token);
+            await stopObserved.Task.WaitAsync(TimeSpan.FromSeconds(3), Token);
+            canceled = await fixture.ReadAsync();
+            Assert.Equal(action == "caller" ? TransferIntent.Run : TransferIntent.Cancel, canceled.Intent);
+            Assert.Equal(claimed.Run, canceled.Run);
+            Assert.Equal(claimed.Checkpoint, canceled.Checkpoint);
+            if (action != "caller") Assert.False(control.IsCompleted);
+            Assert.False(running.IsCompleted);
+            Assert.Empty(fixture.Sources.Issued);
+            Assert.Empty(fixture.Http.Requests);
+        }
+        finally
+        {
+            release.Set();
+            if (entered.Task.IsCompleted) await exited.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        }
+        return (running, control!, claimed!, canceled!);
+    }
+
+    private static async Task AssertRejectedLeaseCanceledAsync(Fixture fixture, TransferTaskRecord claimed)
+    {
+        var durable = await fixture.ReadAsync();
+        Assert.Equal(TransferIntent.Cancel, durable.Intent);
+        Assert.Equal(TransferPhase.Canceled, durable.Checkpoint.Phase);
+        Assert.Equal(TransferUncertainty.None, durable.Checkpoint.Uncertainty);
+        Assert.Null(durable.Checkpoint.Error);
+        Assert.Null(durable.Run);
+        Assert.Equal(claimed.Generation, durable.Generation);
+        Assert.Equal(claimed.Checkpoint.Source, durable.Checkpoint.Source);
+        Assert.Equal(claimed.Checkpoint.Files, durable.Checkpoint.Files);
+        Assert.Null(durable.Checkpoint.Files!.PublishedFileIdentity);
+        Assert.Equal(0, durable.Checkpoint.ConfirmedOffset);
+        Assert.False(await fixture.Store.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        AssertRejectedLeaseDrained(fixture, deleted: true);
+    }
+
+    private static void AssertRejectedLeaseDrained(Fixture fixture, bool deleted)
+    {
+        var lease = Assert.Single(fixture.Sources.Issued);
+        Assert.True(lease.Disposed);
+        Assert.Equal(1, lease.DisposeCalls);
+        Assert.Single(fixture.Sources.Acquired);
+        Assert.Equal(1, fixture.Sources.PrepareCalls);
+        Assert.Empty(fixture.Sources.Checksums);
+        Assert.Empty(fixture.Http.Requests);
+        Assert.Equal(1, fixture.Destinations.CreateCalls);
+        Assert.Equal(0, fixture.Destinations.OpenCalls);
+        Assert.Equal(1, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(deleted ? 1 : 0, fixture.Destinations.File.DeleteCalls);
+        Assert.Equal(1, fixture.Destinations.File.DisposeCalls);
+        Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        Assert.Empty(fixture.Destinations.File.Bytes);
+        fixture.AssertDrained();
+    }
+
+    private static void AssertRejectedLeaseReleaseSafe(FilewayException error, Fixture fixture, ErrorCode expected)
+    {
+        AssertDisposeSafe(error, fixture, expected);
+        Assert.DoesNotContain("private rejected lease release detail", error.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private-download-capability", error.ToString(), StringComparison.Ordinal);
+    }
+
     private static async Task<(Task<TransferTaskRecord> Running, Task Control, TransferTaskRecord Claimed,
         TransferTaskRecord CanceledBeforeRelease)> ReleaseLateCreateAfterCancelAsync(Fixture fixture, bool stop,
         bool callerCancellation = false)
@@ -1415,6 +1655,7 @@ public sealed class FileDownloadRunnerTests
         internal Func<FileChecksumResult, FileChecksumResult>? MutateChecksum { get; set; }
         internal Func<CancellationToken, Task>? BeforeChecksum { get; set; }
         internal Action<CancellationToken>? BeforePrepare { get; set; }
+        internal Action<CancellationToken>? BeforeAcquire { get; set; }
         public Task<RemoteFile> PrepareDownloadAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -1430,6 +1671,7 @@ public sealed class FileDownloadRunnerTests
             Assert.Equal(fixture.Plan.Remote, request.Source);
             Assert.Equal(bytes.LongLength, request.Length);
             Assert.Null(request.Source.SourceVersion);
+            BeforeAcquire?.Invoke(cancellationToken);
             var lease = new FakeLease(request);
             MutateLease?.Invoke(lease);
             Issued.Enqueue(lease);
@@ -1448,6 +1690,8 @@ public sealed class FileDownloadRunnerTests
     {
         internal bool Disposed { get; private set; }
         internal bool FailDispose { get; set; }
+        internal Exception? DisposeFailure { get; set; }
+        internal int DisposeCalls;
         public RemoteResourceRef Resource { get; set; } = request.Source;
         public Uri Address { get; set; } = new("http://127.0.0.1:32450/stream/private-download-capability");
         public long Length { get; set; } = request.Length;
@@ -1455,7 +1699,9 @@ public sealed class FileDownloadRunnerTests
         public bool SupportsResume { get; set; }
         public ValueTask DisposeAsync()
         {
+            Interlocked.Increment(ref DisposeCalls);
             Disposed = true;
+            if (DisposeFailure is { } failure) return ValueTask.FromException(failure);
             return FailDispose ? ValueTask.FromException(new FilewayException(new(ErrorCode.HostExited, "fixture revoke failure"))) : ValueTask.CompletedTask;
         }
     }

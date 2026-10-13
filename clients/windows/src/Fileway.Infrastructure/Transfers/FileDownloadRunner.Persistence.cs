@@ -177,7 +177,7 @@ public sealed partial class FileDownloadRunner
                 try { await captured.DisposeAsync().ConfigureAwait(false); }
                 catch (Exception error)
                 {
-                    state.RejectedDestinationReleaseFailure = NormalizeReleaseFailure(error);
+                    state.RejectedAcquisitionReleaseFailure = NormalizeReleaseFailure(error);
                 }
             }
         }
@@ -192,7 +192,11 @@ public sealed partial class FileDownloadRunner
             ConfirmedOffset = 0, Uncertainty = TransferUncertainty.LocalPublish }, release: false).ConfigureAwait(false);
     }
 
-    private async Task<T> AcquireOwnedAsync<T>(Func<CancellationToken, Task<T>> acquire,
+    private Task<T> AcquireOwnedAsync<T>(Func<CancellationToken, Task<T>> acquire,
+        CancellationToken cancellationToken) where T : class, IAsyncDisposable =>
+        AcquireOwnedAsync(acquire, rejectedReleaseState: null, cancellationToken);
+
+    private async Task<T> AcquireOwnedAsync<T>(Func<CancellationToken, Task<T>> acquire, RunState? rejectedReleaseState,
         CancellationToken cancellationToken) where T : class, IAsyncDisposable
     {
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -213,7 +217,13 @@ public sealed partial class FileDownloadRunner
         {
             if (!returned && captured is not null)
             {
-                await captured.DisposeAsync().ConfigureAwait(false);
+                try { await captured.DisposeAsync().ConfigureAwait(false); }
+                catch (Exception error) when (rejectedReleaseState is not null)
+                {
+                    // A late lease cannot mask cancellation or bypass local cleanup. Surface
+                    // its release failure only after the owned file's durable truth is settled.
+                    rejectedReleaseState.RejectedAcquisitionReleaseFailure = NormalizeReleaseFailure(error);
+                }
             }
         }
     }
