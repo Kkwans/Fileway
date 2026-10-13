@@ -47,6 +47,16 @@ internal static class DownloadPresentationPolicy
         && EffectiveStatus(item) is not (DownloadStatus.Canceling or DownloadStatus.OutcomeUnknown or DownloadStatus.Reconciling);
     internal static bool CanReconcile(DownloadItem item) => item.Snapshot.CanReconcileLocally
         && !IsActive(EffectiveStatus(item)) && !IsTerminal(EffectiveStatus(item));
+    /// <summary>Presentation hint only; the application rechecks all read authority before opening.</summary>
+    internal static bool CanPlay(DownloadItem item) =>
+        item.Context.Account == item.Snapshot.Task.Account && item.Source.Account == item.Context.Account &&
+        item.Context.SessionId != Guid.Empty && item.Context.ActivationId != Guid.Empty && item.Snapshot.Generation > 0 &&
+        item.Snapshot.Intent == TransferIntent.Run && item.Snapshot.Uncertainty == TransferUncertainty.None &&
+        item.Snapshot.Error is null && item.Snapshot.TotalBytes is > 0 &&
+        ((item.Status, item.Snapshot.Phase) is (DownloadStatus.Downloading, TransferPhase.Running) or
+            (DownloadStatus.Verifying, TransferPhase.Verifying)) &&
+        (Path.GetExtension(item.Source.DisplayName).ToLowerInvariant() is ".mp4" or ".mkv" or ".mov" or ".webm" or
+            ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv");
     internal static string PrimaryLabel(DownloadItem item) => !CanReconcile(item) ? ""
         : item.Snapshot.Intent == TransferIntent.Cancel ? "核实取消结果" : "核实本地结果";
 

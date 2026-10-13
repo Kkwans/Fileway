@@ -404,8 +404,14 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         AutomationProperties.SetHelpText(DownloadRateText, "MB/s 使用每秒一百万字节；不包含磁盘缓存命中或交付速度。");
     }
 
+    private PlaybackDownloadState? _displayedDownload;
+
     private void UpdateDownloadStatus()
     {
+        // Position/volume frames often carry unchanged download evidence. Avoid
+        // rebuilding text, accessibility help and tooltip objects on every frame.
+        if (Equals(_displayedDownload, _snapshot.Download)) return;
+        _displayedDownload = _snapshot.Download;
         var view = PlaybackDownloadPresentation.Create(_snapshot.Download);
         DownloadStatusRow.Visibility = view is null ? Visibility.Collapsed : Visibility.Visible;
         DownloadStatusText.Text = view?.StatusText ?? "";
