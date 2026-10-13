@@ -10,7 +10,7 @@ using Fileway.Infrastructure.Transfers;
 
 namespace Fileway.Infrastructure.Tests.Transfers;
 
-public sealed class FileDownloadRunnerTests
+public sealed partial class FileDownloadRunnerTests
 {
     private static readonly byte[] Data = [3, 1, 4, 1, 5, 9, 2, 6, 5];
     private static readonly DateTimeOffset Modified = new(2026, 10, 12, 0, 0, 0, TimeSpan.Zero);
@@ -1758,6 +1758,9 @@ public sealed class FileDownloadRunnerTests
     private sealed class FakeDestinations(string finalPath) : IDownloadDestinationProvider
     {
         internal FakeDestination File { get; private set; } = new(finalPath);
+        internal IDownloadDestination? FreshOverride { get; set; }
+        internal Func<FakeDestination, IDownloadDestination>? FreshFactory { get; set; }
+        internal string? AlternateFinalPath { get; set; }
         internal int CreateCalls;
         internal int OpenCalls;
         internal Exception? OpenFailure { get; set; }
@@ -1767,11 +1770,11 @@ public sealed class FileDownloadRunnerTests
         public Task<IDownloadDestination> CreateFreshAsync(string path, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Assert.Equal(finalPath, path);
+            Assert.Equal(AlternateFinalPath ?? finalPath, path);
             BeforeCreate?.Invoke(cancellationToken);
             if (CreateFailure is { } failure) throw failure;
-            if (Interlocked.Increment(ref CreateCalls) > 1) File = new(finalPath);
-            return Task.FromResult<IDownloadDestination>(File);
+            if (Interlocked.Increment(ref CreateCalls) > 1) File = new(path);
+            return Task.FromResult(FreshFactory?.Invoke(File) ?? FreshOverride ?? File);
         }
         public Task<IDownloadDestination> OpenOwnedAsync(string path, TransferWorkFiles files, CancellationToken cancellationToken)
         {

@@ -73,7 +73,7 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 directories.Revalidate(AccessContext.Fresh);
                 cancellationToken.ThrowIfCancellationRequested();
                 IDownloadDestination destination = new DownloadDestination(final, partial, identity, handle, directories,
-                    new TransferWorkFiles(partial, identity), length: 0, published: false);
+                    new TransferWorkFiles(partial, identity), length: 0, published: false, readerAdmission: true);
                 handle = null;
                 directories = null;
                 return Task.FromResult(destination);
@@ -142,7 +142,7 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
             directories.Revalidate(AccessContext.Owned);
             cancellationToken.ThrowIfCancellationRequested();
             IDownloadDestination destination = new DownloadDestination(final, partial, identity, handle, directories,
-                files, information.Length, published);
+                files, information.Length, published, readerAdmission: false);
             handle = null;
             directories = null;
             return Task.FromResult(destination);
@@ -511,15 +511,66 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
     }
 
     private sealed class DownloadDestination(string final, string partial, string identity, SafeFileHandle handle,
-        DirectoryGuard directories, TransferWorkFiles files, long length, bool published) : IDownloadDestination
+        DirectoryGuard directories, TransferWorkFiles files, long length, bool published, bool readerAdmission)
+        : IDownloadDestination, IReadableDownloadDestination
     {
+        private const int MaximumReaders = 4, MaximumReadBytes = 128 * 1024;
+        private static readonly TimeSpan ReaderPrefixTimeout = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan ReaderIoTimeout = TimeSpan.FromSeconds(30);
+        private static readonly TimeSpan ReaderDrainTimeout = TimeSpan.FromSeconds(30);
         private readonly SemaphoreSlim _serial = new(1, 1);
+        private readonly object _readerGate = new();
+        private readonly List<DownloadReadLease> _readers = [];
+        private TaskCompletionSource _prefixChanged = NewSignal();
+        private Task? _revocation, _disposal;
+        private TransferRunToken? _readerRun;
+        private long _readerTotal, _readablePrefix = length;
         private TransferWorkFiles _files = files;
         private long _length = length;
-        private bool _published = published, _disposed, _deleted, _writeFaulted, _publishUncertain, _deleteUncertain;
+        private bool _published = published, _publicationVerified = published, _disposed, _deleted, _writeFaulted,
+            _publishUncertain, _deleteUncertain;
+        private bool _readersRevoked, _readersDrained, _readerFaulted, _handleClosed, _admissionClosed;
         public TransferWorkFiles Files => Volatile.Read(ref _files);
         public bool IsPublished => Volatile.Read(ref _published);
         public long Length => Interlocked.Read(ref _length);
+
+        public async Task<IDownloadReadLease> AcquireReadLeaseAsync(TransferRunToken run, long totalBytes,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            TransferTaskValidation.Reference(run.Task);
+            if (run.Id == Guid.Empty || run.Generation <= 0 || totalBytes < 0) throw ReaderInvalid();
+            await _serial.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                RequireActive();
+                RequireCompleteWrites();
+                if (!readerAdmission || _published) throw Unknown();
+                try { Verify(compareLength: true); }
+                catch { FaultReaders(); throw; }
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (_readerGate)
+                {
+                    if (_readersRevoked || _readerFaulted || _handleClosed || _admissionClosed) throw Unknown();
+                    if (_readerRun is { } binding && (binding != run || _readerTotal != totalBytes) || _length > totalBytes)
+                        throw ReaderInvalid();
+                    if (_readers.Count >= MaximumReaders) throw Safe(ErrorCode.Busy, "本地下载读取器数量已达上限。");
+                    _readerRun = run;
+                    _readerTotal = totalBytes;
+                    var lease = new DownloadReadLease(this, run, totalBytes);
+                    _readers.Add(lease);
+                    return lease;
+                }
+            }
+            catch (Exception error) when (IsFileFailure(error)) { throw Unknown(); }
+            finally { _serial.Release(); }
+        }
+
+        public async Task RevokeReadersAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await AwaitTerminationAsync(StartRevocation(), cancellationToken).ConfigureAwait(false);
+        }
 
         public async Task WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken)
         {
@@ -531,14 +582,25 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 RequireCompleteWrites();
                 Verify(compareLength: true);
                 long next = checked(_length + bytes.Length);
+                lock (_readerGate)
+                    if (_readerRun is not null && next > _readerTotal) throw ReaderInvalid();
                 cancellationToken.ThrowIfCancellationRequested();
                 try { await RandomAccess.WriteAsync(handle, bytes, _length, cancellationToken).ConfigureAwait(false); }
-                catch { _writeFaulted = true; throw; }
+                catch { _writeFaulted = true; FaultReaders(); throw; }
                 Interlocked.Exchange(ref _length, next);
                 try { Verify(compareLength: true); }
-                catch { _writeFaulted = true; throw; }
+                catch { _writeFaulted = true; FaultReaders(); throw; }
+                // Reading is permitted only after the whole write and its ownership/length check succeed.
+                // It is intentionally independent of fsync/checkpoint acknowledgement.
+                AdvanceReadablePrefix(next);
             }
-            catch (Exception error) when (IsFileFailure(error)) { throw ManagedFailure(error, AccessContext.Operation); }
+            catch (FilewayException error)
+            {
+                if (error.Error.Code == ErrorCode.OutcomeUnknown && !_disposed) FaultReaders();
+                throw;
+            }
+            catch (Exception error) when (IsFileFailure(error))
+            { FaultReaders(); throw ManagedFailure(error, AccessContext.Operation); }
             finally { _serial.Release(); }
         }
 
@@ -556,7 +618,13 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 cancellationToken.ThrowIfCancellationRequested();
                 return _length;
             }
-            catch (Exception error) when (IsFileFailure(error)) { throw ManagedFailure(error, AccessContext.Operation); }
+            catch (FilewayException error)
+            {
+                if (error.Error.Code == ErrorCode.OutcomeUnknown && !_disposed) FaultReaders();
+                throw;
+            }
+            catch (Exception error) when (IsFileFailure(error))
+            { FaultReaders(); throw ManagedFailure(error, AccessContext.Operation); }
             finally { _serial.Release(); }
         }
 
@@ -585,7 +653,13 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 cancellationToken.ThrowIfCancellationRequested();
                 return new DownloadLocalFileHash(offset, Convert.ToHexStringLower(hash.GetHashAndReset()));
             }
-            catch (Exception error) when (IsFileFailure(error)) { throw ManagedFailure(error, AccessContext.Operation); }
+            catch (FilewayException error)
+            {
+                if (error.Error.Code == ErrorCode.OutcomeUnknown && !_disposed) FaultReaders();
+                throw;
+            }
+            catch (Exception error) when (IsFileFailure(error))
+            { FaultReaders(); throw ManagedFailure(error, AccessContext.Operation); }
             finally
             {
                 if (buffer is not null) ArrayPool<byte>.Shared.Return(buffer, clearArray: true);
@@ -602,6 +676,8 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 RequireCompleteWrites();
                 Verify(compareLength: true);
                 if (_published) return identity;
+                lock (_readerGate)
+                    if (_readerRun is not null && _length != _readerTotal) throw ReaderInvalid();
                 cancellationToken.ThrowIfCancellationRequested();
                 _publishUncertain = true;
                 int status = RenameByHandle(handle, Path.GetFileName(final), out var completion);
@@ -611,8 +687,14 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                     Volatile.Write(ref _published, true);
                     Volatile.Write(ref _files, _files with { PublishedFileIdentity = identity });
                     _publishUncertain = false;
-                    if (!CompletionSucceeded(completion)) throw Unknown();
-                    Verify(compareLength: true);
+                    try
+                    {
+                        if (!CompletionSucceeded(completion)) throw Unknown();
+                        Verify(compareLength: true);
+                    }
+                    catch { _publishUncertain = true; FaultReaders(); throw; }
+                    lock (_readerGate) _publicationVerified = true;
+                    SignalReaders();
                     return identity;
                 }
                 if (status >= 0) throw Unknown();
@@ -621,12 +703,21 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 _publishUncertain = false;
                 throw NativeFailure(unchecked((int)UploadFileNative.RtlNtStatusToDosError(status)), AccessContext.Publish);
             }
-            catch (Exception error) when (IsFileFailure(error)) { throw ManagedFailure(error, AccessContext.Operation); }
+            catch (FilewayException error)
+            {
+                if (error.Error.Code == ErrorCode.OutcomeUnknown && !_disposed) FaultReaders();
+                throw;
+            }
+            catch (Exception error) when (IsFileFailure(error))
+            { FaultReaders(); throw ManagedFailure(error, AccessContext.Operation); }
             finally { _serial.Release(); }
         }
 
         public async Task DeleteOwnedPartialAsync(CancellationToken cancellationToken)
         {
+            // Revoke outside the I/O semaphore so prefix waits and queued native reads can leave.
+            // A failed/expired drain never grants deletion or close authority.
+            await RevokeReadersAsync(cancellationToken).ConfigureAwait(false);
             await _serial.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
@@ -639,30 +730,265 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 if (DeleteByHandle(handle) != 0) throw Unknown();
                 _deleted = true;
                 // Native disposition permits close only. Never inspect/flush/read/write this handle again.
-                handle.Dispose();
-                directories.Dispose();
+                CloseHandle();
             }
             catch (Exception error) when (IsFileFailure(error)) { throw ManagedFailure(error, AccessContext.Operation); }
             finally { _serial.Release(); }
         }
 
-        public async ValueTask DisposeAsync()
+        public ValueTask DisposeAsync()
+        {
+            Task task;
+            TaskCompletionSource? completion = null;
+            lock (_readerGate)
+            {
+                if (_disposal is null)
+                {
+                    completion = NewSignal();
+                    _disposal = completion.Task;
+                    _admissionClosed = true;
+                }
+                task = _disposal;
+            }
+            if (completion is not null) _ = DisposeWriterAsync(completion);
+            return new ValueTask(AwaitTerminationAsync(task, CancellationToken.None));
+        }
+
+        private async Task DisposeWriterAsync(TaskCompletionSource completion)
+        {
+            try
+            {
+                bool retainPublished;
+                lock (_readerGate)
+                {
+                    retainPublished = _publicationVerified && !_publishUncertain && !_handleClosed && _readers.Count > 0 && !_readersDrained;
+                    if (retainPublished) _disposed = true;
+                }
+                if (retainPublished)
+                {
+                    // Retained readers already own the lifetime. In particular, do not queue behind
+                    // a player's in-flight native I/O merely to release the completed writer.
+                    SignalReaders();
+                    completion.TrySetResult();
+                    return;
+                }
+                await _serial.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    lock (_readerGate)
+                    {
+                        _disposed = true;
+                        retainPublished = _publicationVerified && !_publishUncertain;
+                    }
+                    CloseIfReleased();
+                }
+                finally { _serial.Release(); }
+                SignalReaders();
+                // A published owner returns immediately, leaving the same object and directory pins with
+                // its readers. Unpublished/uncertain sources must actually drain before releasing them.
+                if (!retainPublished) await StartRevocation().ConfigureAwait(false);
+                completion.TrySetResult();
+            }
+            catch (Exception) { completion.TrySetException(Unknown()); }
+        }
+
+        private Task StartRevocation()
+        {
+            TaskCompletionSource completion, changed;
+            DownloadReadLease[] readers;
+            lock (_readerGate)
+            {
+                if (_revocation is not null) return _revocation;
+                completion = NewSignal();
+                _revocation = completion.Task;
+                _readersRevoked = true;
+                readers = [.. _readers];
+                changed = ReplaceSignal();
+            }
+            // Cancellation callbacks and continuations must never run under either owner lock.
+            changed.TrySetResult();
+            foreach (var reader in readers) reader.RequestStop();
+            _ = DrainReadersAsync(readers, completion);
+            return completion.Task;
+        }
+
+        private async Task DrainReadersAsync(DownloadReadLease[] readers, TaskCompletionSource completion)
+        {
+            try
+            {
+                await Task.WhenAll(readers.Select(reader => reader.Drained)).ConfigureAwait(false);
+                await _serial.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    lock (_readerGate) _readersDrained = true;
+                    CloseIfReleased();
+                }
+                finally { _serial.Release(); }
+                if (readers.Any(reader => reader.StopFailed)) completion.TrySetException(Unknown());
+                else completion.TrySetResult();
+            }
+            catch (Exception) { completion.TrySetException(Unknown()); }
+        }
+
+        private static async Task AwaitTerminationAsync(Task task, CancellationToken cancellationToken)
+        {
+            try { await task.WaitAsync(ReaderDrainTimeout, cancellationToken).ConfigureAwait(false); }
+            catch (TimeoutException) { throw Unknown(); }
+            // The actual drain task remains live on timeout/caller cancellation. No cleanup acknowledgement
+            // is fabricated: a subsequent attempt can succeed only after native I/O really completes.
+        }
+
+        private async Task ReleaseReaderAsync(DownloadReadLease reader)
         {
             await _serial.WaitAsync().ConfigureAwait(false);
             try
             {
-                if (_disposed) return;
-                _disposed = true;
-                // Lifetime release never invents deletion authority, even after a failed or uncertain rename.
-                handle.Dispose();
-                directories.Dispose();
+                lock (_readerGate) _readers.Remove(reader);
+                CloseIfReleased();
             }
             finally { _serial.Release(); }
         }
 
+        private void CloseIfReleased()
+        {
+            bool close;
+            lock (_readerGate) close = _disposed && (_readers.Count == 0 || _readersDrained);
+            if (close) CloseHandle();
+        }
+
+        private void CloseHandle()
+        {
+            if (_handleClosed) return;
+            lock (_readerGate) _handleClosed = true;
+            // Lifetime release never invents deletion authority, including an uncertain rename.
+            handle.Dispose();
+            directories.Dispose();
+        }
+
+        private async ValueTask<int> ReadAsync(DownloadReadLease reader, long offset, Memory<byte> buffer,
+            CancellationToken cancellationToken)
+        {
+            if (offset < 0 || offset > reader.TotalBytes || buffer.Length > MaximumReadBytes) throw ReaderInvalid();
+            long lastPrefix = -1, lastProgress = Environment.TickCount64;
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                Task changed;
+                long prefix;
+                lock (_readerGate)
+                {
+                    RequireReadable(reader);
+                    prefix = _readablePrefix;
+                    changed = _prefixChanged.Task;
+                }
+                if (offset == reader.TotalBytes || buffer.IsEmpty) return 0;
+                if (prefix > offset) break;
+                if (prefix > lastPrefix)
+                {
+                    lastPrefix = prefix;
+                    lastProgress = Environment.TickCount64;
+                }
+                TimeSpan remaining = ReaderPrefixTimeout - TimeSpan.FromMilliseconds(Environment.TickCount64 - lastProgress);
+                if (remaining <= TimeSpan.Zero) throw ReaderTimeout();
+                try { await changed.WaitAsync(remaining, cancellationToken).ConfigureAwait(false); }
+                catch (TimeoutException)
+                {
+                    lock (_readerGate)
+                    {
+                        RequireReadable(reader);
+                        if (_readablePrefix <= lastPrefix) throw ReaderTimeout();
+                    }
+                }
+                // A signal alone does not renew the budget. Any verified owner-prefix growth does,
+                // even when a tail/index seek still cannot be served.
+            }
+
+            await _serial.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                lock (_readerGate) RequireReadable(reader);
+                RequireCompleteWrites();
+                Verify(compareLength: true);
+                int count = checked((int)Math.Min(Math.Min(buffer.Length, MaximumReadBytes),
+                    Math.Min(reader.TotalBytes - offset, Interlocked.Read(ref _readablePrefix) - offset)));
+                if (count <= 0) throw Unknown();
+                using var budget = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                budget.CancelAfter(ReaderIoTimeout);
+                int received;
+                try { received = await RandomAccess.ReadAsync(handle, buffer[..count], offset, budget.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) { throw ReaderTimeout(); }
+                // This synchronous NT handle may not interrupt an in-flight native read. Always await
+                // actual completion before releasing the caller's buffer or claiming that a drain ended.
+                if (received <= 0 || received > count) throw Unknown();
+                Verify(compareLength: true);
+                lock (_readerGate) RequireReadable(reader);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (budget.IsCancellationRequested) throw ReaderTimeout();
+                return received;
+            }
+            catch (FilewayException error)
+            {
+                if (error.Error.Code == ErrorCode.OutcomeUnknown) FaultReaders();
+                throw;
+            }
+            catch (Exception error) when (IsFileFailure(error)) { FaultReaders(); throw Unknown(); }
+            finally { _serial.Release(); }
+        }
+
+        // Called under _readerGate; writer disposal is allowed only for the already-published object.
+        private void RequireReadable(DownloadReadLease reader)
+        {
+            if (_readersRevoked || _readerFaulted || _handleClosed || _deleted || _deleteUncertain ||
+                _writeFaulted || _disposed && !_published || _readerRun != reader.Run ||
+                _readerTotal != reader.TotalBytes) throw Unknown();
+        }
+
+        private void AdvanceReadablePrefix(long next)
+        {
+            TaskCompletionSource? changed = null;
+            lock (_readerGate)
+            {
+                if (next > _readablePrefix)
+                {
+                    Interlocked.Exchange(ref _readablePrefix, next);
+                    changed = ReplaceSignal();
+                }
+            }
+            changed?.TrySetResult();
+        }
+
+        private void FaultReaders()
+        {
+            TaskCompletionSource changed;
+            lock (_readerGate)
+            {
+                _readerFaulted = true;
+                changed = ReplaceSignal();
+            }
+            changed.TrySetResult();
+        }
+
+        private void SignalReaders()
+        {
+            TaskCompletionSource changed;
+            lock (_readerGate) changed = ReplaceSignal();
+            changed.TrySetResult();
+        }
+
+        private TaskCompletionSource ReplaceSignal()
+        {
+            var previous = _prefixChanged;
+            _prefixChanged = NewSignal();
+            return previous;
+        }
+
+        private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private static FilewayException ReaderInvalid() => Safe(ErrorCode.InvalidRequest, "本地下载读取请求无效。");
+        private static FilewayException ReaderTimeout() => Safe(ErrorCode.Timeout, "本地下载读取等待超时，请稍后重试。");
+
         private void RequireActive()
         {
-            if (_disposed || _deleted || _deleteUncertain || _publishUncertain) throw Unknown();
+            if (_disposed || _deleted || _deleteUncertain || _publishUncertain || _handleClosed) throw Unknown();
         }
         private void RequireCompleteWrites()
         {
@@ -678,7 +1004,124 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 throw Unknown();
         }
         public override string ToString() => "DownloadDestination (private file ownership redacted)";
+
+        private sealed class DownloadReadLease(DownloadDestination owner, TransferRunToken run, long totalBytes)
+            : IDownloadReadLease
+        {
+            private readonly object _gate = new();
+            private readonly SemaphoreSlim _queue = new(1, 1);
+            private readonly CancellationTokenSource _stop = new();
+            private readonly TaskCompletionSource _drained = NewSignal();
+            private Task? _disposal, _stopFlight;
+            private int _operations;
+            private bool _stopped, _stopIssued, _stopFailed;
+            public TransferRunToken Run => run;
+            public long TotalBytes => totalBytes;
+            public long ReadablePrefixBytes => Interlocked.Read(ref owner._readablePrefix);
+            internal Task Drained => _drained.Task;
+            internal bool StopFailed { get { lock (_gate) return _stopFailed; } }
+
+            public async ValueTask<int> ReadAsync(long offset, Memory<byte> buffer, CancellationToken cancellationToken)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (offset < 0 || offset > totalBytes || buffer.Length > MaximumReadBytes) throw ReaderInvalid();
+                lock (_gate)
+                {
+                    if (_stopped) throw Unknown();
+                    _operations++;
+                }
+                bool entered = false;
+                try
+                {
+                    using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stop.Token);
+                    // One lease can serve several bridge streams. A future seek at the head can delay
+                    // later calls on that lease; cancellation while queued still exits immediately.
+                    await _queue.WaitAsync(linked.Token).ConfigureAwait(false);
+                    entered = true;
+                    return await owner.ReadAsync(this, offset, buffer, linked.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                { throw new OperationCanceledException(cancellationToken); }
+                catch (OperationCanceledException) { throw Unknown(); }
+                finally
+                {
+                    if (entered) _queue.Release();
+                    bool drained;
+                    lock (_gate) drained = --_operations == 0 && _stopped && _stopIssued;
+                    if (drained) _drained.TrySetResult();
+                }
+            }
+
+            internal void RequestStop()
+            {
+                TaskCompletionSource completion;
+                lock (_gate)
+                {
+                    if (_stopFlight is not null) return;
+                    _stopped = true;
+                    completion = NewSignal();
+                    _stopFlight = completion.Task;
+                }
+                // CancelAsync returns control without running arbitrary registered callbacks under a
+                // player/owner lock. A callback failure cannot skip stopping the other owner readers.
+                _ = StopReaderAsync(completion);
+            }
+
+            private async Task StopReaderAsync(TaskCompletionSource completion)
+            {
+                try { await _stop.CancelAsync().ConfigureAwait(false); }
+                catch (Exception) { lock (_gate) _stopFailed = true; }
+                finally
+                {
+                    bool drained;
+                    lock (_gate)
+                    {
+                        _stopIssued = true;
+                        drained = _operations == 0;
+                    }
+                    completion.TrySetResult();
+                    if (drained) _drained.TrySetResult();
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Task task;
+                TaskCompletionSource? completion = null;
+                lock (_gate)
+                {
+                    if (_disposal is null)
+                    {
+                        completion = NewSignal();
+                        _disposal = completion.Task;
+                    }
+                    task = _disposal;
+                }
+                if (completion is not null)
+                {
+                    RequestStop();
+                    _ = DisposeReaderAsync(completion);
+                }
+                return new ValueTask(AwaitTerminationAsync(task, CancellationToken.None));
+            }
+
+            private async Task DisposeReaderAsync(TaskCompletionSource completion)
+            {
+                try
+                {
+                    await _drained.Task.ConfigureAwait(false);
+                    await owner.ReleaseReaderAsync(this).ConfigureAwait(false);
+                    _stop.Dispose();
+                    if (StopFailed) completion.TrySetException(Unknown());
+                    else completion.TrySetResult();
+                }
+                catch (Exception) { completion.TrySetException(Unknown()); }
+            }
+
+            public override string ToString() => "DownloadReadLease (private file ownership redacted)";
+        }
     }
+
 }
 
 internal static partial class DownloadFileNative

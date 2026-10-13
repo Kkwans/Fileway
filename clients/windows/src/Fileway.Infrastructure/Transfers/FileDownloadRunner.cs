@@ -16,7 +16,7 @@ public sealed record FileDownloadRunnerOptions
 }
 
 /// <summary>One explicit fresh file at a time. Construction, listing and reconciliation never initiate a GET.</summary>
-public sealed partial class FileDownloadRunner : IFileDownloadRunner
+public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownloadReadLeaseProvider
 {
     private readonly ITransferTaskStore _store;
     private readonly IDownloadSourceProvider _sources;
@@ -146,10 +146,17 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
         }
         finally
         {
+            try
+            {
+                await FinishReaderExecutionAsync(execution,
+                    failure is null && result?.Checkpoint.Phase == TransferPhase.Completed).ConfigureAwait(false);
+            }
+            catch (Exception error) { failure ??= Normalize(error); }
             lock (_gate) if (ReferenceEquals(_active, execution)) _active = null;
             execution.Stop.Dispose();
         }
-        // All owned native handles, requests and resource capabilities have drained before this acknowledgement.
+        // Writer work and resource capabilities have drained. Already-issued readers may retain the
+        // successfully published object, and remain registered for the account's next drain.
         if (failure is not null) execution.Completion.TrySetException(failure);
         else execution.Completion.TrySetResult(result!);
     }
@@ -188,6 +195,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
             state.DestinationAccepted = true;
             await SaveAsync(state, state.Record.Checkpoint with
             { Phase = TransferPhase.Running, Files = destination.Files, ConfirmedOffset = 0 }, release: false).ConfigureAwait(false);
+            AcceptReaderDestination(state, destination);
             await CheckIntentAsync(state).ConfigureAwait(false);
             lease = await AcquireOwnedAsync(token => _sources.AcquireDownloadAsync(new(state.Source, snapshot.Length), token),
                 state, state.Execution.Stop.Token).ConfigureAwait(false);
@@ -288,10 +296,13 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
         finally { if (destination is not null) await destination.DisposeAsync().ConfigureAwait(false); }
     }
 
-    private Task CompleteAsync(RunState state, IDownloadDestination destination, string identity) =>
-        SaveAsync(state, state.Record.Checkpoint with { Phase = TransferPhase.Completed,
+    private Task CompleteAsync(RunState state, IDownloadDestination destination, string identity)
+    {
+        CloseReaderAdmission(state.Execution);
+        return SaveAsync(state, state.Record.Checkpoint with { Phase = TransferPhase.Completed,
             Files = destination.Files with { PublishedFileIdentity = identity },
             Uncertainty = TransferUncertainty.None, Error = null }, release: true);
+    }
 
     private async Task<TransferTaskRecord> FinishFailureAsync(RunState state, IDownloadDestination? destination, FilewayException failure)
     {
@@ -302,6 +313,12 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
             var canceled = await SetCancelAsync(state.Run.Task, CancellationToken.None).ConfigureAwait(false);
             if (canceled.Run != state.Run) throw Safe(ErrorCode.Conflict);
             state.Record = canceled;
+        }
+        try { await StopExecutionReadersAsync(state.Execution).ConfigureAwait(false); }
+        catch (Exception error)
+        {
+            if (state.PersistenceFailed) throw Safe(ErrorCode.LocalStorageUnavailable);
+            return await UnknownAsync(state, Normalize(error).Error).ConfigureAwait(false);
         }
         if (failure.Error.Code == ErrorCode.OutcomeUnknown || destination is not null && !state.DestinationAccepted)
         {
@@ -359,6 +376,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
     {
         TaskCompletionSource completion;
         Execution? execution;
+        ReaderOwner[] recheckReaders;
         lock (_gate)
         {
             if (_drain is { IsCompleted: false }) return _drain;
@@ -367,12 +385,14 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
             completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _drain = completion.Task;
             execution = _active;
+            recheckReaders = _readerOwners.Values.Where(owner => owner.Finished && owner.Revoked &&
+                !owner.RevokeConfirmed).ToArray();
         }
-        _ = DrainCoreAsync(execution, completion);
+        _ = DrainCoreAsync(execution, recheckReaders, completion);
         return completion.Task;
     }
 
-    private async Task DrainCoreAsync(Execution? execution, TaskCompletionSource completion)
+    private async Task DrainCoreAsync(Execution? execution, ReaderOwner[] recheckReaders, TaskCompletionSource completion)
     {
         FilewayException? failure = null;
         try
@@ -390,6 +410,8 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
         catch (Exception error) { failure ??= Normalize(error); }
         finally
         {
+            try { await DrainRetainedReadersAsync(recheckReaders).ConfigureAwait(false); }
+            catch (Exception error) { failure ??= Normalize(error); }
             lock (_gate)
             {
                 // Reopen admission and settle this exact single flight atomically. Otherwise a new
@@ -479,6 +501,8 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
         internal ExecutionMode Mode { get; } = mode;
         internal CancellationTokenSource Stop { get; } = CancellationTokenSource.CreateLinkedTokenSource(caller);
         internal TaskCompletionSource<TransferTaskRecord> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource<ReaderOwner?> ReaderReady { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal ReaderOwner? ReaderOwner;
         internal long Started { get; } = Stopwatch.GetTimestamp();
         internal long LastProgress;
         internal long ReceivedBytes;
