@@ -182,7 +182,9 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn(".dump /muF /o shutdown.dmp; gn", powershell)
         self.assertNotIn("; gh", powershell)
         self.assertIn("$watch.ElapsedMilliseconds -lt 10000", powershell)
-        self.assertEqual(powershell.count("'lm o'"), 1)
+        self.assertEqual(powershell.count("; lm o;"), 1)
+        self.assertIn(".echo FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN; lm o; .echo FILEWAY_CFG_PRE_CLOSE_MODULES_END", powershell)
+        self.assertNotIn("'lm o'", powershell)
         self.assertIn('"FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN"', native)
 
         self.assertIn("$analysis.WaitForExit(120000)", powershell)
@@ -211,7 +213,8 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("return SingleRegionEvidence.Parse(region,candidate)", native)
         self.assertIn("if ($region.State -eq 65536)", powershell)
         self.assertIn("ReadPreCloseMapping($StackLog, $log, $snapshot)", powershell)
-        self.assertIn("pre_close_session_mismatch", native)
+        self.assertIn("throw PreCloseFailure(1)", native)
+        self.assertIn("status = 2; reason = [int]$snapshotReason", powershell)
         self.assertIn("debugger_app_identity_changed", powershell)
         self.assertIn("ReadCandidateRegion(stackPath,regionPath).State!=0x10000", native)
         snapshot_export = powershell.split("Record-Observation 'shutdown-cfg-pre-close-module'", 1)[1].split("\n", 1)[0]
@@ -744,6 +747,11 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
                 region_vectors.append(f'CheckPreClose("{stack}","{region}","{path}",{json.dumps(expected)});' if expected is not None
                                       else f'CheckPreClose("{stack}","{region}","{path}",null);')
             snapshot_case("known", snapshot_begin+snapshot_known+snapshot_end, "1|libmpv_2|1928")
+            # A -cf command file echoes its command line. With one compound
+            # command the prompt/echo precedes BEGIN, outside the strict section.
+            command_echo = "0:000> .echo FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN; lm o; .echo FILEWAY_CFG_PRE_CLOSE_MODULES_END\n"
+            snapshot_case("compound-command-echo", command_echo+snapshot_begin+snapshot_known+snapshot_end+"0:000> .echo FILEWAY_SHUTDOWN_DEBUGGER_READY\n", "1|libmpv_2|1928")
+
             snapshot_case("known-alias", snapshot_begin+snapshot_known.replace("libmpv_2", "libmpv-2.dll")+snapshot_end, "1|libmpv_2|1928")
             snapshot_case("unknown", snapshot_begin+snapshot_known.replace("libmpv_2", "PRIVATE_SECRET")+snapshot_end, "0||0")
             snapshot_case("private-path", snapshot_begin+snapshot_known.replace("libmpv_2", "C:\\private\\libmpv-2.dll")+snapshot_end, "0||0")
@@ -751,6 +759,7 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             snapshot_case("known-overlap", snapshot_begin+snapshot_known+snapshot_known.replace("libmpv_2", "USER32")+snapshot_end, "0||0")
             snapshot_case("out-of-range", snapshot_begin+"1000 2000 libmpv_2 (deferred)\n"+snapshot_end, "0||0")
             for name, text in {
+                "multiline-command-echo": snapshot_begin.split("\n",1)[0]+"\n0:000> lm o\n"+snapshot_begin.split("\n",1)[1]+snapshot_known+"0:000> .echo FILEWAY_CFG_PRE_CLOSE_MODULES_END\n"+snapshot_end,
                 "missing-begin": snapshot_known+snapshot_end,
                 "missing-end": snapshot_begin+snapshot_known,
                 "missing-header": snapshot_begin.split("\n",1)[0]+"\n"+snapshot_known+snapshot_end,
@@ -774,6 +783,9 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             }.items():
                 snapshot_case(name,text)
             snapshot_case("not-free",snapshot_begin+snapshot_known+snapshot_end,region="region-bound.log")
+            for name, reason in (("missing-begin",4),("duplicate-header",5),("multiline-command-echo",6),("duplicate-known",8),("empty",9)):
+                region_vectors.append(f'CheckPreClose("tail-unmapped.log","region-bound-free.log","pre-close-{name}.log",null,{reason});')
+
             snapshot_case("invalid-fault",snapshot_begin+snapshot_known+snapshot_end,stack="tail-wrong-subcode.log")
             (root / "other-session").mkdir()
             (root / "other-session/snapshot.log").write_text(snapshot_begin+snapshot_known+snapshot_end, encoding="utf-8")
@@ -895,11 +907,12 @@ class Program {
   if(single.ParameterCount!=1||single.Parameters.Length!=0) throw new Exception("invented invalid call target");
  }
 
- static void CheckPreClose(string stack,string region,string snapshot,string expected) {
+ static void CheckPreClose(string stack,string region,string snapshot,string expected,int reason=0) {
   bool rejected=false; string actual=null;
   try { var mapped=DebuggerEvidence.ReadPreCloseMapping(stack,region,snapshot); actual=mapped.Mapping+"|"+mapped.Module+"|"+mapped.Offset; }
   catch(InvalidDataException error) {
    rejected=true;
+   if(reason!=0&&!Equals(error.Data["preCloseReason"],reason)) throw new Exception("incorrect pre-close reason");
    if(error.Message.Contains("PRIVATE_SECRET")||error.Message.Contains("11223344")||error.Message.Contains("private/")) throw new Exception("unsafe pre-close error");
   }
   if(expected==null?!rejected:rejected||actual!=expected) throw new Exception("incorrect pre-close mapping: "+snapshot);

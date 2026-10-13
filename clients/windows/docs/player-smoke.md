@@ -173,7 +173,9 @@ assertions; MainWithOpenPlayer intentionally still has its player open. The targ
 still match this harness's retained process object, PID, launch time and exact
 application executable path. Attach has a 10-second deadline and a fixed ready
 marker. The existing attach command records one private, delimited `lm o`
-loaded-module snapshot before that marker; no additional debugger attachment,
+loaded-module snapshot before that marker. The three snapshot commands share one
+command-file line, keeping its echoed prompt outside the delimited module rows;
+no additional debugger attachment,
 detachment or symbol download is introduced. Immediately after readiness, the
 harness rechecks that the retained process is alive with the same start time and
 executable path before it can request main-window close. The bounded ready reader permits concurrent debugger writes and accepts
@@ -318,7 +320,10 @@ attach/analysis deadlines remain unchanged.
 module and a validated relative offset, or mapping 0 with an empty module and zero
 offset. Mapping 1 means the free-region candidate lay inside that image's range
 at the pre-close observation; it does not establish the argument's semantic role
-or which code freed it. Snapshot rejection emits only fixed status 2. This capture
+or which code freed it. Snapshot rejection emits fixed status 2 and a numeric
+reason: 0 unavailable/read error, 1 session-directory mismatch, 2 candidate gate,
+3 bounds, 4 markers, 5 header, 6 row shape/range, 7 capacity, 8 duplicate known
+module, or 9 empty snapshot. No rejected text is exported. This capture
 does not retain a DLL, change window/engine disposal order, or suppress the fault.
 The raw snapshot stays in the already private debugger log, outside the artifact
 allowlist.

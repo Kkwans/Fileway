@@ -646,50 +646,53 @@ namespace Fileway.PlayerSmoke {
             }
             return next;
         }
+        static InvalidDataException PreCloseFailure(int reason) {
+            var error=new InvalidDataException("pre_close_evidence_rejected"); error.Data["preCloseReason"]=reason; return error;
+        }
         public static DebuggerParameter ReadPreCloseMapping(string stackPath,string regionPath,string snapshotPath) {
             string directory=Path.GetDirectoryName(Path.GetFullPath(stackPath));
             if(!string.Equals(directory,Path.GetDirectoryName(Path.GetFullPath(regionPath)),StringComparison.OrdinalIgnoreCase)||
                 !string.Equals(directory,Path.GetDirectoryName(Path.GetFullPath(snapshotPath)),StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("pre_close_session_mismatch");
+                throw PreCloseFailure(1);
             // Revalidate the same candidate and actual FREE state before using
             // pre-close metadata. Its semantic role is still only an argument.
-            if(ReadCandidateRegion(stackPath,regionPath).State!=0x10000) throw new InvalidDataException("pre_close_candidate_not_free");
+            if(ReadCandidateRegion(stackPath,regionPath).State!=0x10000) throw PreCloseFailure(2);
             ulong candidate;
-            if(!ContextArgument(ReadBounded(stackPath,FileShare.Read).Split('\n'),out candidate)) throw new InvalidDataException("pre_close_candidate_invalid");
+            if(!ContextArgument(ReadBounded(stackPath,FileShare.Read).Split('\n'),out candidate)) throw PreCloseFailure(2);
             return PreCloseMapping(ReadBounded(snapshotPath,FileShare.Read),candidate);
         }
         static DebuggerParameter PreCloseMapping(string text,ulong candidate) {
             string[] lines=text.Split('\n');
-            if(lines.Length>4096||Array.Exists(lines,line=>line.Length>2048)) throw new InvalidDataException("pre_close_snapshot_bounds");
+            if(lines.Length>4096||Array.Exists(lines,line=>line.Length>2048)) throw PreCloseFailure(3);
             int begin=-1,end=-1;
             for(int i=0;i<lines.Length;i++) {
                 string line=lines[i].TrimEnd('\r');
-                if(line=="FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN") { if(begin!=-1) throw new InvalidDataException("pre_close_snapshot_markers"); begin=i; }
-                if(line=="FILEWAY_CFG_PRE_CLOSE_MODULES_END") { if(end!=-1) throw new InvalidDataException("pre_close_snapshot_markers"); end=i; }
+                if(line=="FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN") { if(begin!=-1) throw PreCloseFailure(4); begin=i; }
+                if(line=="FILEWAY_CFG_PRE_CLOSE_MODULES_END") { if(end!=-1) throw PreCloseFailure(4); end=i; }
             }
-            if(begin<0||end<=begin||end-begin>1024||end==lines.Length-1) throw new InvalidDataException("pre_close_snapshot_markers");
+            if(begin<0||end<=begin||end-begin>1024||end==lines.Length-1) throw PreCloseFailure(4);
             var ranges=new Dictionary<string,ulong[]>(StringComparer.Ordinal); var anonymous=new List<ulong[]>();
             bool header=false; int rows=0;
             for(int i=begin+1;i<end;i++) {
                 string line=lines[i].Trim();
                 if(line.Length==0) continue;
                 if(System.Text.RegularExpressions.Regex.IsMatch(line,@"^start[ \t]+end[ \t]+module name$")) {
-                    if(header||rows!=0) throw new InvalidDataException("pre_close_snapshot_header"); header=true; continue;
+                    if(header||rows!=0) throw PreCloseFailure(5); header=true; continue;
                 }
                 var row=System.Text.RegularExpressions.Regex.Match(line,@"^([0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})[ \t]+([0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})[ \t]+(\S+)(?:[ \t]+.*)?$");
                 ulong low,high;
                 if(!header||!row.Success||!Address(row.Groups[1].Value,out low)||!Address(row.Groups[2].Value,out high)||low>=high||high-low>uint.MaxValue)
-                    throw new InvalidDataException("pre_close_snapshot_row");
+                    throw PreCloseFailure(6);
                 rows++; string known=Module(row.Groups[3].Value);
                 if(known==null) {
-                    if(anonymous.Count>=512) throw new InvalidDataException("pre_close_snapshot_capacity");
+                    if(anonymous.Count>=512) throw PreCloseFailure(7);
                     anonymous.Add(new ulong[]{low,high,1});
                 } else {
-                    if(ranges.ContainsKey(known)) throw new InvalidDataException("pre_close_snapshot_duplicate");
+                    if(ranges.ContainsKey(known)) throw PreCloseFailure(8);
                     ranges.Add(known,new ulong[]{low,high});
                 }
             }
-            if(rows==0) throw new InvalidDataException("pre_close_snapshot_empty");
+            if(rows==0) throw PreCloseFailure(9);
             return MapAddress(0,candidate,ranges,new List<KeyValuePair<string,ulong[]>>(),anonymous);
         }
         public static RegionMetadata ReadCandidateRegion(string stackPath,string regionPath) {
@@ -1253,7 +1256,7 @@ function Start-ShutdownDebugger {
     # gn preserves NOT HANDLED semantics. -pd prevents debugger cleanup from killing
     # the app. Neither WER nor any system-wide debugger/security setting is changed.
     $commands = 'sxe -c ".dump /muF /o shutdown.dmp; gn" -c2 ".dump /muF /o shutdown.dmp; gn" 0xc0000409' + "`n" +
-        '.echo FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN' + "`n" + 'lm o' + "`n" + '.echo FILEWAY_CFG_PRE_CLOSE_MODULES_END' + "`n" +
+        '.echo FILEWAY_CFG_PRE_CLOSE_MODULES_BEGIN; lm o; .echo FILEWAY_CFG_PRE_CLOSE_MODULES_END' + "`n" +
         '.echo FILEWAY_SHUTDOWN_DEBUGGER_READY' + "`n" + 'g' + "`n"
     $commandFile = Join-Path $script:privateRoot 'shutdown-debugger.cmd'
     $log = Join-Path $script:privateRoot 'shutdown-debugger.log'
@@ -1345,7 +1348,14 @@ function Record-SafeCandidateRegion([string] $Dump, [string] $StackLog, [string]
                 $snapshot = Join-Path $script:privateRoot 'shutdown-debugger.log'
                 $mapped = [Fileway.PlayerSmoke.DebuggerEvidence]::ReadPreCloseMapping($StackLog, $log, $snapshot)
                 Record-Observation 'shutdown-cfg-pre-close-module' @{ mapping = [int]$mapped.Mapping; module = [string]$mapped.Module; offset = [uint64]$mapped.Offset }
-            } catch { Record-Observation 'shutdown-cfg-pre-close-module-result' @{ status = 2 } }
+            } catch {
+                $snapshotError = $_.Exception
+                while ($snapshotError.InnerException) { $snapshotError = $snapshotError.InnerException }
+                $snapshotReason = 0
+                if ($snapshotError.Data.Contains('preCloseReason') -and $snapshotError.Data['preCloseReason'] -is [int] -and
+                    $snapshotError.Data['preCloseReason'] -ge 1 -and $snapshotError.Data['preCloseReason'] -le 9) { $snapshotReason = $snapshotError.Data['preCloseReason'] }
+                Record-Observation 'shutdown-cfg-pre-close-module-result' @{ status = 2; reason = [int]$snapshotReason }
+            }
         }
     } catch {
         $regionError = $_.Exception
