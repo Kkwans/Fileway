@@ -44,6 +44,14 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
         try
         {
             directories = GuardDirectories(final, AccessContext.Fresh);
+            directories.Revalidate(AccessContext.Fresh);
+            cancellationToken.ThrowIfCancellationRequested();
+            uint? finalAttributes = ReadRelativeEntryAttributes(directories.TerminalHandle, Path.GetFileName(final));
+            directories.Revalidate(AccessContext.Fresh);
+            cancellationToken.ThrowIfCancellationRequested();
+            // This observation only avoids allocating/transferring an already-conflicting download.
+            // A later arrival is still rejected by the mandatory no-replace publication operation.
+            if (finalAttributes is not null) throw Conflict();
             for (int attempt = 0; attempt < CreationAttempts; attempt++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -238,6 +246,19 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
         // A collision observation never grants ownership, content, write or delete authority. This
         // basename is one generated ASCII component; the retained parent is already guarded and pinned.
         if (!IsPartialName(name)) return false;
+        try
+        {
+            const uint directoryOrReparse = 0x00000010 | 0x00000400;
+            return ReadRelativeEntryAttributes(directory, name) is { } attributes && (attributes & directoryOrReparse) != 0;
+        }
+        catch (FilewayException) { return false; }
+        catch (Exception error) when (IsFileFailure(error)) { return false; }
+    }
+
+    private static uint? ReadRelativeEntryAttributes(SafeFileHandle directory, string name)
+    {
+        // Both callers supply one already-validated basename. Open only that leaf relative to the
+        // retained parent, with read-attributes authority; reparse targets and content are never read.
         nint nameBuffer = 0, namePointer = 0;
         bool directoryReferenced = false;
         SafeFileHandle? handle = null;
@@ -264,15 +285,18 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 out var completion, allocationSize: 0, UploadFileNative.NormalAttributes, DownloadFileNative.ShareAll,
                 DownloadFileNative.NtOpen, UploadFileNative.SynchronousNonAlert |
                 UploadFileNative.OpenReparsePoint | DownloadFileNative.NtOpenNoRecall, eaBuffer: 0, eaLength: 0);
+            // Only a typed missing leaf proves absence. Path/ACL/sharing/unknown failures must not
+            // authorize fresh work, even if their Win32 translation resembles another missing case.
+            if (status == unchecked((int)0xC0000034)) return null; // STATUS_OBJECT_NAME_NOT_FOUND
+            if (status < 0) throw NativeFailure(unchecked((int)UploadFileNative.RtlNtStatusToDosError(status)), AccessContext.Fresh);
             if (status != 0 || !CompletionSucceeded(completion) || handle.IsInvalid ||
                 completion.Information != UploadFileNative.FileOpened || UploadFileNative.GetFileType(handle) != UploadFileNative.DiskType)
-                return false;
+                throw Unknown();
             if (!UploadFileNative.GetBasicInformation(handle, 0, out var basic,
-                checked((uint)Marshal.SizeOf<UploadFileNative.BasicInformation>()))) return false;
-            const uint directoryOrReparse = 0x00000010 | 0x00000400;
-            return (basic.Attributes & directoryOrReparse) != 0;
+                checked((uint)Marshal.SizeOf<UploadFileNative.BasicInformation>())))
+                throw NativeFailure(Marshal.GetLastPInvokeError(), AccessContext.Fresh);
+            return basic.Attributes;
         }
-        catch (Exception error) when (IsFileFailure(error)) { return false; }
         finally
         {
             handle?.Dispose();

@@ -129,17 +129,18 @@ public sealed partial class WindowsDownloadFileAccessTests
     }
 
     [Fact]
-    public async Task ExistingFileIsNeverOpenedOrReplacedAndPublicationIsTheAuthoritativeConflictCheck()
+    public async Task FileArrivingAfterFreshCreationIsPreservedByAuthoritativePublicationAndOwnedCleanup()
     {
         using var fixture = new NativeFixture();
-        await File.WriteAllBytesAsync(fixture.FinalPath, StrangerPayload, Token);
-        TransferSourceSnapshot stranger = await SnapshotAsync(fixture, fixture.FinalPath);
+        TransferSourceSnapshot stranger;
         TransferWorkFiles files;
-        // The existing target is held incompatibly too: fresh creation must not inspect or open it.
-        using (var unrelated = new FileStream(fixture.FinalPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
         await using (var destination = await new WindowsDownloadFileAccess().CreateFreshAsync(fixture.FinalPath, Token))
         {
             files = destination.Files;
+            await File.WriteAllBytesAsync(fixture.FinalPath, StrangerPayload, Token);
+            stranger = await SnapshotAsync(fixture, fixture.FinalPath);
+            // The foreign final arrives after preflight and remains exclusively held during publication.
+            using var unrelated = new FileStream(fixture.FinalPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
             await destination.WriteAsync(Payload, Token);
             await destination.FlushToDiskAsync(Token);
             var conflict = await Assert.ThrowsAsync<FilewayException>(() => destination.PublishNoReplaceAsync(Token));
@@ -157,15 +158,16 @@ public sealed partial class WindowsDownloadFileAccessTests
     }
 
     [Fact]
-    public async Task ExistingDirectoryIsPreservedByFailedPublicationAndOwnedCleanup()
+    public async Task DirectoryArrivingAfterFreshCreationIsPreservedByFailedPublicationAndOwnedCleanup()
     {
         using var fixture = new NativeFixture();
-        Directory.CreateDirectory(fixture.FinalPath);
         string marker = Path.Combine(fixture.FinalPath, "marker.bin");
-        await File.WriteAllBytesAsync(marker, StrangerPayload, Token);
-        TransferSourceSnapshot stranger = await SnapshotAsync(fixture, marker);
+        TransferSourceSnapshot stranger;
         await using (var destination = await new WindowsDownloadFileAccess().CreateFreshAsync(fixture.FinalPath, Token))
         {
+            Directory.CreateDirectory(fixture.FinalPath);
+            await File.WriteAllBytesAsync(marker, StrangerPayload, Token);
+            stranger = await SnapshotAsync(fixture, marker);
             await destination.WriteAsync(Payload, Token);
             await destination.FlushToDiskAsync(Token);
             var conflict = await Assert.ThrowsAsync<FilewayException>(() => destination.PublishNoReplaceAsync(Token));
@@ -180,7 +182,7 @@ public sealed partial class WindowsDownloadFileAccessTests
     }
 
     [Fact]
-    public async Task ExistingJunctionTargetIsPreservedWithoutFollowingItForPublicationOrCleanup()
+    public async Task JunctionArrivingAfterFreshCreationPreservesItsTargetDuringPublicationAndOwnedCleanup()
     {
         using var fixture = new NativeFixture();
         string target = Path.Combine(fixture.DestinationDirectory, "target");
@@ -188,11 +190,11 @@ public sealed partial class WindowsDownloadFileAccessTests
         string marker = Path.Combine(target, "marker.bin");
         await File.WriteAllBytesAsync(marker, StrangerPayload, Token);
         TransferSourceSnapshot stranger = await SnapshotAsync(fixture, marker);
-        await RunFixtureCommandAsync(fixture.DestinationDirectory, "mklink /j download.bin target");
         try
         {
             await using (var destination = await new WindowsDownloadFileAccess().CreateFreshAsync(fixture.FinalPath, Token))
             {
+                await RunFixtureCommandAsync(fixture.DestinationDirectory, "mklink /j download.bin target");
                 await destination.WriteAsync(Payload, Token);
                 await destination.FlushToDiskAsync(Token);
                 var conflict = await Assert.ThrowsAsync<FilewayException>(() => destination.PublishNoReplaceAsync(Token));

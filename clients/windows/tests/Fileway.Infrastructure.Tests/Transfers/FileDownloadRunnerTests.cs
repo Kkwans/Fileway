@@ -206,6 +206,55 @@ public sealed class FileDownloadRunnerTests
     }
 
     [Theory]
+    [InlineData(ErrorCode.Conflict)]
+    [InlineData(ErrorCode.PermissionDenied)]
+    [InlineData(ErrorCode.Busy)]
+    public async Task FreshDestinationFailureCannotAcquireRemoteCapabilityOrMutateFileCleanup(ErrorCode code)
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        fixture.Destinations.CreateFailure = new FilewayException(new(code,
+            "private create detail: " + fixture.Plan.LocalPath));
+        int createAttempts = 0;
+        int bodiesCreated = 0;
+        fixture.Destinations.BeforeCreate = _ => Interlocked.Increment(ref createAttempts);
+        fixture.Http.ContentFactory = () =>
+        {
+            Interlocked.Increment(ref bodiesCreated);
+            return new ByteArrayContent(Data);
+        };
+        TransferWorkFiles untouchedFiles = fixture.Destinations.File.Files;
+
+        var result = await fixture.Runner.RunAsync(fixture.Task, Token);
+
+        Assert.Equal(code == ErrorCode.Conflict ? TransferPhase.Conflict : TransferPhase.Failed, result.Checkpoint.Phase);
+        Assert.Equal(code, result.Checkpoint.Error!.Code);
+        AssertSafe(result.Checkpoint.Error, fixture);
+        Assert.Null(result.Run);
+        Assert.Null(result.Checkpoint.Files);
+        Assert.Null(result.Checkpoint.LocalSha256);
+        Assert.Null(result.Checkpoint.ServerSha256);
+        Assert.Null(result.Checkpoint.ConfirmedOffset);
+        Assert.Equal(TransferUncertainty.None, result.Checkpoint.Uncertainty);
+        Assert.Equal(result, await fixture.ReadAsync());
+        Assert.Equal(1, fixture.Sources.PrepareCalls);
+        Assert.Equal(1, createAttempts);
+        Assert.Equal(0, fixture.Destinations.CreateCalls);
+        Assert.Equal(0, fixture.Destinations.OpenCalls);
+        Assert.Empty(fixture.Sources.Acquired);
+        Assert.Empty(fixture.Sources.Issued);
+        Assert.Empty(fixture.Sources.Checksums);
+        Assert.Empty(fixture.Http.Requests);
+        Assert.Equal(0, bodiesCreated);
+        Assert.Equal(untouchedFiles, fixture.Destinations.File.Files);
+        Assert.Empty(fixture.Destinations.File.Bytes);
+        Assert.Empty(fixture.Destinations.File.Events);
+        Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        Assert.Equal(0, fixture.Destinations.File.DeleteAttempts);
+        Assert.Equal(0, fixture.Destinations.File.DisposeCalls);
+        fixture.AssertDrained();
+    }
+
+    [Theory]
     [InlineData("version")]
     [InlineData("automatic-resume")]
     [InlineData("replace")]
