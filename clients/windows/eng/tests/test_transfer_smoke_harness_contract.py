@@ -120,6 +120,62 @@ class TransferSmokeContract(unittest.TestCase):
         self.assertIn("$buttons.Count -ne 1", SOURCE)
         self.assertNotIn("'--root', $dialog.selector", SOURCE)
 
+    def test_all_nullable_name_predicates_are_guarded_and_error_categories_numeric(self):
+        lines = SOURCE.splitlines()
+        for index, line in enumerate(lines):
+            if "$_.name" in line:
+                self.assertTrue("Contains('name')" in line or
+                                (line.strip().startswith("$_.name -ceq '关闭'") and "Contains('name')" in lines[index - 1]), line)
+        categories = SOURCE.split("Record-Observation 'harness-error-category'", 1)[1].split("    }", 1)[0]
+        for field in ("strictPropertyMissing", "strictVariableMissing", "invalidArgument"):
+            self.assertRegex(categories, field + r"\s*= \[int\]")
+        self.assertNotRegex(categories, r"(?:Message|StackTrace|ToString|name|path)\s*=")
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
+    def test_actual_nullable_name_and_dialog_helpers_under_strictmode(self):
+        definitions = "function Find-Elements" + SOURCE.split("function Find-Elements", 1)[1].split("function Elements", 1)[0]
+        for start, end in (("Find-Control", "Control"), ("Reveal-ConnectionSubmit", "Has-Text"),
+                           ("Has-Text", "Wait-Text"), ("Find-TransferDialog", "Close-TransferDialog"),
+                           ("Find-PickerAccept", "Accept-UploadPicker")):
+            definitions += "function " + start + SOURCE.split("function " + start, 1)[1].split("function " + end, 1)[0]
+        command = r"""
+Set-StrictMode -Version Latest
+function Stop-Smoke($Code) { throw $Code }
+function Elements($Window) { $script:fixtures }
+function Record-Observation($Name,$Details) { }
+function Invoke-WinApp($Arguments) { throw 'unexpected_action' }
+""" + definitions + r"""
+$anonymous=@{selector='fixture-anonymous';type='Pane';isEnabled=$true;isOffscreen=$false}
+$dialog=@{selector='fixture-dialog';type='Window';name='文件上传';isEnabled=$true;isOffscreen=$false}
+$caption=@{selector='fixture-caption';type='Button';name='关闭';isEnabled=$true;isOffscreen=$false}
+if ((Find-TransferDialog @($anonymous,$caption,$dialog) '文件上传').selector -cne 'fixture-dialog') { throw 'dialog_wrong' }
+if ($null -ne (Find-TransferDialog @($anonymous,$caption) '文件上传')) { throw 'caption_selected_as_dialog' }
+$second=$dialog.Clone();$second.selector='fixture-second';$code=$null
+try { $null=Find-TransferDialog @($dialog,$second) '文件上传' } catch { $code=$_.Exception.Message }
+if ($code -cne 'transfer_dialog_ambiguous') { throw 'dialog_ambiguity_ignored' }
+$unnamedButton=$anonymous.Clone();$unnamedButton.type='Button';$unnamedButton.selector='fixture-anonymous-button'
+if ((Find-DialogClose @{elements=@($anonymous,$unnamedButton,$caption)}).selector -cne 'fixture-caption') { throw 'close_wrong' }
+$second=$caption.Clone();$second.selector='fixture-second';$code=$null
+try { $null=Find-DialogClose @{elements=@($caption,$second)} } catch { $code=$_.Exception.Message }
+if ($code -cne 'dialog_close_missing_or_ambiguous') { throw 'close_ambiguity_ignored' }
+$unnamedEdit=$anonymous.Clone();$unnamedEdit.type='Edit';$unnamedEdit.selector='fixture-anonymous-edit'
+$edit=@{selector='fixture-edit';type='Edit';name='valid';isEnabled=$true;isOffscreen=$false}
+$unnamedText=$anonymous.Clone();$unnamedText.type='Text';$unnamedText.selector='fixture-anonymous-text'
+$text=@{selector='fixture-text';type='Text';name='visible-text';isEnabled=$true;isOffscreen=$false}
+$button=@{selector='fixture-connect';type='Button';name='连接并浏览';isEnabled=$true;isOffscreen=$false}
+$script:fixtures=@($anonymous,$unnamedButton,$unnamedEdit,$unnamedText,$edit,$text,$button)
+if ((Find-Control ([IntPtr]123) '^valid$' 'Edit').selector -cne 'fixture-edit') { throw 'control_wrong' }
+if (-not (Has-Text ([IntPtr]123) 'visible-text')) { throw 'text_missing' }
+Reveal-ConnectionSubmit ([IntPtr]123)
+$accept=@{selector='fixture-accept';type='Button';name='Open';isEnabled=$true;isOffscreen=$false;automationId='1'}
+$unnamedButton.automationId='1'
+$tree=@{windows=@(@{hwnd=123;elements=@($unnamedButton,$accept)})}
+if ((Find-PickerAccept $tree ([IntPtr]123)).selector -cne 'fixture-accept') { throw 'picker_wrong' }
+"""
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-Command", command],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_connection_failure_has_fixed_phase_and_numeric_diagnostics_only(self):
         for stage in ("connect-name", "connect-address", "connect-auth-expand", "connect-auth-select",
                       "connect-persistence-off", "connect-http-consent", "connect-submit-reveal", "connect-ready-capture", "connect-submit", "connect-browser-ready"):
@@ -210,7 +266,7 @@ if ($code -cne 'picker_inspection_window_ambiguous') { throw 'ambiguous_window_s
         self.assertIn("'type', 'name', 'isEnabled', 'isOffscreen', 'automationId'", helper)
         self.assertIn("[object]::Equals($previous[$field], $element[$field])", helper)
         self.assertIn("'inspect_selector_metadata_mismatch'", helper)
-        self.assertEqual(SOURCE.count("Unique-Elements (Find-Elements $tree)"), 2)
+        self.assertEqual(len(re.findall(r"Unique-Elements \(Find-Elements \$tree\)", SOURCE, re.I)), 2)
         self.assertIn("$matches.Count -ne 1", SOURCE)
 
     def test_connection_scroll_preserves_visible_action_guard(self):

@@ -131,7 +131,7 @@ function Elements([IntPtr] $Window) {
 }
 function Find-Control([IntPtr] $Window, [string] $NamePattern, [string] $Type = 'Button', [switch] $Optional) {
     $visible = @(Elements $Window | Where-Object { $_.isEnabled -and -not $_.isOffscreen })
-    $matches = @($visible | Where-Object { $_.type -eq $Type -and $_.name -match $NamePattern })
+    $matches = @($visible | Where-Object { $_.type -eq $Type -and $_.Contains('name') -and $_.name -match $NamePattern })
     if ($matches.Count -eq 0 -and $Optional) { return $null }
     if ($matches.Count -ne 1) {
         # Only numeric structure is retained: never UIA names, values, slugs or
@@ -167,7 +167,7 @@ function Reveal-ConnectionSubmit([IntPtr] $Window) {
     # A short CI desktop can put this button below the connection ScrollViewer.
     # ScrollPattern walks to its nearest scrollable parent; the later Act still
     # requires a fresh unique, visible and enabled button before invoking it.
-    $matches = @(Elements $Window | Where-Object { $_.type -eq 'Button' -and $_.name -ceq '连接并浏览' -and $_.isEnabled })
+    $matches = @(Elements $Window | Where-Object { $_.type -eq 'Button' -and $_.Contains('name') -and $_.name -ceq '连接并浏览' -and $_.isEnabled })
     if ($matches.Count -ne 1) { Stop-Smoke 'connection_submit_scroll_target_ambiguous' }
     if ($matches[0].isOffscreen) {
         $result = Invoke-WinApp @('ui', 'scroll', $matches[0].selector, '-w', $Window.ToInt64().ToString(), '--to', 'bottom', '--json')
@@ -177,7 +177,7 @@ function Reveal-ConnectionSubmit([IntPtr] $Window) {
     }
 }
 function Has-Text([IntPtr] $Window, [string] $Text) {
-    return @(Elements $Window | Where-Object { $_.type -eq 'Text' -and $_.name -ceq $Text -and -not $_.isOffscreen }).Count -gt 0
+    return @(Elements $Window | Where-Object { $_.type -eq 'Text' -and $_.Contains('name') -and $_.name -ceq $Text -and -not $_.isOffscreen }).Count -gt 0
 }
 function Wait-Text([string] $Text) {
     $null = Wait-Condition { Has-Text $script:window $Text } 'expected_stage_not_observed' 45000
@@ -188,18 +188,28 @@ function Capture([string] $Name) {
     if ([Fileway.PlayerSmoke.Native]::ProcessId($script:window) -ne $script:app.Id) { Stop-Smoke 'capture_owner_mismatch' }
     [Fileway.PlayerSmoke.Native]::Capture($script:window).SavePng((Artifact-Path $Name))
 }
+function Find-TransferDialog($Elements, [string] $Title) {
+    # UiElement.Name is nullable and omitted by the pinned JSON serializer.
+    # Anonymous layout elements are not candidates under StrictMode.
+    $matches = @($Elements | Where-Object { $_.Contains('name') -and $_.name -ceq $Title -and
+        $_.type -in @('Window', 'Pane', 'Custom') -and -not $_.isOffscreen })
+    if ($matches.Count -gt 1) { Stop-Smoke 'transfer_dialog_ambiguous' }
+    if ($matches.Count -eq 1) { return $matches[0] }
+    return $null
+}
+function Find-DialogClose($Tree) {
+    $buttons = @(Unique-Elements (Find-Elements $Tree) | Where-Object { $_.type -eq 'Button' -and $_.Contains('name') -and
+        $_.name -ceq '关闭' -and $_.isEnabled -and -not $_.isOffscreen })
+    if ($buttons.Count -ne 1) { Stop-Smoke 'dialog_close_missing_or_ambiguous' }
+    return $buttons[0]
+}
 function Close-TransferDialog([string] $Title) {
     # The frameless caption also has a Chinese "关闭" button. Constrain the
     # action to the actual ContentDialog subtree, never the whole main window.
-    $dialog = Wait-Condition {
-        $matches = @(Elements $script:window | Where-Object { $_.name -ceq $Title -and $_.type -in @('Window', 'Pane', 'Custom') -and -not $_.isOffscreen })
-        if ($matches.Count -gt 1) { Stop-Smoke 'transfer_dialog_ambiguous' }
-        if ($matches.Count -eq 1) { $matches[0] }
-    } 'transfer_dialog_not_observed'
+    $dialog = Wait-Condition { Find-TransferDialog (Elements $script:window) $Title } 'transfer_dialog_not_observed'
     $tree = Invoke-WinApp @('ui', 'inspect', $dialog.selector, '-w', $script:window.ToInt64().ToString(), '--depth', '16', '--json')
-    $buttons = @(Unique-Elements (Find-Elements $tree) | Where-Object { $_.type -eq 'Button' -and $_.name -ceq '关闭' -and $_.isEnabled -and -not $_.isOffscreen })
-    if ($buttons.Count -ne 1) { Stop-Smoke 'dialog_close_missing_or_ambiguous' }
-    $result = Invoke-WinApp @('ui', 'invoke', $buttons[0].selector, '-w', $script:window.ToInt64().ToString(), '--action', 'invoke', '--json')
+    $button = Find-DialogClose $tree
+    $result = Invoke-WinApp @('ui', 'invoke', $button.selector, '-w', $script:window.ToInt64().ToString(), '--action', 'invoke', '--json')
     if ($result.performedAction -ne 'invoke' -or $result.hwnd -ne $script:window.ToInt64()) { Stop-Smoke 'dialog_close_effect_mismatch' }
 }
 function Find-PickerAccept($Tree, [IntPtr] $Picker) {
@@ -209,7 +219,7 @@ function Find-PickerAccept($Tree, [IntPtr] $Picker) {
     # IDOK=1 is the standard accept button, not shell/navigation buttons also
     # named Open. Restrict to this exact common-dialog HWND before matching.
     $matches = @(Unique-Elements (Find-Elements $ownedWindows[0].elements) | Where-Object {
-        $_.type -eq 'Button' -and $_.name -match '^(?:选择文件|Open(?:\(O\))?|打开(?:\(O\))?)$' -and
+        $_.type -eq 'Button' -and $_.Contains('name') -and $_.name -match '^(?:选择文件|Open(?:\(O\))?|打开(?:\(O\))?)$' -and
         $_.isEnabled -and -not $_.isOffscreen -and $_.Contains('automationId') -and $_.automationId -ceq '1'
     })
     if ($matches.Count -ne 1) { Stop-Smoke 'picker_accept_missing_or_ambiguous' }
@@ -428,9 +438,19 @@ public static class FilewayTransferDownloads {
     }
 }
 catch {
-    $status = 'failed'; $code = 'unexpected_harness_error'; $errorObject = $_.Exception
+    $failure = $_
+    $status = 'failed'; $code = 'unexpected_harness_error'; $errorObject = $failure.Exception
     while ($errorObject -and -not $errorObject.Data.Contains('smokeCode')) { $errorObject = $errorObject.InnerException }
     if ($errorObject) { $status = $errorObject.Data['smokeStatus']; $code = $errorObject.Data['smokeCode'] }
+    if ($code -eq 'unexpected_harness_error' -and $script:root -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) {
+        # Fixed numeric categories only; no exception text, field name, path,
+        # stack trace or runtime UIA data leaves the private process memory.
+        Record-Observation 'harness-error-category' ([ordered]@{
+            strictPropertyMissing = [int]($failure.FullyQualifiedErrorId -like 'PropertyNotFoundStrict*');
+            strictVariableMissing = [int]($failure.FullyQualifiedErrorId -like 'VariableIsUndefined*');
+            invalidArgument = [int]($failure.CategoryInfo.Category -eq [System.Management.Automation.ErrorCategory]::InvalidArgument);
+        })
+    }
     if ($script:root -and $script:app -and -not $script:app.HasExited -and $script:window -ne [IntPtr]::Zero -and
         ($script:stage -eq 'native-connect' -or $script:stage.StartsWith('connect-', [StringComparison]::Ordinal))) {
         # The only failure image is the synthetic, isolated App's connection

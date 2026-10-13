@@ -73,6 +73,10 @@ The harness selects its unique enabled identity, uses the pinned CLI's UIA
 freshly inspects and invokes only a visible enabled button. This does not use
 coordinates or invoke an offscreen control; the default connection layout's
 need to scroll remains a separate product usability issue.
+Nullable/omitted UIA names are excluded from dialog-title/close candidates;
+dialog closing still requires one matching dialog subtree and one enabled
+visible Close button. Unexpected harness errors retain only fixed numeric
+strict-property/variable/invalid-argument category flags, never exception text.
 Stage polls, CLI commands, startup and shutdown are bounded. An application or Host
 nonzero exit fails the journey even if screenshots and byte checks succeeded.
 Forced teardown after failure does not satisfy normal shutdown.
