@@ -153,6 +153,10 @@ class HarnessGuards(unittest.TestCase):
         self.assertNotIn("; gh", powershell)
         self.assertIn("$watch.ElapsedMilliseconds -lt 10000", powershell)
         self.assertIn("$analysis.WaitForExit(120000)", powershell)
+        self.assertIn("[Fileway.PlayerSmoke.DebuggerEvidence]::HasReadyMarker($log)", powershell)
+        self.assertIn("ReadBounded(path,FileShare.ReadWrite)", native)
+        self.assertNotIn("[IO.File]::ReadAllText($log)", powershell)
+        self.assertIn("hresult = [int]$attachError.HResult", powershell)
         self.assertIn("srv*$symbols*https://msdl.microsoft.com/download/symbols", powershell)
         self.assertIn("'.ecxr; .exr -1; kn 0n24; lm; q'", powershell)
         self.assertIn("normalShutdownVerified = (-not $script:shutdownDebuggerAttached)", powershell)
@@ -370,7 +374,20 @@ class Program {
   catch(System.Text.DecoderFallbackException) { rejected=true; }
   if(!rejected) throw new Exception(path+": invalid debugger evidence accepted");
  }
- static void Main() { ''' + "".join(vectors + shutdown_vectors + debugger_vectors) + '''
+ static void CheckDebuggerReady() {
+  const string path="shared-debugger-ready.log";
+  using(var writer=new FileStream(path,FileMode.CreateNew,FileAccess.Write,FileShare.ReadWrite)) {
+   var falseMarker=System.Text.Encoding.UTF8.GetBytes("0:000> .echo FILEWAY_SHUTDOWN_DEBUGGER_READY\\r\\n");
+   writer.Write(falseMarker); writer.Flush();
+   if(DebuggerEvidence.HasReadyMarker(path)) throw new Exception("command echo accepted as ready");
+   var actualMarker=System.Text.Encoding.UTF8.GetBytes("FILEWAY_SHUTDOWN_DEBUGGER_READY");
+   writer.Write(actualMarker); writer.Flush();
+   if(DebuggerEvidence.HasReadyMarker(path)) throw new Exception("unterminated ready marker accepted");
+   writer.Write(new byte[]{13,10}); writer.Flush();
+   if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
+  }
+ }
+ static void Main() { CheckDebuggerReady(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

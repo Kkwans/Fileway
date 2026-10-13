@@ -31,6 +31,7 @@ $script:shutdownDebuggerError = $null
 $script:cdbPath = $null
 $script:appStartTicks = 0L
 $script:shutdownDebuggerAttached = $false
+$script:debuggerAttachPhase = 0
 $script:hosts = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 $script:stage = 'output-validation'
 $script:completed = [System.Collections.Generic.List[string]]::new()
@@ -281,14 +282,21 @@ namespace Fileway.PlayerSmoke {
             return true;
         }
         static string Module(string name) { return Array.Find(Modules,item=>item.Equals(name,StringComparison.OrdinalIgnoreCase)); }
-        public static DebuggerFault Read(string path) {
+        public static bool HasReadyMarker(string path) {
+            string text=ReadBounded(path,FileShare.ReadWrite);
+            string[] lines=text.Split('\n');
+            for(int index=0;index<lines.Length-1;index++) if(lines[index].TrimEnd('\r')=="FILEWAY_SHUTDOWN_DEBUGGER_READY") return true;
+            return false;
+        }
+        public static DebuggerFault Read(string path) { return Parse(ReadBounded(path,FileShare.Read)); }
+        static string ReadBounded(string path,FileShare share) {
             byte[] bytes=new byte[1048577]; int count=0;
-            using(var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+            using(var stream=new FileStream(path,FileMode.Open,FileAccess.Read,share)) {
                 if(stream.Length>1048576) throw new InvalidDataException("debugger_evidence_too_large");
                 while(count<bytes.Length) { int read=stream.Read(bytes,count,bytes.Length-count); if(read==0) break; count+=read; }
             }
             if(count>1048576) throw new InvalidDataException("debugger_evidence_too_large");
-            return Parse(new UTF8Encoding(false,true).GetString(bytes,0,count));
+            return new UTF8Encoding(false,true).GetString(bytes,0,count);
         }
         public static DebuggerFault Parse(string text) {
             if(text==null||text.Length>1048576) throw new InvalidDataException("debugger_evidence_too_large");
@@ -718,11 +726,13 @@ function Assert-SdkDebugger {
 
 function Start-ShutdownDebugger {
     if (-not $CaptureShutdownStack) { return }
+    $script:debuggerAttachPhase = 1
     $script:process.Refresh()
     if ($script:process.HasExited -or $script:process.StartTime.ToUniversalTime().Ticks -ne $script:appStartTicks -or
         -not [string]::Equals($script:process.MainModule.FileName, [IO.Path]::GetFullPath($AppPath), [StringComparison]::OrdinalIgnoreCase)) {
         Stop-Smoke 'debugger_app_identity_mismatch'
     }
+    $script:debuggerAttachPhase = 2
     # Relative dump name is interpreted only in the fresh private working directory.
     # gn preserves NOT HANDLED semantics. -pd prevents debugger cleanup from killing
     # the app. Neither WER nor any system-wide debugger/security setting is changed.
@@ -737,16 +747,29 @@ function Start-ShutdownDebugger {
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
     foreach ($argument in @('-p', $script:process.Id.ToString(), '-pd', '-G', '-sins', '-noshell', '-y', $script:privateRoot,
         '-logo', $log, '-cf', $commandFile)) { $start.ArgumentList.Add($argument) }
+    $script:debuggerAttachPhase = 3
     $script:shutdownDebugger = [Diagnostics.Process]::Start($start)
     $script:shutdownDebuggerOutput = $script:shutdownDebugger.StandardOutput.ReadToEndAsync()
     $script:shutdownDebuggerError = $script:shutdownDebugger.StandardError.ReadToEndAsync()
+    $script:debuggerAttachPhase = 4
     $watch = [Diagnostics.Stopwatch]::StartNew()
     while ($watch.ElapsedMilliseconds -lt 10000) {
         if ($script:shutdownDebugger.HasExited -or $script:process.HasExited) { Stop-Smoke 'debugger_attach_failed' }
         if ([IO.File]::Exists($log)) {
             $size = (Get-Item -LiteralPath $log).Length
             if ($size -gt 1048576) { Stop-Smoke 'debugger_attach_output_too_large' }
-            if ($size -gt 0 -and [regex]::IsMatch([IO.File]::ReadAllText($log), '(?m)^FILEWAY_SHUTDOWN_DEBUGGER_READY\r?$')) {
+            $ready = $false
+            if ($size -gt 0) {
+                try { $ready = [Fileway.PlayerSmoke.DebuggerEvidence]::HasReadyMarker($log) }
+                catch {
+                    $errorObject = $_.Exception
+                    while ($errorObject.InnerException) { $errorObject = $errorObject.InnerException }
+                    # Log creation may briefly deny sharing. Retry only these
+                    # exact Win32 conditions under the original attach deadline.
+                    if ($errorObject.HResult -notin @(-2147024864, -2147024863)) { throw }
+                }
+            }
+            if ($ready) {
                 $script:shutdownDebuggerAttached = $true
                 Record-Observation 'shutdown-debugger' @{ tool = 'microsoft-sdk-cdb-x64'; attached = 1 }
                 return
@@ -1034,7 +1057,13 @@ try {
     Complete-Step 'close'
     $null = Copy-SafeDiagnostics
     $script:stage = 'application-shutdown'
-    Start-ShutdownDebugger
+    try { Start-ShutdownDebugger }
+    catch {
+        $attachError = $_.Exception
+        while ($attachError.InnerException) { $attachError = $attachError.InnerException }
+        Record-Observation 'shutdown-debugger-attach-error' @{ phase = [int]$script:debuggerAttachPhase; hresult = [int]$attachError.HResult }
+        throw
+    }
     $script:process.Refresh()
     if (-not $script:process.CloseMainWindow()) { Stop-Smoke 'application_close_not_delivered' }
     if (-not $script:process.WaitForExit(15000)) { Stop-Smoke 'application_exit_timeout' }

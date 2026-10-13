@@ -170,7 +170,9 @@ The debugger attaches only after every interaction and player-surface-close
 assertion passes, immediately before closing the main window. The target must
 still match this harness's retained process object, PID, launch time and exact
 application executable path. Attach has a 10-second deadline and a fixed ready
-marker. `-pd` prevents debugger exit from killing the target; `-sins` ignores
+marker. The bounded ready reader permits concurrent debugger writes and accepts
+only a complete marker line, not the echoed command. Attach failures retain only
+a fixed numeric location and HResult. `-pd` prevents debugger exit from killing the target; `-sins` ignores
 ambient symbol paths and `-noshell` disables debugger shell commands. A targeted
 `0xC0000409` exception command writes a minimal dump in the fresh private app-data
 directory, then uses `gn` (not handled) so the original fault still terminates the

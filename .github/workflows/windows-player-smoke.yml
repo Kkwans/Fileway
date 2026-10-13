@@ -54,6 +54,12 @@ jobs:
           }
       - name: Install pinned isolated toolchains
         run: ./eng/Install-WindowsTools.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT
+      - name: Execute production evidence readers and Windows sharing regression
+        run: |
+          . ./eng/Use-WindowsEnvironment.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES
+          $env:FILEWAY_SMOKE_DOTNET = (Get-Command dotnet).Source
+          python -m unittest discover -s eng/tests -p test_player_smoke_harness_contract.py -v
+          if ($LASTEXITCODE -ne 0) { throw 'Player smoke production evidence reader regression failed.' }
       - name: Check interactive desktop and capture before media downloads
         run: ./eng/Test-PlayerSmoke.ps1 -CaptureShutdownStack -PreflightOnly -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
       - name: Install hash-locked PE inspection in private virtual environment
