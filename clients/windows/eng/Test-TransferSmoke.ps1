@@ -16,7 +16,7 @@ Set-StrictMode -Version Latest
 $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png',
     'upload-confirm.png', 'upload-completed.png', 'download-confirm.png',
     'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png',
-    'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png')
+    'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png', 'upload-result-failure.png')
 $script:root = $null
 $script:app = $null
 $script:server = $null
@@ -67,6 +67,21 @@ function Complete-Step([string] $Name, $Details = @{}) {
 function Record-Observation([string] $Name, $Details) {
     $value = [ordered]@{ observation = $Name; stage = $script:stage; elapsedMilliseconds = $script:clock.ElapsedMilliseconds; details = $Details }
     [IO.File]::AppendAllText((Artifact-Path 'events.jsonl'), ($value | ConvertTo-Json -Depth 4 -Compress) + "`n", [Text.UTF8Encoding]::new($false))
+}
+function Observe-FailureShutdown {
+    # These are the already captured exact App/Host process objects and handles.
+    # A diagnostic normal-close attempt cannot change the original failed report.
+    $details = [ordered]@{ closeRequested = 0; appExited = 0; appExitCode = 0; hostExited = 0; hostExitCode = 0; error = 0 }
+    try {
+        if (-not $script:app.HasExited) { $details.closeRequested = [int]$script:app.CloseMainWindow() }
+        $details.appExited = [int]$script:app.WaitForExit(30000)
+        if ($details.appExited) { $details.appExitCode = $script:app.ExitCode }
+    } catch { $details.error = 1 }
+    try {
+        $details.hostExited = [int]$script:ownedHost.WaitForExit(15000)
+        if ($details.hostExited) { $details.hostExitCode = $script:ownedHost.ExitCode }
+    } catch { $details.error = 1 }
+    return $details
 }
 function Wait-Condition([scriptblock] $Predicate, [string] $Code, [int] $TimeoutMilliseconds = 15000) {
     $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -442,6 +457,17 @@ catch {
     $status = 'failed'; $code = 'unexpected_harness_error'; $errorObject = $failure.Exception
     while ($errorObject -and -not $errorObject.Data.Contains('smokeCode')) { $errorObject = $errorObject.InnerException }
     if ($errorObject) { $status = $errorObject.Data['smokeStatus']; $code = $errorObject.Data['smokeCode'] }
+    if ($script:stage -eq 'upload-result' -and $script:app -and -not $script:app.HasExited) {
+        try {
+            Record-Observation 'upload-result-known-status' ([ordered]@{
+                completed = [int](Has-Text $script:window '上传已完成'); conflict = [int](Has-Text $script:window '目标存在同名项目');
+                failed = [int](Has-Text $script:window '上传失败'); unknown = [int](Has-Text $script:window '上传结果待核实');
+                uploading = [int](Has-Text $script:window '正在上传'); reconciling = [int](Has-Text $script:window '正在核实结果');
+            })
+        } catch { Record-Observation 'upload-result-status-read' @{ failed = 1 } }
+        try { Capture 'upload-result-failure.png'; Record-Observation 'upload-result-failure-capture' @{ saved = 1 } }
+        catch { Record-Observation 'upload-result-failure-capture' @{ saved = 0 } }
+    }
     if ($code -eq 'unexpected_harness_error' -and $script:root -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) {
         # Fixed numeric categories only; no exception text, field name, path,
         # stack trace or runtime UIA data leaves the private process memory.
@@ -459,6 +485,9 @@ catch {
         catch { Record-Observation 'connect-failure-capture' @{ saved = 0 } }
     }
     if ($script:root -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) { Write-Report $status $code }
+    if ($script:root -and $script:app -and $script:ownedHost -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) {
+        Record-Observation 'failed-journey-shutdown-diagnostic' (Observe-FailureShutdown)
+    }
     Write-Host "Transfer smoke $status at $($script:stage): $code"
     $exitCode = if ($status -eq 'environment-blocked') { 2 } else { 1 }
 }

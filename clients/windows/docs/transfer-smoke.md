@@ -80,6 +80,10 @@ strict-property/variable/invalid-argument category flags, never exception text.
 Stage polls, CLI commands, startup and shutdown are bounded. An application or Host
 nonzero exit fails the journey even if screenshots and byte checks succeeded.
 Forced teardown after failure does not satisfy normal shutdown.
+After recording an original journey failure, the harness also attempts bounded
+normal close on its already-owned App/Host processes and records numeric exit
+outcomes as diagnostics. These observations never mark that journey passed or
+replace its original failure; forced cleanup still follows if required.
 
 Cancel, resume, pause, uncertain publish/cleanup and local-reconcile UI paths are
 not exercised here. Reports keep cancellation/unknown UI verification false.
@@ -114,6 +118,9 @@ pass; a rejected capture records only a numeric saved/not-saved observation.
 NoAuth/HTTP consent and revealing the submit button, before connecting. The two
 `transfer-center-*.png` captures require the real completed/conflict statuses
 after all four byte-preservation checks. All use the same owned-App guards.
+`upload-result-failure.png` is confined to the synthetic owned App's upload-result
+surface, with fixed known-status presence flags. The original expected-status
+failure remains a failure even if capture or diagnostic close succeeds.
 
 No file is recursively or wildcard-deleted. Unique synthetic input, private
 server/App state and the exact downloaded file are left on the disposable runner

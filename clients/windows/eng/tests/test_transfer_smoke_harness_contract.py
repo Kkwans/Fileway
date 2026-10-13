@@ -369,6 +369,52 @@ if ($code -cne 'inspect_selector_missing') { throw 'invalid_identity_not_rejecte
         self.assertIn("'winapp_command_timeout'", SOURCE)
         self.assertGreater(SOURCE.index("$process.Kill($true)"), passed)
 
+    def test_failure_diagnostics_preserve_original_result_and_scoped_capture(self):
+        self.assertIn("$script:stage -eq 'upload-result' -and $script:app -and -not $script:app.HasExited", SOURCE)
+        self.assertIn("Capture 'upload-result-failure.png'", SOURCE)
+        known = SOURCE.split("Record-Observation 'upload-result-known-status'", 1)[1].split("        } catch", 1)[0]
+        for field in ("completed", "conflict", "failed", "unknown", "uploading", "reconciling"):
+            self.assertRegex(known, field + r" = \[int\]\(Has-Text")
+        helper = SOURCE.split("function Observe-FailureShutdown", 1)[1].split("function Wait-Condition", 1)[0]
+        self.assertIn("$script:app.WaitForExit(30000)", helper)
+        self.assertIn("$script:ownedHost.WaitForExit(15000)", helper)
+        self.assertNotRegex(helper, r"Write-Report|Complete-Step|Kill|GetProcessById|Process\]::Start")
+        self.assertLess(SOURCE.index("Write-Report $status $code"), SOURCE.index("(Observe-FailureShutdown)"))
+        self.assertLess(SOURCE.index("(Observe-FailureShutdown)"), SOURCE.index("$process.Kill($true)"))
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
+    def test_actual_failure_shutdown_helper_reports_numeric_outcomes(self):
+        helper = "function Observe-FailureShutdown" + SOURCE.split("function Observe-FailureShutdown", 1)[1].split("function Wait-Condition", 1)[0]
+        command = "Set-StrictMode -Version Latest; " + helper + r"""
+function New-FixtureProcess($Exited,$ExitCode,$Accepted,$WaitResult,$Throws) {
+    $value=[pscustomobject]@{HasExited=$Exited;ExitCode=$ExitCode;Accepted=$Accepted;WaitResult=$WaitResult;Throws=$Throws;CloseCalls=0;Budgets=[Collections.Generic.List[int]]::new()}
+    $value | Add-Member -MemberType ScriptMethod -Name CloseMainWindow -Value { $this.CloseCalls++; if ($this.Throws) { throw 'fixture-error' }; return $this.Accepted }
+    $value | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($Budget);$this.Budgets.Add($Budget);return $this.WaitResult }
+    return $value
+}
+$script:app=New-FixtureProcess $false -1073740791 $true $true $false
+$script:ownedHost=New-FixtureProcess $false 0 $false $true $false
+$result=Observe-FailureShutdown
+if ($result.closeRequested -ne 1 -or $result.appExited -ne 1 -or $result.appExitCode -ne -1073740791 -or $result.hostExited -ne 1 -or $result.hostExitCode -ne 0 -or $result.error -ne 0) { throw 'fault_not_retained' }
+if ($script:app.Budgets[0] -ne 30000 -or $script:ownedHost.Budgets[0] -ne 15000) { throw 'budgets_wrong' }
+$script:app=New-FixtureProcess $false 0 $false $false $false
+$script:ownedHost=New-FixtureProcess $false 0 $false $false $false
+$result=Observe-FailureShutdown
+if ($result.closeRequested -ne 0 -or $result.appExited -ne 0 -or $result.hostExited -ne 0 -or $result.appExitCode -ne 0 -or $result.hostExitCode -ne 0) { throw 'timeout_reported_as_exit' }
+$script:app=New-FixtureProcess $true 0 $false $true $false
+$script:ownedHost=New-FixtureProcess $true 0 $false $true $false
+$result=Observe-FailureShutdown
+if ($script:app.CloseCalls -ne 0 -or $result.appExited -ne 1 -or $result.hostExited -ne 1 -or $result.error -ne 0) { throw 'already_exited_wrong' }
+$script:app=New-FixtureProcess $false 0 $true $true $true
+$script:ownedHost=New-FixtureProcess $true 0 $false $true $false
+$result=Observe-FailureShutdown
+if ($result.error -ne 1 -or $result.hostExited -ne 1) { throw 'error_or_host_observation_lost' }
+foreach ($value in $result.Values) { if ($value -isnot [int]) { throw 'nonnumeric_diagnostic' } }
+"""
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-Command", command],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
     def test_actual_script_parses_with_powershell(self):
         path = str(ENG / "Test-TransferSmoke.ps1").replace("'", "''")
