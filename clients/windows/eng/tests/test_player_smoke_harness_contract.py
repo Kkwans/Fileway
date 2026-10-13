@@ -162,6 +162,9 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("system_ntdll_signature_invalid", powershell)
         self.assertIn("debugger_system_module_identity_mismatch", powershell)
         self.assertNotIn(".frame /r", powershell)
+        self.assertIn("ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4", powershell)
+        self.assertNotIn("@rdx", powershell)
+        self.assertIn("FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END", powershell)
         self.assertIn("normalShutdownVerified = (-not $script:shutdownDebuggerAttached)", powershell)
         self.assertIn("normalShutdownVerified = $false", powershell)
         start = powershell.index("$script:stage = 'application-shutdown'")
@@ -414,6 +417,57 @@ class HarnessGuards(unittest.TestCase):
                 helper_case(name, block, 2)
             helper_case("missing-module", helper_prefix + "1100 90 nop\n" + helper_suffix, 2, ranges="")
 
+            tail_vectors = []
+            tail_header = "ExceptionCode: c0000409\nNumberParameters: 1\nParameter[0]: a\n"
+            tail_frames = ("00 00000000`00008000 00000000`0000115d ntdll!RtlFailFast2\n"
+                           "01 00000000`00008020 00000000`00000000 ntdll!RtlpHandleInvalidUserCallTarget+0x5d\n")
+            tail_context = ("FILEWAY_CFG_CONTEXT_BEGIN\n"
+                            "rax=00000000deadbeef rbx=00000000cafebabe rcx=000000000000000a\n"
+                            "rdx=0000000000004234 rsi=0000000000005678 rdi=000000000000abcd\n"
+                            "FILEWAY_CFG_CONTEXT_END\n")
+            tail_body = ("FILEWAY_CFG_TAIL_BEGIN\nntdll!RtlpHandleInvalidUserCallTarget+0x4e:\n"
+                         "114e eb00 jmp ntdll!RtlpHandleInvalidUserCallTarget+0x50 (00000000`00001150)\n"
+                         "1150 488bd3 mov rdx,rbx\n1153 b90a000000 mov ecx,0Ah\n"
+                         "1158 e8a3000000 call ntdll!RtlFailFast2 (00000000`00001200)\nFILEWAY_CFG_TAIL_END\n")
+            tail_prefix = helper_prefix + "1100 53 push rbx\n" + helper_suffix
+            tail_ranges = "1000 3000 ntdll (pdb symbols)\nUnloaded modules:\n4000 5000 libmpv-2.dll\n"
+            def tail_case(name, tail=tail_body, context=tail_context, frames=tail_frames, header=tail_header,
+                          ranges=tail_ranges, prefix=tail_prefix, expected_status=1, expected_argument="", expected_count=4):
+                path = f"tail-{name}.log"
+                (root / path).write_text(header + frames + ranges + context + prefix + tail, encoding="utf-8")
+                tail_vectors.append(f'CheckTail("{path}",{expected_status},{expected_count},{json.dumps(expected_argument)});')
+
+            tail_case("unloaded", expected_argument="2|libmpv_2|564")
+            tail_case("loaded", context=tail_context.replace("0000000000004234", "0000000000001234"), expected_argument="1|ntdll|564")
+            tail_case("unmapped", context=tail_context.replace("0000000000004234", "1122334455667788"), expected_argument="0||0")
+            tail_case("ambiguous", ranges=tail_ranges + "4200 4300 libwinpthread-1.dll\n", expected_argument="0||0")
+            tail_case("missing-context", context="")
+            tail_case("missing-register", context=tail_context.replace("rdx=", "zzz="))
+            tail_case("duplicate-context", context=tail_context * 2)
+            tail_case("duplicate-register", context=tail_context.replace("FILEWAY_CFG_CONTEXT_END", "rdx=0000000000004234 rsi=0000000000005678 rdi=000000000000abcd\nFILEWAY_CFG_CONTEXT_END"))
+            tail_case("missing-end-context", context=tail_context.replace("FILEWAY_CFG_CONTEXT_END", ""))
+            tail_case("oversized-context", context=tail_context.replace("FILEWAY_CFG_CONTEXT_END", "\n" * 25 + "FILEWAY_CFG_CONTEXT_END"))
+            tail_case("oversized-context-line", context=tail_context.replace("FILEWAY_CFG_CONTEXT_END", "x" * 2049 + "\nFILEWAY_CFG_CONTEXT_END"))
+            tail_case("private-context", context=tail_context.replace("0000000000004234", "PRIVATE_SECRET_PATH"))
+            tail_case("register-annotation", context=tail_context.replace("000000000000abcd", "000000000000abcd PRIVATE_SECRET"))
+            tail_case("wrong-subcode", header=tail_header.replace("Parameter[0]: a", "Parameter[0]: 7"))
+            tail_case("missing-count", header=tail_header.replace("NumberParameters: 1\n", ""))
+            tail_case("wrong-frame", frames=tail_frames.replace("ntdll!RtlFailFast2", "ntdll!RtlFailFast2+0x1"))
+            tail_case("wrong-caller-frame", frames=tail_frames.replace("+0x5d", "+0x5e"))
+            tail_case("wrong-frame-module", frames=tail_frames.replace("ntdll!RtlFailFast2", "USER32!RtlFailFast2"))
+            tail_case("wrong-source", tail=tail_body.replace("rdx,rbx", "rdx,rax"))
+            tail_case("wrong-destination", tail=tail_body.replace("rdx,rbx", "rcx,rbx"))
+            tail_case("wrong-code", tail=tail_body.replace("ecx,0Ah", "ecx,7"))
+            tail_case("private-code", tail=tail_body.replace("ecx,0Ah", "ecx,SECRET"))
+            tail_case("wrong-call", tail=tail_body.replace("ntdll!RtlFailFast2", "ntdll!PrivateFunction"))
+            tail_case("call-offset", tail=tail_body.replace("ntdll!RtlFailFast2", "ntdll!RtlFailFast2+0x1"))
+            tail_case("shifted-tail", tail=tail_body.replace("+0x4e:", "+0x4f:"), expected_status=2, expected_count=0)
+            tail_case("wrong-end", tail=tail_body.replace("e8a3000000", "e8a30000"), expected_status=2, expected_count=0)
+            tail_case("missing-prefix", prefix="", expected_status=2, expected_count=0)
+            tail_case("missing-tail", tail="", expected_status=0, expected_count=0)
+            tail_case("duplicate-tail", tail=tail_body * 2, expected_status=2, expected_count=0)
+            tail_case("fifth-instruction", tail=tail_body.replace("FILEWAY_CFG_TAIL_END", "115d 90 nop\nFILEWAY_CFG_TAIL_END"), expected_status=2, expected_count=0)
+
             (root / "Program.cs").write_text('''using System; using System.IO; using Fileway.PlayerSmoke;
 class Program {
  static void Check(string path,int width,int height,int expected) {
@@ -452,6 +506,14 @@ class Program {
   foreach(var row in fault.Instructions) rows.Add(row.Index+"|"+row.Offset+"|"+row.Opcode+"|"+row.Decoded+"|"+
    row.FirstKind+"|"+row.FirstRegister+"|"+row.FirstDisplacement+"|"+row.SecondKind+"|"+row.SecondRegister+"|"+row.SecondDisplacement+"|"+row.TargetSymbol+"|"+row.TargetOffset);
   if(string.Join(";",rows)!=expected) throw new Exception(path+": incorrect helper evidence "+string.Join(";",rows));
+ }
+ static void CheckTail(string path,int status,int count,string expectedArgument) {
+  var fault=DebuggerEvidence.Read(path);
+  if(fault.TailStatus!=status||fault.TailInstructions.Length!=count) throw new Exception(path+": incorrect tail status/count");
+  string actual="";
+  if(fault.HelperArgument!=null) actual=fault.HelperArgument.Mapping+"|"+fault.HelperArgument.Module+"|"+fault.HelperArgument.Offset;
+  if(actual!=expectedArgument) throw new Exception(path+": incorrect candidate argument "+actual);
+  if(count==4&&(fault.TailInstructions[0].Offset!=0x4e||fault.TailInstructions[3].Offset!=0x58)) throw new Exception("incorrect tail-relative offsets");
  }
  static void RejectDebugger(string path) {
   bool rejected=false;
@@ -495,7 +557,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors) + '''
+ static void Main() { CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

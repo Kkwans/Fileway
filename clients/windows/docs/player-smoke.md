@@ -218,6 +218,20 @@ operands and annotations are never exported. Invalid boundaries, missing markers
 oversized records or more than 24 instructions reject the entire helper section
 without losing the separate exception/stack evidence.
 
+An additional four-instruction tail is read immediately before the observed
+helper return offset `+0x5d`. It must remain in the same loaded ntdll image,
+contain exactly four contiguous instructions and end at that offset. The same
+enum-only decoder and privacy rules apply. A candidate `helperArgument` mapping
+is enabled only when this run's final three instructions are exactly
+`mov rdx,rbx` at `+0x50`, `mov ecx,0x0a` at `+0x53`, and a direct call to the
+allowlisted `ntdll!RtlFailFast2` at `+0x58`, with the matching two top stack frames
+and CFG subcode 10. Only then can the unique RDX value from the existing bounded,
+explicitly delimited `.ecxr` context produce a loaded/unloaded module-relative
+mapping. No extra register-read command or live breakpoint is added. Missing,
+duplicate or malformed contexts and mismatched data flow produce no candidate.
+This is the helper's candidate argument, not proof of the invalid call target
+or its cause; entry-argument semantics still need independent caller evidence.
+
 Reports include `shutdownDebuggerAttached` and `normalShutdownVerified`. An
 attached-debugger run cannot establish normal production-path shutdown even when
 its observed app and Host exits are zero. Capture/analysis failures are fixed
