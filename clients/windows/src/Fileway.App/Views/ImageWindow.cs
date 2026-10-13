@@ -1,4 +1,5 @@
 using Fileway.Core.Contracts;
+using Fileway.Core.Integration;
 using Fileway.App.Branding;
 using Fileway.App.Controls;
 using Fileway.App.Windowing;
@@ -16,6 +17,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     private const long EncodedByteBudget = 96L * 1024 * 1024;
     private const double PixelBudget = 16_000_000;
     private readonly IImageContentService _service;
+    private readonly IRecentAccessService? _recentAccess;
     private readonly WindowTitleBar _titleBar = new();
     private readonly FramelessWindowChrome _chrome;
     private RemoteResourceRef _resource;
@@ -33,8 +35,10 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     private long _generation;
     private int _index;
 
-    public ImageWindow(IImageContentService service, RemoteResourceRef resource, IReadOnlyList<RemoteResourceRef>? resources = null)
+    public ImageWindow(IImageContentService service, RemoteResourceRef resource, IReadOnlyList<RemoteResourceRef>? resources = null,
+        IRecentAccessService? recentAccess = null)
     {
+        _recentAccess = recentAccess;
         _service = service; _resource = resource; Title = _titleBar.Caption = resource.DisplayName + " · " + AppBranding.DisplayName;
         _resources = resources is { Count: > 0 } ? resources : [resource];
         _index = _resources.ToList().FindIndex(item => item == resource);
@@ -124,11 +128,13 @@ public sealed class ImageWindow : Window, IAsyncDisposable
             token.ThrowIfCancellationRequested();
             var source = new SoftwareBitmapSource();
             await source.SetBitmapAsync(bitmap);
-            if (_closed || generation != _generation) return;
+            if (_closed || generation != _generation || token.IsCancellationRequested) return;
             _image.Source = source; _image.Width = bitmap.PixelWidth; _image.Height = bitmap.PixelHeight;
             _notice.Message = $"{resource.DisplayName} · {bitmap.PixelWidth} × {bitmap.PixelHeight} · Ctrl + 滚轮可缩放";
             _notice.Severity = InfoBarSeverity.Informational;
             Fit();
+            if (_recentAccess is not null)
+                _ = new RecentOpenRecording(_recentAccess, resource, generation).ConfirmOpenedAsync(generation, token);
         }
         catch (OperationCanceledException) { if (!_closed && generation == _generation) _notice.Message = "图片加载已取消。"; }
         catch (Exception exception) { if (!_closed && generation == _generation) { _notice.Message = MainPage.ErrorMessage(exception); _notice.Severity = InfoBarSeverity.Error; } }

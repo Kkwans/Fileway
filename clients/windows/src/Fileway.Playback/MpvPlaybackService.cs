@@ -12,6 +12,7 @@ public sealed class MpvPlaybackService : IPlaybackService
     private readonly IResourceLeaseProvider _leases;
     private readonly IPlaybackSurfaceFactory _surfaces;
     private readonly IPlaybackProgressStore? _progressStore;
+    private readonly IRecentAccessService? _recentAccess;
     private readonly Lazy<MpvNative> _native;
     private readonly ConcurrentDictionary<Guid, PlaybackEntry> _sessions = new();
     private readonly SemaphoreSlim _lifecycle = new(1, 1);
@@ -23,7 +24,7 @@ public sealed class MpvPlaybackService : IPlaybackService
     private sealed record PlaybackEntry(MpvPlaybackSession Native, IPlaybackSession Presented);
 
     public MpvPlaybackService(IResourceLeaseProvider leases, IPlaybackSurfaceFactory surfaces, string runtimeDirectory,
-        IPlaybackProgressStore? progressStore = null)
+        IPlaybackProgressStore? progressStore = null, IRecentAccessService? recentAccess = null)
     {
         ArgumentNullException.ThrowIfNull(leases);
         ArgumentNullException.ThrowIfNull(surfaces);
@@ -31,6 +32,7 @@ public sealed class MpvPlaybackService : IPlaybackService
         _leases = leases;
         _surfaces = surfaces;
         _progressStore = progressStore;
+        _recentAccess = recentAccess;
         _native = new Lazy<MpvNative>(() => new MpvNative(runtimeDirectory));
     }
 
@@ -67,7 +69,7 @@ public sealed class MpvPlaybackService : IPlaybackService
             }
             var native = await Task.Run(() => _native.Value, cancellationToken).ConfigureAwait(false);
             var session = new MpvPlaybackSession(request, Interlocked.Increment(ref _generation), native, _leases, _surfaces,
-                id => _sessions.TryRemove(id, out _));
+                id => _sessions.TryRemove(id, out _), _recentAccess);
             IPlaybackSession presented = remote is not null && _progressStore is not null
                 ? new ProgressPlaybackSession(session, remote.Resource, _progressStore, prompt, progressError) : session;
             session.PresentationSession = presented;

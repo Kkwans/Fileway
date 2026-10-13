@@ -21,6 +21,8 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
     private readonly IResourceLeaseProvider _leases;
     private readonly IPlaybackSurfaceFactory _surfaces;
     private readonly Action<Guid> _released;
+    private readonly IRecentAccessService? _recentAccess;
+    private RecentPlaybackOpenRecording? _recentOpen;
     private readonly List<IResourceLease> _ownedLeases = [];
     private readonly List<Channel<PlaybackSnapshot>> _watchers = [];
     private readonly Channel<PlaybackCommand> _commands = Channel.CreateBounded<PlaybackCommand>(64);
@@ -47,13 +49,14 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
     private sealed record PlaybackCommand(string[][] Arguments, TaskCompletionSource Completion, CancellationToken Cancellation);
 
     internal MpvPlaybackSession(PlaybackOpenRequest request, long generation, MpvNative native, IResourceLeaseProvider leases,
-        IPlaybackSurfaceFactory surfaces, Action<Guid> released)
+        IPlaybackSurfaceFactory surfaces, Action<Guid> released, IRecentAccessService? recentAccess = null)
     {
         _request = request;
         _native = native;
         _leases = leases;
         _surfaces = surfaces;
         _released = released;
+        _recentAccess = recentAccess;
         string displayName = request.Input switch { RemotePlaybackInput remote => remote.Resource.DisplayName, LocalPlaybackInput local => local.DisplayName, _ => "媒体" };
         _snapshot = new PlaybackSnapshot(Id, generation, displayName, PlaybackStatus.Preparing, TimeSpan.Zero, null, null, false,
             Array.Empty<MediaTrack>(), new SubtitleCapabilities(true, true, true, true, true), new PlaybackDiagnostics());
@@ -74,6 +77,9 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
 
     private async Task StartCoreAsync(CancellationToken cancellationToken)
     {
+        if (_recentAccess is not null && _request.Input is RemotePlaybackInput remote)
+            _recentOpen = new RecentPlaybackOpenRecording(_recentAccess, remote.Resource, Id, _snapshot.Generation,
+                cancellationToken, _startStop.Token);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _startStop.Token);
         cancellationToken = lifetime.Token;
         try
@@ -122,6 +128,8 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             _events = Task.Factory.StartNew(EventPump, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             _ready.TrySetResult();
             await QueueAsync([["loadfile", source, "replace"]], cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            _recentOpen?.Accepted();
         }
         catch (Exception error)
         {
@@ -483,6 +491,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
         {
             if (_closing && !terminal) return;
             _snapshot = change(_snapshot);
+            _recentOpen?.Observe(_snapshot);
             foreach (var watcher in _watchers) watcher.Writer.TryWrite(_snapshot);
         }
     }
@@ -575,6 +584,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             if (_stop is null)
             {
                 _closing = true;
+                _recentOpen?.Dispose();
                 _commands.Writer.TryComplete();
                 Publish(snapshot => snapshot with { Status = PlaybackStatus.Closing, DownloadBytesPerSecond = null }, terminal: true);
                 _stop = Task.Run(StopCoreAsync, CancellationToken.None);

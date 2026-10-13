@@ -471,7 +471,7 @@ public sealed partial class MainPage : Page, IDisposable
         {
             if (row.IsImage && _images is not null)
             {
-                var window = new ImageWindow(_images, row.File.Resource, images); _imageWindows.Add(window);
+                var window = new ImageWindow(_images, row.File.Resource, images, _files as IRecentAccessService); _imageWindows.Add(window);
                 window.SetTheme(Shell.RequestedTheme);
                 window.Closed += (_, _) => _imageWindows.Remove(window); window.Activate();
             }

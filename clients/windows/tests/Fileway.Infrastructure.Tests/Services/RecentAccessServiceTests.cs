@@ -278,6 +278,25 @@ public sealed class RecentAccessServiceTests
         Assert.Empty(host.Writes);
     }
 
+    [Fact]
+    public async Task ConfirmedOpenRecorderCannotRebindToReplacementAccountSession()
+    {
+        await using var host = new RecentHost { Entries = new[] { Entry("id", "/a", "/a", true) } };
+        await using var services = new FilewayClientServices(host);
+        var session = await Connect(services);
+        var resource = Assert.Single(await services.ListRecentAsync(session.Account, Token)).Resource!;
+        var recording = new RecentOpenRecording(services, resource, 1);
+        await services.DisconnectAsync(session.Account, Token);
+        var replacement = await Connect(services);
+        Assert.Equal(session.Account, replacement.Account);
+        Assert.NotEqual(session.Id, replacement.Id);
+
+        await recording.ConfirmOpenedAsync(1, Token);
+        await recording.ConfirmOpenedAsync(1, Token);
+
+        Assert.Empty(host.Writes);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
