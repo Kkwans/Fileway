@@ -103,4 +103,5 @@ jobs:
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-save-as-menu-failure.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/checksum-ready.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/checksum-result.png
+            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/checksum-ready-failure.png
           if-no-files-found: ignore

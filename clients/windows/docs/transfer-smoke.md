@@ -175,6 +175,12 @@ algorithm/byte-count checks. The popup helper accepts only the two fixed Save
 As/checksum menu labels. `checksumUiVerified` requires the complete journey and
 normal zero App/Host exits. This covers positive SHA-256 only, not the other
 algorithms, checksum cancellation, theme/scaling or accessibility acceptance.
+`checksum-ready-failure.png` is limited to the owned synthetic main window at
+the checksum-ready gate. Fixed diagnostics record source/default-algorithm
+presence, visible ComboBox counts and whether an exact algorithm header's
+pinned `ui get-value` result targets that same selector and reads SHA-256.
+The result's real schema is `elementId`/`text`; only numeric flags are retained.
+No raw value or UIA data is exported, and the original gate/failure is preserved.
 
 No file is recursively or wildcard-deleted. Unique synthetic input, private
 server/App state and the exact downloaded file are left on the disposable runner

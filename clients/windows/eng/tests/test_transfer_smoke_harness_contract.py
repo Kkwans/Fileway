@@ -701,6 +701,50 @@ if($null -eq $code -or $script:invokes -ne 2 -or $script:controls -ne 2){throw '
         result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_checksum_ready_failure_keeps_gate_and_owned_main_capture(self):
+        self.assertIn("$script:stage -eq 'checksum-ready'", SOURCE)
+        self.assertIn("Capture 'checksum-ready-failure.png'", SOURCE)
+        self.assertIn("Has-ChecksumText $elements 'SHA-256'", SOURCE[SOURCE.index('function Verify-Checksum'):SOURCE.index('function Assert-Payload')])
+        helper = SOURCE[SOURCE.index('function Observe-ChecksumReady'):SOURCE.index('function Verify-Checksum')]
+        self.assertIn("'get-value', $algorithms[0].selector", helper)
+        self.assertIn("$result.Contains('text') -and $result.text -ceq 'SHA-256'", helper)
+        self.assertNotRegex(helper, r'Record-Observation.*\$(?:result|elements|combos|algorithms)')
+        self.assertNotIn('Capture ', helper)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual checksum diagnostic runs in Windows CI")
+    def test_actual_checksum_ready_diagnostic_reads_selection_without_altering_gate(self):
+        policy = SOURCE[SOURCE.index('function Has-ChecksumText'):SOURCE.index('function Test-ChecksumResult')]
+        helper = SOURCE[SOURCE.index('function Observe-ChecksumReady'):SOURCE.index('function Verify-Checksum')]
+        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;" + policy + helper + r"""
+$script:window=[IntPtr]7;$script:reads=0;$script:events=@()
+function Read-ChecksumDialog { return $script:elements }
+function Invoke-WinApp {param([string[]]$Arguments)
+    if(($Arguments -join '|') -cne 'ui|get-value|algorithm|-w|7|--json'){throw 'unexpected_or_mutating_command'}
+    $script:reads++;return $script:response
+}
+function Record-Observation {param($Name,$Details)
+    if($Name -cne 'checksum-ready-fixed-state'){throw 'wrong_observation'}
+    foreach($value in $Details.Values){if($value -isnot [int]){throw 'private_metadata_exported'}}
+    $script:events+=,$Details
+}
+$script:elements=@(@{selector='source';type='Text';name='fixture.bin';isEnabled=$true;isOffscreen=$false},
+    @{selector='algorithm';type='ComboBox';name='算法';isEnabled=$true;isOffscreen=$false},@{type='Pane';isEnabled=$true;isOffscreen=$false})
+# Official UiGetValueResult has elementId/text, not a value property.
+$script:response=@{elementId='algorithm';text='SHA-256'}
+Observe-ChecksumReady 'fixture.bin'
+if($script:reads -ne 1 -or $script:events[0].sourceText -ne 1 -or $script:events[0].algorithmText -ne 0 -or
+    $script:events[0].selectedValueTargetMatches -ne 1 -or $script:events[0].selectedValueSha256 -ne 1){throw 'selection_diagnostics_wrong'}
+$script:elements+=@{selector='other-algorithm';type='ComboBox';name='算法';isEnabled=$true;isOffscreen=$false}
+Observe-ChecksumReady 'fixture.bin'
+if($script:reads -ne 1 -or $script:events[1].algorithmHeaderMatches -ne 2 -or $script:events[1].selectedValueSha256 -ne 0){throw 'ambiguous_selection_read'}
+$script:elements=$script:elements | Where-Object { -not $_.Contains('selector') -or $_.selector -cne 'other-algorithm' }
+$script:response=@{elementId='foreign';text='SHA-512'}
+Observe-ChecksumReady 'fixture.bin'
+if($script:events[2].selectedValueTargetMatches -ne 0 -or $script:events[2].selectedValueSha256 -ne 0){throw 'mismatch_hidden'}
+"""
+        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_conflict_asserts_same_bytes_after_real_ui_operation(self):
         self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 4)
         self.assertEqual(SOURCE.count("Assert-Payload $destination $expectedHash"), 3)

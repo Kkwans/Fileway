@@ -18,7 +18,7 @@ $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight
     'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png',
     'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png', 'upload-result-failure.png',
     'download-save-as-confirm.png', 'download-save-as-completed.png', 'download-save-as-menu-failure.png',
-    'checksum-ready.png', 'checksum-result.png')
+    'checksum-ready.png', 'checksum-result.png', 'checksum-ready-failure.png')
 $script:root = $null
 $script:app = $null
 $script:server = $null
@@ -407,6 +407,23 @@ function Test-ChecksumResult($Elements, [string] $ExpectedHash) {
     return ($digests.Count -eq 1 -and $digests[0].name -ieq $ExpectedHash -and
         (Has-ChecksumText $Elements '与预期校验和一致') -and (Has-ChecksumText $Elements 'SHA-256 · 1 MB'))
 }
+function Observe-ChecksumReady([string] $RemoteName) {
+    $elements = @(Read-ChecksumDialog)
+    $combos = @($elements | Where-Object { $_.type -eq 'ComboBox' -and $_.isEnabled -and -not $_.isOffscreen })
+    $algorithms = @($combos | Where-Object { $_.Contains('name') -and $_.name -ceq '算法' })
+    $checks = [ordered]@{ sourceText = [int](Has-ChecksumText $elements $RemoteName); algorithmText = [int](Has-ChecksumText $elements 'SHA-256');
+        comboBoxes = $combos.Count; algorithmHeaderMatches = $algorithms.Count; selectedValueTargetMatches = 0; selectedValueSha256 = 0; selectedValueError = 0 }
+    if ($algorithms.Count -eq 1) {
+        # Pinned get-value can read SelectionPattern's current selected name.
+        # Diagnostic only: no raw value/selector is retained, no gate is relaxed.
+        try {
+            $result = Invoke-WinApp @('ui', 'get-value', $algorithms[0].selector, '-w', $script:window.ToInt64().ToString(), '--json')
+            $checks.selectedValueTargetMatches = [int]($result.elementId -ceq $algorithms[0].selector)
+            $checks.selectedValueSha256 = [int]($result.Contains('text') -and $result.text -ceq 'SHA-256')
+        } catch { $checks.selectedValueError = 1 }
+    }
+    Record-Observation 'checksum-ready-fixed-state' $checks
+}
 function Verify-Checksum([string] $RemoteName, [string] $ExpectedHash) {
     Open-FileContextMenu $script:window $RemoteName 'checksum'
     $script:stage = 'checksum-menu-choice'
@@ -635,6 +652,12 @@ catch {
         $script:stage -in @('download-save-as-row-select', 'download-save-as-menu-key', 'download-save-as-menu-choice')) {
         try { Capture 'download-save-as-menu-failure.png'; Record-Observation 'save-as-menu-failure-capture' @{ saved = 1 } }
         catch { Record-Observation 'save-as-menu-failure-capture' @{ saved = 0 } }
+    }
+    if ($script:root -and $script:app -and -not $script:app.HasExited -and $script:window -ne [IntPtr]::Zero -and $script:stage -eq 'checksum-ready') {
+        try { Observe-ChecksumReady $name }
+        catch { Record-Observation 'checksum-ready-fixed-state' @{ error = 1 } }
+        try { Capture 'checksum-ready-failure.png'; Record-Observation 'checksum-ready-failure-capture' @{ saved = 1 } }
+        catch { Record-Observation 'checksum-ready-failure-capture' @{ saved = 0 } }
     }
     if ($script:root -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) { Write-Report $status $code }
     if ($script:root -and $script:app -and $script:ownedHost -and [IO.Directory]::Exists((Join-Path $script:root 'screenshots'))) {
