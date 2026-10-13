@@ -166,8 +166,9 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         SubtitleText.Text = snapshot.DisplayName;
         SubtitleText.Visibility = hasMediaExtension ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(TitleText, snapshot.DisplayName);
-        PlayIcon.IconName = snapshot.Status is PlaybackStatus.Paused or PlaybackStatus.Ended ? "Play" : "Pause";
-        AutomationProperties.SetName(PlayButton, snapshot.Status == PlaybackStatus.Ended ? "重新播放" : snapshot.Status == PlaybackStatus.Paused ? "开始播放" : "暂停播放");
+        var pauseAction = PlaybackPausePolicy.GetAction(snapshot);
+        PlayIcon.IconName = pauseAction.IconName;
+        AutomationProperties.SetName(PlayButton, pauseAction.AutomationName);
         PlayButton.IsEnabled = snapshot.Status is PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Ended or PlaybackStatus.Buffering;
         SeekSlider.IsEnabled = snapshot.Seekable && snapshot.Duration is { TotalSeconds: > 0 };
         BackTenButton.IsEnabled = snapshot.Seekable;
@@ -419,9 +420,9 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private async void Play_Click(object sender, RoutedEventArgs args) => await TogglePlayAsync();
     private async Task TogglePlayAsync() => await RunAsync(async token =>
     {
-        var snapshot = _session.Snapshot;
-        if (snapshot.Status == PlaybackStatus.Ended) await _session.SeekAsync(TimeSpan.Zero, token);
-        await _session.SetPausedAsync(snapshot.Status != PlaybackStatus.Paused && snapshot.Status != PlaybackStatus.Ended, token);
+        var action = PlaybackPausePolicy.GetAction(_session.Snapshot);
+        if (action.Restart) await _session.SeekAsync(TimeSpan.Zero, token);
+        await _session.SetPausedAsync(action.TargetPaused, token);
     });
     private async void BackTen_Click(object sender, RoutedEventArgs args) => await SeekRelativeAsync(-10);
     private async void ForwardTen_Click(object sender, RoutedEventArgs args) => await SeekRelativeAsync(10);

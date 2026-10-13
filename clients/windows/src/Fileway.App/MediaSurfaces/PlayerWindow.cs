@@ -478,9 +478,9 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
 
     private async Task TogglePausedAsync()
     {
-        var snapshot = _session.Snapshot;
-        if (snapshot.Status == PlaybackStatus.Ended) await _session.SeekAsync(TimeSpan.Zero, _watchCancellation.Token);
-        await _session.SetPausedAsync(snapshot.Status != PlaybackStatus.Paused && snapshot.Status != PlaybackStatus.Ended, _watchCancellation.Token);
+        var action = PlaybackPausePolicy.GetAction(_session.Snapshot);
+        if (action.Restart) await _session.SeekAsync(TimeSpan.Zero, _watchCancellation.Token);
+        await _session.SetPausedAsync(action.TargetPaused, _watchCancellation.Token);
     }
 
     private Task SeekRelativeAsync(double seconds)

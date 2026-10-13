@@ -91,7 +91,9 @@ public sealed record PlaybackSnapshot(
     double? DisplayAspectRatio = null,
     PlaybackResumePrompt? ResumePrompt = null,
     IReadOnlyList<BufferedTimeRange>? BufferedRanges = null,
-    double? DownloadBytesPerSecond = null)
+    double? DownloadBytesPerSecond = null,
+    // Engine-confirmed pause is independent of transient buffering/seeking; null means not observed yet.
+    bool? IsPaused = null)
 {
     public override string ToString() => "PlaybackSnapshot (private media details redacted)";
 }

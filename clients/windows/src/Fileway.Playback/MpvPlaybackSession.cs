@@ -340,7 +340,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             case "duration" when property.Value is double duration && IsMediaTime(duration):
                 Publish(snapshot => snapshot with { Duration = TimeSpan.FromSeconds(duration) });
                 UpdateCache(_cacheState); break;
-            case "pause" when property.Value is bool paused: _paused = paused; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
+            case "pause" when property.Value is bool paused: _paused = paused; Publish(snapshot => snapshot with { Status = CurrentStatus(), IsPaused = paused }); break;
             case "seeking" when property.Value is bool seeking: _seeking = seeking; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
             case "paused-for-cache" when property.Value is bool buffering: _buffering = buffering; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
             case "eof-reached" when property.Value is bool ended: _ended = ended; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
