@@ -200,6 +200,24 @@ retains its module only. Duplicate exception or module records reject the eviden
 Frame offsets use `offsetKind=0` for unavailable, `1` for module-relative and `2`
 for an allowlisted symbol-relative offset. Absolute addresses are never exported.
 
+The same offline analysis reads at most 24 instructions starting at the exact
+public symbol `ntdll!RtlpHandleInvalidUserCallTarget`, using the bounded
+[unassemble command](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/u--unassemble-).
+The live process's ntdll image must match the Microsoft-signed system image.
+This code-only diagnostic establishes the helper's actual calling convention
+before any proposed single-value capture; it does not identify a runtime target.
+Raw disassembly stays private. `shutdown-cfg-helper` uses status 0 (absent), 1
+(validated), or 2 (rejected). Only contiguous code inside the loaded ntdll range
+is accepted. Rebuilt instruction records contain a helper-relative offset,
+fixed opcode/register names, bounded stack-slot displacements, and allowlisted
+ntdll call/branch symbols with relative offsets. Operand kinds are 0 (absent or
+unknown), 1 (register), 2 (stack slot), 3 (immediate with its value discarded),
+or 4 (allowlisted symbol). An unknown opcode or operand has `decoded=0` and no
+operand data. Instruction bytes, immediate values, absolute addresses, arbitrary
+operands and annotations are never exported. Invalid boundaries, missing markers,
+oversized records or more than 24 instructions reject the entire helper section
+without losing the separate exception/stack evidence.
+
 Reports include `shutdownDebuggerAttached` and `normalShutdownVerified`. An
 attached-debugger run cannot establish normal production-path shutdown even when
 its observed app and Host exits are zero. Capture/analysis failures are fixed

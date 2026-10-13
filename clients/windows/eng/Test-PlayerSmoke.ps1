@@ -29,6 +29,7 @@ $script:shutdownDebugger = $null
 $script:shutdownDebuggerOutput = $null
 $script:shutdownDebuggerError = $null
 $script:cdbPath = $null
+$script:ntdllPath = $null
 $script:appStartTicks = 0L
 $script:shutdownDebuggerAttached = $false
 $script:debuggerAttachPhase = 0
@@ -249,13 +250,27 @@ namespace Fileway.PlayerSmoke {
         public readonly ulong Offset;
         internal DebuggerParameter(int index,int mapping,string module,ulong offset) { Index=index; Mapping=mapping; Module=module; Offset=offset; }
     }
+    public sealed class DebuggerInstruction {
+        public readonly int Index, Decoded, FirstKind, SecondKind, FirstDisplacement, SecondDisplacement;
+        public readonly ulong Offset, TargetOffset;
+        public readonly string Opcode, FirstRegister, SecondRegister, TargetSymbol;
+        internal DebuggerInstruction(int index,ulong offset,string opcode,int decoded,int firstKind,string firstRegister,int firstDisplacement,
+            int secondKind,string secondRegister,int secondDisplacement,string targetSymbol,ulong targetOffset) {
+            Index=index; Offset=offset; Opcode=opcode; Decoded=decoded;
+            FirstKind=firstKind; FirstRegister=firstRegister; FirstDisplacement=firstDisplacement;
+            SecondKind=secondKind; SecondRegister=secondRegister; SecondDisplacement=secondDisplacement;
+            TargetSymbol=targetSymbol; TargetOffset=targetOffset;
+        }
+    }
     public sealed class DebuggerFault {
         public readonly uint ExceptionCode;
-        public readonly int FastFailSubcode, ParameterCount;
+        public readonly int FastFailSubcode, ParameterCount, HelperStatus;
         public readonly DebuggerFrame[] Frames;
         public readonly DebuggerParameter[] Parameters;
-        internal DebuggerFault(uint code,int subcode,int parameterCount,DebuggerFrame[] frames,DebuggerParameter[] parameters) {
+        public readonly DebuggerInstruction[] Instructions;
+        internal DebuggerFault(uint code,int subcode,int parameterCount,DebuggerFrame[] frames,DebuggerParameter[] parameters,int helperStatus,DebuggerInstruction[] instructions) {
             ExceptionCode=code; FastFailSubcode=subcode; ParameterCount=parameterCount; Frames=frames; Parameters=parameters;
+            HelperStatus=helperStatus; Instructions=instructions;
         }
     }
     public static class DebuggerEvidence {
@@ -313,6 +328,80 @@ namespace Fileway.PlayerSmoke {
             string module;
             if(ModuleFiles.TryGetValue(name,out module)) return module;
             return Array.Find(Modules,item=>item.Equals(name,StringComparison.OrdinalIgnoreCase));
+        }
+
+        // This is a decoder for one public OS helper's code, never a register or
+        // memory scan. Keep opcode/register names as fixed enums, not raw tokens.
+        static readonly string[] Opcodes={"mov","movzx","movsxd","lea","push","pop","sub","add","and","or","xor","test","cmp",
+            "call","jmp","je","jne","jz","jnz","ja","jae","jb","jbe","jg","jge","jl","jle","ret","nop","int","int3"};
+        static readonly string[] Registers={"rax","rbx","rcx","rdx","rsi","rdi","rsp","rbp","r8","r9","r10","r11","r12","r13","r14","r15",
+            "eax","ebx","ecx","edx","esi","edi","esp","ebp","r8d","r9d","r10d","r11d","r12d","r13d","r14d","r15d",
+            "al","bl","cl","dl"};
+        static bool Operand(string text,out int kind,out string register,out int displacement) {
+            kind=0; register=""; displacement=0;
+            string found=Array.Find(Registers,name=>name==text);
+            if(found!=null) { kind=1; register=found; return true; }
+            var stack=System.Text.RegularExpressions.Regex.Match(text,@"^(?:(?:byte|word|dword|qword) ptr )?\[(rsp|rbp)(?:([+-])([0-9a-fA-F]{1,4})h?)?\]$");
+            ulong number;
+            if(stack.Success) {
+                if(stack.Groups[3].Success&&(!Hex(stack.Groups[3].Value,out number)||number>4096)) return false;
+                if(stack.Groups[3].Success) { Hex(stack.Groups[3].Value,out number); displacement=(int)number*(stack.Groups[2].Value=="-"?-1:1); }
+                kind=2; register=stack.Groups[1].Value=="rsp"?"rsp":"rbp"; return true;
+            }
+            // Static immediate operands are identified but their values are never
+            // exported; they are unnecessary for establishing target data flow.
+            var immediate=System.Text.RegularExpressions.Regex.Match(text,@"^(?:0x)?([0-9a-fA-F]{1,16})h?$");
+            if(immediate.Success&&Hex(immediate.Groups[1].Value,out number)) { kind=3; return true; }
+            return false;
+        }
+        static DebuggerInstruction[] Helper(string[] lines,Dictionary<string,ulong[]> ranges,out int status) {
+            status=0; int begin=-1,end=-1;
+            for(int i=0;i<lines.Length;i++) {
+                string marker=lines[i].TrimEnd('\r');
+                if(marker=="FILEWAY_CFG_HELPER_BEGIN") { if(begin!=-1) { status=2; return Array.Empty<DebuggerInstruction>(); } begin=i; }
+                if(marker=="FILEWAY_CFG_HELPER_END") { if(end!=-1) { status=2; return Array.Empty<DebuggerInstruction>(); } end=i; }
+            }
+            if(begin==-1&&end==-1) return Array.Empty<DebuggerInstruction>();
+            status=2; ulong[] range;
+            if(begin<0||end<=begin||end-begin>28||!ranges.TryGetValue("ntdll",out range)) return Array.Empty<DebuggerInstruction>();
+            var result=new List<DebuggerInstruction>(); bool header=false; ulong first=0,next=0;
+            for(int i=begin+1;i<end;i++) {
+                string line=lines[i].Trim();
+                if(line.Length==0) continue;
+                if(line.Length>2048) return Array.Empty<DebuggerInstruction>();
+                if(!header) { if(line!="ntdll!RtlpHandleInvalidUserCallTarget:") return Array.Empty<DebuggerInstruction>(); header=true; continue; }
+                var match=System.Text.RegularExpressions.Regex.Match(line,@"^([0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})[ \t]+([0-9a-fA-F]{2,30})[ \t]+([a-z][a-z0-9]*)[ \t]*(.*)$");
+                ulong address;
+                if(!match.Success||result.Count>=24||match.Groups[2].Length%2!=0||!Address(match.Groups[1].Value,out address)||
+                    address<range[0]||address>=range[1]||address-range[0]>uint.MaxValue) return Array.Empty<DebuggerInstruction>();
+                if(result.Count==0) first=address;
+                else if(address!=next) return Array.Empty<DebuggerInstruction>();
+                int size=match.Groups[2].Length/2;
+                if(address>ulong.MaxValue-(ulong)size||address+(ulong)size>range[1]) return Array.Empty<DebuggerInstruction>();
+                next=address+(ulong)size;
+                string opcode=Array.Find(Opcodes,name=>name==match.Groups[3].Value)??"";
+                string operands=match.Groups[4].Value.Trim(),r1="",r2="",target=""; int kind1=0,kind2=0,d1=0,d2=0,decoded=0; ulong targetOffset=0;
+                if(opcode.Length!=0) {
+                    if(operands.Length==0&&(opcode=="ret"||opcode=="nop"||opcode=="int3")) decoded=1;
+                    else if(opcode=="call"||opcode.StartsWith("j",StringComparison.Ordinal)) {
+                        var call=System.Text.RegularExpressions.Regex.Match(operands,@"^ntdll!([A-Za-z0-9_]+)(?:\+0x([0-9a-fA-F]{1,8}))? \(([0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})\)$");
+                        ulong destination,delta=0;
+                        if(call.Success&&Address(call.Groups[3].Value,out destination)&&destination>=range[0]&&destination<range[1]&&
+                            (!call.Groups[2].Success||Hex(call.Groups[2].Value,out delta))&&delta<=destination-range[0]) {
+                            string known=Array.Find(Symbols,name=>name==call.Groups[1].Value);
+                            if(known!=null) { decoded=1; kind1=4; target=known; targetOffset=delta; }
+                        } else if(Operand(operands,out kind1,out r1,out d1)&&kind1==1) decoded=1;
+                    } else {
+                        string[] values=operands.Split(',');
+                        if(values.Length==1&&(opcode=="push"||opcode=="pop"||opcode=="int"||opcode=="ret")&&Operand(values[0].Trim(),out kind1,out r1,out d1)) decoded=1;
+                        else if(values.Length==2&&Operand(values[0].Trim(),out kind1,out r1,out d1)&&Operand(values[1].Trim(),out kind2,out r2,out d2)) decoded=1;
+                    }
+                }
+                if(decoded==0) { kind1=kind2=d1=d2=0; r1=r2=target=""; targetOffset=0; }
+                result.Add(new DebuggerInstruction(result.Count,address-first,opcode,decoded,kind1,r1,d1,kind2,r2,d2,target,targetOffset));
+            }
+            if(!header||result.Count==0) return Array.Empty<DebuggerInstruction>();
+            status=1; return result.ToArray();
         }
 
         public static bool HasReadyMarker(string path) {
@@ -432,7 +521,8 @@ namespace Fileway.PlayerSmoke {
                 if(matches!=1) { mapping=0; module=""; offset=0; }
                 mapped.Add(new DebuggerParameter(parameterIndex,mapping,module,offset));
             }
-            return new DebuggerFault(code,subcode,parameterCount,frames.ToArray(),mapped.ToArray());
+            int helperStatus; var instructions=Helper(lines,ranges,out helperStatus);
+            return new DebuggerFault(code,subcode,parameterCount,frames.ToArray(),mapped.ToArray(),helperStatus,instructions);
         }
     }
 
@@ -796,6 +886,12 @@ function Assert-SdkDebugger {
         Stop-Smoke 'sdk_debugger_signature_invalid' -EnvironmentBlocked
     }
     $script:cdbPath = $candidate
+    $script:ntdllPath = Join-Path ([Environment]::SystemDirectory) 'ntdll.dll'
+    $signature = Get-AuthenticodeSignature -LiteralPath $script:ntdllPath
+    if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
+        $signature.SignerCertificate.Subject -notmatch '(^|,\s*)O=Microsoft Corporation(,|$)') {
+        Stop-Smoke 'system_ntdll_signature_invalid' -EnvironmentBlocked
+    }
 }
 
 function Start-ShutdownDebugger {
@@ -805,6 +901,11 @@ function Start-ShutdownDebugger {
     if ($script:process.HasExited -or $script:process.StartTime.ToUniversalTime().Ticks -ne $script:appStartTicks -or
         -not [string]::Equals($script:process.MainModule.FileName, [IO.Path]::GetFullPath($AppPath), [StringComparison]::OrdinalIgnoreCase)) {
         Stop-Smoke 'debugger_app_identity_mismatch'
+    }
+    $ntdllModules = @($script:process.Modules | Where-Object { $_.ModuleName -ieq 'ntdll.dll' })
+    if ($ntdllModules.Count -ne 1 -or
+        -not [string]::Equals($ntdllModules[0].FileName, $script:ntdllPath, [StringComparison]::OrdinalIgnoreCase)) {
+        Stop-Smoke 'debugger_system_module_identity_mismatch'
     }
     $script:debuggerAttachPhase = 2
     # Relative dump name is interpreted only in the fresh private working directory.
@@ -877,7 +978,7 @@ function Record-SafeDebuggerEvidence {
     $start.WorkingDirectory = $script:privateRoot
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
     foreach ($argument in @('-z', $dump, '-sins', '-noshell', '-y', "srv*$symbols*https://msdl.microsoft.com/download/symbols",
-        '-logo', $log, '-c', '.ecxr; .exr -1; kn 0n24; lm; q')) { $start.ArgumentList.Add($argument) }
+        '-logo', $log, '-c', '.ecxr; .exr -1; kn 0n24; lm; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; q')) { $start.ArgumentList.Add($argument) }
     $analysis = [Diagnostics.Process]::Start($start)
     try {
         $stdout = $analysis.StandardOutput.ReadToEndAsync(); $stderr = $analysis.StandardError.ReadToEndAsync()
@@ -895,6 +996,15 @@ function Record-SafeDebuggerEvidence {
             Record-Observation 'shutdown-native-frame' @{
                 index = [int]$frame.Index; module = [string]$frame.Module; symbol = [string]$frame.Symbol
                 offset = [uint64]$frame.Offset; offsetKind = [int]$frame.OffsetKind
+            }
+        }
+        Record-Observation 'shutdown-cfg-helper' @{ status = [int]$fault.HelperStatus; instructionCount = [int]$fault.Instructions.Length }
+        foreach ($instruction in $fault.Instructions) {
+            Record-Observation 'shutdown-cfg-instruction' @{
+                index = [int]$instruction.Index; offset = [uint64]$instruction.Offset; opcode = [string]$instruction.Opcode; decoded = [int]$instruction.Decoded
+                firstKind = [int]$instruction.FirstKind; firstRegister = [string]$instruction.FirstRegister; firstDisplacement = [int]$instruction.FirstDisplacement
+                secondKind = [int]$instruction.SecondKind; secondRegister = [string]$instruction.SecondRegister; secondDisplacement = [int]$instruction.SecondDisplacement
+                targetSymbol = [string]$instruction.TargetSymbol; targetOffset = [uint64]$instruction.TargetOffset
             }
         }
     } catch { Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_evidence_rejected' } }

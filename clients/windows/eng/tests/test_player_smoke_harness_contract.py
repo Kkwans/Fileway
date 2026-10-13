@@ -158,7 +158,10 @@ class HarnessGuards(unittest.TestCase):
         self.assertNotIn("[IO.File]::ReadAllText($log)", powershell)
         self.assertIn("hresult = [int]$attachError.HResult", powershell)
         self.assertIn("srv*$symbols*https://msdl.microsoft.com/download/symbols", powershell)
-        self.assertIn("'.ecxr; .exr -1; kn 0n24; lm; q'", powershell)
+        self.assertIn("u ntdll!RtlpHandleInvalidUserCallTarget L0n24", powershell)
+        self.assertIn("system_ntdll_signature_invalid", powershell)
+        self.assertIn("debugger_system_module_identity_mismatch", powershell)
+        self.assertNotIn(".frame /r", powershell)
         self.assertIn("normalShutdownVerified = (-not $script:shutdownDebuggerAttached)", powershell)
         self.assertIn("normalShutdownVerified = $false", powershell)
         start = powershell.index("$script:stage = 'application-shutdown'")
@@ -345,6 +348,72 @@ class HarnessGuards(unittest.TestCase):
                           "00001000 00003000 Microsoft_UI_Xaml (pdb symbols)\n",
                           "0|ntdll|RtlFailFast2|1|2;2|Microsoft_UI_Xaml||0|0")
             debugger_case("duplicate-frame", header + frame + "ntdll+0x1\n" + frame + "ntdll+0x2\n", "0|ntdll||1|1")
+            helper_vectors = []
+            helper_prefix = "FILEWAY_CFG_HELPER_BEGIN\nntdll!RtlpHandleInvalidUserCallTarget:\n"
+            helper_suffix = "FILEWAY_CFG_HELPER_END\n"
+            def helper_case(name, block, expected_status=1, expected="", ranges="1000 3000 ntdll (pdb symbols)\n"):
+                path = f"helper-{name}.log"
+                (root / path).write_text(header + ranges + block, encoding="utf-8")
+                helper_vectors.append(f'CheckHelper("{path}",{expected_status},{json.dumps(expected)});')
+
+            # Real CDB-shaped code text; every string output is reconstructed from
+            # a fixed enum. Values/bytes/addresses never become evidence fields.
+            helper_case("register-flow", helper_prefix +
+                        "00000000`00001100 488bd9 mov rbx,rcx\n"
+                        "00000000`00001103 488bd3 mov rdx,rbx\n"
+                        "00000000`00001106 b90a000000 mov ecx,0Ah\n"
+                        "00000000`0000110b e8f0ffffff call ntdll!RtlFailFast2 (00000000`00002100)\n" + helper_suffix,
+                        expected="0|0|mov|1|1|rbx|0|1|rcx|0||0;1|3|mov|1|1|rdx|0|1|rbx|0||0;2|6|mov|1|1|ecx|0|3||0||0;3|11|call|1|4||0|0||0|RtlFailFast2|0")
+            helper_case("stack-flow", helper_prefix +
+                        "1100 48895c2408 mov qword ptr [rsp+8],rbx\n"
+                        "1105 488b4d20 mov rcx,qword ptr [rbp-20h]\n"
+                        "1109 50 push rax\n110a 90 nop\n110b c3 ret\n" + helper_suffix,
+                        expected="0|0|mov|1|2|rsp|8|1|rbx|0||0;1|5|mov|1|1|rcx|0|2|rbp|-32||0;2|9|push|1|1|rax|0|0||0||0;3|10|nop|1|0||0|0||0||0;4|11|ret|1|0||0|0||0||0")
+            helper_case("branch", helper_prefix + "1100 7408 je ntdll!RtlpHandleInvalidUserCallTarget+0xa (00000000`0000110a)\n" + helper_suffix,
+                        expected="0|0|je|1|4||0|0||0|RtlpHandleInvalidUserCallTarget|10")
+            helper_case("indirect-register", helper_prefix + "1100 ffd0 call rax\n" + helper_suffix,
+                        expected="0|0|call|1|1|rax|0|0||0||0")
+            helper_case("immediate-private", helper_prefix + "1100 48b88877665544332211 mov rcx,1122334455667788h\n" + helper_suffix,
+                        expected="0|0|mov|1|1|rcx|0|3||0||0")
+            for index, operand in enumerate(("rcx,C:\\private\\secret", "rcx,PRIVATE_TOKEN", "rcx,rax,SECRET",
+                                             'rcx,"sensitive"', "rcx,[1122334455667788h]", "rcx,qword ptr [rsp+1001h]",
+                                             "rcx,qword ptr [rsi+8]", "rcx,rax ; private comment", "rcx,r\u2603x")):
+                helper_case(f"unknown-operand-{index}", helper_prefix + f"1100 488bc8 mov {operand}\n" + helper_suffix,
+                            expected="0|0|mov|0|0||0|0||0||0")
+            for index, operand in enumerate(("ntdll!PrivateSecret (00000000`00002100)",
+                                             "PrivateModule!RtlFailFast2 (00000000`00002100)",
+                                             "ntdll!RtlFailFast2 (00000000`00009900)",
+                                             "ntdll!RtlFailFast2+0x2000 (00000000`00001100)",
+                                             "ntdll!RtlFailFast2 (private)", "qword ptr [1122334455667788h]")):
+                helper_case(f"unknown-target-{index}", helper_prefix + f"1100 e800000000 call {operand}\n" + helper_suffix,
+                            expected="0|0|call|0|0||0|0||0||0")
+            helper_case("unknown-opcode", helper_prefix + "1100 90 private secret\n" + helper_suffix,
+                        expected="0|0||0|0||0|0||0||0")
+            maximum = "".join(f"{0x1100+i:x} 90 nop\n" for i in range(24))
+            helper_case("capacity", helper_prefix + maximum + helper_suffix,
+                        expected=";".join(f"{i}|{i}|nop|1|0||0|0||0||0" for i in range(24)))
+            helper_case("absent", "", 0)
+            for name, block in {
+                "missing-end": helper_prefix + "1100 90 nop\n",
+                "missing-begin": "1100 90 nop\n" + helper_suffix,
+                "wrong-header": helper_prefix.replace("RtlpHandleInvalidUserCallTarget", "PrivateSecret") + "1100 90 nop\n" + helper_suffix,
+                "no-code": helper_prefix + helper_suffix,
+                "duplicate-begin": helper_prefix + helper_prefix + helper_suffix,
+                "duplicate-end": helper_prefix + "1100 90 nop\n" + helper_suffix * 2,
+                "bad-bytes": helper_prefix + "1100 zz nop\n" + helper_suffix,
+                "odd-bytes": helper_prefix + "1100 901 nop\n" + helper_suffix,
+                "oversized-instruction": helper_prefix + "1100 " + "90" * 16 + " nop\n" + helper_suffix,
+                "address-gap": helper_prefix + "1100 90 nop\n1102 90 nop\n" + helper_suffix,
+                "duplicate-address": helper_prefix + "1100 90 nop\n1100 90 nop\n" + helper_suffix,
+                "outside-module": helper_prefix + "3100 90 nop\n" + helper_suffix,
+                "cross-module-end": helper_prefix + "2fff 9090 nop\n" + helper_suffix,
+                "too-many-instructions": helper_prefix + maximum + "1118 90 nop\n" + helper_suffix,
+                "oversized-line": helper_prefix + "1100 90 mov " + "x" * 2048 + "\n" + helper_suffix,
+                "command-echo": "0:000> .echo FILEWAY_CFG_HELPER_BEGIN\n1100 90 nop\n" + helper_suffix,
+            }.items():
+                helper_case(name, block, 2)
+            helper_case("missing-module", helper_prefix + "1100 90 nop\n" + helper_suffix, 2, ranges="")
+
             (root / "Program.cs").write_text('''using System; using System.IO; using Fileway.PlayerSmoke;
 class Program {
  static void Check(string path,int width,int height,int expected) {
@@ -375,6 +444,14 @@ class Program {
   var rows=new System.Collections.Generic.List<string>();
   foreach(var frame in evidence.Frames) rows.Add(frame.Index+"|"+frame.Module+"|"+frame.Symbol+"|"+frame.Offset+"|"+frame.OffsetKind);
   if(string.Join(";",rows)!=expected) throw new Exception(path+": wrong allowlisted frames "+string.Join(";",rows));
+ }
+ static void CheckHelper(string path,int status,string expected) {
+  var fault=DebuggerEvidence.Read(path);
+  if(fault.HelperStatus!=status) throw new Exception(path+": wrong helper status "+fault.HelperStatus);
+  var rows=new System.Collections.Generic.List<string>();
+  foreach(var row in fault.Instructions) rows.Add(row.Index+"|"+row.Offset+"|"+row.Opcode+"|"+row.Decoded+"|"+
+   row.FirstKind+"|"+row.FirstRegister+"|"+row.FirstDisplacement+"|"+row.SecondKind+"|"+row.SecondRegister+"|"+row.SecondDisplacement+"|"+row.TargetSymbol+"|"+row.TargetOffset);
+  if(string.Join(";",rows)!=expected) throw new Exception(path+": incorrect helper evidence "+string.Join(";",rows));
  }
  static void RejectDebugger(string path) {
   bool rejected=false;
@@ -418,7 +495,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors) + '''
+ static void Main() { CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");
