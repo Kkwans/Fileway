@@ -268,6 +268,29 @@ class HarnessGuards(unittest.TestCase):
         self.assertNotIn("bp ", capture)
         self.assertIn(".dump /muF /o shutdown.dmp; gn", powershell)
 
+    def test_saved_arguments_query_is_three_dump_slots_and_exports_only_fixed_integers(self):
+        _, native, powershell = source_parts()
+        capture = powershell.split('function Record-SafeSavedArguments', 1)[1].split('function Record-SafeCallerEvidence', 1)[0]
+        self.assertIn("'-z', $Dump", capture)
+        self.assertNotIn("'-p'", capture)
+        self.assertIn('120000 - $Budget.ElapsedMilliseconds', capture)
+        self.assertIn('SavedArgumentsQuery($StackLog, $CallerLog)', capture)
+        self.assertIn('ReadSavedArguments($StackLog, $CallerLog, $log', capture)
+        self.assertIn('" L0n3; .echo FILEWAY_CFG_SAVED_ARGS_END"', native)
+        self.assertIn('values[0]!=candidate', native)
+        self.assertIn('fault.CallerStackPointer!=queried.CallerStackPointer', native)
+        self.assertIn('encodedValue!=allocation', native)
+        self.assertIn('code.Count!=16', native)
+        self.assertIn('ProcessId($Window) -eq $script:process.Id', powershell)
+        self.assertIn('$script:process.StartTime.ToUniversalTime().Ticks -eq $script:appStartTicks', powershell)
+        exported = capture.split("Record-Observation 'shutdown-cfg-saved-arguments'", 2)[2].split('\n', 1)[0]
+        for field in ('status', 'targetMatches', 'windowRole', 'messageKind'):
+            self.assertIn(field + ' = [int]', exported)
+        for forbidden in ('address', 'HWND', 'candidate', 'register', 'targetValue', 'raw'):
+            self.assertNotIn(forbidden, exported)
+        self.assertNotIn('SetWindow', capture)
+        self.assertNotIn('Invoke-WinApp', capture)
+
     def test_internal_timings_use_existing_numeric_events_not_latency_acceptance(self):
         _, native, powershell = source_parts()
         self.assertIn("[Fileway.PlayerSmoke.ResponsivenessEvidence]::Pair($rows.ToArray())", powershell)
@@ -704,6 +727,75 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             (root / "other-caller-session/caller.log").write_text(caller_original + caller_block, encoding="utf-8")
             caller_vectors += ['RejectCaller("other-caller-session/caller.log");', 'CheckCallerQuery("caller-original.log",true);', 'CheckCallerQuery("tail-unloaded.log",false);']
 
+            saved_vectors = []
+            saved_stack = caller_original.replace('00000000`00001308', '00000000`00001338').replace('ntdll+0x308', 'ntdll+0x338').replace('00000000`00008040', '00000000`00800000')
+            saved_ops = [('4153', 'push r11'), ('4152', 'push r10'), ('4151', 'push r9'), ('4150', 'push r8'),
+                         ('51', 'push rcx'), ('52', 'push rdx'), ('50', 'push rax'), ('4881ec80000000', 'sub rsp,80h')]
+            saved_ops += [('0f29' + f'{0x44 + i * 8:02x}' + '24' + f'{0x20 + i * 16:02x}',
+                           f'movaps xmmword ptr [rsp+{0x20 + i * 16:x}h],xmm{i}') for i in range(6)]
+            saved_ops += [('488bc8', 'mov rcx,rax'), ('e8c8fdffff', 'call ntdll!RtlpHandleInvalidUserCallTarget (00000000`00001100)')]
+            saved_lines, saved_address = [], 0x1300
+            for encoded, instruction in saved_ops:
+                saved_lines.append(f'{saved_address:x} {encoded} {instruction}\n')
+                saved_address += len(encoded) // 2
+            self.assertEqual(saved_address, 0x1338)
+            saved_caller = saved_stack + 'FILEWAY_CFG_CALLER_BEGIN\nntdll!PRIVATE_SECRET:\n' + ''.join(saved_lines) + 'FILEWAY_CFG_CALLER_END\n'
+            (root / 'saved-stack.log').write_text(saved_stack, encoding='utf-8')
+            (root / 'saved-caller.log').write_text(saved_caller, encoding='utf-8')
+            saved_tuple = ('FILEWAY_CFG_SAVED_ARGS_BEGIN\n00800080 00000000`00004234 00000000`00000082\n'
+                           '00800090 00000000`00600001\nFILEWAY_CFG_SAVED_ARGS_END\n')
+            def saved_case(name, body=saved_tuple, prefix=saved_caller, status=1, matches=1, role=1, message=2,
+                           aliases=(0x600001, 0x600002, 0x600003), reject=False):
+                path = f'saved-{name}.log'
+                (root / path).write_text(prefix + body, encoding='utf-8')
+                saved_vectors.append(f'RejectSavedArguments("{path}");' if reject else
+                                     f'CheckSavedArguments("{path}",{status},{matches},{role},{message},{aliases[0]},{aliases[1]},{aliases[2]});')
+
+            saved_case('main-ncdestroy')
+            saved_case('player-destroy', body=saved_tuple.replace('00000082', '00000002').replace('00600001', '00600002'), role=2, message=1)
+            saved_case('hud-close', body=saved_tuple.replace('00000082', '00000010').replace('00600001', '00600003'), role=3, message=3)
+            saved_case('unknown-window', body=saved_tuple.replace('00600001', '00700001'), role=0)
+            saved_case('other-message', body=saved_tuple.replace('00000082', '00000123'), message=0)
+            saved_case('ambiguous-role', aliases=(0x600001, 0x600001, 0x600003), role=0)
+            saved_case('no-role', aliases=(0, 0, 0), role=0)
+            saved_case('different-target', body=saved_tuple.replace('00004234', 'deadbeef'), status=0, matches=0, role=0, message=0)
+            for name, body in {
+                'gap': saved_tuple.replace('00800090', '00800098'),
+                'wrong-base': saved_tuple.replace('00800080', '00800088'),
+                'extra-qword': saved_tuple.replace('00800090 00000000`00600001', '00800090 00000000`00600001 00000000`deadbeef'),
+                'missing-qword': saved_tuple.replace('00800090 00000000`00600001\n', ''),
+                'unreadable': saved_tuple.replace('00000000`00600001', '????????`????????'),
+                'duplicate-marker': saved_tuple * 2,
+                'missing-end': saved_tuple.replace('FILEWAY_CFG_SAVED_ARGS_END', ''),
+                'echo-marker': saved_tuple.replace('FILEWAY_CFG_SAVED_ARGS_BEGIN', '0:000> .echo FILEWAY_CFG_SAVED_ARGS_BEGIN'),
+                'unterminated': saved_tuple.rstrip('\n'),
+            }.items():
+                saved_case(name, body=body, reject=True)
+            saved_case('changed-context', prefix=saved_caller.replace('rdx=0000000000004234', 'rdx=0000000000004244'), reject=True)
+            saved_case('changed-stack', prefix=saved_caller.replace('00000000`00800000', '00000000`00800010'), reject=True)
+            saved_vectors.append('CheckSavedQuery("saved-stack.log","saved-caller.log",true);')
+            (root / 'saved-caller-movups.log').write_text(saved_caller.replace('movaps', 'movups').replace('0f29', '0f11'), encoding='utf-8')
+            saved_vectors.append('CheckSavedQuery("saved-stack.log","saved-caller-movups.log",true);')
+            for name, stack_pointer in {'unaligned': '00000000`00800008', 'overflow': '00007fff`ffffff80'}.items():
+                (root / f'saved-stack-{name}.log').write_text(saved_stack.replace('00000000`00800000', stack_pointer), encoding='utf-8')
+                (root / f'saved-caller-{name}.log').write_text(saved_caller.replace('00000000`00800000', stack_pointer), encoding='utf-8')
+                saved_vectors.append(f'CheckSavedQuery("saved-stack-{name}.log","saved-caller-{name}.log",false);')
+            for name, changed in {
+                'push': saved_caller.replace('4153 push r11', '4053 push r11'),
+                'immediate-bytes': saved_caller.replace('4881ec80000000', '4881ec90000000'),
+                'too-large': saved_caller.replace('4881ec80000000 sub rsp,80h', '4881ec00200000 sub rsp,2000h'),
+                'too-small': saved_caller.replace('4881ec80000000 sub rsp,80h', '4881ec70000000 sub rsp,70h'),
+                'unknown-store': saved_caller.replace('movaps xmmword ptr [rsp+20h],xmm0', 'unknownop PRIVATE_SECRET'),
+                'store-bytes': saved_caller.replace('0f29442420', '0f29442430'),
+                'store-register': saved_caller.replace('[rsp+20h],xmm0', '[rsp+20h],xmm1'),
+                'store-overwrites-slot': saved_caller.replace('[rsp+70h],xmm5', '[rsp+80h],xmm5'),
+            }.items():
+                path = f'saved-layout-{name}.log'
+                (root / path).write_text(changed, encoding='utf-8')
+                saved_vectors.append(f'CheckSavedQuery("saved-stack.log","{path}",false);')
+            (root / 'other-caller-session/saved.log').write_text(saved_caller + saved_tuple, encoding='utf-8')
+            saved_vectors.append('RejectSavedArguments("other-caller-session/saved.log");')
+
             region_vectors = []
             region_begin, region_end = "FILEWAY_CFG_REGION_BEGIN\n", "FILEWAY_CFG_REGION_END\n"
             region_body = ("BaseAddress: 11223344`55667000\nAllocationBase: 11223344`55667000\n"
@@ -967,6 +1059,25 @@ class Program {
   try { DebuggerEvidence.ReadCaller("caller-original.log",path); } catch(InvalidDataException) { rejected=true; }
   if(!rejected) throw new Exception("unbound caller evidence accepted");
  }
+ static void CheckSavedQuery(string stack,string caller,bool expected) {
+  string query=DebuggerEvidence.SavedArgumentsQuery(stack,caller);
+  if(expected?query!=".echo FILEWAY_CFG_SAVED_ARGS_BEGIN; dq 800080 L0n3; .echo FILEWAY_CFG_SAVED_ARGS_END":query!=null)
+   throw new Exception("incorrect saved argument query");
+ }
+ static void CheckSavedArguments(string path,int status,int matches,int role,int message,long main,long player,long hud) {
+  var evidence=DebuggerEvidence.ReadSavedArguments("saved-stack.log","saved-caller.log",path,main,player,hud);
+  if(evidence.Status!=status||evidence.TargetMatches!=matches||evidence.WindowRole!=role||evidence.MessageKind!=message)
+   throw new Exception(path+": incorrect bound saved arguments");
+  var fields=evidence.GetType().GetFields();
+  if(fields.Length!=4) throw new Exception("unexpected saved argument payload");
+  foreach(var field in fields) if(field.FieldType!=typeof(int)) throw new Exception("raw saved argument exported");
+ }
+ static void RejectSavedArguments(string path) {
+  bool rejected=false;
+  try { DebuggerEvidence.ReadSavedArguments("saved-stack.log","saved-caller.log",path,0x600001,0x600002,0x600003); }
+  catch(InvalidDataException) { rejected=true; }
+  if(!rejected) throw new Exception("unbound or partial saved arguments accepted");
+ }
  static void CheckCandidateClassifications() {
   foreach(var item in new (string Name,int Expected)[]{("unloaded",3),("loaded",2),("unmapped",6),("ambiguous",0),
     ("null",1),("unknown-only",4),("unknown-unloaded-only",5),("unknown-loaded-overlap",0),("unknown-unloaded-overlap",0),
@@ -1110,7 +1221,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckMainWindowCandidate(); CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors + caller_vectors + region_vectors) + '''
+ static void Main() { CheckMainWindowCandidate(); CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors + caller_vectors + saved_vectors + region_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

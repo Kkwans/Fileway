@@ -36,6 +36,7 @@ $script:appStartTicks = 0L
 $script:shutdownDebuggerAttached = $false
 $script:debuggerAttachPhase = 0
 $script:responsivenessTimingsRecorded = $false
+$script:shutdownWindows = @{ main = [IntPtr]::Zero; player = [IntPtr]::Zero; hud = [IntPtr]::Zero }
 $script:hosts = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 $script:stage = 'output-validation'
 $script:completed = [System.Collections.Generic.List[string]]::new()
@@ -334,12 +335,12 @@ namespace Fileway.PlayerSmoke {
         public readonly DebuggerParameter[] Parameters;
         public readonly DebuggerInstruction[] Instructions, TailInstructions;
         public readonly DebuggerParameter HelperArgument;
-        internal readonly ulong NtdllStart, NtdllEnd, HelperAddress, CallerReturnAddress;
+        internal readonly ulong NtdllStart, NtdllEnd, HelperAddress, CallerReturnAddress, CallerStackPointer;
         internal DebuggerFault(uint code,int subcode,int parameterCount,DebuggerFrame[] frames,DebuggerParameter[] parameters,int helperStatus,DebuggerInstruction[] instructions,int tailStatus,DebuggerInstruction[] tail,DebuggerParameter helperArgument,
-            ulong ntdllStart,ulong ntdllEnd,ulong helperAddress,ulong callerReturnAddress) {
+            ulong ntdllStart,ulong ntdllEnd,ulong helperAddress,ulong callerReturnAddress,ulong callerStackPointer) {
             ExceptionCode=code; FastFailSubcode=subcode; ParameterCount=parameterCount; Frames=frames; Parameters=parameters;
             HelperStatus=helperStatus; Instructions=instructions; TailStatus=tailStatus; TailInstructions=tail; HelperArgument=helperArgument;
-            NtdllStart=ntdllStart; NtdllEnd=ntdllEnd; HelperAddress=helperAddress; CallerReturnAddress=callerReturnAddress;
+            NtdllStart=ntdllStart; NtdllEnd=ntdllEnd; HelperAddress=helperAddress; CallerReturnAddress=callerReturnAddress; CallerStackPointer=callerStackPointer;
         }
     }
     public sealed class DebuggerCaller {
@@ -348,6 +349,10 @@ namespace Fileway.PlayerSmoke {
         internal DebuggerCaller(int status,int passesRax,int helperSavesRcx,DebuggerInstruction[] instructions) {
             Status=status; PassesRax=passesRax; HelperSavesRcx=helperSavesRcx; Instructions=instructions;
         }
+    }
+    public sealed class SavedArguments {
+        public readonly int Status, TargetMatches, WindowRole, MessageKind;
+        internal SavedArguments(int status,int matches=0,int role=0,int message=0) { Status=status; TargetMatches=matches; WindowRole=role; MessageKind=message; }
     }
     public sealed class RegionMetadata {
         public readonly uint State, Type, Protection;
@@ -678,7 +683,7 @@ namespace Fileway.PlayerSmoke {
             if(queried.FastFailSubcode!=10||queried.HelperArgument==null||queried.HelperStatus!=1||queried.TailStatus!=1||
                 fault.ParameterCount!=queried.ParameterCount||!SameInstructions(fault.Instructions,queried.Instructions)||!SameInstructions(fault.TailInstructions,queried.TailInstructions)||
                 fault.NtdllStart!=queried.NtdllStart||fault.NtdllEnd!=queried.NtdllEnd||fault.HelperAddress!=queried.HelperAddress||
-                fault.CallerReturnAddress!=queried.CallerReturnAddress||!ContextArgument(original.Split('\n'),out candidate)||
+                fault.CallerReturnAddress!=queried.CallerReturnAddress||fault.CallerStackPointer!=queried.CallerStackPointer||!ContextArgument(original.Split('\n'),out candidate)||
                 !ContextArgument(query.Split('\n'),out queriedCandidate)||candidate!=queriedCandidate)
                 throw new InvalidDataException("caller_evidence_rejected");
             var ranges=new Dictionary<string,ulong[]>(StringComparer.Ordinal) { {"ntdll",new ulong[]{fault.NtdllStart,fault.NtdllEnd}} };
@@ -700,6 +705,81 @@ namespace Fileway.PlayerSmoke {
                 }
             }
             return new DebuggerCaller(status,passesRax,savesRcx,rows);
+        }
+        static ulong SavedArgumentBase(string stackPath,string callerPath) {
+            var caller=ReadCaller(stackPath,callerPath); var fault=Read(stackPath);
+            if(caller.Status!=1||caller.PassesRax!=1||caller.HelperSavesRcx!=1||caller.Instructions.Length!=16||
+                fault.CallerStackPointer<0x10000||fault.CallerStackPointer>0x7fffffffffffUL||fault.CallerStackPointer%16!=0) return 0;
+            string[] lines=ReadBounded(callerPath,FileShare.Read).Split('\n');
+            var code=new List<System.Text.RegularExpressions.Match>(); bool inside=false;
+            foreach(string raw in lines) {
+                string line=raw.TrimEnd('\r');
+                if(line=="FILEWAY_CFG_CALLER_BEGIN") { inside=true; continue; }
+                if(line=="FILEWAY_CFG_CALLER_END") { inside=false; continue; }
+                if(!inside) continue;
+                var match=System.Text.RegularExpressions.Regex.Match(line.Trim(),@"^([0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})[ \t]+([0-9a-fA-F]{2,30})[ \t]+([a-z][a-z0-9]*)[ \t]*(.*)$");
+                if(match.Success) code.Add(match);
+            }
+            if(code.Count!=16) return 0;
+            string[] pushes={"4153","4152","4151","4150","51","52","50"};
+            for(int i=0;i<7;i++) if(code[i].Groups[2].Value.ToLowerInvariant()!=pushes[i]) return 0;
+            var reserve=System.Text.RegularExpressions.Regex.Match(code[7].Groups[4].Value.Trim(),@"^rsp,[ \t]*(?:0x)?([0-9a-fA-F]{1,8})h?$");
+            ulong allocation;
+            if(code[7].Groups[3].Value!="sub"||!reserve.Success||!Hex(reserve.Groups[1].Value,out allocation)||allocation<0x80||allocation>4096||allocation%16!=0) return 0;
+            string encoded=code[7].Groups[2].Value.ToLowerInvariant(); ulong encodedValue=0,part;
+            if(encoded.Length!=14||!encoded.StartsWith("4881ec",StringComparison.Ordinal)) return 0;
+            for(int i=0;i<4;i++) { if(!Hex(encoded.Substring(6+i*2,2),out part)) return 0; encodedValue|=part<<(i*8); }
+            if(encodedValue!=allocation) return 0;
+            // These six exact stores preserve the saved integer arguments. No
+            // undecoded instruction is allowed to modify RAX or the saved slots.
+            for(int i=0;i<6;i++) {
+                var save=code[8+i]; string opcode=save.Groups[3].Value;
+                var operands=System.Text.RegularExpressions.Regex.Match(save.Groups[4].Value.Trim(),@"^xmmword ptr \[rsp\+([0-9a-fA-F]{1,3})h?\],[ \t]*xmm([0-5])$");
+                ulong displacement; int register;
+                if((opcode!="movaps"&&opcode!="movups")||!operands.Success||!Hex(operands.Groups[1].Value,out displacement)||
+                    !int.TryParse(operands.Groups[2].Value,out register)||register!=i||displacement!=(ulong)(0x20+i*16)||displacement+16>allocation) return 0;
+                string bytes=(opcode=="movaps"?"0f29":"0f11")+(0x44+i*8).ToString("x2",System.Globalization.CultureInfo.InvariantCulture)+"24"+displacement.ToString("x2",System.Globalization.CultureInfo.InvariantCulture);
+                if(!string.Equals(save.Groups[2].Value,bytes,StringComparison.OrdinalIgnoreCase)) return 0;
+            }
+            if(code[14].Groups[2].Value.ToLowerInvariant()!="488bc8"||fault.CallerStackPointer>0x7fffffffffffUL-allocation-24) return 0;
+            return fault.CallerStackPointer+allocation;
+        }
+        public static string SavedArgumentsQuery(string stackPath,string callerPath) {
+            ulong low=SavedArgumentBase(stackPath,callerPath);
+            return low==0?null:".echo FILEWAY_CFG_SAVED_ARGS_BEGIN; dq "+low.ToString("x",System.Globalization.CultureInfo.InvariantCulture)+" L0n3; .echo FILEWAY_CFG_SAVED_ARGS_END";
+        }
+        public static SavedArguments ReadSavedArguments(string stackPath,string callerPath,string tuplePath,long main,long player,long hud) {
+            string directory=Path.GetDirectoryName(Path.GetFullPath(stackPath));
+            if(!string.Equals(directory,Path.GetDirectoryName(Path.GetFullPath(tuplePath)),StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("saved_arguments_evidence_rejected");
+            ulong low=SavedArgumentBase(stackPath,callerPath);
+            if(low==0) return new SavedArguments(0);
+            // The tuple query repeats the same dump context, code and stack frame.
+            if(SavedArgumentBase(stackPath,tuplePath)!=low) throw new InvalidDataException("saved_arguments_evidence_rejected");
+            string text=ReadBounded(tuplePath,FileShare.Read); string[] lines=text.Split('\n'); int begin=-1,end=-1;
+            for(int i=0;i<lines.Length;i++) {
+                if(lines[i].TrimEnd('\r')=="FILEWAY_CFG_SAVED_ARGS_BEGIN") { if(begin!=-1) throw new InvalidDataException("saved_arguments_evidence_rejected"); begin=i; }
+                if(lines[i].TrimEnd('\r')=="FILEWAY_CFG_SAVED_ARGS_END") { if(end!=-1) throw new InvalidDataException("saved_arguments_evidence_rejected"); end=i; }
+            }
+            if(begin<0||end<=begin||end-begin>5||end==lines.Length-1) throw new InvalidDataException("saved_arguments_evidence_rejected");
+            var values=new List<ulong>();
+            for(int i=begin+1;i<end;i++) {
+                if(lines[i].Length>2048) throw new InvalidDataException("saved_arguments_evidence_rejected");
+                string[] fields=lines[i].Trim().Split((char[])null,StringSplitOptions.RemoveEmptyEntries); ulong address,value;
+                if(fields.Length<2||fields.Length>3||!Address(fields[0],out address)||address!=low+(ulong)values.Count*8) throw new InvalidDataException("saved_arguments_evidence_rejected");
+                for(int field=1;field<fields.Length;field++) {
+                    if(values.Count>=3||!Address(fields[field],out value)) throw new InvalidDataException("saved_arguments_evidence_rejected");
+                    values.Add(value);
+                }
+            }
+            ulong candidate;
+            if(values.Count!=3||!ContextArgument(text.Split('\n'),out candidate)) throw new InvalidDataException("saved_arguments_evidence_rejected");
+            if(values[0]!=candidate) return new SavedArguments(0);
+            ulong[] windows={unchecked((ulong)main),unchecked((ulong)player),unchecked((ulong)hud)}; int role=0,matches=0;
+            for(int i=0;i<windows.Length;i++) if(windows[i]!=0&&windows[i]==values[2]) { matches++; role=i+1; }
+            if(matches!=1) role=0;
+            // 0=other/unknown; 1=WM_DESTROY; 2=WM_NCDESTROY; 3=WM_CLOSE.
+            int message=values[1]==2?1:values[1]==0x82?2:values[1]==0x10?3:0;
+            return new SavedArguments(1,1,role,message);
         }
         public static int RegionProgress(string path) {
             // Existing exact marker lines only; never retain command/log text.
@@ -859,7 +939,7 @@ namespace Fileway.PlayerSmoke {
                 }
             }
             if(code!=0xc0000409) throw new InvalidDataException("debugger_exception_not_expected");
-            var frames=new List<DebuggerFrame>(); int nextIndex=0; ulong instruction=faultAddress,callerReturnAddress=0;
+            var frames=new List<DebuggerFrame>(); int nextIndex=0; ulong instruction=faultAddress,callerReturnAddress=0,callerStackPointer=0;
             foreach(string raw in lines) {
                 if(raw.Length>2048) continue;
                 string[] parts=raw.Trim().Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
@@ -889,7 +969,7 @@ namespace Fileway.PlayerSmoke {
                 ulong[] callerRange;
                 if(index==2&&known=="ntdll"&&kind==1&&ranges.TryGetValue("ntdll",out callerRange)&&
                     currentInstruction>=callerRange[0]&&currentInstruction<callerRange[1]&&currentInstruction-callerRange[0]==offset)
-                    callerReturnAddress=currentInstruction;
+                { callerReturnAddress=currentInstruction; callerStackPointer=ignored; }
                 frames.Add(new DebuggerFrame((int)index,known,symbol,offset,kind));
             }
             if(parameterCount>=0) {
@@ -911,7 +991,7 @@ namespace Fileway.PlayerSmoke {
                 argument=MapAddress(0,candidate,ranges,unloadedRanges,anonymousRanges);
             ulong[] ntdllRange; ranges.TryGetValue("ntdll",out ntdllRange);
             return new DebuggerFault(code,subcode,parameterCount,frames.ToArray(),mapped.ToArray(),helperStatus,instructions,tailStatus,tail,argument,
-                ntdllRange==null?0:ntdllRange[0],ntdllRange==null?0:ntdllRange[1],helperBase,callerReturnAddress);
+                ntdllRange==null?0:ntdllRange[0],ntdllRange==null?0:ntdllRange[1],helperBase,callerReturnAddress,callerStackPointer);
         }
     }
 
@@ -1178,13 +1258,24 @@ namespace Fileway.PlayerSmoke {
 }
 '@
 
+function Remember-ShutdownSurface([string] $Role, [IntPtr] $Window) {
+    if ($CaptureShutdownStack -and $Role -in @('player', 'hud') -and $Window -ne [IntPtr]::Zero -and
+        $script:process.StartTime.ToUniversalTime().Ticks -eq $script:appStartTicks -and
+        [Fileway.PlayerSmoke.Native]::IsWindow($Window) -and [Fileway.PlayerSmoke.Native]::ProcessId($Window) -eq $script:process.Id) {
+        $script:shutdownWindows[$Role] = $Window
+    }
+}
 function Get-Surface([string] $Role) {
     $processId = $script:process.Id
-    if ($Role -eq 'player') { return [Fileway.PlayerSmoke.Native]::Player($processId) }
+    if ($Role -eq 'player') {
+        $window = [Fileway.PlayerSmoke.Native]::Player($processId)
+        Remember-ShutdownSurface $Role $window
+        return $window
+    }
     $suffixes = if ($Role -eq 'settings') { @(' 播放设置', ' playback settings') } else { @(' 播放控制', ' playback controls') }
     foreach ($suffix in $suffixes) {
         $window = [Fileway.PlayerSmoke.Native]::Surface($processId, $suffix)
-        if ($window -ne [IntPtr]::Zero) { return $window }
+        if ($window -ne [IntPtr]::Zero) { Remember-ShutdownSurface $Role $window; return $window }
     }
     return [IntPtr]::Zero
 }
@@ -1328,6 +1419,14 @@ function Start-ShutdownDebugger {
         Stop-Smoke 'debugger_system_module_identity_mismatch'
     }
     $script:debuggerAttachPhase = 2
+    $main = [Fileway.PlayerSmoke.Native]::MainApplicationWindow($script:process.Id)
+    if ($main -ne [IntPtr]::Zero -and [Fileway.PlayerSmoke.Native]::IsWindow($main) -and
+        [Fileway.PlayerSmoke.Native]::ProcessId($main) -eq $script:process.Id) { $script:shutdownWindows.main = $main }
+    foreach ($role in @('player', 'hud')) {
+        $known = $script:shutdownWindows[$role]
+        if ($known -ne [IntPtr]::Zero -and [Fileway.PlayerSmoke.Native]::IsWindow($known) -and
+            [Fileway.PlayerSmoke.Native]::ProcessId($known) -ne $script:process.Id) { $script:shutdownWindows[$role] = [IntPtr]::Zero }
+    }
     # Relative dump name is interpreted only in the fresh private working directory.
     # gn preserves NOT HANDLED semantics. -pd prevents debugger cleanup from killing
     # the app. Neither WER nor any system-wide debugger/security setting is changed.
@@ -1444,6 +1543,34 @@ function Record-SafeCandidateRegion([string] $Dump, [string] $StackLog, [string]
     finally { if ($null -ne $regionProcess) { $regionProcess.Dispose() } }
 }
 
+function Record-SafeSavedArguments([string] $Dump, [string] $StackLog, [string] $CallerLog, [string] $Symbols, [Diagnostics.Stopwatch] $Budget) {
+    $tupleProcess = $null
+    try {
+        $query = [Fileway.PlayerSmoke.DebuggerEvidence]::SavedArgumentsQuery($StackLog, $CallerLog)
+        if ($null -eq $query) { Record-Observation 'shutdown-cfg-saved-arguments' @{ status = 0; targetMatches = 0; windowRole = 0; messageKind = 0 }; return }
+        $remaining = [Math]::Min(30000, [Math]::Max(0, 120000 - $Budget.ElapsedMilliseconds))
+        if ($remaining -le 0) { Record-Observation 'shutdown-cfg-saved-arguments-result' @{ status = 3 }; return }
+        $callerQuery = [Fileway.PlayerSmoke.DebuggerEvidence]::CallerQuery($StackLog)
+        $commands = '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; .echo FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; ' + $callerQuery + '; ' + $query + '; q'
+        $log = Join-Path $script:privateRoot 'shutdown-saved-arguments.log'
+        $start = [Diagnostics.ProcessStartInfo]::new($script:cdbPath)
+        $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = $script:privateRoot
+        $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+        foreach ($argument in @('-z', $Dump, '-sins', '-noshell', '-y', "srv*$Symbols*https://msdl.microsoft.com/download/symbols", '-logo', $log, '-c', $commands)) { $start.ArgumentList.Add($argument) }
+        $tupleProcess = [Diagnostics.Process]::Start($start)
+        $stdout = $tupleProcess.StandardOutput.ReadToEndAsync(); $stderr = $tupleProcess.StandardError.ReadToEndAsync()
+        if (-not $tupleProcess.WaitForExit([int]$remaining)) {
+            $tupleProcess.Kill($true); $null = $tupleProcess.WaitForExit(5000)
+            Record-Observation 'shutdown-cfg-saved-arguments-result' @{ status = 3 }; return
+        }
+        if ($tupleProcess.ExitCode -ne 0) { Record-Observation 'shutdown-cfg-saved-arguments-result' @{ status = 2 }; return }
+        $tuple = [Fileway.PlayerSmoke.DebuggerEvidence]::ReadSavedArguments($StackLog, $CallerLog, $log,
+            $script:shutdownWindows.main.ToInt64(), $script:shutdownWindows.player.ToInt64(), $script:shutdownWindows.hud.ToInt64())
+        Record-Observation 'shutdown-cfg-saved-arguments' @{ status = [int]$tuple.Status; targetMatches = [int]$tuple.TargetMatches; windowRole = [int]$tuple.WindowRole; messageKind = [int]$tuple.MessageKind }
+    } catch { Record-Observation 'shutdown-cfg-saved-arguments-result' @{ status = 2 } }
+    finally { if ($null -ne $tupleProcess) { $tupleProcess.Dispose() } }
+}
+
 function Record-SafeCallerEvidence([string] $Dump, [string] $StackLog, [string] $Symbols, [Diagnostics.Stopwatch] $Budget) {
     try {
         $query = [Fileway.PlayerSmoke.DebuggerEvidence]::CallerQuery($StackLog)
@@ -1476,6 +1603,7 @@ function Record-SafeCallerEvidence([string] $Dump, [string] $StackLog, [string] 
                     targetSymbol = [string]$instruction.TargetSymbol; targetOffset = [uint64]$instruction.TargetOffset
                 }
             }
+            Record-SafeSavedArguments $Dump $StackLog $log $Symbols $Budget
         } finally { if ($null -ne $callerProcess) { $callerProcess.Dispose() } }
     } catch { Record-Observation 'shutdown-cfg-caller-result' @{ status = 2 } }
 }
