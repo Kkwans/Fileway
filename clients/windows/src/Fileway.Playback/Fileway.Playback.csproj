@@ -7,5 +7,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Fileway.Core\Fileway.Core.csproj" />
     <InternalsVisibleTo Include="Fileway.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="Fileway.ProgressivePlaybackHarness" />
   </ItemGroup>
 </Project>
