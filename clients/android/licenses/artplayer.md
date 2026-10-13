@@ -1,5 +1,10 @@
 # Artplayer assets and native design adaptation
 
+The historical `art_*.xml` resource names now use Google Material Symbols Rounded
+geometry, documented in [`material-symbols.md`](material-symbols.md). The SVG hash
+table below records the original assets rather than the current vectors. The MIT
+license and this native composition/design adaptation attribution are retained.
+
 Source: https://github.com/zhw2590582/ArtPlayer/tree/40fcda6a37d0049d42e49c1e64e70d4fd9ba5f7f
 
 Copyright (c) 2018 Harvey Zhao. MIT license is reproduced in `artplayer-MIT.txt` and packaged in the APK. SVG paths are converted without changes to Android VectorDrawable; SVG editor metadata is omitted. Dimensions/tint are set by the native control. No HTML5 player or web media pipeline is embedded.

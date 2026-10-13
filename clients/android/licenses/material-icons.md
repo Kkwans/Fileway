@@ -1,5 +1,11 @@
 # Material Icons
 
+Current ordinary UI controls use the Material Symbols Rounded subset documented in
+[`material-symbols.md`](material-symbols.md). The source inventory below records
+the earlier geometry and remains for migration traceability. The launcher artwork
+still adapts the original Material Icons storage symbol; its Apache attribution
+and the packaged full license remain applicable.
+
 Google Material Icons, Apache-2.0. Pinned source commit: `bd8cb85bd4bad964fe6918f79665bb40c3a8efef`. The following SVG files were converted to Android VectorDrawable; path geometry is preserved. The full license is distributed alongside this notice.
 
 `ic_launcher_foreground.xml` also adapts the storage icon with scale/translation and white fill. A copy of the license is packaged in the APK under `assets/licenses/`.

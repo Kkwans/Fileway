@@ -253,9 +253,4 @@ import java.util.Locale
     }
 }
 
-internal fun readableSize(size: Long): String {
-    if (size >= 1L shl 30) return String.format(Locale.ROOT, "%.1f GB", size.toDouble() / (1L shl 30))
-    if (size >= 1L shl 20) return String.format(Locale.ROOT, "%.1f MB", size.toDouble() / (1L shl 20))
-    return String.format(Locale.ROOT, "%.0f KB", size.toDouble() / 1024)
-}
 internal fun clock(ms: Long): String { val s = ms.coerceAtLeast(0) / 1000; return if (s >= 3600) String.format(Locale.ROOT, "%d:%02d:%02d", s / 3600, s / 60 % 60, s % 60) else String.format(Locale.ROOT, "%d:%02d", s / 60, s % 60) }

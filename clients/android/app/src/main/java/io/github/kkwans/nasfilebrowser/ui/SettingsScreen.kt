@@ -17,7 +17,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
@@ -37,23 +36,8 @@ import io.github.kkwans.nasfilebrowser.data.ConnectionMode
 import io.github.kkwans.nasfilebrowser.update.UpdatePolicy
 import kotlinx.coroutines.launch
 
-/** Shared library and connection palette; the native player retains its dark theme. */
-@Composable internal fun LibraryTheme(content: @Composable () -> Unit) {
-    val dark = MaterialTheme.colorScheme.background.luminance() < .5f
-    val background = if (dark) Color(0xFF141416) else Color.White
-    val surface = if (dark) Color(0xFF202023) else Color(0xFFF5F5F7)
-    val ink = if (dark) Color(0xFFF3F3F6) else Color(0xFF202023)
-    MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(
-        primary = if (dark) Color(0xFF69A8FF) else Color(0xFF1767E8),
-        onPrimary = if (dark) Color(0xFF082B58) else Color.White,
-        primaryContainer = if (dark) Color(0xFF162D4A) else Color(0xFFEAF2FF),
-        onPrimaryContainer = if (dark) Color(0xFFB8D6FF) else Color(0xFF1553B5),
-        background = background, onBackground = ink, surface = background, onSurface = ink,
-        surfaceContainer = surface, surfaceContainerLow = surface, surfaceContainerHigh = surface,
-        onSurfaceVariant = if (dark) Color(0xFFB5B5BE) else Color(0xFF63636D),
-        outlineVariant = if (dark) Color(0xFF34343A) else Color(0xFFE9E9ED),
-    ), content = content)
-}
+/** Compatibility boundary: every library page now inherits the single application theme. */
+@Composable internal fun LibraryTheme(content: @Composable () -> Unit) = content()
 
 @Composable internal fun ClientNavigation(model: ClientModel, selected: String) {
     val labelStyle = MaterialTheme.typography.labelMedium
