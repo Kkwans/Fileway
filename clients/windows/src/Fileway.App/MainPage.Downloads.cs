@@ -122,6 +122,123 @@ public sealed partial class MainPage
         finally { _downloadPreparing = false; _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
 
+    private async void DownloadSaveAs_Click(object sender, RoutedEventArgs args)
+    {
+        if (!CanDownloadSelection || _browserDialog is not null || _storageDialog is not null
+            || _downloads is not { } service || _session is not { } session
+            || _directory is not { } directory || ActiveDownloadContext is not { } context) return;
+        var source = SelectedRows()[0].File.Resource;
+        var generation = _generation; var viewGeneration = _downloadViewGeneration;
+        var state = new DownloadSaveAsState(context, source, source.DisplayName);
+        long nameRevision = 0;
+        DownloadPreview? confirmed = null;
+        var submitted = false;
+        bool CurrentSource()
+        {
+            if (viewGeneration != _downloadViewGeneration || !IsCurrentDownloadContext(context)
+                || !SameBrowser(session, directory, generation) || _session?.Permissions.Download != true) return false;
+            var selected = SelectedRows();
+            return selected.Length == 1 && !selected[0].File.IsDirectory && selected[0].File.Resource == source;
+        }
+        _downloadErrorTitle = _downloadErrorMessage = null;
+        _downloadOperationBusy = true; UpdateDownloadContext();
+        try
+        {
+            var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
+            var remoteName = new TextBlock { Text = $"远端文件：{source.DisplayName}", TextWrapping = TextWrapping.Wrap };
+            var name = new TextBox { Header = "本地文件名", Text = source.DisplayName, MaxLength = 255 };
+            var hint = new TextBlock { Text = "只修改本地文件名，保存目录仍使用已生效的默认下载目录。不会修改远端名称或覆盖已有文件。", FontSize = 12, TextWrapping = TextWrapping.Wrap };
+            var validation = new TextBlock { Text = "请输入有效的 Windows 文件名。不能包含路径、保留名称，或以空格、句点结尾。", FontSize = 12, TextWrapping = TextWrapping.Wrap };
+            var progress = new ProgressRing { Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Left, IsActive = false };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(name, "下载另存为的本地文件名");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(progress, "正在核对另存为位置");
+            var previewPanel = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed };
+            var localName = new TextBlock { FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+            var size = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            var destination = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+            previewPanel.Children.Add(localName); previewPanel.Children.Add(size); previewPanel.Children.Add(destination);
+            var error = new InfoBar { IsOpen = false, IsClosable = false, Severity = InfoBarSeverity.Warning, Title = "未能核对保存位置" };
+            content.Children.Add(remoteName); content.Children.Add(name); content.Children.Add(hint);
+            content.Children.Add(validation); content.Children.Add(progress); content.Children.Add(previewPanel); content.Children.Add(error);
+            var confirm = new ContentDialog
+            {
+                Title = "下载另存为", Content = new ScrollViewer { Content = content, MaxHeight = 400,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled },
+                PrimaryButtonText = "核对保存位置", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close,
+            };
+            void Render()
+            {
+                if (state.IsClosed || !CurrentSource()) return;
+                var valid = DownloadPolicy.IsSafeLocalName(state.Name);
+                validation.Visibility = valid ? Visibility.Collapsed : Visibility.Visible;
+                progress.IsActive = state.IsPreparing;
+                progress.Visibility = state.IsPreparing ? Visibility.Visible : Visibility.Collapsed;
+                previewPanel.Visibility = state.Preview is null ? Visibility.Collapsed : Visibility.Visible;
+                if (state.Preview is { } preview)
+                {
+                    remoteName.Text = $"远端文件：{preview.Source.DisplayName}";
+                    localName.Text = $"本地文件名：{preview.Name}";
+                    size.Text = $"大小：{DownloadPolicy.FormatBytes(preview.TotalBytes)}";
+                    destination.Text = $"保存到：{preview.DestinationDisplayPath}";
+                }
+                confirm.PrimaryButtonText = state.Preview is null ? "核对保存位置" : "开始下载";
+                confirm.IsPrimaryButtonEnabled = valid && !state.IsPreparing && !state.IsSubmitted;
+            }
+            name.TextChanged += (_, _) => { ++nameRevision; state.EditName(name.Text); error.IsOpen = false; Render(); };
+            confirm.Opened += (_, _) => { name.Focus(FocusState.Keyboard); name.SelectAll(); };
+            confirm.Closed += (_, _) => state.Close();
+            confirm.PrimaryButtonClick += async (_, click) =>
+            {
+                click.Cancel = true;
+                if (!CurrentSource() || state.IsClosed || state.IsPreparing || state.IsSubmitted) return;
+                if (state.Preview is not null)
+                {
+                    if (state.TryConfirm(out var preview)) { confirmed = preview; click.Cancel = false; }
+                    return;
+                }
+                if (!state.TryBeginPrepare(out var preparation)) return;
+                var preparedNameRevision = nameRevision;
+                error.IsOpen = false; _downloadPreparing = true; Render(); UpdateDownloadContext();
+                try
+                {
+                    // Preparing is read-only. Closing or editing fences its late result before any UI/submit.
+                    var preview = await service.PrepareAsAsync(context, source, preparation.Name, _lifetime.Token);
+                    if (!CurrentSource() || state.IsClosed || preparedNameRevision != nameRevision) return;
+                    if (!state.AcceptPreview(preparation, preview))
+                        throw new FilewayException(new(ErrorCode.ProtocolMismatch, "另存为确认与原文件或本地名称不一致。"));
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception failure)
+                {
+                    if (!state.IsClosed && CurrentSource() && preparedNameRevision == nameRevision)
+                    { error.Message = ErrorMessage(failure); error.IsOpen = true; }
+                }
+                finally
+                {
+                    state.FinishPrepare(preparation);
+                    if (!state.IsClosed && CurrentSource() && ReferenceEquals(_downloadDialog, confirm))
+                    { _downloadPreparing = state.IsPreparing; Render(); UpdateDownloadContext(); }
+                }
+            };
+            _downloadDialog = confirm; Render();
+            ContentDialogResult result;
+            try { result = await ShowBrowserDialogAsync(confirm); }
+            finally { state.Close(); if (ReferenceEquals(_downloadDialog, confirm)) _downloadDialog = null; }
+            if (result != ContentDialogResult.Primary || confirmed is null || !CurrentSource()) return;
+            submitted = true;
+            var item = await service.SubmitAsync(confirmed, _lifetime.Token);
+            if (!IsCurrentDownloadContext(context)) return;
+            if (item.Snapshot.Task.Id != confirmed.Draft.Id)
+                throw new FilewayException(new(ErrorCode.ProtocolMismatch, "下载任务与另存为确认记录不一致。"));
+            AcceptDownloadItem(item);
+            _downloadOperationBusy = false; UpdateDownloadContext();
+            await ShowDownloadDetailsAsync(item.Snapshot.Task);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { if (submitted ? IsCurrentDownloadContext(context) : CurrentSource()) ShowDownloadError("下载另存为未能提交", error); }
+        finally { state.Close(); _downloadPreparing = false; _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
+    }
+
     private void Download_TaskChanged(object? sender, DownloadItem item) => DispatcherQueue.TryEnqueue(() =>
     {
         if (!ReferenceEquals(sender, _downloads) || !IsCurrentDownloadContext(item.Context)) return;

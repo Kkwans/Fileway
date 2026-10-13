@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Text;
 using Fileway.Core.Contracts;
 
 namespace Fileway.App;
@@ -8,6 +10,25 @@ internal sealed record DownloadProgressPresentation(bool IsIndeterminate, double
 /// <summary>Presentation only: received activity is never completion or resumable checkpoint evidence.</summary>
 internal static class DownloadPresentationPolicy
 {
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private static readonly SearchValues<char> InvalidLocalNameCharacters = SearchValues.Create("<>:\"|?*/\\");
+
+    /// <summary>Early leaf-name feedback only; backend destination and native ownership checks remain authoritative.</summary>
+    internal static bool IsSafeLocalName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 255 || name is "." or ".." ||
+            name.EndsWith('.') || name.EndsWith(' ') || name.Any(char.IsControl) ||
+            name.AsSpan().ContainsAny(InvalidLocalNameCharacters)) return false;
+        try { _ = StrictUtf8.GetByteCount(name); }
+        catch (EncoderFallbackException) { return false; }
+        string stem = name.Split('.')[0];
+        if (stem.Equals("CON", StringComparison.OrdinalIgnoreCase) || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+            stem.Equals("CONIN$", StringComparison.OrdinalIgnoreCase) || stem.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase)) return false;
+        return !(stem.Length == 4 && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+            stem[3] is >= '1' and <= '9' or '¹' or '²' or '³');
+    }
+
     internal static bool CanPrepare(PermissionSet? permissions, bool currentContext, bool browserReady, bool loading,
         bool busy, int selectedCount, bool selectedIsDirectory) => permissions?.Download == true && currentContext
         && browserReady && !loading && !busy && selectedCount == 1 && !selectedIsDirectory;
@@ -101,5 +122,98 @@ internal static class DownloadPresentationPolicy
         var value = (double)Math.Max(0, bytes); var units = new[] { "B", "KB", "MB", "GB", "TB" }; var index = 0;
         while (value >= 1024 && index < units.Length - 1) { value /= 1024; ++index; }
         return $"{value:0.##} {units[index]}";
+    }
+}
+
+/// <summary>The exact local-name edit and revision associated with one exclusive preparation.</summary>
+internal sealed record DownloadSaveAsPreparation(string Name, long Revision);
+
+/// <summary>
+/// Read-only confirmation state for one original remote source. Editing requires a new backend
+/// preview; this state never builds a local path or starts a download.
+/// </summary>
+internal sealed class DownloadSaveAsState
+{
+    private readonly DownloadContext _context;
+    private readonly RemoteResourceRef _originalSource;
+    private DownloadSaveAsPreparation? _pending;
+    private long _revision;
+
+    internal DownloadSaveAsState(DownloadContext context, RemoteResourceRef originalSource, string initialName)
+    {
+        ArgumentNullException.ThrowIfNull(originalSource);
+        ArgumentNullException.ThrowIfNull(initialName);
+        _context = context;
+        _originalSource = originalSource;
+        Name = initialName;
+    }
+
+    internal string Name { get; private set; }
+    internal bool IsPreparing => _pending is not null;
+    internal DownloadPreview? Preview { get; private set; }
+    internal bool IsSubmitted { get; private set; }
+    internal bool IsClosed { get; private set; }
+
+    internal bool EditName(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        if (IsClosed || IsSubmitted) return false;
+        Name = name;
+        ++_revision;
+        Preview = null;
+        // Keep a pending preparation exclusive until its own finally/FinishPrepare runs.
+        return true;
+    }
+
+    internal bool TryBeginPrepare(out DownloadSaveAsPreparation preparation)
+    {
+        preparation = null!;
+        if (IsClosed || IsSubmitted || IsPreparing || _originalSource.Account != _context.Account ||
+            !DownloadPresentationPolicy.IsSafeLocalName(Name)) return false;
+        Preview = null;
+        preparation = new(Name, ++_revision);
+        _pending = preparation;
+        return true;
+    }
+
+    internal bool AcceptPreview(DownloadSaveAsPreparation preparation, DownloadPreview preview)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        ArgumentNullException.ThrowIfNull(preview);
+        if (IsClosed || IsSubmitted || Preview is not null || !ReferenceEquals(_pending, preparation) || preparation.Revision != _revision ||
+            !string.Equals(preparation.Name, Name, StringComparison.Ordinal) || preview.Context != _context ||
+            preview.Source is null || preview.Source.Account != _context.Account ||
+            preview.Source.Account != _originalSource.Account ||
+            !string.Equals(preview.Source.WirePath, _originalSource.WirePath, StringComparison.Ordinal) ||
+            !string.Equals(preview.Source.SourceVersion, _originalSource.SourceVersion, StringComparison.Ordinal) ||
+            !string.Equals(preview.Name, preparation.Name, StringComparison.Ordinal) ||
+            preview.Draft.Id == Guid.Empty || preview.TotalBytes < 0 || string.IsNullOrWhiteSpace(preview.DestinationDisplayPath))
+            return false;
+        Preview = preview;
+        return true;
+    }
+
+    internal void FinishPrepare(DownloadSaveAsPreparation preparation)
+    {
+        ArgumentNullException.ThrowIfNull(preparation);
+        if (ReferenceEquals(_pending, preparation)) _pending = null;
+    }
+
+    internal bool TryConfirm(out DownloadPreview preview)
+    {
+        preview = null!;
+        if (IsClosed || IsSubmitted || IsPreparing || Preview is not { } accepted) return false;
+        IsSubmitted = true;
+        preview = accepted;
+        return true;
+    }
+
+    internal void Close()
+    {
+        if (IsClosed) return;
+        IsClosed = true;
+        ++_revision;
+        _pending = null;
+        Preview = null;
     }
 }

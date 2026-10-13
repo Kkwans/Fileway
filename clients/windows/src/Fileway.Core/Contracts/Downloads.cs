@@ -8,7 +8,7 @@ public readonly record struct DownloadContext(AccountKey Account, Guid SessionId
 /// <summary>Opaque confirmation identity. Its fixed ID is also the durable request/task ID.</summary>
 public readonly record struct DownloadDraftRef(Guid Id);
 
-/// <summary>Read-only, application-validated preview of the original source and effective local destination.</summary>
+/// <summary>Read-only preview of the original source and effective destination; Name is the confirmed local filename.</summary>
 public sealed record DownloadPreview(DownloadContext Context, DownloadDraftRef Draft, RemoteResourceRef Source,
     string Name, string DestinationDisplayPath, long TotalBytes)
 {
@@ -43,6 +43,8 @@ public interface IDownloadService
     event EventHandler<DownloadItem>? TaskChanged;
     DownloadContext? CurrentContext { get; }
     Task<DownloadPreview> PrepareAsync(DownloadContext context, RemoteResourceRef source, CancellationToken cancellationToken);
+    /// <summary>Explicit safe local filename within the effective download directory; source identity is unchanged.</summary>
+    Task<DownloadPreview> PrepareAsAsync(DownloadContext context, RemoteResourceRef source, string localName, CancellationToken cancellationToken);
     Task<DownloadItem> SubmitAsync(DownloadPreview preview, CancellationToken cancellationToken);
     Task<DownloadPage> ListAsync(DownloadContext context, string? cursor, int limit, CancellationToken cancellationToken);
     /// <summary>Persisted cancellation drains writers and cleans only positively owned unpublished partials.</summary>

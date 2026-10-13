@@ -63,7 +63,15 @@ public sealed partial class UploadApplicationService
         lock (_gate) if (!binding.Session.Permissions.Download) throw DownloadSafe(ErrorCode.PermissionDenied);
     }
 
-    async Task<DownloadPreview> IDownloadService.PrepareAsync(DownloadContext context, RemoteResourceRef source, CancellationToken cancellationToken)
+    Task<DownloadPreview> IDownloadService.PrepareAsync(DownloadContext context, RemoteResourceRef source, CancellationToken cancellationToken) =>
+        PrepareDownloadAsync(context, source, localName: null, explicitLocalName: false, cancellationToken);
+
+    Task<DownloadPreview> IDownloadService.PrepareAsAsync(DownloadContext context, RemoteResourceRef source, string localName,
+        CancellationToken cancellationToken) =>
+        PrepareDownloadAsync(context, source, localName, explicitLocalName: true, cancellationToken);
+
+    private async Task<DownloadPreview> PrepareDownloadAsync(DownloadContext context, RemoteResourceRef source, string? localName,
+        bool explicitLocalName, CancellationToken cancellationToken)
     {
         await EnterAsync(cancellationToken).ConfigureAwait(false);
         try
@@ -72,6 +80,7 @@ public sealed partial class UploadApplicationService
             RequireDownloadPermission(binding);
             if (source is null || source.Account != context.Account || source.SourceVersion is not null)
                 throw DownloadSafe(ErrorCode.InvalidRequest);
+            string? requestedLeaf = explicitLocalName ? DownloadLocalName(localName) : null;
             var metadata = await _downloads!.Sources.PrepareDownloadAsync(source, cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
             if (metadata.IsDirectory || metadata.Size < 0 || metadata.Resource.Account != context.Account ||
@@ -79,11 +88,12 @@ public sealed partial class UploadApplicationService
             var settings = await StorageAsync(token => _downloads.StorageSettings.ReadAsync(token), cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
             var preparedSource = source with { DisplayName = metadata.Resource.DisplayName, DisplayPath = metadata.Resource.DisplayPath };
-            string path = DownloadDestination(settings.Active.DownloadDirectory, preparedSource.DisplayName);
+            string confirmedName = requestedLeaf ?? preparedSource.DisplayName;
+            string path = DownloadDestination(settings.Active.DownloadDirectory, confirmedName);
             var draft = new DownloadDraftRef(Guid.NewGuid());
             var plan = TransferTaskValidation.Plan(new(new(context.Account, draft.Id), TransferDirection.Download,
                 preparedSource, path, FileConflictPolicy.Fail, AutomaticResume: false));
-            var preview = new DownloadPreview(context, draft, preparedSource, preparedSource.DisplayName, path, metadata.Size);
+            var preview = new DownloadPreview(context, draft, preparedSource, confirmedName, path, metadata.Size);
             lock (_gate)
             {
                 RequireCurrent(binding);
@@ -96,6 +106,16 @@ public sealed partial class UploadApplicationService
         }
         catch (Exception error) { throw NormalizeDownload(error); }
         finally { _commands.Release(); }
+    }
+
+    private static string DownloadLocalName(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Contains('/') || name.Contains('\\') || name.Any(char.IsControl))
+            throw DownloadSafe(ErrorCode.InvalidRequest);
+        // Validate one leaf with the existing lexical Win32 rules, including strict Unicode,
+        // reserved names and ADS. This anchor is metadata only; no path is opened or selected here.
+        _ = TransferTaskValidation.LocalFilePath(@"C:\" + name);
+        return name;
     }
 
     private static string DownloadDestination(string directory, string name)

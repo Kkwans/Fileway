@@ -44,7 +44,10 @@ public sealed partial class MainPage
         var rows = SelectedRows(); var selected = rows.Length > 0; var permissions = _session?.Permissions;
         if (rows.Length == 1) Add("打开", async () => await OpenSelectedAsync(), BrowserReady);
         if (rows.Length == 1 && !rows[0].File.IsDirectory && permissions?.Download == true)
+        {
             Add("下载到默认目录…", () => DownloadFile_Click(this, new RoutedEventArgs()), CanDownloadSelection);
+            Add("下载另存为…", () => DownloadSaveAs_Click(this, new RoutedEventArgs()), CanDownloadSelection);
+        }
         if (selected)
         {
             Add("详细信息", () => { SetDetailsVisible(true); UpdateSelection(); }, BrowserReady);

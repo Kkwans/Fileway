@@ -31,6 +31,230 @@ public sealed partial class DownloadApplicationServiceTests
         Assert.DoesNotContain(@"C:\active-downloads", preview.ToString(), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("..")]
+    [InlineData("../escape.bin")]
+    [InlineData(@"..\escape.bin")]
+    [InlineData(@"C:\escape.bin")]
+    [InlineData("file.bin:stream")]
+    [InlineData("CON")]
+    [InlineData("NUL.txt")]
+    [InlineData("bad:name.bin")]
+    [InlineData("trailing.")]
+    [InlineData("trailing ")]
+    [InlineData("line\nfile.bin")]
+    public async Task ExplicitInvalidLeafFailsBeforeReadingMetadataOrCreatingWork(string? localName)
+    {
+        await using var fixture = new Fixture();
+        await fixture.ConnectAsync();
+
+        await FailureAsync(ErrorCode.InvalidRequest, () => fixture.Downloads.PrepareAsAsync(fixture.Context, fixture.Source, localName!, Token));
+
+        Assert.Equal(0, fixture.Sources.Preparations);
+        Assert.Equal(0, fixture.Store.Creates);
+        Assert.Empty(fixture.Runner.Runs);
+        Assert.Empty((await fixture.Store.Inner.ListTransfersAsync(fixture.Context.Account, null, 50, Token)).Items);
+    }
+
+    [Fact]
+    public async Task ExplicitMalformedUnicodeOrOverlongLeafFailsBeforeReadingMetadataOrCreatingWork()
+    {
+        await using var fixture = new Fixture();
+        await fixture.ConnectAsync();
+        // Keep invalid UTF-16 out of theory attributes and their test-case serialization.
+        string[] invalidNames = [new string('\ud800', 1), new string('\udc00', 1), new string('x', 256)];
+
+        foreach (var localName in invalidNames)
+            await FailureAsync(ErrorCode.InvalidRequest, () => fixture.Downloads.PrepareAsAsync(fixture.Context, fixture.Source, localName, Token));
+
+        Assert.Equal(0, fixture.Sources.Preparations);
+        Assert.Equal(0, fixture.Store.Creates);
+        Assert.Empty(fixture.Runner.Runs);
+        Assert.Empty((await fixture.Store.Inner.ListTransfersAsync(fixture.Context.Account, null, 50, Token)).Items);
+    }
+
+    [Fact]
+    public async Task ExplicitUnicodeLeafPreservesSourceAndDurableOrderingWithoutDuplicateExecutionOrCreatePermission()
+    {
+        await using var fixture = new Fixture();
+        var session = await fixture.ConnectAsync();
+        Assert.True(session.Permissions.Download);
+        Assert.False(session.Permissions.Create);
+        var source = fixture.Source;
+        const string localName = "保存 literal%2F #é.bin";
+        var preview = await fixture.Downloads.PrepareAsAsync(fixture.Context, source, localName, Token);
+
+        Assert.Equal(localName, preview.Name);
+        Assert.Equal(@"C:\active-downloads\保存 literal%2F #é.bin", preview.DestinationDisplayPath);
+        Assert.Equal(source, preview.Source);
+        Assert.Equal(source, fixture.Sources.LastPrepared);
+        Assert.Equal(fixture.Context, preview.Context);
+        Assert.Equal(8, preview.TotalBytes);
+        Assert.NotEqual(Guid.Empty, preview.Draft.Id);
+        Assert.Equal(1, fixture.Sources.Preparations);
+        Assert.Empty(fixture.Runner.Runs);
+        Assert.Empty((await fixture.Store.Inner.ListTransfersAsync(fixture.Context.Account, null, 50, Token)).Items);
+        var entered = Signal(); var release = fixture.Gate();
+        fixture.Store.BeforeCreate = async (plan, cancellationToken) =>
+        {
+            Assert.Equal(source, plan.Remote);
+            Assert.Equal(preview.DestinationDisplayPath, plan.LocalPath);
+            entered.TrySetResult();
+            await release.Task.WaitAsync(cancellationToken);
+        };
+
+        var submitting = fixture.Downloads.SubmitAsync(preview, Token);
+        await entered.Task.WaitAsync(Timeout, Token);
+        Assert.Empty(fixture.Runner.Runs);
+        Assert.Equal(0, fixture.Store.Creates);
+        release.TrySetResult();
+        var submitted = await submitting.WaitAsync(Timeout, Token);
+        await fixture.Runner.Started.Task.WaitAsync(Timeout, Token);
+        var record = await fixture.ReadAsync(submitted.Snapshot.Task);
+        Assert.Equal(preview.Draft.Id, record.Plan.Reference.Id);
+        Assert.Equal(TransferDirection.Download, record.Plan.Direction);
+        Assert.Equal(FileConflictPolicy.Fail, record.Plan.Conflict);
+        Assert.False(record.Plan.AutomaticResume);
+        Assert.Equal(preview.DestinationDisplayPath, record.Plan.LocalPath);
+        Assert.Equal(source, record.Plan.Remote);
+        Assert.Equal(source, submitted.Source);
+        Assert.Equal(source.DisplayName, submitted.Name);
+        Assert.Equal(preview.DestinationDisplayPath, submitted.DestinationDisplayPath);
+
+        var duplicate = await fixture.Downloads.SubmitAsync(preview with { }, Token);
+        Assert.Equal(submitted.Snapshot.Task, duplicate.Snapshot.Task);
+        Assert.Equal(source.DisplayName, duplicate.Name);
+        Assert.Equal(source, duplicate.Source);
+        Assert.Single(fixture.Runner.Runs);
+        Assert.Equal(1, fixture.Store.Creates);
+        Assert.Equal(1, fixture.Sources.Preparations);
+
+        fixture.Connection.EmitSession(session with { Permissions = session.Permissions with { Download = false } });
+        await FailureAsync(ErrorCode.PermissionDenied, () => fixture.Downloads.PrepareAsAsync(fixture.Context, source, localName, Token));
+        await FailureAsync(ErrorCode.PermissionDenied, () => fixture.Downloads.SubmitAsync(preview, Token));
+        Assert.Equal(1, fixture.Sources.Preparations);
+        Assert.Equal(1, fixture.Store.Creates);
+        Assert.Single(fixture.Runner.Runs);
+    }
+
+    [Theory]
+    [InlineData("NUL.txt")]
+    [InlineData("remote:name.bin")]
+    public async Task ExplicitSafeLeafCanMapUnsafeRemoteMetadataWithoutChangingWireIdentity(string remoteName)
+    {
+        await using var fixture = new Fixture();
+        await fixture.ConnectAsync();
+        fixture.Sources.Name = remoteName;
+        var metadataPath = "/visible/" + remoteName;
+        fixture.Sources.DisplayPath = metadataPath;
+        var source = fixture.Source;
+        const string localName = "safe copy.bin";
+        await FailureAsync(ErrorCode.InvalidRequest, () => fixture.PreviewAsync());
+
+        var preview = await fixture.Downloads.PrepareAsAsync(fixture.Context, source, localName, Token);
+
+        var metadataSource = source with { DisplayName = remoteName, DisplayPath = metadataPath };
+        Assert.Equal(localName, preview.Name);
+        Assert.Equal(@"C:\active-downloads\safe copy.bin", preview.DestinationDisplayPath);
+        Assert.Equal(metadataSource, preview.Source);
+        Assert.Equal(source.WirePath, preview.Source.WirePath);
+        Assert.Equal(source, fixture.Sources.LastPrepared);
+        Assert.Equal(2, fixture.Sources.Preparations);
+        Assert.Equal(0, fixture.Store.Creates);
+        Assert.Empty(fixture.Runner.Runs);
+        var submitted = await fixture.Downloads.SubmitAsync(preview, Token);
+        await fixture.Runner.Started.Task.WaitAsync(Timeout, Token);
+        var record = await fixture.ReadAsync(submitted.Snapshot.Task);
+        Assert.Equal(metadataSource, record.Plan.Remote);
+        Assert.Equal(preview.DestinationDisplayPath, record.Plan.LocalPath);
+        Assert.Equal(FileConflictPolicy.Fail, record.Plan.Conflict);
+        Assert.False(record.Plan.AutomaticResume);
+        Assert.Equal(metadataSource, submitted.Source);
+        Assert.Equal(remoteName, submitted.Name);
+        Assert.Single(fixture.Runner.Runs);
+    }
+
+    [Theory]
+    [InlineData("localName")]
+    [InlineData("originalName")]
+    [InlineData("source")]
+    [InlineData("destination")]
+    public async Task ExplicitNamedPreviewCannotBeForgedOrRetargeted(string change)
+    {
+        await using var fixture = new Fixture();
+        await fixture.ConnectAsync();
+        var preview = await fixture.Downloads.PrepareAsAsync(fixture.Context, fixture.Source, "chosen.bin", Token);
+        preview = change switch
+        {
+            "localName" => preview with { Name = "other.bin" },
+            "originalName" => preview with { Source = preview.Source with { DisplayName = "different remote.bin" } },
+            "source" => preview with { Source = preview.Source with { WirePath = "/another.bin" } },
+            _ => preview with { DestinationDisplayPath = @"C:\other\chosen.bin" },
+        };
+
+        await FailureAsync(ErrorCode.InvalidRequest, () => fixture.Downloads.SubmitAsync(preview, Token));
+
+        Assert.Equal(1, fixture.Sources.Preparations);
+        Assert.Equal(0, fixture.Store.Creates);
+        Assert.Empty(fixture.Runner.Runs);
+        Assert.Empty((await fixture.Store.Inner.ListTransfersAsync(fixture.Context.Account, null, 50, Token)).Items);
+    }
+
+    [Fact]
+    public async Task ExplicitNamedPreviewFencesEffectiveDirectoryChangesAndIgnoresPendingDirectory()
+    {
+        await using var fixture = new Fixture();
+        await fixture.ConnectAsync();
+        var preview = await fixture.Downloads.PrepareAsAsync(fixture.Context, fixture.Source, "chosen.bin", Token);
+        fixture.Settings.Active = @"C:\changed-active";
+
+        await FailureAsync(ErrorCode.SourceChanged, () => fixture.Downloads.SubmitAsync(preview, Token));
+
+        Assert.Equal(0, fixture.Store.Creates);
+        Assert.Empty(fixture.Runner.Runs);
+        fixture.Settings.Active = @"C:\active-downloads";
+        fixture.Settings.Pending = @"C:\another-pending";
+        var submitted = await fixture.Downloads.SubmitAsync(preview, Token);
+        await fixture.Runner.Started.Task.WaitAsync(Timeout, Token);
+        var record = await fixture.ReadAsync(submitted.Snapshot.Task);
+        Assert.Equal(@"C:\active-downloads\chosen.bin", submitted.DestinationDisplayPath);
+        Assert.Equal(preview.DestinationDisplayPath, record.Plan.LocalPath);
+        Assert.Equal("chosen.bin", preview.Name);
+        Assert.Equal(fixture.Source.DisplayName, submitted.Name);
+        Assert.Equal(1, fixture.Sources.Preparations);
+        Assert.Equal(1, fixture.Store.Creates);
+        Assert.Single(fixture.Runner.Runs);
+    }
+
+    [Theory]
+    [InlineData("account")]
+    [InlineData("session")]
+    public async Task ExplicitNamedPreviewCannotSubmitAfterActualAccountOrSessionReplacement(string change)
+    {
+        await using var fixture = new Fixture();
+        await fixture.ConnectAsync();
+        var oldContext = fixture.Context;
+        var source = fixture.Source;
+        var preview = await fixture.Downloads.PrepareAsAsync(oldContext, source, "chosen.bin", Token);
+        if (change == "account") fixture.Connection.ServerUserId = "foreign";
+
+        await fixture.ConnectAsync().WaitAsync(Timeout, Token);
+
+        if (change == "account") Assert.NotEqual(oldContext.Account, fixture.Context.Account);
+        else Assert.Equal(oldContext.Account, fixture.Context.Account);
+        Assert.NotEqual(oldContext.SessionId, fixture.Context.SessionId);
+        await FailureAsync(ErrorCode.SourceChanged, () => fixture.Downloads.SubmitAsync(preview, Token));
+        await FailureAsync(ErrorCode.SourceChanged, () => fixture.Downloads.PrepareAsAsync(oldContext, source, "chosen.bin", Token));
+        Assert.Equal(1, fixture.Sources.Preparations);
+        Assert.Equal(0, fixture.Store.Creates);
+        Assert.Empty(fixture.Runner.Runs);
+        Assert.Empty((await fixture.Store.Inner.ListTransfersAsync(oldContext.Account, null, 50, Token)).Items);
+        Assert.Empty((await fixture.Store.Inner.ListTransfersAsync(fixture.Context.Account, null, 50, Token)).Items);
+    }
+
     [Fact]
     public async Task SubmissionPersistsFixedDraftBeforeExecutionAndDuplicateNeverRestarts()
     {
@@ -249,7 +473,8 @@ public sealed partial class DownloadApplicationServiceTests
     private sealed class FakeConnection(InMemoryProfileStore store) : IConnectionService, IConnectionCatalog, IAsyncDisposable
     {
         internal ConnectionProfile Profile { get; } = new(Guid.NewGuid(), Guid.NewGuid(), "download fixture", new("https://fixture.invalid/"), NetworkMode.SystemNetwork, new(ProxyMode.Direct));
-        internal AccountKey Account => new(Profile.Id, Profile.SourceRevision, "7");
+        internal string ServerUserId { get; set; } = "7";
+        internal AccountKey Account => new(Profile.Id, Profile.SourceRevision, ServerUserId);
         internal ConnectionSession? Active { get; set; }
         internal ConcurrentQueue<string> Calls { get; } = new();
         internal int Disposals;
@@ -260,7 +485,7 @@ public sealed partial class DownloadApplicationServiceTests
         public async Task<ConnectionSession> ConnectAsync(ConnectionProfile profile, LoginInput login, CancellationToken cancellationToken)
         {
             Calls.Enqueue("connect");
-            await store.SaveAsync(new(Profile, AuthenticationMode.NoAuthentication, "fixture", "7", false, DateTimeOffset.UtcNow), cancellationToken);
+            await store.SaveAsync(new(Profile, AuthenticationMode.NoAuthentication, "fixture", ServerUserId, false, DateTimeOffset.UtcNow), cancellationToken);
             return Active = new(Guid.NewGuid(), Account, "fixture", new(true, false, false, false, false, false), new());
         }
         public Task<ConnectionSession> RestoreAsync(Guid profileId, CancellationToken cancellationToken) => ConnectAsync(Profile, new(AuthenticationMode.NoAuthentication), cancellationToken);
@@ -284,9 +509,16 @@ public sealed partial class DownloadApplicationServiceTests
     private sealed class FakeSources : IDownloadSourceProvider, IFileRepository
     {
         internal string? Name { get; set; }
+        internal string? DisplayPath { get; set; }
+        internal RemoteResourceRef? LastPrepared { get; private set; }
         internal int Preparations;
         public Task<RemoteFile> PrepareDownloadAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
-        { Preparations++; return Task.FromResult(new RemoteFile(resource with { DisplayName = Name ?? resource.DisplayName }, false, 8, null)); }
+        {
+            Preparations++;
+            LastPrepared = resource;
+            return Task.FromResult(new RemoteFile(resource with
+                { DisplayName = Name ?? resource.DisplayName, DisplayPath = DisplayPath ?? resource.DisplayPath }, false, 8, null));
+        }
         public Task<IDownloadLease> AcquireDownloadAsync(DownloadLeaseRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<FileChecksumResult> CalculateDownloadChecksumAsync(DownloadLeaseRequest request, CancellationToken cancellationToken) => throw new NotSupportedException();
         public Task<RemoteFile> GetAsync(RemoteResourceRef resource, CancellationToken cancellationToken) => PrepareDownloadAsync(resource, cancellationToken);
