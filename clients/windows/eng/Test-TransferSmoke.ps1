@@ -17,7 +17,8 @@ $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight
     'upload-confirm.png', 'upload-completed.png', 'download-confirm.png',
     'download-completed.png', 'download-conflict.png', 'upload-conflict.png', 'connect-failure.png',
     'connect-ready.png', 'transfer-center-uploads.png', 'transfer-center-downloads.png', 'upload-result-failure.png',
-    'download-save-as-confirm.png', 'download-save-as-completed.png', 'download-save-as-menu-failure.png')
+    'download-save-as-confirm.png', 'download-save-as-completed.png', 'download-save-as-menu-failure.png',
+    'checksum-ready.png', 'checksum-result.png')
 $script:root = $null
 $script:app = $null
 $script:server = $null
@@ -56,7 +57,7 @@ function Artifact-Path([string] $Name) {
 function Write-Report([string] $Status, [string] $Code) {
     $value = [ordered]@{ schemaVersion = 1; scope = $(if ($PreflightOnly) { 'preflight' } else { 'native-transfer-smoke' });
         status = $Status; code = $Code; stage = $script:stage; completedSteps = @($script:completed);
-        nativeTransferVerified = ($Status -eq 'passed'); cancellationUiVerified = $false; unknownOutcomeUiVerified = $false; saveAsUiVerified = ($Status -eq 'passed');
+        nativeTransferVerified = ($Status -eq 'passed'); cancellationUiVerified = $false; unknownOutcomeUiVerified = $false; saveAsUiVerified = ($Status -eq 'passed'); checksumUiVerified = ($Status -eq 'passed');
         elapsedMilliseconds = $script:clock.ElapsedMilliseconds }
     [IO.File]::WriteAllText((Artifact-Path 'report.json'), ($value | ConvertTo-Json -Depth 4) + "`n", [Text.UTF8Encoding]::new($false))
 }
@@ -325,9 +326,9 @@ function Download-File([string] $Destination, [string] $ExpectedStage, [string] 
     $script:stage = 'download-close-detail'
     Close-TransferDialog '文件下载'
 }
-function Invoke-SaveAsMenuItem([IntPtr] $Window) {
+function Invoke-OwnedFileMenuItem([IntPtr] $Window, [ValidateSet('下载另存为…', '计算校验和…')][string] $MenuLabel) {
     if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'save_as_window_owner_mismatch' }
-    $element = Control $Window '^下载另存为…$' 'MenuItem'
+    $element = Control $Window ('^' + [regex]::Escape($MenuLabel) + '$') 'MenuItem'
     # v0.7.1 ancestors inspection resolves the element's native top-level HWND
     # into windows[].hwnd. A WinUI flyout can own a separate popup HWND; do not
     # weaken the normal main-window Act contract or trust an invoke result first.
@@ -348,17 +349,23 @@ function Invoke-SaveAsMenuItem([IntPtr] $Window) {
     $result = Invoke-WinApp @('ui', 'invoke', $element.selector, '-w', $popup.ToInt64().ToString(), '--action', 'invoke', '--json')
     if ($result.hwnd -ne $popup.ToInt64() -or $result.performedAction -cne 'invoke') { Stop-Smoke 'save_as_menu_invoke_contract_mismatch' }
 }
-function Open-SaveAsMenu([IntPtr] $Window, [string] $RemoteName) {
+function Invoke-SaveAsMenuItem([IntPtr] $Window) {
+    Invoke-OwnedFileMenuItem $Window '下载另存为…'
+}
+function Open-FileContextMenu([IntPtr] $Window, [string] $RemoteName, [ValidateSet('download-save-as', 'checksum')][string] $StagePrefix) {
     if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'save_as_window_owner_mismatch' }
-    $script:stage = 'download-save-as-row-select'
+    $script:stage = $StagePrefix + '-row-select'
     Act $Window ('^' + [regex]::Escape($RemoteName) + '$') 'ListItem' 'select'
     $element = Control $Window ('^' + [regex]::Escape($RemoteName) + '$') 'ListItem'
     # Standard ContextFlyout keyboard invocation; exact selector receives focus.
     # v0.7.1 documents f1-f16 and modifier combos, with guarded SendInput.
-    $script:stage = 'download-save-as-menu-key'
+    $script:stage = $StagePrefix + '-menu-key'
     $result = Invoke-WinApp @('ui', 'send-keys', 'shift+f10', '--target', $element.selector, '-w', $Window.ToInt64().ToString(), '--via', 'send-input', '--json')
     if ($result.hwnd -ne $Window.ToInt64() -or $result.keys -cne 'shift+f10' -or $result.via -cne 'send-input' -or
         $result.target -cne $element.selector -or $result.actionCount -ne 1 -or @($result.warnings).Count -ne 0) { Stop-Smoke 'save_as_menu_keyboard_contract_mismatch' }
+}
+function Open-SaveAsMenu([IntPtr] $Window, [string] $RemoteName) {
+    Open-FileContextMenu $Window $RemoteName 'download-save-as'
 }
 function Download-SaveAs([string] $RemoteName, [string] $LocalName, [string] $Destination) {
     $script:stage = 'download-save-as-menu'
@@ -383,6 +390,40 @@ function Download-SaveAs([string] $RemoteName, [string] $LocalName, [string] $De
     Capture 'download-save-as-completed.png'
     $script:stage = 'download-save-as-close-detail'
     Close-TransferDialog '文件下载'
+}
+function Read-ChecksumDialog {
+    $dialog = Find-TransferDialog (Elements $script:window) '文件校验和'
+    if (-not $dialog) { Stop-Smoke 'checksum_dialog_not_observed' }
+    $tree = Invoke-WinApp @('ui', 'inspect', $dialog.selector, '-w', $script:window.ToInt64().ToString(), '--depth', '16', '--json')
+    return @(Unique-Elements (Find-Elements $tree))
+}
+function Has-ChecksumText($Elements, [string] $Text) {
+    return @($Elements | Where-Object { $_.type -eq 'Text' -and $_.Contains('name') -and $_.name -ceq $Text -and -not $_.isOffscreen }).Count -gt 0
+}
+function Test-ChecksumResult($Elements, [string] $ExpectedHash) {
+    if ($ExpectedHash -cnotmatch '^[A-Fa-f0-9]{64}$') { Stop-Smoke 'checksum_expected_hash_contract_mismatch' }
+    $digests = @($Elements | Where-Object { $_.type -eq 'Text' -and $_.Contains('name') -and $_.name -cmatch '^[A-Fa-f0-9]{64}$' -and -not $_.isOffscreen })
+    if ($digests.Count -gt 1) { Stop-Smoke 'checksum_digest_ambiguous' }
+    return ($digests.Count -eq 1 -and $digests[0].name -ieq $ExpectedHash -and
+        (Has-ChecksumText $Elements '与预期校验和一致') -and (Has-ChecksumText $Elements 'SHA-256 · 1 MB'))
+}
+function Verify-Checksum([string] $RemoteName, [string] $ExpectedHash) {
+    Open-FileContextMenu $script:window $RemoteName 'checksum'
+    $script:stage = 'checksum-menu-choice'
+    Invoke-OwnedFileMenuItem $script:window '计算校验和…'
+    $script:stage = 'checksum-ready'
+    Wait-Text '文件校验和'
+    $elements = Read-ChecksumDialog
+    if (-not (Has-ChecksumText $elements $RemoteName) -or -not (Has-ChecksumText $elements 'SHA-256')) { Stop-Smoke 'checksum_ready_identity_or_algorithm_mismatch' }
+    Set-Value $script:window '^预期校验和（可选）$' $ExpectedHash
+    Capture 'checksum-ready.png'
+    $script:stage = 'checksum-submit'
+    Act $script:window '^计算校验和$'
+    $script:stage = 'checksum-result'
+    $null = Wait-Condition { Test-ChecksumResult (Read-ChecksumDialog) $ExpectedHash } 'checksum_result_not_observed' 30000
+    Capture 'checksum-result.png'
+    $script:stage = 'checksum-close'
+    Close-TransferDialog '文件校验和'
 }
 function Assert-Payload([string] $Path, [string] $Hash) {
     if (-not [IO.File]::Exists($Path) -or ([IO.FileInfo]::new($Path)).Length -ne 1048576 -or
@@ -529,6 +570,12 @@ public static class FilewayTransferDownloads {
         Assert-Payload $saveAsDestination $expectedHash
         Assert-Payload $remoteFile $expectedHash
         Complete-Step 'native-download-save-as-and-local-bytes' @{ bytes = 1048576; hashEqual = $true; remotePreserved = $true }
+        $script:stage = 'native-checksum'
+        Verify-Checksum $name $expectedHash
+        Assert-Payload $remoteFile $expectedHash
+        Assert-Payload $destination $expectedHash
+        Assert-Payload $saveAsDestination $expectedHash
+        Complete-Step 'native-sha256-checksum-and-bytes-preserved' @{ hashEqual = $true; algorithmSha256 = $true; bytes = 1048576 }
         $script:stage = 'native-upload-conflict'
         Upload-File $alternateFile '目标存在同名项目' 'upload-conflict.png'
         Assert-Payload $remoteFile $expectedHash

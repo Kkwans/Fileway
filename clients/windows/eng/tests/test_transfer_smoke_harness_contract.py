@@ -150,8 +150,8 @@ class TransferSmokeContract(unittest.TestCase):
         self.assertIn('下载另存为…', (APP / 'MainPage.FileCommands.cs').read_text(encoding='utf-8'))
 
     def test_save_as_menu_resolves_exact_owned_popup_before_mutation(self):
-        helper = SOURCE[SOURCE.index('function Invoke-SaveAsMenuItem'):SOURCE.index('function Open-SaveAsMenu')]
-        for value in ("'^下载另存为…$' 'MenuItem'", "'--ancestors'", "@($tree.windows).Count -ne 1",
+        helper = SOURCE[SOURCE.index('function Invoke-OwnedFileMenuItem'):SOURCE.index('function Open-FileContextMenu')]
+        for value in ("[ValidateSet('下载另存为…', '计算校验和…')]", "'--ancestors'", "@($tree.windows).Count -ne 1",
                       "$context.Contains('hwnd')", "$context.Contains('elements')", "$_.selector -ceq $element.selector",
                       'Native]::ProcessId($popup) -ne $script:app.Id', 'Native]::InFamily($popup, $Window)',
                       "$popup.ToInt64().ToString()", "$result.hwnd -ne $popup.ToInt64()", "$result.performedAction -cne 'invoke'"):
@@ -162,7 +162,7 @@ class TransferSmokeContract(unittest.TestCase):
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual popup helper runs in Windows CI")
     def test_actual_save_as_menu_popup_schema_identity_owner_and_result(self):
         helpers = SOURCE[SOURCE.index('function Find-Elements'):SOURCE.index('function Elements(')]
-        helper = SOURCE[SOURCE.index('function Invoke-SaveAsMenuItem'):SOURCE.index('function Open-SaveAsMenu')]
+        helper = SOURCE[SOURCE.index('function Invoke-OwnedFileMenuItem'):SOURCE.index('function Open-FileContextMenu')]
         command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helpers + helper + r"""
 Add-Type 'namespace Fileway.PlayerSmoke { public static class Native { public static bool Family=true; public static bool MainOwned=true; public static uint ProcessId(System.IntPtr w) { return (w.ToInt64()==8 || w.ToInt64()==9 || (w.ToInt64()==7 && MainOwned)) ? 123u : 0u; } public static bool InFamily(System.IntPtr w,System.IntPtr main) { return Family && main.ToInt64()==7 && (w.ToInt64()==7 || w.ToInt64()==8); } } }'
 $script:app=@{Id=123};$script:calls=[Collections.Generic.List[object]]::new()
@@ -230,7 +230,7 @@ foreach($field in @('hwnd','performedAction')) {
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_save_as_failure_evidence_is_fixed_owned_main_and_acceptance_unchanged(self):
-        for value in ('download-save-as-row-select', 'download-save-as-menu-key', 'download-save-as-menu-choice',
+        for value in ("$StagePrefix + '-row-select'", "$StagePrefix + '-menu-key'", 'download-save-as-menu-choice',
                       "Capture 'download-save-as-menu-failure.png'", 'actualWindowOwned = [int]', 'actualActionNone = [int]'):
             self.assertIn(value, SOURCE)
         self.assertIn("$result.hwnd -ne $Window.ToInt64() -or $result.performedAction -notin $performed", SOURCE)
@@ -267,7 +267,7 @@ if($code -cne 'invoke_effect_contract_mismatch' -or $script:observations.Count -
 
     @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual context-menu helper runs in Windows CI")
     def test_actual_save_as_context_key_ownership_target_and_response(self):
-        helper = SOURCE[SOURCE.index('function Open-SaveAsMenu'):SOURCE.index('function Download-SaveAs')]
+        helper = SOURCE[SOURCE.index('function Open-FileContextMenu'):SOURCE.index('function Download-SaveAs')]
         command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helper + r"""
 Add-Type 'namespace Fileway.PlayerSmoke { public static class Native { public static uint ProcessId(System.IntPtr w) { return 123; } } }'
 $script:app=@{Id=123};$script:actions=0
@@ -489,7 +489,7 @@ if ($code -cne 'download_records_not_selected') { throw 'unobserved_effect_accep
         self.assertIn("'type', 'name', 'isEnabled', 'isOffscreen', 'automationId'", helper)
         self.assertIn("[object]::Equals($previous[$field], $element[$field])", helper)
         self.assertIn("'inspect_selector_metadata_mismatch'", helper)
-        self.assertEqual(len(re.findall(r"Unique-Elements \(Find-Elements \$tree\)", SOURCE, re.I)), 2)
+        self.assertEqual(len(re.findall(r"Unique-Elements \(Find-Elements \$tree\)", SOURCE, re.I)), 3)
         self.assertIn("$matches.Count -ne 1", SOURCE)
 
     def test_connection_scroll_preserves_visible_action_guard(self):
@@ -617,9 +617,93 @@ if($actual.Count -ne 1 -or $script:reads -ne 1 -or $script:delays -ne 0){throw '
         result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_checksum_uses_real_dialog_and_preserves_previous_bytes_gates(self):
+        helper = SOURCE[SOURCE.index('function Verify-Checksum'):SOURCE.index('function Assert-Payload')]
+        for value in ("Open-FileContextMenu $script:window $RemoteName 'checksum'", "Invoke-OwnedFileMenuItem $script:window '计算校验和…'",
+                      "Wait-Text '文件校验和'", "Has-ChecksumText $elements $RemoteName", "Has-ChecksumText $elements 'SHA-256'",
+                      "Set-Value $script:window '^预期校验和（可选）$' $ExpectedHash", "Capture 'checksum-ready.png'",
+                      "Act $script:window '^计算校验和$'", "Test-ChecksumResult (Read-ChecksumDialog) $ExpectedHash",
+                      "Capture 'checksum-result.png'", "Close-TransferDialog '文件校验和'"):
+            self.assertIn(value, helper)
+        self.assertLess(helper.index('checksum_ready_identity_or_algorithm_mismatch'), helper.index("Capture 'checksum-ready.png'"))
+        self.assertLess(helper.index("Capture 'checksum-ready.png'"), helper.index("Act $script:window '^计算校验和$'"))
+        scoped = SOURCE[SOURCE.index('function Read-ChecksumDialog'):SOURCE.index('function Verify-Checksum')]
+        self.assertIn("Find-TransferDialog (Elements $script:window) '文件校验和'", scoped)
+        self.assertIn("'inspect', $dialog.selector", scoped)
+        self.assertIn("$digests[0].name -ieq $ExpectedHash", scoped)
+        self.assertIn("'与预期校验和一致'", scoped)
+        self.assertIn("'SHA-256 · 1 MB'", scoped)
+        self.assertIn("checksumUiVerified = ($Status -eq 'passed')", SOURCE)
+        self.assertIn("native-sha256-checksum-and-bytes-preserved", SOURCE)
+        app = (APP / 'MainPage.Checksums.cs').read_text(encoding='utf-8')
+        for value in ('algorithm.SelectedIndex = 2', '预期校验和（可选）', 'IsTextSelectionEnabled = true', '文件校验和', '与预期校验和一致'):
+            self.assertIn(value, app)
+        for guard in ('application_exit_code_nonzero', 'owned_host_exit_code_nonzero'):
+            self.assertLess(SOURCE.index(guard), SOURCE.index("Write-Report 'passed' 'transfer_smoke_ok'"))
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual digest policy runs in Windows CI")
+    def test_actual_checksum_result_requires_unique_visible_digest_algorithm_and_match(self):
+        helper = SOURCE[SOURCE.index('function Has-ChecksumText'):SOURCE.index('function Verify-Checksum')]
+        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helper + r"""
+$hash='A'*64
+$digest=@{selector='digest';type='Text';name=('a'*64);isOffscreen=$false}
+$comparison=@{selector='comparison';type='Text';name='与预期校验和一致';isOffscreen=$false}
+$metadata=@{selector='metadata';type='Text';name='SHA-256 · 1 MB';isOffscreen=$false}
+$anonymous=@{selector='anonymous';type='Pane';isOffscreen=$false}
+$valid=@($anonymous,$digest,$comparison,$metadata)
+if(-not (Test-ChecksumResult $valid $hash)){throw 'valid_case_insensitive_digest_rejected'}
+foreach($case in @('digestMissing','digestWrong','digestHidden','digestEditOnly','comparisonMissing','comparisonDiffers','algorithmWrong','metadataHidden')){
+    $items=@($anonymous,$digest.Clone(),$comparison.Clone(),$metadata.Clone())
+    switch($case){
+        'digestMissing' {$items=@($anonymous,$comparison,$metadata)}
+        'digestWrong' {$items[1].name='B'*64}
+        'digestHidden' {$items[1].isOffscreen=$true}
+        'digestEditOnly' {$items[1].type='Edit'}
+        'comparisonMissing' {$items=@($anonymous,$digest,$metadata)}
+        'comparisonDiffers' {$items[2].name='与预期校验和不同'}
+        'algorithmWrong' {$items[3].name='SHA-512 · 1 MB'}
+        'metadataHidden' {$items[3].isOffscreen=$true}
+    }
+    if(Test-ChecksumResult $items $hash){throw 'invalid_result_accepted'}
+}
+$code=$null;try{$null=Test-ChecksumResult ($valid+@($digest.Clone())) $hash}catch{$code=$_.Exception.Message}
+if($code -cne 'checksum_digest_ambiguous'){throw 'duplicate_digest_accepted'}
+$code=$null;try{$null=Test-ChecksumResult $valid 'invalid'}catch{$code=$_.Exception.Message}
+if($code -cne 'checksum_expected_hash_contract_mismatch'){throw 'invalid_expected_digest_accepted'}
+"""
+        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual fixed menu core runs in Windows CI")
+    def test_actual_owned_menu_core_accepts_only_two_fixed_labels(self):
+        helpers = SOURCE[SOURCE.index('function Find-Elements'):SOURCE.index('function Elements(')]
+        core = SOURCE[SOURCE.index('function Invoke-OwnedFileMenuItem'):SOURCE.index('function Open-FileContextMenu')]
+        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helpers + core + r"""
+Add-Type 'namespace Fileway.PlayerSmoke { public static class Native { public static uint ProcessId(System.IntPtr w){return 123u;} public static bool InFamily(System.IntPtr w,System.IntPtr main){return w.ToInt64()==8 && main.ToInt64()==7;} } }'
+$script:app=@{Id=123};$script:invokes=0;$script:inspections=0;$script:controls=0
+function Control {param($Window,$Pattern,$Type)
+    if($Window -ne 7 -or $Pattern -cne ('^'+[regex]::Escape($script:label)+'$') -or $Type -cne 'MenuItem'){throw 'wrong_fixed_menu'}
+    $script:controls++;return @{selector='fixed-menu';name=$script:label;type='MenuItem';isEnabled=$true;isOffscreen=$false}
+}
+function Invoke-WinApp {param([string[]]$Arguments)
+    if($Arguments[1] -ceq 'inspect'){
+        if(($Arguments -join '|') -cne 'ui|inspect|fixed-menu|--ancestors|-w|7|--json'){throw 'wrong_ancestor_read'}
+        $script:inspections++;return @{windows=@(@{hwnd=[long]8;elements=@(@{selector='fixed-menu';name=$script:label;type='MenuItem';isEnabled=$true;isOffscreen=$false})})}
+    }
+    if(($Arguments -join '|') -cne 'ui|invoke|fixed-menu|-w|8|--action|invoke|--json'){throw 'wrong_popup_invoke'}
+    $script:invokes++;return @{hwnd=8;performedAction='invoke'}
+}
+foreach($script:label in @('下载另存为…','计算校验和…')){Invoke-OwnedFileMenuItem ([IntPtr]7) $script:label}
+if($script:invokes -ne 2 -or $script:inspections -ne 2 -or $script:controls -ne 2){throw 'fixed_actions_not_verified'}
+$code=$null;try{Invoke-OwnedFileMenuItem ([IntPtr]7) '删除'}catch{$code=$_.FullyQualifiedErrorId}
+if($null -eq $code -or $script:invokes -ne 2 -or $script:controls -ne 2){throw 'other_menu_action_accepted'}
+"""
+        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_conflict_asserts_same_bytes_after_real_ui_operation(self):
-        self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 3)
-        self.assertEqual(SOURCE.count("Assert-Payload $destination $expectedHash"), 2)
+        self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 4)
+        self.assertEqual(SOURCE.count("Assert-Payload $destination $expectedHash"), 3)
         self.assertIn("$payload[0] = 255", SOURCE)
         self.assertIn("'download_destination_already_exists'", SOURCE)
         self.assertIn("[Guid]::NewGuid().ToString('N') + '.bin'", SOURCE)

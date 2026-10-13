@@ -101,4 +101,6 @@ jobs:
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-save-as-confirm.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-save-as-completed.png
             ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/download-save-as-menu-failure.png
+            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/checksum-ready.png
+            ${{ runner.temp }}/Fileway-transfer-evidence/screenshots/checksum-result.png
           if-no-files-found: ignore

@@ -60,11 +60,18 @@ in its native confirmation; no setting, safety guard or destination is changed.
    read-only, observe the exact remote name/local name/Active directory preview,
    then explicitly start. Require completed UI, matching local one-MiB SHA256
    and unchanged original remote bytes. The existing local file stays untouched.
-6. Same-name upload of different synthetic bytes produces the real remote-name
+6. Reopen the same synthetic file's native context menu and choose Calculate
+   Checksum. Observe the actual checksum dialog's original name and default
+   SHA-256 selection, enter the known synthetic payload hash as the optional
+   expected value, then explicitly calculate. Require one visible digest that
+   equals the expected hash, the real matching-comparison text and SHA-256/size
+   metadata in that dialog. Close normally and recheck all three remote/local/
+   Save As byte copies. No HTTP or precomputed value substitutes for UI output.
+7. Same-name upload of different synthetic bytes produces the real remote-name
    conflict and preserves the original bytes.
-7. Read-only transfer center shows the observed completed/conflict upload and
+8. Read-only transfer center shows the observed completed/conflict upload and
    download records, without selecting a record or starting recovery work.
-8. Normal application close and owned Host exit both return zero within budgets.
+9. Normal application close and owned Host exit both return zero within budgets.
 
 Only explicit UI actions initiate transfers. HTTP is used solely for `/health`.
 UIA selectors are freshly inspected and required to be unique, enabled and
@@ -157,6 +164,17 @@ capture guards. Invoke mismatch diagnostics contain only fixed window-owner
 and known-action boolean flags, never handles, selectors or UIA data. Their
 original strict HWND/action acceptance condition remains unchanged.
 `saveAsUiVerified` is true only after the complete journey and normal exit.
+
+`checksum-ready.png` is captured only after the actual checksum dialog shows
+the original synthetic name and default SHA-256, with its optional expected
+value entered through the normal UI. `checksum-result.png` requires the actual
+unique digest, matching-comparison text and SHA-256/one-MiB metadata inside that
+dialog. The same owned-App capture guards apply. The synthetic hash may be
+visible in these two screenshots; structured results record only equality and
+algorithm/byte-count checks. The popup helper accepts only the two fixed Save
+As/checksum menu labels. `checksumUiVerified` requires the complete journey and
+normal zero App/Host exits. This covers positive SHA-256 only, not the other
+algorithms, checksum cancellation, theme/scaling or accessibility acceptance.
 
 No file is recursively or wildcard-deleted. Unique synthetic input, private
 server/App state and the exact downloaded file are left on the disposable runner
