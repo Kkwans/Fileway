@@ -1,7 +1,7 @@
 """Offline guards and optional existing-SDK checks for the native smoke helper.
 
 The SDK check compiles the production C# decoder, PNG writer and shutdown-evidence
-reader, but never calls Windows APIs. It uses no NuGet sources/packages and installs
+and debugger-evidence readers, but never calls Windows APIs. It uses no NuGet sources/packages and installs
 nothing. Static guards do not establish a native PowerShell parse/pass; an optional
 parser check runs only when PowerShell is already available.
 """
@@ -139,6 +139,37 @@ class HarnessGuards(unittest.TestCase):
             self.assertNotIn("catch", block)
         self.assertIn("stage>13", source_parts()[1])
 
+    def test_debugger_is_explicit_isolated_bounded_and_preserves_nonzero_exit(self):
+        text, native, powershell = source_parts()
+        self.assertIn("[switch] $CaptureShutdownStack", powershell)
+        self.assertIn("if (-not $CaptureShutdownStack) { return }", powershell)
+        self.assertIn("Get-AuthenticodeSignature -LiteralPath $candidate", powershell)
+        self.assertIn("$signature.Status -ne 'Valid'", powershell)
+        self.assertIn("O=Microsoft Corporation", powershell)
+        self.assertIn("$script:process.StartTime.ToUniversalTime().Ticks -ne $script:appStartTicks", powershell)
+        self.assertIn("$script:process.MainModule.FileName", powershell)
+        self.assertIn("'-p', $script:process.Id.ToString(), '-pd', '-G', '-sins', '-noshell'", powershell)
+        self.assertIn(".dump /m /o shutdown.dmp; gn", powershell)
+        self.assertNotIn("; gh", powershell)
+        self.assertIn("$watch.ElapsedMilliseconds -lt 10000", powershell)
+        self.assertIn("$analysis.WaitForExit(120000)", powershell)
+        self.assertIn("srv*$symbols*https://msdl.microsoft.com/download/symbols", powershell)
+        self.assertIn("'.ecxr; .exr -1; kn 0n24; lm; q'", powershell)
+        self.assertIn("normalShutdownVerified = (-not $script:shutdownDebuggerAttached)", powershell)
+        self.assertIn("normalShutdownVerified = $false", powershell)
+        start = powershell.index("$script:stage = 'application-shutdown'")
+        self.assertLess(powershell.index("Complete-Step 'close'"), start)
+        self.assertLess(powershell.index("Start-ShutdownDebugger", start), powershell.index("$script:process.CloseMainWindow()", start))
+        for guard in ("text.Length>1048576", "lines.Length>4096", "raw.Length>2048", "index>23", "offset>uint.MaxValue"):
+            self.assertIn(guard, native)
+        self.assertIn("Array.Exists(Symbols,name=>name.Equals(symbol,StringComparison.Ordinal))", native)
+        self.assertIn('symbol=""; offset=0; kind=0;', native)
+        workflow = (ENG.parents[2] / ".github/workflows/windows-player-smoke.yml").read_text(encoding="utf-8")
+        self.assertEqual(workflow.count("-CaptureShutdownStack"), 2)
+        upload = workflow.split("- name: Preserve only allowlisted synthetic UI evidence", 1)[1]
+        for private in (".dmp", "shutdown-stack.log", "symbols", "Fileway-private"):
+            self.assertNotIn(private, upload)
+
     def test_artifact_allowlist_contains_only_named_json_and_png(self):
         text, _, _ = source_parts()
         block = re.search(r"\$allowedArtifacts = @\((.*?)\)\n", text, re.S).group(1)
@@ -251,6 +282,56 @@ class HarnessGuards(unittest.TestCase):
                 shutdown_vectors.append('RejectShutdown("linked-directory");')
                 (root / "linked-root").symlink_to(root / "capacity", target_is_directory=True)
                 shutdown_vectors.append('RejectShutdown("linked-root");')
+            debugger_vectors = []
+            header = "ExceptionCode: c0000409 (Security check failure or stack buffer overrun)\nParameter[0]: 0000000000000007\n"
+            def debugger_case(name, content, expected=None, subcode=7):
+                path = f"debugger-{name}.log"
+                (root / path).write_bytes(content.encode("utf-8") if isinstance(content, str) else content)
+                if expected is None:
+                    debugger_vectors.append(f'RejectDebugger("{path}");')
+                else:
+                    debugger_vectors.append(f'CheckDebugger("{path}",{subcode},{json.dumps(expected)});')
+
+            frame = "00 00000000`0000abcd 00000000`00002110 "
+            debugger_case("known-symbol", header + frame + "KERNELBASE!RaiseFailFastException+0x5a\n", "0|KERNELBASE|RaiseFailFastException|90|2")
+            debugger_case("known-zero-offset", header + frame + "ntdll!RtlFailFast2\n", "0|ntdll|RtlFailFast2|0|2")
+            debugger_case("module-relative", header + frame + "Microsoft_UI_Xaml+0x1234\n", "0|Microsoft_UI_Xaml||4660|1")
+            debugger_case("unknown-symbol", header + frame + "Microsoft_UI_Xaml!PrivateSyntheticSecret+0x10\n", "0|Microsoft_UI_Xaml||0|0")
+            debugger_case("module-range", header + "ExceptionAddress: 00000000`00001123 (private text)\n" +
+                          frame + "Microsoft_UI_Xaml!PrivateSyntheticSecret+0x10\n" +
+                          "01 00000000`0000abdd 00000000`00000000 ntdll!PrivateOther+0x8\n" +
+                          "00000000`00001000 00000000`00002000 Microsoft_UI_Xaml (pdb symbols) C:\\private\\path\n" +
+                          "00000000`00002000 00000000`00003000 ntdll (pdb symbols) C:\\private\\path\n",
+                          "0|Microsoft_UI_Xaml||291|1;1|ntdll||272|1")
+            debugger_case("outside-range", header + "ExceptionAddress: 9999\n" + frame + "ntdll!Unlisted+0x9\n" +
+                          "1000 2000 ntdll (deferred)\n", "0|ntdll||0|0")
+            debugger_case("unknown-module", header + frame + "SyntheticPrivateModule!RtlFailFast2+0x1\n", "")
+            debugger_case("empty-frames", header, "")
+            debugger_case("missing-subcode", "ExceptionCode: c0000409\n", "", -1)
+            debugger_case("bad-subcode", header.replace("0000000000000007", "ffffffffff"), "", -1)
+            debugger_case("wrong-code", header.replace("c0000409", "c0000005"))
+            debugger_case("duplicate-code", header + header)
+            debugger_case("missing-code", frame + "ntdll!RtlFailFast2+0x1\n")
+            debugger_case("duplicate-module", header + "1000 2000 ntdll (deferred)\n1000 2000 ntdll (deferred)\n")
+            for index, target in enumerate(("ntdll!C:\\private+0x1", "ntdll!private/path+0x1", "ntdll!private=token+0x1",
+                                             'ntdll!"private"+0x1', "ntdll!private%20name+0x1", "ntdll!private\u2603+0x1",
+                                             "ntdll!RtlFailFast2+0x100000000", "ntdll!RtlFailFast2+0xZZ", "ntdll+0x1!bad",
+                                             "ntdll!RtlFailFast2+0x1 C:\\private", "ntdll", "ntdll!")):
+                debugger_case(f"bad-target-{index}", header + frame + target + "\n", "")
+            debugger_case("raw-text", header + "private token path C:\\private\n", "")
+            debugger_case("long-line", header + frame + "ntdll!" + "x" * 2048 + "\n", "")
+            debugger_case("oversized", b"x" * 1048577)
+            debugger_case("too-many-lines", header + "\n" * 4096)
+            debugger_case("invalid-utf8", header.encode() + b"\xff")
+            debugger_case("frame-cap", header + "".join(f"{i:02x} 0000abcd 00001111 ntdll+0x{i:x}\n" for i in range(32)),
+                          ";".join(f"{i}|ntdll||{i}|1" for i in range(24)))
+            debugger_case("nonsequential", header + "01 0000abcd 00001111 ntdll+0x1\n", "")
+            debugger_case("inline-gap", header + frame + "ntdll!RtlFailFast2+0x1\n" +
+                          "01 (Inline Function) --------`-------- Microsoft_UI_Xaml!SyntheticPrivateSymbol\n" +
+                          "02 0000abcd 00001111 Microsoft_UI_Xaml!OtherPrivate+0x10\n" +
+                          "00001000 00003000 Microsoft_UI_Xaml (pdb symbols)\n",
+                          "0|ntdll|RtlFailFast2|1|2;2|Microsoft_UI_Xaml||0|0")
+            debugger_case("duplicate-frame", header + frame + "ntdll+0x1\n" + frame + "ntdll+0x2\n", "0|ntdll||1|1")
             (root / "Program.cs").write_text('''using System; using System.IO; using Fileway.PlayerSmoke;
 class Program {
  static void Check(string path,int width,int height,int expected) {
@@ -275,7 +356,21 @@ class Program {
   catch(System.Text.DecoderFallbackException) { rejected=true; }
   if(!rejected) throw new Exception(root+": invalid evidence accepted");
  }
- static void Main() { ''' + "".join(vectors + shutdown_vectors) + '''
+ static void CheckDebugger(string path,int subcode,string expected) {
+  var evidence=DebuggerEvidence.Read(path);
+  if(evidence.ExceptionCode!=0xc0000409||evidence.FastFailSubcode!=subcode) throw new Exception(path+": wrong fault");
+  var rows=new System.Collections.Generic.List<string>();
+  foreach(var frame in evidence.Frames) rows.Add(frame.Index+"|"+frame.Module+"|"+frame.Symbol+"|"+frame.Offset+"|"+frame.OffsetKind);
+  if(string.Join(";",rows)!=expected) throw new Exception(path+": wrong allowlisted frames "+string.Join(";",rows));
+ }
+ static void RejectDebugger(string path) {
+  bool rejected=false;
+  try { DebuggerEvidence.Read(path); }
+  catch(InvalidDataException) { rejected=true; }
+  catch(System.Text.DecoderFallbackException) { rejected=true; }
+  if(!rejected) throw new Exception(path+": invalid debugger evidence accepted");
+ }
+ static void Main() { ''' + "".join(vectors + shutdown_vectors + debugger_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

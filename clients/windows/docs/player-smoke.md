@@ -151,8 +151,50 @@ window markers, so they cannot consume the shutdown recorder's bounded capacity.
 Several markers follow exception-catching teardown blocks. They establish that
 execution reached that point or an attempt returned, not that disposal succeeded.
 Stage 7 does not establish Host process exit, and stage 9 does not establish app
-process exit. Even all nine markers cannot replace exit code 0 for both owned
+process exit. Even all markers cannot replace exit code 0 for both owned
 processes. A missing later marker alone cannot identify a native crash's cause.
+
+### Opt-in native shutdown debugger
+
+`-CaptureShutdownStack` is a temporary diagnostic mode, off by default in the
+harness and enabled explicitly by the player workflow. It requires the already
+installed x64 Windows SDK `cdb.exe` under Program Files (x86), with a valid
+Authenticode signature whose publisher organization is Microsoft Corporation.
+Missing or invalid tools block the run; this mode downloads no debugger and
+changes no global WER, debugger, security or symbol settings. The hosted image's
+[SDK debugger provisioning](https://github.com/actions/runner-images/blob/win25-vs2026/20260925.250/images/windows/scripts/build/Install-VisualStudio.ps1)
+and Microsoft's [CDB options](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/cdb-command-line-options)
+describe that tool source and the attach controls.
+
+The debugger attaches only after every interaction and player-surface-close
+assertion passes, immediately before closing the main window. The target must
+still match this harness's retained process object, PID, launch time and exact
+application executable path. Attach has a 10-second deadline and a fixed ready
+marker. `-pd` prevents debugger exit from killing the target; `-sins` ignores
+ambient symbol paths and `-noshell` disables debugger shell commands. A targeted
+`0xC0000409` exception command writes a minimal dump in the fresh private app-data
+directory, then uses `gn` (not handled) so the original fault still terminates the
+app. The existing 15-second exit deadline and nonzero-exit failure remain intact.
+
+Offline analysis is bounded to 120 seconds, a dump of at most 64 MiB and 24 stack
+frames. Symbols are resolved using Microsoft's public symbol server with a cache
+inside the same private directory. Raw dumps, command files, debugger output,
+module paths, memory, registers and symbol caches never enter the upload root.
+The decoder accepts at most 1 MiB of UTF-8, 4,096 lines and 2,048 characters per
+parsed line. Only the expected exception code, a bounded numeric fast-fail
+subcode, explicitly allowlisted module names and explicitly allowlisted public
+symbol names are exported as rebuilt observations. Unknown symbol text is never
+exported. It can yield a module-relative offset only when private exception/return
+addresses fit that allowed module's validated `lm` range; otherwise that frame
+retains its module only. Duplicate exception or module records reject the evidence.
+Frame offsets use `offsetKind=0` for unavailable, `1` for module-relative and `2`
+for an allowlisted symbol-relative offset. Absolute addresses are never exported.
+
+Reports include `shutdownDebuggerAttached` and `normalShutdownVerified`. An
+attached-debugger run cannot establish normal production-path shutdown even when
+its observed app and Host exits are zero. Capture/analysis failures are fixed
+codes and cannot convert an abnormal application exit into a pass. A subsequent
+run without the debugger is required to verify a shutdown fix.
 
 Offline tests/compilation establish file and decoder contracts, not functioning
 Windows capture, UIA delivery or native playback. An executed hosted Windows

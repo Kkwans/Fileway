@@ -5,7 +5,8 @@ param(
     [string] $MediaPath,
     [Parameter(Mandatory)][string] $WinAppPath,
     [Parameter(Mandatory)][string] $OutputRoot,
-    [switch] $PreflightOnly
+    [switch] $PreflightOnly,
+    [switch] $CaptureShutdownStack
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -24,6 +25,12 @@ $script:process = $null
 $script:probe = $null
 $script:privateRoot = $null
 $script:fixtureStream = $null
+$script:shutdownDebugger = $null
+$script:shutdownDebuggerOutput = $null
+$script:shutdownDebuggerError = $null
+$script:cdbPath = $null
+$script:appStartTicks = 0L
+$script:shutdownDebuggerAttached = $false
 $script:hosts = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 $script:stage = 'output-validation'
 $script:completed = [System.Collections.Generic.List[string]]::new()
@@ -224,6 +231,126 @@ namespace Fileway.PlayerSmoke {
                 records.Add(new ShutdownStage(stage,uiThread));
             }
             return records.ToArray();
+        }
+    }
+
+    public sealed class DebuggerFrame {
+        public readonly int Index, OffsetKind;
+        public readonly string Module, Symbol;
+        public readonly ulong Offset;
+        internal DebuggerFrame(int index,string module,string symbol,ulong offset,int offsetKind) {
+            Index=index; Module=module; Symbol=symbol; Offset=offset; OffsetKind=offsetKind;
+        }
+    }
+    public sealed class DebuggerFault {
+        public readonly uint ExceptionCode;
+        public readonly int FastFailSubcode;
+        public readonly DebuggerFrame[] Frames;
+        internal DebuggerFault(uint code,int subcode,DebuggerFrame[] frames) { ExceptionCode=code; FastFailSubcode=subcode; Frames=frames; }
+    }
+    public static class DebuggerEvidence {
+        // Only shipped application/framework modules. Never retain an arbitrary
+        // module name, source path, stack/register address, argument or message.
+        static readonly string[] Modules={"Microsoft_UI_Xaml","Microsoft_UI_Input","Microsoft_UI_Windowing_Core",
+            "Microsoft_UI_Composition","Microsoft_WindowsAppRuntime","Microsoft_InteractiveExperiences_Projection",
+            "CoreMessaging","CoreUIComponents","inputhost","windows_ui","dcomp","twinapi_appcore",
+            "combase","ole32","ntdll","KERNELBASE","KERNEL32","USER32","win32u","COMCTL32","ucrtbase","coreclr","Fileway_App"};
+        // Explicit public names, not a character-class permission to export text.
+        // Unlisted symbols retain only a validated module-relative offset from lm.
+        static readonly string[] Symbols={"RtlFailFast2","RtlFailFast","RtlReportFatalFailure","RtlReportCriticalFailure",
+            "RaiseFailFastException","RaiseException","RoFailFastWithErrorContext","RoFailFastWithErrorContextInternal2",
+            "abort","terminate","_invoke_watson","__report_gsfailure","__GSHandlerCheck","DispatchMessageW",
+            "DispatchMessageWorker","DestroyWindow","NtUserDestroyWindow","NtUserMessageCall","SendMessageW",
+            "CallWindowProcW","DefWindowProcW","BaseThreadInitThunk","RtlUserThreadStart",
+            "DirectUI::DesktopWindowImpl::CloseImpl","DirectUI::DesktopWindowImpl::PrepareToClose",
+            "DirectUI::DesktopWindowImpl::Shutdown","DirectUI::Window::Close","DirectUI::Window::CloseImpl",
+            "DirectUI::Window::RaiseClosed","DirectUI::DXamlCore::Deinitialize","DirectUI::DXamlCore::Shutdown",
+            "DirectUI::ErrorHelper::ProcessUnhandledError","DirectUI::ErrorHelper::OriginateError",
+            "Microsoft::WRL::Details::RaiseException","wil::details::ReportFailure","wil::details::FailFast_Unexpected",
+            "wil::details::WilFailFast","wil::details::ReportFailure_FailFast"};
+        static bool Hex(string text,out ulong value) {
+            value=0;
+            if(text.Length<1||text.Length>16) return false;
+            foreach(char digit in text) if(!((digit>='0'&&digit<='9')||(digit>='a'&&digit<='f')||(digit>='A'&&digit<='F'))) return false;
+            return ulong.TryParse(text,System.Globalization.NumberStyles.AllowHexSpecifier,System.Globalization.CultureInfo.InvariantCulture,out value);
+        }
+        static bool Address(string text,out ulong value) { return Hex(text.Replace("`",""),out value); }
+        static bool SymbolToken(string name) {
+            if(name.Length<1||name.Length>200) return false;
+            foreach(char c in name) if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||"_:<>,.~$@".IndexOf(c)>=0)) return false;
+            return true;
+        }
+        static string Module(string name) { return Array.Find(Modules,item=>item.Equals(name,StringComparison.OrdinalIgnoreCase)); }
+        public static DebuggerFault Read(string path) {
+            byte[] bytes=new byte[1048577]; int count=0;
+            using(var stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.Read)) {
+                if(stream.Length>1048576) throw new InvalidDataException("debugger_evidence_too_large");
+                while(count<bytes.Length) { int read=stream.Read(bytes,count,bytes.Length-count); if(read==0) break; count+=read; }
+            }
+            if(count>1048576) throw new InvalidDataException("debugger_evidence_too_large");
+            return Parse(new UTF8Encoding(false,true).GetString(bytes,0,count));
+        }
+        public static DebuggerFault Parse(string text) {
+            if(text==null||text.Length>1048576) throw new InvalidDataException("debugger_evidence_too_large");
+            string[] lines=text.Split('\n');
+            if(lines.Length>4096) throw new InvalidDataException("debugger_evidence_too_many_lines");
+            uint code=0; int subcode=-1,codeCount=0; ulong faultAddress=0;
+            var ranges=new Dictionary<string,ulong[]>(StringComparer.Ordinal);
+            foreach(string raw in lines) {
+                if(raw.Length>2048) continue;
+                string line=raw.Trim();
+                string[] parts=line.Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
+                ulong number,end;
+                if(line.StartsWith("ExceptionCode:",StringComparison.Ordinal)) {
+                    if(parts.Length<2||!Hex(parts[1],out number)||number!=0xc0000409||++codeCount!=1)
+                        throw new InvalidDataException("debugger_exception_not_expected");
+                    code=(uint)number;
+                }
+                else if(line.StartsWith("Parameter[0]:",StringComparison.Ordinal)) {
+                    if(parts.Length==2&&Hex(parts[1],out number)&&number<=65535) subcode=(int)number;
+                }
+                else if(line.StartsWith("ExceptionAddress:",StringComparison.Ordinal)) {
+                    if(parts.Length>=2&&Address(parts[1],out number)) faultAddress=number;
+                }
+                if(parts.Length>=3&&Address(parts[0],out number)&&Address(parts[1],out end)&&number<end) {
+                    string module=Module(parts[2]);
+                    if(module!=null) {
+                        if(ranges.ContainsKey(module)) throw new InvalidDataException("debugger_duplicate_module");
+                        ranges.Add(module,new ulong[]{number,end});
+                    }
+                }
+            }
+            if(code!=0xc0000409) throw new InvalidDataException("debugger_exception_not_expected");
+            var frames=new List<DebuggerFrame>(); int nextIndex=0; ulong instruction=faultAddress;
+            foreach(string raw in lines) {
+                if(raw.Length>2048) continue;
+                string[] parts=raw.Trim().Split((char[])null,StringSplitOptions.RemoveEmptyEntries);
+                ulong index,ignored,returnAddress;
+                if(parts.Length!=4||!Hex(parts[0],out index)||index>23||index<(ulong)nextIndex||(nextIndex==0&&index!=0)||
+                    !Address(parts[1],out ignored)||!Address(parts[2],out returnAddress)) continue;
+                ulong currentInstruction=index==(ulong)nextIndex?instruction:0;
+                nextIndex=(int)index+1; instruction=returnAddress;
+                string target=parts[3]; int bang=target.IndexOf('!'), plus=target.LastIndexOf("+0x",StringComparison.Ordinal);
+                if(plus>=0&&bang>=plus) continue;
+                string module=bang>=0?target.Substring(0,bang):plus>=0?target.Substring(0,plus):target;
+                string known=Module(module);
+                if(known==null) continue;
+                string symbol=bang>=0?target.Substring(bang+1,(plus>=0?plus:target.Length)-bang-1):"";
+                if(bang>=0&&!SymbolToken(symbol)) continue;
+                ulong offset=0;
+                if(plus>=0&&(!Hex(target.Substring(plus+3),out offset)||offset>uint.MaxValue)) continue;
+                if(bang<0&&plus<0) continue;
+                int kind=bang>=0?2:1;
+                if(bang>=0&&!Array.Exists(Symbols,name=>name.Equals(symbol,StringComparison.Ordinal))) {
+                    symbol=""; offset=0; kind=0;
+                    ulong[] range;
+                    if(ranges.TryGetValue(known,out range)&&currentInstruction>=range[0]&&currentInstruction<range[1]&&currentInstruction-range[0]<=uint.MaxValue) {
+                        offset=currentInstruction-range[0]; kind=1;
+                    }
+                }
+                frames.Add(new DebuggerFrame((int)index,known,symbol,offset,kind));
+            }
+            return new DebuggerFault(code,subcode,frames.ToArray());
         }
     }
 
@@ -578,6 +705,102 @@ function Copy-SafeDiagnostics {
     return $true
 }
 
+function Assert-SdkDebugger {
+    $candidate = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\Debuggers\x64\cdb.exe'
+    if (-not [IO.File]::Exists($candidate)) { Stop-Smoke 'installed_sdk_debugger_missing' -EnvironmentBlocked }
+    $signature = Get-AuthenticodeSignature -LiteralPath $candidate
+    if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate -or
+        $signature.SignerCertificate.Subject -notmatch '(^|,\s*)O=Microsoft Corporation(,|$)') {
+        Stop-Smoke 'sdk_debugger_signature_invalid' -EnvironmentBlocked
+    }
+    $script:cdbPath = $candidate
+}
+
+function Start-ShutdownDebugger {
+    if (-not $CaptureShutdownStack) { return }
+    $script:process.Refresh()
+    if ($script:process.HasExited -or $script:process.StartTime.ToUniversalTime().Ticks -ne $script:appStartTicks -or
+        -not [string]::Equals($script:process.MainModule.FileName, [IO.Path]::GetFullPath($AppPath), [StringComparison]::OrdinalIgnoreCase)) {
+        Stop-Smoke 'debugger_app_identity_mismatch'
+    }
+    # Relative dump name is interpreted only in the fresh private working directory.
+    # gn preserves NOT HANDLED semantics. -pd prevents debugger cleanup from killing
+    # the app. Neither WER nor any system-wide debugger/security setting is changed.
+    $commands = 'sxe -c ".dump /m /o shutdown.dmp; gn" -c2 ".dump /m /o shutdown.dmp; gn" 0xc0000409' + "`n" +
+        '.echo FILEWAY_SHUTDOWN_DEBUGGER_READY' + "`n" + 'g' + "`n"
+    $commandFile = Join-Path $script:privateRoot 'shutdown-debugger.cmd'
+    $log = Join-Path $script:privateRoot 'shutdown-debugger.log'
+    [IO.File]::WriteAllText($commandFile, $commands, [Text.UTF8Encoding]::new($false))
+    $start = [Diagnostics.ProcessStartInfo]::new($script:cdbPath)
+    $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+    $start.WorkingDirectory = $script:privateRoot
+    $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    foreach ($argument in @('-p', $script:process.Id.ToString(), '-pd', '-G', '-sins', '-noshell', '-y', $script:privateRoot,
+        '-logo', $log, '-cf', $commandFile)) { $start.ArgumentList.Add($argument) }
+    $script:shutdownDebugger = [Diagnostics.Process]::Start($start)
+    $script:shutdownDebuggerOutput = $script:shutdownDebugger.StandardOutput.ReadToEndAsync()
+    $script:shutdownDebuggerError = $script:shutdownDebugger.StandardError.ReadToEndAsync()
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    while ($watch.ElapsedMilliseconds -lt 10000) {
+        if ($script:shutdownDebugger.HasExited -or $script:process.HasExited) { Stop-Smoke 'debugger_attach_failed' }
+        if ([IO.File]::Exists($log)) {
+            $size = (Get-Item -LiteralPath $log).Length
+            if ($size -gt 1048576) { Stop-Smoke 'debugger_attach_output_too_large' }
+            if ($size -gt 0 -and [regex]::IsMatch([IO.File]::ReadAllText($log), '(?m)^FILEWAY_SHUTDOWN_DEBUGGER_READY\r?$')) {
+                $script:shutdownDebuggerAttached = $true
+                Record-Observation 'shutdown-debugger' @{ tool = 'microsoft-sdk-cdb-x64'; attached = 1 }
+                return
+            }
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    Stop-Smoke 'debugger_attach_timeout'
+}
+
+function Stop-ShutdownDebugger {
+    if ($script:shutdownDebugger) {
+        try {
+            if (-not $script:shutdownDebugger.WaitForExit(5000)) { $script:shutdownDebugger.Kill($true); $null = $script:shutdownDebugger.WaitForExit(5000) }
+        } catch { }
+        try { $script:shutdownDebugger.Dispose() } catch { }
+        $script:shutdownDebugger = $null
+    }
+}
+
+function Record-SafeDebuggerEvidence {
+    if (-not $script:shutdownDebuggerAttached) { return }
+    Stop-ShutdownDebugger
+    $dump = Join-Path $script:privateRoot 'shutdown.dmp'
+    if (-not [IO.File]::Exists($dump)) { Record-Observation 'shutdown-debugger-result' @{ code = 'dump_missing' }; return }
+    if ((Get-Item -LiteralPath $dump).Length -gt 67108864) { Record-Observation 'shutdown-debugger-result' @{ code = 'dump_too_large' }; return }
+    $log = Join-Path $script:privateRoot 'shutdown-stack.log'
+    $symbols = Join-Path $script:privateRoot 'symbols'
+    $start = [Diagnostics.ProcessStartInfo]::new($script:cdbPath)
+    $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+    $start.WorkingDirectory = $script:privateRoot
+    $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    foreach ($argument in @('-z', $dump, '-sins', '-noshell', '-y', "srv*$symbols*https://msdl.microsoft.com/download/symbols",
+        '-logo', $log, '-c', '.ecxr; .exr -1; kn 0n24; lm; q')) { $start.ArgumentList.Add($argument) }
+    $analysis = [Diagnostics.Process]::Start($start)
+    try {
+        $stdout = $analysis.StandardOutput.ReadToEndAsync(); $stderr = $analysis.StandardError.ReadToEndAsync()
+        if (-not $analysis.WaitForExit(120000)) {
+            $analysis.Kill($true); $null = $analysis.WaitForExit(5000)
+            Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_timeout' }; return
+        }
+        if ($analysis.ExitCode -ne 0) { Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_failed' }; return }
+        $fault = [Fileway.PlayerSmoke.DebuggerEvidence]::Read($log)
+        Record-Observation 'shutdown-native-exception' @{ exceptionCode = [uint32]$fault.ExceptionCode; fastFailSubcode = [int]$fault.FastFailSubcode }
+        foreach ($frame in $fault.Frames) {
+            Record-Observation 'shutdown-native-frame' @{
+                index = [int]$frame.Index; module = [string]$frame.Module; symbol = [string]$frame.Symbol
+                offset = [uint64]$frame.Offset; offsetKind = [int]$frame.OffsetKind
+            }
+        }
+    } catch { Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_evidence_rejected' } }
+    finally { $analysis.Dispose() }
+}
+
 
 function Record-SafeExitEvidence {
     # Only fixed-schema app diagnostics and matching-process numeric Windows
@@ -637,6 +860,7 @@ function Record-SafeExitEvidence {
         if ($matchedFault) { break }
         if ($attempt -lt 19 -and $faultWait.ElapsedMilliseconds -lt 4750) { Start-Sleep -Milliseconds 250 }
     }
+    try { Record-SafeDebuggerEvidence } catch { Record-Observation 'shutdown-debugger-result' @{ code = 'capture_failed' } }
 }
 
 $exitCode = 1
@@ -664,6 +888,7 @@ try {
     $scope = if ($PreflightOnly) { 'preflight' } else { 'native-smoke' }
     Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = $scope; status = 'running'; nativePlaybackVerified = $false; checks = $script:checks })
     if (-not $IsWindows) { Stop-Smoke 'windows_required' -EnvironmentBlocked }
+    if ($CaptureShutdownStack) { Assert-SdkDebugger }
     if (-not [System.IO.Path]::IsPathFullyQualified($WinAppPath) -or -not [System.IO.File]::Exists($WinAppPath)) { Stop-Smoke 'pinned_winapp_missing' -EnvironmentBlocked }
     $env:WINAPP_CLI_TELEMETRY_OPTOUT = '1'
     $env:WINAPP_UI_WORKFLOW_ID = [Guid]::NewGuid().ToString('N')
@@ -711,6 +936,7 @@ try {
     $start.Environment['FILEWAY_WINDOWS_DATA_ROOT'] = $script:privateRoot
     $start.Environment['FILEWAY_PLAYER_RESPONSIVENESS_DIAGNOSTICS'] = '1'
     $script:process = [System.Diagnostics.Process]::Start($start)
+    $script:appStartTicks = $script:process.StartTime.ToUniversalTime().Ticks
     $player = Wait-Condition { $window = Get-Surface 'player'; if ($window -ne [IntPtr]::Zero) { $window } } 'native_player_not_created' 30000
     $hostIds = @([Fileway.PlayerSmoke.Native]::ChildHosts($script:process.Id))
     if ($hostIds.Count -ne 1) { Stop-Smoke 'owned_host_not_uniquely_observed' }
@@ -808,6 +1034,7 @@ try {
     Complete-Step 'close'
     $null = Copy-SafeDiagnostics
     $script:stage = 'application-shutdown'
+    Start-ShutdownDebugger
     $script:process.Refresh()
     if (-not $script:process.CloseMainWindow()) { Stop-Smoke 'application_close_not_delivered' }
     if (-not $script:process.WaitForExit(15000)) { Stop-Smoke 'application_exit_timeout' }
@@ -823,7 +1050,7 @@ try {
     }
     Complete-Step 'application-and-host-shutdown' @{ appExitCode = 0; ownedHostCount = $script:hosts.Count; hostExitCode = 0 }
     $hasDiagnostics = Copy-SafeDiagnostics
-    Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = 'native-smoke'; status = 'passed'; code = 'smoke_ok'; checks = $script:checks; completedSteps = @($script:completed); elapsedMilliseconds = $script:clock.ElapsedMilliseconds; nativePlaybackVerified = $true; diagnosticReportPresent = $hasDiagnostics; latencyMeaning = 'CLI wall-clock and observed effects only; hardware performance is not inferred' })
+    Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = 'native-smoke'; status = 'passed'; code = 'smoke_ok'; checks = $script:checks; completedSteps = @($script:completed); elapsedMilliseconds = $script:clock.ElapsedMilliseconds; nativePlaybackVerified = $true; diagnosticReportPresent = $hasDiagnostics; shutdownDebuggerAttached = $script:shutdownDebuggerAttached; normalShutdownVerified = (-not $script:shutdownDebuggerAttached); latencyMeaning = 'CLI wall-clock and observed effects only; hardware performance is not inferred' })
     $exitCode = 0
     }
 }
@@ -842,12 +1069,13 @@ catch {
         }
     }
     if ($script:root -and (Test-Path -LiteralPath $script:root -PathType Container)) {
-        Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = $(if ($PreflightOnly) { 'preflight' } else { 'native-smoke' }); status = $status; code = $code; failedStage = $script:stage; checks = $script:checks; nativePlaybackVerified = $false; completedSteps = @($script:completed) })
+        Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = $(if ($PreflightOnly) { 'preflight' } else { 'native-smoke' }); status = $status; code = $code; failedStage = $script:stage; checks = $script:checks; nativePlaybackVerified = $false; shutdownDebuggerAttached = $script:shutdownDebuggerAttached; normalShutdownVerified = $false; completedSteps = @($script:completed) })
     }
     Write-Host "Player smoke $status at $($script:stage): $code"
     $exitCode = if ($status -eq 'environment-blocked') { 2 } else { 1 }
 }
 finally {
+    Stop-ShutdownDebugger
     if ($script:probe) { try { $script:probe.Dispose() } catch { } }
     if ($script:process) {
         try {

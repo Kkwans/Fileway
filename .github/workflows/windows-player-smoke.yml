@@ -55,7 +55,7 @@ jobs:
       - name: Install pinned isolated toolchains
         run: ./eng/Install-WindowsTools.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT
       - name: Check interactive desktop and capture before media downloads
-        run: ./eng/Test-PlayerSmoke.ps1 -PreflightOnly -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
+        run: ./eng/Test-PlayerSmoke.ps1 -CaptureShutdownStack -PreflightOnly -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
       - name: Install hash-locked PE inspection in private virtual environment
         run: |
           python -m venv "$env:FILEWAY_TOOLS_ROOT\mpv-python"
@@ -79,7 +79,7 @@ jobs:
           . ./eng/Use-WindowsEnvironment.ps1 -ToolsRoot $env:FILEWAY_TOOLS_ROOT -ArtifactsRoot $env:FILEWAY_ARTIFACTS_ROOT -NuGetPackagesRoot $env:FILEWAY_NUGET_PACKAGES
           $target = (& dotnet msbuild src/Fileway.App/Fileway.App.csproj -getProperty:TargetDir -p:Configuration=Release -p:Platform=x64 -nologo).Trim()
           if ($LASTEXITCODE -ne 0 -or -not [IO.Path]::IsPathFullyQualified($target)) { throw 'Cannot locate the built native application.' }
-          ./eng/Test-PlayerSmoke.ps1 -AppPath (Join-Path $target 'Fileway.App.exe') -MediaPath $env:FILEWAY_SMOKE_MEDIA -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
+          ./eng/Test-PlayerSmoke.ps1 -CaptureShutdownStack -AppPath (Join-Path $target 'Fileway.App.exe') -MediaPath $env:FILEWAY_SMOKE_MEDIA -WinAppPath "$env:FILEWAY_TOOLS_ROOT\winapp-0.7.1\winapp.exe" -OutputRoot $env:FILEWAY_SMOKE_EVIDENCE
       - name: Preserve only allowlisted synthetic UI evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
