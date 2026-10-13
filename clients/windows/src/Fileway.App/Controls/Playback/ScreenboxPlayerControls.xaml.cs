@@ -56,6 +56,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private Action? _closeNativeSettings;
     private Action? _activeSettingsClosed;
     private bool _nativeSettingsOpen;
+    private Func<bool>? _observeMouseMovement;
+    private Action? _synchronizePointerPosition;
 
     public ScreenboxPlayerControls(IPlaybackSession session) : this(session, null) { }
 
@@ -98,6 +100,15 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public event EventHandler? ControlsVisibilityChanged;
     public event EventHandler? MaterialBoundsChanged;
     public bool ControlsVisible { get; private set; } = true;
+
+    internal void SetPointerActivityObserver(Func<bool> observeMouseMovement, Action synchronizePosition)
+    {
+        ArgumentNullException.ThrowIfNull(observeMouseMovement);
+        ArgumentNullException.ThrowIfNull(synchronizePosition);
+        _observeMouseMovement = observeMouseMovement;
+        _synchronizePointerPosition = synchronizePosition;
+        synchronizePosition();
+    }
 
     internal void SetNativeSettingsHost(Action<FrameworkElement, FrameworkElement, Style?, Action>? show, Action? close)
     {
@@ -238,6 +249,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public void NotifyActivity()
     {
         if (_disposed) return;
+        _synchronizePointerPosition?.Invoke();
         ShowControls();
         _hideTimer.Stop();
         if (_snapshot.Status == PlaybackStatus.Playing && !_seeking && !_menuOpen && !Notice.IsOpen && _visibleResumePrompt is null) _hideTimer.Start();
@@ -466,7 +478,11 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private Task SeekRelativeAsync(double delta) => RunAsync(token => _session.SeekAsync(TimeSpan.FromSeconds(Math.Clamp((_snapshot.ConfirmedPosition ?? _snapshot.Position).TotalSeconds + delta, 0, _snapshot.Duration?.TotalSeconds ?? double.MaxValue)), token));
     private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Minimize_Click(object sender, RoutedEventArgs args) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
-    private void Maximize_Click(object sender, RoutedEventArgs args) => MaximizeRequested?.Invoke(this, EventArgs.Empty);
+    private void Maximize_Click(object sender, RoutedEventArgs args)
+    {
+        NotifyActivity();
+        MaximizeRequested?.Invoke(this, EventArgs.Empty);
+    }
     private void Fullscreen_Click(object sender, RoutedEventArgs args)
     {
         _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenInput);
@@ -721,7 +737,14 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private void ShowError(string message) { Notice.Title = "播放操作未完成"; Notice.Message = message; Notice.IsOpen = true; ShowControls(); }
     public void ReportError(string message) { if (!_disposed) ShowError(message); }
     private void Notice_Closed(InfoBar sender, InfoBarClosedEventArgs args) => NotifyActivity();
-    private void Root_PointerMoved(object sender, PointerRoutedEventArgs args) => NotifyActivity();
+    private void Root_PointerMoved(object sender, PointerRoutedEventArgs args)
+    {
+        if (_disposed) return;
+        // Mouse coordinates are shared with native child/nonclient messages. Touch and pen
+        // activity, keyboard input and button presses retain their unconditional activity path.
+        if (args.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Mouse ||
+            _observeMouseMovement?.Invoke() != false) NotifyActivity();
+    }
     private void Root_PointerPressed(object sender, PointerRoutedEventArgs args)
     {
         _responsiveness?.Record(PlaybackDiagnosticEvent.PointerPressed);
@@ -803,6 +826,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         ControlsVisibilityChanged -= Controls_SafeAreaVisibilityChanged;
         CloseSettingsFlyout(); _activeFlyout = null; _activeSettingsClosed = null;
         _showNativeSettings = null; _closeNativeSettings = null;
+        _observeMouseMovement = null; _synchronizePointerPosition = null;
         _hideTimer.Stop(); _hideTimer.Tick -= HideTimer_Tick; _fade?.Stop(); _lifetime.Cancel(); _lifetime.Dispose();
     }
 }

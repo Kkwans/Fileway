@@ -23,6 +23,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private readonly NativeVideoWindow.SubclassProc _procedure;
     private readonly nint _window;
     private readonly nint _owner;
+    private readonly PlaybackPointerActivityPolicy _pointerActivity = new();
     private readonly PointerEventHandler _videoPressedHandler;
     private readonly KeyEventHandler _gestureKeyHandler;
     private PlayerSettingsWindow? _settingsWindow;
@@ -48,6 +49,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         try
         {
             _controls = new ScreenboxPlayerControls(session, responsiveness);
+            _controls.SetPointerActivityObserver(ObserveMouseMovement, RecordPointerPosition);
             RefreshBackdropState();
             EnableHostBackdrop();
             UpdateBackdropFactory();
@@ -233,6 +235,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             && !NativePlayerOverlay.IsIconic(_owner) && NativePlayerOverlay.IsWindowVisible(_owner);
         if (_windowVisible != visible)
         {
+            SynchronizePointerPosition();
             // An empty visible owned HWND can retain activation and obstruct
             // foreground recovery. Hide it and return focus only within this group.
             if (!visible && NativePlayerOverlay.GetForegroundWindow() == _window)
@@ -337,6 +340,28 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         }
     }
 
+    private bool ObserveMouseMovement() => !_disposed && NativePlayerOverlay.GetPhysicalCursorPos(out var point) &&
+        _pointerActivity.ObserveMouseMove(point.X, point.Y);
+
+    private void RecordPointerPosition()
+    {
+        if (!_disposed && NativePlayerOverlay.GetPhysicalCursorPos(out var point))
+            _pointerActivity.SynchronizePosition(point.X, point.Y);
+    }
+
+    // Initial visibility or owned-window focus transfer is synchronization, not user activity.
+    // Retain an established baseline so a queued physical move is still recognized afterwards.
+    internal void SynchronizePointerPosition()
+    {
+        if (!_disposed && NativePlayerOverlay.GetPhysicalCursorPos(out var point))
+            _pointerActivity.InitializePosition(point.X, point.Y);
+    }
+
+    internal void NotifyPointerMoved()
+    {
+        if (ObserveMouseMovement()) _controls.NotifyActivity();
+    }
+
     internal void ShowControls()
     {
         if (_disposed) return;
@@ -358,7 +383,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         return false;
     }
 
-    internal void SyncBounds(NativePlayerOverlay.Rect bounds, bool visible)
+    internal void SyncBounds(NativePlayerOverlay.Rect bounds, bool visible) => SyncBoundsCore(bounds, visible, allowInitialActivation: true);
+
+    /// <summary>A motion frame changes geometry without introducing focus or activation side effects.</summary>
+    internal void SyncMotionBounds(NativePlayerOverlay.Rect bounds, bool visible) => SyncBoundsCore(bounds, visible, allowInitialActivation: false);
+
+    private void SyncBoundsCore(NativePlayerOverlay.Rect bounds, bool visible, bool allowInitialActivation)
     {
         if (_disposed) return;
         _ownerVisible = visible && !NativePlayerOverlay.IsIconic(_owner) && NativePlayerOverlay.IsWindowVisible(_owner);
@@ -374,9 +404,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         {
             _windowBounds = windowBounds;
             if (!NativeVideoWindow.SetWindowPos(_window, 0, windowBounds.X, windowBounds.Y, windowBounds.Width, windowBounds.Height, 0x0014))
+            {
                 _windowBounds = null;
+                if (!allowInitialActivation) throw NativeFullscreenWindow.Failure();
+            }
         }
-        if (!_activatedOnce && NativePlayerOverlay.GetForegroundWindow() == _owner)
+        if (allowInitialActivation && !_activatedOnce && NativePlayerOverlay.GetForegroundWindow() == _owner)
         {
             // WinUI's first Activate completes the content lifetime. Only do
             // this while the owner is already foreground, then restore it.
@@ -496,6 +529,8 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
 internal static class NativePlayerOverlay
 {
+    [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetPhysicalCursorPos(out NativeVideoWindow.NativePoint point);
     [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint GetDC(nint window);
     [DllImport("user32.dll", ExactSpelling = true)] internal static extern int ReleaseDC(nint window, nint dc);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]

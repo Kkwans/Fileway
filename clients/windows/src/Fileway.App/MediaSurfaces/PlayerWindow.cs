@@ -16,7 +16,7 @@ using Microsoft.Windows.Storage.Pickers;
 namespace Fileway.App.MediaSurfaces;
 
 /// <summary>Native video owner and lifecycle; a separate owned WinUI window hosts the HUD.</summary>
-internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowControl
+internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowControl
 {
     private readonly IPlaybackSession _session;
     private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
@@ -100,7 +100,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             throw;
         }
         _overlay.CloseRequested += (_, _) => BeginClose();
-        _overlay.ToggleFullscreenRequested += (_, _) => _ = RunCommandAsync(() => SetFullscreenAsync(AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen, _watchCancellation.Token).AsTask());
+        _overlay.ToggleFullscreenRequested += (_, _) => _ = RunCommandAsync(() => SetFullscreenAsync(!DesiredFullscreen, _watchCancellation.Token).AsTask());
         _overlay.ExitFullscreenRequested += (_, _) => _ = RunCommandAsync(() => SetFullscreenAsync(false, _watchCancellation.Token).AsTask());
         _overlay.AddSubtitleRequested += Overlay_AddSubtitleRequested;
         _overlay.MinimizeRequested += (_, _) => MinimizeWindow();
@@ -127,10 +127,10 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
                     if (foreground != 0 && NativePlayerOverlay.GetAncestor(foreground, 3) != _window) CancelVideoGestures();
                 });
             else
-                DispatcherQueue.TryEnqueue(() => { UpdateBounds(); _overlay.NotifyActivity(); });
+                DispatcherQueue.TryEnqueue(() => { UpdateBounds(); _overlay.SynchronizePointerPosition(); });
         };
         AppWindow.Closing += (_, args) => { if (_disposed) return; args.Cancel = true; BeginClose(); };
-        Closed += (_, _) => { CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
+        Closed += (_, _) => { StopFullscreenMotionForClose(); CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
         _ = WatchAsync();
     }
 
@@ -196,6 +196,17 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             return NativeVideoWindow.DefSubclassProc(window, message, wParam, (nint)(-1));
         if (!_disposed && window == _window && (message is 0x0006 or 0x001c))
             DispatcherQueue.TryEnqueue(() => _overlay?.RefreshBackdropState());
+        if (!_disposed && window == _window && message == 0x0006 && ((uint)wParam & 0xffff) != 0)
+        {
+            // WM_ACTIVATE lParam is the previous active HWND. Returning focus from this
+            // player's hidden HUD is internal bookkeeping, not new user activity.
+            var internalActivation = lParam != 0 && NativePlayerOverlay.GetAncestor(lParam, 3) == _window;
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (internalActivation) _overlay?.SynchronizePointerPosition();
+                else _overlay?.NotifyActivity();
+            });
+        }
         if (!_disposed && (window == _window || window == _child) && message == 0x0084)
         {
             var hit = HitTestFrame(NativePlayerOverlay.PointFromLParam(lParam));
@@ -207,7 +218,8 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             // to STATIC. Interactive HUD controls live in their separate window.
             return 1;
         }
-        if (!_disposed && window == _window && (message is 0x00a0 or 0x00a1 or 0x0214 or 0x0216 or 0x0231 or 0x0232))
+        if (!_disposed && window == _window && message == 0x00a0) _overlay?.NotifyPointerMoved();
+        if (!_disposed && window == _window && (message is 0x00a1 or 0x0214 or 0x0216 or 0x0231 or 0x0232))
             _overlay?.NotifyActivity();
         // The mpv child is disabled in native-host mode, so this UI-thread
         // STATIC container receives the video's background input directly.
@@ -222,15 +234,14 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
                 return 0;
             }
         }
-        if (!_disposed && !_detached && window == _child && (message is 0x0200 or 0x0201 or 0x0203))
+        if (!_disposed && !_detached && (window == _child || window == _window) && message == 0x0200)
+            _overlay?.NotifyPointerMoved();
+        if (!_disposed && !_detached && window == _child && (message is 0x0201 or 0x0203))
         {
             _overlay?.NotifyActivity();
-            if (message is 0x0201 or 0x0203)
-            {
-                NativeVideoWindow.SetFocus(_child);
-                HandleVideoGesture(message, lParam);
-                return 0;
-            }
+            NativeVideoWindow.SetFocus(_child);
+            HandleVideoGesture(message, lParam);
+            return 0;
         }
         if (!_disposed && !_detached && window == _child && message == 0x0202)
         {
@@ -238,9 +249,11 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
             return 0;
         }
         var result = NativeVideoWindow.DefSubclassProc(window, message, wParam, lParam);
+        if (window == _window && (message is 0x0005 or 0x0006)) RestoreDeferredFullscreenMaximize();
+        if (window == _window && (message is 0x02e0 or 0x007e)) FullscreenDisplayChanged();
         if (window == _window && (message is 0x0003 or 0x0005 or 0x02e0 or 0x0018))
             DispatcherQueue.TryEnqueue(UpdateBounds);
-        if (message == 0x0024 && !_disposed && AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
+        if (message == 0x0024 && !_disposed && !FullscreenGeometry)
         {
             var limits = Marshal.PtrToStructure<NativeVideoWindow.MinMaxInfo>(lParam);
             var scale = NativeVideoWindow.GetDpiForWindow(window) / 96d;
@@ -330,7 +343,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
         if (_disposed || _detached || _closing) return;
         if (gesture == PlaybackVideoGesture.TogglePause) _ = RunCommandAsync(TogglePausedAsync);
         else if (gesture == PlaybackVideoGesture.ToggleFullscreen)
-            _ = RunCommandAsync(() => SetFullscreenAsync(AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen, _watchCancellation.Token).AsTask());
+            _ = RunCommandAsync(() => SetFullscreenAsync(!DesiredFullscreen, _watchCancellation.Token).AsTask());
     }
 
     private void ScheduleVideoGesture()
@@ -350,7 +363,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
 
     private nint HitTestFrame(NativeVideoWindow.NativePoint point)
     {
-        if (AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen) return 1;
+        if (FullscreenGeometry) return 1;
         if (!NativePlayerOverlay.IsZoomed(_window) && NativePlayerOverlay.GetWindowRect(_window, out var bounds))
         {
             var dpi = NativeVideoWindow.GetDpiForWindow(_window);
@@ -370,12 +383,13 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private void MinimizeWindow()
     {
         if (_disposed || _detached) return;
+        SettleFullscreenBeforeMinimize();
         if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Minimize();
     }
 
     private void ToggleWindowMaximized()
     {
-        if (_disposed || _detached || AppWindow.Presenter is not OverlappedPresenter presenter) return;
+        if (_disposed || _detached || FullscreenGeometry || AppWindow.Presenter is not OverlappedPresenter presenter) return;
         NativePlayerOverlay.SetForegroundWindow(_window);
         if (presenter.State == OverlappedPresenterState.Maximized) presenter.Restore();
         else presenter.Maximize();
@@ -389,7 +403,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
         switch (key)
         {
             case VirtualKey.F10: _ = RunCommandAsync(() => ShowControlsAsync(_watchCancellation.Token).AsTask()); break;
-            case VirtualKey.F11: _ = RunCommandAsync(() => SetFullscreenAsync(AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen, _watchCancellation.Token).AsTask()); break;
+            case VirtualKey.F11: _ = RunCommandAsync(() => SetFullscreenAsync(!DesiredFullscreen, _watchCancellation.Token).AsTask()); break;
             case VirtualKey.Escape: _ = RunCommandAsync(() => SetFullscreenAsync(false, _watchCancellation.Token).AsTask()); break;
             case VirtualKey.Space when _hasFrame: _ = RunCommandAsync(TogglePausedAsync); break;
             case VirtualKey.Left when _session.Snapshot.Seekable: _ = RunCommandAsync(() => SeekRelativeAsync(-10)); break;
@@ -401,28 +415,45 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private void Root_Changed(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateBounds();
     private void UpdateBounds()
     {
-        if (_responsiveness is not { } diagnostics) { UpdateBoundsCore(); return; }
-        var started = diagnostics.Timestamp;
+        var diagnostics = _responsiveness;
+        var started = diagnostics?.Timestamp ?? 0;
         try { UpdateBoundsCore(); }
-        finally { diagnostics.RecordDuration(PlaybackDiagnosticEvent.BoundsDuration, started); }
+        catch (Exception) when (_fullscreenRendering || _fullscreenApplyingFrame)
+        {
+            // AppWindow/XAML/queued callbacks have the same failure boundary as the frame clock.
+            FailFullscreenMotion();
+        }
+        finally { diagnostics?.RecordDuration(PlaybackDiagnosticEvent.BoundsDuration, started); }
     }
 
     private void UpdateBoundsCore()
     {
-        if (_disposed || _child == 0 || _root.XamlRoot is null) return;
-        var point = _video.TransformToVisual(_root).TransformPoint(new Point(0, 0));
-        var scale = _root.XamlRoot.RasterizationScale;
-        var videoBounds = new RectInt32((int)Math.Round(point.X * scale), (int)Math.Round(point.Y * scale),
-            Math.Max(1, (int)Math.Round(_video.ActualWidth * scale)), Math.Max(1, (int)Math.Round(_video.ActualHeight * scale)));
+        if (_disposed || _child == 0) return;
+        if (!NativePlayerOverlay.GetClientRect(_window, out var client) || client.Right <= client.Left || client.Bottom <= client.Top)
+        {
+            if (_fullscreenApplyingFrame || _fullscreenRendering) throw NativeFullscreenWindow.Failure();
+            return;
+        }
+        // The video grid fills the native client. Native physical geometry is authoritative;
+        // queued XAML SizeChanged notifications cannot resize the child to an older frame.
+        var videoBounds = new RectInt32(client.Left, client.Top, client.Right - client.Left, client.Bottom - client.Top);
         if (_videoBounds is not { } previous || !previous.Equals(videoBounds))
         {
             _videoBounds = videoBounds;
             if (!NativeVideoWindow.MoveWindow(_child, videoBounds.X, videoBounds.Y, videoBounds.Width, videoBounds.Height, true))
+            {
                 _videoBounds = null;
+                if (_fullscreenApplyingFrame || _fullscreenRendering) throw NativeFullscreenWindow.Failure();
+            }
         }
         UpdateVideoVisibility();
         _overlay.SetWindowMaximized(NativePlayerOverlay.IsZoomed(_window));
-        if (NativePlayerOverlay.GetWindowRect(_child, out var bounds)) _overlay.SyncBounds(bounds, !_detached);
+        if (NativePlayerOverlay.GetWindowRect(_child, out var bounds))
+        {
+            if (_fullscreenRendering || _fullscreenApplyingFrame) _overlay.SyncMotionBounds(bounds, !_detached);
+            else _overlay.SyncBounds(bounds, !_detached);
+        }
+        else if (_fullscreenApplyingFrame || _fullscreenRendering) throw NativeFullscreenWindow.Failure();
     }
 
     private void UpdateVideoVisibility()
@@ -525,7 +556,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
         if (_initialAspectApplied || displayAspectRatio is not { } aspect || !double.IsFinite(aspect) || aspect is < 0.1 or > 10) return;
         _initialAspectApplied = true;
         if (_userAdjustedWindow
-            || AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen || NativePlayerOverlay.IsZoomed(_window)) return;
+            || FullscreenGeometry || NativePlayerOverlay.IsZoomed(_window)) return;
         var scale = NativeVideoWindow.GetDpiForWindow(_window) / 96d;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var margin = (int)Math.Round(24 * scale);
@@ -562,34 +593,8 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
         if (!loading && _root.XamlRoot is not null) _closeState.Focus(FocusState.Programmatic);
     }
 
-    public ValueTask SetFullscreenAsync(bool fullscreen, CancellationToken cancellationToken) => OnUiAsync(() =>
-    {
-        _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenUiEntered, fullscreen ? 1 : 0);
-        cancellationToken.ThrowIfCancellationRequested();
-        if (_detached || _disposed || _closing) return;
-        var isFullscreen = AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
-        if (fullscreen == isFullscreen) return;
-        _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenPresenterBegin, fullscreen ? 1 : 0);
-        if (fullscreen)
-        {
-            _windowedPresenter = AppWindow.Presenter as OverlappedPresenter;
-            _wasMaximized = _windowedPresenter?.State == OverlappedPresenterState.Maximized;
-            _windowedBounds = new RectInt32(AppWindow.Position.X, AppWindow.Position.Y, AppWindow.Size.Width, AppWindow.Size.Height);
-            AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-        }
-        else
-        {
-            AppWindow.SetPresenter(_windowedPresenter ?? OverlappedPresenter.Create());
-            if (_wasMaximized && AppWindow.Presenter is OverlappedPresenter presenter) presenter.Maximize();
-            else AppWindow.MoveAndResize(_windowedBounds);
-            ApplyFramelessChrome();
-        }
-        _responsiveness?.Record(PlaybackDiagnosticEvent.FullscreenPresenterEnd, fullscreen ? 1 : 0);
-        var actualFullscreen = AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
-        _overlay.SetFullscreen(actualFullscreen);
-        if (actualFullscreen != isFullscreen) FullscreenChanged?.Invoke(this, actualFullscreen);
-        DispatcherQueue.TryEnqueue(() => { UpdateBounds(); FocusVideo(); });
-    });
+    public ValueTask SetFullscreenAsync(bool fullscreen, CancellationToken cancellationToken) =>
+        new(DispatchFullscreenAsync(fullscreen, cancellationToken));
 
     public ValueTask ShowControlsAsync(CancellationToken cancellationToken) => OnUiAsync(() =>
     {
@@ -640,8 +645,8 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
         if (_detached || _disposed) return;
         CancelVideoGestures();
         if (args.Key == VirtualKey.F10) { args.Handled = true; await RunCommandAsync(() => ShowControlsAsync(_watchCancellation.Token).AsTask()); }
-        else if (args.Key == VirtualKey.Escape && AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen) { args.Handled = true; await RunCommandAsync(() => SetFullscreenAsync(false, _watchCancellation.Token).AsTask()); }
-        else if (args.Key == VirtualKey.F11) { args.Handled = true; await RunCommandAsync(() => SetFullscreenAsync(AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen, _watchCancellation.Token).AsTask()); }
+        else if (args.Key == VirtualKey.Escape && FullscreenGeometry) { args.Handled = true; await RunCommandAsync(() => SetFullscreenAsync(false, _watchCancellation.Token).AsTask()); }
+        else if (args.Key == VirtualKey.F11) { args.Handled = true; await RunCommandAsync(() => SetFullscreenAsync(!DesiredFullscreen, _watchCancellation.Token).AsTask()); }
         else if (args.Key == VirtualKey.Space) { args.Handled = true; await RunCommandAsync(TogglePausedAsync); }
         else if (args.Key == VirtualKey.Left) { args.Handled = true; await RunCommandAsync(() => SeekRelativeAsync(-10)); }
         else if (args.Key == VirtualKey.Right) { args.Handled = true; await RunCommandAsync(() => SeekRelativeAsync(10)); }
@@ -732,6 +737,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     private void BeginClose()
     {
         if (_closing || _disposed) return;
+        StopFullscreenMotionForClose();
         CancelVideoGestures();
         _closing = true;
         _snapshotDispatcher.BeginClosing();
@@ -758,6 +764,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     public ValueTask DetachAsync(CancellationToken cancellationToken) => OnUiAsync(() =>
     {
         if (_disposed) return;
+        StopFullscreenMotionForClose();
         CancelVideoGestures();
         _responsiveness?.Dispose();
         _snapshotDispatcher.Stop();
@@ -768,6 +775,7 @@ internal sealed class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowCo
     public ValueTask DisposeAsync() => OnUiAsync(() =>
     {
         if (_disposed) return;
+        DisposeFullscreenMotion();
         CancelVideoGestures();
         _videoGestureTimer.Tick -= VideoGestureTimer_Tick;
         _responsiveness?.Dispose();
