@@ -77,6 +77,12 @@ Nullable/omitted UIA names are excluded from dialog-title/close candidates;
 dialog closing still requires one matching dialog subtree and one enabled
 visible Close button. Unexpected harness errors retain only fixed numeric
 strict-property/variable/invalid-argument category flags, never exception text.
+The transfer center's ToggleButton download tab is activated with one real Space
+key targeted at its freshly inspected unique visible enabled identity. The
+pinned CLI verifies target focus/foreground for `send-input`; its returned
+window/target/key/action-count/warnings and the freshly selected toggle state
+must match before observing download records. It does not request an unsupported
+InvokePattern or guess a coordinate.
 Stage polls, CLI commands, startup and shutdown are bounded. An application or Host
 nonzero exit fails the journey even if screenshots and byte checks succeeded.
 Forced teardown after failure does not satisfy normal shutdown.

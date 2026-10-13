@@ -191,6 +191,21 @@ function Reveal-ConnectionSubmit([IntPtr] $Window) {
             ($result.Contains('wheel') -and $null -ne $result.wheel)) { Stop-Smoke 'connection_scroll_contract_mismatch' }
     }
 }
+function Activate-DownloadRecords([IntPtr] $Window) {
+    # ToggleButton exposes TogglePattern, not InvokePattern. Use its real
+    # keyboard activation so the product's Click navigation handler runs too.
+    $element = Control $Window '^下载记录$'
+    if (-not $element.Contains('toggleState') -or $element.toggleState -notin @('on', 'off')) { Stop-Smoke 'download_records_toggle_state_missing' }
+    if ($element.toggleState -ceq 'off') {
+        $result = Invoke-WinApp @('ui', 'send-keys', 'space', '--target', $element.selector, '-w', $Window.ToInt64().ToString(), '--via', 'send-input', '--json')
+        if ($result.hwnd -ne $Window.ToInt64() -or $result.keys -cne 'space' -or $result.via -cne 'send-input' -or
+            $result.target -cne $element.selector -or $result.actionCount -ne 1 -or @($result.warnings).Count -ne 0) { Stop-Smoke 'download_records_keyboard_contract_mismatch' }
+    }
+    $null = Wait-Condition {
+        $current = Find-Control $Window '^下载记录$' -Optional
+        if ($current -and $current.Contains('toggleState') -and $current.toggleState -ceq 'on') { $current }
+    } 'download_records_not_selected'
+}
 function Has-Text([IntPtr] $Window, [string] $Text) {
     return @(Elements $Window | Where-Object { $_.type -eq 'Text' -and $_.Contains('name') -and $_.name -ceq $Text -and -not $_.isOffscreen }).Count -gt 0
 }
@@ -438,7 +453,7 @@ public static class FilewayTransferDownloads {
         Wait-Text '上传已完成'; Wait-Text '目标存在同名项目'
         Capture 'transfer-center-uploads.png'
         $script:stage = 'transfer-center-downloads'
-        Act $script:window '^下载记录$'
+        Activate-DownloadRecords $script:window
         Wait-Text '下载已完成'; Wait-Text '本地存在同名文件'
         Capture 'transfer-center-downloads.png'
         Complete-Step 'native-transfer-center-terminal-records'

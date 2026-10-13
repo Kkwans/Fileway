@@ -257,7 +257,59 @@ if ($code -cne 'picker_inspection_window_ambiguous') { throw 'ambiguous_window_s
         self.assertLess(SOURCE.index("Complete-Step 'native-upload-conflict-preserved'"), SOURCE.index("Capture 'transfer-center-uploads.png'"))
         self.assertNotRegex(captures, r"(?:Resume|Reconcile|Cancel|恢复|核实|取消)")
         self.assertIn("'^传输中心$'", captures)
-        self.assertIn("'^下载记录$'", captures)
+        self.assertIn("Activate-DownloadRecords $script:window", captures)
+
+    def test_download_tab_uses_targeted_real_keyboard_and_observed_state(self):
+        helper = SOURCE.split("function Activate-DownloadRecords", 1)[1].split("function Has-Text", 1)[0]
+        for guard in ("Control $Window '^下载记录$'", "Contains('toggleState')", "'ui', 'send-keys', 'space', '--target', $element.selector",
+                      "'--via', 'send-input'", "$result.actionCount -ne 1", "@($result.warnings).Count -ne 0", "$current.toggleState -ceq 'on'"):
+            self.assertIn(guard, helper)
+        self.assertNotIn("Act $script:window '^下载记录$'", SOURCE)
+        self.assertNotRegex(helper, r"--at|--allow-system-keys|post-message")
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
+    def test_actual_download_tab_keyboard_helper_contract_and_effect(self):
+        helper = "function Activate-DownloadRecords" + SOURCE.split("function Activate-DownloadRecords", 1)[1].split("function Has-Text", 1)[0]
+        command = r"""
+Set-StrictMode -Version Latest
+function Stop-Smoke($Code) { throw $Code }
+function Control($Window,$Pattern) { $script:fixture }
+function Find-Control($Window,$Pattern,[switch]$Optional) { $script:fixture }
+function Wait-Condition($Predicate,$Code) { $value=& $Predicate; if (-not $value) { Stop-Smoke $Code }; return $value }
+function Invoke-WinApp($Arguments) {
+    $script:calls.Add($Arguments)
+    if ($script:setAfterInput) { $script:fixture.toggleState='on' }
+    return $script:response
+}
+""" + helper + r"""
+$script:calls=[Collections.Generic.List[object]]::new()
+$script:fixture=@{selector='fixture-tab';toggleState='off'}
+$script:response=@{hwnd=123;keys='space';via='send-input';target='fixture-tab';actionCount=1;warnings=@()}
+$script:setAfterInput=$true
+Activate-DownloadRecords ([IntPtr]123)
+if ($script:calls.Count -ne 1 -or ($script:calls[0] -join '|') -cne 'ui|send-keys|space|--target|fixture-tab|-w|123|--via|send-input|--json') { throw 'keyboard_arguments_wrong' }
+Activate-DownloadRecords ([IntPtr]123)
+if ($script:calls.Count -ne 1) { throw 'selected_tab_activated_again' }
+foreach ($field in @('hwnd','keys','via','target','actionCount','warnings')) {
+    $script:fixture.toggleState='off'
+    $script:response=@{hwnd=123;keys='space';via='send-input';target='fixture-tab';actionCount=1;warnings=@()}
+    $script:response[$field]=switch ($field) { 'hwnd' { 999 }; 'actionCount' { 2 }; 'warnings' { @('fixture-warning') }; default { 'wrong' } }
+    $code=$null
+    try { Activate-DownloadRecords ([IntPtr]123) } catch { $code=$_.Exception.Message }
+    if ($code -cne 'download_records_keyboard_contract_mismatch') { throw 'keyboard_response_not_rejected' }
+}
+$script:fixture=@{selector='fixture-tab'};$before=$script:calls.Count;$code=$null
+try { Activate-DownloadRecords ([IntPtr]123) } catch { $code=$_.Exception.Message }
+if ($code -cne 'download_records_toggle_state_missing' -or $script:calls.Count -ne $before) { throw 'missing_toggle_state_activated' }
+$script:fixture=@{selector='fixture-tab';toggleState='off'}
+$script:response=@{hwnd=123;keys='space';via='send-input';target='fixture-tab';actionCount=1;warnings=@()}
+$script:setAfterInput=$false;$code=$null
+try { Activate-DownloadRecords ([IntPtr]123) } catch { $code=$_.Exception.Message }
+if ($code -cne 'download_records_not_selected') { throw 'unobserved_effect_accepted' }
+"""
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-Command", command],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_inspection_deduplicates_exact_selector_with_checked_metadata(self):
         helper = SOURCE.split("function Unique-Elements", 1)[1].split("function Elements", 1)[0]
