@@ -54,8 +54,11 @@ in its native confirmation; no setting, safety guard or destination is changed.
 
 Only explicit UI actions initiate transfers. HTTP is used solely for `/health`.
 UIA selectors are freshly inspected and required to be unique, enabled and
-visible; mismatched actual UI fails rather than guessing a coordinate. Stage
-polls, CLI commands, startup and shutdown are bounded. An application or Host
+visible; mismatched actual UI fails rather than guessing a coordinate. Inspection
+collapses repeated entries only when their exact selector and
+type/name/enabled/offscreen metadata agree. Different selectors remain distinct;
+conflicting metadata for one selector fails without choosing an arbitrary entry.
+Stage polls, CLI commands, startup and shutdown are bounded. An application or Host
 nonzero exit fails the journey even if screenshots and byte checks succeeded.
 Forced teardown after failure does not satisfy normal shutdown.
 

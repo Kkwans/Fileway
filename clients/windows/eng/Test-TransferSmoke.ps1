@@ -106,10 +106,27 @@ function Find-Elements($Value) {
         foreach ($child in $Value) { Find-Elements $child }
     }
 }
+function Unique-Elements($Elements) {
+    # inspect can repeat one element in its envelope and subtree. Identity is
+    # the exact CLI selector, never a displayed name or a guessed coordinate.
+    $seen = [Collections.Generic.Dictionary[string, object]]::new([StringComparer]::Ordinal)
+    foreach ($element in $Elements) {
+        if ($element.selector -isnot [string] -or [string]::IsNullOrWhiteSpace($element.selector)) { Stop-Smoke 'inspect_selector_missing' }
+        $previous = $null
+        if ($seen.TryGetValue($element.selector, [ref]$previous)) {
+            foreach ($field in @('type', 'name', 'isEnabled', 'isOffscreen')) {
+                if (-not [object]::Equals($previous[$field], $element[$field])) { Stop-Smoke 'inspect_selector_metadata_mismatch' }
+            }
+        } else {
+            $seen.Add($element.selector, $element)
+            $element
+        }
+    }
+}
 function Elements([IntPtr] $Window) {
     $tree = Invoke-WinApp @('ui', 'inspect', '-w', $Window.ToInt64().ToString(), '--depth', '16', '--json')
     if (-not $tree.Contains('windows')) { Stop-Smoke 'inspect_windows_contract_missing' }
-    return @(Find-Elements $tree)
+    return @(Unique-Elements (Find-Elements $tree))
 }
 function Find-Control([IntPtr] $Window, [string] $NamePattern, [string] $Type = 'Button', [switch] $Optional) {
     $visible = @(Elements $Window | Where-Object { $_.isEnabled -and -not $_.isOffscreen })
@@ -164,7 +181,7 @@ function Close-TransferDialog([string] $Title) {
         if ($matches.Count -eq 1) { $matches[0] }
     } 'transfer_dialog_not_observed'
     $tree = Invoke-WinApp @('ui', 'inspect', $dialog.selector, '-w', $script:window.ToInt64().ToString(), '--depth', '16', '--json')
-    $buttons = @(Find-Elements $tree | Where-Object { $_.type -eq 'Button' -and $_.name -ceq '关闭' -and $_.isEnabled -and -not $_.isOffscreen })
+    $buttons = @(Unique-Elements (Find-Elements $tree) | Where-Object { $_.type -eq 'Button' -and $_.name -ceq '关闭' -and $_.isEnabled -and -not $_.isOffscreen })
     if ($buttons.Count -ne 1) { Stop-Smoke 'dialog_close_missing_or_ambiguous' }
     $result = Invoke-WinApp @('ui', 'invoke', $buttons[0].selector, '-w', $script:window.ToInt64().ToString(), '--action', 'invoke', '--json')
     if ($result.performedAction -ne 'invoke' -or $result.hwnd -ne $script:window.ToInt64()) { Stop-Smoke 'dialog_close_effect_mismatch' }

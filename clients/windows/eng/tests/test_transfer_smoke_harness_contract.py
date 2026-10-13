@@ -121,6 +121,44 @@ class TransferSmokeContract(unittest.TestCase):
         self.assertIn("$script:app.HasExited", SOURCE)
         self.assertNotIn("Capture 'picker", SOURCE)
 
+    def test_inspection_deduplicates_exact_selector_with_checked_metadata(self):
+        helper = SOURCE.split("function Unique-Elements", 1)[1].split("function Elements", 1)[0]
+        self.assertIn("[StringComparer]::Ordinal", helper)
+        self.assertIn("TryGetValue($element.selector", helper)
+        self.assertIn("'type', 'name', 'isEnabled', 'isOffscreen'", helper)
+        self.assertIn("[object]::Equals($previous[$field], $element[$field])", helper)
+        self.assertIn("'inspect_selector_metadata_mismatch'", helper)
+        self.assertEqual(SOURCE.count("Unique-Elements (Find-Elements $tree)"), 2)
+        self.assertIn("$matches.Count -ne 1", SOURCE)
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; no installation attempted")
+    def test_actual_inspection_helper_repeated_and_conflicting_elements(self):
+        # Execute the production definitions, not a copied implementation.
+        helpers = SOURCE.split("function Find-Elements", 1)[1].split("function Elements", 1)[0]
+        command = "function Stop-Smoke($Code) { throw $Code }; function Find-Elements" + helpers + r"""
+$one = @{ selector='fixture-a'; type='ListItem'; name='synthetic'; isEnabled=$true; isOffscreen=$false }
+$same = @{ selector='fixture-a'; type='ListItem'; name='synthetic'; isEnabled=$true; isOffscreen=$false }
+$tree = @{ windows=@(@{ children=@($one) }); repeated=@($same) }
+$items = @(Unique-Elements (Find-Elements $tree))
+if ($items.Count -ne 1 -or $items[0].selector -cne 'fixture-a') { throw 'repeat_not_collapsed' }
+$different = @{ selector='fixture-b'; type='ListItem'; name='synthetic'; isEnabled=$true; isOffscreen=$false }
+if (@(Unique-Elements @($one, $different)).Count -ne 2) { throw 'distinct_identity_collapsed' }
+foreach ($field in @('type', 'name', 'isEnabled', 'isOffscreen')) {
+    $conflict = $same.Clone()
+    $conflict[$field] = if ($field -in @('isEnabled', 'isOffscreen')) { -not $conflict[$field] } else { 'different' }
+    $code = $null
+    try { $null = @(Unique-Elements @($one, $conflict)) } catch { $code = $_.Exception.Message }
+    if ($code -cne 'inspect_selector_metadata_mismatch') { throw 'conflict_not_rejected' }
+}
+$invalid = $same.Clone(); $invalid.selector = ''
+$code = $null
+try { $null = @(Unique-Elements @($invalid)) } catch { $code = $_.Exception.Message }
+if ($code -cne 'inspect_selector_missing') { throw 'invalid_identity_not_rejected' }
+"""
+        result = subprocess.run([shutil.which("pwsh"), "-NoProfile", "-Command", command],
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_conflict_asserts_same_bytes_after_real_ui_operation(self):
         self.assertEqual(SOURCE.count("Assert-Payload $remoteFile $expectedHash"), 2)
         self.assertEqual(SOURCE.count("Assert-Payload $destination $expectedHash"), 2)
