@@ -414,7 +414,11 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner
         FilewayException? failure = null;
         try { await BeginDrain().ConfigureAwait(false); }
         catch (Exception error) { failure = Normalize(error); }
-        finally { _http.Dispose(); }
+        finally
+        {
+            try { _http.Dispose(); }
+            catch (Exception error) { failure ??= Normalize(error); }
+        }
         if (failure is null) completion.TrySetResult();
         else completion.TrySetException(failure);
     }

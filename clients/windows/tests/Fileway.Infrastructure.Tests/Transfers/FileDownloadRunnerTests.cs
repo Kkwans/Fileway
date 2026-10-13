@@ -750,6 +750,104 @@ public sealed class FileDownloadRunnerTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HandlerDisposeFailureSettlesSharedCompletionAfterIdleOrActiveDrain(bool active)
+    {
+        // Do not await fixture disposal in a finally: the original regression leaves that exact
+        // shared task permanently pending. The bounded assertion still lets the worker drain.
+        var fixture = await Fixture.CreateAsync();
+        fixture.Http.DisposeFailure = new InvalidOperationException("private handler disposal detail: " + fixture.Plan.LocalPath);
+        BlockingReadStream? body = null;
+        Task<TransferTaskRecord>? running = null;
+        if (active)
+        {
+            body = fixture.BlockBody();
+            running = fixture.Runner.RunAsync(fixture.Task, Token);
+            await body.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        }
+        fixture.Http.BeforeDispose = fixture.AssertDrained;
+
+        var first = fixture.Runner.DisposeAsync().AsTask();
+        var concurrent = fixture.Runner.DisposeAsync().AsTask();
+        Assert.Same(first, concurrent);
+        var error = await Assert.ThrowsAsync<FilewayException>(() => first.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertDisposeSafe(error, fixture, ErrorCode.Unknown);
+        Assert.Same(error, await Assert.ThrowsAsync<FilewayException>(() => concurrent.WaitAsync(TimeSpan.FromSeconds(5), Token)));
+        var repeated = fixture.Runner.DisposeAsync().AsTask();
+        Assert.Same(first, repeated);
+        Assert.Same(error, await Assert.ThrowsAsync<FilewayException>(() => repeated.WaitAsync(TimeSpan.FromSeconds(5), Token)));
+        Assert.Equal(1, fixture.Http.DisposeCalls);
+        fixture.AssertDrained();
+        if (active)
+        {
+            var canceled = await running!.WaitAsync(TimeSpan.FromSeconds(5), Token);
+            Assert.Equal(TransferIntent.Cancel, canceled.Intent);
+            Assert.Equal(TransferPhase.Canceled, canceled.Checkpoint.Phase);
+            Assert.Null(canceled.Run);
+            Assert.True(body!.CancellationObserved);
+            Assert.True(body.Disposed);
+            Assert.Equal(1, fixture.Destinations.File.DeleteCalls);
+            Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        }
+        else
+        {
+            var queued = await fixture.ReadAsync();
+            Assert.Equal(TransferIntent.Run, queued.Intent);
+            Assert.Equal(TransferPhase.Queued, queued.Checkpoint.Phase);
+            Assert.Equal(0, fixture.Sources.PrepareCalls);
+            Assert.Equal(0, fixture.Destinations.CreateCalls);
+            Assert.Empty(fixture.Http.Requests);
+        }
+        await Assert.ThrowsAsync<ObjectDisposedException>(() => fixture.Runner.RunAsync(fixture.Task, Token));
+    }
+
+    [Theory]
+    [InlineData("intent", ErrorCode.LocalStorageUnavailable)]
+    [InlineData("callback", ErrorCode.Unknown)]
+    public async Task HandlerDisposeFailureCannotReplaceEarlierDrainFailure(string failure, ErrorCode expected)
+    {
+        var fixture = await Fixture.CreateAsync();
+        var body = fixture.BlockBody(checkDurableCancel: failure != "intent");
+        body.ThrowOnCancellation = failure == "callback";
+        fixture.Http.DisposeFailure = new FilewayException(new(ErrorCode.HostExited, "private handler disposal detail"));
+        fixture.Http.BeforeDispose = fixture.AssertDrained;
+        var running = fixture.Runner.RunAsync(fixture.Task, Token);
+        await body.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), Token);
+        if (failure == "intent")
+            fixture.Store.BeforeIntent = (_, _, _, _) => Task.FromException(new FilewayException(new(ErrorCode.LocalStorageUnavailable, "private intent storage detail")));
+
+        var first = fixture.Runner.DisposeAsync().AsTask();
+        var concurrent = fixture.Runner.DisposeAsync().AsTask();
+        Assert.Same(first, concurrent);
+        var error = await Assert.ThrowsAsync<FilewayException>(() => first.WaitAsync(TimeSpan.FromSeconds(5), Token));
+        AssertDisposeSafe(error, fixture, expected);
+        Assert.Same(error, await Assert.ThrowsAsync<FilewayException>(() => concurrent.WaitAsync(TimeSpan.FromSeconds(5), Token)));
+        var repeated = fixture.Runner.DisposeAsync().AsTask();
+        Assert.Same(first, repeated);
+        Assert.Same(error, await Assert.ThrowsAsync<FilewayException>(() => repeated.WaitAsync(TimeSpan.FromSeconds(5), Token)));
+        Assert.Equal(1, fixture.Http.DisposeCalls);
+        Assert.True(body.CancellationObserved);
+        Assert.True(body.Disposed);
+        Assert.Equal(0, fixture.Destinations.File.PublishCalls);
+        fixture.AssertDrained();
+        if (failure == "intent")
+        {
+            var runError = await Assert.ThrowsAsync<FilewayException>(() => running.WaitAsync(TimeSpan.FromSeconds(5), Token));
+            AssertDisposeSafe(runError, fixture, ErrorCode.LocalStorageUnavailable);
+            Assert.True(await fixture.Store.HasProtectedTransfersAsync(fixture.Task.Account, Token));
+        }
+        else
+        {
+            var canceled = await running.WaitAsync(TimeSpan.FromSeconds(5), Token);
+            Assert.Equal(TransferIntent.Cancel, canceled.Intent);
+            Assert.Equal(TransferPhase.Canceled, canceled.Checkpoint.Phase);
+            Assert.Null(canceled.Run);
+            Assert.Equal(1, fixture.Destinations.File.DeleteCalls);
+        }
+    }
+
     [Fact]
     public async Task UnknownOwnedCreateResultRemainsProtectedAfterDurableCancelInsteadOfBecomingCanceled()
     {
@@ -787,6 +885,16 @@ public sealed class FileDownloadRunnerTests
         Assert.Empty(fixture.Http.Requests);
         Assert.Empty(fixture.Sources.Acquired);
         fixture.AssertDrained();
+    }
+
+    private static void AssertDisposeSafe(FilewayException error, Fixture fixture, ErrorCode expected)
+    {
+        Assert.Equal(expected, error.Error.Code);
+        Assert.Null(error.InnerException);
+        AssertSafe(error.Error, fixture);
+        Assert.DoesNotContain("private handler disposal detail", error.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private callback failure", error.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("private intent storage detail", error.ToString(), StringComparison.Ordinal);
     }
 
     private static void AssertSafe(ErrorInfo error, Fixture fixture)
@@ -1063,6 +1171,19 @@ public sealed class FileDownloadRunnerTests
         internal ConcurrentQueue<string> Requests { get; } = new();
         internal Action<HttpResponseMessage>? Mutate { get; set; }
         internal Func<HttpContent>? ContentFactory { get; set; }
+        internal Exception? DisposeFailure { get; set; }
+        internal Action? BeforeDispose { get; set; }
+        internal int DisposeCalls;
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                Interlocked.Increment(ref DisposeCalls);
+                BeforeDispose?.Invoke();
+                if (DisposeFailure is { } failure) throw failure;
+            }
+            base.Dispose(disposing);
+        }
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Assert.Equal(HttpMethod.Get, request.Method);
