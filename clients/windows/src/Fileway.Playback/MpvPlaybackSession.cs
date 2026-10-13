@@ -22,6 +22,9 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
     private readonly IPlaybackSurfaceFactory _surfaces;
     private readonly Action<Guid> _released;
     private readonly IRecentAccessService? _recentAccess;
+    private readonly RemoteResourceRef? _originalResource;
+    private readonly MpvDownloadStreamBridge? _downloadBridge;
+    private readonly DownloadPlaybackObservation? _downloadObservation;
     private RecentPlaybackOpenRecording? _recentOpen;
     private readonly List<IResourceLease> _ownedLeases = [];
     private readonly List<Channel<PlaybackSnapshot>> _watchers = [];
@@ -49,7 +52,8 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
     private sealed record PlaybackCommand(string[][] Arguments, TaskCompletionSource Completion, CancellationToken Cancellation);
 
     internal MpvPlaybackSession(PlaybackOpenRequest request, long generation, MpvNative native, IResourceLeaseProvider leases,
-        IPlaybackSurfaceFactory surfaces, Action<Guid> released, IRecentAccessService? recentAccess = null)
+        IPlaybackSurfaceFactory surfaces, Action<Guid> released, IRecentAccessService? recentAccess = null,
+        DownloadPlaybackSource? download = null, DownloadPlaybackObservation? downloadObservation = null)
     {
         _request = request;
         _native = native;
@@ -57,33 +61,45 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
         _surfaces = surfaces;
         _released = released;
         _recentAccess = recentAccess;
-        string displayName = request.Input switch { RemotePlaybackInput remote => remote.Resource.DisplayName, LocalPlaybackInput local => local.DisplayName, _ => "媒体" };
+        _originalResource = (request.Input as RemotePlaybackInput)?.Resource ?? download?.Item.Source;
+        _downloadObservation = downloadObservation;
+        string displayName = request.Input switch { RemotePlaybackInput remote => remote.Resource.DisplayName, DownloadPlaybackInput when download is not null => download.Item.Source.DisplayName, LocalPlaybackInput local => local.DisplayName, _ => "媒体" };
         _snapshot = new PlaybackSnapshot(Id, generation, displayName, PlaybackStatus.Preparing, TimeSpan.Zero, null, null, false,
-            Array.Empty<MediaTrack>(), new SubtitleCapabilities(true, true, true, true, true), new PlaybackDiagnostics());
+            Array.Empty<MediaTrack>(), new SubtitleCapabilities(true, true, true, true, true), new PlaybackDiagnostics(),
+            Download: downloadObservation?.Snapshot);
+        // Keep the exact admitted reader; never reopen a partial path or acquire a
+        // remote HTTP lease for a download playback input.
+        if (download is not null) _downloadBridge = new MpvDownloadStreamBridge(download.Reader);
         _commandPump = Task.Run(CommandPumpAsync);
     }
 
     public Guid Id { get; } = Guid.NewGuid();
     internal IPlaybackSession? PresentationSession { get; set; }
-    internal AccountKey? Account => _request.Input switch { RemotePlaybackInput remote => remote.Resource.Account, LocalPlaybackInput local => local.Origin?.Account, _ => null };
+    internal AccountKey? Account => _originalResource?.Account ?? (_request.Input as LocalPlaybackInput)?.Origin?.Account;
     public PlaybackSnapshot Snapshot { get { lock (_gate) return _snapshot; } }
 
     internal async Task StartAsync(CancellationToken cancellationToken)
     {
         Task start;
-        lock (_gate) { _start ??= StartCoreAsync(cancellationToken); start = _start; }
+        lock (_gate)
+        {
+            if (_closing) throw MpvNative.Error(ErrorCode.Canceled, "播放会话已关闭。");
+            _start ??= StartCoreAsync(cancellationToken);
+            start = _start;
+        }
         await start.ConfigureAwait(false);
     }
 
     private async Task StartCoreAsync(CancellationToken cancellationToken)
     {
-        if (_recentAccess is not null && _request.Input is RemotePlaybackInput remote)
-            _recentOpen = new RecentPlaybackOpenRecording(_recentAccess, remote.Resource, Id, _snapshot.Generation,
+        if (_recentAccess is not null && _originalResource is not null)
+            _recentOpen = new RecentPlaybackOpenRecording(_recentAccess, _originalResource, Id, _snapshot.Generation,
                 cancellationToken, _startStop.Token);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _startStop.Token);
         cancellationToken = lifetime.Token;
         try
         {
+            _downloadObservation?.Start(state => Publish(snapshot => snapshot with { Download = state }));
             string source = await SourceAsync(_request.Input, cancellationToken, primary: true).ConfigureAwait(false);
             _surface = await _surfaces.CreateAsync(PresentationSession ?? this, cancellationToken).ConfigureAwait(false);
             if (_surface.ParentHwnd == 0) throw MpvNative.Error(ErrorCode.CapabilityMissing, "播放器视频容器尚未就绪。");
@@ -107,7 +123,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
                     ("vo", "gpu-next"), ("gpu-context", "d3d11"), ("d3d11-output-mode", "window"),
                     ("hwdec", "auto-safe"), ("audio-client-name", "Fileway"), ("network-timeout", "15"),
                     // mpv 0.41 options: bounded packet RAM; the owner lease supplies persistent blocks.
-                    ("cache", _request.Input is RemotePlaybackInput ? "yes" : "auto"), ("cache-on-disk", "no"),
+                    ("cache", _request.Input is RemotePlaybackInput or DownloadPlaybackInput ? "yes" : "auto"), ("cache-on-disk", "no"),
                     ("cache-secs", "30"), ("demuxer-readahead-secs", "1"),
                     ("demuxer-max-bytes", "64MiB"), ("demuxer-max-back-bytes", "16MiB"),
                     ("wid", _surface.ParentHwnd.ToInt64().ToString(CultureInfo.InvariantCulture)),
@@ -115,6 +131,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
                 if (_request.ResumePosition is { } resume && resume > TimeSpan.Zero)
                     _native.Option(_handle, "start", resume.TotalSeconds.ToString("R", CultureInfo.InvariantCulture));
                 _native.Initialize(_handle);
+                _downloadBridge?.Register(_native, _handle);
                 ulong observer = 0;
                 foreach (var property in new (string Name, int Format)[]
                 {
@@ -143,6 +160,11 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
 
     private async Task<string> SourceAsync(PlaybackInput input, CancellationToken cancellationToken, bool primary = false)
     {
+        if (input is DownloadPlaybackInput)
+        {
+            if (primary && _downloadBridge is not null) return _downloadBridge.Uri;
+            throw MpvNative.Error(ErrorCode.InvalidRequest, "下载读取能力仅用于当前主播放来源。");
+        }
         if (input is LocalPlaybackInput local)
         {
             if (!Path.IsPathFullyQualified(local.FullPath) || local.FullPath.StartsWith(@"\\", StringComparison.Ordinal) || !File.Exists(local.FullPath))
@@ -584,6 +606,10 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
             if (_stop is null)
             {
                 _closing = true;
+                // mpv load/stop can wait inside a prefix read. Wake that read
+                // before awaiting startup, detach, stop commands or native drains.
+                _downloadBridge?.CancelBeforeDestroy();
+                _downloadObservation?.Stop();
                 _recentOpen?.Dispose();
                 _commands.Writer.TryComplete();
                 Publish(snapshot => snapshot with { Status = PlaybackStatus.Closing, DownloadBytesPerSecond = null }, terminal: true);
@@ -599,7 +625,16 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
         try
         {
             await _startStop.CancelAsync().ConfigureAwait(false);
-            if (_start is not null) { try { await _start.ConfigureAwait(false); } catch (Exception) { } }
+            if (_start is not null)
+            {
+                // An actual native startup that has not returned still owns its
+                // bridge. A deadline never authorizes early reader/root release.
+                try { await _start.WaitAsync(NativeDeadline).ConfigureAwait(false); }
+                catch (Exception) when (_start.IsCompleted) { }
+            }
+            else _ready.TrySetException(MpvNative.Error(ErrorCode.Canceled, "播放会话已关闭。"));
+            if (_downloadObservation is not null)
+                await _downloadObservation.DisposeAsync().AsTask().WaitAsync(NativeDeadline).ConfigureAwait(false);
             await StopStatisticsAsync().ConfigureAwait(false);
             if (_surface is IPlaybackWindowControl window) window.FullscreenChanged -= HostFullscreenChanged;
             if (_surface is not null) await _surface.DetachAsync(CancellationToken.None).AsTask().WaitAsync(NativeDeadline).ConfigureAwait(false);
@@ -618,6 +653,9 @@ internal sealed class MpvPlaybackSession : IPlaybackSession
                 await Task.Run(() => _native.Destroy(_handle), CancellationToken.None).WaitAsync(NativeDeadline).ConfigureAwait(false);
                 _handle = 0;
             }
+            // Reached only after Destroy actually returned, or when no native
+            // instance ever existed. Timeout/error paths retain all bridge roots.
+            if (_downloadBridge is not null) await _downloadBridge.ReleaseAfterDestroyAsync().ConfigureAwait(false);
             foreach (var lease in _ownedLeases) await lease.DisposeAsync().ConfigureAwait(false);
             _ownedLeases.Clear();
             if (_surface is not null) await _surface.DisposeAsync().ConfigureAwait(false);
