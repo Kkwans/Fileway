@@ -52,7 +52,7 @@ class RemoteImageSmokeContract(unittest.TestCase):
 
     def test_exact_allowlist_and_no_reusing_foreign_output(self):
         names = re.findall(r"'([^']+)'", re.search(r'\$allowedArtifacts = @\((.*?)\)\n', SOURCE, re.S).group(1))
-        self.assertEqual(names, ['report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png', 'remote-image-ready.png'])
+        self.assertEqual(names, ['report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png', 'remote-image-ready.png', 'remote-image-open-failure.png'])
         self.assertLess(SOURCE.index('output_has_unexpected_artifact'), SOURCE.index('$script:root = $candidate'))
         self.assertIn('Assert-ExternalPath $OutputRoot', SOURCE)
         self.assertIn('$item.Attributes -band [IO.FileAttributes]::ReparsePoint', SOURCE)
@@ -102,7 +102,7 @@ class RemoteImageSmokeContract(unittest.TestCase):
     def test_actual_workflow_fixed_allowlist_and_guard_order(self):
         workflow = (ROOT / '.github/workflows/windows-remote-image-smoke.yml').read_text(encoding='utf-8')
         uploaded = re.findall(r"\$\{\{ runner\.temp \}\}/Fileway-remote-image-evidence/(\S+)", workflow)
-        self.assertEqual(uploaded, ['report.json', 'events.jsonl', 'screenshots/preflight.png', 'screenshots/preflight-smoke.png', 'screenshots/remote-image-ready.png'])
+        self.assertEqual(uploaded, ['report.json', 'events.jsonl', 'screenshots/preflight.png', 'screenshots/preflight-smoke.png', 'screenshots/remote-image-ready.png', 'screenshots/remote-image-open-failure.png'])
         for pattern in ('test_remote_image_fixture.py', 'test_remote_image_smoke_harness_contract.py'):
             command = 'python -m unittest discover -s eng/tests -p ' + pattern + ' -v'
             self.assertLess(workflow.index(command), workflow.index('Install pinned isolated toolchains'))
@@ -265,6 +265,15 @@ foreach($uri in @('https://127.0.0.1:12345','http://example.com','http://127.0.0
 }
 if($script:requests -ne 1){throw 'unapproved_request_sent'}
 """)
+
+    def test_image_failure_diagnostics_are_fixed_owned_main_only(self):
+        for value in ('image-owned-window-observation', 'image-open-window-counts', 'owned = $windows.Count',
+                      'nonMain = $others.Count', 'knownTitle = $known.Count', 'failure_capture_owner_mismatch',
+                      "Has-Text $script:window '无法打开文件'", '$failure = $_',
+                      "Capture($script:window).SavePng((Artifact-Path 'remote-image-open-failure.png'))"):
+            self.assertIn(value, SOURCE)
+        self.assertNotIn('Capture($others[0])', SOURCE)
+        self.assertLess(SOURCE.index('Write-Report $status $code'), SOURCE.index("Record-Observation 'image-open-window-counts'"))
 
     def test_noauth_verifier_session_is_owned_bounded_memory_only(self):
         for value in ('Get-NoAuthVerifierToken $baseAddress', '$uri.Port -ne $script:ownedServerPort', '$script:server.HasExited', '$uri.Fragment -ne', '-MaximumRedirection 0',

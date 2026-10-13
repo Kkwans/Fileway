@@ -62,7 +62,11 @@ no coordinate clicks or first-match fallbacks.
 
 Only these artifacts are allowed: `report.json`, `events.jsonl`,
 `screenshots/preflight.png`, `screenshots/preflight-smoke.png`, and
-`screenshots/remote-image-ready.png`. The screenshot is the guarded owned image
+`screenshots/remote-image-ready.png`, and
+`screenshots/remote-image-open-failure.png`. The last capture is only the exact
+owned main window on fixed image-open/window-observation/decode failure phases;
+it retains the original failure. Fixed diagnostics record only owned/non-main/
+known-title window counts and saved/not-saved, without raw names or handles. The screenshot is the guarded owned image
 window containing the synthetic fixture. No picker/desktop/foreign window,
 raw UIA tree, URL, credential, profile/database, log or local path is exported.
 Reports contain fixed step/code strings and numeric/boolean checks. Private

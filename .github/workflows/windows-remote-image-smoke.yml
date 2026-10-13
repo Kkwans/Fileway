@@ -91,4 +91,5 @@ jobs:
             ${{ runner.temp }}/Fileway-remote-image-evidence/screenshots/preflight.png
             ${{ runner.temp }}/Fileway-remote-image-evidence/screenshots/preflight-smoke.png
             ${{ runner.temp }}/Fileway-remote-image-evidence/screenshots/remote-image-ready.png
+            ${{ runner.temp }}/Fileway-remote-image-evidence/screenshots/remote-image-open-failure.png
           if-no-files-found: ignore

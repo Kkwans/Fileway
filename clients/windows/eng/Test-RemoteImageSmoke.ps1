@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'RemoteResourceSmoke.Common.psm1') -Force
 . (Get-RemoteSmokeFunctions)
-$allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png', 'remote-image-ready.png')
+$allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png', 'remote-image-ready.png', 'remote-image-open-failure.png')
 $script:ownedServerPort = 0
 $script:root = $null; $script:app = $null; $script:server = $null; $script:ownedHost = $null
 $script:window = [IntPtr]::Zero; $imageWindow = [IntPtr]::Zero
@@ -176,6 +176,7 @@ try {
         Reveal-ConnectionSubmit $script:window
         $script:stage = 'connect-submit'; Act $script:window '^连接并浏览$'
         $script:stage = 'image-row-open'; Send-OpenKey $script:window $name
+        $script:stage = 'image-owned-window-observation'
         $imageWindow = Wait-Condition {
             $windows = @([Fileway.PlayerSmoke.Native]::Windows($script:app.Id) | Where-Object { $_ -ne $script:window -and [Fileway.PlayerSmoke.Native]::Title($_) -cin @(($name + ' · Fileway'), ($name + ' · 栖卷')) })
             if ($windows.Count -gt 1) { Stop-Smoke 'owned_image_window_ambiguous' }; if ($windows.Count -eq 1) { $windows[0] }
@@ -193,7 +194,7 @@ try {
             $capture = [Fileway.PlayerSmoke.Native]::Capture($imageWindow)
             if ([FilewayRemoteImagePixels]::OrderedBandRows($capture.Pixels, $capture.Width, $capture.Height) -ge 32) { $capture }
         } 'decoded_rgb_pixels_not_observed' 15000
-        $image.SavePng((Artifact-Path 'remote-image-ready.png'))
+        $image.SavePng((Artifact-Path 'remote-image-ready.png', 'remote-image-open-failure.png'))
         Complete-Step 'native-remote-image-decoded-pixels' @{ orderedRgbRows = [FilewayRemoteImagePixels]::OrderedBandRows($image.Pixels, $image.Width, $image.Height); width = 480; height = 320 }
         $script:stage = 'server-recent-verification'
         $null = Wait-Condition { Test-RemoteImageRecentEntry (Get-ServerRecents $baseAddress $verifierToken) $name $notBefore } 'native_open_recent_not_recorded' 15000
@@ -212,12 +213,31 @@ try {
         Write-Report 'passed' 'remote_image_smoke_ok'; $exitCode = 0
     }
 } catch {
+    $failure = $_
     $code = 'unexpected_failure'; $status = 'failed'
-    if ($_.Exception.Data.Contains('smokeCode')) { $code = [string]$_.Exception.Data['smokeCode']; $status = [string]$_.Exception.Data['smokeStatus'] }
+    if ($failure.Exception.Data.Contains('smokeCode')) { $code = [string]$failure.Exception.Data['smokeCode']; $status = [string]$failure.Exception.Data['smokeStatus'] }
     if ($script:root) {
         Write-Report $status $code
-        Record-Observation 'failure-category' @{ category = [int]$_.CategoryInfo.Category; hresult = $_.Exception.HResult;
-            missingProperty = [int]($_.FullyQualifiedErrorId -match 'PropertyNotFound'); invalidArgument = [int]($_.CategoryInfo.Category -eq 'InvalidArgument') }
+        if ($script:app -and -not $script:app.HasExited -and $script:window -ne [IntPtr]::Zero -and
+            $script:stage -in @('image-row-open', 'image-owned-window-observation', 'image-decoded')) {
+            $windows = @([Fileway.PlayerSmoke.Native]::Windows($script:app.Id))
+            $others = @($windows | Where-Object { $_ -ne $script:window })
+            $known = @($others | Where-Object { [Fileway.PlayerSmoke.Native]::Title($_) -cin @(($name + ' · Fileway'), ($name + ' · 栖卷')) })
+            Record-Observation 'image-open-window-counts' @{ owned = $windows.Count; nonMain = $others.Count; knownTitle = $known.Count }
+            try {
+                Record-Observation 'image-open-known-error-notices' @{
+                    openFailed = [int](Has-Text $script:window '无法打开文件'); canceled = [int](Has-Text $script:window '打开已取消');
+                    unsupported = [int](Has-Text $script:window '暂不支持打开此文件') }
+            } catch { Record-Observation 'image-open-known-error-notices' @{ error = 1 } }
+            $saved = 0
+            try {
+                if ([Fileway.PlayerSmoke.Native]::ProcessId($script:window) -ne $script:app.Id) { Stop-Smoke 'failure_capture_owner_mismatch' }
+                [Fileway.PlayerSmoke.Native]::Capture($script:window).SavePng((Artifact-Path 'remote-image-open-failure.png')); $saved = 1
+            } catch { }
+            Record-Observation 'image-open-failure-capture' @{ saved = $saved }
+        }
+        Record-Observation 'failure-category' @{ category = [int]$failure.CategoryInfo.Category; hresult = $failure.Exception.HResult;
+            missingProperty = [int]($failure.FullyQualifiedErrorId -match 'PropertyNotFound'); invalidArgument = [int]($failure.CategoryInfo.Category -eq 'InvalidArgument') }
     }
     Write-Host ('Remote image smoke: ' + $status + ' (' + $code + ').')
     $exitCode = $(if ($status -eq 'environment-blocked') { 2 } else { 1 })
