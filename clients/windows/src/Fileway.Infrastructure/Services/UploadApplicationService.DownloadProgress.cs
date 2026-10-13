@@ -5,6 +5,9 @@ namespace Fileway.Infrastructure.Services;
 
 public sealed partial class UploadApplicationService
 {
+    // In-memory ordering for status/error changes between durable checkpoints.
+    // ProjectDownload is called under the short application gate; no disk revision is invented.
+    private long _downloadPresentationRevision;
     private async Task CompleteDownloadAsync(DownloadWork work, Task<TransferTaskRecord> pending)
     {
         try
@@ -177,7 +180,7 @@ public sealed partial class UploadApplicationService
         }
     }
 
-    private static DownloadItem ProjectDownload(Binding binding, DownloadPresentation item)
+    private DownloadItem ProjectDownload(Binding binding, DownloadPresentation item)
     {
         var snapshot = item.Snapshot ?? throw DownloadSafe(ErrorCode.ProtocolMismatch);
         bool protectedExecution = item.Scheduled && snapshot.Error is null &&
@@ -211,7 +214,8 @@ public sealed partial class UploadApplicationService
             TransferPhase.OutcomeUnknown => DownloadStatus.OutcomeUnknown,
             _ => DownloadStatus.Failed,
         };
-        return new(binding.DownloadContext, item.Source, item.Source.DisplayName, item.Destination, status, snapshot, item.Progress);
+        return new(binding.DownloadContext, item.Source, item.Source.DisplayName, item.Destination, status, snapshot, item.Progress,
+            checked(++_downloadPresentationRevision));
     }
 
     private void RecordDownloadFailure(Binding binding, TransferTaskRef task, Exception error)

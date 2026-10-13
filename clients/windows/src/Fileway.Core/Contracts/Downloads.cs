@@ -27,10 +27,14 @@ public sealed record DownloadTaskSnapshot(TransferTaskRef Task, TransferIntent I
     long? ConfirmedOffset, long? TotalBytes, bool LocalPublished, TransferUncertainty Uncertainty,
     ErrorInfo? Error, long Revision, long Generation, bool CanReconcileLocally = false);
 
-/// <summary>Presentation data only; no private plan, owned file identity, partial path or read capability.</summary>
+/// <summary>
+/// Presentation data only; no private plan, owned file identity, partial path or read capability.
+/// PresentationRevision orders in-memory updates within this application instance; zero means unavailable.
+/// It is distinct from the durable checkpoint revision and must not be persisted as execution evidence.
+/// </summary>
 public sealed record DownloadItem(DownloadContext Context, RemoteResourceRef Source, string Name,
     string DestinationDisplayPath, DownloadStatus Status, DownloadTaskSnapshot Snapshot,
-    DownloadTaskProgress? Progress = null)
+    DownloadTaskProgress? Progress = null, long PresentationRevision = 0)
 {
     public override string ToString() => "DownloadItem (private display locations redacted)";
 }
