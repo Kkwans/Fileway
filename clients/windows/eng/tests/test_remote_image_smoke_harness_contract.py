@@ -75,7 +75,7 @@ class RemoteImageSmokeContract(unittest.TestCase):
         self.assertIn('fresh_recent_baseline_not_empty', SOURCE)
         self.assertIn('Test-RemoteImageRecentEntry (Get-ServerRecents $baseAddress) $name $notBefore', SOURCE)
         for field in ('wirePath', 'pathVerified', 'accessedAt', 'isDir', 'id'): self.assertIn(field, COMMON)
-        go = (ROOT / 'server/backend/recent/recent.go').read_text()
+        go = (ROOT / 'server/backend/recent/recent.go').read_text(encoding='utf-8')
         self.assertIn('time.Now().UnixMilli()', go)
         self.assertIn('20060102T150405.000000000', go)
         self.assertIn("'^[0-9]{8}T[0-9]{6}\\.[0-9]{9}-[a-f0-9]{16}$'", COMMON)
@@ -86,7 +86,7 @@ class RemoteImageSmokeContract(unittest.TestCase):
                       "' · 480 × 320 · Ctrl + 滚轮可缩放'", 'OrderedBandRows', "'^(最大化|Maximize)$'", "'^(关闭|Close)$'"):
             self.assertIn(value, SOURCE)
         self.assertNotIn('ui click', SOURCE)
-        image = (ROOT / 'clients/windows/src/Fileway.App/Views/ImageWindow.cs').read_text()
+        image = (ROOT / 'clients/windows/src/Fileway.App/Views/ImageWindow.cs').read_text(encoding='utf-8')
         self.assertLess(image.index('await source.SetBitmapAsync'), image.index('ConfirmOpenedAsync'))
         self.assertIn('480', SOURCE)
         self.assertLess(SOURCE.index('native-remote-image-decoded-pixels'), SOURCE.index('actual-server-recent-record'))
@@ -100,7 +100,7 @@ class RemoteImageSmokeContract(unittest.TestCase):
         self.assertIn('Forced teardown retains a failed result', SOURCE)
 
     def test_actual_workflow_fixed_allowlist_and_guard_order(self):
-        workflow = (ROOT / '.github/workflows/windows-remote-image-smoke.yml').read_text()
+        workflow = (ROOT / '.github/workflows/windows-remote-image-smoke.yml').read_text(encoding='utf-8')
         uploaded = re.findall(r"\$\{\{ runner\.temp \}\}/Fileway-remote-image-evidence/(\S+)", workflow)
         self.assertEqual(uploaded, ['report.json', 'events.jsonl', 'screenshots/preflight.png', 'screenshots/preflight-smoke.png', 'screenshots/remote-image-ready.png'])
         for pattern in ('test_remote_image_fixture.py', 'test_remote_image_smoke_harness_contract.py'):
@@ -126,6 +126,19 @@ if($definitions -isnot [scriptblock]) {throw 'helper_wrong_type'}
 foreach($name in @('Stop-Smoke','Find-Control','Act','Reveal-ConnectionSubmit')) { $null=Get-Command $name }
 if(Get-Variable app -Scope Script -ErrorAction SilentlyContinue) {throw 'journey_executed'}
 """.replace('SCRIPT', str(SCRIPT).replace("'", "''")).replace('MODULE', str(MODULE).replace("'", "''")))
+
+    @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual caller-scope helper runs in Windows CI')
+    def test_imported_wait_condition_reads_callers_script_state(self):
+        self.pwsh(r"""
+. (Get-RemoteSmokeFunctions)
+$script:clock=[Diagnostics.Stopwatch]::StartNew()
+$script:app=[pscustomobject]@{HasExited=$false};$script:server=$null
+$value=Wait-Condition { 'observed' } 'unused_timeout' 1000
+if($value -cne 'observed'){throw 'caller_state_not_read'}
+$script:app.HasExited=$true;$code=$null
+try{$null=Wait-Condition {$true} 'unused_timeout' 1000}catch{$code=$_.Exception.Message}
+if($code -cne 'app_exited_early'){throw ('caller_state_not_guarded:'+$code)}
+""")
 
     @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual helper tests run in Windows CI')
     def test_actual_recent_projection_validates_server_identity_and_evidence(self):
@@ -169,12 +182,15 @@ function Invoke-WinApp {param([string[]] $Arguments)
 Send-OpenKey ([IntPtr]7) 'fileway-image-ci-synthetic.png'
 if($script:actions -ne 1){throw 'select_missing'}
 $badValues=@{hwnd=8;keys='space';via='post-message';target='foreign';actionCount=0;warnings=@('warning')}
-foreach($field in $badValues.Keys){
-    $original=$script:response[$field];$script:response[$field]=$badValues[$field];$code=$null
+$validResponse=$script:response.Clone();$rejected=0
+# Hashtable literal key 'keys' shadows its Keys member. Enumerate fixed fields.
+foreach($field in @('hwnd','keys','via','target','actionCount','warnings')){
+    $script:response=$validResponse.Clone();$script:response[$field]=$badValues[$field];$code=$null
     try {Send-OpenKey ([IntPtr]7) 'fixture.png'} catch {$code=$_.Exception.Message}
-    if($code -cne 'image_open_keyboard_contract_mismatch'){throw 'wrong_response_accepted'}
-    $script:response[$field]=$original
+    if($code -cne 'image_open_keyboard_contract_mismatch'){throw ('wrong_response_accepted:'+$field+':'+$code)}
+    $rejected++
 }
+if($rejected -ne 6){throw 'negative_field_count_wrong'}
 """)
 
     @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual GET helper runs in Windows CI')
