@@ -39,15 +39,26 @@ public sealed partial class WindowsDownloadFileAccessTests
     public async Task CancellationDuringFreshCreationRemovesOnlyTheNewlyVerifiedOwnedPartial()
     {
         using var fixture = new NativeFixture();
-        await File.WriteAllBytesAsync(fixture.FinalPath, StrangerPayload, Token);
-        TransferSourceSnapshot stranger = await SnapshotAsync(fixture, fixture.FinalPath);
+        string sentinel = Path.Combine(fixture.DestinationDirectory, "sentinel.bin");
+        string partial = Path.Combine(fixture.DestinationDirectory, ForcedName);
+        await File.WriteAllBytesAsync(sentinel, StrangerPayload, Token);
+        TransferSourceSnapshot stranger = await SnapshotAsync(fixture, sentinel);
         using var canceled = CancellationTokenSource.CreateLinkedTokenSource(Token);
-        var access = WithPartialName(() => { canceled.Cancel(); return ForcedName; });
+        bool createdWasObserved = false;
+        var access = WithCreatedHook(() => ForcedName, () =>
+        {
+            // The final is absent during preflight. Its foreign object arrives only after
+            // strict FILE_CREATED proof, so cancellation must clean that partial, not this final.
+            createdWasObserved = File.Exists(partial);
+            File.Move(sentinel, fixture.FinalPath);
+            canceled.Cancel();
+        });
 
         await AssertCanceledAsync(() => access.CreateFreshAsync(fixture.FinalPath, canceled.Token), canceled.Token);
 
+        Assert.True(createdWasObserved);
         Assert.Equal(fixture.FinalPath, Assert.Single(Directory.GetFiles(fixture.DestinationDirectory)));
-        Assert.False(File.Exists(Path.Combine(fixture.DestinationDirectory, ForcedName)));
+        Assert.False(File.Exists(partial));
         Assert.Equal(StrangerPayload, await File.ReadAllBytesAsync(fixture.FinalPath, Token));
         Assert.Equal(stranger, await SnapshotAsync(fixture, fixture.FinalPath));
         string moved = Path.Combine(fixture.Root, "released-output");
