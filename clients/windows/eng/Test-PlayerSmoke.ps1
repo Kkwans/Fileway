@@ -6,7 +6,9 @@ param(
     [Parameter(Mandatory)][string] $WinAppPath,
     [Parameter(Mandatory)][string] $OutputRoot,
     [switch] $PreflightOnly,
-    [switch] $CaptureShutdownStack
+    [switch] $CaptureShutdownStack,
+    [ValidateSet('Full', 'MinimalPlayback', 'MainWithOpenPlayer')]
+    [string] $ShutdownScenario = 'Full'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -337,6 +339,99 @@ namespace Fileway.PlayerSmoke {
             HelperStatus=helperStatus; Instructions=instructions; TailStatus=tailStatus; TailInstructions=tail; HelperArgument=helperArgument;
         }
     }
+    public sealed class RegionMetadata {
+        public readonly uint State, Type, Protection;
+        internal RegionMetadata(uint state,uint type,uint protection) { State=state; Type=type; Protection=protection; }
+    }
+    public static class SingleRegionEvidence {
+        static InvalidDataException Invalid() { return new InvalidDataException("region_evidence_rejected"); }
+        static readonly Dictionary<string,uint> States=new Dictionary<string,uint>(StringComparer.Ordinal) {
+            {"MEM_COMMIT",0x1000},{"MEM_RESERVE",0x2000},{"MEM_FREE",0x10000}
+        };
+        static readonly Dictionary<string,uint> Types=new Dictionary<string,uint>(StringComparer.Ordinal) {
+            {"MEM_PRIVATE",0x20000},{"MEM_MAPPED",0x40000},{"MEM_IMAGE",0x1000000}
+        };
+        static readonly Dictionary<string,uint> Protections=new Dictionary<string,uint>(StringComparer.Ordinal) {
+            {"PAGE_NOACCESS",1},{"PAGE_READONLY",2},{"PAGE_READWRITE",4},{"PAGE_WRITECOPY",8},
+            {"PAGE_EXECUTE",0x10},{"PAGE_EXECUTE_READ",0x20},{"PAGE_EXECUTE_READWRITE",0x40},{"PAGE_EXECUTE_WRITECOPY",0x80},
+            {"PAGE_GUARD",0x100},{"PAGE_NOCACHE",0x200},{"PAGE_WRITECOMBINE",0x400}
+        };
+        static uint EnumValue(string value,Dictionary<string,uint> allowed,bool zero=false) {
+            if(zero&&System.Text.RegularExpressions.Regex.IsMatch(value,@"^0{1,8}$")) return 0;
+            var match=System.Text.RegularExpressions.Regex.Match(value,@"^([0-9a-fA-F]{1,8})[ \t]*([A-Z_]+)$");
+            uint numeric,known;
+            if(!match.Success||!uint.TryParse(match.Groups[1].Value,System.Globalization.NumberStyles.AllowHexSpecifier,
+                System.Globalization.CultureInfo.InvariantCulture,out numeric)||!allowed.TryGetValue(match.Groups[2].Value,out known)||numeric!=known) throw Invalid();
+            return known;
+        }
+        static uint ProtectionValue(string value,bool zero) {
+            if(zero&&System.Text.RegularExpressions.Regex.IsMatch(value,@"^0{1,8}$")) return 0;
+            var match=System.Text.RegularExpressions.Regex.Match(value,@"^([0-9a-fA-F]{1,8})[ \t]*(PAGE_[A-Z_]+(?:[ \t]*\|[ \t]*PAGE_[A-Z_]+)*)$");
+            uint numeric;
+            if(!match.Success||!uint.TryParse(match.Groups[1].Value,System.Globalization.NumberStyles.AllowHexSpecifier,
+                System.Globalization.CultureInfo.InvariantCulture,out numeric)) throw Invalid();
+            uint combined=0;
+            foreach(string raw in match.Groups[2].Value.Split('|')) {
+                uint token;
+                if(!Protections.TryGetValue(raw.Trim(),out token)||(combined&token)!=0) throw Invalid();
+                combined|=token;
+            }
+            uint basic=combined&0xff,modifiers=combined&0x700;
+            if(combined!=numeric||basic==0||(basic&(basic-1))!=0||
+                ((modifiers&0x100)!=0&&basic==1)||
+                ((modifiers&0x200)!=0&&(basic==1||(modifiers&0x500)!=0))||
+                ((modifiers&0x400)!=0&&(basic==1||(modifiers&0x300)!=0))) throw Invalid();
+            return combined;
+        }
+        static ulong AddressValue(string value) {
+            ulong result;
+            if(!System.Text.RegularExpressions.Regex.IsMatch(value,@"^(?:[0-9a-fA-F]{1,16}|[0-9a-fA-F]{8}`[0-9a-fA-F]{8})$")||
+                !ulong.TryParse(value.Replace("`",""),System.Globalization.NumberStyles.AllowHexSpecifier,System.Globalization.CultureInfo.InvariantCulture,out result)) throw Invalid();
+            return result;
+        }
+        public static RegionMetadata Parse(string text,ulong candidate) {
+            if(text==null||text.Length>1048576||candidate==0) throw Invalid();
+            string[] lines=text.Split('\n');
+            if(lines.Length>4096) throw Invalid();
+            int begin=-1,end=-1;
+            for(int i=0;i<lines.Length;i++) {
+                if(lines[i].Length>2048) throw Invalid();
+                string line=lines[i].TrimEnd('\r');
+                if(line=="FILEWAY_CFG_REGION_BEGIN") { if(begin!=-1) throw Invalid(); begin=i; }
+                if(line=="FILEWAY_CFG_REGION_END") { if(end!=-1) throw Invalid(); end=i; }
+            }
+            if(begin<0||end<=begin||end-begin>65||end==lines.Length-1) throw Invalid();
+            var fields=new Dictionary<string,string>(StringComparer.Ordinal); int moreInfo=0;
+            for(int i=begin+1;i<end;i++) {
+                string line=lines[i].Trim();
+                if(line.Length==0) continue;
+                int colon=line.IndexOf(':');
+                if(colon<1) throw Invalid();
+                string key=line.Substring(0,colon).TrimEnd(),value=line.Substring(colon+1).Trim();
+                if(key=="More info") { if(++moreInfo>8||value.Length==0) throw Invalid(); continue; }
+                if(key!="Base Address"&&key!="End Address"&&key!="State"&&key!="Type"&&key!="Protect"&&
+                    key!="Usage"&&key!="Allocation Base"&&key!="Allocation Protect"&&key!="Region Size") throw Invalid();
+                if(value.Length==0||fields.ContainsKey(key)) throw Invalid();
+                fields.Add(key,value);
+            }
+            string stateText,baseText,endText,typeText,protectText;
+            if(!fields.TryGetValue("State",out stateText)||!fields.TryGetValue("Base Address",out baseText)||!fields.TryGetValue("End Address",out endText)) throw Invalid();
+            ulong low=AddressValue(baseText),high=AddressValue(endText);
+            if(low>=high||candidate<low||candidate>=high) throw Invalid();
+            uint state=EnumValue(stateText,States),type=0,protection=0;
+            bool hasType=fields.TryGetValue("Type",out typeText),hasProtect=fields.TryGetValue("Protect",out protectText);
+            if(state!=0x10000&&!hasType) throw Invalid();
+            if(state==0x1000&&!hasProtect) throw Invalid();
+            if(hasType) type=EnumValue(typeText,Types,state==0x10000);
+            if(hasProtect) protection=ProtectionValue(protectText,state!=0x1000);
+            // These fields are explicitly undefined for FREE / RESERVE. Never
+            // assign semantic meaning to whatever the debugger printed there.
+            if(state==0x10000) type=0;
+            if(state!=0x1000) protection=0;
+            return new RegionMetadata(state,type,protection);
+        }
+    }
+
     public static class DebuggerEvidence {
         // Only shipped application/framework modules. Never retain an arbitrary
         // module name, source path, stack/register address, argument or message.
@@ -530,6 +625,17 @@ namespace Fileway.PlayerSmoke {
             return false;
         }
         public static DebuggerFault Read(string path) { return Parse(ReadBounded(path,FileShare.Read)); }
+        public static RegionMetadata ReadCandidateRegion(string stackPath,string regionPath) {
+            string stack=ReadBounded(stackPath,FileShare.Read); var fault=Parse(stack);
+            ulong candidate,queryCandidate;
+            if(fault.HelperArgument==null||fault.HelperArgument.Classification!=6||!ContextArgument(stack.Split('\n'),out candidate))
+                throw new InvalidDataException("region_candidate_not_verified");
+            string region=ReadBounded(regionPath,FileShare.Read); var queriedFault=Parse(region);
+            if(queriedFault.HelperArgument==null||queriedFault.HelperArgument.Classification!=6||!ContextArgument(region.Split('\n'),out queryCandidate)||queryCandidate!=candidate)
+                throw new InvalidDataException("region_context_mismatch");
+            return SingleRegionEvidence.Parse(region,candidate);
+        }
+
         static string ReadBounded(string path,FileShare share) {
             byte[] bytes=new byte[1048577]; int count=0;
             using(var stream=new FileStream(path,FileMode.Open,FileAccess.Read,share)) {
@@ -795,6 +901,20 @@ namespace Fileway.PlayerSmoke {
                 if(found!=IntPtr.Zero) throw new InvalidOperationException("player_window_ambiguous"); found=window;
             }
             return found;
+        }
+        public static IntPtr MainApplicationWindow(int process) {
+            IntPtr found=IntPtr.Zero;
+            foreach(var window in Windows(process)) {
+                string title=Title(window);
+                if(ProcessId(window)!=(uint)process||!IsMainApplicationCandidate(title,GetWindow(window,4)!=IntPtr.Zero,
+                    FindWindowExW(window,IntPtr.Zero,"STATIC","Fileway video")!=IntPtr.Zero)) continue;
+                if(found!=IntPtr.Zero) throw new InvalidOperationException("main_window_ambiguous");
+                found=window;
+            }
+            return found;
+        }
+        public static bool IsMainApplicationCandidate(string title,bool owned,bool hasVideo) {
+            return !owned&&!hasVideo&&(title=="Fileway"||title=="栖卷");
         }
         public static IntPtr Surface(int process,string suffix) {
             IntPtr found=IntPtr.Zero;
@@ -1062,7 +1182,7 @@ function Start-ShutdownDebugger {
     # Relative dump name is interpreted only in the fresh private working directory.
     # gn preserves NOT HANDLED semantics. -pd prevents debugger cleanup from killing
     # the app. Neither WER nor any system-wide debugger/security setting is changed.
-    $commands = 'sxe -c ".dump /mu /o shutdown.dmp; gn" -c2 ".dump /mu /o shutdown.dmp; gn" 0xc0000409' + "`n" +
+    $commands = 'sxe -c ".dump /muF /o shutdown.dmp; gn" -c2 ".dump /muF /o shutdown.dmp; gn" 0xc0000409' + "`n" +
         '.echo FILEWAY_SHUTDOWN_DEBUGGER_READY' + "`n" + 'g' + "`n"
     $commandFile = Join-Path $script:privateRoot 'shutdown-debugger.cmd'
     $log = Join-Path $script:privateRoot 'shutdown-debugger.log'
@@ -1116,6 +1236,35 @@ function Stop-ShutdownDebugger {
     }
 }
 
+function Record-SafeCandidateRegion([string] $Dump, [string] $StackLog, [string] $Symbols, [Diagnostics.Stopwatch] $Budget) {
+    # Only the already verified, outside-module candidate can reach this function.
+    # @rdx is evaluated in the same dump exception context; never run !address
+    # without its one-address argument and never enumerate/search memory pages.
+    $remaining = 120000 - $Budget.ElapsedMilliseconds
+    if ($remaining -le 0) { Record-Observation 'shutdown-cfg-region-result' @{ status = 3 }; return }
+    $log = Join-Path $script:privateRoot 'shutdown-region.log'
+    $start = [Diagnostics.ProcessStartInfo]::new($script:cdbPath)
+    $start.UseShellExecute = $false; $start.CreateNoWindow = $true
+    $start.WorkingDirectory = $script:privateRoot
+    $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
+    foreach ($argument in @('-z', $Dump, '-sins', '-noshell', '-y', "srv*$Symbols*https://msdl.microsoft.com/download/symbols",
+        '-logo', $log, '-c', '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; .echo FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; .echo FILEWAY_CFG_REGION_BEGIN; !address @rdx; .echo FILEWAY_CFG_REGION_END; q')) { $start.ArgumentList.Add($argument) }
+    $regionProcess = $null
+    try {
+        $regionProcess = [Diagnostics.Process]::Start($start)
+        $stdout = $regionProcess.StandardOutput.ReadToEndAsync(); $stderr = $regionProcess.StandardError.ReadToEndAsync()
+        $remaining = [Math]::Min(30000, [Math]::Max(0, 120000 - $Budget.ElapsedMilliseconds))
+        if (-not $regionProcess.WaitForExit([int]$remaining)) {
+            $regionProcess.Kill($true); $null = $regionProcess.WaitForExit(5000)
+            Record-Observation 'shutdown-cfg-region-result' @{ status = 3 }; return
+        }
+        if ($regionProcess.ExitCode -ne 0) { Record-Observation 'shutdown-cfg-region-result' @{ status = 2 }; return }
+        $region = [Fileway.PlayerSmoke.DebuggerEvidence]::ReadCandidateRegion($StackLog, $log)
+        Record-Observation 'shutdown-cfg-region' @{ state = [uint32]$region.State; type = [uint32]$region.Type; protection = [uint32]$region.Protection }
+    } catch { Record-Observation 'shutdown-cfg-region-result' @{ status = 2 } }
+    finally { if ($null -ne $regionProcess) { $regionProcess.Dispose() } }
+}
+
 function Record-SafeDebuggerEvidence {
     if (-not $script:shutdownDebuggerAttached) { return }
     Stop-ShutdownDebugger
@@ -1130,6 +1279,7 @@ function Record-SafeDebuggerEvidence {
     $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true
     foreach ($argument in @('-z', $dump, '-sins', '-noshell', '-y', "srv*$symbols*https://msdl.microsoft.com/download/symbols",
         '-logo', $log, '-c', '.echo FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END; .exr -1; kn 0n24; .echo FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END; .echo FILEWAY_CFG_HELPER_BEGIN; u ntdll!RtlpHandleInvalidUserCallTarget L0n24; .echo FILEWAY_CFG_HELPER_END; .echo FILEWAY_CFG_TAIL_BEGIN; ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4; .echo FILEWAY_CFG_TAIL_END; q')) { $start.ArgumentList.Add($argument) }
+    $analysisBudget = [Diagnostics.Stopwatch]::StartNew()
     $analysis = [Diagnostics.Process]::Start($start)
     try {
         $stdout = $analysis.StandardOutput.ReadToEndAsync(); $stderr = $analysis.StandardError.ReadToEndAsync()
@@ -1163,6 +1313,7 @@ function Record-SafeDebuggerEvidence {
         }
         if ($null -ne $fault.HelperArgument) {
             Record-Observation 'shutdown-cfg-helper-argument' @{ classification = [int]$fault.HelperArgument.Classification; mapping = [int]$fault.HelperArgument.Mapping; module = [string]$fault.HelperArgument.Module; offset = [uint64]$fault.HelperArgument.Offset }
+            if ($fault.HelperArgument.Classification -eq 6) { Record-SafeCandidateRegion $dump $log $symbols $analysisBudget }
         }
     } catch { Record-Observation 'shutdown-debugger-result' @{ code = 'analysis_evidence_rejected' } }
     finally { $analysis.Dispose() }
@@ -1252,7 +1403,7 @@ try {
     } else { $null = New-Item -ItemType Directory -Path $candidateRoot }
     $script:root = $candidateRoot
     $null = New-Item -ItemType Directory -Path (Join-Path $script:root 'screenshots') -Force
-    $scope = if ($PreflightOnly) { 'preflight' } else { 'native-smoke' }
+    $scope = if ($PreflightOnly) { 'preflight' } elseif ($ShutdownScenario -eq 'Full') { 'native-smoke' } else { 'shutdown-diagnostic' }
     Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = $scope; status = 'running'; nativePlaybackVerified = $false; checks = $script:checks })
     if (-not $IsWindows) { Stop-Smoke 'windows_required' -EnvironmentBlocked }
     if ($CaptureShutdownStack) { Assert-SdkDebugger }
@@ -1326,6 +1477,7 @@ try {
     $script:checks.actualVideoPixels = $true
     Complete-Step 'moving-frame' @{ firstFrame = $first; secondFrame = $second }
 
+    if ($ShutdownScenario -ne 'MinimalPlayback') {
     $script:stage = 'settings'
     for ($iteration = 1; $iteration -le 3; $iteration++) {
         Show-Hud $player
@@ -1392,7 +1544,9 @@ try {
     Send-Key $player 'f11'
     $null = Wait-Condition { -not [Fileway.PlayerSmoke.Native]::IsFullscreen($player) } 'f11_windowed_not_restored'
     Complete-Step 'fullscreen-key-cycle'
+    }
 
+    if ($ShutdownScenario -ne 'MainWithOpenPlayer') {
     $script:stage = 'close'
     Show-Hud $player
     $hud = Get-Surface 'hud'
@@ -1400,6 +1554,12 @@ try {
     $null = Wait-Condition { -not [Fileway.PlayerSmoke.Native]::IsWindow($player) -and -not [Fileway.PlayerSmoke.Native]::IsWindow($hud) -and (Get-Surface 'settings') -eq [IntPtr]::Zero } 'player_surfaces_not_closed' 15000
     Complete-Step 'close'
     $null = Copy-SafeDiagnostics
+    } else {
+        $main = [Fileway.PlayerSmoke.Native]::MainApplicationWindow($script:process.Id)
+        if ($main -eq [IntPtr]::Zero -or -not [Fileway.PlayerSmoke.Native]::IsWindow($player)) { Stop-Smoke 'diagnostic_main_or_player_missing' }
+        Record-Observation 'shutdown-diagnostic-scenario' @{ scenario = 2; playerWindowOpen = 1 }
+    }
+    if ($ShutdownScenario -eq 'MinimalPlayback') { Record-Observation 'shutdown-diagnostic-scenario' @{ scenario = 1; playerWindowOpen = 0 } }
     $script:stage = 'application-shutdown'
     try { Start-ShutdownDebugger }
     catch {
@@ -1409,7 +1569,12 @@ try {
         throw
     }
     $script:process.Refresh()
-    if (-not $script:process.CloseMainWindow()) { Stop-Smoke 'application_close_not_delivered' }
+    if ($ShutdownScenario -eq 'MainWithOpenPlayer') {
+        if ([Fileway.PlayerSmoke.Native]::MainApplicationWindow($script:process.Id) -ne $main -or
+            [Fileway.PlayerSmoke.Native]::ProcessId($main) -ne [uint32]$script:process.Id -or
+            -not [Fileway.PlayerSmoke.Native]::IsWindow($player)) { Stop-Smoke 'diagnostic_window_identity_changed' }
+        if (-not [Fileway.PlayerSmoke.Native]::PostMessageW($main, 0x0010, [UIntPtr]::Zero, [IntPtr]::Zero)) { Stop-Smoke 'diagnostic_main_close_not_accepted' }
+    } elseif (-not $script:process.CloseMainWindow()) { Stop-Smoke 'application_close_not_delivered' }
     if (-not $script:process.WaitForExit(15000)) { Stop-Smoke 'application_exit_timeout' }
     Record-Observation 'application-exit' @{ exitCode = $script:process.ExitCode }
     if ($script:process.ExitCode -ne 0) {
@@ -1423,7 +1588,11 @@ try {
     }
     Complete-Step 'application-and-host-shutdown' @{ appExitCode = 0; ownedHostCount = $script:hosts.Count; hostExitCode = 0 }
     $hasDiagnostics = Copy-SafeDiagnostics
-    Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = 'native-smoke'; status = 'passed'; code = 'smoke_ok'; checks = $script:checks; completedSteps = @($script:completed); elapsedMilliseconds = $script:clock.ElapsedMilliseconds; nativePlaybackVerified = $true; diagnosticReportPresent = $hasDiagnostics; shutdownDebuggerAttached = $script:shutdownDebuggerAttached; normalShutdownVerified = (-not $script:shutdownDebuggerAttached); latencyMeaning = 'CLI wall-clock and observed effects only; hardware performance is not inferred' })
+    if ($ShutdownScenario -eq 'Full') {
+        Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = 'native-smoke'; status = 'passed'; code = 'smoke_ok'; checks = $script:checks; completedSteps = @($script:completed); elapsedMilliseconds = $script:clock.ElapsedMilliseconds; nativePlaybackVerified = $true; diagnosticReportPresent = $hasDiagnostics; shutdownDebuggerAttached = $script:shutdownDebuggerAttached; normalShutdownVerified = (-not $script:shutdownDebuggerAttached); latencyMeaning = 'CLI wall-clock and observed effects only; hardware performance is not inferred' })
+    } else {
+        Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = 'shutdown-diagnostic'; scenario = $ShutdownScenario; status = 'passed'; code = 'shutdown_diagnostic_ok'; fullJourneyVerified = $false; nativePlaybackVerified = $false; checks = $script:checks; completedSteps = @($script:completed); elapsedMilliseconds = $script:clock.ElapsedMilliseconds; diagnosticReportPresent = $hasDiagnostics; shutdownDebuggerAttached = $script:shutdownDebuggerAttached; normalShutdownVerified = (-not $script:shutdownDebuggerAttached) })
+    }
     $exitCode = 0
     }
 }
@@ -1442,7 +1611,7 @@ catch {
         }
     }
     if ($script:root -and (Test-Path -LiteralPath $script:root -PathType Container)) {
-        Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = $(if ($PreflightOnly) { 'preflight' } else { 'native-smoke' }); status = $status; code = $code; failedStage = $script:stage; checks = $script:checks; nativePlaybackVerified = $false; shutdownDebuggerAttached = $script:shutdownDebuggerAttached; normalShutdownVerified = $false; completedSteps = @($script:completed) })
+        Write-Json 'report.json' ([ordered]@{ schemaVersion = 1; scope = $(if ($PreflightOnly) { 'preflight' } elseif ($ShutdownScenario -eq 'Full') { 'native-smoke' } else { 'shutdown-diagnostic' }); scenario = $ShutdownScenario; fullJourneyVerified = $false; status = $status; code = $code; failedStage = $script:stage; checks = $script:checks; nativePlaybackVerified = $false; shutdownDebuggerAttached = $script:shutdownDebuggerAttached; normalShutdownVerified = $false; completedSteps = @($script:completed) })
     }
     Write-Host "Player smoke $status at $($script:stage): $code"
     $exitCode = if ($status -eq 'environment-blocked') { 2 } else { 1 }

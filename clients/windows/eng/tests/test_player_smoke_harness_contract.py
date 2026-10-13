@@ -54,6 +54,24 @@ def scaled_bgra(index, width=480, height=270):
 
 
 class HarnessGuards(unittest.TestCase):
+    def test_diagnostic_workflow_runs_both_cases_but_requires_both_outcomes(self):
+        workflow = (ENG.parents[2] / ".github/workflows/windows-player-shutdown-diagnostics.yml").read_text(encoding="utf-8")
+        self.assertEqual(workflow.count("id: build"), 1)
+        self.assertEqual(workflow.count("continue-on-error: true"), 2)
+        self.assertEqual(workflow.count("-ShutdownScenario MinimalPlayback"), 1)
+        self.assertEqual(workflow.count("-ShutdownScenario MainWithOpenPlayer"), 1)
+        self.assertIn("steps.case_a.outcome", workflow)
+        self.assertIn("steps.case_b.outcome", workflow)
+        self.assertIn("$env:CASE_A_OUTCOME -ne 'success' -or $env:CASE_B_OUTCOME -ne 'success'", workflow)
+        self.assertEqual(workflow.count("!cancelled() && steps.build.outcome == 'success' && steps.fixture.outcome == 'success'"), 3)
+        self.assertNotIn("steps.case_a.conclusion", workflow)
+        self.assertNotIn("steps.case_b.conclusion", workflow)
+        upload = workflow.split("- name: Preserve only allowlisted synthetic UI evidence", 1)[1]
+        self.assertIn("/A-minimal/report.json", upload)
+        self.assertIn("/B-open-player/report.json", upload)
+        for private in (".dmp", "shutdown-stack.log", "shutdown-region.log", "symbols", "FilewayPlayerSmoke-"):
+            self.assertNotIn(private, upload)
+
     def test_default_synthetic_byte_hash_is_the_only_accepted_media(self):
         digest = hashlib.sha256()
         class HashWriter:
@@ -149,7 +167,7 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("$script:process.StartTime.ToUniversalTime().Ticks -ne $script:appStartTicks", powershell)
         self.assertIn("$script:process.MainModule.FileName", powershell)
         self.assertIn("'-p', $script:process.Id.ToString(), '-pd', '-G', '-sins', '-noshell'", powershell)
-        self.assertIn(".dump /mu /o shutdown.dmp; gn", powershell)
+        self.assertIn(".dump /muF /o shutdown.dmp; gn", powershell)
         self.assertNotIn("; gh", powershell)
         self.assertIn("$watch.ElapsedMilliseconds -lt 10000", powershell)
         self.assertIn("$analysis.WaitForExit(120000)", powershell)
@@ -163,7 +181,19 @@ class HarnessGuards(unittest.TestCase):
         self.assertIn("debugger_system_module_identity_mismatch", powershell)
         self.assertNotIn(".frame /r", powershell)
         self.assertIn("ub ntdll!RtlpHandleInvalidUserCallTarget+0x5d L0n4", powershell)
-        self.assertNotIn("@rdx", powershell)
+        self.assertEqual(powershell.count("!address @rdx;"), 1)
+        self.assertNotRegex(powershell, r"!address[ \t]*;")
+        self.assertIn("if ($fault.HelperArgument.Classification -eq 6) { Record-SafeCandidateRegion", powershell)
+        self.assertIn("[Math]::Min(30000, [Math]::Max(0, 120000 - $Budget.ElapsedMilliseconds))", powershell)
+        self.assertIn("queriedFault.HelperArgument.Classification!=6", native)
+        self.assertIn("queryCandidate!=candidate", native)
+        self.assertIn("return SingleRegionEvidence.Parse(region,candidate)", native)
+        self.assertNotIn(".dump /muf", powershell)
+        region_emission = powershell.split("Record-Observation 'shutdown-cfg-region'", 1)[1].split("\n", 1)[0]
+        self.assertIn("state = [uint32]$region.State", region_emission)
+        self.assertIn("type = [uint32]$region.Type", region_emission)
+        self.assertIn("protection = [uint32]$region.Protection", region_emission)
+        self.assertNotIn("address", region_emission.lower())
         self.assertIn("FILEWAY_CFG_MODULES_BEGIN; lm; .echo FILEWAY_CFG_MODULES_END", powershell)
         self.assertIn("FILEWAY_CFG_CONTEXT_BEGIN; .ecxr; .echo FILEWAY_CFG_CONTEXT_END", powershell)
         self.assertIn("normalShutdownVerified = (-not $script:shutdownDebuggerAttached)", powershell)
@@ -195,6 +225,27 @@ class HarnessGuards(unittest.TestCase):
         self.assertEqual(len(entries), 29)
         for index, name in {2:"FullscreenInput",3:"SettingsInput",5:"NativeFullscreenInput",6:"FullscreenUiEntered",8:"FullscreenPresenterEnd",18:"SettingsActivateEnd"}.items():
             self.assertEqual(entries[index], name)
+
+    def test_shutdown_scenarios_are_explicit_and_cannot_grant_full_acceptance(self):
+        _, native, powershell = source_parts()
+        self.assertIn("[ValidateSet('Full', 'MinimalPlayback', 'MainWithOpenPlayer')]", powershell)
+        self.assertIn("[string] $ShutdownScenario = 'Full'", powershell)
+        full = powershell.split("if ($ShutdownScenario -ne 'MinimalPlayback') {", 1)[1].split("if ($ShutdownScenario -ne 'MainWithOpenPlayer') {", 1)[0]
+        for name in ("settings-cycle-$iteration", "Complete-Step 'pause'", "Complete-Step 'resume'", "Complete-Step 'fullscreen-button-cycle'", "Complete-Step 'fullscreen-key-cycle'"):
+            self.assertIn(name, full)
+        self.assertIn("scope = 'shutdown-diagnostic'; scenario = $ShutdownScenario; status = 'passed'; code = 'shutdown_diagnostic_ok'; fullJourneyVerified = $false; nativePlaybackVerified = $false", powershell)
+        accepted = powershell.index("code = 'shutdown_diagnostic_ok'")
+        for name in ("application_exit_timeout", "application_exit_code_nonzero", "owned_host_exit_timeout", "owned_host_exit_code_nonzero"):
+            self.assertLess(powershell.index(name), accepted)
+        self.assertIn("if ($ShutdownScenario -eq 'Full') {\n        Write-Json 'report.json'", powershell)
+        shutdown = powershell.split("$script:stage = 'application-shutdown'", 1)[1].split("$exitCode = 0", 1)[0]
+        self.assertIn("[Fileway.PlayerSmoke.Native]::MainApplicationWindow($script:process.Id) -ne $main", shutdown)
+        self.assertIn("[Fileway.PlayerSmoke.Native]::ProcessId($main) -ne [uint32]$script:process.Id", shutdown)
+        self.assertIn("[Fileway.PlayerSmoke.Native]::PostMessageW($main, 0x0010", shutdown)
+        self.assertIn("elseif (-not $script:process.CloseMainWindow())", shutdown)
+        self.assertIn('foreach(var window in Windows(process))', native)
+        self.assertIn('throw new InvalidOperationException("main_window_ambiguous")', native)
+        self.assertIn('ProcessId(window)!=(uint)process', native)
 
     def test_artifact_allowlist_contains_only_named_json_and_png(self):
         text, _, _ = source_parts()
@@ -540,6 +591,98 @@ if($script:seen.Count -ne 1 -or $script:seen[0].name -ne 'player-internal-timing
             tail_case("duplicate-tail", tail=tail_body * 2, expected_status=2, expected_count=0)
             tail_case("fifth-instruction", tail=tail_body.replace("FILEWAY_CFG_TAIL_END", "115d 90 nop\nFILEWAY_CFG_TAIL_END"), expected_status=2, expected_count=0)
 
+
+            region_vectors = []
+            region_begin, region_end = "FILEWAY_CFG_REGION_BEGIN\n", "FILEWAY_CFG_REGION_END\n"
+            region_body = ("Usage: VAR\nBase Address: 11223344`55667000\nEnd Address: 11223344`55668000\n"
+                           "Region Size: 00000000`00001000 (4.000 kB)\n"
+                           "Type: 00020000MEM_PRIVATE\nState: 00001000MEM_COMMIT\nProtect: 00000020PAGE_EXECUTE_READ\n")
+            def region_case(name, text, expected=None, candidate=0x1122334455667788):
+                path = f"region-{name}.log"
+                (root / path).write_text(text, encoding="utf-8")
+                if expected is None:
+                    region_vectors.append(f'RejectRegion("{path}",{candidate}UL);')
+                else:
+                    region_vectors.append(f'CheckRegion("{path}",{candidate}UL,{expected[0]}U,{expected[1]}U,{expected[2]}U);')
+            full_region = region_begin + region_body + region_end
+            region_case("private-execute", full_region, (0x1000,0x20000,0x20))
+            region_case("spacing", full_region.replace("00020000MEM_", "00020000 MEM_").replace("00001000MEM_", "00001000  MEM_").replace("00000020PAGE_", "00000020\tPAGE_"), (0x1000,0x20000,0x20))
+            region_case("image", full_region.replace("00020000MEM_PRIVATE", "01000000MEM_IMAGE"), (0x1000,0x1000000,0x20))
+            region_case("mapped", full_region.replace("00020000MEM_PRIVATE", "00040000MEM_MAPPED"), (0x1000,0x40000,0x20))
+            free = full_region.replace("00001000MEM_COMMIT", "00010000MEM_FREE").replace("00020000MEM_PRIVATE", "00000000").replace("00000020PAGE_EXECUTE_READ", "00000001PAGE_NOACCESS")
+            region_case("free-undefined", free, (0x10000,0,0))
+            region_case("free-zero", free.replace("00000001PAGE_NOACCESS", "00000000"), (0x10000,0,0))
+            region_case("free-omitted", free.replace("Type: 00000000\n", "").replace("Protect: 00000001PAGE_NOACCESS\n", ""), (0x10000,0,0))
+            reserve = full_region.replace("00001000MEM_COMMIT", "00002000MEM_RESERVE")
+            region_case("reserved-undefined", reserve, (0x2000,0x20000,0))
+            region_case("reserved-omitted", reserve.replace("Protect: 00000020PAGE_EXECUTE_READ\n", ""), (0x2000,0x20000,0))
+            region_case("ignored-private", full_region.replace(region_end, "Allocation Base: 11223344`55667000\nAllocation Protect: 00000040 PAGE_EXECUTE_READWRITE\nMore info: ln 0x1122334455667788 private-secret\n" + region_end), (0x1000,0x20000,0x20))
+            for value, token in ((1,"NOACCESS"),(2,"READONLY"),(4,"READWRITE"),(8,"WRITECOPY"),(0x10,"EXECUTE"),(0x20,"EXECUTE_READ"),(0x40,"EXECUTE_READWRITE"),(0x80,"EXECUTE_WRITECOPY")):
+                region_case(f"base-{value}", full_region.replace("00000020PAGE_EXECUTE_READ", f"{value:08X}PAGE_{token}"), (0x1000,0x20000,value))
+            for value, tokens in ((0x104,"PAGE_READWRITE | PAGE_GUARD"),(0x204,"PAGE_NOCACHE|PAGE_READWRITE"),(0x440,"PAGE_EXECUTE_READWRITE|PAGE_WRITECOMBINE")):
+                region_case(f"modifier-{value}", full_region.replace("00000020PAGE_EXECUTE_READ", f"{value:08x} {tokens}"), (0x1000,0x20000,value))
+            for name, bad in {
+                "missing-begin": region_body+region_end,
+                "missing-end": region_begin+region_body,
+                "duplicate-begin": region_begin+full_region,
+                "duplicate-end": full_region+region_end,
+                "duplicate-region": full_region+full_region,
+                "reversed-markers": region_end+region_body+region_begin,
+                "unterminated-end": full_region.rstrip("\n"),
+                "debugger-error": region_begin+"Unable to read memory\n"+region_body+region_end,
+                "unknown-field": full_region.replace(region_end, "Private secret: must not export\n"+region_end),
+                "too-many-region-lines": region_begin+"\n"*65+region_body+region_end,
+                "oversized-line": full_region.replace("Usage: VAR", "Usage: "+"x"*2049),
+                "too-many-lines": "\n"*4096+full_region,
+                "oversized-text": "x"*1048577,
+                "outside-low": full_region.replace("55667000", "55667789"),
+                "outside-high-exclusive": full_region.replace("55668000", "55667788"),
+                "reversed-region": full_region.replace("55667000", "55669000"),
+                "private-address": full_region.replace("11223344`55667000", "C:\\private\\secret"),
+                "oversized-address": full_region.replace("11223344`55667000", "112233445566778899"),
+                "malformed-backtick": full_region.replace("11223344`55667000", "1122`334455667000"),
+                "wrong-state-value": full_region.replace("00001000MEM_COMMIT", "00002000MEM_COMMIT"),
+                "unknown-state": full_region.replace("MEM_COMMIT", "MEM_PRIVATE_SECRET"),
+                "unknown-type": full_region.replace("MEM_PRIVATE", "MEM_PRIVATE_SECRET"),
+                "wrong-type-value": full_region.replace("00020000MEM_PRIVATE", "00040000MEM_PRIVATE"),
+                "zero-commit-type": full_region.replace("00020000MEM_PRIVATE", "00000000"),
+                "reserve-missing-type": reserve.replace("Type: 00020000MEM_PRIVATE\n", ""),
+                "free-unknown-protect": free.replace("00000001PAGE_NOACCESS", "PRIVATE_SECRET"),
+                "too-many-more-info": full_region.replace(region_end, "More info: private\n"*9+region_end),
+            }.items():
+                region_case(name, bad)
+            for field in ("Base Address", "End Address", "State", "Type", "Protect"):
+                line = next(line for line in region_body.splitlines(True) if line.startswith(field+":"))
+                region_case("duplicate-"+field.replace(" ","-"), full_region.replace(region_end,line+region_end))
+                region_case("missing-"+field.replace(" ","-"), full_region.replace(line,""))
+            for index, value in enumerate(("00000000", "00000020 PAGE_EXECUTE_READ|PAGE_EXECUTE_READ", "00000024 PAGE_EXECUTE_READ|PAGE_READWRITE",
+                "00000100 PAGE_GUARD", "00000101 PAGE_NOACCESS|PAGE_GUARD", "00000201 PAGE_NOACCESS|PAGE_NOCACHE",
+                "00000401 PAGE_NOACCESS|PAGE_WRITECOMBINE", "00000304 PAGE_READWRITE|PAGE_GUARD|PAGE_NOCACHE",
+                "00000504 PAGE_READWRITE|PAGE_GUARD|PAGE_WRITECOMBINE", "00000604 PAGE_READWRITE|PAGE_NOCACHE|PAGE_WRITECOMBINE",
+                "40000020 PAGE_EXECUTE_READ|PAGE_TARGETS_INVALID", "00000020 PAGE_PRIVATE_SECRET", "00000040 PAGE_EXECUTE_READ",
+                "00000020 PAGE_EXECUTE_READ ; private", "00000020PAGE_EXECUTE_READ|", "100000020 PAGE_EXECUTE_READ")):
+                region_case(f"bad-protect-{index}", full_region.replace("00000020PAGE_EXECUTE_READ",value))
+            region_case("zero-candidate", full_region, candidate=0)
+            # Exercise the production file reader and revalidation, not a replica.
+            verified = (root / "tail-unmapped.log").read_text()
+            (root / "region-bound.log").write_text(verified + full_region)
+            region_vectors.append('CheckBoundRegion("tail-unmapped.log","region-bound.log",true);')
+            for name, changed in {
+                "different-context": verified.replace("1122334455667788","1122334455667789"),
+                "duplicate-context": verified + tail_context,
+                "changed-helper-flow": verified.replace("rdx,rbx","rdx,rax"),
+                "wrong-fault-frame": verified.replace("ntdll!RtlFailFast2\n","ntdll!RtlFailFast2+0x1\n"),
+                "wrong-exception": verified.replace("c0000409","c0000005"),
+                "wrong-subcode": verified.replace("Parameter[0]: a","Parameter[0]: 7"),
+                "candidate-now-in-module": verified.replace("Unloaded modules:", "1122334455667000 1122334455668000 UnknownPrivate (deferred)\nUnloaded modules:"),
+                "missing-query-validation": tail_context.replace("0000000000004234","1122334455667788"),
+            }.items():
+                path = f"region-bound-{name}.log"
+                (root / path).write_text(changed+full_region)
+                region_vectors.append(f'CheckBoundRegion("tail-unmapped.log","{path}",false);')
+            region_vectors.append('CheckBoundRegion("tail-wrong-source.log","region-bound.log",false);')
+            region_vectors.append('CheckBoundRegion("tail-loaded.log","region-bound.log",false);')
+
             (root / "Program.cs").write_text('''using System; using System.IO; using Fileway.PlayerSmoke;
 class Program {
  static void Check(string path,int width,int height,int expected) {
@@ -627,6 +770,32 @@ class Program {
   var single=DebuggerEvidence.Parse("ExceptionCode: c0000409\\nNumberParameters: 1\\nParameter[0]: a\\n");
   if(single.ParameterCount!=1||single.Parameters.Length!=0) throw new Exception("invented invalid call target");
  }
+
+ static void CheckRegion(string path,ulong candidate,uint state,uint type,uint protection) {
+  var region=SingleRegionEvidence.Parse(File.ReadAllText(path),candidate);
+  if(region.State!=state||region.Type!=type||region.Protection!=protection) throw new Exception("incorrect region enums");
+  if(region.GetType().GetFields().Length!=3) throw new Exception("unexpected region fields");
+  foreach(var field in region.GetType().GetFields()) if(field.FieldType!=typeof(uint)) throw new Exception("nonnumeric region field");
+ }
+ static void RejectRegion(string path,ulong candidate) {
+  bool rejected=false; try { SingleRegionEvidence.Parse(File.ReadAllText(path),candidate); }
+  catch(InvalidDataException error) { rejected=true; if(error.Message!="region_evidence_rejected") throw new Exception("unsafe region rejection"); }
+  if(!rejected) throw new Exception("invalid region accepted: "+path);
+ }
+ static void CheckBoundRegion(string first,string second,bool expected) {
+  bool accepted=false;
+  try { var region=DebuggerEvidence.ReadCandidateRegion(first,second); accepted=region.State==0x1000&&region.Type==0x20000&&region.Protection==0x20; }
+  catch(InvalidDataException error) { if(error.Message.Contains("private")||error.Message.Contains("11223344")) throw new Exception("raw region exception leaked"); }
+  if(accepted!=expected) throw new Exception("incorrect bound region validation: "+second);
+ }
+
+ static void CheckMainWindowCandidate() {
+  foreach(string title in new string[]{"Fileway","栖卷","fileway","FILEWAY","private video · Fileway","Fileway playback controls","",null})
+   foreach(bool owned in new[]{false,true}) foreach(bool hasVideo in new[]{false,true}) {
+    bool expected=!owned&&!hasVideo&&(title=="Fileway"||title=="栖卷");
+    if(Native.IsMainApplicationCandidate(title,owned,hasVideo)!=expected) throw new Exception("incorrect main-window classification");
+   }
+ }
  static void CheckInternalTimings() {
   long[] Row(long sequence,long time,int kind,long value=0) => new long[]{sequence,time,kind,value};
   string Read(params long[][] rows) {
@@ -683,7 +852,7 @@ class Program {
    if(!DebuggerEvidence.HasReadyMarker(path)) throw new Exception("shared writer ready marker missing");
   }
  }
- static void Main() { CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors) + '''
+ static void Main() { CheckMainWindowCandidate(); CheckCandidateClassifications(); CheckInternalTimings(); CheckDebuggerReady(); CheckDebuggerParameterMapping(); ''' + "".join(vectors + shutdown_vectors + debugger_vectors + helper_vectors + tail_vectors + region_vectors) + '''
   new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png");
   bool refused=false; try { new Image(480,270,File.ReadAllBytes("frame-128.bgra")).SavePng("verified.png"); } catch(IOException) { refused=true; }
   if(!refused) throw new Exception("PNG writer overwrote an existing destination");

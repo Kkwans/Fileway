@@ -166,20 +166,23 @@ changes no global WER, debugger, security or symbol settings. The hosted image's
 and Microsoft's [CDB options](https://learn.microsoft.com/en-us/windows-hardware/drivers/debugger/cdb-command-line-options)
 describe that tool source and the attach controls.
 
-The debugger attaches only after every interaction and player-surface-close
-assertion passes, immediately before closing the main window. The target must
+In the default Full journey, the debugger attaches only after every interaction
+and player-surface-close assertion passes, immediately before closing the main
+window. The two explicitly scoped diagnostics attach after their own preceding
+assertions; MainWithOpenPlayer intentionally still has its player open. The target must
 still match this harness's retained process object, PID, launch time and exact
 application executable path. Attach has a 10-second deadline and a fixed ready
 marker. The bounded ready reader permits concurrent debugger writes and accepts
 only a complete marker line, not the echoed command. Attach failures retain only
 a fixed numeric location and HResult. `-pd` prevents debugger exit from killing the target; `-sins` ignores
 ambient symbol paths and `-noshell` disables debugger shell commands. A targeted
-`0xC0000409` exception command writes a minimal `/mu` dump (including unloaded-module metadata) in the fresh private app-data
+`0xC0000409` exception command writes a minimal `/muF` dump (unloaded-module and basic memory-layout metadata; uppercase `F` adds no memory pages) in the fresh private app-data
 directory, then uses `gn` (not handled) so the original fault still terminates the
 app. The existing 15-second exit deadline and nonzero-exit failure remain intact.
 
-Offline analysis is bounded to 120 seconds, a dump of at most 64 MiB and 24 stack
-frames. Symbols are resolved using Microsoft's public symbol server with a cache
+Offline analysis has a cumulative 120-second process-wait budget, a dump of at
+most 64 MiB and 24 stack frames. A conditional second analysis gets at most
+30 seconds of that remaining budget. Symbols are resolved using Microsoft's public symbol server with a cache
 inside the same private directory. Raw dumps, command files, debugger output,
 module paths, memory, registers and symbol caches never enter the upload root.
 The decoder accepts at most 1 MiB of UTF-8, 4,096 lines and 2,048 characters per
@@ -247,6 +250,37 @@ retain mapping 0, empty module and zero offset; none reveals a raw address or an
 unknown module name. Class 6 does not establish whether memory is valid, freed,
 managed or executable.
 
+Only classification 6 enables one additional address-qualified
+[`!address @rdx`](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/-address)
+query in that same private dump. It never runs unscoped `!address`, reads memory
+pages, scans registers, or follows the debugger's suggested commands. The second
+pass repeats the exact bounded exception/context/frames/helper-tail validation;
+its unique candidate must equal the first pass's private candidate before any
+region evidence is accepted. The dump's uppercase
+[`/mF`](https://learn.microsoft.com/en-us/windows-hardware/drivers/debuggercmds/-dump--create-dump-file-)
+option includes basic memory layout, not lowercase `/mf` full memory.
+
+The single region section admits at most 64 lines within the existing 1 MiB /
+4,096-line limits. Unique base/end addresses must privately contain the candidate
+in a half-open range. Only rebuilt numeric `shutdown-cfg-region` fields leave the
+private directory: State (`0x1000` committed, `0x2000` reserved, `0x10000` free),
+Type (`0x20000` private, `0x40000` mapped, `0x1000000` image), and Protection.
+Protection requires one known PAGE base bit (`0x01` through `0x80`) and only valid
+combinations of GUARD (`0x100`), NOCACHE (`0x200`) or WRITECOMBINE (`0x400`). Numeric
+values must match the fixed symbolic tokens; unknown bits, duplicate fields,
+malformed/unsupported output or insufficient dump metadata reject the section.
+CFG-operation flag aliases are not accepted as protection values. Free regions
+export Type=0 and Protection=0, and reserved regions export Protection=0, because
+these fields are
+[undefined](https://learn.microsoft.com/en-us/windows/win32/api/minidumpapiset/ns-minidumpapiset-minidump_memory_info)
+in those states. Printed undefined values are discarded, never interpreted.
+Missing undefined fields are allowed; present fields must still use the fixed
+numeric/token grammar. No region address, size, allocation detail, name or raw
+line is exported. Failure emits only `shutdown-cfg-region-result` status 2
+(rejected/unavailable) or 3 (timeout). A free or executable result describes the
+candidate region at capture time; it does not establish the target's semantic
+identity, ownership, CFG validity, or who released it.
+
 Reports include `shutdownDebuggerAttached` and `normalShutdownVerified`. An
 attached-debugger run cannot establish normal production-path shutdown even when
 its observed app and Host exits are zero. Capture/analysis failures are fixed
@@ -275,6 +309,32 @@ process startup, discovery and automation overhead; whole-step deltas also
 include deliberate waits and screenshots. Neither should be relabeled as UI
 response latency. Presenter/activation completion does not establish when the
 compositor first presented the new pixels.
+
+### Separate shutdown diagnostic scenarios
+
+`-ShutdownScenario` defaults to `Full`, preserving the complete interaction and
+exit gates. Two explicitly selected diagnostic scenarios isolate shutdown history:
+
+- `MinimalPlayback`: prove advancing synthetic video, then use the normal player
+  close control and close the main application. Settings, pause/resume and
+  fullscreen cycles are outside this diagnostic's scope.
+- `MainWithOpenPlayer`: perform the complete interaction sequence up to player
+  close, leave that player open, and request normal main-window `WM_CLOSE` so the
+  application's existing shutdown path owns disposal of the live session.
+
+The latter identifies exactly one visible, unowned main window of the retained
+app PID using fixed product titles and absence of the synthetic video child. It
+revalidates that identity before posting `WM_CLOSE`, rather than allowing
+`Process.CloseMainWindow` to select the still-open player. Missing or ambiguous
+identity fails the diagnostic. Neither scenario calls disposal directly or
+changes the application. Each must still observe app and owned Host zero exits.
+Final reports use `scope=shutdown-diagnostic`, name the scenario, and always keep
+`fullJourneyVerified=false` and `nativePlaybackVerified=false`; a diagnostic pass
+cannot substitute for the default full journey or an unattached-debugger shutdown.
+Run each scenario with a fresh isolated app process and output root. The separate
+diagnostic workflow builds once and runs both scenarios even if the first fails,
+then fails the job if either exit gate failed. Its artifacts retain the same
+JSON/synthetic-PNG allowlist, never private debugger files.
 
 Offline tests/compilation establish file and decoder contracts, not functioning
 Windows capture, UIA delivery or native playback. An executed hosted Windows
