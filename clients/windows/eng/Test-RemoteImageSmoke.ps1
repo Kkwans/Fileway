@@ -8,6 +8,7 @@ Set-StrictMode -Version Latest
 Import-Module (Join-Path $PSScriptRoot 'RemoteResourceSmoke.Common.psm1') -Force
 . (Get-RemoteSmokeFunctions)
 $allowedArtifacts = @('report.json', 'events.jsonl', 'preflight.png', 'preflight-smoke.png', 'remote-image-ready.png')
+$script:ownedServerPort = 0
 $script:root = $null; $script:app = $null; $script:server = $null; $script:ownedHost = $null
 $script:window = [IntPtr]::Zero; $imageWindow = [IntPtr]::Zero
 $script:stage = 'output-validation'; $script:clock = [Diagnostics.Stopwatch]::StartNew()
@@ -54,11 +55,26 @@ function Resolve-PythonExecutable {
     if ($path -isnot [string] -or -not [IO.Path]::IsPathFullyQualified($path) -or -not [IO.File]::Exists($path)) { Stop-Smoke 'python_executable_invalid' -EnvironmentBlocked }
     return $path
 }
-function Get-ServerRecents([string] $BaseAddress) {
+function Assert-OwnedLoopbackAddress([string] $BaseAddress) {
     $uri = [Uri]::new($BaseAddress)
-    if ($uri.Scheme -cne 'http' -or $uri.Host -cne '127.0.0.1' -or $uri.AbsolutePath -cne '/' -or $uri.Query -ne '' -or $uri.UserInfo -ne '') { Stop-Smoke 'loopback_recents_required' }
-    $response = Invoke-WebRequest -Method Get -Uri ($BaseAddress + '/api/recent?limit=100') -TimeoutSec 3 -NoProxy
-    if ($response.StatusCode -ne 200 -or $response.Content.Length -gt 1048576) { Stop-Smoke 'recent_read_contract_mismatch' }
+    if (-not $script:server -or $script:server.HasExited -or $script:ownedServerPort -lt 1 -or $script:ownedServerPort -gt 65535) { Stop-Smoke 'owned_verifier_server_not_running' }
+    if ($uri.Scheme -cne 'http' -or $uri.Host -cne '127.0.0.1' -or $uri.Port -ne $script:ownedServerPort -or
+        $uri.AbsolutePath -cne '/' -or $uri.Query -ne '' -or $uri.UserInfo -ne '' -or $uri.Fragment -ne '') { Stop-Smoke 'owned_loopback_required' }
+}
+function Get-NoAuthVerifierToken([string] $BaseAddress) {
+    Assert-OwnedLoopbackAddress $BaseAddress
+    # The real route accepts GET; NoAuth authenticates its synthetic user 1.
+    # Its bounded text/plain JWT remains only in this process's memory.
+    $response = Invoke-WebRequest -Method Get -Uri ($BaseAddress + '/api/login') -MaximumRedirection 0 -TimeoutSec 3 -NoProxy
+    if ($response.StatusCode -ne 200 -or $response.Content -isnot [string] -or $response.Content.Length -gt 16384 -or
+        $response.Content -cnotmatch '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$') { Stop-Smoke 'noauth_verifier_session_contract_mismatch' }
+    return $response.Content
+}
+function Get-ServerRecents([string] $BaseAddress, [string] $Token) {
+    Assert-OwnedLoopbackAddress $BaseAddress
+    if ($Token.Length -gt 16384 -or $Token -cnotmatch '^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$') { Stop-Smoke 'verifier_token_contract_mismatch' }
+    $response = Invoke-WebRequest -Method Get -Uri ($BaseAddress + '/api/recent?limit=100') -Headers @{ 'X-Auth' = $Token } -MaximumRedirection 0 -TimeoutSec 3 -NoProxy
+    if ($response.StatusCode -ne 200 -or $response.Content -isnot [string] -or $response.Content.Length -gt 1048576) { Stop-Smoke 'recent_read_contract_mismatch' }
     $entries = ConvertFrom-Json -InputObject $response.Content -AsHashtable -NoEnumerate
     if ($entries -isnot [array] -or $entries.Count -gt 100) { Stop-Smoke 'recent_array_contract_mismatch' }
     return ,$entries
@@ -120,7 +136,7 @@ try {
             (Get-FileHash -LiteralPath (Join-Path $remote $name)).Hash.ToLowerInvariant() -cne $hash) { Stop-Smoke 'synthetic_fixture_contract_mismatch' }
         Complete-Step 'stable-synthetic-image' @{ bytes = 461223; hashEqual = $true }
         $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-        $listener.Start(); $port = $listener.LocalEndpoint.Port; $listener.Stop()
+        $listener.Start(); $port = $listener.LocalEndpoint.Port; $listener.Stop(); $script:ownedServerPort = $port
         $script:stage = 'real-server-start'
         $start = [Diagnostics.ProcessStartInfo]::new($ServerPath)
         $start.UseShellExecute = $false; $start.CreateNoWindow = $true; $start.WorkingDirectory = $privateRoot
@@ -134,7 +150,10 @@ try {
         $baseAddress = 'http://127.0.0.1:' + $port
         $null = Wait-Condition { try { (Invoke-WebRequest -Uri ($baseAddress + '/health') -TimeoutSec 2 -NoProxy).StatusCode -eq 200 } catch { $false } } 'real_server_not_ready' 30000
         Complete-Step 'real-server-ready'
-        $baseline = Get-ServerRecents $baseAddress
+        $script:stage = 'verifier-noauth-session'
+        $verifierToken = Get-NoAuthVerifierToken $baseAddress
+        $script:stage = 'server-recent-baseline'
+        $baseline = Get-ServerRecents $baseAddress $verifierToken
         if ($baseline.Count -ne 0) { Stop-Smoke 'fresh_recent_baseline_not_empty' }
         $notBefore = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
         Complete-Step 'recent-baseline-empty' @{ count = 0 }
@@ -177,7 +196,7 @@ try {
         $image.SavePng((Artifact-Path 'remote-image-ready.png'))
         Complete-Step 'native-remote-image-decoded-pixels' @{ orderedRgbRows = [FilewayRemoteImagePixels]::OrderedBandRows($image.Pixels, $image.Width, $image.Height); width = 480; height = 320 }
         $script:stage = 'server-recent-verification'
-        $null = Wait-Condition { Test-RemoteImageRecentEntry (Get-ServerRecents $baseAddress) $name $notBefore } 'native_open_recent_not_recorded' 15000
+        $null = Wait-Condition { Test-RemoteImageRecentEntry (Get-ServerRecents $baseAddress $verifierToken) $name $notBefore } 'native_open_recent_not_recorded' 15000
         Complete-Step 'actual-server-recent-record' @{ baselineCount = 0; identityMatches = 1; wireIdentityEqual = $true; pathVerified = $true }
         $script:stage = 'image-close'
         Act $imageWindow '^(关闭|Close)$'
@@ -203,6 +222,7 @@ try {
     Write-Host ('Remote image smoke: ' + $status + ' (' + $code + ').')
     $exitCode = $(if ($status -eq 'environment-blocked') { 2 } else { 1 })
 } finally {
+    $verifierToken = $null
     # Forced teardown retains a failed result; it is never accepted normal exit.
     foreach ($process in @($script:app, $script:ownedHost, $script:server)) {
         if ($process) { try { if (-not $process.HasExited) { $process.Kill($true); $null = $process.WaitForExit(5000) } } catch { }; $process.Dispose() }

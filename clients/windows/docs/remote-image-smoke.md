@@ -25,7 +25,12 @@ player workflow continues its own full media-runtime verification.
    `127.0.0.1`, select an ephemeral port, use its existing NoAuth mode, disable
    exec/thumbnails/preview resizing and drain both output streams without
    retaining them. Remove inherited `FB_*` overrides. Probe real `GET /health`.
-3. Read the actual `GET /api/recent?limit=100` baseline and require it empty.
+3. Acquire a bounded in-memory synthetic verifier session from the real
+   `GET /api/login` route of only the already-owned NoAuth server and allocated
+   loopback port with redirects and URL fragments rejected. NoAuth still requires a JWT for `withUser` APIs; it does not
+   disable that guard. The session is never printed, written, passed on a
+   process command line or read from the app profile. Read the actual
+   `GET /api/recent?limit=100` baseline with that session and require it empty.
    Connect the real app through its visible connection UI, with persistence off
    and explicit synthetic loopback HTTP consent. No credentials are involved.
 4. Select the exact synthetic file row and send focused Enter through the
@@ -34,7 +39,8 @@ player workflow continues its own full media-runtime verification.
    notice. Maximize only through its actual own visible caption button and use
    its real Fit button. Require at least 32 captured rows containing ordered,
    substantial pure RGB bands before saving the owned-window screenshot.
-5. Poll only the actual server's read-only recent endpoint. Require exactly one
+5. Poll the actual server's read-only recent endpoint with the same transient
+   verifier session. Require exactly one
    matching new display path, canonical wire path, file name, non-directory
    entry, verified identity, server-format ID and fresh millisecond timestamp.
    The script never POSTs a recent record or replaces the product's remote open

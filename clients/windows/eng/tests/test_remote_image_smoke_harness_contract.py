@@ -66,14 +66,14 @@ class RemoteImageSmokeContract(unittest.TestCase):
         self.assertNotIn('-MediaRuntimeRoot', SOURCE)
 
     def test_http_only_get_recents_health_not_open_substitution(self):
-        self.assertEqual(SOURCE.count('Invoke-WebRequest'), 2)
+        self.assertEqual(SOURCE.count('Invoke-WebRequest'), 3)
         self.assertIn('Invoke-WebRequest -Method Get', SOURCE)
         self.assertIn("'/api/recent?limit=100'", SOURCE)
         self.assertIn("'/health'", SOURCE)
         self.assertNotRegex(SOURCE, r'(?i)-Method\s+(?:Post|Put|Patch|Delete)')
         self.assertNotIn('/api/raw', SOURCE)
         self.assertIn('fresh_recent_baseline_not_empty', SOURCE)
-        self.assertIn('Test-RemoteImageRecentEntry (Get-ServerRecents $baseAddress) $name $notBefore', SOURCE)
+        self.assertIn('Test-RemoteImageRecentEntry (Get-ServerRecents $baseAddress $verifierToken) $name $notBefore', SOURCE)
         for field in ('wirePath', 'pathVerified', 'accessedAt', 'isDir', 'id'): self.assertIn(field, COMMON)
         go = (ROOT / 'server/backend/recent/recent.go').read_text(encoding='utf-8')
         self.assertIn('time.Now().UnixMilli()', go)
@@ -249,21 +249,66 @@ if($rejected -ne 6){throw 'negative_field_count_wrong'}
 
     @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual GET helper runs in Windows CI')
     def test_actual_recents_reader_rejects_nonloopback_and_preserves_empty_array(self):
-        start = SOURCE.index('function Get-ServerRecents')
+        start = SOURCE.index('function Assert-OwnedLoopbackAddress')
         helper = SOURCE[start:SOURCE.index('function Send-OpenKey', start)]
         self.pwsh('. (Get-RemoteSmokeFunctions); ' + helper + r"""
-$script:requests=0
-function Invoke-WebRequest {param($Method,$Uri,$TimeoutSec,[switch]$NoProxy)
-    if($Method -cne 'Get' -or $Uri -cne 'http://127.0.0.1:12345/api/recent?limit=100' -or $TimeoutSec -ne 3 -or -not $NoProxy){throw 'wrong_request'}
+$script:requests=0;$script:server=@{HasExited=$false};$script:ownedServerPort=12345
+function Invoke-WebRequest {param($Method,$Uri,$Headers,$MaximumRedirection,$TimeoutSec,[switch]$NoProxy)
+    if($Method -cne 'Get' -or $Uri -cne 'http://127.0.0.1:12345/api/recent?limit=100' -or $MaximumRedirection -ne 0 -or $TimeoutSec -ne 3 -or -not $NoProxy -or $Headers['X-Auth'] -cne 'synthetic.owned.session'){throw 'wrong_request'}
     $script:requests++;return @{StatusCode=200;Content='[]'}
 }
-$entries=Get-ServerRecents 'http://127.0.0.1:12345'
+$entries=Get-ServerRecents 'http://127.0.0.1:12345' 'synthetic.owned.session'
 if($entries -isnot [array] -or $entries.Count -ne 0 -or $script:requests -ne 1){throw 'empty_array_not_preserved'}
-foreach($uri in @('https://127.0.0.1:12345','http://example.com','http://127.0.0.1:12345/private','http://127.0.0.1:12345?x=1','http://secret@127.0.0.1:12345')){
-    $code=$null;try{$null=Get-ServerRecents $uri}catch{$code=$_.Exception.Message}
-    if($code -cne 'loopback_recents_required'){throw 'private_request_not_rejected'}
+foreach($uri in @('https://127.0.0.1:12345','http://example.com','http://127.0.0.1:12345/private','http://127.0.0.1:12345?x=1','http://secret@127.0.0.1:12345','http://127.0.0.1:12346','http://127.0.0.1:12345#fragment')){
+    $code=$null;try{$null=Get-ServerRecents $uri 'synthetic.owned.session'}catch{$code=$_.Exception.Message}
+    if($code -cne 'owned_loopback_required'){throw 'private_request_not_rejected'}
 }
 if($script:requests -ne 1){throw 'unapproved_request_sent'}
+""")
+
+    def test_noauth_verifier_session_is_owned_bounded_memory_only(self):
+        for value in ('Get-NoAuthVerifierToken $baseAddress', '$uri.Port -ne $script:ownedServerPort', '$script:server.HasExited', '$uri.Fragment -ne', '-MaximumRedirection 0',
+                      "$BaseAddress + '/api/login'", "$response.Content.Length -gt 16384", "-Headers @{ 'X-Auth' = $Token }",
+                      '$verifierToken = $null'):
+            self.assertIn(value, SOURCE)
+        self.assertLess(SOURCE.index('Get-NoAuthVerifierToken $baseAddress'), SOURCE.index('$baseline = Get-ServerRecents'))
+        self.assertNotRegex(SOURCE, r'(?i)(?:Write-Host|WriteAllText|AppendAllText).*\$(?:Token|verifierToken)')
+        route = (ROOT / 'server/backend/http/http.go').read_text(encoding='utf-8')
+        self.assertIn('api.Handle("/login", monkey(loginHandler(), ""))', route)
+        auth = (ROOT / 'server/backend/http/auth.go').read_text(encoding='utf-8')
+        self.assertIn('w.Header().Set("Content-Type", "text/plain")', auth)
+        self.assertIn('return printToken(w, r, d, user, tokenExpirationTime(d))', auth)
+        noauth = (ROOT / 'server/backend/auth/none.go').read_text(encoding='utf-8')
+        self.assertIn('return usr.Get(srv.Root, uint(1))', noauth)
+
+    @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual synthetic-session helper runs in Windows CI')
+    def test_actual_noauth_session_and_recents_keep_owned_port_and_token_bounds(self):
+        start = SOURCE.index('function Assert-OwnedLoopbackAddress')
+        helper = SOURCE[start:SOURCE.index('function Send-OpenKey', start)]
+        self.pwsh('. (Get-RemoteSmokeFunctions); ' + helper + r"""
+$script:server=@{HasExited=$false};$script:ownedServerPort=12345;$script:requests=0
+$script:response=@{StatusCode=200;Content='synthetic.owned.session'}
+function Invoke-WebRequest {param($Method,$Uri,$MaximumRedirection,$TimeoutSec,[switch]$NoProxy)
+    if($Method -cne 'Get' -or $Uri -cne 'http://127.0.0.1:12345/api/login' -or $MaximumRedirection -ne 0 -or $TimeoutSec -ne 3 -or -not $NoProxy){throw 'wrong_session_request'}
+    $script:requests++;return $script:response
+}
+if((Get-NoAuthVerifierToken 'http://127.0.0.1:12345') -cne 'synthetic.owned.session'){throw 'valid_session_rejected'}
+foreach($content in @('','one.two','one.two.three.four','one.two.three`n',('a'*16385),123)) {
+    $script:response.Content=$content;$code=$null
+    try{$null=Get-NoAuthVerifierToken 'http://127.0.0.1:12345'}catch{$code=$_.Exception.Message}
+    if($code -cne 'noauth_verifier_session_contract_mismatch'){throw 'invalid_session_accepted'}
+}
+$before=$script:requests;$code=$null
+try{$null=Get-NoAuthVerifierToken 'http://127.0.0.1:12346'}catch{$code=$_.Exception.Message}
+if($code -cne 'owned_loopback_required' -or $script:requests -ne $before){throw 'other_port_requested'}
+$code=$null;try{$null=Get-NoAuthVerifierToken 'http://127.0.0.1:12345#fragment'}catch{$code=$_.Exception.Message}
+if($code -cne 'owned_loopback_required' -or $script:requests -ne $before){throw 'fragment_requested'}
+$script:server.HasExited=$true;$code=$null
+try{$null=Get-NoAuthVerifierToken 'http://127.0.0.1:12345'}catch{$code=$_.Exception.Message}
+if($code -cne 'owned_verifier_server_not_running' -or $script:requests -ne $before){throw 'dead_server_requested'}
+$script:server.HasExited=$false;$code=$null
+try{$null=Get-ServerRecents 'http://127.0.0.1:12345' 'invalid'}catch{$code=$_.Exception.Message}
+if($code -cne 'verifier_token_contract_mismatch' -or $script:requests -ne $before){throw 'invalid_token_sent'}
 """)
 
     @unittest.skipUnless(PWSH, 'PowerShell unavailable; actual managed pixel helper runs in Windows CI')
