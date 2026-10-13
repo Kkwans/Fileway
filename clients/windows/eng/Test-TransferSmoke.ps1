@@ -315,6 +315,29 @@ function Download-File([string] $Destination, [string] $ExpectedStage, [string] 
     $script:stage = 'download-close-detail'
     Close-TransferDialog '文件下载'
 }
+function Invoke-SaveAsMenuItem([IntPtr] $Window) {
+    if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'save_as_window_owner_mismatch' }
+    $element = Control $Window '^下载另存为…$' 'MenuItem'
+    # v0.7.1 ancestors inspection resolves the element's native top-level HWND
+    # into windows[].hwnd. A WinUI flyout can own a separate popup HWND; do not
+    # weaken the normal main-window Act contract or trust an invoke result first.
+    $tree = Invoke-WinApp @('ui', 'inspect', $element.selector, '--ancestors', '-w', $Window.ToInt64().ToString(), '--json')
+    if ($tree -isnot [Collections.IDictionary] -or -not $tree.Contains('windows') -or @($tree.windows).Count -ne 1) { Stop-Smoke 'save_as_menu_window_ambiguous' }
+    $context = @($tree.windows)[0]
+    if ($context -isnot [Collections.IDictionary] -or -not $context.Contains('hwnd') -or -not $context.Contains('elements') -or
+        ($context.hwnd -isnot [long] -and $context.hwnd -isnot [int]) -or $context.hwnd -le 0) { Stop-Smoke 'save_as_menu_window_contract_mismatch' }
+    $popup = [IntPtr]$context.hwnd
+    $matches = @(Unique-Elements (Find-Elements $context.elements) | Where-Object { $_.selector -ceq $element.selector })
+    if ($matches.Count -ne 1) { Stop-Smoke 'save_as_menu_target_missing_or_ambiguous' }
+    foreach ($field in @('type', 'name', 'isEnabled', 'isOffscreen', 'automationId')) {
+        if (-not [object]::Equals($matches[0][$field], $element[$field])) { Stop-Smoke 'save_as_menu_target_metadata_mismatch' }
+    }
+    if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id -or
+        [Fileway.PlayerSmoke.Native]::ProcessId($popup) -ne $script:app.Id -or
+        -not [Fileway.PlayerSmoke.Native]::InFamily($popup, $Window)) { Stop-Smoke 'save_as_menu_popup_owner_mismatch' }
+    $result = Invoke-WinApp @('ui', 'invoke', $element.selector, '-w', $popup.ToInt64().ToString(), '--action', 'invoke', '--json')
+    if ($result.hwnd -ne $popup.ToInt64() -or $result.performedAction -cne 'invoke') { Stop-Smoke 'save_as_menu_invoke_contract_mismatch' }
+}
 function Open-SaveAsMenu([IntPtr] $Window, [string] $RemoteName) {
     if ([Fileway.PlayerSmoke.Native]::ProcessId($Window) -ne $script:app.Id) { Stop-Smoke 'save_as_window_owner_mismatch' }
     $script:stage = 'download-save-as-row-select'
@@ -331,7 +354,7 @@ function Download-SaveAs([string] $RemoteName, [string] $LocalName, [string] $De
     $script:stage = 'download-save-as-menu'
     Open-SaveAsMenu $script:window $RemoteName
     $script:stage = 'download-save-as-menu-choice'
-    Act $script:window '^下载另存为…$' 'MenuItem'
+    Invoke-SaveAsMenuItem $script:window
     $script:stage = 'download-save-as-edit'
     Wait-Text '下载另存为'
     Set-Value $script:window '^下载另存为的本地文件名$' $LocalName

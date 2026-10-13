@@ -139,6 +139,13 @@ requires the real completed status and same target. The action opens the
 standard context flyout through focused `shift+f10`, then chooses the fresh,
 unique enabled Save As menu item. No remote rename or full destination path is
 submitted to the product; it receives only a different local filename.
+The menu-only action first inspects that exact selector with pinned winapp
+`ui inspect --ancestors`. Its sole `windows[].hwnd` must have the same owned
+App PID and belong to the main HWND's owner family, and its target's selector
+and metadata must still match. Invocation is then scoped to this preverified
+popup HWND and must report that same handle and `invoke`. The usual main-window
+action guard remains unchanged. Missing/ambiguous context, changed metadata,
+foreign ownership or a mismatched result fails before proceeding to the editor.
 `download-save-as-menu-failure.png` is allowed only at the fixed row-selection,
 context-key or menu-choice failure phases, using the same exact owned-main
 capture guards. Invoke mismatch diagnostics contain only fixed window-owner

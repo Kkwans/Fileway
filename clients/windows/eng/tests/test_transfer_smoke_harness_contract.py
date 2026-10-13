@@ -133,7 +133,7 @@ class TransferSmokeContract(unittest.TestCase):
 
     def test_save_as_real_two_phase_confirmation_and_independent_bytes(self):
         helper = SOURCE[SOURCE.index('function Download-SaveAs'):SOURCE.index('function Assert-Payload')]
-        for value in ("'^下载另存为…$' 'MenuItem'", "'^下载另存为的本地文件名$'", "'^核对保存位置$'", "'^开始下载$'",
+        for value in ("Invoke-SaveAsMenuItem $script:window", "'^下载另存为的本地文件名$'", "'^核对保存位置$'", "'^开始下载$'",
                       "'远端文件：' + $RemoteName", "'本地文件名：' + $LocalName", "'保存到：' + $Destination",
                       "Wait-Text '下载已完成'", "Close-TransferDialog '文件下载'"):
             self.assertIn(value, helper)
@@ -148,6 +148,86 @@ class TransferSmokeContract(unittest.TestCase):
         for value in ('下载另存为的本地文件名', '核对保存位置', '本地文件名：', '远端文件：'):
             self.assertIn(value, app)
         self.assertIn('下载另存为…', (APP / 'MainPage.FileCommands.cs').read_text(encoding='utf-8'))
+
+    def test_save_as_menu_resolves_exact_owned_popup_before_mutation(self):
+        helper = SOURCE[SOURCE.index('function Invoke-SaveAsMenuItem'):SOURCE.index('function Open-SaveAsMenu')]
+        for value in ("'^下载另存为…$' 'MenuItem'", "'--ancestors'", "@($tree.windows).Count -ne 1",
+                      "$context.Contains('hwnd')", "$context.Contains('elements')", "$_.selector -ceq $element.selector",
+                      'Native]::ProcessId($popup) -ne $script:app.Id', 'Native]::InFamily($popup, $Window)',
+                      "$popup.ToInt64().ToString()", "$result.hwnd -ne $popup.ToInt64()", "$result.performedAction -cne 'invoke'"):
+            self.assertIn(value, helper)
+        self.assertLess(helper.index('save_as_menu_popup_owner_mismatch'), helper.index("'ui', 'invoke'"))
+        self.assertNotRegex(helper, r'(?m)^\s+Act ')
+
+    @unittest.skipUnless(shutil.which("pwsh"), "PowerShell unavailable; actual popup helper runs in Windows CI")
+    def test_actual_save_as_menu_popup_schema_identity_owner_and_result(self):
+        helpers = SOURCE[SOURCE.index('function Find-Elements'):SOURCE.index('function Elements(')]
+        helper = SOURCE[SOURCE.index('function Invoke-SaveAsMenuItem'):SOURCE.index('function Open-SaveAsMenu')]
+        command = "$ErrorActionPreference='Stop';Set-StrictMode -Version Latest;function Stop-Smoke($Code){throw $Code};" + helpers + helper + r"""
+Add-Type 'namespace Fileway.PlayerSmoke { public static class Native { public static bool Family=true; public static bool MainOwned=true; public static uint ProcessId(System.IntPtr w) { return (w.ToInt64()==8 || w.ToInt64()==9 || (w.ToInt64()==7 && MainOwned)) ? 123u : 0u; } public static bool InFamily(System.IntPtr w,System.IntPtr main) { return Family && main.ToInt64()==7 && (w.ToInt64()==7 || w.ToInt64()==8); } } }'
+$script:app=@{Id=123};$script:calls=[Collections.Generic.List[object]]::new()
+$script:element=@{selector='exact-save-as';type='MenuItem';name='下载另存为…';isEnabled=$true;isOffscreen=$false}
+function Control {param($Window,$Pattern,$Type)
+    if($Window -ne 7 -or $Pattern -cne '^下载另存为…$' -or $Type -cne 'MenuItem'){throw 'wrong_fresh_control'}
+    return $script:element
+}
+function Reset-Fixture {
+    $script:tree=@{windows=@(@{hwnd=[long]8;elements=@($script:element.Clone(),@{selector='ancestor';type='Pane';isEnabled=$true;isOffscreen=$false})})}
+    $script:result=@{hwnd=8;performedAction='invoke'}
+    [Fileway.PlayerSmoke.Native]::Family=$true;[Fileway.PlayerSmoke.Native]::MainOwned=$true
+}
+function Invoke-WinApp {param([string[]]$Arguments)
+    $script:calls.Add($Arguments)
+    if($Arguments[1] -ceq 'inspect') {
+        if(($Arguments -join '|') -cne 'ui|inspect|exact-save-as|--ancestors|-w|7|--json'){throw 'wrong_inspection_argv'}
+        return $script:tree
+    }
+    if(($Arguments -join '|') -cne 'ui|invoke|exact-save-as|-w|8|--action|invoke|--json'){throw 'unverified_popup_argv'}
+    return $script:result
+}
+function Expect-Rejection($Expected,[switch]$AllowsInvoke) {
+    $before=$script:calls.Count;$code=$null
+    try{Invoke-SaveAsMenuItem ([IntPtr]7)}catch{$code=$_.Exception.Message}
+    if($code -cne $Expected){throw ('wrong_rejection:'+ $Expected)}
+    $new=@($script:calls | Select-Object -Skip $before)
+    if(-not $AllowsInvoke -and @($new | Where-Object {$_[1] -ceq 'invoke'}).Count -ne 0){throw 'mutation_before_validation'}
+}
+Reset-Fixture
+Invoke-SaveAsMenuItem ([IntPtr]7)
+if($script:calls.Count -ne 2){throw 'valid_popup_not_invoked_once'}
+foreach($case in @('missingWindows','zeroWindows','twoWindows','missingHwnd','zeroHwnd','stringHwnd','flatElements','missingElements','wrongSelector','missingTarget','duplicateConflict','foreignPid','foreignFamily','foreignMain')) {
+    Reset-Fixture
+    $expected=switch($case) {
+        'missingWindows' {$script:tree=@{};'save_as_menu_window_ambiguous'}
+        'zeroWindows' {$script:tree.windows=@();'save_as_menu_window_ambiguous'}
+        'twoWindows' {$script:tree.windows+=@{hwnd=8;elements=@()};'save_as_menu_window_ambiguous'}
+        'missingHwnd' {$script:tree.windows[0].Remove('hwnd');'save_as_menu_window_contract_mismatch'}
+        'zeroHwnd' {$script:tree.windows[0].hwnd=0;'save_as_menu_window_contract_mismatch'}
+        'stringHwnd' {$script:tree.windows[0].hwnd='8';'save_as_menu_window_contract_mismatch'}
+        'flatElements' {$script:tree=@{matches=@($script:element)};'save_as_menu_window_ambiguous'}
+        'missingElements' {$script:tree.windows[0].Remove('elements');'save_as_menu_window_contract_mismatch'}
+        'wrongSelector' {$script:tree.windows[0].elements[0].selector='other';'save_as_menu_target_missing_or_ambiguous'}
+        'missingTarget' {$script:tree.windows[0].elements=@();'save_as_menu_target_missing_or_ambiguous'}
+        'duplicateConflict' {$other=$script:element.Clone();$other.name='conflicting';$script:tree.windows[0].elements+=,$other;'inspect_selector_metadata_mismatch'}
+        'foreignPid' {$script:tree.windows[0].hwnd=10;'save_as_menu_popup_owner_mismatch'}
+        'foreignFamily' {[Fileway.PlayerSmoke.Native]::Family=$false;'save_as_menu_popup_owner_mismatch'}
+        'foreignMain' {[Fileway.PlayerSmoke.Native]::MainOwned=$false;'save_as_window_owner_mismatch'}
+    }
+    Expect-Rejection $expected
+}
+foreach($field in @('type','name','isEnabled','isOffscreen','automationId')) {
+    Reset-Fixture
+    $script:tree.windows[0].elements[0][$field]=switch($field){'isEnabled' {$false};'isOffscreen' {$true};default {'conflicting'}}
+    Expect-Rejection 'save_as_menu_target_metadata_mismatch'
+}
+foreach($field in @('hwnd','performedAction')) {
+    Reset-Fixture
+    $script:result[$field]=if($field -ceq 'hwnd'){9}else{'none'}
+    Expect-Rejection 'save_as_menu_invoke_contract_mismatch' -AllowsInvoke
+}
+"""
+        result = subprocess.run([shutil.which("pwsh"), '-NoProfile', '-Command', command], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_save_as_failure_evidence_is_fixed_owned_main_and_acceptance_unchanged(self):
         for value in ('download-save-as-row-select', 'download-save-as-menu-key', 'download-save-as-menu-choice',
