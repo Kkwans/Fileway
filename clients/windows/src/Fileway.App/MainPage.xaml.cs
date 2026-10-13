@@ -82,7 +82,7 @@ public sealed partial class MainPage : Page, IDisposable
         {
             if (_disposed || _connecting || _session?.Account != tag.Account) return;
             CloseSidebarOverlay();
-            TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane();
+            TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); HideRemoteToolsPanes();
             UpdateCollectionsContext(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
             UpdateThumbnailContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
         };
@@ -92,6 +92,7 @@ public sealed partial class MainPage : Page, IDisposable
         InitializeBrowserShell();
         InitializeTransferCenter();
         InitializeRecentAccess();
+        InitializeRemoteTools();
         InitializeApplicationMenus();
         ApplyBrowserPresentation();
         Loaded += (_, _) => { ApplyTheme(); UpdateThumbnailContext(); };
@@ -189,7 +190,7 @@ public sealed partial class MainPage : Page, IDisposable
         RetireChecksumDialog();
         _browserDialog?.Hide();
         _storageDialog?.Hide(); _storageControl?.Dispose();
-        _disposed = true; CollectionsPanel.Dispose(); RecentPane.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
+        _disposed = true; CollectionsPanel.Dispose(); RecentPane.Dispose(); SearchPane.Dispose(); NasTasksPane.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
         _connectionCancellation?.Cancel();
         if (_connection is not null)
         {
@@ -497,7 +498,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void Collections_Click(object sender, RoutedEventArgs e)
     {
         if (_disposed || _connecting || _session is null || _collections is null) return;
-        CloseSidebarOverlay(); TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
+        CloseSidebarOverlay(); TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); HideRemoteToolsPanes(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
         _thumbnailController.SetContext(null, null);
         UpdateCollectionsContext();
         CollectionsPanel.EnterManagementView();
@@ -527,7 +528,7 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private void HideCollections()
     {
-        CollectionsPanel.Visibility = Visibility.Collapsed; TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane();
+        CollectionsPanel.Visibility = Visibility.Collapsed; TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); HideRemoteToolsPanes();
         Workspace.Visibility = ConnectionPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
         CollectionsPanel.SuspendView();
         UpdateThumbnailContext();
@@ -572,6 +573,8 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (TransfersPanel.Visibility == Visibility.Visible) { await RefreshTransferCenterAsync(); return; }
         if (RecentPane.Visibility == Visibility.Visible) { await RecentPane.RefreshAsync(); return; }
+        if (SearchPane.Visibility == Visibility.Visible) { await SearchPane.RefreshAsync(); return; }
+        if (NasTasksPane.Visibility == Visibility.Visible) { await NasTasksPane.RefreshAsync(); return; }
         if (_directory is not null) await LoadAsync(_directory);
         if (!_disposed && !_connecting && _session is not null) { UpdateCollectionsContext(); await CollectionsPanel.RefreshAsync(); }
     }
@@ -620,7 +623,7 @@ public sealed partial class MainPage : Page, IDisposable
         DetailsOpenButton.IsEnabled = row is not null && !_connecting;
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
-        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateChecksumContext();
+        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateRemoteToolsContext(); UpdateChecksumContext();
         UpdateApplicationMenus();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)

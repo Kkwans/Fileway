@@ -55,6 +55,7 @@ public sealed partial class MainPage
 
     private void AddNavigationAccelerators(UIElement owner)
     {
+        AddSearchAccelerator(owner);
         // These are application shortcuts, not a tooltip for the complete page or caption.
         owner.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         var paneAccelerator = new KeyboardAccelerator { Key = VirtualKey.B, Modifiers = VirtualKeyModifiers.Control };
@@ -97,9 +98,9 @@ public sealed partial class MainPage
         Grid.SetColumnSpan(Sidebar, _sidebarOverlay ? 2 : 1);
         Sidebar.Visibility = !_sidebarOverlay || _sidebarOpen ? Visibility.Visible : Visibility.Collapsed;
         SidebarOverlayBackground.Visibility = _sidebarOverlay ? Visibility.Visible : Visibility.Collapsed;
-        MyFilesLabel.Visibility = RecentAccessLabel.Visibility = TransferCenterLabel.Visibility =
+        MyFilesLabel.Visibility = RecentAccessLabel.Visibility = TransferCenterLabel.Visibility = NasTasksLabel.Visibility =
             ConnectionLabel.Visibility = SidebarConnectionActionLabel.Visibility = SidebarCollections.Visibility = rail ? Visibility.Collapsed : Visibility.Visible;
-        foreach (var button in new[] { MyFilesButton, RecentAccessButton, TransferCenterButton, ConnectionButton })
+        foreach (var button in new[] { MyFilesButton, RecentAccessButton, TransferCenterButton, NasTasksButton, ConnectionButton })
         {
             button.HorizontalContentAlignment = rail ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             button.Padding = rail ? new Thickness(0) : new Thickness(12, 0, 12, 0);

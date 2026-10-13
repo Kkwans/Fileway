@@ -19,7 +19,7 @@ public sealed partial class MainPage
     private void InitializeApplicationMenus()
     {
         _applicationMenusReady = true;
-        foreach (var view in new UIElement[] { Workspace, ConnectionPanel, RecentPane, TransfersPanel, CollectionsPanel })
+        foreach (var view in new UIElement[] { Workspace, ConnectionPanel, RecentPane, TransfersPanel, CollectionsPanel, SearchPane, NasTasksPane })
         {
             var token = view.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateApplicationMenus());
             _applicationMenuViews.Add((view, token));
@@ -74,6 +74,8 @@ public sealed partial class MainPage
         SidebarCollections.IsEnabled = connected && !connectionView && CollectionsPanel.CanNavigate;
         MenuRecentItem.IsEnabled = RecentAccessButton.IsEnabled;
         MenuTransfersItem.IsEnabled = TransferCenterButton.IsEnabled;
+        MenuServerSearchItem.IsEnabled = connected && !connectionView && _files is IServerSearchService && (_directory ?? _root) is not null;
+        MenuNasTasksItem.IsEnabled = NasTasksButton.IsEnabled = connected && !connectionView && _files is IServerTaskService;
         CollectionsButton.IsEnabled = connected && _collections is not null && !connectionView;
         LogoutButton.IsEnabled = connected;
 
@@ -89,6 +91,7 @@ public sealed partial class MainPage
         PathLocationHost.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceTitle.Visibility = browser ? Visibility.Collapsed : Visibility.Visible;
         WorkspaceTitle.Text = connectionView ? "连接服务器" : RecentPane.Visibility == Visibility.Visible ? "最近访问"
+            : SearchPane.Visibility == Visibility.Visible ? "搜索结果" : NasTasksPane.Visibility == Visibility.Visible ? "NAS 文件任务"
             : TransfersPanel.Visibility == Visibility.Visible ? "传输中心" : CollectionsPanel.Visibility == Visibility.Visible ? "收藏与标签" : "我的文件";
         SearchBox.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.IsEnabled = BrowserCommands.IsEnabled = browser;
@@ -126,7 +129,7 @@ public sealed partial class MainPage
         foreach (var (key, action) in new[]
         {
             ("Alt + Left", "返回上一位置"), ("Alt + Up", "打开上一级目录"), ("Ctrl + L", "编辑原始路径"),
-            ("F5", "刷新当前视图"), ("Ctrl + B", "展开或折叠导航侧栏"), ("Enter", "打开选中的文件或文件夹"), ("Ctrl + A", "全选当前文件"),
+            ("F5", "刷新当前视图"), ("Ctrl + F", "搜索当前目录与子目录"), ("Ctrl + B", "展开或折叠导航侧栏"), ("Enter", "打开选中的文件或文件夹"), ("Ctrl + A", "全选当前文件"),
             ("F2", "重命名选中项目"), ("Delete", "将选中项目移入回收站"), ("Escape", "取消路径编辑或关闭详情 / 临时侧栏"),
         })
         {
