@@ -47,6 +47,10 @@ internal static class DownloadPresentationPolicy
         && EffectiveStatus(item) is not (DownloadStatus.Canceling or DownloadStatus.OutcomeUnknown or DownloadStatus.Reconciling);
     internal static bool CanReconcile(DownloadItem item) => item.Snapshot.CanReconcileLocally
         && !IsActive(EffectiveStatus(item)) && !IsTerminal(EffectiveStatus(item));
+    /// <summary>Starts a new explicit download after a terminal/blocked attempt; this never resumes a partial file.</summary>
+    internal static bool CanRetryFresh(DownloadItem item) => EffectiveStatus(item) is
+        DownloadStatus.Stopped or DownloadStatus.WaitingNetwork or DownloadStatus.WaitingAuthentication or
+        DownloadStatus.Conflict or DownloadStatus.SourceChanged or DownloadStatus.Failed or DownloadStatus.Canceled;
     /// <summary>Presentation hint only; the application rechecks all read authority before opening.</summary>
     internal static bool CanPlay(DownloadItem item) =>
         item.Context.Account == item.Snapshot.Task.Account && item.Source.Account == item.Context.Account &&
