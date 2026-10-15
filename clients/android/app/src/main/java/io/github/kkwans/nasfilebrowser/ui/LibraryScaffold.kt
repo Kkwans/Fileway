@@ -21,10 +21,7 @@ import io.github.kkwans.nasfilebrowser.app.LibrarySection
     actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
     Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer, bottomBar = { ClientNavigation(model, "library") }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(section.title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                actions()
-            }
+            FilewayPageHeader(section.title, actions = actions)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val colors = libraryChipColors()
                 LibrarySection.entries.filter { it != LibrarySection.TASKS }.forEach { page -> FilterChip(page == section, { model.librarySection(page) }, { Text(page.label) }, colors = colors,

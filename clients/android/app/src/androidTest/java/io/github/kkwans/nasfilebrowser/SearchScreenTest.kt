@@ -2,9 +2,11 @@ package io.github.kkwans.nasfilebrowser
 
 import android.graphics.Rect
 import android.view.ViewConfiguration
+import android.view.WindowInsets
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Direction
@@ -66,17 +68,19 @@ class SearchScreenTest {
     }
 
     private suspend fun fixture(action: suspend (ClientModel, ClientSearchTest.Fixture) -> Unit) {
-        val source = ClientSearchTest.Fixture()
         val database = ClientDatabase.get(instrumentation.targetContext)
         val previousSession = database.profiles().activeSession()
         val store = ProfileStore(database, CredentialVault(instrumentation.targetContext))
-        val profile = store.save(ServerProfile(name = "Search UI fixture", address = source.url))
-        lateinit var model: ClientModel
-        activity.scenario.onActivity { model = ViewModelProvider(it)[ClientModel::class.java] }
-        InstrumentationRegistry.getArguments().getString("nfbFontScale")?.toFloat()?.let { expected ->
-            assertEquals(expected, instrumentation.targetContext.resources.configuration.fontScale, 0.01f)
-        }
+        val source = ClientSearchTest.Fixture()
+        var savedProfile: ServerProfile? = null
+        var fixtureModel: ClientModel? = null
         try {
+            val profile = store.save(ServerProfile(name = "Search UI fixture", address = source.url)).also { savedProfile = it }
+            activity.scenario.onActivity { fixtureModel = ViewModelProvider(it)[ClientModel::class.java] }
+            val model = checkNotNull(fixtureModel)
+            InstrumentationRegistry.getArguments().getString("nfbFontScale")?.toFloat()?.let { expected ->
+                assertEquals(expected, instrumentation.targetContext.resources.configuration.fontScale, 0.01f)
+            }
             withContext(Dispatchers.Main) { model.selectProfile(profile); model.connectDraft(profile.name, source.url, BackendKind.NAS, "one", "fixture-only", "direct") }
             withTimeout(10_000) { model.state.first { it.connected && !it.busy } }
             (device.wait(Until.findObject(By.desc("搜索文件")), 5000) ?: error("Header search action missing")).click()
@@ -88,8 +92,8 @@ class SearchScreenTest {
         finally {
             source.releaseSearch.countDown(); source.releaseMetadata.countDown(); source.releasePlayback.countDown()
             withContext(NonCancellable) {
-                try { withContext(Dispatchers.Main) { model.disconnect() } } finally {
-                    try { store.remove(profile) } finally {
+                try { withContext(Dispatchers.Main) { fixtureModel?.disconnect() } } finally {
+                    try { savedProfile?.let { store.remove(it) } } finally {
                         try { source.close() } finally {
                             previousSession?.let { if (database.profiles().account(it.accountKey) != null) database.profiles().saveActiveSession(it) }
                         }
@@ -129,12 +133,24 @@ class SearchScreenTest {
             withTimeout(5000) { model.search.state.first { it.ending == SearchEnding.COMPLETED } }
             assertTrue(source.searchRequests.any { it.startsWith("/api/search/?") && it.contains("scope=recursive") })
             assertEquals("/library", model.state.value.path)
-            objectWithText("文件夹 · /")
+            resultWithName("跨目录+100%")
+            val resultArea = device.wait(Until.findObject(By.desc("搜索结果")), 5000) ?: error("Search results missing")
+            assertNotNull("Result parent location is independently visible", resultArea.findObject(By.text("/")))
             capture("search-global-results")
+            val cached = model.search.state.value
+            val requests = source.searchRequests.size
             clickResult("跨目录+100%")
             val opened = withTimeout(5000) { model.state.first { !it.busy && it.path == "/跨目录+100%" } }
             assertEquals("/%e8%b7%a8%e7%9b%ae%e5%bd%95%2b100%25", opened.wirePath)
-            assertFalse(model.search.state.value.open)
+            assertTrue("A result directory retains its search source", model.search.state.value.open)
+            assertFalse("A result directory displays the browser", opened.searchDisplayed)
+            (device.wait(Until.findObject(By.desc("上一级")), 5000) ?: error("Directory return action missing")).click()
+            withTimeout(5000) { model.state.first { !it.busy && it.searchDisplayed && it.path == "/library" } }
+            assertEquals(cached.query, model.search.state.value.query)
+            assertEquals(cached.scope, model.search.state.value.scope)
+            assertEquals(cached.items, model.search.state.value.items)
+            assertEquals("Returning restores results without another search", requests, source.searchRequests.size)
+            resultWithName("跨目录+100%")
         }
     }
 
@@ -155,10 +171,17 @@ class SearchScreenTest {
             longPressResult("retry")
             assertTrue(device.wait(Until.hasObject(By.text("/retry")), 5000))
             objectWithText("关闭").click()
+            val cached = model.search.state.value
             clickResult("retry")
             withTimeout(5000) { model.state.first { !it.busy && it.path == "/retry" } }
-            assertFalse(model.search.state.value.open)
+            assertTrue(model.search.state.value.open)
+            assertFalse(model.state.value.searchDisplayed)
             assertTrue(device.wait(Until.hasObject(By.desc("上一级")), 5000))
+            device.findObject(By.desc("上一级")).click()
+            withTimeout(5000) { model.state.first { !it.busy && it.searchDisplayed && it.path == "/" } }
+            assertEquals(cached.query, model.search.state.value.query)
+            assertEquals(cached.items, model.search.state.value.items)
+            resultWithName("retry")
         }
     }
 
@@ -176,6 +199,32 @@ class SearchScreenTest {
             delay(200)
             assertNull("Leaving search must not start the previously selected movie after its identity response arrives", model.state.value.selected)
             assertFalse(model.search.state.value.open)
+            assertFalse(model.state.value.searchDisplayed)
+        }
+    }
+
+    @SdkSuppress(minSdkVersion = 30)
+    @Test fun toolbarBackHidesImeBeforeClosingSearch(): Unit = runBlocking {
+        fixture { model, _ ->
+            fun imeVisible(): Boolean {
+                var visible = false
+                activity.scenario.onActivity { host ->
+                    visible = host.window.decorView.rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true
+                }
+                return visible
+            }
+            (device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5000) ?: error("Search input missing")).click()
+            withTimeout(5000) { while (!imeVisible()) delay(25) }
+            (device.wait(Until.findObject(By.desc("返回文件")), 5000) ?: error("Return action missing")).click()
+            withTimeout(5000) { while (imeVisible()) delay(25) }
+            instrumentation.waitForIdleSync()
+            device.waitForIdle()
+            assertTrue("First toolbar back preserves the search while dismissing IME", model.state.value.searchDisplayed)
+            assertTrue(model.search.state.value.open)
+            assertTrue(device.wait(Until.hasObject(By.desc("返回文件")), 5000))
+            device.findObject(By.desc("返回文件")).click()
+            withTimeout(5000) { model.state.first { !it.searchDisplayed } }
+            assertFalse("Second toolbar back closes the search", model.search.state.value.open)
         }
     }
 

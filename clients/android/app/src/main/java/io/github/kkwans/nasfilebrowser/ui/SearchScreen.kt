@@ -18,7 +18,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -38,30 +37,23 @@ import io.github.kkwans.nasfilebrowser.app.FileCategory
 import io.github.kkwans.nasfilebrowser.data.SearchEnding
 import io.github.kkwans.nasfilebrowser.data.SearchResult
 import io.github.kkwans.nasfilebrowser.data.SearchScope
+import io.github.kkwans.nasfilebrowser.data.CompactGridSize
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 @Composable internal fun SearchScreen(model: ClientModel, client: ClientState) {
     val state by model.search.state.collectAsStateWithLifecycle()
     val displayed = remember(state.items, state.category) { state.visibleItems }
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val colors = MaterialTheme.colorScheme.copy(
-        primary = if (dark) Color(0xFF69A8FF) else Color(0xFF1767E8),
-        onPrimary = if (dark) Color(0xFF082B58) else Color.White,
-        background = if (dark) Color(0xFF141416) else Color.White,
-        onBackground = if (dark) Color(0xFFF3F3F6) else Color(0xFF202023),
-        surface = if (dark) Color(0xFF202023) else Color(0xFFF5F5F7),
-        onSurface = if (dark) Color(0xFFF3F3F6) else Color(0xFF202023),
-        onSurfaceVariant = if (dark) Color(0xFFB5B5BE) else Color(0xFF63636D),
-        outlineVariant = if (dark) Color(0xFF34343A) else Color(0xFFE9E9ED),
-    )
+    val colors = FilewayTheme.colors
     val focus = LocalFocusManager.current
+    val onBack = LocalFilewayBack.current ?: { model.back(); Unit }
     var details by remember(state.resultBaseWirePath) { mutableStateOf<SearchResult?>(null) }
     fun submit() { if (!model.state.value.busy) { focus.clearFocus(); model.search.submit() } }
     MaterialTheme(colorScheme = colors) {
-        Scaffold(containerColor = colors.surface) { insets ->
+        Scaffold(containerColor = colors.background) { insets ->
             Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
                 Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { model.back() }, modifier = Modifier.size(48.dp)) {
+                        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                             Icon(painterResource(R.drawable.ic_arrow_back), "返回文件", Modifier.size(22.dp), tint = colors.onBackground)
                         }
                         Row(Modifier.weight(1f).background(colors.background, RoundedCornerShape(8.dp))
@@ -92,14 +84,15 @@ import io.github.kkwans.nasfilebrowser.data.SearchScope
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(state.resultBasePath, modifier = Modifier.weight(1f).padding(end = 8.dp),
                                 style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            FileLayoutMenu(client.fileLayout, enabled = !client.busy, select = model::fileLayout)
+                            FileLayoutMenu(client.fileLayout, enabled = !client.busy, compactGridSize = client.compactGridSize,
+                                onCompactGridSize = model::compactGridSize, select = model::fileLayout)
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         FileCategoryMenu(state.category, !client.busy, model.search::category)
                         if (state.category != FileCategory.ALL) Text("当前结果 ${displayed.size} / ${state.items.size} 项", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
                     FileCollection(displayed, client.fileLayout, Modifier.weight(1f), "搜索结果",
-                        resetKey = Triple(client.previewScope, state.resultBaseWirePath, Triple(state.query, state.scope, state.category)), keyOf = { it.relativePath }, header = {
+                        resetKey = Triple(client.previewScope, state.resultBaseWirePath, Triple(state.query, state.scope, state.category)), keyOf = { it.relativePath }, compactGridSize = client.compactGridSize, header = {
                         Column {
                         Column {
                             Row(Modifier.fillMaxWidth().padding(top = 4.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -151,7 +144,7 @@ import io.github.kkwans.nasfilebrowser.data.SearchScope
                         }
                     }) { result ->
                         SearchResultRow(model, result, state.resultBasePath, state.resultBaseWirePath, client.fileLayout,
-                            state.openingPath == result.relativePath, enabled = !client.busy,
+                            state.openingPath == result.relativePath, enabled = !client.busy, compactGridSize = client.compactGridSize,
                             open = { if (!model.state.value.busy) { focus.clearFocus(); model.search.openResult(result) } }, details = { details = result })
                     }
                 }
@@ -178,12 +171,12 @@ import io.github.kkwans.nasfilebrowser.data.SearchScope
 }
 
 @Composable private fun SearchResultRow(model: ClientModel, result: SearchResult, basePath: String, baseWirePath: String,
-    layout: FileLayout, opening: Boolean, enabled: Boolean, open: () -> Unit, details: () -> Unit) {
+    layout: FileLayout, opening: Boolean, enabled: Boolean, compactGridSize: CompactGridSize, open: () -> Unit, details: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val resource = remember(result, basePath, baseWirePath) { result.resource(basePath, baseWirePath) }
     Column(Modifier.fillMaxWidth()) {
         if (resource != null) FileEntry(model, resource, layout,
-            enabled, open, details, location = resource.path.substringBeforeLast('/', "").ifEmpty { "/" })
+            enabled, open, details, location = resource.path.substringBeforeLast('/', "").ifEmpty { "/" }, compactGridSize = compactGridSize)
         else Column(Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = details,
             onLongClickLabel = "查看完整名称和位置", role = Role.Button, enabled = enabled).padding(vertical = 12.dp)) {
             Text(result.name, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)

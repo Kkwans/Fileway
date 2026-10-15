@@ -41,20 +41,12 @@ import io.github.kkwans.nasfilebrowser.app.mediaKind
 import io.github.kkwans.nasfilebrowser.data.collectionPath
 import io.github.kkwans.nasfilebrowser.data.FileTransferAction
 import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 /** Official reference: restrained chrome, cover-led content and compact directory entries. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun BrowserScreen(model: ClientModel, state: ClientState) {
-    val dark = MaterialTheme.colorScheme.background.luminance() < .5f
-    val colors = MaterialTheme.colorScheme.copy(
-        primary = if (dark) Color(0xFF69A8FF) else Color(0xFF1767E8),
-        background = if (dark) Color(0xFF141416) else Color.White,
-        onBackground = if (dark) Color(0xFFF3F3F6) else Color(0xFF202023),
-        surface = if (dark) Color(0xFF202023) else Color(0xFFF5F5F7),
-        onSurface = if (dark) Color(0xFFF3F3F6) else Color(0xFF202023),
-        onSurfaceVariant = if (dark) Color(0xFFB5B5BE) else Color(0xFF63636D),
-        outlineVariant = if (dark) Color(0xFF34343A) else Color(0xFFE9E9ED),
-    )
+    val colors = FilewayTheme.colors
     val layout = state.fileLayout
     val tags by model.tags.state.collectAsStateWithLifecycle()
     LaunchedEffect(tags.scope) { if (tags.scope.isNotEmpty()) model.tags.refresh() }
@@ -71,15 +63,23 @@ import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
     val trash by model.trash.state.collectAsStateWithLifecycle()
     val operations by model.fileOperations.state.collectAsStateWithLifecycle()
     val uploads by model.uploads.state.collectAsStateWithLifecycle()
-    var uploadMenu by remember(state.previewScope) { mutableStateOf(false) }
+    var browserMenu by remember(state.previewScope, state.wirePath) { mutableStateOf(false) }
     val uploadFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) model.uploads.prepare(files = uris) else model.uploads.cancelSelection()
     }
     val uploadFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) model.uploads.prepare(tree = uri) else model.uploads.cancelSelection()
     }
-    LaunchedEffect(operations.lastTask?.id) { selected = selected - operations.lastSources.map(::key).toSet() }
-    LaunchedEffect(operations.scope, operations.batchCompletion) { selected = selected - operations.lastBatchSources.map(::key).toSet() }
+    LaunchedEffect(operations.lastTask?.id) {
+        if (operations.lastTask != null) {
+            selected = selected - operations.lastSources.map(::key).toSet()
+            if (selected.isEmpty()) selecting = false
+        }
+    }
+    LaunchedEffect(operations.scope, operations.batchCompletion) {
+        selected = selected - operations.lastBatchSources.map(::key).toSet()
+        if (operations.lastBatchSources.isNotEmpty() && selected.isEmpty()) selecting = false
+    }
     var batchKind by remember(state.previewScope, state.wirePath) { mutableStateOf("") }
     var pendingTrash by remember(state.previewScope, state.wirePath) { mutableStateOf<List<ResourceRef>?>(null) }
     var trashAttempted by remember(state.previewScope, state.wirePath) { mutableStateOf(false) }
@@ -90,28 +90,10 @@ import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
     MaterialTheme(colorScheme = colors) {
         Scaffold(containerColor = colors.surface, bottomBar = { ClientNavigation(model, "files") }) { insets ->
             Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("文件", modifier = Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleLarge, color = colors.onBackground)
-                    if (state.permissions.create) Box {
-                        IconButton({ uploadMenu = true }, enabled = !state.busy && !uploads.busy && !uploads.selecting && !selectionBusy) {
-                            Icon(painterResource(R.drawable.ic_upload), "上传本机文件", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
-                        }
-                        DropdownMenu(uploadMenu, { uploadMenu = false }) {
-                            DropdownMenuItem({ Text("上传文件") }, {
-                                uploadMenu = false
-                                if (model.beginUploadSelection()) try { uploadFiles.launch(arrayOf("*/*")) }
-                                catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件选择器") }
-                            })
-                            DropdownMenuItem({ Text("上传文件夹") }, {
-                                uploadMenu = false
-                                if (model.beginUploadSelection()) try { uploadFolder.launch(null) }
-                                catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件夹选择器") }
-                            })
-                        }
-                    }
+                FilewayPageHeader("文件", state.profile?.name) {
                     if (state.permissions.create) Box {
                         IconButton({ createMenu = true }, enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null) {
-                            Icon(painterResource(R.drawable.ic_create_folder), "新建文件或文件夹", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                            Icon(painterResource(R.drawable.ic_add), "新建文件或文件夹", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                         }
                         DropdownMenu(createMenu, { createMenu = false }) {
                             DropdownMenuItem({ Text("新建文件") }, { createMenu = false; model.startFileCreation(state.previewScope) })
@@ -119,20 +101,44 @@ import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
                                 modifier = Modifier.semantics { contentDescription = "新建文件夹" })
                         }
                     }
-                    IconButton(onClick = { model.retry(); model.tags.refresh() }, enabled = !state.busy) {
-                        Icon(painterResource(R.drawable.ic_refresh), "刷新", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                    Box {
+                        IconButton({ browserMenu = true }, enabled = !state.busy) {
+                            Icon(painterResource(R.drawable.ic_more_vert), "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                        }
+                        DropdownMenu(browserMenu, { browserMenu = false }) {
+                            if (state.permissions.create) {
+                                DropdownMenuItem({ Text("上传文件") }, {
+                                    browserMenu = false
+                                    if (model.beginUploadSelection()) try { uploadFiles.launch(arrayOf("*/*")) }
+                                    catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件选择器") }
+                                }, enabled = !uploads.busy && !uploads.selecting && !selectionBusy,
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_upload), null, Modifier.size(22.dp)) })
+                                DropdownMenuItem({ Text("上传文件夹") }, {
+                                    browserMenu = false
+                                    if (model.beginUploadSelection()) try { uploadFolder.launch(null) }
+                                    catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件夹选择器") }
+                                }, enabled = !uploads.busy && !uploads.selecting && !selectionBusy,
+                                    leadingIcon = { Icon(painterResource(R.drawable.ic_folder), null, Modifier.size(22.dp)) })
+                            }
+                            DropdownMenuItem({ Text("刷新") }, { browserMenu = false; model.retry(); model.tags.refresh() },
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_refresh), null, Modifier.size(22.dp)) })
+                            DropdownMenuItem({ Text("多选") }, {
+                                browserMenu = false; selecting = true; selected = emptySet(); batchKind = ""
+                            }, enabled = displayed.isNotEmpty() && !selectionBusy,
+                                leadingIcon = { Icon(painterResource(R.drawable.ic_check), null, Modifier.size(22.dp)) })
+                        }
                     }
-                    FileLayoutMenu(layout, select = model::fileLayout)
                     IconButton(onClick = model::openSearch, enabled = !state.busy) {
                         Icon(painterResource(R.drawable.ic_search), "搜索文件", Modifier.size(22.dp), tint = colors.onBackground)
                     }
                 }
                 if (state.path != "/") DirectoryBreadcrumbs(state.path, state.wirePath, state.busy, { model.back() }, model::jumpDirectory)
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (!selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     FileCategoryMenu(state.fileCategory, !state.busy, model::fileCategory)
-                    if (!selecting) TextButton({ selecting = true; selected = emptySet(); batchKind = "" }, enabled = !state.busy && displayed.isNotEmpty()) { Text("多选") }
                     Spacer(Modifier.weight(1f))
                     FileOrderMenu(state.fileOrder, !state.busy, model::fileOrder)
+                    FileLayoutMenu(layout, !state.busy, select = model::fileLayout,
+                        compactGridSize = state.compactGridSize, onCompactGridSize = model::compactGridSize)
                 }
                 if (selecting) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -155,7 +161,10 @@ import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
                         if (state.permissions.download) FileActionIcon(R.drawable.ic_folder, "打包下载为 ZIP", !state.busy && !selectionBusy && chosen.isNotEmpty()) { model.startZipExport(chosen, state.previewScope) }
                         FileActionIcon(R.drawable.ic_download, "批量下载", !state.busy && !selectionBusy && downloads.folderPlan == null && chosen.isNotEmpty() && state.permissions.download) {
                             batchKind = "download"
-                            model.downloadFiles(chosen) { file -> selected = selected - key(file) }
+                            model.downloadFiles(chosen) { file ->
+                                selected = selected - key(file)
+                                if (selected.isEmpty()) selecting = false
+                            }
                             if (chosen.none { it.directory } && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
                                 notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                         }
@@ -170,7 +179,7 @@ import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
                     (error ?: notice)?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
                         color = if (error != null) colors.error else colors.onSurfaceVariant) }
                 }
-                TransferTaskBanner(model)
+                if (!selecting) TransferTaskBanner(model)
                 state.error?.let { message ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(message, modifier = Modifier.weight(1f), color = colors.error, style = MaterialTheme.typography.bodyMedium)
@@ -193,11 +202,12 @@ import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
                         if (state.fileCategory != FileCategory.ALL) TextButton(onClick = { model.fileCategory(FileCategory.ALL) }) { Text("显示全部文件") }
                     }
                 } else FileCollection(displayed, layout, Modifier.weight(1f), layout.collectionDescription(),
-                    resetKey = listOf(state.previewScope, state.wirePath, state.fileCategory, state.fileOrder), keyOf = { it.wirePath.ifEmpty { it.path } }) { file ->
+                    resetKey = listOf(state.previewScope, state.wirePath, state.fileCategory, state.fileOrder,
+                        tags.filterId, tags.globalFilter), keyOf = { it.wirePath.ifEmpty { it.path } }, compactGridSize = state.compactGridSize) { file ->
                     FileEntry(model, file, layout, !state.busy && (!selecting || !selectionBusy), {
                         if (selecting) selected = if (key(file) in selected) selected - key(file) else selected + key(file)
                         else model.open(file)
-                    }, { details = file }, selected = if (selecting) key(file) in selected else null)
+                    }, { details = file }, selected = if (selecting) key(file) in selected else null, compactGridSize = state.compactGridSize)
                 }
             }
         }
@@ -219,142 +229,10 @@ import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
                 batchKind = "trash"; trashAttempted = true
                 model.trash.moveAll(pending, { file ->
                     selected = selected - key(file)
+                    if (selected.isEmpty()) selecting = false
                     pendingTrash = pendingTrash?.filterNot { key(it) == key(file) }
                 }, { pendingTrash = null })
             }, enabled = !selectionBusy && pending.isNotEmpty()) { Text(if (trash.changing) "正在移动" else "移入回收站") } },
             dismissButton = { TextButton({ pendingTrash = null }, enabled = !trash.changing) { Text("取消") } }) }
     }
-}
-
-/** Shared file card for directory and verified search results. */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun FileEntry(model: ClientModel, file: ResourceRef, layout: FileLayout, enabled: Boolean,
-    open: () -> Unit, details: () -> Unit, location: String? = null, metadata: @Composable (() -> Unit)? = null, selected: Boolean? = null) {
-    val colors = MaterialTheme.colorScheme
-    val tags by model.tags.state.collectAsStateWithLifecycle()
-    val associated = if (file.downloadId.isNotEmpty()) emptyList() else tags.items.filter { collectionPath(file.path) in it.paths }
-    val action = if (selected != null) Modifier.toggleable(selected, enabled = enabled, role = Role.Checkbox) { open() }
-        else Modifier.combinedClickable(enabled = enabled, role = Role.Button, onClick = open, onLongClick = details, onLongClickLabel = "查看完整名称与路径")
-    @Composable fun more() {
-        IconButton(onClick = details, enabled = enabled, modifier = Modifier.size(48.dp).semantics { contentDescription = "文件操作：${file.name}" }) {
-            Icon(painterResource(R.drawable.ic_more_vert), null, Modifier.size(24.dp), tint = colors.onBackground)
-        }
-    }
-    @Composable fun artwork(modifier: Modifier) {
-        val media = file.mediaKind() != null
-        if (media) MediaThumbnail(model, file, modifier.clip(RoundedCornerShape(6.dp)),
-            showStatusText = layout == FileLayout.COVER || layout == FileLayout.DETAIL,
-            contentScale = if (layout == FileLayout.UNBOUNDED) ContentScale.Fit else ContentScale.Crop,
-            naturalAspect = layout == FileLayout.UNBOUNDED)
-        else Box((if (layout == FileLayout.UNBOUNDED) modifier.height(84.dp) else modifier)
-            .background(if (file.directory) colors.primary.copy(alpha = .07f) else colors.surface, RoundedCornerShape(6.dp)), contentAlignment = Alignment.Center) {
-            if (file.directory) Icon(painterResource(R.drawable.ic_folder), null,
-                Modifier.size(when (layout) { FileLayout.COVER, FileLayout.UNBOUNDED -> 56.dp; FileLayout.DETAIL -> 44.dp; else -> 26.dp }), tint = colors.primary)
-            else Text(file.name.substringAfterLast('.', "文件").uppercase().take(5),
-                style = if (layout == FileLayout.COVER || layout == FileLayout.DETAIL) MaterialTheme.typography.titleMedium else MaterialTheme.typography.labelMedium,
-                color = colors.onSurfaceVariant)
-        }
-    }
-    @Composable fun caption(modifier: Modifier) {
-        Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            val grid = layout == FileLayout.COVER || layout == FileLayout.COMPACT || layout == FileLayout.UNBOUNDED
-            val titleStyle = if (grid) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-            if (layout == FileLayout.UNBOUNDED) {
-                Text(file.name, modifier = Modifier.fillMaxWidth(), style = titleStyle, textAlign = TextAlign.Start, color = colors.onBackground)
-            } else if (grid) {
-                val measurer = rememberTextMeasurer()
-                val density = LocalDensity.current
-                // Include actual Latin/CJK fallback metrics, rather than multiplying declared lineHeight.
-                val measured = measurer.measure("国Ag\n国Ag", style = titleStyle).size.height
-                Box(Modifier.fillMaxWidth().height(with(density) { measured.toDp() })) {
-                    Text(file.name, modifier = Modifier.fillMaxWidth(), style = titleStyle, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                        textAlign = if (layout == FileLayout.UNBOUNDED) TextAlign.Center else TextAlign.Start, color = colors.onBackground)
-                }
-            } else Text(file.name, style = titleStyle, maxLines = 2, overflow = TextOverflow.Ellipsis, color = colors.onBackground)
-            if (metadata != null) metadata() else if (layout != FileLayout.UNBOUNDED) {
-                val label = (if (file.directory) "文件夹" else readableSize(file.size)) + (location?.let { " · $it" } ?: "")
-                val modified = displayModified(file.modified)
-                if (layout == FileLayout.COVER || layout == FileLayout.COMPACT) {
-                    val measurer = rememberTextMeasurer()
-                    val density = LocalDensity.current
-                    val measured = measurer.measure("国Ag", style = MaterialTheme.typography.bodySmall).size.height
-                    Box(Modifier.fillMaxWidth().height(with(density) { measured.toDp() })) {
-                        Text(label, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    if (layout == FileLayout.COVER) Box(Modifier.fillMaxWidth().height(with(density) { measured.toDp() })) {
-                        Text(modified ?: "时间未提供", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                } else {
-                    Text(if (layout == FileLayout.LIST && modified != null) "$label · $modified" else label,
-                        style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (layout == FileLayout.DETAIL && modified != null) Text(modified, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                }
-            }
-        }
-    }
-    @Composable fun labels() {
-        if (layout == FileLayout.UNBOUNDED && associated.isNotEmpty()) FlowRow(Modifier.fillMaxWidth().padding(horizontal = 10.dp).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            associated.forEach { tag -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(Modifier.size(6.dp).background(metadataColor(tag.color, colors.primary), androidx.compose.foundation.shape.CircleShape))
-                Text(tag.name, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.semantics { contentDescription = "文件标签：${tag.name}" })
-            } }
-        }
-    }
-    Surface(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).then(action),
-        shape = RoundedCornerShape(10.dp), color = colors.background, border = if (selected == true) BorderStroke(2.dp, colors.primary) else null) {
-        Column {
-        when (layout) {
-            FileLayout.COVER -> Column(Modifier.fillMaxWidth()) {
-                artwork(Modifier.fillMaxWidth().aspectRatio(4f / 3f))
-                caption(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp))
-            }
-            FileLayout.COMPACT -> Column(Modifier.fillMaxWidth().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.fillMaxWidth().height(56.dp)) { artwork(Modifier.size(40.dp).align(Alignment.Center)) }
-                caption(Modifier.fillMaxWidth())
-            }
-            FileLayout.UNBOUNDED -> Column(Modifier.fillMaxWidth()) {
-                artwork(Modifier.fillMaxWidth())
-                caption(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp))
-            }
-            FileLayout.DETAIL -> Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                artwork(Modifier.fillMaxWidth(.44f).aspectRatio(16f / 9f)); caption(Modifier.weight(1f))
-            }
-            FileLayout.LIST -> Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                artwork(Modifier.size(44.dp)); caption(Modifier.weight(1f)); if (selected == null) more()
-            }
-        }
-        labels()
-        }
-    }
-}
-
-@Composable internal fun FileDetailsDialog(file: ResourceRef, showSize: Boolean = true, onOpen: (() -> Unit)? = null,
-    openEnabled: Boolean = true, onLocation: (() -> Unit)? = null, actions: (@Composable () -> Unit)? = null, onDismiss: () -> Unit) {
-    @Composable fun field(label: String, value: String) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onBackground)
-        }
-    }
-    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(12.dp), containerColor = MaterialTheme.colorScheme.background,
-        title = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("文件详情", style = MaterialTheme.typography.titleLarge)
-            ProvideTextStyle(MaterialTheme.typography.bodyLarge) { actions?.invoke() }
-        } }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()).semantics { contentDescription = "文件详情内容" }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SelectionContainer { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            field("名称", file.name); field("位置", file.path); field("类型", fileTypeLabel(file))
-            if (showSize && !file.directory) field("大小", readableSize(file.size))
-            field("修改时间", displayModified(file.modified) ?: "未提供")
-        } }
-        }
-    }, confirmButton = {
-        if (onLocation != null) TextButton(onClick = onLocation, enabled = openEnabled) { Text("打开所在目录") }
-        if (onOpen == null) TextButton(onClick = onDismiss) { Text("关闭") }
-        else TextButton(onClick = onOpen, enabled = openEnabled) { Text("打开") }
-    }, dismissButton = { if (onOpen != null) TextButton(onClick = onDismiss) { Text("关闭") } })
 }

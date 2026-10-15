@@ -62,13 +62,16 @@ data class ClientState(
     val permissions: ServerPermissions = ServerPermissions(),
     val notice: String? = null,
     val progressStatus: String? = null, val tab: String = "files", val previewScope: String = "", val fileLayout: FileLayout = FileLayout.COVER,
+    val searchDisplayed: Boolean = false, val compactGridSize: CompactGridSize = CompactGridSize.MEDIUM,
 )
 data class SessionContext(val profile: ServerProfile, val account: AccountRecord, val api: NasSession, val generation: Int, val owner: String = java.util.UUID.randomUUID().toString())
 private data class PlaybackBinding(val context: SessionContext, val file: ResourceRef, val identity: String, val writer: PlaybackWriter)
 private data class TemporaryMediaBinding(val context: SessionContext, val file: ResourceRef, val asset: PreviewLease)
 
 class ClientModel(application: Application) : AndroidViewModel(application) {
-    private val mutable = MutableStateFlow(ClientState(startupPending = true))
+    private val presentationPreferences = FilePresentationPreferences(application)
+    private val mutable = MutableStateFlow(ClientState(startupPending = true,
+        compactGridSize = presentationPreferences.compactGridSize()))
     val state = mutable.asStateFlow()
     val player = NativePlayer(application)
     val playbackPreferences = PlaybackPreferences(application)
@@ -96,7 +99,6 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private var transferRefresh: Job? = null
     private var transferRefreshPending = false
     private var foreground = false
-    private var updateReturnTab = "files"
     private var context: SessionContext? = null
     private var lease = ""
     private val subtitleLeases = mutableListOf<PreviewLease>()
@@ -109,6 +111,8 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private var startupJob: Job? = null
     private val cleanup = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val navigation = ArrayDeque<Pair<String, String>>()
+    private val returnNavigation = ClientNavigationHistory()
+    private var compactSizeRequest = 0L
     private var pendingDirectory: Pair<String, String>? = null
     private var playback: PlaybackBinding? = null
     private var localPlayback: DownloadRecord? = null
@@ -161,6 +165,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     init {
         viewModelScope.launch { state.collect { syncLibraryObservers() } }
         viewModelScope.launch { search.state.collect { syncLibraryObservers() } }
+        viewModelScope.launch { documents.state.collect { syncLibraryObservers() } }
+        viewModelScope.launch { documentEdits.state.collect { syncLibraryObservers() } }
+        viewModelScope.launch { archives.state.collect { syncLibraryObservers() } }
+        viewModelScope.launch { shell.state.collect { syncLibraryObservers() } }
         viewModelScope.launch {
             var watchedScope = ""
             val terminal = linkedSetOf<String>()
@@ -235,7 +243,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         operation?.cancel(); generation++
         closeSession(); navigation.clear()
         val expected = generation
-        mutable.value = mutable.value.copy(startupPending = automatic, busy = true, stage = if (restored == null) "正在登录服务器" else "正在恢复登录", error = null, selected = null, image = null, mediaQueue = null, previewScope = "", fileLayout = FileLayout.COVER)
+        mutable.value = mutable.value.copy(startupPending = automatic, busy = true, stage = if (restored == null) "正在登录服务器" else "正在恢复登录", error = null, selected = null, image = null, mediaQueue = null, previewScope = "", fileLayout = FileLayout.COVER, searchDisplayed = false)
         operation = viewModelScope.launch {
             var opened: NasSession? = null
             var phase = LoginPhase.LOCAL_RECORDS
@@ -388,8 +396,12 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     fun openShell() {
         val bound = context ?: return
+        if (!mutable.value.permissions.execute || shell.state.value.open) return
+        rememberNavigationSource(ClientReturnKind.AUXILIARY)
+        mutable.value = mutable.value.copy(tab = "shell", searchDisplayed = false)
         shell.open(DirectoryCrumb("当前目录", mutable.value.path, mutable.value.wirePath), bound.api.id)
     }
+    fun finishShellNavigation() { if (mutable.value.tab == "shell") restoreNavigationSource(ClientReturnKind.AUXILIARY) }
     fun openArchiveEntry(entry: ArchiveEntry, sourceScope: String) {
         val bound = context ?: return
         val state = archives.state.value
@@ -433,7 +445,9 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             } finally { if (!transferred) asset.release() }
         }
     }
-    fun verifyDocumentDirectory(parent: DirectoryCrumb) { tab("files"); browse(parent.path, parent.wirePath ?: SearchResult.encodePath(parent.path)) }
+    fun verifyDocumentDirectory(parent: DirectoryCrumb) {
+        navigateToDirectory(parent.path, parent.wirePath ?: SearchResult.encodePath(parent.path))
+    }
     fun openRemotePath(path: String) = openRemotePathWithWire(path, "")
     fun openFavorite(item: Favorite, sourceScope: String) {
         val bound = context ?: return
@@ -466,7 +480,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 val file = ResourceRef(path, data.optString("wirePath").ifEmpty { wire }, data.optString("name").ifEmpty { path.substringAfterLast('/') },
                     data.getBoolean("isDir"), data.optString("type"), data.optLong("size"), data.optString("modified"))
                 mutable.value = mutable.value.copy(busy = false, stage = "")
-                if (file.directory) { tab("files"); openQueued(file, null) }
+                if (file.directory) openQueued(file, null)
                 else openQueued(file, MediaQueue.snapshot(++queueSequence, bound.account.key, file, listOf(file), MediaQueueSource.SINGLE))
             } catch (error: Exception) {
                 if (error !is CancellationException && context === bound) mutable.value = mutable.value.copy(
@@ -508,6 +522,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         fileOperations.startTransfer(files, action, DirectoryCrumb("当前目录", current.path, current.wirePath))
     }
     fun showFileTask(id: String? = null) {
+        if (mutable.value.tab != "tasks") rememberNavigationSource(if (id == null) ClientReturnKind.AUXILIARY else ClientReturnKind.TASK_DETAIL)
         if (mutable.value.image != null) closeImage()
         if (mutable.value.selected != null) leavePlayer()
         taskCenterSection(TaskCenterSection.BACKGROUND)
@@ -580,8 +595,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (file.directory) {
-            navigation.addLast(mutable.value.path to mutable.value.wirePath)
-            browse(file.path, file.wirePath)
+            navigateToDirectory(file.path, file.wirePath)
         } else if (file.mediaKind() in setOf(MediaKind.VIDEO, MediaKind.AUDIO)) {
             val bound = context ?: return
             search.cancel()
@@ -700,10 +714,13 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
-    private fun browse(path: String, wire: String) {
+    private fun browse(path: String, wire: String, preserveSearch: Boolean = returnNavigation.keepsSearch(navigationScope())) {
         val bound = context ?: return
         pendingDirectory = path to wire
-        search.close()
+        if (preserveSearch) search.cancel() else {
+            search.close()
+            mutable.value = mutable.value.copy(searchDisplayed = false)
+        }
         operation?.cancel(); val expected = generation
         mutable.value = mutable.value.copy(busy = true, stage = "正在读取目录", error = null)
         operation = viewModelScope.launch {
@@ -722,9 +739,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val parent = file.path.substringBeforeLast('/').ifEmpty { "/" }
         val wire = file.wirePath.ifEmpty { SearchResult.encodePath(file.path) }
             .substringBeforeLast('/').ifEmpty { "/" }
-        if (parent != current.path || wire != current.wirePath) navigation.addLast(current.path to current.wirePath)
-        mutable.value = current.copy(tab = "files", fileCategory = FileCategory.ALL)
-        browse(parent, wire)
+        navigateToDirectory(parent, wire, resetCategory = true)
     }
     fun jumpDirectory(crumb: DirectoryCrumb) {
         if (mutable.value.busy || crumb.path == mutable.value.path || crumb.wirePath == null) return
@@ -826,7 +841,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     fun openSearch() {
         val bound = context ?: return
-        if (!mutable.value.busy && mutable.value.selected == null) search.open(bound, mutable.value.path, mutable.value.wirePath)
+        if (!mutable.value.busy && mutable.value.selected == null) {
+            search.open(bound, mutable.value.path, mutable.value.wirePath)
+            mutable.value = mutable.value.copy(searchDisplayed = true)
+        }
     }
     fun cancel() {
         pendingDirectory = null
@@ -847,15 +865,28 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             error = if (returnToSource) null else if (opening) "已取消打开，可重试或选择其他视频" else mutable.value.error)
     }
     fun back(): Boolean {
+        // The editor's own BackHandler owns dirty/unknown-write confirmation.
+        if (documentEdits.state.value.file != null) return true
         if (documents.state.value.file != null) { documents.close(); closeTemporaryContent(); return true }
-        if (shell.state.value.open) { shell.close(); return true }
-        if (archives.state.value.file != null) { archives.close(); return true }
+        if (shell.state.value.open) { shell.close(); finishShellNavigation(); return true }
         if (mutable.value.image != null) { closeImage(); return true }
         if (mutable.value.selected != null) { leavePlayer(); return true }
-        if (search.state.value.open) { cancel(); search.close(); return true }
-        if (mutable.value.tab == "updates") { tab(updateReturnTab); return true }
-        if (mutable.value.tab != "files") { tab("files"); return true }
+        if (archives.state.value.file != null) { closeArchive(); return true }
+        if (mutable.value.searchDisplayed && search.state.value.open) {
+            cancel(); search.close(); mutable.value = mutable.value.copy(searchDisplayed = false); return true
+        }
+        if (tasks.state.value.focusId != null && mutable.value.tab == "tasks") { closeTaskDetail(); return true }
+        if (mutable.value.tab == "admin-users") {
+            val users = adminUsers.state.value
+            if (users.saving) return true
+            if (users.draft != null && !users.unknown) { adminUsers.closeEditor(); return true }
+        }
+        if (mutable.value.tab == "server-settings" && serverSettings.state.value.saving) return true
+        val source = returnNavigation.peek(navigationScope())
+        if (source != null && source.kind != ClientReturnKind.DIRECTORY) return restoreNavigationSource()
+        if (mutable.value.tab != "files") { navigateMain(ClientMainDestination.FILES); return true }
         if (navigation.isNotEmpty()) { val previous = navigation.removeLast(); browse(previous.first, previous.second); return true }
+        if (source?.kind == ClientReturnKind.DIRECTORY) return restoreNavigationSource(ClientReturnKind.DIRECTORY)
         if (mutable.value.path != "/") {
             val trail = directoryTrail(mutable.value.path, mutable.value.wirePath)
             val parent = trail.dropLast(1).lastOrNull { it.wirePath != null } ?: trail.first()
@@ -883,15 +914,29 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun tab(value: String) {
-        val target = if (value == "taskcenter") mutable.value.taskCenterSection.route else value
+        val destination = ClientDestination.forRoute(value, mutable.value.taskCenterSection) ?: return
+        if (destination == ClientDestination.SEARCH) { openSearch(); return }
+        if (destination == ClientDestination.SHELL) { openShell(); return }
+        val current = mutable.value
+        if (!destination.allowed(current.connected, current.permissions.admin, current.permissions.execute)) return
+        val target = destination.route
+        if (destination.main == null && target != current.tab) rememberNavigationSource(ClientReturnKind.AUXILIARY)
         if ((TaskCenterSection.forRoute(target) != null || target == "updates") && mutable.value.startupPending) cancel()
-        if (target != "files") search.close()
-        mutable.value = mutable.value.copy(tab = target, taskCenterSection = TaskCenterSection.forRoute(target) ?: mutable.value.taskCenterSection)
+        if (returnNavigation.keepsSearch(navigationScope())) search.cancel() else search.close()
+        mutable.value = mutable.value.copy(tab = target, searchDisplayed = false,
+            taskCenterSection = TaskCenterSection.forRoute(target) ?: mutable.value.taskCenterSection)
     }
-    fun recentSection(value: RecentSection) { search.close(); mutable.value = mutable.value.copy(tab = "recent", recentSection = value) }
+    fun navigateMain(destination: ClientMainDestination) {
+        returnNavigation.clear()
+        search.close()
+        if (destination != ClientMainDestination.TASKS) tasks.closeDetail()
+        if (destination == ClientMainDestination.LIBRARY && !mutable.value.connected) { tab("files"); return }
+        tab(destination.route)
+    }
+    fun recentSection(value: RecentSection) { search.close(); mutable.value = mutable.value.copy(tab = "recent", recentSection = value, searchDisplayed = false) }
     fun taskCenterSection(value: TaskCenterSection) { tab(value.route) }
     fun showConnection() { tab("files") }
-    fun openUpdates() { if (mutable.value.tab != "updates") updateReturnTab = mutable.value.tab; tab("updates") }
+    fun openUpdates() { tab("updates") }
     fun openDownloads() {
         documents.close(); closeTemporaryContent()
         if (mutable.value.selected != null || pendingMediaOpen != null) leavePlayer()
@@ -905,12 +950,72 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     fun librarySection(value: LibrarySection) {
         if (value == LibrarySection.TASKS) { taskCenterSection(TaskCenterSection.BACKGROUND); return }
-        search.close(); mutable.value = mutable.value.copy(tab = "library", librarySection = value)
+        if (returnNavigation.keepsSearch(navigationScope())) search.cancel() else search.close()
+        mutable.value = mutable.value.copy(tab = "library", librarySection = value, searchDisplayed = false)
     }
-    fun showServerTask(id: String) { taskCenterSection(TaskCenterSection.BACKGROUND); tasks.filter(tasks.state.value.filter.copy(category = "background")); tasks.select(id) }
-    fun showAnalysis(id: String, type: String) { librarySection(LibrarySection.TOOLS); storageTools.openReport(id, if (type == "analysis.storage") "storage" else "duplicates") }
+    fun showServerTask(id: String) {
+        if (mutable.value.tab != "tasks") rememberNavigationSource(ClientReturnKind.TASK_DETAIL)
+        taskCenterSection(TaskCenterSection.BACKGROUND)
+        tasks.filter(tasks.state.value.filter.copy(category = "background")); tasks.select(id)
+    }
+    fun closeTaskDetail() {
+        tasks.closeDetail()
+        restoreNavigationSource(ClientReturnKind.TASK_DETAIL)
+    }
+    fun showAnalysis(id: String, type: String) {
+        val source = returnNavigation.peek(navigationScope())
+        if (source?.kind == ClientReturnKind.TASK_DETAIL && source.point.route == "library" && source.point.library == LibrarySection.TOOLS) {
+            restoreNavigationSource(ClientReturnKind.TASK_DETAIL)
+        }
+        if (mutable.value.tab != "library" || mutable.value.librarySection != LibrarySection.TOOLS)
+            rememberNavigationSource(ClientReturnKind.AUXILIARY)
+        librarySection(LibrarySection.TOOLS); storageTools.openReport(id, if (type == "analysis.storage") "storage" else "duplicates")
+    }
+    fun closeArchive() { if (!archives.state.value.submitting) archives.close() }
+
+    private fun navigationScope(): String = context?.owner ?: "local"
+    private fun rememberNavigationSource(kind: ClientReturnKind) {
+        returnNavigation.push(navigationScope(), ClientNavigationReturn(kind, ClientNavigationPoint.from(mutable.value), navigation.toList()))
+    }
+    private fun restoreNavigationSource(kind: ClientReturnKind? = null): Boolean {
+        val source = returnNavigation.pop(navigationScope(), kind) ?: return false
+        val point = source.point
+        navigation.clear(); navigation.addAll(source.directoryHistory)
+        val old = mutable.value
+        mutable.value = old.copy(tab = point.route, librarySection = point.library, recentSection = point.recent,
+            taskCenterSection = point.task, fileCategory = point.category, fileOrder = point.order,
+            searchDisplayed = point.searchDisplayed && search.state.value.open)
+        if (old.connected && (old.path != point.path || old.wirePath != point.wirePath))
+            browse(point.path, point.wirePath, preserveSearch = point.searchDisplayed || returnNavigation.keepsSearch(navigationScope()))
+        return true
+    }
+    private fun navigateToDirectory(path: String, wire: String, resetCategory: Boolean = false) {
+        val current = mutable.value
+        if (current.tab != "files" || current.searchDisplayed) {
+            rememberNavigationSource(ClientReturnKind.DIRECTORY)
+            navigation.clear()
+        } else if (path != current.path || wire != current.wirePath) navigation.addLast(current.path to current.wirePath)
+        mutable.value = current.copy(tab = "files", searchDisplayed = false,
+            fileCategory = if (resetCategory) FileCategory.ALL else current.fileCategory)
+        browse(path, wire)
+    }
+    fun compactGridSize(value: CompactGridSize) {
+        val request = ++compactSizeRequest
+        viewModelScope.launch {
+            try {
+                presentationPreferences.saveCompactGridSize(value)
+                if (compactSizeRequest == request) mutable.value = mutable.value.copy(compactGridSize = value,
+                    notice = mutable.value.notice.takeUnless { it == "图标大小未能保存，请重试" })
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (compactSizeRequest == request) mutable.value = mutable.value.copy(notice = "图标大小未能保存，请重试")
+            }
+        }
+    }
     private fun syncLibraryObservers() {
-        val visible = foreground && mutable.value.connected && mutable.value.selected == null && mutable.value.image == null && !search.state.value.open
+        val contentCovered = mutable.value.selected != null || mutable.value.image != null || documents.state.value.file != null ||
+            documentEdits.state.value.file != null || archives.state.value.file != null || shell.state.value.open
+        val visible = foreground && mutable.value.connected && !contentCovered && !mutable.value.searchDisplayed
         tasks.setVisible(visible && mutable.value.tab == TaskCenterSection.BACKGROUND.route)
         operationHistory.setVisible(visible && mutable.value.tab == TaskCenterSection.HISTORY.route)
         recentAccess.setVisible(visible && mutable.value.tab == "recent" && mutable.value.recentSection == RecentSection.ACCESS)
@@ -918,10 +1023,11 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         storageTools.setVisible(visible && mutable.value.tab == "library" && mutable.value.librarySection == LibrarySection.TOOLS)
         accountSettings.setVisible(visible && mutable.value.tab == "account")
         serverSettings.setVisible(visible && mutable.value.tab == "server-settings")
-        archives.setVisible(foreground && archives.state.value.file != null && mutable.value.connected)
+        archives.setVisible(foreground && archives.state.value.file != null && mutable.value.connected && mutable.value.selected == null &&
+            mutable.value.image == null && documents.state.value.file == null && documentEdits.state.value.file == null)
         adminUsers.setVisible(visible && mutable.value.tab == "admin-users")
-        downloads.visible(foreground && (mutable.value.tab == "downloads" || localPlayback != null))
-        uploads.visible(foreground && mutable.value.tab == "uploads")
+        downloads.visible(foreground && (!contentCovered && mutable.value.tab == "downloads" || localPlayback != null))
+        uploads.visible(foreground && !contentCovered && mutable.value.tab == "uploads")
         fileOperations.setVisible(foreground && mutable.value.connected)
         refreshTransferDirectoryIfVisible()
     }
@@ -939,7 +1045,8 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val bound = context ?: return
         val current = mutable.value
         if (!transferRefreshPending || transferRefresh?.isActive == true || !foreground || !current.connected || current.busy ||
-            current.selected != null || current.image != null || current.tab != "files") return
+            current.selected != null || current.image != null || current.tab != "files" || current.searchDisplayed ||
+            documents.state.value.file != null || documentEdits.state.value.file != null || archives.state.value.file != null || shell.state.value.open) return
         transferRefreshPending = false
         transferRefresh = viewModelScope.launch {
             try {
@@ -966,7 +1073,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         favorites.refresh(); tags.refresh()
         if (removed(mutable.value.wirePath)) {
             navigation.clear()
-            mutable.value = mutable.value.copy(tab = "files", fileCategory = FileCategory.ALL)
+            mutable.value = mutable.value.copy(tab = "files", fileCategory = FileCategory.ALL, searchDisplayed = false)
             browse(file.path.substringBeforeLast('/').ifEmpty { "/" }, wire.substringBeforeLast('/').ifEmpty { "/" })
         }
     }
@@ -1152,6 +1259,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private fun closeSession() {
+        returnNavigation.clear()
         transferRefresh?.cancel(); transferRefresh = null; transferRefreshPending = false
         pendingDirectory = null
         mediaRequest++; pendingMediaOpen = null; pendingOpenFromPlayer = false
@@ -1181,7 +1289,8 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val previous = closing; val media = mediaClosing
         if (old != null) closing = cleanup.launch { previous?.join(); media?.join(); old.api.close() }
     }
-    fun disconnect() { startupJob?.cancel(); operation?.cancel(); generation++; closeSession(); navigation.clear(); mutable.value = ClientState(editorVersion = mutable.value.editorVersion) }
+    fun disconnect() { startupJob?.cancel(); operation?.cancel(); generation++; closeSession(); navigation.clear();
+        mutable.value = ClientState(editorVersion = mutable.value.editorVersion, compactGridSize = mutable.value.compactGridSize) }
     fun connectNetwork() {
         networkActivated = true
         networkJob?.cancel()

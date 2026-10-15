@@ -41,7 +41,9 @@ internal class UploadUiTest : LibraryUiHarness() {
         try {
             main { model.selectProfile(profile); model.connectDraft(profile.name, source.url, BackendKind.NAS, "fixture", "fixture-only", "direct") }
             withTimeout(15_000) { model.state.first { it.connected && !it.busy } }
-            action("上传本机文件")
+            action("更多文件操作").click()
+            text("上传文件")
+            device.pressBack()
             prepare()
             assertTrue(dao.observe().first().none { it.profileId == profile.id })
             text("取消").click()

@@ -104,7 +104,7 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
         }
     }
     if (advanced) TaskFilterDialog(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
-    if (state.focusId != null) AlertDialog(onDismissRequest = model.tasks::closeDetail, title = { Text("任务详情") }, text = {
+    if (state.focusId != null) AlertDialog(onDismissRequest = model::closeTaskDetail, title = { Text("任务详情") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (state.detailLoading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton({ state.focusId?.let(model.tasks::select) }) { Text("重试") } }
@@ -121,7 +121,7 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
                 TaskActions(model, task, enabled && !state.detailLoading && state.detailError == null && model.tasks.canEdit(task)) { confirmAction(task, it) }
             }
         }
-    }, confirmButton = { TextButton(model.tasks::closeDetail) { Text("关闭") } })
+    }, confirmButton = { TextButton(model::closeTaskDetail) { Text("关闭") } })
     confirm?.let { choice ->
         val task = choice.task; val command = choice.command
         val batch = command.startsWith("batch-")

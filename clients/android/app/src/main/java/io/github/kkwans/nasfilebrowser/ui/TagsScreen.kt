@@ -80,7 +80,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 items(state.paths, key = { it.key }) { row ->
                     val file = row.file
                     if (file != null) FileEntry(model, file, FileLayout.LIST, enabled, {
-                        if (file.directory) { model.tags.filter(tag?.id, true); model.tab("files") }
+                        if (file.directory) model.tags.filter(tag?.id, true)
                         model.openTagged(file, candidates, sourceScope)
                     }, { details = file }, location = file.path.substringBeforeLast('/').ifEmpty { "/" })
                     else Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.background) {

@@ -82,6 +82,7 @@ class BatchDownloadTest {
                 OwnedUiTraceRule.trace("batch-button label=$value bounds=${button.visibleBounds}")
                 button.click()
             }
+            (device.wait(Until.findObject(By.desc("更多文件操作")), 5000) ?: error("Missing browser actions")).click()
             click("多选"); click("全选"); text("已选 2 项")
             click("反选"); text("已选 0 项")
             click("全选")
@@ -96,12 +97,13 @@ class BatchDownloadTest {
             }
             withTimeout(5000) { model.downloads.state.first { !it.busy } }
             assertNull(model.downloads.state.value.error)
-            text("已选 0 项")
+            assertTrue("Accepted selection returns to browsing", device.wait(Until.gone(By.desc("批量下载")), 5000))
             device.executeShellCommand("mkdir -p /sdcard/Download/nfb-client-acceptance")
             device.executeShellCommand("screencap -p /sdcard/Download/nfb-client-acceptance/batch-download.png")
-            device.pressBack()
+            (device.wait(Until.findObject(By.desc("更多文件操作")), 5000) ?: error("Missing browser actions")).click()
             assertTrue(device.wait(Until.hasObject(By.text("多选")), 5000))
             assertFalse(device.hasObject(By.desc("批量下载")))
+            device.pressBack()
         }
     }
 

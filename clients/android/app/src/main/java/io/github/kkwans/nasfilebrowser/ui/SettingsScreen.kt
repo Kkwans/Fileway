@@ -30,6 +30,9 @@ import io.github.kkwans.nasfilebrowser.BuildConfig
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ClientState
+import io.github.kkwans.nasfilebrowser.app.ClientMainDestination
+import io.github.kkwans.nasfilebrowser.app.destination
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.data.AppTheme
 import io.github.kkwans.nasfilebrowser.data.ConnectionMode
@@ -39,17 +42,19 @@ import kotlinx.coroutines.launch
 /** Compatibility boundary: every library page now inherits the single application theme. */
 @Composable internal fun LibraryTheme(content: @Composable () -> Unit) = content()
 
+@Suppress("UNUSED_PARAMETER")
 @Composable internal fun ClientNavigation(model: ClientModel, selected: String) {
+    val state by model.state.collectAsStateWithLifecycle()
     val labelStyle = MaterialTheme.typography.labelMedium
     val labelPixels = rememberTextMeasurer().measure("任务中心", style = labelStyle, maxLines = 1).size.height
     val barHeight = 64.dp + with(LocalDensity.current) { labelPixels.toDp() }
     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
         modifier = Modifier.heightIn(min = barHeight)) {
-        listOf(Triple("files", "文件", R.drawable.ic_folder), Triple("recent", "最近", R.drawable.ic_history),
-            Triple("library", "资料库", R.drawable.ic_bookmark),
-            Triple("taskcenter", "任务中心", R.drawable.ic_download),
-            Triple("settings", "设置", R.drawable.ic_person)).forEach { (tab, label, icon) ->
-            NavigationBarItem(selected = selected == tab, onClick = { model.tab(tab) },
+        listOf(Triple(ClientMainDestination.FILES, "文件", R.drawable.ic_nav_files_077),
+            Triple(ClientMainDestination.RECENT, "最近", R.drawable.ic_nav_history_077),
+            Triple(ClientMainDestination.LIBRARY, "资料库", R.drawable.ic_library),
+            Triple(ClientMainDestination.TASKS, "任务", R.drawable.ic_tasks)).forEach { (tab, label, icon) ->
+            NavigationBarItem(selected = state.destination.main == tab, onClick = { model.navigateMain(tab) },
                 modifier = Modifier.semantics { contentDescription = "${label}导航" },
                 icon = { Icon(painterResource(icon), null, Modifier.size(26.dp)) }, label = { Text(label, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent,
@@ -60,9 +65,10 @@ import kotlinx.coroutines.launch
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun SettingsScreen(model: ClientModel, state: ClientState) {
+@Composable internal fun SettingsScreen(model: ClientModel, state: ClientState, openAbout: Boolean = false, onBack: () -> Unit = { model.back() }) {
     var profileDetails by remember { mutableStateOf(false) }
-    var about by remember { mutableStateOf(false) }
+    var about by remember(openAbout) { mutableStateOf(openAbout) }
+    fun closeAbout() { about = false; if (openAbout) model.back() }
     var repositoryError by remember { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     var themeSheet by remember { mutableStateOf(false) }
@@ -71,11 +77,15 @@ import kotlinx.coroutines.launch
     val appearance by model.appearance.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer, bottomBar = { ClientNavigation(model, "settings") }, snackbarHost = { SnackbarHost(snackbar) }) { insets ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        topBar = { Column(Modifier.statusBarsPadding()) {
+            FilewayTopAppBar("本机设置", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回来源页面",
+                onLeadingClick = onBack)
+        } }, snackbarHost = { SnackbarHost(snackbar) }) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
             LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().semantics { contentDescription = "设置内容" },
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                item { Text("设置", style = MaterialTheme.typography.titleLarge) }
+                if (state.connected) {
                 item {
                     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -90,18 +100,10 @@ import kotlinx.coroutines.launch
                     }
                 }
                 item {
-                    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.background) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                            SettingsShortcut("文件", R.drawable.ic_folder, Modifier.weight(1f)) { model.tab("files") }
-                            SettingsShortcut("最近", R.drawable.ic_history, Modifier.weight(1f)) { model.tab("recent") }
-                            SettingsShortcut("服务器", R.drawable.ic_network, Modifier.weight(1f), model::disconnect)
-                        }
-                    }
-                }
-                item {
                     SettingsGroup("账户") {
                         SettingsAction("账户设置", "当前账号与密码", R.drawable.ic_person) { model.tab("account") }
                     }
+                }
                 }
                 if (state.permissions.admin || state.permissions.execute) item {
                     SettingsGroup("服务器管理") {
@@ -173,7 +175,7 @@ import kotlinx.coroutines.launch
             Text(if (state.profile?.network == ConnectionMode.TAILNET) "连接方式：内嵌 Tailscale" else "连接方式：直接连接")
         }
     }, confirmButton = { TextButton(onClick = { profileDetails = false }) { Text("关闭") } })
-    if (about) AlertDialog(onDismissRequest = { about = false }, title = { Text("栖卷 · Fileway") }, text = {
+    if (about) AlertDialog(onDismissRequest = ::closeAbout, title = { Text("栖卷 · Fileway") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("版本 ${BuildConfig.VERSION_NAME}\n原生 Android 客户端\nGPL-3.0-or-later")
             TextButton(onClick = {
@@ -189,7 +191,7 @@ import kotlinx.coroutines.launch
             }
             repositoryError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
-    }, confirmButton = { TextButton(onClick = { about = false }) { Text("关闭") } })
+    }, confirmButton = { TextButton(onClick = ::closeAbout) { Text("关闭") } })
 }
 
 /** One category per card; its actions remain full-width selectable rows. */
@@ -201,14 +203,6 @@ import kotlinx.coroutines.launch
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = "${title}设置分组" }) {
             Column(content = content)
         }
-    }
-}
-
-@Composable private fun SettingsShortcut(label: String, icon: Int, modifier: Modifier, action: () -> Unit) {
-    Column(modifier.clickable(onClick = action).heightIn(min = 76.dp).padding(vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Icon(painterResource(icon), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
-        Text(label, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

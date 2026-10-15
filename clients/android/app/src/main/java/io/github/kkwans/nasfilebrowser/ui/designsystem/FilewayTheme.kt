@@ -4,6 +4,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
 import androidx.compose.foundation.text.selection.TextSelectionColors
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -118,10 +119,13 @@ private val DarkStatus = FilewayStatusColors(
     Color(0xFF92D2AA), Color(0xFF243F2E), Color(0xFFBCEBCA),
     Color(0xFFE7C581), Color(0xFF493B22), Color(0xFFF1D698),
 )
+private val LocalFilewayColors = staticCompositionLocalOf { BlueLightColors }
 private val LocalFilewayText = staticCompositionLocalOf { FilewayTextRoles() }
 private val LocalFilewayStatus = staticCompositionLocalOf { LightStatus }
 
 object FilewayTheme {
+    /** Root roles remain available while legacy page palettes are migrated. */
+    val colors: ColorScheme @Composable get() = LocalFilewayColors.current
     val text: FilewayTextRoles @Composable get() = LocalFilewayText.current
     val status: FilewayStatusColors @Composable get() = LocalFilewayStatus.current
 }
@@ -149,6 +153,7 @@ object FilewayMotion {
 @Composable fun FilewayTheme(darkTheme: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
     val colors = if (darkTheme) BlueDarkColors else BlueLightColors
     CompositionLocalProvider(
+        LocalFilewayColors provides colors,
         LocalFilewayText provides FilewayTextRoles(),
         LocalFilewayStatus provides if (darkTheme) DarkStatus else LightStatus,
         LocalTextSelectionColors provides TextSelectionColors(colors.primary, colors.primary.copy(alpha = .22f)),

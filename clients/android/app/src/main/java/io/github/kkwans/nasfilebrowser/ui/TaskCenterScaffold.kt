@@ -18,7 +18,7 @@ import io.github.kkwans.nasfilebrowser.app.TaskCenterSection
 @Composable internal fun TaskCenterScaffold(model: ClientModel, section: TaskCenterSection, content: @Composable ColumnScope.() -> Unit) {
     Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer, bottomBar = { ClientNavigation(model, "taskcenter") }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-            Text("任务中心", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge)
+            FilewayPageHeader("任务中心")
             PrimaryTabRow(selectedTabIndex = section.ordinal) {
                 TaskCenterSection.entries.forEach { group ->
                     Tab(selected = group == section, onClick = { model.taskCenterSection(group) },

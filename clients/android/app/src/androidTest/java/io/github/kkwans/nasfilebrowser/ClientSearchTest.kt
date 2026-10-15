@@ -122,9 +122,16 @@ class ClientSearchTest {
             h.main { search.openResult(folder) }
             val opened = withTimeout(5000) { h.model.state.first { !it.busy && it.path == "/library/找到目录+100%" } }
             assertEquals("/library/%e6%89%be%e5%88%b0%e7%9b%ae%e5%bd%95%2b100%25", opened.wirePath)
-            assertFalse(h.model.search.state.value.open)
+            assertFalse(opened.searchDisplayed)
+            assertTrue(h.model.search.state.value.open)
+            assertEquals("找到目录+100%", h.model.search.state.value.query)
+            assertEquals(listOf(folder), h.model.search.state.value.items)
             h.main { assertTrue(back()) }
-            withTimeout(5000) { h.model.state.first { !it.busy && it.path == "/library" } }
+            withTimeout(5000) { h.model.state.first { !it.busy && it.path == "/library" && it.searchDisplayed } }
+            assertTrue(h.model.search.state.value.open)
+            assertEquals("找到目录+100%", h.model.search.state.value.query)
+            assertEquals(listOf(folder), h.model.search.state.value.items)
+            assertEquals("/library", h.model.search.state.value.basePath)
         }
     }
 

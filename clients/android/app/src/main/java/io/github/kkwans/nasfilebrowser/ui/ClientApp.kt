@@ -17,6 +17,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -31,6 +33,7 @@ import io.github.kkwans.nasfilebrowser.app.MediaKind
 import io.github.kkwans.nasfilebrowser.app.FileLayout
 import io.github.kkwans.nasfilebrowser.app.RecentSection
 import io.github.kkwans.nasfilebrowser.app.TaskCenterSection
+import io.github.kkwans.nasfilebrowser.app.clientPageStateKey
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.PlaybackSnapshot
 import io.github.kkwans.nasfilebrowser.data.ProgressSync
@@ -50,6 +53,13 @@ import java.util.Locale
     // Local queue filters/scroll survive connecting or changing the server.
     val localTaskState = rememberSaveableStateHolder()
     val activity = LocalActivity.current
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val imeVisible = WindowInsets.isImeVisible
+    fun requestBack() {
+        if (imeVisible) { keyboard?.hide(); focus.clearFocus() }
+        else if (!model.back()) activity?.finish()
+    }
     // Register before every route/early return, so an external picker result
     // survives Activity/process recreation and restores its original task.
     var uploadSourceId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -64,7 +74,7 @@ import java.util.Locale
             else model.uploads.reselectSource(id, generation, uri)
         }
     }
-    BackHandler(state.connected || state.image != null || state.selected != null || state.tab != "files") { if (!model.back()) activity?.finish() }
+    BackHandler(state.connected || state.image != null || state.selected != null || state.tab != "files") { requestBack() }
     BackHandler(state.startupPending) { model.cancel() }
     if (state.connected) LibraryTheme { FileTransferSheet(model); CreateDirectoryDialog(model); FolderDownloadDialog(model); UploadSelectionDialog(model)
         CreateFileDialog(model.documentEdits, model::verifyDocumentDirectory)
@@ -93,7 +103,7 @@ import java.util.Locale
             } else null, imageCache = model.cache)
     }; return }
     if (archive.file != null) { LibraryTheme {
-        ArchiveScreen(model.archives, {}, { model.archives.close(); model.tab("tasks") },
+        ArchiveScreen(model.archives, ::requestBack, { model.closeArchive(); model.showFileTask() },
             { directory -> model.archives.close(); model.verifyDocumentDirectory(directory) },
             onOpenEntry = { entry -> model.openArchiveEntry(entry, state.previewScope) })
         if (archiveEntry.archive?.mediaKey == archive.file?.mediaKey && (archiveEntry.preparing || archiveEntry.canceling || archiveEntry.error != null))
@@ -113,17 +123,18 @@ import java.util.Locale
                 } })
     }; return }
     if (state.tab == "account" && state.connected) { LibraryTheme {
-        AccountSettingsScreen(model.accountSettings, { model.tab("settings") }, model::disconnect)
+        AccountSettingsScreen(model.accountSettings, ::requestBack, model::disconnect)
     }; return }
     if (state.tab == "admin-users" && state.connected) { LibraryTheme {
-        AdminUsersScreen(model.adminUsers, { model.tab("settings") }, model::disconnect)
+        AdminUsersScreen(model.adminUsers, ::requestBack, model::disconnect)
     }; return }
     if (state.tab == "server-settings" && state.connected) { LibraryTheme {
-        ServerSettingsScreen(model.serverSettings, { model.tab("settings") }, model::disconnect)
+        ServerSettingsScreen(model.serverSettings, ::requestBack, model::disconnect)
     }; return }
-    if (shell.open && state.connected) { LibraryTheme { ShellScreen(model.shell, {}) }; return }
+    if (shell.open && state.connected) { LibraryTheme { ShellScreen(model.shell, model::finishShellNavigation) }; return }
     if (state.tab == "updates") { LibraryTheme { AppUpdatesScreen(model) }; return }
     val taskGroup = TaskCenterSection.forRoute(state.tab)
+    FilewayAppShell(model, state, ::requestBack) {
     if (taskGroup != null) {
         LibraryTheme {
             TaskCenterScaffold(model, taskGroup) {
@@ -142,15 +153,27 @@ import java.util.Locale
                 }
             }
         }
-        return
+    } else if (!state.connected && state.tab !in setOf("recent", "settings", "about")) {
+        Column(Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)) {
+            FilewayPageHeader("连接服务器")
+            Box(Modifier.weight(1f)) { ConnectionScreen(model, state) }
+        }
+    } else {
+    val searchShown = state.searchDisplayed && search.open
+    val pageKey = when {
+        // Keep input focus and selection alive; FileCollection owns layout/filter anchors.
+        searchShown -> clientPageStateKey("search", search.baseWirePath)
+        state.tab == "files" -> clientPageStateKey("files", state.wirePath)
+        state.tab == "library" -> clientPageStateKey("library", state.librarySection.name)
+        else -> state.tab
     }
-    if (!state.connected && state.tab != "recent") { ConnectionScreen(model, state); return }
-    pageState.SaveableStateProvider(if (search.open) "search" else if (state.tab == "library") "library/${state.librarySection}" else state.tab) {
+    pageState.SaveableStateProvider(pageKey) {
         LibraryTheme {
             when {
-                search.open -> SearchScreen(model, state)
+                searchShown -> SearchScreen(model, state)
                 state.tab == "files" -> BrowserScreen(model, state)
-                state.tab == "settings" -> SettingsScreen(model, state)
+                state.tab == "settings" -> SettingsScreen(model, state, onBack = ::requestBack)
+                state.tab == "about" -> SettingsScreen(model, state, openAbout = true, onBack = ::requestBack)
                 state.tab == "library" -> when (state.librarySection) {
                     io.github.kkwans.nasfilebrowser.app.LibrarySection.FAVORITES -> FavoritesScreen(model, state)
                     io.github.kkwans.nasfilebrowser.app.LibrarySection.TAGS -> TagsScreen(model, state)
@@ -163,6 +186,8 @@ import java.util.Locale
             }
         }
     }
+    }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -172,7 +197,7 @@ import java.util.Locale
     MaterialTheme(colorScheme = colors) {
         Scaffold(containerColor = colors.surface, bottomBar = { ClientNavigation(model, "recent") }) { insets ->
             Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-                Text("最近", Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge)
+                FilewayPageHeader("最近")
                 PrimaryTabRow(selectedTabIndex = state.recentSection.ordinal) {
                     RecentSection.entries.forEach { section ->
                         Tab(selected = section == state.recentSection, onClick = { model.recentSection(section) },
