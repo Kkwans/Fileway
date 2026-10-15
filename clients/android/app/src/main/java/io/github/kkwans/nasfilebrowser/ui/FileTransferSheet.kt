@@ -3,6 +3,7 @@ package io.github.kkwans.nasfilebrowser.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
@@ -27,7 +28,7 @@ import io.github.kkwans.nasfilebrowser.data.*
     val state by model.fileOperations.state.collectAsStateWithLifecycle()
     val client by model.state.collectAsStateWithLifecycle()
     val draft = state.transfer?.takeIf { it.visible } ?: return
-    val maximum = LocalConfiguration.current.screenHeightDp.dp * .92f
+    val directoryScroll = rememberLazyListState()
     val busy = state.changing || draft.loading
     val planned = remember(draft.files, draft.directory, draft.action) {
         runCatching { fileTransferEntries(draft.files, draft.directory, draft.action, allowOpaque = true) }
@@ -37,9 +38,14 @@ import io.github.kkwans.nasfilebrowser.data.*
     var replaceConfirmed by remember(draft.directory, draft.choices) { mutableStateOf(false) }
     val selected = (planned.getOrNull()?.map { it.file } ?: draft.files).count { draft.choices[it.mediaKey] != FileConflictChoice.SKIP }
     val replaces = draft.choices.values.any { it == FileConflictChoice.REPLACE }
-    ModalBottomSheet(onDismissRequest = model.fileOperations::closeTransfer, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().heightIn(max = maximum).padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("${draft.action.label}到服务器目录", style = MaterialTheme.typography.titleLarge)
+    if (!sources) FileOperationSheet("${draft.action.label}到服务器目录", model.fileOperations::closeTransfer,
+        canDismiss = !state.changing, footer = {
+            TextButton(model.fileOperations::closeTransfer, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (draft.unknownSubmission) "稍后核对" else "取消") }
+            key(draft.reviewed, state.changing) { Button({ model.fileOperations.submitTransfer(replaceConfirmed) }, enabled = !busy && !draft.unknownSubmission && entryError == null &&
+                selected > 0 && (!replaces || replaceConfirmed), modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(if (state.changing) "正在处理" else if (draft.reviewed) "${draft.action.label} $selected 项" else "检查此目录")
+            } }
+        }) {
             Text(client.serverLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -52,7 +58,8 @@ import io.github.kkwans.nasfilebrowser.data.*
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             (draft.error ?: entryError)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             if (draft.error != null && !draft.reviewed && !draft.unknownSubmission && !busy) TextButton({ model.fileOperations.readTransferDirectory(draft.directory) }) { Text("重新读取目录") }
-            LazyColumn(Modifier.weight(1f, fill = false).heightIn(min = 72.dp).semantics { contentDescription = "复制移动目标目录" }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyColumn(Modifier.weight(1f, fill = false).heightIn(min = 72.dp).semantics { contentDescription = "复制移动目标目录" }, state = directoryScroll, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                item { FileOperationLocation("目标目录", draft.directory.path) }
                 if (draft.unknownSubmission) item {
                     Text("核对文件任务后，可返回这里重新检查。关闭此面板不会取消服务器可能已经创建的任务。", style = MaterialTheme.typography.bodyMedium)
                     TextButton({ model.fileOperations.showTransfer(false); model.showFileTask() }) { Text("查看文件任务") }
@@ -98,25 +105,17 @@ import io.github.kkwans.nasfilebrowser.data.*
                     Checkbox(replaceConfirmed, null); Text("确认替换同名目标内容", style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(model.fileOperations::closeTransfer, enabled = !state.changing) { Text("取消") }
-                // A new action stage owns a new accessibility node, so the
-                // checked/submitting label cannot retain the previous action.
-                key(draft.reviewed, state.changing) { Button({ model.fileOperations.submitTransfer(replaceConfirmed) }, enabled = !busy && !draft.unknownSubmission && entryError == null &&
-                    selected > 0 && (!replaces || replaceConfirmed)) {
-                    Text(if (state.changing) "正在处理" else if (draft.reviewed) "${draft.action.label} $selected 项" else "检查此目录")
-                } }
-            }
-        }
     }
-    if (sources) AlertDialog(onDismissRequest = { sources = false }, title = { Text("${draft.action.label} ${draft.files.size} 项") }, text = {
-        LazyColumn(Modifier.heightIn(max = maximum * .65f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    if (sources) FileOperationSheet("${draft.action.label} ${draft.files.size} 项", { sources = false }, footer = {
+        TextButton({ sources = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("返回目标选择") }
+    }) {
+        LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(draft.files, key = { it.mediaKey }) { file -> Column {
                 Text(file.name, style = MaterialTheme.typography.bodyMedium)
                 Text(file.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             } }
         }
-    }, confirmButton = { TextButton({ sources = false }) { Text("关闭") } })
+    }
 }
 
 @Composable internal fun TransferTaskBanner(model: ClientModel) {

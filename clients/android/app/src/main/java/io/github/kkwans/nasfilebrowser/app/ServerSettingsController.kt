@@ -7,10 +7,20 @@ import kotlinx.coroutines.flow.asStateFlow
 
 data class ServerSettingsState(val scope: String = "", val settings: ServerSettings? = null, val draft: ServerSettingsDraft? = null,
     val capabilities: ServerCapabilities? = null, val authorized: Boolean = false, val loading: Boolean = false, val saving: Boolean = false,
-    val unknown: Boolean = false, val confirmation: Boolean = false, val error: String? = null, val notice: String? = null) {
-    val dirty get() = settings != null && draft?.let { !settings.matches(it) } == true
+    val unknown: Boolean = false, val confirmation: Boolean = false,
+    val numberDrafts: Map<String, String> = emptyMap(), val error: String? = null, val notice: String? = null) {
+    val dirty get() = settings != null && (draft?.let { !settings.matches(it) } == true || numberDrafts.any { (key, text) -> !serverSettingNumberValid(key, text) })
     override fun toString() = "ServerSettingsState(scope=$scope, saving=$saving, unknown=$unknown, configuration=redacted)"
 }
+/** Presentation drafts never enter the server snapshot or wire JSON. */
+internal fun serverSettingNumberValid(key: String, text: String): Boolean = when (key) {
+    "minimum" -> text.toIntOrNull()?.let { it > 0 } == true
+    "session" -> text.toDoubleOrNull()?.let { it.isFinite() && it in 10.0..43200.0 } == true
+    "chunk" -> text.toLongOrNull()?.let { it >= 0 } == true
+    "retry" -> text.toIntOrNull()?.let { it in 0..65535 } == true
+    else -> false
+}
+
 class ServerSettingsController(private val scope: CoroutineScope, private val isCurrent: (SessionContext) -> Boolean) {
     private val mutable = MutableStateFlow(ServerSettingsState())
     val state = mutable.asStateFlow()
@@ -64,14 +74,26 @@ class ServerSettingsController(private val scope: CoroutineScope, private val is
             mutable.value = before.copy(draft = transform(it), error = null, notice = null)
         }
     }
+    fun editNumber(key: String, text: String) {
+        val before = mutable.value
+        val draft = before.draft ?: return
+        if (!before.authorized || before.loading || before.saving || before.unknown || key !in setOf("minimum", "session", "chunk", "retry")) return
+        val typed = if (!serverSettingNumberValid(key, text)) draft else when (key) {
+            "minimum" -> draft.copy(minimumPasswordLength = text.toInt())
+            "session" -> draft.copy(sessionMinutes = text.toDouble())
+            "chunk" -> draft.copy(chunkBytes = text.toLong())
+            else -> draft.copy(retryCount = text.toInt())
+        }
+        mutable.value = before.copy(draft = typed, numberDrafts = before.numberDrafts + (key to text), error = null, notice = null)
+    }
     fun resetToServer() {
         val before = mutable.value
         if (!before.loading && !before.saving && before.settings != null) mutable.value = before.copy(draft = before.settings.draft,
-            unknown = false, confirmation = false, error = null, notice = "已采用最近读取的服务器设置")
+            unknown = false, confirmation = false, numberDrafts = emptyMap(), error = null, notice = "已采用最近读取的服务器设置")
     }
     fun requestSave() {
         val before = mutable.value; val draft = before.draft ?: return
-        if (!before.authorized || before.loading || before.saving || before.unknown || !before.dirty) return
+        if (!before.authorized || before.loading || before.saving || before.unknown || !before.dirty || !before.numberDrafts.all { (key, text) -> serverSettingNumberValid(key, text) }) return
         try { draft.validate() } catch (_: IllegalArgumentException) { mutable.value = before.copy(error = "请检查数值范围、配置文本和默认权限依赖"); return }
         mutable.value = before.copy(confirmation = true, error = null)
     }
@@ -79,7 +101,7 @@ class ServerSettingsController(private val scope: CoroutineScope, private val is
     fun confirmSave() {
         val context = bound ?: return; val before = mutable.value
         val settings = before.settings ?: return; val draft = before.draft ?: return
-        if (!isCurrent(context) || !before.authorized || !before.confirmation || before.loading || before.saving || before.unknown) return
+        if (!isCurrent(context) || !before.authorized || !before.confirmation || before.loading || before.saving || before.unknown || !before.numberDrafts.all { (key, text) -> serverSettingNumberValid(key, text) }) return
         try { draft.validate() } catch (_: IllegalArgumentException) { mutable.value = before.copy(error = "请检查设置内容"); return }
         read?.cancel(); val epoch = ++revision
         mutable.value = before.copy(saving = true, confirmation = false, error = null, notice = null)
@@ -101,7 +123,7 @@ class ServerSettingsController(private val scope: CoroutineScope, private val is
                 if (!current(context, epoch)) return@launch
                 val fresh = ServerSettings.from(context.api.request("GET", "/api/settings"))
                 if (current(context, epoch)) mutable.value = mutable.value.copy(settings = fresh, draft = fresh.draft,
-                    saving = false, unknown = false, notice = "全局设置已保存并核对")
+                    saving = false, unknown = false, numberDrafts = emptyMap(), notice = "全局设置已保存并核对")
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 if (current(context, epoch)) {

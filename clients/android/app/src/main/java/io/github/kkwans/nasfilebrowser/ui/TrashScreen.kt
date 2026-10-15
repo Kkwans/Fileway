@@ -46,6 +46,13 @@ import io.github.kkwans.nasfilebrowser.app.*
             Surface(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = .08f)) {
                 Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("${task.title} · ${task.statusLabel}", style = MaterialTheme.typography.bodyMedium)
+                    Text(when {
+                        task.pendingDeletion -> "服务端撤销窗口内可取消删除；任务开始后内容将无法恢复。"
+                        task.active -> "正在永久删除。停止请求可能无法阻止已经处理的项目。"
+                        task.status == "canceled" -> "任务已取消，请刷新核对仍在回收站中的项目。"
+                        task.status in setOf("failed", "interrupted") -> "删除未完整结束，请打开任务核对已处理项目。"
+                        else -> "请在任务详情核对逐项结果。"
+                    }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row {
                         if (task.active && task.type in setOf("trash.clear", "trash.delete.permanent")) TextButton({ model.trash.undo() }, enabled = enabled) { Text(if (task.pendingDeletion) "撤销删除" else "停止删除任务") }
                         TextButton({ model.showServerTask(task.id) }) { Text("查看任务") }
@@ -66,33 +73,40 @@ import io.github.kkwans.nasfilebrowser.app.*
             }
             if (canDelete && selected.isNotEmpty()) TextButton({ deleting = selected.toList() }, enabled = enabled) { Text("删除 ${selected.size} 项") }
         }
-        if (displayed.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+        if (state.loaded && displayed.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(if (state.items.isEmpty()) "回收站是空的" else "没有匹配的项目", style = MaterialTheme.typography.titleMedium)
-                Text("从文件详情移入的内容会出现在这里，可恢复到原位置。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (state.items.isEmpty()) "从文件详情移入的内容会出现在这里，可恢复到原位置。" else "试试切换状态筛选，查看其他回收记录。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端回收站列表" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(displayed, key = { it.id }) { item ->
-                Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.background) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (canDelete) Checkbox(item.id in selected, { value -> selected = if (value) selected + item.id else selected - item.id }, enabled = enabled && item.status != "restoring")
-                            Icon(painterResource(if (item.directory) R.drawable.ic_folder else R.drawable.ic_bookmark), null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.primary)
-                            Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(item.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(item.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                var menu by remember(item.id) { mutableStateOf(false) }
+                LibraryObjectCard(item.name, "原位置 · ${libraryParent(item.path)}", fileArtworkIcon(item.name, item.directory),
+                    onOpen = { details = item }, leading = {
+                        if (canDelete) Checkbox(item.id in selected, { value -> selected = if (value) selected + item.id else selected - item.id },
+                            enabled = enabled && item.status != "restoring", modifier = Modifier.semantics { contentDescription = "选择回收项目：${item.name}" })
+                    }, trailing = {
+                        Column(Modifier.widthIn(min = 64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            TextButton({ model.trash.restore(item) }, enabled = enabled && canRestore && item.status == "available",
+                                modifier = Modifier.heightIn(min = 48.dp)) { Text("恢复") }
+                            Box {
+                                IconButton({ menu = true }) { Icon(painterResource(R.drawable.ic_more_vert), "回收项目更多：${item.name}") }
+                                DropdownMenu(menu, { menu = false }) {
+                                    DropdownMenuItem({ Text("详情") }, { menu = false; details = item })
+                                    if (item.directory && item.status == "available" && item.sizeState !in setOf("accurate", "calculating") && (canDelete || state.permissions.admin))
+                                        DropdownMenuItem({ Text("统计大小") }, { menu = false; model.trash.measure(item) }, enabled = enabled)
+                                    if (item.sizeTaskId.isNotEmpty() && item.sizeState in setOf("calculating", "failed", "incomplete"))
+                                        DropdownMenuItem({ Text("统计任务") }, { menu = false; model.showServerTask(item.sizeTaskId) })
+                                }
                             }
                         }
-                        Text("${trashSize(item)} · ${serverTime(item.deletedAt)}" + (if (state.permissions.admin) " · ${item.owner}" else ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (item.status != "available") Text(when (item.status) { "pending" -> "等待完成移入"; "restoring" -> "正在恢复"; "failed" -> "处理失败"; else -> "状态暂不可用" }, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                        item.error.takeIf { it.isNotEmpty() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                        Row {
-                            TextButton({ model.trash.restore(item) }, enabled = enabled && canRestore && item.status == "available") { Text("恢复") }
-                            TextButton({ details = item }) { Text("详情") }
-                            if (item.directory && item.status == "available" && item.sizeState !in setOf("accurate", "calculating") && (canDelete || state.permissions.admin)) TextButton({ model.trash.measure(item) }, enabled = enabled) { Text("统计大小") }
-                            if (item.sizeTaskId.isNotEmpty() && item.sizeState in setOf("calculating", "failed", "incomplete")) TextButton({ model.showServerTask(item.sizeTaskId) }) { Text("统计任务") }
-                        }
-                    }
+                    }) {
+                    Text(trashSize(item), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("删除于 ${serverTime(item.deletedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (state.permissions.admin) Text("所属账号 · ${item.owner}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (item.status != "available") Text(when (item.status) { "pending" -> "等待完成移入"; "restoring" -> "正在恢复"; "failed" -> "处理失败"; else -> "状态暂不可用" },
+                        color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                    item.error.takeIf { it.isNotEmpty() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }
@@ -104,10 +118,10 @@ import io.github.kkwans.nasfilebrowser.app.*
     state.conflict?.let { item -> AlertDialog(onDismissRequest = model.trash::closeConflict, title = { Text("恢复遇到冲突") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(item.path)
-            Text("如果原位置已有同名文件，可以保留两者或替换。也可先刷新确认项目状态。", style = MaterialTheme.typography.bodySmall)
-            TextButton({ model.trash.restore(item, "keep-both") }, enabled = enabled) { Text("保留两者") }
-            if (state.permissions.admin || canDelete) TextButton({ model.trash.restore(item, "replace") }, enabled = enabled) { Text("替换原位置文件") }
-            TextButton({ model.trash.restore(item, "skip") }, enabled = enabled) { Text("跳过恢复") }
+            Text("原位置已有同名目标。保留两者会由服务器另起名称；替换将覆盖原位置现有目标；跳过会保留此回收记录。", style = MaterialTheme.typography.bodySmall)
+            TextButton({ model.trash.restore(item, "keep-both") }, enabled = enabled && canRestore) { Text("保留两者") }
+            if (state.permissions.admin || canDelete) TextButton({ model.trash.restore(item, "replace") }, enabled = enabled && canRestore) { Text("替换原位置文件") }
+            TextButton({ model.trash.restore(item, "skip") }, enabled = enabled && canRestore) { Text("跳过恢复") }
         }
     }, confirmButton = { TextButton(model.trash::closeConflict) { Text("取消") } }) }
     details?.let { item -> AlertDialog(onDismissRequest = { details = null }, title = { Text("回收站详情") }, text = {

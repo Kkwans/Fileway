@@ -19,7 +19,8 @@ internal class StorageToolsUiTest : LibraryUiHarness() {
             .put("largestDirectories", JSONArray()).put("skippedCount", 0)
         fixture(data) {
             action("资料库导航").click(); action("工具资料页").click()
-            text("查看报告").click(); text("/scan/样本.png")
+            text("查看报告").click(); text("样本.png"); text("/scan")
+            text("详情").click(); text("/scan/样本.png"); text("关闭").click()
             assertEquals(3, model.storageTools.state.value.report!!.getInt("scannedFiles"))
             assertFalse(data.mutations.any { it.second.startsWith("/api/analysis/") })
             capture("storage-report-phone")

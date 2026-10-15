@@ -1,5 +1,10 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,16 +32,29 @@ import io.github.kkwans.nasfilebrowser.data.*
     val state by controller.state.collectAsStateWithLifecycle()
     val draft = state.draft
     val enabled = state.authorized && !state.loading && !state.saving && !state.unknown
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    val ruleKeys = remember(state.scope, draft?.id, draft?.creating) { mutableStateListOf<String>() }
+    LaunchedEffect(draft?.rules?.size) {
+        while (ruleKeys.size < (draft?.rules?.size ?: 0)) ruleKeys.add(java.util.UUID.randomUUID().toString())
+        while (ruleKeys.size > (draft?.rules?.size ?: 0)) ruleKeys.removeAt(ruleKeys.lastIndex)
+    }
+    fun editorBack() {
+        if (imeVisible) { keyboard?.hide(); focus.clearFocus() }
+        else if (draft != null && !state.unknown) controller.closeEditor() else onBack()
+    }
+    BackHandler(draft != null && !state.saving && !state.unknown && state.confirmation == null) { editorBack() }
     DisposableEffect(controller, state.scope) { onDispose { if (!controller.state.value.unknown) controller.clearSecrets() } }
-    Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer, topBar = {
-        TopAppBar(title = { Text(if (draft == null) "用户管理" else if (draft.creating) "新增用户" else "编辑用户") }, navigationIcon = {
-            IconButton({ if (draft != null && !state.unknown) controller.closeEditor() else onBack() }, enabled = !state.saving) {
-                Icon(painterResource(R.drawable.ic_arrow_back), "返回")
-            }
-        }, actions = {
-            if (draft == null) TextButton(controller::create, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("新增") }
-            IconButton(controller::refresh, enabled = !state.loading && !state.saving) { Icon(painterResource(R.drawable.ic_refresh), "刷新用户列表") }
-        })
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        Column(Modifier.statusBarsPadding()) {
+            FilewayTopAppBar(if (draft == null) "用户管理" else if (draft.creating) "新增用户" else "编辑用户",
+                leadingIcon = R.drawable.ic_arrow_back, leadingDescription = if (draft == null) "返回来源页面" else "返回用户列表",
+                onLeadingClick = { if (!state.saving) editorBack() }, actions = {
+                    if (draft == null) TextButton(controller::create, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("新增") }
+                    IconButton(controller::refresh, enabled = !state.loading && !state.saving) { Icon(painterResource(R.drawable.ic_refresh), "刷新用户列表") }
+                })
+        }
     }, bottomBar = {
         if (draft != null) Surface {
             Row(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -62,7 +80,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                         Column(Modifier.fillMaxWidth().clickable(enabled = enabled) { controller.select(user.id) }.heightIn(min = 72.dp).padding(16.dp)) {
                             Text(user.username, style = MaterialTheme.typography.titleMedium)
                             Text(if (user.permissions.admin) "管理员" else "普通用户", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                            Text(user.scope.ifEmpty { "/" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("用户目录：${user.scope.ifEmpty { "/" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -101,6 +119,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("按顺序应用允许或禁止规则。正则语法由服务器验证。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         draft.rules.forEachIndexed { index, rule ->
+                            key(ruleKeys.getOrNull(index) ?: "rule-$index") {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("规则 ${index + 1}", style = MaterialTheme.typography.titleSmall)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -112,14 +131,15 @@ import io.github.kkwans.nasfilebrowser.data.*
                                     if (i != index) old else if (old.regex) old.copy(expression = value) else old.copy(path = value)
                                 }) } }, label = { Text(if (rule.regex) "Go 正则表达式" else "匹配路径") }, enabled = enabled, modifier = Modifier.fillMaxWidth())
                                 Row {
-                                    TextButton({ controller.edit { it.copy(rules = it.rules.toMutableList().apply { add(index - 1, removeAt(index)) }) } }, enabled = enabled && index > 0, modifier = Modifier.heightIn(min = 48.dp)) { Text("上移") }
-                                    TextButton({ controller.edit { it.copy(rules = it.rules.toMutableList().apply { add(index + 1, removeAt(index)) }) } }, enabled = enabled && index < draft.rules.lastIndex, modifier = Modifier.heightIn(min = 48.dp)) { Text("下移") }
-                                    TextButton({ controller.edit { it.copy(rules = it.rules.filterIndexed { i, _ -> i != index }) } }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("移除规则") }
+                                    TextButton({ ruleKeys.add(index - 1, ruleKeys.removeAt(index)); controller.edit { it.copy(rules = it.rules.toMutableList().apply { add(index - 1, removeAt(index)) }) } }, enabled = enabled && index > 0, modifier = Modifier.heightIn(min = 48.dp)) { Text("上移") }
+                                    TextButton({ ruleKeys.add(index + 1, ruleKeys.removeAt(index)); controller.edit { it.copy(rules = it.rules.toMutableList().apply { add(index + 1, removeAt(index)) }) } }, enabled = enabled && index < draft.rules.lastIndex, modifier = Modifier.heightIn(min = 48.dp)) { Text("下移") }
+                                    TextButton({ ruleKeys.removeAt(index); controller.edit { it.copy(rules = it.rules.filterIndexed { i, _ -> i != index }) } }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("移除规则") }
                                 }
                                 HorizontalDivider()
                             }
+                            }
                         }
-                        OutlinedButton({ controller.edit { it.copy(rules = it.rules + ManagedRule(path = "/")) } }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("添加规则") }
+                        OutlinedButton({ ruleKeys.add(java.util.UUID.randomUUID().toString()); controller.edit { it.copy(rules = it.rules + ManagedRule(path = "/")) } }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("添加规则") }
                     }
                 } }
             }

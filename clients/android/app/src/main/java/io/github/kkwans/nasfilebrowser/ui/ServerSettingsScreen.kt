@@ -2,10 +2,15 @@ package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -14,6 +19,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ServerSettingsController
+import io.github.kkwans.nasfilebrowser.app.serverSettingNumberValid
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.nasfilebrowser.data.*
 
 private enum class GlobalSettingsGroup(val label: String) {
@@ -25,21 +32,14 @@ private enum class GlobalSettingsGroup(val label: String) {
     val state by controller.state.collectAsStateWithLifecycle()
     val draft = state.draft
     var group by remember(state.scope) { mutableStateOf<GlobalSettingsGroup?>(null) }
-    var numbers by remember(state.scope) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val numbers = state.numberDrafts
+    val fullPage = group in setOf(GlobalSettingsGroup.DEFAULTS, GlobalSettingsGroup.COMMANDS, GlobalSettingsGroup.RULES)
     val enabled = state.authorized && !state.loading && !state.saving && !state.unknown
-    fun validNumber(key: String, value: String) = when (key) {
-        "minimum" -> value.toIntOrNull()?.let { it > 0 } == true
-        "session" -> value.toDoubleOrNull()?.let { it.isFinite() && it in 10.0..43200.0 } == true
-        "chunk" -> value.toLongOrNull()?.let { it >= 0 } == true
-        "retry" -> value.toIntOrNull()?.let { it in 0..65535 } == true
-        else -> false
-    }
+    fun validNumber(key: String, value: String) = serverSettingNumberValid(key, value)
     val numbersValid = numbers.all { (key, value) -> validNumber(key, value) }
-    LaunchedEffect(state.settings, state.dirty) { if (!state.dirty) numbers = emptyMap() }
-    Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer, topBar = {
-        TopAppBar(title = { Text("全局设置") }, navigationIcon = {
-            IconButton(onBack, enabled = !state.saving) { Icon(painterResource(R.drawable.ic_arrow_back), "返回设置") }
-        }, actions = { IconButton(controller::refresh, enabled = !state.loading && !state.saving) { Icon(painterResource(R.drawable.ic_refresh), "刷新全局设置") } })
+    if (!fullPage) Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        FilewayTopAppBar("全局设置", null, R.drawable.ic_arrow_back, "返回设置", { if (!state.saving) onBack() },
+            actions = { IconButton(controller::refresh, enabled = !state.loading && !state.saving) { Icon(painterResource(R.drawable.ic_refresh), "刷新全局设置") } })
     }, bottomBar = {
         if (draft != null) Surface {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
@@ -81,10 +81,8 @@ private enum class GlobalSettingsGroup(val label: String) {
             }
         }
     }
-    group?.let { selected -> if (draft != null) ModalBottomSheet(onDismissRequest = { group = null }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(.88f).imePadding(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text(selected.label, style = MaterialTheme.typography.titleLarge) }
+    group?.let { selected -> if (draft != null) GlobalSettingsEditor(selected.label, fullPage, !state.saving, { group = null }) {
+            item { Text("更改保留在草稿中；返回后点击“保存全局设置”才会提交。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             when (selected) {
                 GlobalSettingsGroup.ACCOUNTS -> {
                     item { AdminToggle("允许注册", "开放服务器注册入口", draft.signup, enabled) { value -> controller.edit { it.copy(signup = value) } } }
@@ -92,10 +90,10 @@ private enum class GlobalSettingsGroup(val label: String) {
                     item { AdminToggle("隐藏登录按钮", "控制网页端登录按钮显示", draft.hideLoginButton, enabled) { value -> controller.edit { it.copy(hideLoginButton = value) } } }
                     item { GlobalText("用户主目录路径", draft.userHomeBasePath, enabled) { value -> controller.edit { it.copy(userHomeBasePath = value) } } }
                     item { GlobalNumber("最小密码长度（字节）", numbers["minimum"] ?: draft.minimumPasswordLength.toString(), enabled, validNumber("minimum", numbers["minimum"] ?: draft.minimumPasswordLength.toString())) { text ->
-                        numbers = numbers + ("minimum" to text); text.toIntOrNull()?.takeIf { it > 0 }?.let { value -> controller.edit { it.copy(minimumPasswordLength = value) } }
+                        controller.editNumber("minimum", text)
                     } }
                     item { GlobalNumber("会话期限（分钟）", numbers["session"] ?: draft.sessionMinutes.toString(), enabled, validNumber("session", numbers["session"] ?: draft.sessionMinutes.toString()), "10 分钟至 30 天", true) { text ->
-                        numbers = numbers + ("session" to text); text.toDoubleOrNull()?.takeIf { it.isFinite() && it in 10.0..43200.0 }?.let { value -> controller.edit { it.copy(sessionMinutes = value) } }
+                        controller.editNumber("session", text)
                     } }
                 }
                 GlobalSettingsGroup.DEFAULTS -> {
@@ -126,10 +124,10 @@ private enum class GlobalSettingsGroup(val label: String) {
                 }
                 GlobalSettingsGroup.UPLOADS -> {
                     item { GlobalNumber("TUS 分块大小（字节）", numbers["chunk"] ?: draft.chunkBytes.toString(), enabled, validNumber("chunk", numbers["chunk"] ?: draft.chunkBytes.toString())) { text ->
-                        numbers = numbers + ("chunk" to text); text.toLongOrNull()?.takeIf { it >= 0 }?.let { value -> controller.edit { it.copy(chunkBytes = value) } }
+                        controller.editNumber("chunk", text)
                     } }
                     item { GlobalNumber("重试次数", numbers["retry"] ?: draft.retryCount.toString(), enabled, validNumber("retry", numbers["retry"] ?: draft.retryCount.toString()), "0–65535") { text ->
-                        numbers = numbers + ("retry" to text); text.toIntOrNull()?.takeIf { it in 0..65535 }?.let { value -> controller.edit { it.copy(retryCount = value) } }
+                        controller.editNumber("retry", text)
                     } }
                 }
                 GlobalSettingsGroup.COMMANDS -> {
@@ -143,13 +141,35 @@ private enum class GlobalSettingsGroup(val label: String) {
                 }
                 GlobalSettingsGroup.RULES -> item { GlobalRules(draft.rules, enabled) { value -> controller.edit { it.copy(rules = value) } } }
             }
-            item { TextButton({ group = null }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("完成") } }
-        }
     } }
     if (state.confirmation) AlertDialog(onDismissRequest = controller::cancelConfirmation, title = { Text("保存全局设置？") },
         text = { Text("将保存当前服务器的配置。默认用户项仅用于新账号；路径规则和事件命令可能影响所有用户。") },
         confirmButton = { TextButton(controller::confirmSave, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("确认保存") } },
         dismissButton = { TextButton(controller::cancelConfirmation, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") } })
+}
+
+@Composable private fun GlobalSettingsEditor(title: String, fullPage: Boolean, canDismiss: Boolean,
+    onBack: () -> Unit, content: LazyListScope.() -> Unit) {
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val ime = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    fun back() { if (ime) { keyboard?.hide(); focus.clearFocus() } else if (canDismiss) onBack() }
+    if (fullPage) {
+        BackHandler { back() }
+        Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+            FilewayTopAppBar(title, "全局设置草稿", R.drawable.ic_arrow_back, "保留草稿并返回", ::back)
+        }, bottomBar = {
+            Surface { TextButton(::back, enabled = canDismiss, modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().heightIn(min = 48.dp)) { Text("保留草稿并返回") } }
+        }) { insets ->
+            LazyColumn(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+        }
+    } else FileOperationSheet(title, onBack, canDismiss = canDismiss, footer = {
+        TextButton(onBack, enabled = canDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("保留草稿并返回") }
+    }) {
+        LazyColumn(Modifier.weight(1f, fill = false), contentPadding = PaddingValues(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+    }
 }
 
 @Composable private fun GlobalText(label: String, value: String, enabled: Boolean, hint: String = "", singleLine: Boolean = true, onChange: (String) -> Unit) {

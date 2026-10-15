@@ -47,7 +47,7 @@ internal class FileActionsUiTest : LibraryUiHarness() {
                 }
                 text("文件详情")
                 val toolbar = listOf("加入收藏", "设置文件标签", "下载到本机", "移入回收站").map { action(it).visibleBounds }
-                assertTrue("File actions must occupy one row above metadata", toolbar.all { it.bottom < text("名称").visibleBounds.top })
+                assertTrue("Confirm the object before presenting its actions", toolbar.all { it.top > text("名称").visibleBounds.bottom })
                 assertTrue("Action icons must share the same row", toolbar.maxOf { it.centerY() } - toolbar.minOf { it.centerY() } <= 2)
                 capture("file-actions-${layout.name.lowercase()}")
                 text("关闭").click()
@@ -64,16 +64,20 @@ internal class FileActionsUiTest : LibraryUiHarness() {
             }
             fileDetails(path.substringAfterLast('/'))
             action("加入收藏").click(); text("常用").click()
+            assertTrue("The favorite child replaces the details window", device.wait(Until.gone(By.text("文件详情")), 5000))
             capture("file-favorite-picker")
             text("保存收藏").click()
             withTimeout(5000) { model.favorites.state.first { !it.changing && it.items.singleOrNull()?.groupId == "owned-group" } }
             action("取消收藏")
+            text("文件详情")
             action("设置文件标签").click(); text("本次测试").click()
+            assertTrue("The tag child replaces the details window", device.wait(Until.gone(By.text("文件详情")), 5000))
             capture("file-tag-picker-colors")
             text("保存标记").click()
             withTimeout(5000) { model.tags.state.first { !it.changing && it.items.singleOrNull()?.paths?.contains(path) == true } }
             assertTrue(data.mutations.contains("POST" to "/api/tags/tag-owned/paths"))
             assertFalse(data.mutations.any { it.first == "DELETE" })
+            text("文件详情")
             text("关闭").click()
             action("文件标签：本次测试")
             capture("file-tag-visible-on-card")

@@ -9,7 +9,16 @@ import kotlinx.coroutines.flow.collect
 data class ShellState(val scope: String = "", val open: Boolean = false, val directory: DirectoryCrumb = DirectoryCrumb("根目录", "/", "/"),
     val enabled: Boolean = false, val execute: Boolean = false, val commands: List<String> = emptyList(), val input: String = "",
     val loading: Boolean = false, val running: Boolean = false, val output: ShellBuffer = ShellBuffer(), val remoteDropped: Long = 0,
-    val message: String? = null, val error: String? = null)
+    val message: String? = null, val error: String? = null, val policyKnown: Boolean = false) {
+    val configurationMessage: String? get() = if (policyKnown) shellCapabilityMessage(enabled, execute, commands) else null
+}
+
+internal fun shellCapabilityMessage(enabled: Boolean, execute: Boolean, commands: List<String>): String? = when {
+    !enabled -> "服务器未启用命令功能"
+    !execute -> "当前账号没有执行命令权限"
+    commands.isEmpty() -> "当前账号没有允许执行的命令，请在服务器管理白名单"
+    else -> null
+}
 
 class ShellController(private val scope: CoroutineScope, private val isCurrent: (SessionContext) -> Boolean) {
     private val mutable = MutableStateFlow(ShellState())
@@ -60,23 +69,18 @@ class ShellController(private val scope: CoroutineScope, private val isCurrent: 
             .contentEquals(resourceWireBytes(wire))) { "工作目录已变化，请返回文件页重新打开命令功能" }
         return Triple(true, true, allowed)
     }
-    private fun policyError(enabled: Boolean, execute: Boolean, commands: List<String>): String? = when {
-        !enabled -> "服务器未启用命令功能"
-        !execute -> "当前账号没有执行命令权限"
-        commands.isEmpty() -> "当前账号没有允许执行的命令，请在服务器管理白名单"
-        else -> null
-    }
+    private fun policyError(enabled: Boolean, execute: Boolean, commands: List<String>) = shellCapabilityMessage(enabled, execute, commands)
     fun refresh() {
         val owner = bound ?: return
         val before = mutable.value
         if (!isCurrent(owner) || before.loading || before.running) return
         val epoch = ++revision
-        mutable.value = before.copy(loading = true, error = null)
+        mutable.value = before.copy(loading = true, error = null, policyKnown = false)
         read = scope.launch {
             try {
                 val (enabled, execute, commands) = policy(owner, before.directory)
                 if (current(owner, epoch)) mutable.value = mutable.value.copy(loading = false, enabled = enabled, execute = execute, commands = commands,
-                    error = policyError(enabled, execute, commands))
+                    error = policyError(enabled, execute, commands), policyKnown = true)
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
                 if (current(owner, epoch)) mutable.value = mutable.value.copy(loading = false, enabled = false, execute = false, error = error.message ?: "无法读取命令权限，请重试")
@@ -93,7 +97,7 @@ class ShellController(private val scope: CoroutineScope, private val isCurrent: 
         stream = scope.launch {
             try {
                 val (enabled, execute, allowed) = policy(owner, before.directory)
-                if (current(owner, epoch)) mutable.value = mutable.value.copy(enabled = enabled, execute = execute, commands = allowed)
+                if (current(owner, epoch)) mutable.value = mutable.value.copy(enabled = enabled, execute = execute, commands = allowed, policyKnown = true)
                 check(policyError(enabled, execute, allowed) == null) { policyError(enabled, execute, allowed).orEmpty() }
                 if (!current(owner, epoch)) return@launch
                 mutable.value = mutable.value.copy(enabled = enabled, execute = execute, commands = allowed, loading = false, running = true,

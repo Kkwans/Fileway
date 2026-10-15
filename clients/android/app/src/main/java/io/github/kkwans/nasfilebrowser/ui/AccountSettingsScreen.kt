@@ -13,6 +13,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.AccountSettingsController
 
@@ -23,12 +24,13 @@ import io.github.kkwans.nasfilebrowser.app.AccountSettingsController
     DisposableEffect(controller, state.scope) {
         onDispose { if (!controller.state.value.passwordUnknown && !controller.state.value.saving) controller.clearPasswordDraft() }
     }
-    Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer, topBar = {
-        TopAppBar(title = { Text("账户设置") }, navigationIcon = {
-            IconButton(onBack) { Icon(painterResource(R.drawable.ic_arrow_back), "返回设置") }
-        }, actions = { IconButton(controller::refresh, enabled = !state.loading && !state.saving) {
-            Icon(painterResource(R.drawable.ic_refresh), "刷新账户资料")
-        } })
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        Column(Modifier.statusBarsPadding()) {
+            FilewayTopAppBar("账户安全", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回来源页面", onLeadingClick = onBack,
+                actions = { IconButton(controller::refresh, enabled = !state.loading && !state.saving) {
+                    Icon(painterResource(R.drawable.ic_refresh), "刷新账户资料")
+                } })
+        }
     }) { insets ->
         LazyColumn(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).semantics { contentDescription = "账户设置内容" },
             contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -58,21 +60,23 @@ import io.github.kkwans.nasfilebrowser.app.AccountSettingsController
             }
         }
     }
+    val passwordError = state.capabilities?.let { state.password.validationError(it) }
     if (passwordOpen) ModalBottomSheet(onDismissRequest = {
         if (!state.saving) { passwordOpen = false; if (!state.passwordUnknown) controller.clearPasswordDraft() }
     }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         LazyColumn(Modifier.fillMaxWidth().imePadding().semantics { contentDescription = "密码修改内容" }, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item { Text("修改密码", style = MaterialTheme.typography.titleLarge) }
-            item { Text("至少 ${state.capabilities?.minimumPasswordLength ?: "—"} 字节；密码只用于本次提交。", style = MaterialTheme.typography.bodySmall) }
+            item { Text("${state.capabilities?.minimumPasswordLength ?: "—"}–72 字节；密码只用于本次提交。", style = MaterialTheme.typography.bodySmall) }
             if (state.capabilities?.currentPasswordRequired == true) item {
                 AccountPasswordField("当前密码", state.password.current, !state.saving && !state.passwordUnknown) { value -> controller.editPassword { it.copy(current = value) } }
             }
             item { AccountPasswordField("新密码", state.password.replacement, !state.saving && !state.passwordUnknown) { value -> controller.editPassword { it.copy(replacement = value) } } }
             item { AccountPasswordField("确认新密码", state.password.confirmation, !state.saving && !state.passwordUnknown) { value -> controller.editPassword { it.copy(confirmation = value) } } }
+            passwordError?.takeIf { state.password.replacement.isNotEmpty() || state.password.confirmation.isNotEmpty() }?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
             state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             state.notice?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
-            item { Button(controller::savePassword, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = state.canChangePassword && !state.loading && !state.saving && !state.passwordUnknown) { Text(if (state.saving) "正在修改" else "确认修改密码") } }
+            item { Button(controller::savePassword, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = state.canChangePassword && state.capabilities != null && passwordError == null && !state.loading && !state.saving && !state.passwordUnknown) { Text(if (state.saving) "正在修改" else "确认修改密码") } }
             if (state.passwordUnknown) item {
                 OutlinedButton(onReconnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重新连接核对") }
                 TextButton(controller::clearPasswordDraft, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("清除密码草稿") }

@@ -3,6 +3,7 @@ package io.github.kkwans.nasfilebrowser.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -31,12 +32,22 @@ import io.github.kkwans.nasfilebrowser.data.*
     val enabled = !state.changing && !draft.unknownExecution
     var rules by remember(state.scope) { mutableStateOf(false) }
     var confirm by remember(state.scope, draft.options, draft.overrides, draft.reviewed) { mutableStateOf(false) }
-    val maximum = LocalConfiguration.current.screenHeightDp.dp * .92f
+    val previewScroll = rememberLazyListState()
     val names = remember(draft.files) { draft.files.groupingBy { it.name }.eachCount() }
-    ModalBottomSheet(onDismissRequest = { controller.closeBatchRename() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().heightIn(max = maximum).imePadding().padding(horizontal = 16.dp).padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("批量重命名", style = MaterialTheme.typography.titleLarge)
+    if (!confirm) FileOperationSheet("批量重命名", { controller.closeBatchRename() }, canDismiss = enabled, footer = {
+        if (draft.unknownExecution) Button({ controller.closeBatchRename(verifyUnknown = true); onVerify(draft.parent) },
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("刷新原目录核对并关闭") }
+        else {
+            TextButton({ controller.closeBatchRename() }, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+            key(draft.reviewed, state.changing) {
+                Button({ if (draft.reviewed) confirm = true else controller.checkBatchRename() },
+                    enabled = enabled && rows.none { it.error != null } && changed > 0, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (state.changing) { if (draft.reviewed) "正在重命名" else "正在检查" }
+                        else if (draft.reviewed) "确认重命名 $changed 项" else "检查变更")
+                }
+            }
+        }
+    }) {
             Text("已选 ${draft.files.size} 项 · $changed 项待修改", style = MaterialTheme.typography.bodyMedium)
             if (state.changing) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (draft.unknownExecution) {
@@ -45,16 +56,12 @@ import io.github.kkwans.nasfilebrowser.data.*
                     item { draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
                     item { Text("此批操作已锁定提交。刷新后请检查实际名称，再重新选择文件开始新的操作。", style = MaterialTheme.typography.bodyMedium) }
                 }
-                Button({
-                    controller.closeBatchRename(verifyUnknown = true)
-                    onVerify(draft.parent)
-                }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("刷新原目录核对并关闭") }
             } else {
-                LazyColumn(Modifier.weight(1f, fill = false).heightIn(min = 96.dp).semantics { contentDescription = "批量重命名变更预览" },
+                LazyColumn(Modifier.weight(1f, fill = false).heightIn(min = 96.dp).semantics { contentDescription = "批量重命名变更预览" }, state = previewScroll,
                     verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(vertical = 8.dp)) {
                     item {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SelectionContainer { Text(draft.parent.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            FileOperationLocation("原目录", draft.parent.path)
                             draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text("命名规则", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
@@ -121,18 +128,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                    TextButton({ controller.closeBatchRename() }, enabled = !state.changing) { Text("取消") }
-                    key(draft.reviewed, state.changing) {
-                        Button({ if (draft.reviewed) confirm = true else controller.checkBatchRename() },
-                            enabled = enabled && rows.none { it.error != null } && changed > 0, modifier = Modifier.heightIn(min = 48.dp)) {
-                            Text(if (state.changing) { if (draft.reviewed) "正在重命名" else "正在检查" }
-                                else if (draft.reviewed) "确认重命名 $changed 项" else "检查变更")
-                        }
-                    }
-                }
             }
-        }
     }
     if (confirm && draft.reviewed && !draft.unknownExecution) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("执行这 $changed 项重命名？") },
         text = { Text("将一次提交预览中的全部变更。同名冲突会停止执行，已有内容不会被覆盖。名称变更会同步到当前账号的服务端记录。") },

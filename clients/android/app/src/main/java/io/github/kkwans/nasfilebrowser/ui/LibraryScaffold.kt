@@ -1,8 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -19,13 +17,16 @@ import io.github.kkwans.nasfilebrowser.app.LibrarySection
 
 @Composable internal fun LibraryScaffold(model: ClientModel, section: LibrarySection,
     actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer, bottomBar = { ClientNavigation(model, "library") }) { insets ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "library") }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
             FilewayPageHeader(section.title, actions = actions)
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val colors = libraryChipColors()
-                LibrarySection.entries.filter { it != LibrarySection.TASKS }.forEach { page -> FilterChip(page == section, { model.librarySection(page) }, { Text(page.label) }, colors = colors,
-                    modifier = Modifier.semantics { contentDescription = "${page.label}资料页" }) }
+            val pages = LibrarySection.entries.filter { it != LibrarySection.TASKS }
+            @Suppress("DEPRECATION")
+            TabRow(selectedTabIndex = pages.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.background,
+                contentColor = MaterialTheme.colorScheme.primary, divider = {}) {
+                pages.forEach { page -> Tab(selected = page == section, onClick = { model.librarySection(page) },
+                    text = { Text(page.label) }, unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "${page.label}资料页" }) }
             }
             content()
         }

@@ -1,57 +1,80 @@
 package io.github.kkwans.nasfilebrowser.ui
 
-import androidx.compose.foundation.layout.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
+import io.github.kkwans.nasfilebrowser.data.FileTransferAction
+import io.github.kkwans.nasfilebrowser.data.renameNameError
+import io.github.kkwans.nasfilebrowser.ui.designsystem.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import io.github.kkwans.nasfilebrowser.data.renameNameError
-import io.github.kkwans.nasfilebrowser.data.FileTransferAction
-import io.github.kkwans.nasfilebrowser.R
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun FileActionIcon(icon: Int, label: String, enabled: Boolean, active: Boolean = false, onClick: () -> Unit) {
-    TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(), tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
-        IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
-            Icon(painterResource(icon), label, Modifier.size(24.dp), tint = if (!enabled) MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)
-                else if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+@Composable internal fun FileActionIcon(icon: Int, label: String, enabled: Boolean, active: Boolean = false,
+    caption: String? = null, onClick: () -> Unit) {
+    val foreground = LocalFileOperationForeground.current
+    val focus = remember(label) { FocusRequester() }
+    val tooltip = rememberTooltipState()
+    LaunchedEffect(foreground?.revision) {
+        tooltip.dismiss()
+        if (foreground?.destination == FileOperationDestination.DETAILS && foreground.returnAction == label && enabled)
+            focus.requestFocus()
+    }
+    @Composable fun button() {
+        if (caption == null) IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp).focusRequester(focus)) {
+            Icon(painterResource(icon), label, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
+                else if (active) FilewayTheme.colors.primary else FilewayTheme.colors.onSurfaceVariant)
+        } else TextButton(onClick, enabled = enabled, modifier = Modifier.widthIn(min = 48.dp).heightIn(min = 64.dp).focusRequester(focus)
+            .semantics { contentDescription = label }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Icon(painterResource(icon), null, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
+                    else if (active) FilewayTheme.colors.primary else FilewayTheme.colors.onSurfaceVariant)
+                Text(caption, style = MaterialTheme.typography.labelMedium,
+                    color = if (enabled) FilewayTheme.colors.onSurfaceVariant else FilewayTheme.colors.onSurface.copy(alpha = .38f))
+            }
         }
     }
+    if (caption == null) TooltipBox(positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+        tooltip = { PlainTooltip { Text(label) } }, state = tooltip) { button() } else button()
 }
 
 @Composable internal fun FileActions(model: ClientModel, file: ResourceRef, onMoved: () -> Unit = {}) {
     if (model.isTemporaryContent(file)) {
-        Text("包内文件 · 解压后可收藏、打标签或修改", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("包内文件 · 解压后可收藏、打标签或修改", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
         return
     }
     if (file.downloadId.isNotEmpty()) {
-        Text("本机下载 · 收藏和标签在服务器原文件上管理", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("本机下载 · 收藏和标签在服务器原文件上管理", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
         return
     }
     val tags by model.tags.state.collectAsStateWithLifecycle()
@@ -60,102 +83,142 @@ import io.github.kkwans.nasfilebrowser.R
     val downloads by model.downloads.state.collectAsStateWithLifecycle()
     val favorites by model.favorites.state.collectAsStateWithLifecycle()
     val operations by model.fileOperations.state.collectAsStateWithLifecycle()
+    val checksum by model.fileChecksum.state.collectAsStateWithLifecycle()
+    val foreground = LocalFileOperationForeground.current ?: remember(file.mediaKey, operations.scope) { FileOperationForeground() }
     val context = LocalContext.current
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
-    var labeling by remember(file.mediaKey, tags.scope) { mutableStateOf(false) }
-    var moving by remember(file.mediaKey, tags.scope) { mutableStateOf(false) }
-    var renaming by remember(file.mediaKey, operations.scope) { mutableStateOf(false) }
     var more by remember(file.mediaKey, operations.scope) { mutableStateOf(false) }
-    DisposableEffect(file) { onDispose { if (model.fileChecksum.state.value.file === file) model.fileChecksum.close() } }
-    val enabled = !trash.changing && !client.busy && !operations.changing
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        FavoriteFileAction(model, file, enabled)
-        val count = model.tags.assigned(file).size
-        FileActionIcon(R.drawable.ic_tag, "设置文件标签", enabled && !tags.changing, count > 0) { labeling = true }
-        if (client.permissions.download) FileActionIcon(R.drawable.ic_download, "下载到本机", enabled && !downloads.busy && downloads.folderPlan == null) {
-            model.download(file)
-            if (file.directory) onMoved()
-            if (!file.directory && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
-                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        }
-        if (client.permissions.delete && file.path != "/") FileActionIcon(R.drawable.ic_trash, "移入回收站", enabled && !tags.changing) { moving = true }
-        if (file.path != "/" && (client.permissions.rename || client.permissions.create || client.permissions.download)) Box {
-            FileActionIcon(R.drawable.ic_more_vert, "更多文件操作", enabled && operations.transfer == null) { more = true }
-            DropdownMenu(more, { more = false }) {
-                if (client.permissions.download) DropdownMenuItem({ Text("打包下载为 ZIP") }, {
-                    more = false; model.startZipExport(listOf(file), client.previewScope); onMoved()
-                }, leadingIcon = { Icon(painterResource(R.drawable.ic_download), null) })
-                if (client.permissions.download && !file.directory) DropdownMenuItem({ Text("校验文件") }, {
-                    more = false; model.fileChecksum.open(file, client.previewScope)
-                }, leadingIcon = { Icon(painterResource(R.drawable.ic_info), null) })
-                if (client.permissions.rename) DropdownMenuItem({ Text("重命名") }, { more = false; renaming = true },
-                    enabled = !tags.changing && !favorites.changing, leadingIcon = { Icon(painterResource(R.drawable.ic_edit), null) },
-                    modifier = Modifier.semantics { contentDescription = "重命名文件" })
-                if (client.permissions.create) DropdownMenuItem({ Text("复制到…") }, {
-                    more = false; model.startFileTransfer(listOf(file), FileTransferAction.COPY, client.previewScope); onMoved()
-                }, leadingIcon = { Icon(painterResource(R.drawable.ic_copy), null) }, modifier = Modifier.semantics { contentDescription = "复制文件" })
-                if (client.permissions.create && client.permissions.rename) DropdownMenuItem({ Text("移动到…") }, {
-                    more = false; model.startFileTransfer(listOf(file), FileTransferAction.MOVE, client.previewScope); onMoved()
-                }, leadingIcon = { Icon(painterResource(R.drawable.ic_move), null) }, modifier = Modifier.semantics { contentDescription = "移动文件" })
-            }
-        }
-        }
-        favorites.error?.let { Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            TextButton(model.favorites::refresh) { Text("重试") }
-        } }
-        downloads.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        downloads.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-        if (!labeling) tags.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-        if (!renaming) operations.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+    val initialScope = remember(file.mediaKey) { operations.scope }
+    LaunchedEffect(operations.scope) { if (operations.scope != initialScope) { more = false; foreground.back(); onMoved() } }
+    // This owner is retained across details/child windows. It is no longer a toolbar cleanup.
+    DisposableEffect(file.mediaKey, operations.scope) {
+        val scope = operations.scope
+        onDispose { if (model.fileChecksum.state.value.scope == scope && model.fileChecksum.state.value.file?.mediaKey == file.mediaKey) model.fileChecksum.close() }
     }
-    if (labeling) FileTagPicker(model, file) { labeling = false }
-    if (model.fileChecksum.state.collectAsStateWithLifecycle().value.file?.mediaKey == file.mediaKey) FileChecksumSheet(model.fileChecksum)
-    if (renaming) FileRenameDialog(model, file, { renaming = false }) { renaming = false; onMoved() }
-    if (moving) AlertDialog(onDismissRequest = { moving = false }, title = { Text("移入回收站？") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(file.name); Text(file.path, style = MaterialTheme.typography.bodySmall)
-            Text("可从回收站恢复。收藏和标签会随服务端操作同步。", style = MaterialTheme.typography.bodySmall)
-            trash.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    fun switch(destination: FileOperationDestination, action: String) {
+        more = false; focus.clearFocus(); keyboard?.hide(); foreground.open(destination, action)
+    }
+    fun back() { focus.clearFocus(); keyboard?.hide(); foreground.back() }
+    fun leave() { more = false; focus.clearFocus(); keyboard?.hide(); onMoved() }
+    val enabled = !trash.changing && !client.busy && !operations.changing
+    CompositionLocalProvider(LocalFileOperationForeground provides foreground) {
+        // Favorite action owns its draft outside the toolbar branch, so changing windows preserves it.
+        val favoriteSlot = remember(file.mediaKey, operations.scope) { movableContentOf<Boolean> { currentEnabled -> FavoriteFileAction(model, file, currentEnabled) } }
+        if (foreground.destination == FileOperationDestination.DETAILS) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(color = FilewayTheme.colors.surfaceContainerLow, shape = MaterialTheme.shapes.small) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                        favoriteSlot(enabled)
+                        FileActionIcon(R.drawable.ic_tag, "设置文件标签", enabled && !tags.changing, model.tags.assigned(file).isNotEmpty(), caption = "标签") {
+                            switch(FileOperationDestination.TAGS, "设置文件标签")
+                        }
+                        if (client.permissions.download) FileActionIcon(R.drawable.ic_download, "下载到本机", enabled && !downloads.busy && downloads.folderPlan == null, caption = "下载") {
+                            focus.clearFocus(); keyboard?.hide(); model.download(file)
+                            if (file.directory) leave()
+                            if (!file.directory && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        if (client.permissions.delete && file.path != "/") FileActionIcon(R.drawable.ic_trash, "移入回收站", enabled && !tags.changing, caption = "回收站") {
+                            switch(FileOperationDestination.TRASH, "移入回收站")
+                        }
+                        if (file.path != "/" && (client.permissions.rename || client.permissions.create || client.permissions.download)) Box {
+                            FileActionIcon(R.drawable.ic_more_vert, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
+                            DropdownMenu(more, { more = false }) {
+                                if (client.permissions.download) FilewayMenuItem("打包下载为 ZIP", {
+                                    more = false; model.startZipExport(listOf(file), client.previewScope); leave()
+                                }, R.drawable.ic_download)
+                                if (client.permissions.download && !file.directory) FilewayMenuItem("校验文件", {
+                                    model.fileChecksum.open(file, client.previewScope)
+                                    if (model.fileChecksum.state.value.file?.mediaKey == file.mediaKey) switch(FileOperationDestination.CHECKSUM, "更多文件操作")
+                                }, R.drawable.ic_check)
+                                if (client.permissions.rename) Box(Modifier.semantics { contentDescription = "重命名文件" }) {
+                                    FilewayMenuItem("重命名", { switch(FileOperationDestination.RENAME, "更多文件操作") }, R.drawable.ic_edit,
+                                        enabled = !tags.changing && !favorites.changing)
+                                }
+                                if (client.permissions.create) Box(Modifier.semantics { contentDescription = "复制文件" }) {
+                                    FilewayMenuItem("复制到…", { more = false; model.startFileTransfer(listOf(file), FileTransferAction.COPY, client.previewScope); leave() }, R.drawable.ic_copy)
+                                }
+                                if (client.permissions.create && client.permissions.rename) Box(Modifier.semantics { contentDescription = "移动文件" }) {
+                                    FilewayMenuItem("移动到…", { more = false; model.startFileTransfer(listOf(file), FileTransferAction.MOVE, client.previewScope); leave() }, R.drawable.ic_move)
+                                }
+                            }
+                        }
+                    }
+                }
+                favorites.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR, model.favorites::refresh, "重试") }
+                downloads.notice?.let { FilewayStatusBanner(it) }
+                downloads.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
+                tags.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
+                operations.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
+            }
+        } else {
+            Box(Modifier.size(0.dp)) { favoriteSlot(enabled) }
         }
-    }, confirmButton = { TextButton({ model.trash.move(file) { moving = false; onMoved() } }, enabled = enabled) { Text(if (trash.changing) "正在移动" else "移入回收站") } },
-        dismissButton = { TextButton({ moving = false }, enabled = enabled) { Text("取消") } })
+        when (foreground.destination) {
+            FileOperationDestination.TAGS -> FileTagPicker(model, file, ::back)
+            FileOperationDestination.CHECKSUM -> if (checksum.file?.mediaKey == file.mediaKey) FileChecksumSheet(model.fileChecksum, {
+                model.fileChecksum.close(); back()
+            }, back = true) else LaunchedEffect(Unit) { back() }
+            FileOperationDestination.RENAME -> FileRenameDialog(model, file, ::back) { back(); onMoved() }
+            FileOperationDestination.TRASH -> FileOperationDialog("移入回收站？", ::back, canDismiss = !trash.changing, footer = {
+                TextButton(::back, enabled = !trash.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+                Button({ model.trash.move(file) { back(); onMoved() } }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Text(if (trash.changing) "正在移动" else "移入回收站")
+                }
+            }) {
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    SelectionContainer { Text(file.name, style = FilewayTheme.text.fileName) }
+                    FileOperationLocation("原位置", file.path)
+                    Text("可从回收站恢复。收藏和标签会随服务端操作同步。", style = MaterialTheme.typography.bodyMedium)
+                    trash.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
+                }
+            }
+            else -> Unit
+        }
+    }
 }
 
 @Composable private fun FileRenameDialog(model: ClientModel, file: ResourceRef, dismiss: () -> Unit, saved: () -> Unit) {
     val state by model.fileOperations.state.collectAsStateWithLifecycle()
     val stemEnd = if (file.directory) file.name.length else file.name.lastIndexOf('.').takeIf { it > 0 } ?: file.name.length
-    var input by remember { mutableStateOf(TextFieldValue(file.name, TextRange(0, stemEnd))) }
-    var attempted by remember { mutableStateOf(false) }
-    val focus = remember { FocusRequester() }
+    var input by remember(file.mediaKey, state.scope) { mutableStateOf(TextFieldValue(file.name, TextRange(0, stemEnd))) }
+    var attempted by remember(file.mediaKey, state.scope) { mutableStateOf(false) }
+    val focus = remember(file.mediaKey, state.scope) { FocusRequester() }
     val error = renameNameError(input.text)
-    val canSubmit = !state.changing && error == null && input.text.trim() != file.name
+    val unchanged = input.text.trim() == file.name
+    val canSubmit = !state.changing && error == null && !unchanged
     fun submit() { if (canSubmit) { attempted = true; model.fileOperations.rename(file, input.text, saved) } }
-    LaunchedEffect(Unit) { focus.requestFocus() }
-    AlertDialog(onDismissRequest = { if (!state.changing) dismiss() }, title = { Text("重命名") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(input, { input = it }, Modifier.fillMaxWidth().focusRequester(focus), label = { Text("新名称") },
+    LaunchedEffect(file.mediaKey, state.scope) { focus.requestFocus() }
+    FileOperationDialog("重命名", dismiss, canDismiss = !state.changing, footer = {
+        TextButton(dismiss, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+        Button(::submit, enabled = canSubmit, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.changing) "正在重命名" else "保存名称") }
+    }) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SelectionContainer { Text(file.name, style = FilewayTheme.text.fileName) }
+            OutlinedTextField(input, { input = it; attempted = false }, Modifier.fillMaxWidth().focusRequester(focus), label = { Text("新名称") },
                 enabled = !state.changing, singleLine = true, isError = error != null,
-                supportingText = { Text(error ?: if (file.directory) "同名文件夹存在时不会覆盖" else "保留扩展名可继续使用原来的打开方式") },
+                supportingText = { Text(error ?: if (unchanged) "请输入不同的名称" else if (file.directory) "同名文件夹存在时不会覆盖" else "保留扩展名可继续使用原来的打开方式") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { submit() }))
-            if (attempted) state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            if (attempted) state.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
         }
-    }, confirmButton = { TextButton({ submit() }, enabled = canSubmit) { Text(if (state.changing) "正在重命名" else "保存名称") } },
-        dismissButton = { TextButton(dismiss, enabled = !state.changing) { Text("取消") } })
+    }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun FileTagPicker(model: ClientModel, file: ResourceRef, dismiss: () -> Unit) {
     val state by model.tags.state.collectAsStateWithLifecycle()
-    val sourceScope = remember { state.scope }
+    val sourceScope = remember(file.mediaKey) { state.scope }
     var baseline by remember { mutableStateOf<Set<String>?>(null) }
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var attempt by remember { mutableIntStateOf(0) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
     var creating by remember { mutableStateOf(false) }
-    LaunchedEffect(file, state.scope, attempt) {
+    var submitted by remember { mutableStateOf(false) }
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(file.mediaKey, state.scope, attempt) {
         loading = true; error = null
         try {
             check(state.scope == sourceScope) { "文件来源已切换，请重新选择文件" }
@@ -163,35 +226,37 @@ import io.github.kkwans.nasfilebrowser.R
             val current = withTimeout(10_000) { model.tags.state.first { !it.loading && !it.changing && (it.loaded || it.error != null) } }
             check(current.scope == sourceScope) { "文件来源已切换，请重新选择文件" }
             check(current.error == null) { current.error.orEmpty() }
-            if (baseline == null) {
-                baseline = model.tags.assigned(file)
-                selected = baseline!!
-            }
+            val assigned = model.tags.assigned(file)
+            if (baseline == null) selected = assigned
+            baseline = assigned
+            submitted = false
         } catch (failure: Exception) { if (failure is kotlinx.coroutines.CancellationException) throw failure; error = failure.message ?: "标签读取失败，请重试" }
         finally { loading = false }
     }
-    ModalBottomSheet(onDismissRequest = { if (!state.changing) dismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("文件标签", style = MaterialTheme.typography.titleLarge)
-            Text(file.name, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (loading || state.changing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 12.dp))
-            error?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton({ attempt++ }) { Text("重试") } }
-            if (error == null) state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            LazyColumn(Modifier.heightIn(max = 360.dp)) {
-                if (state.items.isEmpty() && !loading) item { Text("还没有标签，可先新建一个。", Modifier.padding(vertical = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(state.items, key = { it.id }) { tag -> Row(Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .toggleable(tag.id in selected, enabled = !loading && !state.changing && state.scope == sourceScope, role = Role.Checkbox) { checked -> selected = if (checked) selected + tag.id else selected - tag.id },
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(12.dp).background(metadataColor(tag.color, MaterialTheme.colorScheme.primary), CircleShape))
-                    Text(tag.name, Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.bodyLarge)
-                    Checkbox(tag.id in selected, null)
-                } }
+    val writeError = state.error.takeIf { submitted && !state.changing }
+    val editable = !loading && !state.changing && state.scope == sourceScope
+    if (!creating) FileOperationSheet("文件标签", dismiss, canDismiss = !state.changing, back = true, footer = {
+        TextButton(dismiss, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+        Button({ submitted = true; model.tags.assign(file, baseline.orEmpty(), selected, onSaved = dismiss, sourceScope = sourceScope) },
+            enabled = baseline != null && editable && error == null && writeError == null, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(if (state.changing) "正在保存" else "保存标记")
+        }
+    }) {
+        LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            item { SelectionContainer { Text(file.name, style = FilewayTheme.text.fileName, modifier = Modifier.padding(bottom = 12.dp)) } }
+            if (loading || state.changing) item { FilewayStatusBanner(if (loading) "正在读取标签" else "正在保存标记", FilewayStatusKind.LOADING) }
+            (error ?: writeError)?.let { failure -> item { FilewayStatusBanner(failure, FilewayStatusKind.ERROR, { attempt++ }, "重新读取当前标记") } }
+            if (state.items.isEmpty() && !loading) item { Text("还没有标签，可先新建一个。", Modifier.padding(vertical = 16.dp), color = FilewayTheme.colors.onSurfaceVariant) }
+            items(state.items, key = { it.id }) { tag ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).toggleable(tag.id in selected, enabled = editable && writeError == null, role = Role.Checkbox) { checked ->
+                    selected = if (checked) selected + tag.id else selected - tag.id
+                }.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(12.dp).background(metadataColor(tag.color, FilewayTheme.colors.primary), CircleShape))
+                    Text(tag.name, Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.bodyMedium)
+                    Checkbox(tag.id in selected, null, enabled = editable && writeError == null)
+                }
             }
-            TextButton({ creating = true }, enabled = !loading && !state.changing && state.scope == sourceScope) { Text("新建标签") }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(dismiss, enabled = !state.changing) { Text("取消") }
-                Button({ model.tags.assign(file, baseline.orEmpty(), selected, onSaved = dismiss, sourceScope = sourceScope) }, enabled = baseline != null && !loading && error == null && !state.changing && state.scope == sourceScope) { Text(if (state.changing) "正在保存" else "保存标记") }
-            }
+            item { TextButton({ focus.clearFocus(); keyboard?.hide(); creating = true }, enabled = editable && writeError == null, modifier = Modifier.heightIn(min = 48.dp)) { Text("新建标签") } }
         }
     }
     if (creating) TagEditor(model, null, { creating = false })

@@ -89,6 +89,26 @@ class ServerSettingsControllerTest {
         assertTrue(body.getJSONArray("rules").getJSONObject(1).isNull("regexp"))
     }
 
+    @Test fun invalidNumericDraftSurvivesLeavingAndReadingWithoutWriting(): Unit = runBlocking {
+        val authority = ServerSettingsAuthority(); val context = authority.context("numeric")
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+        val controller = ServerSettingsController(scope) { it === context }
+        try {
+            main { controller.bind(context); controller.setVisible(true) }; loaded(controller)
+            val original = controller.state.value.draft!!.sessionMinutes
+            main { controller.editNumber("session", "bad") }
+            assertTrue(controller.state.value.dirty)
+            main { controller.setVisible(false); controller.setVisible(true) }; loaded(controller)
+            assertEquals("bad", controller.state.value.numberDrafts["session"])
+            assertEquals(original, controller.state.value.draft!!.sessionMinutes, 0.0)
+            main { controller.requestSave() }
+            assertFalse(controller.state.value.confirmation); assertEquals(0, authority.writes)
+            main { controller.editNumber("session", "25"); controller.requestSave(); controller.confirmSave() }; settled(controller)
+            assertEquals(1, authority.writes)
+            assertTrue(controller.state.value.numberDrafts.isEmpty())
+        } finally { scope.cancel() }
+    }
+
     @Test fun completePayloadKeepsReadonlyUnknownHooksRulesAndDefaultShareFields(): Unit = runBlocking {
         val authority = ServerSettingsAuthority(); val context = authority.context("preserve")
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main); val controller = ServerSettingsController(scope) { it === context }

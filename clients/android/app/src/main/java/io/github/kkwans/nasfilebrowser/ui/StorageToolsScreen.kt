@@ -7,6 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,14 +21,15 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
-import io.github.kkwans.nasfilebrowser.data.duplicateGroupCanBeCleaned
+import io.github.kkwans.nasfilebrowser.data.*
 import org.json.JSONArray
 import org.json.JSONObject
 
 private fun jsonRows(value: JSONObject, key: String): List<JSONObject> = value.optJSONArray(key)?.let { rows -> (0 until rows.length()).map { rows.getJSONObject(it) } }.orEmpty()
 private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
     val files = jsonRows(group, "files")
-    return duplicateGroupCanBeCleaned(report.optInt("schemaVersion"), group.optInt("totalFiles"), group.optString("keepReason"), files.map {
+    return files.all { favoritePathIdentity(it.optString("path"), null, null).openable } &&
+        duplicateGroupCanBeCleaned(report.optInt("schemaVersion"), group.optInt("totalFiles"), group.optString("keepReason"), files.map {
             val identity = it.optJSONObject("identity")
             identity?.let { value -> value.optLong("links") to value.optLong("mode").toInt() }
         })
@@ -56,7 +58,7 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                 item { Text("选择扫描范围，查看空间占用或内容相同的文件。扫描由当前服务器执行。", Modifier.padding(4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 if (state.volumes.isNotEmpty()) item { Text("磁盘概览", style = MaterialTheme.typography.titleMedium) }
                 items(state.volumes, key = { "volume/" + it.getString("path") }) { volume ->
-                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.background) {
+                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(volume.optString("name"), style = MaterialTheme.typography.titleSmall)
                             val total = volume.optLong("totalSpace"); val used = volume.optLong("usedSpace")
@@ -97,50 +99,74 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                 state.task?.let { task -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${task.title} · ${task.statusLabel}", style = MaterialTheme.typography.titleMedium)
-                        TaskProgress(task)
+                        if (task.active) TaskProgress(task)
+                        else Text("完成时间 · ${serverTime(task.finishedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         TextButton({ model.showServerTask(task.id) }) { Text("查看分析任务") }
                     }
                 } }
                 state.report?.let { report ->
                     item {
+                        val scopes = report.optJSONArray("scopes")
+                        if (scopes != null) SelectionContainer { Text((0 until scopes.length()).mapNotNull {
+                            when (val value = scopes.opt(it)) { is String -> value; is JSONObject -> value.optString("path"); else -> null }
+                        }.joinToString("\n"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Text("扫描 ${report.optLong("scannedFiles")} 个文件 · ${readableSize(report.optLong("scannedBytes"))}", style = MaterialTheme.typography.bodyMedium)
+                        if (state.cleanup != null) Text("分析报告为清理前的历史快照，清理结果在下方单独列出。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (report.optBoolean("truncated")) Text("结果数量达到服务端上限，报告未包含所有条目。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         if (report.optInt("skippedCount") > 0) Text("${report.optInt("skippedCount")} 项跳过或无法读取。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                     if (state.tool == "storage") {
                         item { Text("最大的文件夹", style = MaterialTheme.typography.titleMedium) }
-                        items(jsonRows(report, "largestDirectories"), key = { "dir/" + it.getString("path") }) { value -> AnalysisPathRow(value.getString("path"), value.optLong("bytes"), "${value.optLong("files")} 个文件", model) }
+                        items(jsonRows(report, "largestDirectories"), key = { "dir/" + it.getString("path") }) { value -> AnalysisPathRow(value.getString("path"), value.optLong("bytes"), "${value.optLong("files")} 个文件", model, directory = true, enabled = !client.busy) }
                         item { Text("最大的文件", style = MaterialTheme.typography.titleMedium) }
-                        items(jsonRows(report, "largestFiles"), key = { "file/" + it.getString("path") }) { value -> AnalysisPathRow(value.getString("path"), value.optLong("size"), serverTime(value.optLong("modified")), model) }
+                        items(jsonRows(report, "largestFiles"), key = { "file/" + it.getString("path") }) { value -> AnalysisPathRow(value.getString("path"), value.optLong("size"), serverTime(value.optLong("modified")), model, enabled = !client.busy) }
                         if (jsonRows(report, "largestFiles").isEmpty() && jsonRows(report, "largestDirectories").isEmpty()) item { Text("这个范围没有可列出的文件。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     } else {
                         val groups = jsonRows(report, "groups")
                         item { Text("${report.optInt("duplicateGroups")} 个重复组 · 最多可回收 ${readableSize(report.optLong("reclaimableBytes"))}", style = MaterialTheme.typography.titleMedium) }
                         items(groups.take(visibleGroups), key = { it.getString("sha256") }) { group ->
                             val hash = group.getString("sha256"); val keep = keepers[hash]
-                            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.background) {
+                            Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("${group.optInt("totalFiles")} 个相同文件 · 每份 ${readableSize(group.optLong("size"))}", style = MaterialTheme.typography.titleSmall)
-                                    jsonRows(group, "files").take(3).forEach { file -> Text(file.getString("path"), style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-                                    if (keep != null) Text("保留：$keep", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                    val members = jsonRows(group, "files")
+                                    Text(members.firstOrNull()?.optString("path")?.let(::libraryBasename) ?: "重复文件组", style = MaterialTheme.typography.titleSmall)
+                                    Text("${group.optInt("totalFiles")} 个相同文件 · 每份 ${readableSize(group.optLong("size"))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    members.take(3).forEach { file -> Text(libraryParent(file.getString("path")), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                    if (members.size > 3) Text("另 ${members.size - 3} 项 · 点下方查看全部", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (keep != null) Text("保留：${libraryBasename(keep)}\n${libraryParent(keep)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                     if (!cleanable(report, group)) Text("这组缺少完整、安全的文件身份信息，可查看但不能清理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     TextButton({ selecting = group }, enabled = !state.changing) { Text(if (keep == null) "查看并选择保留文件" else "修改保留文件") }
                                 }
                             }
                         }
                         if (visibleGroups < groups.size) item { TextButton({ visibleGroups += 20 }, Modifier.fillMaxWidth()) { Text("显示更多重复组") } }
-                        if (keepers.isNotEmpty() && state.cleanup == null && state.permissions.delete && state.task?.userId == state.userId) item { Button({ confirmCleanup = true }, Modifier.fillMaxWidth(), enabled = enabled) { Text("清理已选择的 ${keepers.size} 组") } }
+                        if (keepers.isNotEmpty() && state.cleanup == null && state.permissions.delete && state.task?.userId == state.userId) item { Button({ confirmCleanup = true }, Modifier.fillMaxWidth(), enabled = enabled && state.cleanupLookupKnown && !state.cleanupLoading) { Text("清理已选择的 ${keepers.size} 组") } }
                     }
                 }
                 state.cleanup?.let { task -> item {
-                    Text("清理任务 · ${task.statusLabel}", style = MaterialTheme.typography.titleMedium); TaskProgress(task)
+                    Text("清理任务 · ${task.statusLabel}", style = MaterialTheme.typography.titleMedium)
+                    if (task.active) TaskProgress(task)
                     TextButton({ model.showServerTask(task.id) }) { Text("查看清理任务") }
                 } }
-                state.cleanupResult?.let { result ->
-                    items(jsonRows(result, "groups"), key = { "cleanup/" + it.getString("sha256") }) { group ->
-                        Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("已保留：${group.getString("keepPath")}", style = MaterialTheme.typography.bodyMedium)
-                            jsonRows(group, "files").forEach { file -> Text(file.getString("path") + " · " + when (file.optString("status")) { "success" -> "已移入回收站"; "skipped" -> "已跳过"; else -> "失败" } + file.optString("reason").let { if (it.isEmpty()) "" else "：$it" }, style = MaterialTheme.typography.bodySmall) }
+                state.cleanupError?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) } }
+                state.cleanupResult?.let { raw ->
+                    val result = DuplicateCleanupPresentation.from(raw)
+                    if (result == null) item { Text("清理结果无法确认，请刷新报告核对。", color = MaterialTheme.colorScheme.error) }
+                    else {
+                        item { val count = result.counts; Text("已移入回收站 ${count.success} · 跳过 ${count.skipped} · 失败 ${count.failed} · 待确认 ${count.unknown}", style = MaterialTheme.typography.bodyMedium) }
+                        items(result.groups.sortedBy { if (it.counts.failed > 0) 0 else if (it.counts.unknown > 0) 1 else 2 }, key = { "cleanup/" + it.sha256 }) { group ->
+                            Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    SelectionContainer { Text("保留：${group.keepPath}", style = MaterialTheme.typography.bodyMedium) }
+                                    group.filesForDisplay.forEach { file ->
+                                        Text(libraryBasename(file.path) + " · " + when (file.outcome) {
+                                            DuplicateCleanupOutcome.SUCCESS -> "已移入回收站"; DuplicateCleanupOutcome.SKIPPED -> "已跳过"
+                                            DuplicateCleanupOutcome.FAILED -> "失败"; DuplicateCleanupOutcome.UNKNOWN -> "结果待确认"
+                                        }, style = MaterialTheme.typography.bodySmall, color = if (file.outcome == DuplicateCleanupOutcome.FAILED) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                                        SelectionContainer { Text(file.path + file.reason?.let { "\n$it" }.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -173,9 +199,9 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                     val path = file.getString("path")
                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).selectable(path == keep, enabled = safe && state.cleanup == null, role = Role.RadioButton) { keep = path }, verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(path == keep, null, enabled = safe && state.cleanup == null)
-                        Column(Modifier.weight(1f).padding(start = 8.dp)) { Text(path); Text("${readableSize(file.optLong("size"))} · ${serverTime(file.optLong("modified"))}", style = MaterialTheme.typography.bodySmall) }
+                        Column(Modifier.weight(1f).padding(start = 8.dp)) { Text(libraryBasename(path)); Text(path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text("${readableSize(file.optLong("size"))} · ${serverTime(file.optLong("modified"))}", style = MaterialTheme.typography.bodySmall) }
                     }
-                    TextButton({ model.openRemotePath(path) }, enabled = !client.busy) { Text("打开文件") }
+                    TextButton({ model.openRemotePath(path) }, enabled = !client.busy && favoritePathIdentity(path, null, null).openable) { Text("打开文件") }
                 }
                 if (!safe) Text("报告被截断，或文件是链接/身份信息缺失。请重新扫描或手动查看文件。", color = MaterialTheme.colorScheme.error)
                 if (keepers.containsKey(group.getString("sha256"))) TextButton({ keepers = keepers - group.getString("sha256"); selecting = null }) { Text("取消此组清理") }
@@ -184,20 +210,41 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
             dismissButton = { TextButton({ selecting = null }) { Text("取消") } })
     }
     if (confirmCleanup) AlertDialog(onDismissRequest = { confirmCleanup = false }, title = { Text("将重复副本移入回收站？") },
-        text = { Text("每个所选组会保留你指定的文件，其余副本移入回收站。服务端会重新检查文件身份。可在任务中心查看逐项结果。") },
-        confirmButton = { TextButton({ model.storageTools.cleanup(keepers.toMap()); confirmCleanup = false }, enabled = enabled) { Text("提交清理") } },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            val groups = state.report?.let { jsonRows(it, "groups") }.orEmpty()
+            val copies = groups.filter { it.optString("sha256") in keepers }.sumOf { (it.optInt("totalFiles") - 1).coerceAtLeast(0) }
+            Text("${keepers.size} 个组 · $copies 份副本将移入回收站")
+            keepers.values.forEach { path -> FileOperationLocation("保留文件", path) }
+            Text("服务端会重新检查文件身份，逐项结果可在任务中心查看。", style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { Button({ model.storageTools.cleanup(keepers.toMap()); confirmCleanup = false }, enabled = enabled && state.cleanupLookupKnown && !state.cleanupLoading) { Text("提交清理") } },
         dismissButton = { TextButton({ confirmCleanup = false }) { Text("取消") } })
 }
 
-@Composable private fun AnalysisPathRow(path: String, size: Long, info: String, model: ClientModel) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.background) {
+@Composable private fun AnalysisPathRow(path: String, size: Long, info: String, model: ClientModel, directory: Boolean = false, enabled: Boolean = true) {
+    val safe = favoritePathIdentity(path, null, null).openable && enabled
+    var inspecting by remember(path) { mutableStateOf(false) }
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(path, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Icon(painterResource(fileArtworkIcon(libraryBasename(path), directory)), null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
+                Text(libraryBasename(path), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            SelectionContainer { Text(libraryParent(path), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text("${readableSize(size)} · $info", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row {
-                TextButton({ model.openRemotePath(path) }) { Text("打开") }
-                TextButton({ model.openContainingDirectory(ResourceRef(path, "", path.substringAfterLast('/'), false, "", size)) }) { Text("所在目录") }
+                TextButton({ model.openRemotePath(path) }, enabled = safe) { Text("打开") }
+                TextButton({ model.openRemotePath(libraryParent(path)) }, enabled = safe) { Text("所在目录") }
+                TextButton({ inspecting = true }) { Text("详情") }
             }
+        }
+    }
+    if (inspecting) FileOperationDialog("对象详情", { inspecting = false }, footer = {
+        TextButton({ inspecting = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("关闭") }
+    }) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            FileOperationLocation("完整路径", path)
+            SelectionContainer { Text("${readableSize(size)} · $info", style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

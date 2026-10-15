@@ -8,6 +8,16 @@ import org.json.JSONObject
 
 /** Secrets are intentionally absent from saved state, persistence and debug strings. */
 data class AccountPasswordDraft(val current: String = "", val replacement: String = "", val confirmation: String = "") {
+    /** The UI and submit path share the server's UTF-8 byte contract. */
+    fun validationError(capabilities: ServerCapabilities): String? = when {
+        capabilities.currentPasswordRequired && current.isEmpty() -> "请填写当前密码"
+        replacement.isEmpty() -> "请填写新密码"
+        replacement.toByteArray(Charsets.UTF_8).size !in capabilities.minimumPasswordLength..72 ->
+            "新密码须为 ${capabilities.minimumPasswordLength}–72 字节（中文通常占多个字节）"
+        confirmation.isEmpty() -> "请再次填写新密码"
+        replacement != confirmation -> "两次填写的新密码不一致"
+        else -> null
+    }
     override fun toString() = "AccountPasswordDraft(redacted)"
 }
 data class AccountSettingsState(val scope: String = "", val profile: AccountProfile? = null,
@@ -124,10 +134,8 @@ class AccountSettingsController(private val scope: CoroutineScope, private val i
         val capabilities = before.capabilities ?: return
         if (!isCurrent(context) || before.saving || before.loading || before.passwordUnknown || !before.canChangePassword) return
         val draft = before.password
-        val bytes = draft.replacement.toByteArray(Charsets.UTF_8).size
-        if (draft.replacement.isEmpty() || draft.replacement != draft.confirmation || bytes < capabilities.minimumPasswordLength || bytes > 72 ||
-            capabilities.currentPasswordRequired && draft.current.isEmpty()) {
-            mutable.value = before.copy(error = "请填写所需的当前密码，并确认新密码一致且符合服务器长度要求（最多 72 字节）"); return
+        draft.validationError(capabilities)?.let { message ->
+            mutable.value = before.copy(error = message); return
         }
         read?.cancel(); val epoch = ++revision
         mutable.value = before.copy(saving = true, error = null, notice = null)

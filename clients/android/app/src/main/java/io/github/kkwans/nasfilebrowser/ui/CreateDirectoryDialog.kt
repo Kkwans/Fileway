@@ -26,11 +26,12 @@ import io.github.kkwans.nasfilebrowser.data.renameNameError
     val editable = !state.changing && draft.unknownTarget == null
     val canCreate = editable && nameError == null
     LaunchedEffect(state.scope, draft.parent) { focus.requestFocus() }
-    AlertDialog(onDismissRequest = model.fileOperations::closeDirectoryCreation, modifier = Modifier.imePadding(),
-        properties = DialogProperties(decorFitsSystemWindows = false), title = { Text("新建文件夹") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(draft.parent.path, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+    FileOperationDialog("新建文件夹", model.fileOperations::closeDirectoryCreation, canDismiss = !state.changing, footer = {
+        TextButton(model.fileOperations::closeDirectoryCreation, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+        Button(model.fileOperations::createDirectory, enabled = canCreate, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.changing) "正在创建" else "创建") }
+    }) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            FileOperationLocation("创建位置", draft.parent.path)
             OutlinedTextField(draft.name, model.fileOperations::directoryName, Modifier.fillMaxWidth().focusRequester(focus), label = { Text("文件夹名称") },
                 singleLine = true, readOnly = !editable, isError = nameError != null && draft.name.isNotEmpty(),
                 supportingText = { Text(if (draft.name.isEmpty()) "在当前服务器目录创建" else nameError ?: "不会覆盖同名文件或文件夹") },
@@ -39,7 +40,5 @@ import io.github.kkwans.nasfilebrowser.data.renameNameError
             if (draft.existing != null) TextButton(model::openExistingCreationDirectory, enabled = !state.changing) { Text("打开已有文件夹") }
             if (draft.unknownTarget != null) TextButton(model.fileOperations::checkDirectoryCreation, enabled = !state.changing) { Text("核对创建结果") }
         }
-    }, confirmButton = {
-        key(state.changing) { TextButton(model.fileOperations::createDirectory, enabled = canCreate) { Text(if (state.changing) "正在创建" else "创建") } }
-    }, dismissButton = { TextButton(model.fileOperations::closeDirectoryCreation, enabled = !state.changing) { Text("取消") } })
+    }
 }

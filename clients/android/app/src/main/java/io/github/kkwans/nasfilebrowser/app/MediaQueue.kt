@@ -5,7 +5,10 @@ import java.util.Locale
 enum class MediaKind { IMAGE, VIDEO, AUDIO }
 enum class MediaQueueSource(val label: String) { DIRECTORY("当前目录"), SEARCH("当前搜索结果"), SINGLE("单个文件"), TAGGED("当前标签结果"), DOWNLOADED("本机下载") }
 
-fun ResourceRef.mediaKind(): MediaKind? {
+fun ResourceRef.mediaKind(): MediaKind? = mediaKind(name, directory, type)
+
+/** Classification also serves display-only records that carry no resource identity. */
+fun mediaKind(name: String, directory: Boolean = false, type: String = ""): MediaKind? {
     if (directory) return null
     return when {
         type == "video" || name.substringAfterLast('.').lowercase(Locale.ROOT) in setOf("mkv", "mp4", "m4v", "webm", "avi", "mov", "m2ts", "ts") -> MediaKind.VIDEO

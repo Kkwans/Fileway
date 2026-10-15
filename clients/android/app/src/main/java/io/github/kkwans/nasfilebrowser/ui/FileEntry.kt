@@ -153,44 +153,4 @@ import java.util.Locale
     }
 }
 
-private fun fileArtworkIcon(file: ResourceRef): Int {
-    if (file.directory) return R.drawable.ic_folder
-    if (file.mediaKind() == MediaKind.AUDIO) return R.drawable.ic_audio
-    if (FileCategory.PDF.matches(file.name, false)) return R.drawable.ic_pdf
-    if (FileCategory.MARKDOWN.matches(file.name, false)) return R.drawable.ic_markdown
-    if (FileCategory.CODE.matches(file.name, false)) return R.drawable.ic_code
-    if (FileCategory.CONFIG.matches(file.name, false)) return R.drawable.ic_config
-    return when (file.name.substringAfterLast('.', "").lowercase(Locale.ROOT)) {
-        "csv", "tsv" -> R.drawable.ic_csv
-        "zip", "7z", "rar", "tar", "gz" -> R.drawable.ic_archive
-        "txt", "srt", "ass", "vtt", "log" -> R.drawable.ic_text
-        else -> when (file.type) { "audio" -> R.drawable.ic_audio; "text" -> R.drawable.ic_text; "image" -> R.drawable.ic_image; "video" -> R.drawable.ic_video; else -> R.drawable.ic_file }
-    }
-}
-
-@Composable internal fun FileDetailsDialog(file: ResourceRef, showSize: Boolean = true, onOpen: (() -> Unit)? = null,
-    openEnabled: Boolean = true, onLocation: (() -> Unit)? = null, actions: (@Composable () -> Unit)? = null, onDismiss: () -> Unit) {
-    @Composable fun field(label: String, value: String) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onBackground)
-        }
-    }
-    AlertDialog(onDismissRequest = onDismiss, shape = RoundedCornerShape(12.dp), containerColor = MaterialTheme.colorScheme.background,
-        title = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("文件详情", style = MaterialTheme.typography.titleLarge)
-            ProvideTextStyle(MaterialTheme.typography.bodyLarge) { actions?.invoke() }
-        } }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()).semantics { contentDescription = "文件详情内容" }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SelectionContainer { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            field("名称", file.name); field("位置", file.path); field("类型", fileTypeLabel(file))
-            if (showSize && !file.directory) field("大小", readableSize(file.size))
-            field("修改时间", displayModified(file.modified) ?: "未提供")
-        } }
-        }
-    }, confirmButton = {
-        if (onLocation != null) TextButton(onClick = onLocation, enabled = openEnabled) { Text("打开所在目录") }
-        if (onOpen == null) TextButton(onClick = onDismiss) { Text("关闭") }
-        else TextButton(onClick = onOpen, enabled = openEnabled) { Text("打开") }
-    }, dismissButton = { if (onOpen != null) TextButton(onClick = onDismiss) { Text("关闭") } })
-}
+private fun fileArtworkIcon(file: ResourceRef): Int = fileArtworkIcon(file.name, file.directory, file.type)

@@ -35,6 +35,7 @@ import io.github.kkwans.nasfilebrowser.app.destination
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.data.AppTheme
+import io.github.kkwans.nasfilebrowser.data.BackendKind
 import io.github.kkwans.nasfilebrowser.data.ConnectionMode
 import io.github.kkwans.nasfilebrowser.update.UpdatePolicy
 import kotlinx.coroutines.launch
@@ -67,6 +68,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun SettingsScreen(model: ClientModel, state: ClientState, openAbout: Boolean = false, onBack: () -> Unit = { model.back() }) {
     var profileDetails by remember { mutableStateOf(false) }
+    var licenses by remember { mutableStateOf(false) }
     var about by remember(openAbout) { mutableStateOf(openAbout) }
     fun closeAbout() { about = false; if (openAbout) model.back() }
     var repositoryError by remember { mutableStateOf<String?>(null) }
@@ -79,43 +81,14 @@ import kotlinx.coroutines.launch
     val scope = rememberCoroutineScope()
     Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer,
         topBar = { Column(Modifier.statusBarsPadding()) {
-            FilewayTopAppBar("本机设置", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回来源页面",
+            FilewayTopAppBar("设置", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回来源页面",
                 onLeadingClick = onBack)
         } }, snackbarHost = { SnackbarHost(snackbar) }) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
             LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().semantics { contentDescription = "设置内容" },
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                if (state.connected) {
                 item {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                            Icon(painterResource(R.drawable.ic_person), null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
-                        }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(state.accountName, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(state.profile?.name.orEmpty(), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                }
-                item {
-                    SettingsGroup("账户") {
-                        SettingsAction("账户设置", "当前账号与密码", R.drawable.ic_person) { model.tab("account") }
-                    }
-                }
-                }
-                if (state.permissions.admin || state.permissions.execute) item {
-                    SettingsGroup("服务器管理") {
-                        Text("作用于当前服务器；全局设置影响所有用户。", Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (state.permissions.admin) SettingsAction("用户管理", "账号、权限与访问规则", R.drawable.ic_person) { model.tab("admin-users") }
-                        if (state.permissions.admin) SettingsAction("服务器全局设置", "全局配置与默认账户策略", R.drawable.ic_storage) { model.tab("server-settings") }
-                        if (state.permissions.execute) SettingsAction("服务器命令", "在当前目录执行允许的单条命令", R.drawable.ic_storage, action = model::openShell)
-                    }
-                }
-                item {
-                    SettingsGroup("外观") {
+                    SettingsGroup("本机设置") {
                         SettingsAction("主题", when {
                             appearance.loading -> "正在读取"
                             appearance.saving -> "正在保存"
@@ -126,12 +99,6 @@ import kotlinx.coroutines.launch
                             Text(message, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                             if (!appearance.loaded) TextButton(onClick = model.appearance::reload) { Text("重试读取") }
                         }
-                    }
-                }
-                item {
-                    SettingsGroup("服务器与连接") {
-                        SettingsAction("服务器档案", "NAS · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
-                        HorizontalDivider(Modifier.padding(start = 52.dp), color = MaterialTheme.colorScheme.outlineVariant)
                         SettingsAction("应用内 Tailscale", network.label, R.drawable.ic_network) { networkDetails = true }
                     }
                 }
@@ -141,11 +108,36 @@ import kotlinx.coroutines.launch
                         snackbar.showSnackbar(message, withDismissAction = true)
                     }
                 } }
+                if (state.connected) item {
+                    SettingsGroup("当前服务器与账户") {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Box(Modifier.size(44.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
+                                Icon(painterResource(R.drawable.ic_person), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                            }
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(state.accountName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(state.profile?.name.orEmpty(), style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        SettingsAction("账户安全", "当前账号与密码", R.drawable.ic_lock) { model.tab("account") }
+                        SettingsAction("服务器档案", "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
+                    }
+                }
+                if (state.permissions.admin || state.permissions.execute) item {
+                    SettingsGroup("服务器管理") {
+                        Text("作用于当前服务器", Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (state.permissions.admin) SettingsAction("用户管理", "账号、权限与访问规则", R.drawable.ic_person) { model.tab("admin-users") }
+                        if (state.permissions.admin) SettingsAction("服务器全局设置", "影响所有用户的配置与默认策略", R.drawable.ic_storage) { model.tab("server-settings") }
+                        if (state.permissions.execute) SettingsAction("服务器命令", "在当前目录运行允许的单条命令", R.drawable.ic_code, action = model::openShell)
+                    }
+                }
                 item {
-                    SettingsGroup("应用") {
+                    SettingsGroup("关于应用") {
                         SettingsAction("检查更新", "当前版本 ${BuildConfig.VERSION_NAME}", R.drawable.ic_download, action = model::openUpdates)
-                        HorizontalDivider(Modifier.padding(start = 52.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                        SettingsAction("关于应用", BuildConfig.VERSION_NAME, R.drawable.ic_info) { repositoryError = null; about = true }
+                        SettingsAction("关于 Fileway", "版本、来源、鸣谢与许可证", R.drawable.ic_info) { repositoryError = null; about = true }
                     }
                 }
                 state.error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
@@ -171,13 +163,14 @@ import kotlinx.coroutines.launch
     }, confirmButton = { TextButton(onClick = { networkDetails = false }) { Text("关闭") } })
     if (profileDetails) AlertDialog(onDismissRequest = { profileDetails = false }, title = { Text("服务器档案") }, text = {
         Column(Modifier.heightIn(max = 320.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(state.profile?.name.orEmpty()); Text(state.profile?.address.orEmpty()); Text("账号：${state.accountName}")
+            Text(state.profile?.name.orEmpty()); Text(state.profile?.address.orEmpty()); Text("服务类型：${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"}"); Text("账号：${state.accountName}")
             Text(if (state.profile?.network == ConnectionMode.TAILNET) "连接方式：内嵌 Tailscale" else "连接方式：直接连接")
         }
     }, confirmButton = { TextButton(onClick = { profileDetails = false }) { Text("关闭") } })
     if (about) AlertDialog(onDismissRequest = ::closeAbout, title = { Text("栖卷 · Fileway") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("版本 ${BuildConfig.VERSION_NAME}\n原生 Android 客户端\nGPL-3.0-or-later")
+            Text("版本 ${BuildConfig.VERSION_NAME} · 构建 ${BuildConfig.VERSION_CODE}")
+            Text("原生 Android 客户端 · GPL-3.0-or-later", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = {
                 try {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UpdatePolicy.REPOSITORY))
@@ -189,9 +182,11 @@ import kotlinx.coroutines.launch
                 .semantics { contentDescription = "打开 GitHub 仓库" }) {
                 Text("GitHub · Kkwans/Fileway")
             }
+            TextButton(onClick = { about = false; licenses = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("鸣谢与许可证") }
             repositoryError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
     }, confirmButton = { TextButton(onClick = ::closeAbout) { Text("关闭") } })
+    if (licenses) FilewayLicensesSheet { licenses = false; about = true }
 }
 
 /** One category per card; its actions remain full-width selectable rows. */
@@ -199,7 +194,7 @@ import kotlinx.coroutines.launch
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(title, Modifier.padding(start = 4.dp), style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.background,
+        Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = "${title}设置分组" }) {
             Column(content = content)
         }

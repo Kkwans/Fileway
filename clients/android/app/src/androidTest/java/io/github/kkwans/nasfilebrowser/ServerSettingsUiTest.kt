@@ -31,7 +31,7 @@ class ServerSettingsUiTest {
             text("命令执行：未启用")
             val list = device.wait(Until.findObject(By.desc("全局设置内容")), 5000) ?: error("Global settings list missing")
             repeat(5) { if (!device.hasObject(By.text("编辑注册与账户"))) list.scroll(Direction.DOWN, .5f) }
-            text("编辑注册与账户").click(); text("允许注册").click(); text("完成").click()
+            text("编辑注册与账户").click(); text("允许注册").click(); text("保留草稿并返回").click()
             text("保存全局设置").click(); text("保存全局设置？")
             assertEquals(0, authority.writes)
             text("取消").click(); assertEquals(0, authority.writes)

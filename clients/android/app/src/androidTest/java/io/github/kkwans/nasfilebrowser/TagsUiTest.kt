@@ -33,7 +33,7 @@ internal class TagsUiTest : LibraryUiHarness() {
             withTimeout(5000) { model.tags.state.first { !it.changing && it.items.singleOrNull()?.name == "保留输入的标签" } }
             assertTrue(device.wait(androidx.test.uiautomator.Until.gone(By.clazz("android.widget.EditText")), 5000))
             assertEquals(io.github.kkwans.nasfilebrowser.data.TAG_COLORS[3], data.tags.getJSONObject(0).getString("color"))
-            action("收藏资料页").click(); text("原始收藏"); text("编辑").click()
+            action("收藏资料页").click(); text("原始收藏"); action("收藏更多：原始收藏").click(); text("编辑收藏").click()
             val favoriteName = device.wait(androidx.test.uiautomator.Until.findObject(By.clazz("android.widget.EditText")), 5000)
             assertNotNull(favoriteName); favoriteName!!.text = "保留输入的收藏"
             data.rejectNextFavoriteWrite = true; text("保存").click()

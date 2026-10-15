@@ -42,6 +42,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ClientState
@@ -91,6 +94,16 @@ import io.github.kkwans.nasfilebrowser.data.*
     val profileName = name.trim().ifBlank { Uri.parse(url).host.orEmpty() }
     val canSave = !state.busy && url.isNotBlank() && profileName.isNotBlank()
     val canConnect = canSave && username.isNotBlank() && password.isNotEmpty() && (mode == "direct" || network.connected)
+    val missing = when {
+        url.isBlank() -> "填写服务器地址后继续"
+        username.isBlank() -> "填写服务器账号后继续"
+        password.isEmpty() -> "填写密码，或使用已保存的账号"
+        mode == "tailnet" && !network.connected -> "先连接 Tailscale，再登录服务器"
+        else -> "使用服务器账号登录；保存档案不会登录"
+    }
+    // A login may publish its saved account before the first directory is ready.
+    // Freeze that optional section for the busy episode so fields never jump.
+    val savedAccounts = remember(state.editorVersion, state.busy) { state.accounts }
     val unchanged = state.profile?.let { it.address == url.trim() && it.backend == backend && (it.network == ConnectionMode.TAILNET) == (mode == "tailnet") } == true
     val connect = {
         if (canConnect) {
@@ -105,27 +118,25 @@ import io.github.kkwans.nasfilebrowser.data.*
         }
     }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = {
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Fileway", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+            IconButton(onClick = { model.tab("taskcenter") }) { Icon(painterResource(R.drawable.ic_tasks), "任务中心") }
+            IconButton(onClick = model::openUpdates) { Icon(painterResource(R.drawable.ic_download), "检查更新") }
+        }
+    }, bottomBar = {
         Surface(color = MaterialTheme.colorScheme.surface) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding(), horizontalAlignment = Alignment.CenterHorizontally) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    if (state.busy) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                        Text(state.stage.ifBlank { "正在加载" }, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = model::cancel) { Text("取消") }
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (state.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text(if (state.busy) state.stage.ifBlank { "正在连接" } else missing, Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (state.busy) TextButton(onClick = model::cancel) { Text("取消") }
                     }
-                    Button(onClick = connect, enabled = canConnect, shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("连接服务器", fontSize = 16.sp) }
-                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(onClick = { focus.clearFocus(); model.saveDraft(profileName, url.trim(), backend, mode) },
-                            enabled = canSave, modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(10.dp)) {
-                            Text("保存服务器档案", fontSize = 14.sp)
-                        }
-                        Row {
-                            TextButton(onClick = { model.tab("taskcenter") }, modifier = Modifier.heightIn(min = 48.dp)) { Text("任务中心") }
-                            TextButton(onClick = model::openUpdates, modifier = Modifier.heightIn(min = 48.dp)) { Text("检查更新") }
-                        }
+                    Button(onClick = connect, enabled = canConnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text(if (state.busy) "正在连接服务器" else "连接服务器")
                     }
                 }
             }
@@ -136,29 +147,31 @@ import io.github.kkwans.nasfilebrowser.data.*
                 .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp)
             val form: @Composable () -> Unit = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (profiles.isNotEmpty()) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Box(Modifier.weight(1f)) {
-                                OutlinedButton(onClick = { focus.clearFocus(); profilesOpen = true }, enabled = !state.busy,
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { contentDescription = "选择服务器档案" },
-                                    shape = RoundedCornerShape(12.dp)) {
-                                    Icon(painterResource(R.drawable.ic_storage), null, Modifier.size(20.dp))
-                                    Text(state.profile?.name ?: "选择已保存的服务器", Modifier.weight(1f).padding(horizontal = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp))
-                                }
-                                DropdownMenu(expanded = profilesOpen, onDismissRequest = { profilesOpen = false }) {
-                                    DropdownMenuItem(text = { Text("新建服务器") }, onClick = { profilesOpen = false; model.selectProfile(null) })
-                                    HorizontalDivider()
-                                    profiles.forEach { profile -> DropdownMenuItem(text = {
-                                        Column {
-                                            Text(profile.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text((if (profile.backend == BackendKind.WINDOWS) "Windows · " else "") + if (profile.network == ConnectionMode.TAILNET) "Tailscale" else "直连", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        }
-                                    }, onClick = { profilesOpen = false; model.selectProfile(profile) }) }
-                                }
+                    Box(Modifier.fillMaxWidth()) {
+                        OutlinedButton(onClick = { focus.clearFocus(); profilesOpen = true }, enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = "选择服务器档案" }) {
+                            Icon(painterResource(R.drawable.ic_storage), null, Modifier.size(22.dp))
+                            Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.Start) {
+                                Text(state.profile?.name ?: "新建服务器", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(state.profile?.let { "${if (it.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${serverAddressSummary(it.address)}" }
+                                    ?: if (profiles.isEmpty()) "填写下方地址与账号" else "选择已保存的服务器档案", style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
+                            Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp))
+                        }
+                        DropdownMenu(expanded = profilesOpen, onDismissRequest = { profilesOpen = false }) {
+                            FilewayMenuItem("新建服务器", { profilesOpen = false; model.selectProfile(null) }, R.drawable.ic_add)
+                            if (profiles.isNotEmpty()) HorizontalDivider()
+                            profiles.forEach { profile -> DropdownMenuItem(text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(profile.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text("${if (profile.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${serverAddressSummary(profile.address)} · ${if (profile.network == ConnectionMode.TAILNET) "Tailscale" else "直连"}",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }, onClick = { profilesOpen = false; model.selectProfile(profile) }) }
                             state.profile?.let { profile ->
-                                TextButton(onClick = { remove = profile }, enabled = !state.busy) { Text("移除档案") }
+                                HorizontalDivider()
+                                FilewayMenuItem("移除当前档案", { profilesOpen = false; remove = profile }, R.drawable.ic_trash)
                             }
                         }
                     }
@@ -176,9 +189,12 @@ import io.github.kkwans.nasfilebrowser.data.*
                                 FilterChip(selected = backend == BackendKind.NAS, onClick = { backend = BackendKind.NAS }, enabled = !state.busy, label = { Text("NAS") })
                                 FilterChip(selected = backend == BackendKind.WINDOWS, onClick = { backend = BackendKind.WINDOWS }, enabled = !state.busy, label = { Text("Windows") })
                             }
+                            OutlinedButton(onClick = { focus.clearFocus(); model.saveDraft(profileName, url.trim(), backend, mode) },
+                                enabled = canSave, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("仅保存服务器档案") }
+                            Text("档案只保存地址与连接方式，账号在登录后保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            ConnectionMode("本地网络", R.drawable.ic_storage, mode == "direct", Modifier.weight(1f), !state.busy) { focus.clearFocus(); mode = "direct" }
+                            ConnectionMode("直接连接", R.drawable.ic_storage, mode == "direct", Modifier.weight(1f), !state.busy) { focus.clearFocus(); mode = "direct" }
                             ConnectionMode("Tailscale", R.drawable.ic_network, mode == "tailnet", Modifier.weight(1f), !state.busy) { focus.clearFocus(); mode = "tailnet" }
                         }
                     }
@@ -200,10 +216,10 @@ import io.github.kkwans.nasfilebrowser.data.*
                         }
                     }
                     ConnectionSection("服务账号") {
-                        if (state.accounts.isNotEmpty()) {
+                        if (savedAccounts.isNotEmpty()) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("已保存的账号", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                state.accounts.forEach { account -> TextButton(onClick = {
+                                savedAccounts.forEach { account -> TextButton(onClick = {
                                     focus.clearFocus()
                                     val action = { model.restore(account) }
                                     if (Build.VERSION.SDK_INT >= 37 && mode == "direct" && !hasLocalAccess() && !accessDenied) { afterPermission = action; permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK) } else action()
@@ -231,9 +247,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                         }
                     }
                     state.error?.let { message ->
-                        Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(10.dp)) {
-                            Text(message, Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.onErrorContainer, fontSize = 14.sp)
-                        }
+                        FilewayStatusBanner(message, FilewayStatusKind.ERROR)
                     }
                 }
             }
@@ -248,7 +262,7 @@ import io.github.kkwans.nasfilebrowser.data.*
 
 @Composable private fun ConnectionIntroduction() {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("连接你的文件库", fontSize = 22.sp, lineHeight = 30.sp, fontWeight = FontWeight.Medium)
+        Text("连接你的文件库", style = MaterialTheme.typography.titleLarge)
         Text("添加服务器后，使用服务账号登录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
@@ -256,7 +270,7 @@ import io.github.kkwans.nasfilebrowser.data.*
 @Composable private fun ConnectionSection(title: String, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, Modifier.weight(1f), fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             actions()
         }
         content()
@@ -289,4 +303,13 @@ import io.github.kkwans.nasfilebrowser.data.*
         keyboardActions = KeyboardActions(onDone = { onDone() }), shape = RoundedCornerShape(8.dp),
         colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surface, focusedContainerColor = MaterialTheme.colorScheme.surface,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth())
+}
+
+/** Keep port and base path: identical hosts can represent different servers. */
+internal fun serverAddressSummary(address: String): String {
+    val uri = Uri.parse(address)
+    val host = uri.host ?: return address
+    val port = if (uri.port >= 0) ":${uri.port}" else ""
+    val path = uri.path.orEmpty().takeUnless { it == "/" }.orEmpty()
+    return "$host$port$path"
 }

@@ -25,14 +25,16 @@ import io.github.kkwans.nasfilebrowser.data.renameNameError
     val busy = state.saving || state.loading
     val nameError = renameNameError(draft.name)
     val target = remember(draft.parent, draft.name) { runCatching { createdDocumentTarget(draft.parent, draft.name) }.getOrNull() }
-    val maximum = LocalConfiguration.current.screenHeightDp.dp * .92f
-    ModalBottomSheet(onDismissRequest = { if (!busy && !state.unknownWrite) { controller.closeCreation(); onClose() } },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().heightIn(max = maximum).imePadding().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("新建文件", style = MaterialTheme.typography.titleLarge)
+    fun dismiss() { if (!busy && !state.unknownWrite) { controller.closeCreation(); onClose() } }
+    FileOperationSheet("新建文件", ::dismiss, canDismiss = !busy && !state.unknownWrite, footer = {
+        if (!state.unknownWrite) {
+            TextButton(::dismiss, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+            Button(controller::create, enabled = !busy && nameError == null && target != null, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在创建" else "创建文件") }
+        }
+    }) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                SelectionContainer { Text(draft.parent.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                FileOperationLocation("创建位置", draft.parent.path)
                 Text("UTF-8 · 同名文件或文件夹不会被覆盖", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 if (state.unknownWrite) {
@@ -51,10 +53,5 @@ import io.github.kkwans.nasfilebrowser.data.renameNameError
                         enabled = !busy, minLines = 4, maxLines = 8, textStyle = MaterialTheme.typography.bodyMedium)
                 }
             }
-            if (!state.unknownWrite) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                TextButton({ controller.closeCreation(); onClose() }, enabled = !busy) { Text("取消") }
-                Button(controller::create, enabled = !busy && nameError == null && target != null, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在创建" else "创建文件") }
-            }
-        }
     }
 }

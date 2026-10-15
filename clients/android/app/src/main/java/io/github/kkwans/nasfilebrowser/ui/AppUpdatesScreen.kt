@@ -26,6 +26,7 @@ import io.github.kkwans.nasfilebrowser.BuildConfig
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.update.*
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 
 @Composable internal fun AppUpdatesScreen(model: ClientModel) {
     val context = LocalContext.current
@@ -50,12 +51,9 @@ import io.github.kkwans.nasfilebrowser.update.*
     val colors = MaterialTheme.colorScheme
     val update = state.update
     Scaffold(containerColor = colors.background, topBar = {
-        Row(Modifier.statusBarsPadding().fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = back) { Icon(painterResource(R.drawable.ic_arrow_back), "返回") }
-            Text("应用更新", style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))
-        }
+        Box(Modifier.statusBarsPadding()) { FilewayTopAppBar("应用更新", null, R.drawable.ic_arrow_back, "返回", back) }
     }, bottomBar = {
-        Column(Modifier.navigationBarsPadding().fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
+        Column(Modifier.navigationBarsPadding().fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             when (state.phase) {
                 UpdatePhase.AVAILABLE -> {
@@ -81,11 +79,9 @@ import io.github.kkwans.nasfilebrowser.update.*
         }
     }) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
-            Column(Modifier.widthIn(max = 720.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp)
-                .semantics { contentDescription = "应用更新内容" }, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("栖卷 · Fileway", style = MaterialTheme.typography.headlineSmall)
-                Text("当前版本 ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
-                HorizontalDivider(color = colors.outlineVariant)
+            Column(Modifier.widthIn(max = 720.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
+                .semantics { contentDescription = "应用更新内容" }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Fileway · 当前版本 ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 Text(when (state.phase) {
                     UpdatePhase.IDLE -> "获取最新 Android 版本"
                     UpdatePhase.RESTORING -> "正在读取更新任务"
@@ -96,7 +92,7 @@ import io.github.kkwans.nasfilebrowser.update.*
                     UpdatePhase.VERIFYING -> "正在核对安装包"
                     UpdatePhase.READY -> "更新已下载，等待安装"
                     UpdatePhase.FAILED -> "更新未完成"
-                }, style = MaterialTheme.typography.titleMedium)
+                }, style = MaterialTheme.typography.titleLarge)
                 when (state.phase) {
                     UpdatePhase.CHECKING, UpdatePhase.RESTORING, UpdatePhase.VERIFYING -> Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -106,11 +102,12 @@ import io.github.kkwans.nasfilebrowser.update.*
                     UpdatePhase.DOWNLOADING -> {
                         val fraction = if (state.total > 0) (state.bytes.toDouble() / state.total).toFloat().coerceIn(0f, 1f) else 0f
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("${readableSize(state.bytes)} / ${readableSize(state.total)}", style = MaterialTheme.typography.bodyMedium)
-                            Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.labelLarge, color = colors.primary)
+                            Text(if (state.total > 0) "${readableSize(state.bytes)} / ${readableSize(state.total)}" else "已下载 ${readableSize(state.bytes)}", style = MaterialTheme.typography.bodyMedium)
+                            if (state.total > 0) Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.labelLarge, color = colors.primary)
                         }
-                        LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "更新下载进度" },
+                        if (state.total > 0) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().semantics { contentDescription = "更新下载进度" },
                             trackColor = colors.outlineVariant, gapSize = 0.dp, drawStopIndicator = {})
+                        else LinearProgressIndicator(Modifier.fillMaxWidth().semantics { contentDescription = "更新下载进度" })
                         Text(state.status, style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                     }
                     UpdatePhase.READY -> Text("将通过系统覆盖安装，已有账号、文件与设置保留。", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)

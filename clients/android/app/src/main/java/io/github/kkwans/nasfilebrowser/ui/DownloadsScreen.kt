@@ -177,7 +177,7 @@ import kotlinx.coroutines.withContext
         dismissButton = { TextButton({ remove = null }) { Text("取消") } }) }
 }
 
-private fun downloadDirectoryLabel(tree: String): String = if (tree.isEmpty()) "Download/fileway" else runCatching {
+internal fun downloadDirectoryLabel(tree: String): String = if (tree.isEmpty()) "Download/fileway" else runCatching {
     DocumentsContract.getTreeDocumentId(Uri.parse(tree)).replace("primary:", "本机存储 / ")
 }.getOrDefault("已授权的自定义目录")
 
