@@ -94,7 +94,7 @@ import java.time.format.DateTimeFormatter
                         SelectionContainer {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text(entry.target, style = MaterialTheme.typography.bodyMedium)
-                                if (entry.detail.isNotEmpty()) Text(entry.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Text(historyTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

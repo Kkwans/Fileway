@@ -142,7 +142,7 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
 
 @Composable internal fun TaskProgress(task: ServerTask) {
     val value = task.progress
-    if (value != null) LinearProgressIndicator(progress = { value }, modifier = Modifier.fillMaxWidth().height(4.dp), gapSize = 0.dp, drawStopIndicator = {})
+    if (task.active && value != null) LinearProgressIndicator(progress = { value }, modifier = Modifier.fillMaxWidth().height(4.dp), gapSize = 0.dp, drawStopIndicator = {})
     val counters = when {
         task.duration > 0 -> "${clock((task.processedSeconds * 1000).toLong())} / ${clock((task.duration * 1000).toLong())}"
         task.totalBytes > 0 -> "${readableSize(task.processedBytes)} / ${readableSize(task.totalBytes)}"
@@ -150,8 +150,10 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
         task.processedBytes > 0 -> "已处理 ${readableSize(task.processedBytes)}"
         else -> if (task.active) "等待进度数据" else task.statusLabel
     }
-    Text((value?.let { "${(it * 100).toInt()}% · " } ?: "") + counters +
-        (if (task.speed.isFinite() && task.speed > 0) " · ${String.format(java.util.Locale.ROOT, "%.1f×", task.speed)}" else ""), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val summary = if (task.status == "completed") "已完成 · ${serverTime(task.finishedAt)}" else
+        (value?.let { "${(it * 100).toInt()}% · " } ?: "") + counters +
+            (if (task.speed.isFinite() && task.speed > 0) " · ${String.format(java.util.Locale.ROOT, "%.1f×", task.speed)}" else "")
+    Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (task.pendingDeletion) Text("删除尚未开始，可撤销", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
 }
 
