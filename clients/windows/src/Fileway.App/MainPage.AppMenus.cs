@@ -61,7 +61,10 @@ public sealed partial class MainPage
         MenuRenameItem.Text = selected.Length > 1 ? "批量重命名…" : "重命名…";
         MenuRenameItem.IsEnabled = hasSelection && CanWrite(p => p.Rename) && (selected.Length == 1 || FileManagement is not null);
         MenuCopyItem.IsEnabled = hasSelection && FileManagement is not null && CanWrite(p => p.Create);
-        MenuMoveItem.IsEnabled = hasSelection && FileManagement is not null && CanWrite(p => p.Rename);
+        MenuMoveItem.IsEnabled = hasSelection && FileManagement is not null && CanWrite(p => p.Create && p.Rename);
+        MenuClipboardCopyItem.IsEnabled = CanCaptureClipboard(FileTransferAction.Copy);
+        MenuClipboardCutItem.IsEnabled = CanCaptureClipboard(FileTransferAction.Move);
+        MenuClipboardPasteItem.IsEnabled = CanPasteClipboard;
         MenuTrashItem.IsEnabled = hasSelection && CanWrite(p => p.Delete);
         MenuSelectAllItem.IsEnabled = browser && _rows.Count > 0;
         MenuClearSelectionItem.IsEnabled = hasSelection;
@@ -135,6 +138,7 @@ public sealed partial class MainPage
             ("Alt + Left", "返回上一位置"), ("Alt + Up", "打开上一级目录"), ("Ctrl + L", "编辑原始路径"),
             ("F5", "刷新当前视图"), ("Ctrl + F", "搜索当前目录与子目录"), ("Ctrl + B", "展开或折叠导航侧栏"), ("Enter", "打开选中的文件或文件夹"), ("Ctrl + A", "全选当前文件"),
             ("F2", "重命名选中项目"), ("Delete", "将选中项目移入回收站"), ("Escape", "取消路径编辑或关闭详情 / 临时侧栏"),
+            ("Ctrl + C / X / V", "复制 / 剪切 / 粘贴服务器文件；文本输入保留系统行为"),
         })
         {
             var row = rows.RowDefinitions.Count;

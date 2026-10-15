@@ -55,6 +55,10 @@
     <MenuFlyoutItem Text="退出" Click="ApplicationExit_Click"/>
    </MenuBarItem>
    <MenuBarItem Title="编辑" AccessKey="E">
+    <MenuFlyoutItem x:Name="MenuClipboardCopyItem" Text="复制" Click="CopyClipboard_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuClipboardCutItem" Text="剪切" Click="CutClipboard_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuClipboardPasteItem" Text="粘贴" Click="PasteClipboard_Click" IsEnabled="False"/>
+    <MenuFlyoutSeparator/>
     <MenuFlyoutItem x:Name="MenuRenameItem" Text="重命名…" Click="Rename_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuCopyItem" Text="复制到…" Click="CopySelection_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuMoveItem" Text="移动到…" Click="MoveSelection_Click" IsEnabled="False"/>

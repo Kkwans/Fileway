@@ -50,6 +50,8 @@ public sealed partial class MainPage
         }
         if (selected)
         {
+            Add("复制", () => CaptureClipboard(FileTransferAction.Copy), CanCaptureClipboard(FileTransferAction.Copy));
+            Add("剪切", () => CaptureClipboard(FileTransferAction.Move), CanCaptureClipboard(FileTransferAction.Move));
             Add("详细信息", () => { SetDetailsVisible(true); UpdateSelection(); }, BrowserReady);
             if (permissions?.Rename == true)
             {
@@ -73,6 +75,7 @@ public sealed partial class MainPage
             if (FileManagement is not null) { var file = new MenuFlyoutItem { Text = "空文件…" }; file.Click += CreateEmptyFile_Click; create.Items.Add(file); }
             menu.Items.Add(create);
         }
+        Add("粘贴", async () => await PasteClipboardAsync(), CanPasteClipboard);
         Add("刷新", () => Refresh_Click(this, new RoutedEventArgs()), BrowserReady);
         Add("全选", () => ActiveFiles.SelectAll(), BrowserReady && _rows.Count > 0);
         var views = new MenuFlyoutSubItem { Text = "视图" };
@@ -285,31 +288,36 @@ public sealed partial class MainPage
         await ShowBrowserDialogAsync(new ContentDialog { Title = saved.Label + " · 完整逐项结果", CloseButtonText = "关闭", Content = new ScrollViewer { MaxHeight = 420, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true, MaxWidth = 520 } } });
     }
 
-    private async void Transfer_Click(FileTransferAction action)
+    private async void Transfer_Click(FileTransferAction action) => await TransferAsync(action);
+    private async Task TransferAsync(FileTransferAction action, RemoteClipboardSnapshot? clipboard = null)
     {
-        bool Allowed(PermissionSet permissions) => action == FileTransferAction.Copy ? permissions.Create : permissions.Rename;
+        bool Allowed(PermissionSet permissions) => permissions.Create && (action != FileTransferAction.Move || permissions.Rename);
         if (!CanWrite(Allowed) || _session is not { } session || _directory is not { } directory || FileManagement is not { } management || _files is null) return;
-        var resources = SelectedRows().Select(row => row.File.Resource).ToArray(); var generation = _generation;
+        var resources = clipboard?.Sources.ToArray() ?? SelectedRows().Select(row => row.File.Resource).ToArray(); var generation = _generation;
+        bool ClipboardCurrent() => clipboard is null || _remoteClipboard.IsCurrent(clipboard, _session);
+        if (!ClipboardCurrent()) return;
         if (resources.Length == 0) return;
         var path = new TextBox { Header = "目标文件夹的原始路径", Text = directory.WirePath, MinWidth = 360 };
+        if (clipboard is not null) path.Visibility = Visibility.Collapsed;
         var conflicts = new ComboBox { Header = "同名项目", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
         foreach (var label in new[] { "保留两者（自动改名）", "遇到冲突停止", "跳过同名项目", "替换同名项目" }) conflicts.Items.Add(label);
         var explanation = new TextBlock { Text = $"已选择 {resources.Length} 项。目标会在提交前向服务器核实。复制或移动由服务器任务执行，提交接受不表示完成。", TextWrapping = TextWrapping.Wrap, MaxWidth = 460 };
         var content = new StackPanel { Spacing = 16 }; content.Children.Add(path); content.Children.Add(conflicts); content.Children.Add(explanation);
+        if (clipboard is not null) content.Children.Insert(0, new TextBlock { Text = "粘贴到：" + directory.DisplayPath, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 });
         var dialog = new ContentDialog { Title = action == FileTransferAction.Copy ? "复制到" : "移动到", Content = content, PrimaryButtonText = "提交任务", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
-        if (await ShowBrowserDialogAsync(dialog) != ContentDialogResult.Primary || !SameBrowser(session, directory, generation) || !CanWrite(Allowed)) return;
+        if (await ShowBrowserDialogAsync(dialog) != ContentDialogResult.Primary || !SameBrowser(session, directory, generation) || !CanWrite(Allowed) || !ClipboardCurrent()) return;
         if (!IsValidRawPath(path.Text)) { SetNotice("目标路径无效", "请输入绝对原始路径并保留百分号编码。", InfoBarSeverity.Warning); return; }
         var conflict = conflicts.SelectedIndex switch { 1 => FileConflictPolicy.Fail, 2 => FileConflictPolicy.Skip, 3 => FileConflictPolicy.Replace, _ => FileConflictPolicy.KeepBoth };
         if (conflict == FileConflictPolicy.Replace)
         {
             var replace = new ContentDialog { Title = "允许替换目标中的同名项目？", Content = "目标中同名文件可能被覆盖。请确认目标目录与所选项目。", PrimaryButtonText = "允许替换", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
-            if (await ShowBrowserDialogAsync(replace) != ContentDialogResult.Primary || !SameBrowser(session, directory, generation) || !CanWrite(Allowed)) return;
+            if (await ShowBrowserDialogAsync(replace) != ContentDialogResult.Primary || !SameBrowser(session, directory, generation) || !CanWrite(Allowed) || !ClipboardCurrent()) return;
         }
         _fileWriteBusy = true; UpdateBrowserCommands();
         try
         {
             var destination = await _files.GetAsync(new RemoteResourceRef(session.Account, path.Text, path.Text, path.Text), _lifetime.Token);
-            if (!SameBrowser(session, directory, generation) || _session is null || !Allowed(_session.Permissions) || HasUnresolvedWrite) return;
+            if (!SameBrowser(session, directory, generation) || _session is null || !Allowed(_session.Permissions) || HasUnresolvedWrite || !ClipboardCurrent()) return;
             if (!destination.IsDirectory) { SetNotice("目标不是文件夹", "请选择服务器上的文件夹原始路径。", InfoBarSeverity.Warning); return; }
             var transferItems = resources.Select(resource => new FileTransferItem(resource, conflict)).ToArray();
             var skipped = 0;
@@ -321,7 +329,7 @@ public sealed partial class MainPage
                     return new RemoteResourceRef(session.Account, wire, resource.DisplayName, wire);
                 }).ToArray();
                 var metadata = await management.GetMetadataBatchAsync(targets, _lifetime.Token);
-                if (!SameBrowser(session, directory, generation) || _session is null || !Allowed(_session.Permissions) || HasUnresolvedWrite) return;
+                if (!SameBrowser(session, directory, generation) || _session is null || !Allowed(_session.Permissions) || HasUnresolvedWrite || !ClipboardCurrent()) return;
                 if (metadata.Count != targets.Length) throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "目标元数据数量不匹配，未提交任务。"));
                 for (var index = 0; index < targets.Length; index++)
                 {
@@ -333,7 +341,13 @@ public sealed partial class MainPage
                 }
                 if (skipped == resources.Length) { SetNotice("未创建任务", $"{skipped} 项均已跳过，未创建服务器任务。", InfoBarSeverity.Informational); return; }
             }
-            var result = await management.SubmitTransferAsync(new FileTransferRequest(action, destination.Resource, transferItems), _lifetime.Token);
+            if (!ClipboardCurrent()) return;
+            // Consume a cut at its one explicit dispatch. Unknown results cannot reuse it.
+            if (clipboard is not null && action == FileTransferAction.Move) _remoteClipboard.Clear();
+            ServerTaskSubmissionResult result;
+            try { result = await management.SubmitTransferAsync(new FileTransferRequest(action, destination.Resource, transferItems), _lifetime.Token); }
+            catch { if (clipboard is not null) _remoteClipboard.Clear(); throw; }
+            if (clipboard is not null && result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown) _remoteClipboard.Clear();
             ConsumeReceipt(session.Account, result.Receipt);
             if (result.Outcome == ServerTaskSubmissionOutcome.Accepted && result.AcceptedTask is { } accepted) _submittedTasks[session.Account] = accepted.Reference;
             if (result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown) TrackUnknown(session.Account, result.Receipt is { } receipt ? [new OperationRef(session.Account, receipt.OperationId)] : []);

@@ -56,6 +56,7 @@ public sealed partial class MainPage
     private void AddNavigationAccelerators(UIElement owner)
     {
         AddSearchAccelerator(owner);
+        AddClipboardAccelerators(owner);
         // These are application shortcuts, not a tooltip for the complete page or caption.
         owner.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
         var paneAccelerator = new KeyboardAccelerator { Key = VirtualKey.B, Modifiers = VirtualKeyModifiers.Control };

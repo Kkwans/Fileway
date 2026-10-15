@@ -15,6 +15,7 @@
     <Compile Include="..\..\src\Fileway.App\NasTaskListController.cs" Link="Presentation\NasTaskListController.cs" />
     <Compile Include="..\..\src\Fileway.App\NasTaskPresentationPolicy.cs" Link="Presentation\NasTaskPresentationPolicy.cs" />
     <Compile Include="..\..\src\Fileway.App\TrashListController.cs" Link="Trash\TrashListController.cs" />
+    <Compile Include="..\..\src\Fileway.App\RemoteClipboardState.cs" Link="Clipboard\RemoteClipboardState.cs" />
     <Compile Include="..\..\src\Fileway.App\FileChecksumController.cs" Link="Files\FileChecksumController.cs" />
     <Compile Include="..\Fileway.HostTestHarness\PidReceipt.cs" Link="Ipc\PidReceipt.cs" />
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\LocalSubtitlePolicy.cs" Link="Playback\LocalSubtitlePolicy.cs" />

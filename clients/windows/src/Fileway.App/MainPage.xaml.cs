@@ -184,6 +184,7 @@ public sealed partial class MainPage : Page, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        _remoteClipboard.Clear();
         DisposeApplicationMenus();
         DisposeUploadPresentation();
         DisposeDownloadPresentation();
@@ -365,6 +366,7 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void ClearActiveWorkspace()
     {
+        _remoteClipboard.Clear();
         HideCollections();
         ClearUploadPresentation();
         ClearDownloadPresentation();
