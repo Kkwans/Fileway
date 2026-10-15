@@ -116,7 +116,7 @@ public partial class App : Application, IAsyncDisposable
             _uploads = new UploadApplicationService(_services, _services, _services, profiles, _uploadCoordinator,
                 downloads: new DownloadApplicationDependencies(_downloadRunner, _services, storageSettings));
             _playback = new MpvPlaybackService(_services,
-                new PlaybackWindowFactory(_window!.DispatcherQueue),
+                new PlaybackWindowFactory(_window!.DispatcherQueue, _services),
                 Path.Combine(directory, "media"), _services, recentAccess: _services, downloads: _uploads);
             _window.SetStorageSettings(storageSettings);
             _window.SetUploadService(_uploads);

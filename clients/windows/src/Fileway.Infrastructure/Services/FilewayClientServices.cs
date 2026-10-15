@@ -1020,7 +1020,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         return TimeSpan.FromSeconds(seconds);
     }
 
-    private static string PlaybackEndpoint(RemoteResourceRef resource)
+    private static string PlaybackEndpoint(RemoteResourceRef resource) => MediaEndpoint(resource, "playback");
+    private static string MediaEndpoint(RemoteResourceRef resource, string asset)
     {
         ValidateWirePath(resource.WirePath);
         // Query.Get decodes once. Preserve escaped filename bytes, including
@@ -1028,7 +1029,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         string query = resource.WirePath.Replace("/", "%2F", StringComparison.Ordinal)
             .Replace("+", "%2B", StringComparison.Ordinal).Replace("&", "%26", StringComparison.Ordinal)
             .Replace("=", "%3D", StringComparison.Ordinal);
-        return "/api/media/playback?path=" + query;
+        return "/api/media/" + asset + "?path=" + query;
     }
 
     private static string PlaybackJsonPath(RemoteResourceRef resource)

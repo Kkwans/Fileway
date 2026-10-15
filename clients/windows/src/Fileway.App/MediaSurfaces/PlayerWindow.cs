@@ -51,7 +51,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private bool _videoVisible;
     private RectInt32? _videoBounds;
 
-    public PlayerWindow(IPlaybackSession session)
+    public PlayerWindow(IPlaybackSession session, IVideoSpriteService? sprites = null)
     {
         _session = session;
         var origin = session.Snapshot;
@@ -73,7 +73,8 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _root.KeyDown += Root_KeyDown;
         _root.PointerPressed += VideoRoot_PointerPressed;
         _root.PointerReleased += VideoRoot_PointerReleased;
-        _root.PointerCanceled += (_, _) => CancelVideoGestures();
+        _root.PointerCanceled += (_, _) => CancelVideoInput(PlaybackVideoInputSurface.Root);
+        _root.PointerCaptureLost += (_, _) => CancelVideoInput(PlaybackVideoInputSurface.Root);
         Content = _root;
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
         _videoGestureTimer = DispatcherQueue.CreateTimer();
@@ -88,7 +89,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         NativeVideoWindow.SetWindowSubclass(_child, _windowProcedure, 3, 0);
         _responsiveness = PlaybackResponsivenessDiagnostics.TryCreate(
             action => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () => action()));
-        try { _overlay = new PlayerOverlayWindow(session, _window, _responsiveness); }
+        try { _overlay = new PlayerOverlayWindow(session, _window, _responsiveness, sprites); }
         catch
         {
             _responsiveness?.Dispose();
@@ -105,9 +106,10 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _overlay.AddSubtitleRequested += Overlay_AddSubtitleRequested;
         _overlay.MinimizeRequested += (_, _) => MinimizeWindow();
         _overlay.MaximizeRequested += (_, _) => ToggleWindowMaximized();
-        _overlay.VideoPointerPressed += point => HandleVideoGesture(true, point);
-        _overlay.VideoPointerReleased += point => HandleVideoGesture(false, point);
-        _overlay.VideoPointerCanceled += () => CancelVideoGestures();
+        _overlay.VideoPointerPressed += point => HandleVideoGesture(true, point, PlaybackVideoInputSurface.Hud);
+        _overlay.VideoPointerReleased += point => HandleVideoGesture(false, point, PlaybackVideoInputSurface.Hud);
+        _overlay.VideoPointerCanceled += () => CancelVideoInput(PlaybackVideoInputSurface.Hud);
+        _overlay.VideoKeyboardInput += () => CancelVideoGestures();
         NativeVideoWindow.ShowWindow(_child, 0);
         ShowState("正在打开视频", "正在准备视频画面…", loading: true);
         _video.SizeChanged += (_, _) => UpdateBounds();
@@ -124,13 +126,13 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
                 DispatcherQueue.TryEnqueue(() =>
                 {
                     var foreground = NativePlayerOverlay.GetForegroundWindow();
-                    if (foreground != 0 && NativePlayerOverlay.GetAncestor(foreground, 3) != _window) CancelVideoGestures();
+                    if (foreground != 0 && !_overlay.OwnsInputWindow(foreground)) CancelVideoGestures();
                 });
             else
                 DispatcherQueue.TryEnqueue(() => { UpdateBounds(); _overlay.SynchronizePointerPosition(); });
         };
         AppWindow.Closing += (_, args) => { if (_disposed) return; args.Cancel = true; BeginClose(); };
-        Closed += (_, _) => { StopFullscreenMotionForClose(); CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
+        Closed += (_, _) => { CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
         _ = WatchAsync();
     }
 
@@ -186,9 +188,10 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint subclassId, nuint reference)
     {
         if (window == _window && (message is 0x001a or 0x02e0)) CancelVideoGestures(resetPolicy: true);
-        if ((window == _window || window == _child) && (message is 0x001f or 0x0215)) CancelVideoGestures();
+        if ((window == _window || window == _child) && message == 0x001f) CancelVideoGestures();
+        if (window == _child && message == 0x0215) CancelVideoInput(PlaybackVideoInputSurface.Native);
         if ((window == _window || window == _child) && message == 0x0008
-            && wParam != 0 && NativePlayerOverlay.GetAncestor((nint)wParam, 3) != _window) CancelVideoGestures();
+            && wParam != 0 && !_overlay.OwnsInputWindow((nint)wParam)) CancelVideoGestures();
         if (window == _window && message == 0x0231) _userAdjustedWindow = true; // Native move/resize loop.
         if (!_disposed && window == _window && message == 0x0083) return 0; // WM_NCCALCSIZE: full-window client.
         if (!_disposed && window == _window && message == 0x0085) return 0;
@@ -241,15 +244,16 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             _overlay?.NotifyActivity();
             NativeVideoWindow.SetFocus(_child);
             HandleVideoGesture(message, lParam);
+            if (_videoGestures?.OwnsPress(PlaybackVideoInputSurface.Native) == true) NativeVideoWindow.SetCapture(_child);
             return 0;
         }
         if (!_disposed && !_detached && window == _child && message == 0x0202)
         {
             HandleVideoGesture(message, lParam);
+            if (NativeVideoWindow.GetCapture() == _child) NativeVideoWindow.ReleaseCapture();
             return 0;
         }
         var result = NativeVideoWindow.DefSubclassProc(window, message, wParam, lParam);
-        if (window == _window && (message is 0x0005 or 0x0006)) RestoreDeferredFullscreenMaximize();
         if (window == _window && (message is 0x02e0 or 0x007e)) FullscreenDisplayChanged();
         if (window == _window && (message is 0x0003 or 0x0005 or 0x02e0 or 0x0018))
             DispatcherQueue.TryEnqueue(UpdateBounds);
@@ -280,7 +284,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         HandleVideoGesture(message != 0x0202, point);
     }
 
-    private void HandleVideoGesture(bool pressed, NativeVideoWindow.NativePoint point)
+    private void HandleVideoGesture(bool pressed, NativeVideoWindow.NativePoint point, PlaybackVideoInputSurface surface = PlaybackVideoInputSurface.Native)
     {
         if (!_hasFrame || _showingState || _closing || _disposed || _detached) { CancelVideoGestures(); return; }
         if (_videoGestures is null)
@@ -295,8 +299,8 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
                 Math.Max(1, NativeVideoWindow.GetSystemMetricsForDpi(69, dpi))); // SM_CYDRAG.
         }
         var now = VideoGestureNow;
-        var gesture = pressed ? _videoGestures.PointerPressed(now, point.X, point.Y)
-            : _videoGestures.PointerReleased(now, point.X, point.Y);
+        var gesture = pressed ? _videoGestures.PointerPressed(now, point.X, point.Y, surface)
+            : _videoGestures.PointerReleased(now, point.X, point.Y, surface);
         ApplyVideoGesture(gesture);
         ScheduleVideoGesture();
     }
@@ -317,23 +321,25 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         if (args.GetCurrentPoint(_root).Properties.PointerUpdateKind != Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed
             || !TryVideoRootPointer(args, out var point)) return;
         args.Handled = true;
+        if (!_root.CapturePointer(args.Pointer)) return;
         _overlay.NotifyActivity();
-        HandleVideoGesture(true, point);
+        HandleVideoGesture(true, point, PlaybackVideoInputSurface.Root);
     }
 
     private void VideoRoot_PointerReleased(object sender, PointerRoutedEventArgs args)
     {
-        if (args.GetCurrentPoint(_root).Properties.PointerUpdateKind != Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased
+        if (args.GetCurrentPoint(_root).Properties.IsLeftButtonPressed
             || !TryVideoRootPointer(args, out var point)) return;
         args.Handled = true;
-        HandleVideoGesture(false, point);
+        HandleVideoGesture(false, point, PlaybackVideoInputSurface.Root);
+        _root.ReleasePointerCapture(args.Pointer);
     }
 
     private void VideoGestureTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
     {
         if (_disposed || _detached || _closing || !_hasFrame || _showingState) { CancelVideoGestures(); return; }
         var foreground = NativePlayerOverlay.GetForegroundWindow();
-        if (foreground == 0 || NativePlayerOverlay.GetAncestor(foreground, 3) != _window) { CancelVideoGestures(); return; }
+        if (foreground == 0 || !_overlay.OwnsInputWindow(foreground)) { CancelVideoGestures(); return; }
         ApplyVideoGesture(_videoGestures?.Elapse(VideoGestureNow) ?? PlaybackVideoGesture.None);
         ScheduleVideoGesture();
     }
@@ -358,7 +364,14 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     {
         _videoGestureTimer?.Stop();
         _videoGestures?.Cancel();
+        if (NativeVideoWindow.GetCapture() == _child) NativeVideoWindow.ReleaseCapture();
+        _root.ReleasePointerCaptures();
+        _overlay?.ReleaseVideoPointer();
         if (resetPolicy) _videoGestures = null;
+    }
+    private void CancelVideoInput(PlaybackVideoInputSurface surface)
+    {
+        if (_videoGestures?.OwnsPress(surface) == true) CancelVideoGestures();
     }
 
     private nint HitTestFrame(NativeVideoWindow.NativePoint point)
@@ -383,8 +396,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private void MinimizeWindow()
     {
         if (_disposed || _detached) return;
-        SettleFullscreenBeforeMinimize();
-        if (AppWindow.Presenter is OverlappedPresenter presenter) presenter.Minimize();
+        NativeVideoWindow.ShowWindow(_window, 6); // Native minimize retains the active presenter.
     }
 
     private void ToggleWindowMaximized()
@@ -418,10 +430,9 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         var diagnostics = _responsiveness;
         var started = diagnostics?.Timestamp ?? 0;
         try { UpdateBoundsCore(); }
-        catch (Exception) when (_fullscreenRendering || _fullscreenApplyingFrame)
+        catch (Exception) when (_fullscreenApplyingFrame)
         {
-            // AppWindow/XAML/queued callbacks have the same failure boundary as the frame clock.
-            FailFullscreenMotion();
+            _fullscreenBoundsFailed = true;
         }
         finally { diagnostics?.RecordDuration(PlaybackDiagnosticEvent.BoundsDuration, started); }
     }
@@ -431,7 +442,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         if (_disposed || _child == 0) return;
         if (!NativePlayerOverlay.GetClientRect(_window, out var client) || client.Right <= client.Left || client.Bottom <= client.Top)
         {
-            if (_fullscreenApplyingFrame || _fullscreenRendering) throw NativeFullscreenWindow.Failure();
+            if (_fullscreenApplyingFrame) throw FullscreenFailure();
             return;
         }
         // The video grid fills the native client. Native physical geometry is authoritative;
@@ -443,17 +454,17 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             if (!NativeVideoWindow.MoveWindow(_child, videoBounds.X, videoBounds.Y, videoBounds.Width, videoBounds.Height, true))
             {
                 _videoBounds = null;
-                if (_fullscreenApplyingFrame || _fullscreenRendering) throw NativeFullscreenWindow.Failure();
+                if (_fullscreenApplyingFrame) throw FullscreenFailure();
             }
         }
         UpdateVideoVisibility();
         _overlay.SetWindowMaximized(NativePlayerOverlay.IsZoomed(_window));
         if (NativePlayerOverlay.GetWindowRect(_child, out var bounds))
         {
-            if (_fullscreenRendering || _fullscreenApplyingFrame) _overlay.SyncMotionBounds(bounds, !_detached);
+            if (_fullscreenApplyingFrame) _overlay.SyncMotionBounds(bounds, !_detached);
             else _overlay.SyncBounds(bounds, !_detached);
         }
-        else if (_fullscreenApplyingFrame || _fullscreenRendering) throw NativeFullscreenWindow.Failure();
+        else if (_fullscreenApplyingFrame) throw FullscreenFailure();
     }
 
     private void UpdateVideoVisibility()
@@ -594,7 +605,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     }
 
     public ValueTask SetFullscreenAsync(bool fullscreen, CancellationToken cancellationToken) =>
-        new(DispatchFullscreenAsync(fullscreen, cancellationToken));
+        SetNativeFullscreenAsync(fullscreen, cancellationToken);
 
     public ValueTask ShowControlsAsync(CancellationToken cancellationToken) => OnUiAsync(() =>
     {
@@ -737,7 +748,6 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private void BeginClose()
     {
         if (_closing || _disposed) return;
-        StopFullscreenMotionForClose();
         CancelVideoGestures();
         _closing = true;
         _snapshotDispatcher.BeginClosing();
@@ -764,7 +774,6 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     public ValueTask DetachAsync(CancellationToken cancellationToken) => OnUiAsync(() =>
     {
         if (_disposed) return;
-        StopFullscreenMotionForClose();
         CancelVideoGestures();
         _responsiveness?.Dispose();
         _snapshotDispatcher.Stop();
@@ -775,7 +784,6 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     public ValueTask DisposeAsync() => OnUiAsync(() =>
     {
         if (_disposed) return;
-        DisposeFullscreenMotion();
         CancelVideoGestures();
         _videoGestureTimer.Tick -= VideoGestureTimer_Tick;
         _responsiveness?.Dispose();
@@ -827,6 +835,9 @@ internal static class NativeVideoWindow
     internal static extern nint GetWindow(nint window, uint command);
     [DllImport("user32.dll", ExactSpelling = true)]
     internal static extern nint SetFocus(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint SetCapture(nint window);
+    [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint GetCapture();
+    [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool ReleaseCapture();
     [DllImport("user32.dll", ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool ClientToScreen(nint window, ref NativePoint point);

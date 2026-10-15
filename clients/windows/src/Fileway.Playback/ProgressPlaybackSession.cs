@@ -6,8 +6,9 @@ using Fileway.Core.Contracts;
 namespace Fileway.Playback;
 
 /// <summary>Persists observed engine positions and presents one real remote resume offer.</summary>
-internal sealed class ProgressPlaybackSession : IPlaybackSession, IPlaybackResumeControl
+internal sealed class ProgressPlaybackSession : IPlaybackSession, IPlaybackResumeControl, IPlaybackResourceSource
 {
+    RemoteResourceRef? IPlaybackResourceSource.Resource => (_inner as IPlaybackResourceSource)?.Resource;
     private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan FinalSaveDeadline = TimeSpan.FromSeconds(5);
     private readonly IPlaybackSession _inner;

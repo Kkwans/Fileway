@@ -25,8 +25,11 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private readonly nint _owner;
     private readonly PlaybackPointerActivityPolicy _pointerActivity = new();
     private readonly PointerEventHandler _videoPressedHandler;
+    private readonly PointerEventHandler _videoReleasedHandler;
+    private uint? _videoPointerId;
     private readonly KeyEventHandler _gestureKeyHandler;
     private PlayerSettingsWindow? _settingsWindow;
+    private OverlappedPresenter? _windowedPresenter;
     private readonly UISettings _policySettings = new();
     private readonly AccessibilitySettings _policyAccessibility = new();
     private bool _ownerFullscreen;
@@ -37,7 +40,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private bool? _materialHighContrast;
     private RectInt32? _windowBounds;
 
-    internal PlayerOverlayWindow(IPlaybackSession session, nint owner, PlaybackResponsivenessDiagnostics? responsiveness = null)
+    internal PlayerOverlayWindow(IPlaybackSession session, nint owner, PlaybackResponsivenessDiagnostics? responsiveness = null, IVideoSpriteService? sprites = null)
     {
         _owner = owner;
         _responsiveness = responsiveness;
@@ -45,10 +48,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
         _procedure = WindowProcedure;
         _videoPressedHandler = Controls_VideoPointerPressed;
+        _videoReleasedHandler = Controls_VideoPointerReleased;
         _gestureKeyHandler = Controls_GestureKeyDown;
         try
         {
             _controls = new ScreenboxPlayerControls(session, responsiveness);
+            _controls.SetSpriteSource(sprites, (session as IPlaybackResourceSource)?.Resource);
             _controls.SetPointerActivityObserver(ObserveMouseMovement, RecordPointerPosition);
             RefreshBackdropState();
             EnableHostBackdrop();
@@ -81,8 +86,9 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             _controls.KeyDown += Controls_KeyDown;
             _controls.AddHandler(UIElement.PointerPressedEvent, _videoPressedHandler, true);
             _controls.AddHandler(UIElement.KeyDownEvent, _gestureKeyHandler, true);
-            _controls.PointerReleased += Controls_VideoPointerReleased;
+            _controls.AddHandler(UIElement.PointerReleasedEvent, _videoReleasedHandler, true);
             _controls.PointerCanceled += Controls_VideoPointerCanceled;
+            _controls.PointerCaptureLost += Controls_VideoPointerCanceled;
             _controls.ActualThemeChanged += Controls_ActualThemeChanged;
             _controls.Loaded += Controls_Loaded;
             _controls.MaterialBoundsChanged += Controls_MaterialBoundsChanged;
@@ -116,6 +122,23 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     internal event Action<NativeVideoWindow.NativePoint>? VideoPointerPressed;
     internal event Action<NativeVideoWindow.NativePoint>? VideoPointerReleased;
     internal event Action? VideoPointerCanceled;
+    internal event Action? VideoKeyboardInput;
+
+    internal bool OwnsInputWindow(nint window)
+    {
+        for (var depth = 0; window != 0 && depth < 16; ++depth)
+        {
+            window = NativePlayerOverlay.GetAncestor(window, 2); // Root of this HWND, not the whole app's root owner.
+            if (window == _owner || window == _window) return true;
+            window = NativeVideoWindow.GetWindow(window, 4);
+        }
+        return false;
+    }
+    internal void ReleaseVideoPointer()
+    {
+        _videoPointerId = null;
+        _controls.ReleasePointerCaptures();
+    }
 
     private bool TryVideoPointer(PointerRoutedEventArgs args, out NativeVideoWindow.NativePoint screenPoint)
     {
@@ -137,21 +160,31 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void Controls_VideoPointerPressed(object sender, PointerRoutedEventArgs args)
     {
         if (args.GetCurrentPoint(_controls).Properties.PointerUpdateKind != Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed) return;
-        if (!TryVideoPointer(args, out var point)) { VideoPointerCanceled?.Invoke(); return; }
+        if (!TryVideoPointer(args, out var point) || !_controls.CapturePointer(args.Pointer)) return;
+        _videoPointerId = args.Pointer.PointerId;
         args.Handled = true;
         VideoPointerPressed?.Invoke(point);
     }
 
     private void Controls_VideoPointerReleased(object sender, PointerRoutedEventArgs args)
     {
-        if (args.GetCurrentPoint(_controls).Properties.PointerUpdateKind != Microsoft.UI.Input.PointerUpdateKind.LeftButtonReleased
-            || !TryVideoPointer(args, out var point)) return;
+        if (_videoPointerId != args.Pointer.PointerId || args.GetCurrentPoint(_controls).Properties.IsLeftButtonPressed) return;
+        var position = args.GetCurrentPoint(_controls).Position;
+        var scale = _controls.XamlRoot?.RasterizationScale ?? 1;
+        var point = new NativeVideoWindow.NativePoint { X = (int)Math.Round(position.X * scale), Y = (int)Math.Round(position.Y * scale) };
+        _videoPointerId = null;
         args.Handled = true;
-        VideoPointerReleased?.Invoke(point);
+        if (NativeVideoWindow.ClientToScreen(_window, ref point)) VideoPointerReleased?.Invoke(point);
+        else VideoPointerCanceled?.Invoke();
+        _controls.ReleasePointerCapture(args.Pointer);
     }
 
-    private void Controls_VideoPointerCanceled(object sender, PointerRoutedEventArgs args) => VideoPointerCanceled?.Invoke();
-    private void Controls_GestureKeyDown(object sender, KeyRoutedEventArgs args) => VideoPointerCanceled?.Invoke();
+    private void Controls_VideoPointerCanceled(object sender, PointerRoutedEventArgs args)
+    {
+        if (_videoPointerId != args.Pointer.PointerId) return;
+        _videoPointerId = null; VideoPointerCanceled?.Invoke();
+    }
+    private void Controls_GestureKeyDown(object sender, KeyRoutedEventArgs args) => VideoKeyboardInput?.Invoke();
 
     private void Controls_CloseRequested(object? sender, EventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Controls_ToggleFullscreenRequested(object? sender, EventArgs args) => ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty);
@@ -328,8 +361,17 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
     internal void SetFullscreen(bool fullscreen)
     {
+        if (_disposed) return;
+        if (fullscreen && AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
+        {
+            _windowedPresenter = AppWindow.Presenter as OverlappedPresenter;
+            AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+        }
+        else if (!fullscreen && AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
+            AppWindow.SetPresenter(_windowedPresenter ?? OverlappedPresenter.Create());
+        _windowBounds = null;
         _ownerFullscreen = fullscreen;
-        if (!_disposed) _controls.SetFullscreen(fullscreen);
+        _controls.SetFullscreen(fullscreen);
     }
 
     internal void NotifyActivity()
@@ -406,7 +448,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             if (!NativeVideoWindow.SetWindowPos(_window, 0, windowBounds.X, windowBounds.Y, windowBounds.Width, windowBounds.Height, 0x0014))
             {
                 _windowBounds = null;
-                if (!allowInitialActivation) throw NativeFullscreenWindow.Failure();
+                if (!allowInitialActivation) throw new FilewayException(new(ErrorCode.Unknown, "播放控件位置未能更新。"));
             }
         }
         if (allowInitialActivation && !_activatedOnce && NativePlayerOverlay.GetForegroundWindow() == _owner)
@@ -476,6 +518,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
                     && (element is ButtonBase or RangeBase or TextBox or PasswordBox or ComboBox or SelectorItem or ToggleSwitch or ScrollViewer))
                     return 1; // HTCLIENT: native controls retain keyboard/IME.
             }
+            if (_controls.IsVideoBackground(position)) return 1; // One HUD input path owns picture press/release.
             return -1; // HTTRANSPARENT: same UI-thread video container receives input.
         }
         var result = NativeVideoWindow.DefSubclassProc(window, message, wParam, lParam);
@@ -516,8 +559,9 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         _controls.KeyDown -= Controls_KeyDown;
         _controls.RemoveHandler(UIElement.PointerPressedEvent, _videoPressedHandler);
         _controls.RemoveHandler(UIElement.KeyDownEvent, _gestureKeyHandler);
-        _controls.PointerReleased -= Controls_VideoPointerReleased;
+        _controls.RemoveHandler(UIElement.PointerReleasedEvent, _videoReleasedHandler);
         _controls.PointerCanceled -= Controls_VideoPointerCanceled;
+        _controls.PointerCaptureLost -= Controls_VideoPointerCanceled;
         _controls.ActualThemeChanged -= Controls_ActualThemeChanged;
         _controls.Loaded -= Controls_Loaded;
         _controls.MaterialBoundsChanged -= Controls_MaterialBoundsChanged;

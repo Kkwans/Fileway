@@ -12,8 +12,9 @@ using Fileway.Playback.Native;
 
 namespace Fileway.Playback;
 
-internal sealed class MpvPlaybackSession : IPlaybackSession
+internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSource
 {
+    RemoteResourceRef? IPlaybackResourceSource.Resource => _originalResource;
     private static readonly TimeSpan NativeDeadline = TimeSpan.FromSeconds(10);
     private readonly object _gate = new();
     private readonly PlaybackOpenRequest _request;

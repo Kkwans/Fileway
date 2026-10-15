@@ -120,6 +120,9 @@
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
+        <Border x:Name="SeekPreviewCard" Canvas.ZIndex="20" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" IsHitTestVisible="False" Padding="8" CornerRadius="8" Background="{ThemeResource PlayerFallbackSurface}" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}" BorderThickness="1">
+            <StackPanel Spacing="6"><Grid x:Name="SpriteViewport" Width="160" Height="90"><Grid.Clip><RectangleGeometry Rect="0,0,160,90"/></Grid.Clip><Canvas><Image x:Name="SpriteSheetImage" Stretch="Fill" Visibility="Collapsed"/></Canvas><TextBlock x:Name="SpriteStatus" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource PlayerForeground}" FontSize="12"/></Grid><TextBlock x:Name="SeekPreviewTime" HorizontalAlignment="Center" Foreground="{ThemeResource PlayerForeground}" FontSize="12" Typography.NumeralAlignment="Tabular"/></StackPanel>
+        </Border>
         <ProgressRing x:Name="PlaybackBusyRing" Width="40" Height="40" IsActive="False" Visibility="Collapsed"
                       IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center"
                       Foreground="{ThemeResource PlayerForeground}" AutomationProperties.Name="正在加载视频"/>

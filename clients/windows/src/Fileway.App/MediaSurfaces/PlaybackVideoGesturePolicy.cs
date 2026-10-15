@@ -6,6 +6,7 @@ internal enum PlaybackVideoGesture
     TogglePause,
     ToggleFullscreen,
 }
+internal enum PlaybackVideoInputSurface { Native, Hud, Root }
 
 /// <summary>Separates video clicks using the system's time and physical-pixel rectangles.</summary>
 internal sealed class PlaybackVideoGesturePolicy
@@ -15,6 +16,8 @@ internal sealed class PlaybackVideoGesturePolicy
     private Press? _pressed;
     private Press? _pending;
     private bool _suppressRelease;
+    private PlaybackVideoInputSurface? _pressedSurface;
+    internal bool OwnsPress(PlaybackVideoInputSurface surface) => _pressedSurface == surface;
 
     private readonly record struct Press(TimeSpan Timestamp, int X, int Y);
 
@@ -33,8 +36,10 @@ internal sealed class PlaybackVideoGesturePolicy
         _dragHeight = dragHeight;
     }
 
-    internal PlaybackVideoGesture PointerPressed(TimeSpan now, int x, int y)
+    internal PlaybackVideoGesture PointerPressed(TimeSpan now, int x, int y, PlaybackVideoInputSurface surface = PlaybackVideoInputSurface.Native)
     {
+        if (_pressedSurface is not null) return PlaybackVideoGesture.None; // Duplicate input-site routing is not a second click.
+        _pressedSurface = surface;
         _pressed = null;
         _suppressRelease = false;
         if (_pending is { } previous)
@@ -55,8 +60,10 @@ internal sealed class PlaybackVideoGesturePolicy
         return PlaybackVideoGesture.None;
     }
 
-    internal PlaybackVideoGesture PointerReleased(TimeSpan now, int x, int y)
+    internal PlaybackVideoGesture PointerReleased(TimeSpan now, int x, int y, PlaybackVideoInputSurface surface = PlaybackVideoInputSurface.Native)
     {
+        if (_pressedSurface != surface) return PlaybackVideoGesture.None;
+        _pressedSurface = null;
         if (_suppressRelease)
         {
             _suppressRelease = false;
@@ -88,6 +95,7 @@ internal sealed class PlaybackVideoGesturePolicy
 
     internal void Cancel()
     {
+        _pressedSurface = null;
         _pressed = null;
         _pending = null;
         _suppressRelease = false;

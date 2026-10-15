@@ -176,6 +176,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         if (_disposed) return;
         var wasPlaying = _snapshot.Status == PlaybackStatus.Playing;
+        if (_snapshot.Generation != snapshot.Generation) ResetSpritePreview();
         _snapshot = snapshot;
         _applying = true;
         var extension = System.IO.Path.GetExtension(snapshot.DisplayName).ToLowerInvariant();
@@ -359,19 +360,21 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _fade.Children.Add(animation); _fade.Begin();
     }
 
-    private void Seek_PointerPressed(object sender, PointerRoutedEventArgs args) { if (!SeekSlider.IsEnabled) return; ++_seekEditGeneration; _seeking = true; PreviewText.Visibility = Visibility.Visible; NotifyActivity(); }
+    private void Seek_PointerPressed(object sender, PointerRoutedEventArgs args) { if (!SeekSlider.IsEnabled) return; ++_seekEditGeneration; _seeking = true; ShowSeekPreview(SeekSlider.Value); NotifyActivity(); }
     private async void Seek_PointerReleased(object sender, PointerRoutedEventArgs args)
     {
         if (!_seeking) return;
         var target = SeekSlider.Value; ++_seekEditGeneration; _seeking = false; PreviewText.Visibility = Visibility.Collapsed;
+        SeekPreviewCard.Visibility = Visibility.Collapsed;
         await RunAsync(token => _session.SeekAsync(TimeSpan.FromSeconds(target), token)); NotifyActivity();
     }
-    private void Seek_PointerCanceled(object sender, PointerRoutedEventArgs args) { ++_seekEditGeneration; _seeking = false; PreviewText.Visibility = Visibility.Collapsed; ApplySnapshot(_session.Snapshot); NotifyActivity(); }
+    private void Seek_PointerCanceled(object sender, PointerRoutedEventArgs args) { ++_seekEditGeneration; _seeking = false; PreviewText.Visibility = Visibility.Collapsed; SeekPreviewCard.Visibility = Visibility.Collapsed; ApplySnapshot(_session.Snapshot); NotifyActivity(); }
     private void Seek_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
     {
         if (_applying) return;
         var target = args.NewValue;
         PreviewText.Text = Clock(TimeSpan.FromSeconds(target));
+        if (_seeking) ShowSeekPreview(target);
         TimeText.Text = PreviewText.Text + " / " + (_snapshot.Duration is { } duration ? Clock(duration) : "--:--");
         UpdateChapterProgress();
         var generation = ++_seekEditGeneration;
@@ -386,7 +389,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private void Seek_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
     {
         if (!SeekSlider.IsEnabled || !IsSeekKey(args.Key)) return;
-        _keyboardSeeking = true; _seeking = true; PreviewText.Visibility = Visibility.Visible; NotifyActivity();
+        _keyboardSeeking = true; _seeking = true; ShowSeekPreview(SeekSlider.Value); NotifyActivity();
     }
     private void Seek_LostFocus(object sender, RoutedEventArgs args)
     {
@@ -395,6 +398,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         while (focus is not null) { if (focus == SeekSlider) return; focus = VisualTreeHelper.GetParent(focus); }
         _keyboardSeeking = false; _seeking = false; ++_seekEditGeneration;
         PreviewText.Visibility = Visibility.Collapsed; ApplySnapshot(_session.Snapshot); NotifyActivity();
+        SeekPreviewCard.Visibility = Visibility.Collapsed;
     }
     private async void Seek_KeyUp(object sender, KeyRoutedEventArgs args)
     {
@@ -402,6 +406,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         {
             var target = SeekSlider.Value;
             _keyboardSeeking = false; _seeking = false; ++_seekEditGeneration; PreviewText.Visibility = Visibility.Collapsed;
+            SeekPreviewCard.Visibility = Visibility.Collapsed;
             await RunAsync(token => _session.SeekAsync(TimeSpan.FromSeconds(target), token));
         }
         NotifyActivity();
@@ -820,6 +825,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         if (_disposed) return;
         _disposed = true; _pendingSubtitleSafeArea = null; BottomBar.SizeChanged -= BottomBar_SizeChanged;
+        ResetSpritePreview();
         _resumeTimer.Stop(); _resumeTimer.Tick -= ResumeTimer_Tick;
         Loaded -= Controls_Loaded; Unloaded -= Controls_Unloaded;
         SizeChanged -= Controls_SizeChanged;

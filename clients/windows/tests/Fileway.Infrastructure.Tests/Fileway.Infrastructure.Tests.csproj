@@ -22,7 +22,6 @@
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackPausePolicy.cs" Link="Playback\PlaybackPausePolicy.cs" />
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackVideoGesturePolicy.cs" Link="Playback\PlaybackVideoGesturePolicy.cs" />
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackPointerActivityPolicy.cs" Link="Playback\PlaybackPointerActivityPolicy.cs" />
-    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackFullscreenMotionPolicy.cs" Link="Playback\PlaybackFullscreenMotionPolicy.cs" />
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackDownloadPresentation.cs" Link="Playback\PlaybackDownloadPresentation.cs" />
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackSnapshotDispatcher.cs" Link="Playback\PlaybackSnapshotDispatcher.cs" />
     <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackResponsivenessDiagnostics.cs" Link="Playback\PlaybackResponsivenessDiagnostics.cs" />
