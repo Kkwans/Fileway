@@ -203,7 +203,7 @@ try {
         $script:stage = 'connect-auth-expand'; Act $script:window '^认证方式$' 'ComboBox' 'expand'
         $script:stage = 'connect-auth-select'; Act $script:window '^无需认证$' 'ListItem' 'select'
         $script:stage = 'connect-persistence-off'; Act $script:window '^保持登录（仅在本机加密保存会话）$' 'CheckBox' 'toggle-off'
-        $script:stage = 'connect-http-consent'; Act $script:window '^我了解 HTTP 会明文传输凭据和文件内容$' 'CheckBox' 'toggle-on'
+        Record-Observation 'connect-http-accepted-by-address' @{ scheme = 'http'; consentControl = 0 }
         Reveal-ConnectionSubmit $script:window
         $script:stage = 'connect-submit'; Act $script:window '^连接并浏览$'
         $script:stage = 'image-row-open'; Send-OpenKey $script:window $name
