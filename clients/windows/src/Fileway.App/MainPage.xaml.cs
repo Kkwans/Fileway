@@ -163,18 +163,15 @@ public sealed partial class MainPage : Page, IDisposable
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
         ConnectButton.IsEnabled = true;
-        LoginNotice.Message = "核心服务已就绪。填写服务器地址并选择认证方式即可连接。";
+        SaveConnectionButton.IsEnabled = true;
+        LoginNotice.IsOpen = false;
         Notice.IsOpen = false;
         UpdateApplicationMenus();
         try
         {
-            await RefreshSavedConnectionsAsync();
-            if (SavedConnectionBox.SelectedItem is ConnectionChoice { Saved.KeepSignedIn: true } choice)
-            {
-                if (choice.Saved.Profile.BaseAddress.Scheme == "http")
-                    LoginNotice.Message = "此连接使用 HTTP。确认明文传输提示后，可恢复已保存登录。";
-                else await RestoreSelectedAsync();
-            }
+            await RefreshSavedConnectionsAsync(selectMostRecent: true);
+            if (SavedConnectionBox.SelectedItem is ConnectionChoice { Saved.KeepSignedIn: true })
+                await RestoreSelectedAsync(silent: true);
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { LoginError(ErrorMessage(exception)); }
@@ -202,12 +199,13 @@ public sealed partial class MainPage : Page, IDisposable
         _connectionCancellation?.Dispose(); _loadCancellation?.Dispose(); _lifetime.Dispose();
     }
 
-    private async void Connect_Click(object sender, RoutedEventArgs e)
+    private async void Connect_Click(object sender, RoutedEventArgs e) => await ConnectFromFormAsync();
+
+    private async Task ConnectFromFormAsync()
     {
         if (_connection is null || _files is null || _connecting) return;
         if (!Uri.TryCreate(ServerBox.Text.Trim(), UriKind.Absolute, out var address) || (address.Scheme != "https" && address.Scheme != "http") || !string.IsNullOrEmpty(address.UserInfo) || !string.IsNullOrEmpty(address.Query) || !string.IsNullOrEmpty(address.Fragment))
         { LoginError("请输入有效的 HTTP 或 HTTPS 服务器地址，且不要包含账号、查询参数或片段。"); return; }
-        if (address.Scheme == "http" && HttpConsent.IsChecked != true) { LoginError("此地址使用 HTTP。请确认你了解明文传输风险后继续。"); return; }
         var login = AuthenticationBox.SelectedIndex == 1
             ? new LoginInput(AuthenticationMode.NoAuthentication, KeepSignedIn: KeepSignedInBox.IsChecked == true)
             : new LoginInput(AuthenticationMode.Password, UsernameBox.Text, PasswordBox.Password, KeepSignedInBox.IsChecked == true);
@@ -218,17 +216,24 @@ public sealed partial class MainPage : Page, IDisposable
         await RunConnectionAsync(token => _connection.ConnectAsync(profile, login, token), "正在连接服务器…");
     }
 
-    private Task RunConnectionAsync(Func<CancellationToken, Task<ConnectionSession>> connect, string message)
-        => _connectionOperation = RunConnectionCoreAsync(connect, message);
+    private Task RunConnectionAsync(Func<CancellationToken, Task<ConnectionSession>> connect, string? message, bool silent = false)
+        => _connectionOperation = RunConnectionCoreAsync(connect, message, silent);
 
-    private async Task RunConnectionCoreAsync(Func<CancellationToken, Task<ConnectionSession>> connect, string message)
+    private async Task RunConnectionCoreAsync(Func<CancellationToken, Task<ConnectionSession>> connect, string? message, bool silent)
     {
         if (_connection is null || _files is null || _connecting || _disposed) return;
         _connectionCancellation?.Dispose();
         _connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _connectionCancellation.Token;
         SetConnecting(true);
-        LoginNotice.Severity = InfoBarSeverity.Informational; LoginNotice.Message = message;
+        if (silent)
+            LoginNotice.IsOpen = false;
+        else
+        {
+            LoginNotice.Severity = InfoBarSeverity.Informational;
+            LoginNotice.Message = message ?? "正在连接服务器…";
+            LoginNotice.IsOpen = true;
+        }
         try
         {
             if (_session is not null)
@@ -264,6 +269,7 @@ public sealed partial class MainPage : Page, IDisposable
         if (connecting) { HideCollections(); CollectionsPanel.SetContext(null, null, null, null); SidebarCollections.SetSnapshot(null); }
         UpdateThumbnailContext();
         ConnectButton.IsEnabled = !connecting && _connection is not null;
+        SaveConnectionButton.IsEnabled = NewConnectionButton.IsEnabled = !connecting && _connection is not null;
         RestoreSavedButton.IsEnabled = ForgetSavedButton.IsEnabled = SavedConnectionBox.IsEnabled = !connecting;
         ConnectionNameBox.IsEnabled = ServerBox.IsEnabled = AuthenticationBox.IsEnabled = !connecting;
         UsernameBox.IsEnabled = PasswordBox.IsEnabled = KeepSignedInBox.IsEnabled = !connecting;
@@ -277,7 +283,7 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void CancelConnection_Click(object sender, RoutedEventArgs args) => _connectionCancellation?.Cancel();
 
-    private async Task RefreshSavedConnectionsAsync()
+    private async Task RefreshSavedConnectionsAsync(bool selectMostRecent = false)
     {
         if (_catalog is null || _disposed) return;
         var saved = await _catalog.ListAsync(_lifetime.Token);
@@ -289,7 +295,8 @@ public sealed partial class MainPage : Page, IDisposable
             var choices = saved.Select(item => new ConnectionChoice(item)).ToArray();
             SavedConnectionBox.ItemsSource = choices;
             SavedConnectionsPanel.Visibility = choices.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-            SavedConnectionBox.SelectedItem = choices.FirstOrDefault(item => item.Saved.Profile.Id == selected) ?? choices.FirstOrDefault();
+            SavedConnectionBox.SelectedItem = choices.FirstOrDefault(item => item.Saved.Profile.Id == selected)
+                ?? (selectMostRecent ? choices.FirstOrDefault() : null);
         }
         finally { _refreshingSavedConnections = false; }
         FillSavedSelection();
@@ -302,27 +309,52 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void FillSavedSelection()
     {
-        if (SavedConnectionBox.SelectedItem is not ConnectionChoice choice) { _selectedProfile = null; return; }
+        if (SavedConnectionBox.SelectedItem is not ConnectionChoice choice)
+        {
+            _selectedProfile = null;
+            ConnectionModeTitle.Text = "新建连接";
+            RestoreSavedButton.Visibility = ForgetSavedButton.Visibility = Visibility.Collapsed;
+            return;
+        }
         var saved = choice.Saved;
         _selectedProfile = saved.Profile;
+        ConnectionModeTitle.Text = "编辑已保存连接";
         ConnectionNameBox.Text = saved.Profile.DisplayName;
         ServerBox.Text = saved.Profile.BaseAddress.AbsoluteUri;
         AuthenticationBox.SelectedIndex = saved.AuthenticationMode == AuthenticationMode.NoAuthentication ? 1 : 0;
         UsernameBox.Text = saved.Username;
         PasswordBox.Password = "";
         KeepSignedInBox.IsChecked = saved.KeepSignedIn;
+        ForgetSavedButton.Visibility = Visibility.Visible;
         RestoreSavedButton.Visibility = saved.KeepSignedIn ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private async void RestoreSaved_Click(object sender, RoutedEventArgs args) => await RestoreSelectedAsync();
 
-    private async Task RestoreSelectedAsync()
+    private async Task RestoreSelectedAsync(bool silent = false)
     {
         if (_connection is null || SavedConnectionBox.SelectedItem is not ConnectionChoice choice || _connecting) return;
         if (!choice.Saved.KeepSignedIn) { LoginError("此连接未保持登录，请输入密码重新连接。"); return; }
-        if (choice.Saved.Profile.BaseAddress.Scheme == "http" && HttpConsent.IsChecked != true)
-        { LoginError("此地址使用 HTTP。请确认明文传输提示后恢复登录。"); return; }
-        await RunConnectionAsync(token => _connection.RestoreAsync(choice.Saved.Profile.Id, token), "正在核实已保存的账号与权限…");
+        await RunConnectionAsync(token => _connection.RestoreAsync(choice.Saved.Profile.Id, token), silent ? null : "正在恢复已保存连接…", silent);
+    }
+
+    private void NewConnection_Click(object sender, RoutedEventArgs args)
+    {
+        if (_connecting) return;
+        _refreshingSavedConnections = true;
+        try { SavedConnectionBox.SelectedItem = null; }
+        finally { _refreshingSavedConnections = false; }
+        _selectedProfile = null;
+        ConnectionModeTitle.Text = "新建连接";
+        ConnectionNameBox.Text = string.Empty;
+        ServerBox.Text = string.Empty;
+        AuthenticationBox.SelectedIndex = 0;
+        UsernameBox.Text = string.Empty;
+        PasswordBox.Password = string.Empty;
+        KeepSignedInBox.IsChecked = true;
+        RestoreSavedButton.Visibility = ForgetSavedButton.Visibility = Visibility.Collapsed;
+        LoginNotice.IsOpen = false;
+        ServerBox.Focus(FocusState.Programmatic);
     }
 
     private async void ForgetSaved_Click(object sender, RoutedEventArgs args)
@@ -550,7 +582,7 @@ public sealed partial class MainPage : Page, IDisposable
     private void SetNotice(string title, string message, InfoBarSeverity severity) { Notice.Title = title; Notice.Message = message; Notice.Severity = severity; Notice.IsOpen = true; }
     private void LoginError(string message) { LoginNotice.Severity = InfoBarSeverity.Error; LoginNotice.Message = message; LoginNotice.IsOpen = true; }
     internal static string ErrorMessage(Exception exception) => exception is FilewayException known ? known.Error.Message : "操作未能完成。请检查服务器连接后重试。";
-    private void Server_Changed(object sender, TextChangedEventArgs e) { if (HttpConsent is not null) { HttpConsent.Visibility = ServerBox.Text.TrimStart().StartsWith("http:", StringComparison.OrdinalIgnoreCase) ? Visibility.Visible : Visibility.Collapsed; HttpConsent.IsChecked = false; } }
+    private void Server_Changed(object sender, TextChangedEventArgs e) { }
     private void Authentication_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (CredentialFields is null) return;
@@ -773,7 +805,9 @@ public sealed partial class MainPage : Page, IDisposable
 
 public sealed record ConnectionChoice(SavedConnection Saved)
 {
-    public string Label => $"{Saved.Profile.DisplayName} · {Saved.Username}";
+    public string Label => string.IsNullOrWhiteSpace(Saved.Username)
+        ? $"{Saved.Profile.DisplayName} · 无需认证"
+        : $"{Saved.Profile.DisplayName} · {Saved.Username}";
     public override string ToString() => "ConnectionChoice (profile redacted)";
 }
 

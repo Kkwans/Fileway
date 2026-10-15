@@ -203,22 +203,27 @@
    <StackPanel MaxWidth="440" Spacing="20" HorizontalAlignment="Stretch" Margin="0,12,0,20">
     <FontIcon Glyph="&#xE968;" FontSize="40" HorizontalAlignment="Left" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
     <StackPanel Spacing="8"><TextBlock Text="连接你的文件空间" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock Text="连接信息保存在本机。保持登录会加密保存会话，密码不会保存。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <Grid ColumnSpacing="12">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Spacing="2"><TextBlock x:Name="ConnectionModeTitle" Text="新建连接" FontSize="16" FontWeight="SemiBold"/><TextBlock Text="连接成功后会自动保存，关闭应用后可无感恢复。" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+     <Button x:Name="NewConnectionButton" Grid.Column="1" Content="新建连接" Click="NewConnection_Click" IsEnabled="False"/>
+    </Grid>
     <StackPanel x:Name="SavedConnectionsPanel" Spacing="10" Visibility="Collapsed">
-     <ComboBox x:Name="SavedConnectionBox" Header="已保存连接" DisplayMemberPath="Label" HorizontalAlignment="Stretch" SelectionChanged="SavedConnection_Changed" AutomationProperties.Name="已保存连接"/>
+     <TextBlock Text="已保存连接" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+     <ComboBox x:Name="SavedConnectionBox" DisplayMemberPath="Label" HorizontalAlignment="Stretch" SelectionChanged="SavedConnection_Changed" AutomationProperties.Name="已保存连接"/>
      <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="RestoreSavedButton" Content="恢复已保存登录" Click="RestoreSaved_Click" HorizontalAlignment="Stretch"/><Button x:Name="ForgetSavedButton" Grid.Column="1" Content="忘记连接" Click="ForgetSaved_Click"/></Grid>
     </StackPanel>
     <TextBox x:Name="ConnectionNameBox" Header="连接名称（可选）" PlaceholderText="例如：家里的文件空间"/>
     <TextBox x:Name="ServerBox" Header="服务器地址" PlaceholderText="https://your-server" TextChanged="Server_Changed" InputScope="Url"/>
     <ComboBox x:Name="AuthenticationBox" Header="认证方式" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Authentication_Changed"><ComboBoxItem Content="账号密码"/><ComboBoxItem Content="无需认证"/></ComboBox>
     <StackPanel x:Name="CredentialFields" Spacing="20"><TextBox x:Name="UsernameBox" Header="用户名" PlaceholderText="服务器用户名"/><PasswordBox x:Name="PasswordBox" Header="密码" PasswordRevealMode="Peek"/></StackPanel>
-    <CheckBox x:Name="KeepSignedInBox" Content="保持登录（仅在本机加密保存会话）"/>
-    <CheckBox x:Name="HttpConsent" Content="我了解 HTTP 会明文传输凭据和文件内容" Visibility="Collapsed"/>
+    <CheckBox x:Name="KeepSignedInBox" Content="保持登录（仅在本机加密保存会话）" IsChecked="True"/>
     <InfoBar x:Name="LoginNotice" IsOpen="True" IsClosable="False" Severity="Informational" Message="正在准备本地核心服务…"/>
    </StackPanel>
    </ScrollViewer>
    <Border Grid.Row="1" Padding="32,12,32,16" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0">
     <Grid MaxWidth="440" HorizontalAlignment="Stretch" RowSpacing="8"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-     <Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource AccentButtonStyle}" Click="Connect_Click" IsEnabled="False" HorizontalAlignment="Stretch"/>
+     <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource AccentButtonStyle}" Click="Connect_Click" IsEnabled="False" HorizontalAlignment="Stretch"/><Button x:Name="SaveConnectionButton" Grid.Column="1" Content="保存连接并浏览" Click="Connect_Click" IsEnabled="False"/></Grid>
      <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8"><Button x:Name="CancelConnectionButton" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click"/><Button x:Name="DismissConnection" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click"/></StackPanel>
     </Grid>
    </Border>
