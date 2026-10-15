@@ -19,7 +19,7 @@ public sealed partial class MainPage
     private void InitializeApplicationMenus()
     {
         _applicationMenusReady = true;
-        foreach (var view in new UIElement[] { Workspace, ConnectionPanel, RecentPane, TransfersPanel, CollectionsPanel, SearchPane, NasTasksPane })
+        foreach (var view in new UIElement[] { Workspace, ConnectionPanel, RecentPane, TransfersPanel, CollectionsPanel, SearchPane, NasTasksPane, TrashPane })
         {
             var token = view.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateApplicationMenus());
             _applicationMenuViews.Add((view, token));
@@ -76,6 +76,7 @@ public sealed partial class MainPage
         MenuTransfersItem.IsEnabled = TransferCenterButton.IsEnabled;
         MenuServerSearchItem.IsEnabled = connected && !connectionView && _files is IServerSearchService && (_directory ?? _root) is not null;
         MenuNasTasksItem.IsEnabled = NasTasksButton.IsEnabled = connected && !connectionView && _files is IServerTaskService;
+        MenuTrashPageItem.IsEnabled = TrashPageButton.IsEnabled = connected && !connectionView && _files is ITrashService;
         CollectionsButton.IsEnabled = connected && _collections is not null && !connectionView;
         LogoutButton.IsEnabled = connected;
 
@@ -92,12 +93,15 @@ public sealed partial class MainPage
         WorkspaceTitle.Visibility = browser ? Visibility.Collapsed : Visibility.Visible;
         WorkspaceTitle.Text = connectionView ? "连接服务器" : RecentPane.Visibility == Visibility.Visible ? "最近访问"
             : SearchPane.Visibility == Visibility.Visible ? "搜索结果" : NasTasksPane.Visibility == Visibility.Visible ? "NAS 文件任务"
+            : TrashPane.Visibility == Visibility.Visible ? "回收站"
             : TransfersPanel.Visibility == Visibility.Visible ? "传输中心" : CollectionsPanel.Visibility == Visibility.Visible ? "收藏与标签" : "我的文件";
         SearchBox.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.IsEnabled = BrowserCommands.IsEnabled = browser;
         SetSidebarCurrent(MyFilesButton, browser);
         SetSidebarCurrent(RecentAccessButton, !connectionView && RecentPane.Visibility == Visibility.Visible);
         SetSidebarCurrent(TransferCenterButton, !connectionView && TransfersPanel.Visibility == Visibility.Visible);
+        SetSidebarCurrent(NasTasksButton, !connectionView && NasTasksPane.Visibility == Visibility.Visible);
+        SetSidebarCurrent(TrashPageButton, !connectionView && TrashPane.Visibility == Visibility.Visible);
     }
 
     private void SetSidebarCurrent(Button button, bool current)

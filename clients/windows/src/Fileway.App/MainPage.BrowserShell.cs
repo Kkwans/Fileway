@@ -98,9 +98,9 @@ public sealed partial class MainPage
         Grid.SetColumnSpan(Sidebar, _sidebarOverlay ? 2 : 1);
         Sidebar.Visibility = !_sidebarOverlay || _sidebarOpen ? Visibility.Visible : Visibility.Collapsed;
         SidebarOverlayBackground.Visibility = _sidebarOverlay ? Visibility.Visible : Visibility.Collapsed;
-        MyFilesLabel.Visibility = RecentAccessLabel.Visibility = TransferCenterLabel.Visibility = NasTasksLabel.Visibility =
+        MyFilesLabel.Visibility = RecentAccessLabel.Visibility = TransferCenterLabel.Visibility = NasTasksLabel.Visibility = TrashPageLabel.Visibility =
             ConnectionLabel.Visibility = SidebarConnectionActionLabel.Visibility = SidebarCollections.Visibility = rail ? Visibility.Collapsed : Visibility.Visible;
-        foreach (var button in new[] { MyFilesButton, RecentAccessButton, TransferCenterButton, NasTasksButton, ConnectionButton })
+        foreach (var button in new[] { MyFilesButton, RecentAccessButton, TransferCenterButton, NasTasksButton, TrashPageButton, ConnectionButton })
         {
             button.HorizontalContentAlignment = rail ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             button.Padding = rail ? new Thickness(0) : new Thickness(12, 0, 12, 0);

@@ -9,7 +9,7 @@ namespace Fileway.App;
 public sealed partial class MainPage
 {
     private bool CanShowRemoteTools => !_disposed && !_connecting && _session is not null &&
-        _browserDialog is null && _storageDialog is null && !CollectionsPanel.HasOpenDialog && !NasTasksPane.HasOpenDialog &&
+        _browserDialog is null && _storageDialog is null && !CollectionsPanel.HasOpenDialog && !NasTasksPane.HasOpenDialog && !TrashPane.HasOpenDialog &&
         ConnectionPanel.Visibility != Visibility.Visible;
 
     private void InitializeRemoteTools()
@@ -17,23 +17,29 @@ public sealed partial class MainPage
         SearchPane.OpenResourceAsync = OpenCollectionResourceAsync;
         SearchPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
         NasTasksPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
+        TrashPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
         UpdateRemoteToolsContext();
     }
 
     private void ReturnFromRemoteTools()
     {
         if (_disposed) return;
+        var wasTrash = TrashPane.Visibility == Visibility.Visible;
         HideCollections();
         foreach (var item in _uploadItems.Values.ToArray()) TryRefreshCompletedUpload(item);
         ActiveFiles.Focus(FocusState.Keyboard);
+        // Restoration returns display metadata, never a resource URL. Re-read the
+        // original directory instead of deriving wire identity from that response.
+        if (wasTrash && BrowserReady && _directory is { } directory) _ = LoadAsync(directory);
     }
 
     private void UpdateRemoteToolsContext()
     {
-        if (SearchPane is null || NasTasksPane is null) return;
+        if (SearchPane is null || NasTasksPane is null || TrashPane is null) return;
         var session = !_disposed && !_connecting ? _session : null;
         SearchPane.SetContext(_files as IServerSearchService, _files, session, _directory ?? _root);
         NasTasksPane.SetContext(_files as IServerTaskService, Operations, session);
+        TrashPane.SetContext(_files as ITrashService, Operations, session);
         if (session is null) HideRemoteToolsPanes();
     }
 
@@ -41,6 +47,7 @@ public sealed partial class MainPage
     {
         if (SearchPane is not null) { SearchPane.Visibility = Visibility.Collapsed; SearchPane.SuspendView(); }
         if (NasTasksPane is not null) { NasTasksPane.Visibility = Visibility.Collapsed; NasTasksPane.SuspendView(); }
+        if (TrashPane is not null) { TrashPane.Visibility = Visibility.Collapsed; TrashPane.SuspendView(); }
     }
 
     private async Task ShowSearchAsync(string? query = null)
@@ -87,5 +94,16 @@ public sealed partial class MainPage
             await ShowSearchAsync();
         };
         owner.KeyboardAccelerators.Add(accelerator);
+    }
+
+    private async void TrashPage_Click(object sender, RoutedEventArgs args)
+    {
+        if (!CanShowRemoteTools || _files is not ITrashService) return;
+        CloseSidebarOverlay(); HideCollections(); UpdateRemoteToolsContext();
+        Workspace.Visibility = Visibility.Collapsed;
+        TrashPane.Visibility = Visibility.Visible;
+        _thumbnailController.SetContext(null, null);
+        UpdateSelection();
+        await TrashPane.RefreshAsync();
     }
 }

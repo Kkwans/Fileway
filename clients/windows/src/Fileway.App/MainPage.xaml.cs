@@ -190,7 +190,7 @@ public sealed partial class MainPage : Page, IDisposable
         RetireChecksumDialog();
         _browserDialog?.Hide();
         _storageDialog?.Hide(); _storageControl?.Dispose();
-        _disposed = true; CollectionsPanel.Dispose(); RecentPane.Dispose(); SearchPane.Dispose(); NasTasksPane.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
+        _disposed = true; CollectionsPanel.Dispose(); RecentPane.Dispose(); SearchPane.Dispose(); NasTasksPane.Dispose(); TrashPane.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
         _connectionCancellation?.Cancel();
         if (_connection is not null)
         {
@@ -575,6 +575,7 @@ public sealed partial class MainPage : Page, IDisposable
         if (RecentPane.Visibility == Visibility.Visible) { await RecentPane.RefreshAsync(); return; }
         if (SearchPane.Visibility == Visibility.Visible) { await SearchPane.RefreshAsync(); return; }
         if (NasTasksPane.Visibility == Visibility.Visible) { await NasTasksPane.RefreshAsync(); return; }
+        if (TrashPane.Visibility == Visibility.Visible) { await TrashPane.RefreshAsync(); return; }
         if (_directory is not null) await LoadAsync(_directory);
         if (!_disposed && !_connecting && _session is not null) { UpdateCollectionsContext(); await CollectionsPanel.RefreshAsync(); }
     }
