@@ -54,7 +54,7 @@ Android 的 SAF、前台通知与 APK 安装等平台机制，在 Windows 上以
 完整本地媒体文件可通过启动参数离线打开。程序使用 Android 同源品牌图标。
 
 仍没有：持久连接和凭据、服务器搜索、缩略图/网格、新建/改名/复制移动/回收站、
-上传下载/任务中心、音频入口、服务器外挂字幕、雪碧图、跨文件选集、HLS 画质切换、
+上传下载/任务中心、音频入口、服务器外挂字幕、跨文件选集、HLS 画质切换、
 文档编辑/分享/管理等。源分辨率单项显示不是多画质，章节不是选集；当前目录过滤不是
 远端递归搜索。服务端续播与字幕/格式组合仍须用实际服务器和样本验收。
 
@@ -219,7 +219,7 @@ Delete 显式使用回收站语义；服务端和本地任务分别管理，取�
 | 图片/音频 | 图片基础查看已有；扩展图片与原生音频 0.4 | Web `ExtendedImage.vue`、`GlobalAudioPlayer.vue`；Android `ImageScreen.kt`、`AudioScreen.kt` |
 | 缓存/预加载 | 0.2.1 视频磁盘缓存、区间/速度、目录与 5 GB 总预算；0.2.2 缩略图/图片原图及缓存管理 | Windows `LocalStorageSettingsService.cs`、`PlaybackCacheState.cs`；shared/core `transport/cache.go`；Android `ui/CacheSettingsPanel.kt` |
 | 视频/字幕/倍速/进度 | Screenbox 原生基础已有；远端字幕/样式完善/偏好 0.4 | Web `components/files/ArtPlayerVideo.vue`；Android `PlayerScreen.kt`；Windows `ScreenboxPlayerControls.xaml.cs` |
-| 雪碧图/选集/HLS/转码 | 未实现；0.4 | Web `ArtPlayerVideo.vue`、`api/media.ts`；Android `SeekPreview.kt`、`PlayerScreen.kt` 的 QUEUE |
+| 雪碧图/选集/HLS/转码 | 雪碧图接口与播放器悬浮预览已接入 0.2.7；跨文件选集、HLS 画质切换和转码仍未实现，归入 0.4 | Web `ArtPlayerVideo.vue`、`api/media.ts`；Android `SeekPreview.kt`、`PlayerScreen.kt` 的 QUEUE；Windows `VideoSprites.cs`、`ScreenboxPlayerControls.Sprites.cs` |
 | HDR/外置/网络/诊断 | 契约及部分错误提示已有；完整验证 0.5 | Windows `Media.cs`、`PlayerWindow.cs`；shared/core `tailnet/`、`transport/`；Android播放器诊断/连接设置 |
 | 文本/代码/Markdown/PDF/EPUB/CSV | 未实现；0.6 | Web `views/files/Preview.vue`、`Editor.vue`；Android `DocumentPreviewScreen.kt`、`DocumentEditorScreen.kt` |
 | 压缩包浏览/打开/解压 | 未实现；0.6 | Web `views/Archive.vue`、`api/archive.ts`；Android `ArchiveScreen.kt` |
