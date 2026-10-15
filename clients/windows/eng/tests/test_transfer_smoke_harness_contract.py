@@ -105,7 +105,9 @@ class TransferSmokeContract(unittest.TestCase):
 
     def test_no_credentials_or_probabilistic_cancel_are_submitted(self):
         self.assertIn("'toggle-off'", SOURCE)
-        self.assertIn("'CheckBox' 'toggle-on'", SOURCE)
+        self.assertIn("'connect-http-accepted-by-address'", SOURCE)
+        self.assertIn("consentControl = 0", SOURCE)
+        self.assertNotIn("我了解 HTTP 会明文传输凭据和文件内容", SOURCE)
         self.assertIn("cancellationUiVerified = $false", SOURCE)
         self.assertIn("unknownOutcomeUiVerified = $false", SOURCE)
         self.assertNotIn("UsernameBox", SOURCE)
@@ -394,8 +396,9 @@ if ((Find-PickerAccept $tree ([IntPtr]123)).selector -cne 'fixture-accept') { th
 
     def test_connection_failure_has_fixed_phase_and_numeric_diagnostics_only(self):
         for stage in ("connect-name", "connect-address", "connect-auth-expand", "connect-auth-select",
-                      "connect-persistence-off", "connect-http-consent", "connect-submit-reveal", "connect-ready-capture", "connect-submit", "connect-browser-ready"):
+                      "connect-persistence-off", "connect-submit-reveal", "connect-ready-capture", "connect-submit", "connect-browser-ready"):
             self.assertIn("$script:stage = '" + stage + "'", SOURCE)
+        self.assertIn("Record-Observation 'connect-http-accepted-by-address'", SOURCE)
         observation = SOURCE.split("Record-Observation 'control-match-counts'", 1)[1].split("Stop-Smoke", 1)[0]
         for field in ("matches", "uniqueSelectors", "buttons", "edits", "comboBoxes", "listItems",
                       "commonDialogFilenameIds", "commonDialogAcceptIds"):
