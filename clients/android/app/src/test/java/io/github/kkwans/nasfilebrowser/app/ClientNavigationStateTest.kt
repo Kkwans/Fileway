@@ -12,8 +12,8 @@ class ClientNavigationStateTest {
         assertEquals(ClientDestination.UPLOADS, ClientDestination.forRoute("taskcenter", TaskCenterSection.UPLOADS))
         assertEquals(ClientDestination.HISTORY, ClientDestination.forRoute("taskcenter", TaskCenterSection.HISTORY))
         assertNull(ClientDestination.forRoute("unexpected-route"))
-        assertNull(ClientDestination.SETTINGS.main)
-        assertEquals(4, ClientMainDestination.entries.size)
+        assertEquals(ClientMainDestination.MY, ClientDestination.SETTINGS.main)
+        assertEquals(5, ClientMainDestination.entries.size)
     }
 
     @Test fun displayAdapterUsesCurrentStateRatherThanRememberingAnotherRoute() {

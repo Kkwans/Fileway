@@ -58,6 +58,7 @@ data class ClientState(
     val profile: ServerProfile? = null, val accounts: List<AccountRecord> = emptyList(), val editorVersion: Int = 0,
     val librarySection: LibrarySection = LibrarySection.FAVORITES,
     val recentSection: RecentSection = RecentSection.PLAYBACK,
+    val recentPlaybackLoading: Boolean = false, val recentPlaybackError: String? = null,
     val taskCenterSection: TaskCenterSection = TaskCenterSection.DOWNLOADS,
     val permissions: ServerPermissions = ServerPermissions(),
     val notice: String? = null,
@@ -88,6 +89,11 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private val history = PlaybackHistory(ClientDatabase.get(application))
     private val recentMutable = MutableStateFlow<List<PlaybackSnapshot>>(emptyList())
     val recent = recentMutable.asStateFlow()
+    private var recentLocalEntries = emptyList<PlaybackSnapshot>()
+    private var recentCloudEntries: List<PlaybackSnapshot>? = null
+    private var recentCloudJob: Job? = null
+    private var recentCloudOwner = ""
+    private var recentCloudUnavailable = false
     val profiles = store.profiles.catch { mutable.value = mutable.value.copy(error = "无法读取服务器档案，请重试") }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     private val embeddedNetwork = EmbeddedNetwork(application)
@@ -306,7 +312,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 fileOperations.bind(bound)
                 storageTools.bind(bound)
                 recentJob?.cancel()
-                recentJob = viewModelScope.launch { history.recent(account).collect { entries -> if (context == bound) recentMutable.value = entries.distinctBy { it.resourceKey } } }
+                recentLocalEntries = emptyList(); recentCloudEntries = null
+                recentJob = viewModelScope.launch { history.recent(account).collect { entries ->
+                    if (context === bound) { recentLocalEntries = entries.distinctBy { it.resourceKey }; publishRecentPlayback() }
+                } }
                 mutable.value = mutable.value.copy(connected = true, profile = profile, accounts = accounts, serverLabel = "${profile.name} · ${account.username}", busy = true, stage = "正在读取目录", notice = null, previewScope = opened.id, accountName = account.username, fileLayout = directory?.fileLayout ?: FileLayout.COVER, permissions = opened.identity.permissions)
                 if (directory == null || directory.path == "/") applyDirectory(root, "/", "/", bound)
                 else try { loadDirectory(directory.path, directory.wirePath, bound) } catch (error: Exception) {
@@ -935,6 +944,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     fun recentSection(value: RecentSection) { search.close(); mutable.value = mutable.value.copy(tab = "recent", recentSection = value, searchDisplayed = false) }
     fun taskCenterSection(value: TaskCenterSection) { tab(value.route) }
+    fun consumeNotice(message: String, sourceScope: String) {
+        val current = mutable.value
+        if (current.previewScope == sourceScope && current.notice == message) mutable.value = current.copy(notice = null)
+    }
     fun showConnection() { tab("files") }
     fun openUpdates() { tab("updates") }
     fun openDownloads() {
@@ -1128,10 +1141,54 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         // not a playback-progress record and never becomes a directory queue.
         openRemotePathWithWire(file.path, file.wirePath)
     }
+    fun openRecentAccessLocation(entry: RecentAccessEntry, sourceScope: String) {
+        val bound = context ?: return
+        val access = recentAccess.state.value
+        if (sourceScope != bound.owner || access.scope != sourceScope || mutable.value.busy || !entry.openable ||
+            access.items.none { it.id == entry.id && it.path == entry.path && it.wirePath == entry.wirePath }) return
+        openContainingDirectory(entry.resource())
+    }
+    private fun publishRecentPlayback() {
+        val cloud = recentCloudEntries
+        val local = recentLocalEntries.associateBy { it.resourceKey }
+        val merged = if (cloud == null) recentLocalEntries else {
+            val serverKeys = cloud.map { it.resourceKey }.toSet()
+            cloud.map { remote -> local[remote.resourceKey]?.takeIf {
+                it.identity == remote.identity && it.sync == ProgressSync.PENDING && it.updatedAt > remote.updatedAt
+            } ?: remote } + recentLocalEntries.filter { it.resourceKey !in serverKeys && it.sync in setOf(ProgressSync.PENDING, ProgressSync.UNSUPPORTED) }
+        }
+        recentMutable.value = merged.distinctBy { it.resourceKey }.sortedByDescending { it.updatedAt }.take(100)
+    }
+    fun refreshRecentPlayback(force: Boolean = false) {
+        if (recentCloudUnavailable && !force) return
+        val bound = context ?: return
+        if (recentCloudJob?.isActive == true && recentCloudOwner == bound.api.id) return
+        recentCloudJob?.cancel(); recentCloudOwner = bound.api.id
+        mutable.value = mutable.value.copy(recentPlaybackLoading = recentCloudEntries == null)
+        recentCloudJob = viewModelScope.launch {
+            try {
+                val rows = history.recentRemote(bound.api, bound.account)
+                if (context !== bound || generation != bound.generation) return@launch
+                recentCloudUnavailable = false
+                recentCloudEntries = rows; publishRecentPlayback()
+                mutable.value = mutable.value.copy(recentPlaybackLoading = false, recentPlaybackError = null)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                if (context === bound && generation == bound.generation) recentCloudUnavailable = error is ServiceException && error.status in setOf(404, 501)
+                if (context === bound && generation == bound.generation) mutable.value = mutable.value.copy(
+                    recentPlaybackLoading = false, recentPlaybackError = if (error is ServiceException && error.status in setOf(404, 501))
+                        "服务器尚不支持云端播放列表，需升级服务；当前显示本机记录"
+                    else "云端记录刷新失败，已保留现有记录")
+            }
+        }
+    }
+    fun stopRecentPlaybackRefresh(sourceScope: String) {
+        if (recentCloudOwner == sourceScope) { recentCloudJob?.cancel(); mutable.value = mutable.value.copy(recentPlaybackLoading = false) }
+    }
     fun openRecent(snapshot: PlaybackSnapshot) {
         val bound = context ?: return
         if (snapshot.accountKey != bound.account.key) return
-        val file = ResourceRef(snapshot.path, snapshot.wirePath, snapshot.name, false, "video", 0)
+        val file = ResourceRef(snapshot.path, snapshot.wirePath, snapshot.name, false, if (mediaKind(snapshot.name) == MediaKind.AUDIO) "audio" else "video", 0)
         openFrom(file, listOf(file), MediaQueueSource.SINGLE)
     }
     fun togglePlayback() {
@@ -1285,12 +1342,28 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         uploads.cancelSelection(quiet = true)
         storageTools.bind(null)
         endPlayback(); val old = context; context = null
-        recentJob?.cancel(); recentMutable.value = emptyList()
+        recentJob?.cancel(); recentCloudJob?.cancel(); recentCloudOwner = ""; recentCloudUnavailable = false
+        recentLocalEntries = emptyList(); recentCloudEntries = null; recentMutable.value = emptyList()
+        mutable.value = mutable.value.copy(recentPlaybackError = null, recentPlaybackLoading = false)
         val previous = closing; val media = mediaClosing
         if (old != null) closing = cleanup.launch { previous?.join(); media?.join(); old.api.close() }
     }
     fun disconnect() { startupJob?.cancel(); operation?.cancel(); generation++; closeSession(); navigation.clear();
         mutable.value = ClientState(editorVersion = mutable.value.editorVersion, compactGridSize = mutable.value.compactGridSize) }
+    fun signOut() {
+        val bound = context ?: return
+        if (mutable.value.busy) return
+        mutable.value = mutable.value.copy(busy = true)
+        viewModelScope.launch {
+            try {
+                store.signOut(bound.account, bound.owner)
+                if (context === bound) disconnect()
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (context === bound) mutable.value = mutable.value.copy(busy = false, error = "退出登录未完成，请重试")
+            }
+        }
+    }
     fun connectNetwork() {
         networkActivated = true
         networkJob?.cancel()

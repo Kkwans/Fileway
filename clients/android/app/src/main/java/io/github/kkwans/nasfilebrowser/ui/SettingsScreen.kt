@@ -30,6 +30,7 @@ import io.github.kkwans.nasfilebrowser.BuildConfig
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ClientState
+import io.github.kkwans.nasfilebrowser.app.ClientDestination
 import io.github.kkwans.nasfilebrowser.app.ClientMainDestination
 import io.github.kkwans.nasfilebrowser.app.destination
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
@@ -43,19 +44,19 @@ import kotlinx.coroutines.launch
 /** Compatibility boundary: every library page now inherits the single application theme. */
 @Composable internal fun LibraryTheme(content: @Composable () -> Unit) = content()
 
-@Suppress("UNUSED_PARAMETER")
 @Composable internal fun ClientNavigation(model: ClientModel, selected: String) {
     val state by model.state.collectAsStateWithLifecycle()
+    val active = state.destination.main ?: ClientDestination.forRoute(selected)?.main
     val labelStyle = MaterialTheme.typography.labelMedium
-    val labelPixels = rememberTextMeasurer().measure("任务中心", style = labelStyle, maxLines = 1).size.height
-    val barHeight = 64.dp + with(LocalDensity.current) { labelPixels.toDp() }
+    val barHeight = 68.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
-        modifier = Modifier.heightIn(min = barHeight)) {
+        modifier = Modifier.height(barHeight)) {
         listOf(Triple(ClientMainDestination.FILES, "文件", R.drawable.ic_nav_files_077),
             Triple(ClientMainDestination.RECENT, "最近", R.drawable.ic_nav_history_077),
-            Triple(ClientMainDestination.LIBRARY, "资料库", R.drawable.ic_library),
-            Triple(ClientMainDestination.TASKS, "任务", R.drawable.ic_tasks)).forEach { (tab, label, icon) ->
-            NavigationBarItem(selected = state.destination.main == tab, onClick = { model.navigateMain(tab) },
+            Triple(ClientMainDestination.LIBRARY, "资料", R.drawable.ic_library),
+            Triple(ClientMainDestination.TASKS, "任务", R.drawable.ic_tasks),
+            Triple(ClientMainDestination.MY, "我的", R.drawable.ic_person)).forEach { (tab, label, icon) ->
+            NavigationBarItem(selected = active == tab, onClick = { model.navigateMain(tab) },
                 modifier = Modifier.semantics { contentDescription = "${label}导航" },
                 icon = { Icon(painterResource(icon), null, Modifier.size(26.dp)) }, label = { Text(label, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent,
@@ -77,16 +78,31 @@ import kotlinx.coroutines.launch
     var networkDetails by remember { mutableStateOf(false) }
     val network by model.networkState.collectAsStateWithLifecycle()
     val appearance by model.appearance.state.collectAsStateWithLifecycle()
-    val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer,
+    Scaffold(containerColor = MaterialTheme.colorScheme.background,
+        bottomBar = { ClientNavigation(model, "settings") },
         topBar = { Column(Modifier.statusBarsPadding()) {
-            FilewayTopAppBar("设置", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回来源页面",
-                onLeadingClick = onBack)
-        } }, snackbarHost = { SnackbarHost(snackbar) }) { insets ->
+            FilewayPageHeader("我的")
+        } }) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
             LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().semantics { contentDescription = "设置内容" },
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (state.connected) item {
+                    SettingsGroup("当前服务器与账户") {
+                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Icon(painterResource(R.drawable.ic_server), null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(state.accountName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(state.profile?.name.orEmpty(), style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                        SettingsAction("切换登录", "切换服务器或账号", R.drawable.ic_server, action = model::disconnect)
+                        SettingsAction("退出登录", "清除当前登录凭据，保留服务器档案", R.drawable.ic_close, action = model::signOut)
+                        SettingsAction("账户安全", "当前账号与密码", R.drawable.ic_lock) { model.tab("account") }
+                        SettingsAction("服务器档案", "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
+                    }
+                }
                 item {
                     SettingsGroup("本机设置") {
                         SettingsAction("主题", when {
@@ -103,28 +119,8 @@ import kotlinx.coroutines.launch
                     }
                 }
                 item { CacheSettingsPanel(model) { message ->
-                    scope.launch {
-                        snackbar.currentSnackbarData?.dismiss()
-                        snackbar.showSnackbar(message, withDismissAction = true)
-                    }
+                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
                 } }
-                if (state.connected) item {
-                    SettingsGroup("当前服务器与账户") {
-                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Box(Modifier.size(44.dp).background(MaterialTheme.colorScheme.primaryContainer, CircleShape), contentAlignment = Alignment.Center) {
-                                Icon(painterResource(R.drawable.ic_person), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
-                            }
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(state.accountName, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(state.profile?.name.orEmpty(), style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                        SettingsAction("账户安全", "当前账号与密码", R.drawable.ic_lock) { model.tab("account") }
-                        SettingsAction("服务器档案", "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
-                    }
-                }
                 if (state.permissions.admin || state.permissions.execute) item {
                     SettingsGroup("服务器管理") {
                         Text("作用于当前服务器", Modifier.padding(horizontal = 16.dp, vertical = 12.dp),

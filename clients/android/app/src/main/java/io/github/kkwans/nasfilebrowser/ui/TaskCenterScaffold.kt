@@ -20,10 +20,11 @@ import java.time.ZoneOffset
 /** Owns global insets and navigation once; each group supplies content only. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun TaskCenterScaffold(model: ClientModel, section: TaskCenterSection, content: @Composable ColumnScope.() -> Unit) {
-    Scaffold(containerColor = MaterialTheme.colorScheme.surfaceContainer, bottomBar = { ClientNavigation(model, "taskcenter") }) { insets ->
-        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "taskcenter") }) { insets ->
+        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)
+            .swipeTabs(section.ordinal, TaskCenterSection.entries.size) { model.taskCenterSection(TaskCenterSection.entries[it]) }) {
             FilewayPageHeader("任务中心")
-            PrimaryTabRow(selectedTabIndex = section.ordinal) {
+            PrimaryTabRow(selectedTabIndex = section.ordinal, containerColor = MaterialTheme.colorScheme.background) {
                 TaskCenterSection.entries.forEach { group ->
                     Tab(selected = group == section, onClick = { model.taskCenterSection(group) },
                         selectedContentColor = MaterialTheme.colorScheme.primary,

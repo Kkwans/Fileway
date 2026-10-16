@@ -2,7 +2,9 @@ package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
@@ -17,10 +19,11 @@ import io.github.kkwans.nasfilebrowser.app.LibrarySection
 
 @Composable internal fun LibraryScaffold(model: ClientModel, section: LibrarySection,
     actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+    val pages = LibrarySection.entries.filter { it != LibrarySection.TASKS }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "library") }) { insets ->
-        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)
+            .swipeTabs(pages.indexOf(section).coerceAtLeast(0), pages.size) { model.librarySection(pages[it]) }) {
             FilewayPageHeader(section.title, actions = actions)
-            val pages = LibrarySection.entries.filter { it != LibrarySection.TASKS }
             @Suppress("DEPRECATION")
             TabRow(selectedTabIndex = pages.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.background,
                 contentColor = MaterialTheme.colorScheme.primary, divider = {}) {
@@ -39,5 +42,18 @@ import io.github.kkwans.nasfilebrowser.app.LibrarySection
         Text(it, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
         TextButton(refresh, enabled = !loading) { Text("重试") }
     } }
-    notice?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    FilewayToast(notice)
+}
+
+
+@Composable internal fun FilewayToast(message: String?) {
+    val context = LocalContext.current.applicationContext
+    var shown by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(message) {
+        if (message == null) shown = null
+        else if (message.isNotBlank() && message != shown) {
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+            shown = message
+        }
+    }
 }

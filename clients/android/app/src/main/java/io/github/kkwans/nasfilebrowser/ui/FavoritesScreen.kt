@@ -59,7 +59,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                 Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
                 TextButton(onClick = model.favorites::refresh, enabled = enabled) { Text("刷新") }
             } }
-            state.notice?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            FilewayToast(state.notice)
             if (state.loaded && items.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)

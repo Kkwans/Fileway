@@ -11,6 +11,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.kkwans.nasfilebrowser.data.AppTheme
 import io.github.kkwans.nasfilebrowser.data.BackendKind
 import io.github.kkwans.nasfilebrowser.data.ConnectionMode
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
@@ -22,6 +24,7 @@ internal val LocalFilewayBack = staticCompositionLocalOf<(() -> Unit)?> { null }
 /** Drawer chrome exists only around library pages, never around a native content surface. */
 @Composable
 internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () -> Unit, content: @Composable () -> Unit) {
+    val appearance by model.appearance.state.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val gestures = state.destination.main != null && !state.searchDisplayed
@@ -57,6 +60,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                 ClientMainDestination.RECENT -> R.drawable.ic_nav_history_077
                                 ClientMainDestination.LIBRARY -> R.drawable.ic_library
                                 ClientMainDestination.TASKS -> R.drawable.ic_tasks
+                                ClientMainDestination.MY -> R.drawable.ic_person
                             }
                             FilewayDrawerItem(destination.label, icon, state.destination.main == destination) {
                                 navigate { model.navigateMain(destination) }
@@ -74,7 +78,15 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                             }
                         }
                         HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        FilewayDrawerItem("本机设置", R.drawable.ic_settings, state.tab == "settings") { navigate { model.tab("settings") } }
+                        Text("主题", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.labelLarge)
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            AppTheme.entries.forEach { mode ->
+                                FilterChip(selected = appearance.theme == mode,
+                                    onClick = { model.appearance.save(mode) },
+                                    enabled = appearance.loaded && !appearance.saving,
+                                    label = { Text(when (mode) { AppTheme.SYSTEM -> "系统"; AppTheme.LIGHT -> "浅色"; AppTheme.DARK -> "深色" }, maxLines = 1) }, modifier = Modifier.weight(1f))
+                            }
+                        }
                         if (state.connected) {
                             FilewayDrawerItem("账户设置", R.drawable.ic_person) { navigate { model.tab("account") } }
                             if (state.permissions.admin) {
@@ -89,7 +101,12 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                 }
             },
         ) {
-            CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack) { content() }
+            CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack) {
+                Box(Modifier.fillMaxSize().swipeTabs(state.destination.main?.ordinal ?: 0,
+                    ClientMainDestination.entries.size, enabled = gestures && !drawer.isOpen, edge = 24.dp) {
+                    model.navigateMain(ClientMainDestination.entries[it])
+                }) { content() }
+            }
         }
     }
 }

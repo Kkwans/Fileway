@@ -37,11 +37,20 @@ import io.github.kkwans.nasfilebrowser.app.clientPageStateKey
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.PlaybackSnapshot
 import io.github.kkwans.nasfilebrowser.data.ProgressSync
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import java.util.Locale
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable fun ClientApp(model: ClientModel) {
     val state by model.state.collectAsStateWithLifecycle()
+    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    LaunchedEffect(state.notice, state.previewScope) {
+        state.notice?.takeIf { it.isNotBlank() }?.let { message ->
+            android.widget.Toast.makeText(appContext, message, android.widget.Toast.LENGTH_SHORT).show()
+            model.consumeNotice(message, state.previewScope)
+        }
+    }
     val recent by model.recent.collectAsStateWithLifecycle()
     val search by model.search.state.collectAsStateWithLifecycle()
     val document by model.documents.state.collectAsStateWithLifecycle()
@@ -172,6 +181,7 @@ import java.util.Locale
             when {
                 searchShown -> SearchScreen(model, state)
                 state.tab == "files" -> BrowserScreen(model, state)
+                state.tab == "cache-images" -> CacheGalleryScreen(model)
                 state.tab == "settings" -> SettingsScreen(model, state, onBack = ::requestBack)
                 state.tab == "about" -> SettingsScreen(model, state, openAbout = true, onBack = ::requestBack)
                 state.tab == "library" -> when (state.librarySection) {
@@ -192,13 +202,23 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun RecentScreen(model: ClientModel, state: ClientState, recent: List<PlaybackSnapshot>) {
-    val colors = MaterialTheme.colorScheme.copy(surface = MaterialTheme.colorScheme.surfaceContainer)
+    val colors = MaterialTheme.colorScheme
     var details by remember(state.previewScope) { mutableStateOf<ResourceRef?>(null) }
+    var detailsActionsEnabled by remember(state.previewScope) { mutableStateOf(true) }
+    LaunchedEffect(state.previewScope, state.connected, state.recentSection) {
+        if (state.connected && state.recentSection == RecentSection.PLAYBACK) while (isActive) {
+            model.refreshRecentPlayback(); delay(15_000)
+        }
+    }
+    DisposableEffect(state.previewScope, state.recentSection) {
+        onDispose { model.stopRecentPlaybackRefresh(state.previewScope) }
+    }
     MaterialTheme(colorScheme = colors) {
-        Scaffold(containerColor = colors.surface, bottomBar = { ClientNavigation(model, "recent") }) { insets ->
-            Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+        Scaffold(containerColor = colors.background, bottomBar = { ClientNavigation(model, "recent") }) { insets ->
+            Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)
+                .swipeTabs(state.recentSection.ordinal, RecentSection.entries.size) { model.recentSection(RecentSection.entries[it]) }) {
                 FilewayPageHeader("最近")
-                PrimaryTabRow(selectedTabIndex = state.recentSection.ordinal) {
+                PrimaryTabRow(selectedTabIndex = state.recentSection.ordinal, containerColor = colors.background) {
                     RecentSection.entries.forEach { section ->
                         Tab(selected = section == state.recentSection, onClick = { model.recentSection(section) },
                             modifier = Modifier.semantics { contentDescription = "${section.label}分组" }, text = { Text(section.label) })
@@ -218,19 +238,25 @@ import java.util.Locale
                                 Text(state.stage, Modifier.weight(1f).padding(horizontal = 12.dp))
                                 TextButton(model::cancel) { Text("取消") }
                             }
-                            RecentAccessContent(model.recentAccess, state.connected, model::showConnection) { model.openRecentAccess(it, sourceScope) }
+                            RecentAccessContent(model.recentAccess, state.connected, model::showConnection,
+                                onLocation = { model.openRecentAccessLocation(it, sourceScope) },
+                                onDetails = { detailsActionsEnabled = false; details = it.resource() }) { model.openRecentAccess(it, sourceScope) }
                         }
                     } else Column(Modifier.fillMaxSize()) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text("继续观看", style = MaterialTheme.typography.titleLarge, color = colors.onBackground, modifier = Modifier.weight(1f))
-                            if (recent.isNotEmpty()) Text("${recent.size} 项", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                            Text(if (state.connected && state.recentPlaybackError == null) "云端最近播放" else "最近播放", style = MaterialTheme.typography.titleMedium, color = colors.onBackground, modifier = Modifier.weight(1f))
+                            IconButton({ model.refreshRecentPlayback(force = true) }, enabled = state.connected && !state.recentPlaybackLoading) {
+                                Icon(painterResource(R.drawable.ic_refresh), "刷新云端播放记录", Modifier.size(22.dp))
+                            }
                         }
+                        if (state.recentPlaybackLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                        state.recentPlaybackError?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.bodySmall, color = colors.error) }
                         state.error?.let { message ->
                             Surface(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = colors.errorContainer, shape = RoundedCornerShape(10.dp)) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp)) { Text(message, color = colors.onErrorContainer); if (state.connected) TextButton(onClick = model::retry) { Text("重试") } }
                             }
                         }
-                        state.notice?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
                         if (state.busy) {
                             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Spacer(Modifier.width(12.dp)); Text(state.stage, modifier = Modifier.weight(1f)); TextButton(onClick = model::cancel) { Text("取消") } }
                         }
@@ -246,16 +272,16 @@ import java.util.Locale
                                 }
                             }
                             items(recent, key = { it.resourceKey }) { snapshot ->
-                                val file = ResourceRef(snapshot.path, snapshot.wirePath, snapshot.name, false, "video", 0)
+                                val file = ResourceRef(snapshot.path, snapshot.wirePath, snapshot.name, false, if (mediaKind(snapshot.name) == MediaKind.AUDIO) "audio" else "video", 0)
                                 FileEntry(model, file, FileLayout.DETAIL, enabled = !state.busy,
-                                    open = { model.openRecent(snapshot) }, details = { details = file }, metadata = { RecentProgress(snapshot) })
+                                    open = { model.openRecent(snapshot) }, details = { detailsActionsEnabled = true; details = file }, metadata = { RecentProgress(snapshot) })
                             }
                         }
                     }
                 }
             }
             details?.let { file -> FileDetailsDialog(file, showSize = false, openEnabled = !state.busy,
-                actions = { FileActions(model, file) { details = null } },
+                actions = if (detailsActionsEnabled) { { FileActions(model, file) { details = null } } } else null,
                 onLocation = { details = null; model.openContainingDirectory(file) }, onDismiss = { details = null }) }
         }
     }

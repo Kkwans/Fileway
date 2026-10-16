@@ -42,6 +42,8 @@ private val anchorSaver = listSaver<CollectionAnchor, Any>(
     val scope = resetKey.toString()
     val tier = if (layout == FileLayout.COMPACT) compactGridSize.name else ""
     val stateKey = "${scope.length}:$scope:${layout.name}:$tier"
+    val previewAspects = remember(stateKey) { mutableMapOf<String, Float>() }
+    CompositionLocalProvider(LocalNaturalPreviewAspects provides previewAspects) {
     holder.SaveableStateProvider(stateKey) {
         val keys = (if (header != null) listOf("collection-header") else emptyList()) + entries.map { "entry:${keyOf(it)}" }
         var anchor by rememberSaveable(stateSaver = anchorSaver) {
@@ -114,4 +116,5 @@ private val anchorSaver = listSaver<CollectionAnchor, Any>(
             }
         }
     }
+}
 }

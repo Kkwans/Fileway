@@ -30,7 +30,12 @@ data class CacheState(val settings: CacheSettings = CacheSettings(), val loading
     val revision: Int = 0, val thumbnails: Long = 0, val playback: Long = 0, val images: Long = 0,
     val protected: Int = 0, val error: String? = null)
 data class CachedImage(val key: String, val account: String, val name: String, val path: String, val wirePath: String,
-    val modified: String, val size: Long, val bytes: Long)
+    val modified: String, val size: Long, val bytes: Long, val cachedAt: Long = 0,
+    val width: Int = 0, val height: Int = 0, val mimeType: String = "")
+
+class CachedImageLease internal constructor(val file: File, private val snapshot: DiskCache.Snapshot) : java.io.Closeable {
+    override fun close() { snapshot.close() }
+}
 
 internal fun readCacheSettings(context: Context): CacheSettings {
     val p = context.getSharedPreferences("cache_settings", Context.MODE_PRIVATE)
@@ -57,6 +62,12 @@ class CacheController(private val context: Context, private val scope: Coroutine
     private var ready = CompletableDeferred<Unit>()
     private var thumbnailDisk: DiskCache? = null
     private var imageDisk: DiskCache? = null
+    private val previewAspects = object : LinkedHashMap<String, Float>(128, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Float>?): Boolean = size > 4096
+    }
+    @Synchronized fun previewAspect(key: String): Float? = previewAspects[key]
+    @Synchronized fun rememberPreviewAspect(key: String, ratio: Float): Float = previewAspects.getOrPut(key) { ratio }
+
     val thumbnailLoader = mutableStateOf(loader(null, 16))
     val imageLoader = mutableStateOf(loader(null, 32))
     private val index = File(context.filesDir, "image-cache-index.json")
@@ -154,24 +165,92 @@ class CacheController(private val context: Context, private val scope: Coroutine
         if (!index.exists()) return mutableListOf()
         val a = JSONArray(index.readText())
         return (0 until a.length()).map { i -> a.getJSONObject(i).let { CachedImage(it.getString("key"), it.getString("account"), it.getString("name"),
-            it.getString("path"), it.getString("wirePath"), it.getString("modified"), it.getLong("size"), it.optLong("bytes")) } }.toMutableList()
+            it.getString("path"), it.getString("wirePath"), it.getString("modified"), it.getLong("size"), it.optLong("bytes"),
+            it.optLong("cachedAt"), it.optInt("width"), it.optInt("height"), it.optString("mimeType")) } }.toMutableList()
     }
     private fun writeIndex(items: List<CachedImage>) {
         val a = JSONArray(); items.forEach { a.put(JSONObject().put("key", it.key).put("account", it.account).put("name", it.name).put("path", it.path)
-            .put("wirePath", it.wirePath).put("modified", it.modified).put("size", it.size).put("bytes", it.bytes)) }
+            .put("wirePath", it.wirePath).put("modified", it.modified).put("size", it.size).put("bytes", it.bytes)
+            .put("cachedAt", it.cachedAt).put("width", it.width).put("height", it.height).put("mimeType", it.mimeType)) }
         val temp = File(index.parentFile, "image-cache-index.tmp"); temp.writeText(a.toString()); check(temp.renameTo(index))
     }
     suspend fun recordImage(image: CachedImage) = lock.withLock { withContext(Dispatchers.IO) {
         val snapshot = imageDisk?.openSnapshot(image.key) ?: return@withContext
-        val bytes = try { snapshot.data.toFile().length() } finally { snapshot.close() }
-        val items = readIndex().filter { it.key != image.key && exists(it.key) }.toMutableList(); items.add(image.copy(bytes = bytes)); writeIndex(items)
+        val recorded = try { imageMetadata(image, snapshot.data.toFile()) } finally { snapshot.close() }
+        val items = readIndex().filter { it.key != image.key && exists(it.key) }.toMutableList(); items.add(recorded); writeIndex(items)
     } }
     private fun exists(key: String): Boolean { val snapshot = imageDisk?.openSnapshot(key) ?: return false; snapshot.close(); return true }
-    suspend fun cachedImages(account: String): List<CachedImage> = lock.withLock { withContext(Dispatchers.IO) { readIndex().filter { it.account == account && exists(it.key) } } }
-    suspend fun removeImage(key: String, account: String) = lock.withLock { withContext(Dispatchers.IO) {
-        val items = readIndex(); check(items.any { it.key == key && it.account == account })
-        imageDisk?.remove(key); imageLoader.value.memoryCache?.clear(); writeIndex(items.filter { it.key != key })
+    @Suppress("DEPRECATION")
+    private fun imageMetadata(image: CachedImage, file: File): CachedImage {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+        var width = bounds.outWidth.coerceAtLeast(0)
+        var height = bounds.outHeight.coerceAtLeast(0)
+        if (bounds.outMimeType == "image/jpeg") {
+            val orientation = runCatching { android.media.ExifInterface(file.absolutePath)
+                .getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1) }.getOrDefault(1)
+            if (orientation in 5..8) { val previous = width; width = height; height = previous }
+        }
+        return image.copy(bytes = file.length(), cachedAt = image.cachedAt.takeIf { it > 0 } ?: file.lastModified(),
+            width = width, height = height, mimeType = bounds.outMimeType.orEmpty())
+    }
+    suspend fun cachedImages(account: String): List<CachedImage> = lock.withLock { withContext(Dispatchers.IO) {
+        val original = readIndex()
+        val updated = original.map { image ->
+            if (image.account != account || image.cachedAt > 0 && image.width > 0 && image.height > 0) image
+            else imageDisk?.openSnapshot(image.key)?.let { snapshot ->
+                try { imageMetadata(image, snapshot.data.toFile()) } finally { snapshot.close() }
+            } ?: image
+        }
+        if (updated != original) writeIndex(updated)
+        updated.filter { it.account == account && exists(it.key) }
+    } }
+    suspend fun openCachedImage(key: String, account: String): CachedImageLease = lock.withLock { withContext(Dispatchers.IO) {
+        check(readIndex().any { it.key == key && it.account == account }) { "缓存来源已变化，请刷新" }
+        val snapshot = imageDisk?.openSnapshot(key) ?: error("图片缓存已被清理")
+        CachedImageLease(snapshot.data.toFile(), snapshot)
+    } }
+    suspend fun removeImage(key: String, account: String) = removeImages(setOf(key), account)
+    suspend fun removeImages(keys: Set<String>, account: String) = lock.withLock { withContext(Dispatchers.IO) {
+        val items = readIndex()
+        check(keys.isNotEmpty() && keys.all { key -> items.any { it.key == key && it.account == account } }) { "缓存列表已变化，请刷新" }
+        keys.forEach { imageDisk?.remove(it) }
+        imageLoader.value.memoryCache?.clear(); writeIndex(items.filter { it.key !in keys })
         mutable.value = mutable.value.copy(images = imageDisk?.size ?: 0)
     } }
+    suspend fun saveCachedImageToAlbum(image: CachedImage) = withContext(Dispatchers.IO) {
+        var owned: CachedImageLease? = null
+        var target: android.net.Uri? = null
+        try {
+            withContext(NonCancellable) { owned = openCachedImage(image.key, image.account) }
+            currentCoroutineContext().ensureActive()
+            val mime = image.mimeType.takeIf { it.startsWith("image/") } ?: "image/jpeg"
+            val extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime) ?: "jpg"
+            val base = image.name.substringBeforeLast('.', image.name).replace(Regex("[\\\\/\\u0000]"), "_").ifBlank { "Fileway" }
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, "$base.$extension")
+                put(android.provider.MediaStore.Images.Media.MIME_TYPE, mime)
+                put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Fileway")
+                put(android.provider.MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val resolver = context.contentResolver
+            target = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values) ?: error("无法创建相册图片")
+            owned!!.file.inputStream().use { input -> resolver.openOutputStream(target!!)?.use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = input.read(buffer); if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+            } ?: error("无法写入相册") }
+            currentCoroutineContext().ensureActive()
+            check(resolver.update(target!!, android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Images.Media.IS_PENDING, 0)
+            }, null, null) > 0) { "无法完成相册保存" }
+        } catch (failure: Exception) {
+            target?.let { uri -> withContext(NonCancellable) { runCatching { context.contentResolver.delete(uri, null, null) } } }
+            throw failure
+        } finally { owned?.close() }
+    }
     fun close() { thumbnailLoader.value.shutdown(); imageLoader.value.shutdown(); thumbnailDisk?.shutdown(); imageDisk?.shutdown() }
 }

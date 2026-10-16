@@ -139,8 +139,9 @@ class ProfileStore(private val database: ClientDatabase, private val vault: Cred
         }
     }
 
-    suspend fun signOut(account: AccountRecord) = withContext(Dispatchers.IO) {
+    suspend fun signOut(account: AccountRecord, owner: String? = null) = withContext(Dispatchers.IO) {
         database.withTransaction {
+            if (owner != null && (dao.activeSession()?.owner != owner || dao.account(account.key) != account)) return@withTransaction
             dao.account(account.key)?.let { vault.remove(it.credentialRef); vault.remove(it.credentialRef + ":password") }
             dao.clearActiveSession(account.key)
         }

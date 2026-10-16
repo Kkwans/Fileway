@@ -20,22 +20,21 @@ internal fun libraryParent(path: String): String = path.trimEnd('/').substringBe
     name: String, location: String, icon: Int, modifier: Modifier = Modifier,
     onOpen: (() -> Unit)? = null, enabled: Boolean = true,
     leading: @Composable RowScope.() -> Unit = {}, trailing: @Composable RowScope.() -> Unit = {},
+    artwork: (@Composable () -> Unit)? = null,
     context: @Composable ColumnScope.() -> Unit = {},
 ) {
     Surface(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-        Row(Modifier.fillMaxWidth().padding(start = 8.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.Top) {
-            leading()
-            Row(Modifier.weight(1f).then(if (onOpen != null) Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onOpen) else Modifier)
-                .padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.Top) {
-                Icon(painterResource(icon), null, Modifier.padding(top = 2.dp).size(28.dp), tint = MaterialTheme.colorScheme.primary)
-                Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    FileNameText(name, FilewayTheme.text.fileName, MaterialTheme.colorScheme.onSurface, maxLines = 2, centered = false)
-                    Text(location, style = FilewayTheme.text.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    context()
-                }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (onOpen != null) Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onOpen) else Modifier),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                leading()
+                if (artwork != null) artwork() else Icon(painterResource(icon), null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(Modifier.weight(1f)) { FileNameText(name, FilewayTheme.text.fileName, MaterialTheme.colorScheme.onSurface, maxLines = 2, centered = false) }
+                trailing()
             }
-            trailing()
+            Text(location, style = FilewayTheme.text.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            context()
         }
     }
 }

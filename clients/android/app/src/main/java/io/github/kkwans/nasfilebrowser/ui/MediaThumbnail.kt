@@ -26,15 +26,19 @@ import io.github.kkwans.nasfilebrowser.data.PreviewLease
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
 
+internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<String, Float>?> { null }
+
 /** NAS generates the preview; Coil fetches/decodes only the local capability. */
 @Composable internal fun MediaThumbnail(model: ClientModel, file: ResourceRef, modifier: Modifier, showStatusText: Boolean = true,
     contentScale: ContentScale = ContentScale.Crop, naturalAspect: Boolean = false) {
     val client by model.state.collectAsStateWithLifecycle()
     val cache by model.cache.state.collectAsStateWithLifecycle()
+    val aspectCache = LocalNaturalPreviewAspects.current
+    val aspectKey = remember(client.previewScope, file.mediaKey, file.size, file.modified) { model.thumbnailKey(file) }
     key(naturalAspect, cache.revision, client.previewScope, file.mediaKey, file.size, file.modified) {
         var asset by remember { mutableStateOf<PreviewLease?>(null) }
         var phase by remember { mutableStateOf("预览加载中") }
-        var aspect by remember { mutableFloatStateOf(1f) }
+        var aspect by remember { mutableFloatStateOf(aspectCache?.get(aspectKey) ?: model.cache.previewAspect(aspectKey) ?: 1f) }
         val context = LocalContext.current
         LaunchedEffect(Unit) {
             var owned: PreviewLease? = null
@@ -61,7 +65,10 @@ import kotlinx.coroutines.awaitCancellation
                     modifier = Modifier.fillMaxSize(), contentScale = contentScale,
                     onSuccess = { result ->
                         val loaded = result.result.image
-                        if (loaded.width > 0 && loaded.height > 0) aspect = loaded.width.toFloat() / loaded.height
+                        if (naturalAspect && loaded.width > 0 && loaded.height > 0) {
+                            val ratio = (loaded.width.toFloat() / loaded.height).coerceIn(.2f, 5f)
+                            aspect = aspectCache?.get(aspectKey) ?: model.cache.rememberPreviewAspect(aspectKey, ratio).also { aspectCache?.put(aspectKey, it) }
+                        }
                         phase = "预览已加载"
                     }, onError = { phase = "暂无预览" })
             }

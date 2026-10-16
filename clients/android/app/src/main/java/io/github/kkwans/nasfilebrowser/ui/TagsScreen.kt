@@ -17,6 +17,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -103,10 +104,16 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 if (state.paths.isEmpty() && !state.pathsLoading && state.pathsError == null) item { Text(if (currentOnly) "这个目录还没有直接标记的文件。" else "还没有关联路径。从文件详情中添加标记。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.paths, key = { it.key }) { row ->
                     val file = row.file
-                    if (file != null) FileEntry(model, file, FileLayout.LIST, enabled, {
-                        if (file.directory) model.tags.filter(tag?.id, true)
-                        model.openTagged(file, candidates, sourceScope)
-                    }, { details = file }, location = file.path.substringBeforeLast('/').ifEmpty { "/" })
+                    if (file != null) LibraryObjectCard(file.name, "位置 · ${libraryParent(file.path)}", fileArtworkIcon(file.name, file.directory),
+                        enabled = enabled, artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
+                            MediaThumbnail(model, file, Modifier.size(36.dp).clip(MaterialTheme.shapes.small), showStatusText = false)
+                        } } else null, onOpen = {
+                            if (file.directory) model.tags.filter(tag?.id, true)
+                            model.openTagged(file, candidates, sourceScope)
+                        }, trailing = { IconButton({ details = file }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "标签文件操作：${file.name}") } }) {
+                        Text(listOfNotNull(if (!file.directory) readableSize(file.size) else null, displayModified(file.modified)).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     else Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(libraryBasename(row.path), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)

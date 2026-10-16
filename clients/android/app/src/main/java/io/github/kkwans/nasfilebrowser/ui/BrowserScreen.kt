@@ -88,7 +88,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     BackHandler(selecting) { selecting = false; selected = emptySet() }
     MaterialTheme(colorScheme = colors) {
-        Scaffold(containerColor = colors.surface, bottomBar = { ClientNavigation(model, "files") }) { insets ->
+        Scaffold(containerColor = colors.background, bottomBar = { ClientNavigation(model, "files") }) { insets ->
             Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
                 FilewayPageHeader("文件", state.profile?.name) {
                     if (state.permissions.create) Box {
@@ -186,7 +186,6 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                         TextButton(onClick = model::retry) { Text("重试") }
                     }
                 }
-                state.notice?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
                 tags.items.firstOrNull { it.id == tags.filterId }?.let { tag -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("标签：${tag.name} · ${if (tags.globalFilter) "含目录关联" else "直接标记"}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     TextButton({ model.tags.filter(null) }) { Text("清除筛选") }
@@ -195,7 +194,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                     CircularProgressIndicator(Modifier.size(18.dp), color = colors.primary, strokeWidth = 2.dp)
                     Text(state.stage, Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = model::cancel) { Text("取消") }
-                } else Text(if (state.fileCategory != FileCategory.ALL) "${state.fileCategory.label} · ${displayed.size} / ${state.files.size} 项" else if (state.path == "/") "全部文件 · ${state.files.size} 项" else "${state.files.size} 项", Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                }
                 if (!state.busy && displayed.isEmpty() && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (state.files.isEmpty()) "这个目录还没有文件。" else "当前目录没有此类型的文件。", color = colors.onSurfaceVariant)

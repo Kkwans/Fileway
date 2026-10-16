@@ -79,6 +79,8 @@ class NativePlayer(context: Context) {
     private var externalRequest = 0L
     private var selectedExternal: Int? = null
     private var subtitleDisabled = false
+    private var subtitleExplicitlyChosen = false
+    private var automaticSubtitleId: Int? = null
     private val trackCommands = mutableMapOf<Int, Runnable>()
     private val trackTimeouts = mutableMapOf<Int, Runnable>()
     private data class Choice(val group: TrackGroup, val index: Int, val type: Int)
@@ -126,6 +128,8 @@ class NativePlayer(context: Context) {
         temporaryRate = null; seekTarget = null
         choices.clear(); ids.clear(); external.clear(); selectedExternal = null
         subtitleDisabled = false
+        subtitleExplicitlyChosen = false
+        automaticSubtitleId = null
         mutable.value = PlayerState(phase = "正在打开视频", rate = session.preferredRate, mediaGeneration = epoch, videoDecodePolicy = videoDecodePolicy)
         trace.beginOpen(positionMs)
         val subtitles = MediaSubtitleLayer(context).also { current ->
@@ -344,6 +348,18 @@ class NativePlayer(context: Context) {
                 }
             }
         }
+        // Prefer declared Chinese/Chinese-English tracks without overriding a user's choice.
+        if (!subtitleExplicitlyChosen && selectedExternal == null) {
+            val preferred = text.filter { it.id >= 0 }.maxByOrNull { subtitlePreference(it) }
+            if (preferred != null && subtitlePreference(preferred) > 0 && automaticSubtitleId != preferred.id) {
+                automaticSubtitleId = preferred.id
+                val epoch = session.generation
+                handler.post {
+                    if (session.accepts(epoch) && engine === player && !subtitleExplicitlyChosen &&
+                        preferred.id in choices) subtitle(preferred.id, automatic = true)
+                }
+            }
+        }
         text.addAll(external.values)
         val chosen = selectedExternal ?: selectedText
         val previous = mutable.value
@@ -395,12 +411,23 @@ class NativePlayer(context: Context) {
     fun restoreRate(epoch: Long) { if (session.accepts(epoch)) { temporaryRate = null; applyRate(session.preferredRate) } }
     fun volume(value: Int) { engine?.volume = value.coerceIn(0, 100) / 100f; publish() }
     fun audio(id: Int) = selectTrack(id, C.TRACK_TYPE_AUDIO)
-    fun subtitle(id: Int) {
+    private fun subtitlePreference(track: NativeTrack): Int {
+        val label = track.title.lowercase(java.util.Locale.ROOT)
+        val language = track.language.lowercase(java.util.Locale.ROOT).replace('_', '-')
+        val chinese = language == "zh" || language.startsWith("zh-") || language in setOf("zho", "chi", "cmn", "yue") ||
+            listOf("中文", "简体", "繁体", "简中", "繁中", "中字", "中英", "英中", "chinese", "chs", "cht").any { it in label }
+        if (!chinese) return 0
+        val bilingual = listOf("中英", "英中", "双语", "雙語", "bilingual", "english").any { it in label } ||
+            Regex("(?:^|[^a-z])(?:eng|en)(?:$|[^a-z])").containsMatchIn(label)
+        return if (bilingual) 2 else 1
+    }
+    fun subtitle(id: Int, automatic: Boolean = false) {
         if (engine == null) return
         if (id != -1 && id !in external && choices[id]?.type != C.TRACK_TYPE_TEXT) {
             mutable.value = mutable.value.copy(operationError = "轨道已变化，请重新选择")
             return
         }
+        if (!automatic) subtitleExplicitlyChosen = true
         // A later explicit selection supersedes any still-loading external file.
         // Invalidate queued native parse callbacks as well as the coroutine read.
         externalRequest++

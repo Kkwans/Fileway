@@ -13,8 +13,8 @@ import androidx.core.view.WindowInsetsControllerCompat
  * an intentional edge swipe must remain free to reveal transient system bars.
  */
 @Composable
-internal fun PlayerWindowBars(window: Window?, immersive: Boolean) {
-    DisposableEffect(window, immersive) {
+internal fun PlayerWindowBars(window: Window?, immersive: Boolean, darkSurface: Boolean = true) {
+    DisposableEffect(window, immersive, darkSurface) {
         val decor = window?.decorView
         val controller = window?.let { WindowCompat.getInsetsController(it, it.decorView) }
         val oldBehavior = controller?.systemBarsBehavior
@@ -22,8 +22,8 @@ internal fun PlayerWindowBars(window: Window?, immersive: Boolean) {
         val oldNavigation = controller?.isAppearanceLightNavigationBars
         fun apply() {
             controller ?: return
-            controller.isAppearanceLightStatusBars = false
-            controller.isAppearanceLightNavigationBars = false
+            controller.isAppearanceLightStatusBars = !darkSurface
+            controller.isAppearanceLightNavigationBars = !darkSurface
             if (immersive) {
                 controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 controller.hide(WindowInsetsCompat.Type.systemBars())

@@ -9,6 +9,18 @@ data class RemotePlayback(val identity: String, val positionMs: Long, val durati
 class PlaybackHistory(private val database: ClientDatabase) {
     private val dao = database.playback()
     fun recent(account: AccountRecord) = dao.recent(account.key)
+    suspend fun recentRemote(api: NasSession, account: AccountRecord): List<PlaybackSnapshot> {
+        val rows = api.array("/api/media/playback/recent?limit=100")
+        return (0 until rows.length()).map { index ->
+            val row = rows.getJSONObject(index)
+            val file = io.github.kkwans.nasfilebrowser.app.ResourceRef(row.getString("path"), row.getString("wirePath"),
+                row.getString("name"), false, row.optString("type", "video"), 0)
+            val target = recentAccessRecordTarget(file)
+            val value = parse(row)
+            PlaybackSnapshot(account.key, target.wirePath, value.identity, target.path, target.wirePath, file.name,
+                value.positionMs, value.durationMs, value.updatedAt, ProgressSync.SYNCED)
+        }.distinctBy { it.resourceKey }.sortedByDescending { it.updatedAt }
+    }
     suspend fun local(account: AccountRecord, key: String, identity: String) = dao.snapshot(account.key, key, identity)
     suspend fun save(snapshot: PlaybackSnapshot) {
         require(snapshot.identity.isNotBlank() && snapshot.positionMs >= 0 && snapshot.durationMs >= 0)
