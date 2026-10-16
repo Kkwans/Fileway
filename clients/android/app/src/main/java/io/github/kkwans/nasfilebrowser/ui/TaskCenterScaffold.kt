@@ -12,6 +12,10 @@ import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.TaskCenterSection
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
 
 /** Owns global insets and navigation once; each group supplies content only. */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -29,6 +33,19 @@ import io.github.kkwans.nasfilebrowser.app.TaskCenterSection
             content()
         }
     }
+}
+
+/** Material dates use UTC midnight; task/history ranges use the device's local calendar. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable internal fun TaskCenterDatePicker(value: Long, onDay: (LocalDate) -> Unit, onDismiss: () -> Unit) {
+    val day = if (value > 0) Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).toLocalDate() else LocalDate.now()
+    val state = rememberDatePickerState(initialSelectedDateMillis = day.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
+    DatePickerDialog(onDismissRequest = onDismiss, confirmButton = {
+        TextButton({
+            state.selectedDateMillis?.let { onDay(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) }
+            onDismiss()
+        }, enabled = state.selectedDateMillis != null) { Text("确定") }
+    }, dismissButton = { TextButton(onDismiss) { Text("取消") } }) { DatePicker(state = state) }
 }
 
 @Composable internal fun TaskConnectionGuide(onConnect: () -> Unit) {

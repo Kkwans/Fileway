@@ -1,8 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -13,19 +11,21 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.data.*
-import kotlinx.coroutines.delay
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -39,64 +39,75 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
     val state by model.tasks.state.collectAsStateWithLifecycle()
     var search by rememberSaveable(state.scope) { mutableStateOf(state.filter.text) }
     var advanced by remember(state.scope) { mutableStateOf(false) }
+    var bulkMenu by remember(state.scope) { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
     var confirm by remember(state.scope) { mutableStateOf<TaskConfirmation?>(null) }
+    var technicalDetails by remember(state.scope, state.focusId) { mutableStateOf(false) }
     fun confirmAction(task: ServerTask?, command: String) { confirm = TaskConfirmation(task, command, state.filter, state.total) }
     val list = rememberLazyListState()
     val enabled = !state.loading && !state.changing && !state.paging
     LaunchedEffect(list, state.scope) { snapshotFlow { list.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }.collect(model.tasks::watch) }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("服务器任务", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(search, { search = it }, placeholder = { Text("查找任务") }, modifier = Modifier.weight(1f), singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = {
+                    if (enabled) { model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide() }
+                }),
+                trailingIcon = { IconButton({ model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide() }, enabled = enabled) {
+                    Icon(painterResource(R.drawable.ic_search), "查找任务")
+                } })
             TextButton({ advanced = true }, enabled = enabled) { Text("筛选") }
             IconButton({ model.tasks.refresh() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_refresh), "刷新任务") }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(state.filter.category == "file", { model.tasks.filter(state.filter.copy(category = "file")) }, { Text("文件任务") }, enabled = enabled, colors = libraryChipColors())
-            FilterChip(state.filter.category == "background", { model.tasks.filter(state.filter.copy(category = "background")) }, { Text("其他后台任务") }, enabled = enabled, colors = libraryChipColors())
-        }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .10f), selectedLabelColor = MaterialTheme.colorScheme.primary)
-            TaskView.entries.forEach { view ->
-                val count = state.counts[when (view) { TaskView.ALL -> "all"; TaskView.ACTIVE -> "active"; TaskView.ATTENTION -> "attention"; TaskView.CANCELED -> "canceled"; TaskView.COMPLETED -> "completed"; TaskView.ARCHIVED -> "archived" }]
-                FilterChip(state.filter.view == view, { model.tasks.filter(state.filter.copy(view = view)) }, { Text(view.label + (count?.let { " $it" } ?: "")) }, colors = colors, enabled = enabled)
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(search, { search = it }, label = { Text("查找任务") }, modifier = Modifier.weight(1f), singleLine = true)
-            TextButton({ model.tasks.filter(state.filter.copy(text = search.trim())) }, enabled = enabled) { Text("查找") }
-        }
-        if (state.filter.type.isNotEmpty() || state.filter.owner.isNotEmpty() || state.filter.from > 0 || state.filter.to > 0) Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(listOfNotNull(state.filter.type.takeIf { it.isNotEmpty() }?.let { SERVER_TASK_TYPES[it] ?: it }, state.filter.owner.takeIf { it.isNotEmpty() },
-                if (state.filter.from > 0 || state.filter.to > 0) "限定日期" else null).joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-            TextButton({ model.tasks.filter(state.filter.copy(type = "", owner = "", from = 0, to = 0)) }, enabled = enabled) { Text("清除") }
-        }
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.tasks.refresh() }
+        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端任务列表" }, state = list, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item(key = "task-summary") {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("${state.items.size} / ${state.total} 项", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            when (state.filter.view) {
-                TaskView.ARCHIVED -> TextButton({ confirmAction(null, "batch-unarchive") }, enabled = enabled && state.total > 0) { Text("全部移出归档") }
-                TaskView.ATTENTION, TaskView.COMPLETED, TaskView.CANCELED -> TextButton({ confirmAction(null, "batch-archive") }, enabled = enabled && state.total > 0) { Text("批量归档") }
-                TaskView.ALL -> TextButton({ confirmAction(null, "archive-ended") }, enabled = enabled) { Text("归档我的已结束记录") }
-                else -> Unit
+            Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
+                Text("${if (state.filter.category == "file") "文件任务" else "其他后台任务"} · ${state.filter.view.label}", style = MaterialTheme.typography.labelLarge)
+                Text(listOfNotNull("${state.items.size} / ${state.total} 项", state.filter.type.takeIf { it.isNotEmpty() }?.let { SERVER_TASK_TYPES[it] ?: it },
+                    state.filter.owner.takeIf { it.isNotEmpty() }, if (state.filter.from > 0 || state.filter.to > 0) "限定日期" else null).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) TextButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) { Text("批量重试") }
+            if (state.filter.view != TaskView.ACTIVE) Box {
+                IconButton({ bulkMenu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "批量任务操作") }
+                DropdownMenu(bulkMenu, { bulkMenu = false }) {
+                    when (state.filter.view) {
+                        TaskView.ARCHIVED -> DropdownMenuItem({ Text("全部移出归档") }, { bulkMenu = false; confirmAction(null, "batch-unarchive") }, enabled = state.total > 0)
+                        TaskView.ATTENTION, TaskView.COMPLETED, TaskView.CANCELED -> DropdownMenuItem({ Text("批量归档") }, { bulkMenu = false; confirmAction(null, "batch-archive") }, enabled = state.total > 0)
+                        TaskView.ALL -> DropdownMenuItem({ Text("归档我的已结束记录") }, { bulkMenu = false; confirmAction(null, "archive-ended") })
+                        else -> Unit
+                    }
+                    if (state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) DropdownMenuItem({ Text("批量重试") }, { bulkMenu = false; confirmAction(null, "batch-retry") }, enabled = state.total > 0)
+                }
+            }
         }
-        if (state.items.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text("这里还没有匹配的服务端任务。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端任务列表" }, state = list, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        }
+        if (state.items.isEmpty() && !state.loading && state.error == null) item {
+            Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
+                Text("没有匹配的任务，可调整筛选条件", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
             items(state.items, key = { it.id }) { task ->
-                Surface(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.background) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(onClick = { model.tasks.select(task.id) }, modifier = Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(task.title.ifEmpty { task.typeLabel }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            TextButton({ model.tasks.select(task.id) }) { Text("详情") }
+                            TaskActionMenu(model, task, enabled && model.tasks.canEdit(task)) { command -> confirmAction(task, command) }
                         }
-                        Text("${task.typeLabel} · ${task.statusLabel}", style = MaterialTheme.typography.bodySmall,
-                            color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(task.typeLabel, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(Modifier.width(8.dp))
+                            Surface(color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainer,
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)) {
+                                Text(task.statusLabel, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall,
+                                    color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                         TaskProgress(task)
                         Text("${task.owner} · ${serverTime(task.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         task.error.takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis) }
-                        TaskActions(model, task, enabled && model.tasks.canEdit(task)) { command -> confirmAction(task, command) }
                     }
                 }
             }
@@ -104,24 +115,33 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
         }
     }
     if (advanced) TaskFilterDialog(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
-    if (state.focusId != null) AlertDialog(onDismissRequest = model::closeTaskDetail, title = { Text("任务详情") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    if (state.focusId != null) FileOperationSheet(title = "任务详情", onDismiss = model::closeTaskDetail,
+        footer = { TextButton(model::closeTaskDetail) { Text("关闭") } }) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (state.detailLoading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton({ state.focusId?.let(model.tasks::select) }) { Text("重试") } }
             state.selected?.let { task ->
                 Text(task.title.ifEmpty { task.typeLabel }, style = MaterialTheme.typography.titleMedium)
                 Text("${task.typeLabel} · ${task.statusLabel}"); TaskProgress(task)
-                Text("创建：${serverTime(task.createdAt)}\n开始：${serverTime(task.startedAt)}\n结束：${serverTime(task.finishedAt)}")
-                Text("账号：${task.owner}\n任务 ID：${task.id}", style = MaterialTheme.typography.bodySmall)
-                if (task.sourcePath.isNotEmpty()) Text("来源：${task.sourcePath}")
-                if (task.outputPath.isNotEmpty()) Text("输出：${task.outputPath}")
+                Text("${task.owner} · 创建于 ${serverTime(task.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (task.sourcePath.isNotEmpty()) FileOperationLocation("来源", task.sourcePath)
+                        if (task.outputPath.isNotEmpty()) FileOperationLocation("输出", task.outputPath)
+                    }
+                }
                 if (task.error.isNotEmpty()) Text(task.error, color = MaterialTheme.colorScheme.error)
                 if (task.type in setOf("analysis.storage", "analysis.duplicates")) TextButton({ model.tasks.closeDetail(); model.showAnalysis(task.id, task.type) }) { Text(if (task.status == "completed") "查看分析报告" else "查看分析进度") }
                 if (task.status == "completed" && task.outputPath.startsWith('/')) TextButton({ model.tasks.closeDetail(); model.openRemotePath(task.outputPath) }, enabled = !client.busy) { Text("打开输出文件") }
                 TaskActions(model, task, enabled && !state.detailLoading && state.detailError == null && model.tasks.canEdit(task)) { confirmAction(task, it) }
+                TextButton({ technicalDetails = !technicalDetails }) { Text(if (technicalDetails) "收起技术信息" else "任务 ID 与完整时间") }
+                if (technicalDetails) SelectionContainer {
+                    Text("任务 ID：${task.id}\n创建：${taskTimestamp(task.createdAt)}\n开始：${taskTimestamp(task.startedAt)}\n结束：${taskTimestamp(task.finishedAt)}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
-    }, confirmButton = { TextButton(model::closeTaskDetail) { Text("关闭") } })
+    }
     confirm?.let { choice ->
         val task = choice.task; val command = choice.command
         val batch = command.startsWith("batch-")
@@ -137,6 +157,27 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
             else task?.let { model.tasks.action(it, command) }
             confirm = null
         }, enabled = enabled) { Text("确认") } }, dismissButton = { TextButton({ confirm = null }) { Text("取消") } })
+    }
+}
+
+private fun taskTimestamp(value: Long): String = if (value <= 0) "未提供" else runCatching {
+    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(value))
+}.getOrDefault("未提供")
+
+@Composable private fun TaskActionMenu(model: ClientModel, task: ServerTask, enabled: Boolean, confirm: (String) -> Unit) {
+    var expanded by remember(task.id) { mutableStateOf(false) }
+    Box {
+        IconButton({ expanded = true }) { Icon(painterResource(R.drawable.ic_more_vert), "任务操作：${task.title.ifEmpty { task.typeLabel }}") }
+        DropdownMenu(expanded, { expanded = false }) {
+            DropdownMenuItem({ Text("查看详情") }, { expanded = false; model.tasks.select(task.id) })
+            if (task.active) DropdownMenuItem({ Text(if (task.pendingDeletion) "撤销删除" else "停止任务") }, {
+                expanded = false
+                if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirm("cancel")
+            }, enabled = enabled)
+            if (task.canRetry) DropdownMenuItem({ Text("重试") }, { expanded = false; confirm("retry") }, enabled = enabled)
+            if (task.canArchive) DropdownMenuItem({ Text("归档") }, { expanded = false; confirm("archive") }, enabled = enabled)
+            if (task.archivedAt > 0) DropdownMenuItem({ Text("移出归档") }, { expanded = false; confirm("unarchive") }, enabled = enabled)
+        }
     }
 }
 
@@ -158,7 +199,8 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
 }
 
 @Composable private fun TaskActions(model: ClientModel, task: ServerTask, enabled: Boolean, confirm: (String) -> Unit) {
-    Row(Modifier.fillMaxWidth()) {
+    if (!task.active && !task.canRetry && !task.canArchive && task.archivedAt <= 0) return
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (task.active) TextButton({ if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirm("cancel") }, enabled = enabled) { Text(if (task.pendingDeletion) "撤销删除" else "停止任务") }
         if (task.canRetry) TextButton({ confirm("retry") }, enabled = enabled) { Text("重试") }
         if (task.canArchive) TextButton({ confirm("archive") }, enabled = enabled) { Text("归档") }
@@ -167,24 +209,40 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
 }
 
 @Composable private fun TaskFilterDialog(state: ServerTasksState, accountName: String, apply: (TaskFilter) -> Unit, dismiss: () -> Unit) {
-    val context = LocalContext.current
+    var category by remember { mutableStateOf(state.filter.category) }
+    var view by remember { mutableStateOf(state.filter.view) }
     var type by remember { mutableStateOf(state.filter.type) }; var owner by remember { mutableStateOf(state.filter.owner) }
     var from by remember { mutableLongStateOf(state.filter.from) }; var to by remember { mutableLongStateOf(state.filter.to) }
     var types by remember { mutableStateOf(false) }; var owners by remember { mutableStateOf(false) }
-    var picker by remember { mutableStateOf<DatePickerDialog?>(null) }
-    DisposableEffect(Unit) { onDispose { picker?.dismiss() } }
+    var dateTarget by remember { mutableStateOf<Boolean?>(null) }
     fun date(value: Long) = if (value <= 0) "不限" else Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).toLocalDate().toString()
-    fun choose(start: Boolean) {
-        val old = if (start) from else to
-        val day = if (old > 0) Instant.ofEpochMilli(old).atZone(ZoneId.systemDefault()).toLocalDate() else LocalDate.now()
-        picker = DatePickerDialog(context, { _, year, month, date ->
-            val picked = LocalDate.of(year, month + 1, date)
+    dateTarget?.let { start ->
+        TaskCenterDatePicker(if (start) from else to, onDay = { picked ->
             if (start) from = picked.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             else to = picked.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
-        }, day.year, day.monthValue - 1, day.dayOfMonth).also { it.show() }
+        }, onDismiss = { dateTarget = null })
     }
-    AlertDialog(onDismissRequest = dismiss, title = { Text("任务筛选") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FileOperationSheet(title = "任务筛选", onDismiss = dismiss, footer = {
+        TextButton({ category = TaskFilter().category; view = TaskView.ALL; type = ""; owner = ""; from = 0; to = 0 }) { Text("重置条件") }
+        Spacer(Modifier.weight(1f))
+        Button({ apply(state.filter.copy(category = category, view = view, type = type, owner = owner, from = from, to = to)) }, enabled = from == 0L || to == 0L || from <= to) { Text("应用") }
+    }) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("分类", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(category == "file", { category = "file" }, { Text("文件任务") }, colors = libraryChipColors())
+                FilterChip(category == "background", { category = "background" }, { Text("其他后台任务") }, colors = libraryChipColors())
+            }
+            Text("状态", style = MaterialTheme.typography.labelLarge)
+            TaskView.entries.chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { option ->
+                        val count = if (category == state.filter.category) state.counts[option.name.lowercase(java.util.Locale.ROOT)] else null
+                        FilterChip(view == option, { view = option }, { Text(option.label + (count?.let { " $it" } ?: "")) }, modifier = Modifier.weight(1f), colors = libraryChipColors())
+                    }
+                }
+            }
+            HorizontalDivider()
             Box {
                 TextButton({ types = true }) { Text("任务类型：${SERVER_TASK_TYPES[type] ?: "全部"}") }
                 DropdownMenu(types, { types = false }, modifier = Modifier.heightIn(max = 360.dp)) {
@@ -199,11 +257,10 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
                     (listOf(accountName) + state.owners).distinct().filter { it.isNotEmpty() }.forEach { name -> DropdownMenuItem({ Text(name) }, { owner = name; owners = false }) }
                 }
             }
-            TextButton({ choose(true) }) { Text("开始日期：${date(from)}") }
-            TextButton({ choose(false) }) { Text("结束日期：${date(to)}") }
+            TextButton({ dateTarget = true }) { Text("开始日期：${date(from)}") }
+            TextButton({ dateTarget = false }) { Text("结束日期：${date(to)}") }
             TextButton({ from = 0; to = 0 }) { Text("不限日期") }
             if (from > 0 && to > 0 && from > to) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
         }
-    }, confirmButton = { TextButton({ apply(state.filter.copy(type = type, owner = owner, from = from, to = to)) }, enabled = from == 0L || to == 0L || from <= to) { Text("应用") } },
-        dismissButton = { TextButton(dismiss) { Text("取消") } })
+    }
 }

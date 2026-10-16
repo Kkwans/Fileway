@@ -1,18 +1,20 @@
 package io.github.kkwans.nasfilebrowser.ui
 
-import android.app.DatePickerDialog
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -22,7 +24,6 @@ import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.OperationHistoryController
 import io.github.kkwans.nasfilebrowser.data.*
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -30,6 +31,7 @@ import java.time.format.DateTimeFormatter
     val state by controller.state.collectAsStateWithLifecycle()
     var search by remember(state.scope) { mutableStateOf(state.filter.text) }
     var filters by remember(state.scope) { mutableStateOf(false) }
+    val keyboard = LocalSoftwareKeyboardController.current
     val enabled = connected && !state.loading && !state.paging && !state.clearing
     if (!connected) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
@@ -42,15 +44,15 @@ import java.time.format.DateTimeFormatter
         return
     }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("当前账号的操作记录", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(search, { search = it }, placeholder = { Text("查找操作、文件或详情") }, singleLine = true,
+                enabled = !state.clearing, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { if (enabled) { controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide() } }),
+                trailingIcon = { IconButton({ controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide() }, enabled = enabled) {
+                    Icon(painterResource(R.drawable.ic_search), "查找操作历史")
+                } })
             TextButton({ filters = true }, enabled = enabled) { Text("筛选") }
             IconButton({ controller.refresh() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_refresh), "刷新操作历史") }
-        }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(search, { search = it }, label = { Text("查找操作、文件或详情") }, singleLine = true,
-                enabled = !state.clearing, modifier = Modifier.weight(1f))
-            TextButton({ controller.filter(state.filter.copy(text = search.trim())) }, enabled = enabled) { Text("查找") }
         }
         if (state.filter.active) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(listOfNotNull(state.filter.text.takeIf { it.isNotBlank() }?.let { "关键词：$it" },
@@ -69,12 +71,14 @@ import java.time.format.DateTimeFormatter
         if (state.showingPreviousFilter) Text("筛选结果尚未更新，以下保留上次读取的记录。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         state.notice?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (state.loaded) "${state.items.size} / ${state.total} 条" else "操作记录", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(controller::requestClear, enabled = enabled) { Text("清空记录", color = if (enabled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)) }
-        }
         LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = "操作历史列表" },
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (state.loaded) "当前账号 · ${state.items.size} / ${state.total} 条" else "当前账号的操作记录", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(controller::requestClear, enabled = enabled) { Text("清空记录", color = if (enabled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)) }
+                }
+            }
             if (state.items.isEmpty() && state.loaded && state.error == null && !state.loading) item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(painterResource(R.drawable.ic_history), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -84,8 +88,8 @@ import java.time.format.DateTimeFormatter
                 }
             }
             items(state.items, key = { it.id }) { entry ->
-                Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.background, shape = RoundedCornerShape(12.dp)) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp)) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(entry.actionLabel, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
                             Text(entry.statusLabel, Modifier.padding(start = 12.dp), style = MaterialTheme.typography.labelMedium,
@@ -122,24 +126,18 @@ private fun historyTime(value: Long): String = DateTimeFormatter.ofPattern("yyyy
 
 @Composable private fun OperationHistoryFilterDialog(filter: OperationHistoryFilter, observedActions: List<String>,
     apply: (OperationHistoryFilter) -> Unit, dismiss: () -> Unit) {
-    val context = LocalContext.current
     var action by remember { mutableStateOf(filter.action) }
     var status by remember { mutableStateOf(filter.status) }
     var from by remember { mutableLongStateOf(filter.from) }
     var to by remember { mutableLongStateOf(filter.to) }
     var actionsOpen by remember { mutableStateOf(false) }
     var statusesOpen by remember { mutableStateOf(false) }
-    var picker by remember { mutableStateOf<DatePickerDialog?>(null) }
-    DisposableEffect(Unit) { onDispose { picker?.dismiss() } }
-    fun choose(start: Boolean) {
-        val old = if (start) from else to
-        val day = if (old > 0) Instant.ofEpochMilli(old).atZone(ZoneId.systemDefault()).toLocalDate() else LocalDate.now()
-        picker?.dismiss()
-        picker = DatePickerDialog(context, { _, year, month, date ->
-            val picked = LocalDate.of(year, month + 1, date)
+    var dateTarget by remember { mutableStateOf<Boolean?>(null) }
+    dateTarget?.let { start ->
+        TaskCenterDatePicker(if (start) from else to, onDay = { picked ->
             if (start) from = picked.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
             else to = picked.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
-        }, day.year, day.monthValue - 1, day.dayOfMonth).also { it.show() }
+        }, onDismiss = { dateTarget = null })
     }
     AlertDialog(onDismissRequest = dismiss, title = { Text("筛选操作历史") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -159,8 +157,8 @@ private fun historyTime(value: Long): String = DateTimeFormatter.ofPattern("yyyy
                     OperationHistoryStatus.entries.forEach { value -> DropdownMenuItem({ Text(value.label) }, { status = value; statusesOpen = false }) }
                 }
             }
-            TextButton({ choose(true) }) { Text("开始日期：${historyDate(from)}") }
-            TextButton({ choose(false) }) { Text("结束日期：${historyDate(to)}") }
+            TextButton({ dateTarget = true }) { Text("开始日期：${historyDate(from)}") }
+            TextButton({ dateTarget = false }) { Text("结束日期：${historyDate(to)}") }
             TextButton({ from = 0; to = 0 }) { Text("不限日期") }
             if (from > 0 && to > 0 && from > to) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
         }
