@@ -61,15 +61,19 @@ internal class OperationHistoryUiTest : LibraryUiHarness() {
         try {
             main { controller.bind(context); controller.setVisible(true) }
             withTimeout(5000) { controller.state.first { it.loaded && !it.loading } }
+            text("文件 #?%.txt")
+            action("完整记录：文件 #?%.txt").click()
             text("/测试数据/文件 #?%.txt")
-            text("清空记录").click(); text("清空当前账号的操作历史？")
+            text("/测试数据/旧文件.txt")
+            action("关闭操作记录").click()
+            action("操作历史管理").click(); text("清空记录").click(); text("清空当前账号的操作历史？")
             assertEquals(0, authority.deletes)
             text("取消").click()
             assertEquals(0, authority.deletes)
-            text("清空记录").click(); text("确认清空").click()
+            action("操作历史管理").click(); text("清空记录").click(); text("确认清空").click()
             withTimeout(5000) { controller.state.first { !it.clearing && it.error != null } }
             text("清空未获确认：当前账号没有访问权限")
-            text("/测试数据/文件 #?%.txt")
+            text("文件 #?%.txt")
             assertEquals(1, authority.deletes)
             text("重新读取").click()
             withTimeout(5000) { controller.state.first { !it.loading && it.error == null } }
@@ -78,7 +82,7 @@ internal class OperationHistoryUiTest : LibraryUiHarness() {
             text("重置").click()
             withTimeout(5000) { controller.state.first { !it.loading && !it.filter.active } }
             authority.rejectDelete = false
-            text("清空记录").click(); text("确认清空").click()
+            action("操作历史管理").click(); text("清空记录").click(); text("确认清空").click()
             withTimeout(5000) { controller.state.first { !it.clearing && it.items.isEmpty() } }
             text("还没有操作记录")
             assertEquals(2, authority.deletes)

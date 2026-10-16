@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -31,6 +32,8 @@ import java.time.format.DateTimeFormatter
     val state by controller.state.collectAsStateWithLifecycle()
     var search by remember(state.scope) { mutableStateOf(state.filter.text) }
     var filters by remember(state.scope) { mutableStateOf(false) }
+    var management by remember(state.scope) { mutableStateOf(false) }
+    var detail by remember(state.scope) { mutableStateOf<OperationHistoryEntry?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
     val enabled = connected && !state.loading && !state.paging && !state.clearing
     if (!connected) {
@@ -76,7 +79,12 @@ import java.time.format.DateTimeFormatter
             item {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(if (state.loaded) "当前账号 · ${state.items.size} / ${state.total} 条" else "当前账号的操作记录", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(controller::requestClear, enabled = enabled) { Text("清空记录", color = if (enabled) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface.copy(alpha = .38f)) }
+                    Box {
+                        IconButton({ management = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "操作历史管理") }
+                        DropdownMenu(management, { management = false }) {
+                            DropdownMenuItem({ Text("清空记录", color = MaterialTheme.colorScheme.error) }, { management = false; controller.requestClear() })
+                        }
+                    }
                 }
             }
             if (state.items.isEmpty() && state.loaded && state.error == null && !state.loading) item {
@@ -88,20 +96,21 @@ import java.time.format.DateTimeFormatter
                 }
             }
             items(state.items, key = { it.id }) { entry ->
+                val target = operationHistoryTarget(entry.target)
                 Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp)) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(entry.actionLabel, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                            Text(entry.statusLabel, Modifier.padding(start = 12.dp), style = MaterialTheme.typography.labelMedium,
+                            Text(target.name.ifEmpty { entry.actionLabel }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            IconButton({ detail = entry }) { Icon(painterResource(R.drawable.ic_more_vert), "完整记录：${target.name.ifEmpty { entry.actionLabel }}") }
+                        }
+                        target.parent?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        if (entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${entry.actionLabel} · ${entry.statusLabel}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                                 color = when (entry.status) { "failed" -> MaterialTheme.colorScheme.error; "submitted" -> MaterialTheme.colorScheme.primary; else -> MaterialTheme.colorScheme.onSurfaceVariant })
+                            Text(serverTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        SelectionContainer {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(entry.target, style = MaterialTheme.typography.bodyMedium)
-                                if (entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                        Text(historyTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -112,6 +121,18 @@ import java.time.format.DateTimeFormatter
             }
         }
     }
+    detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = { TextButton({ detail = null }) { Text("关闭") } }) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("${entry.actionLabel} · ${entry.statusLabel}", style = MaterialTheme.typography.titleMedium)
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(entry.target, style = MaterialTheme.typography.bodyMedium)
+                    if (entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall)
+                    Text(historyTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    } }
     if (filters) OperationHistoryFilterDialog(state.filter, state.items.map { it.action }.distinct(), {
         controller.filter(it); search = it.text; filters = false
     }) { filters = false }

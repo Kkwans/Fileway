@@ -26,6 +26,8 @@ import java.time.ZoneOffset
             PrimaryTabRow(selectedTabIndex = section.ordinal) {
                 TaskCenterSection.entries.forEach { group ->
                     Tab(selected = group == section, onClick = { model.taskCenterSection(group) },
+                        selectedContentColor = MaterialTheme.colorScheme.primary,
+                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.semantics { contentDescription = "${group.label}分组" },
                         text = { Text(group.label) })
                 }

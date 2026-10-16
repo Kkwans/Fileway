@@ -1,6 +1,7 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -15,6 +16,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -62,13 +65,14 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
         }
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.tasks.refresh() }
         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端任务列表" }, state = list, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        item(key = "task-summary") {
+        // Chrome uses a non-string key so visible-task polling never treats it as a task ID.
+        item(key = 0) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
-                Text("${if (state.filter.category == "file") "文件任务" else "其他后台任务"} · ${state.filter.view.label}", style = MaterialTheme.typography.labelLarge)
-                Text(listOfNotNull("${state.items.size} / ${state.total} 项", state.filter.type.takeIf { it.isNotEmpty() }?.let { SERVER_TASK_TYPES[it] ?: it },
-                    state.filter.owner.takeIf { it.isNotEmpty() }, if (state.filter.from > 0 || state.filter.to > 0) "限定日期" else null).joinToString(" · "),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${if (state.filter.category == "file") "文件任务" else "其他后台任务"} · ${state.filter.view.label} · ${state.items.size}/${state.total}", style = MaterialTheme.typography.labelLarge)
+                val conditions = listOfNotNull(state.filter.type.takeIf { it.isNotEmpty() }?.let { SERVER_TASK_TYPES[it] ?: it },
+                    state.filter.owner.takeIf { it.isNotEmpty() }, if (state.filter.from > 0 || state.filter.to > 0) "限定日期" else null)
+                if (conditions.isNotEmpty()) Text(conditions.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (state.filter.view != TaskView.ACTIVE) Box {
                 IconButton({ bulkMenu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "批量任务操作") }
@@ -96,17 +100,13 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
                             Text(task.title.ifEmpty { task.typeLabel }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             TaskActionMenu(model, task, enabled && model.tasks.canEdit(task)) { command -> confirmAction(task, command) }
                         }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(task.typeLabel, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.width(8.dp))
-                            Surface(color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceContainer,
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp)) {
-                                Text(task.statusLabel, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall,
-                                    color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                        if (task.title.isNotEmpty() && task.title != task.typeLabel) Text(task.typeLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(listOfNotNull(task.statusLabel, task.owner.takeIf { it.isNotEmpty() }).joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                                color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(serverTime(if (task.status == "completed") task.finishedAt else task.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        TaskProgress(task)
-                        Text("${task.owner} · ${serverTime(task.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (task.active || task.status != "completed" && (task.processedItems > 0 || task.processedBytes > 0 || task.processedSeconds > 0)) TaskProgress(task)
                         task.error.takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                     }
                 }
@@ -183,7 +183,10 @@ private fun taskTimestamp(value: Long): String = if (value <= 0) "未提供" els
 
 @Composable internal fun TaskProgress(task: ServerTask) {
     val value = task.progress
-    if (task.active && value != null) LinearProgressIndicator(progress = { value }, modifier = Modifier.fillMaxWidth().height(4.dp), gapSize = 0.dp, drawStopIndicator = {})
+    if (task.active) {
+        if (value != null) LinearProgressIndicator(progress = { value }, modifier = Modifier.fillMaxWidth().height(4.dp), gapSize = 0.dp, drawStopIndicator = {})
+        else LinearProgressIndicator(Modifier.fillMaxWidth().height(4.dp))
+    }
     val counters = when {
         task.duration > 0 -> "${clock((task.processedSeconds * 1000).toLong())} / ${clock((task.duration * 1000).toLong())}"
         task.totalBytes > 0 -> "${readableSize(task.processedBytes)} / ${readableSize(task.totalBytes)}"
@@ -229,38 +232,56 @@ private fun taskTimestamp(value: Long): String = if (value <= 0) "未提供" els
     }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("分类", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(category == "file", { category = "file" }, { Text("文件任务") }, colors = libraryChipColors())
-                FilterChip(category == "background", { category = "background" }, { Text("其他后台任务") }, colors = libraryChipColors())
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(category == "file", { category = "file" }, { Text("文件任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = libraryChipColors())
+                FilterChip(category == "background", { category = "background" }, { Text("其他后台任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = libraryChipColors())
             }
             Text("状态", style = MaterialTheme.typography.labelLarge)
             TaskView.entries.chunked(2).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { option ->
                         val count = if (category == state.filter.category) state.counts[option.name.lowercase(java.util.Locale.ROOT)] else null
-                        FilterChip(view == option, { view = option }, { Text(option.label + (count?.let { " $it" } ?: "")) }, modifier = Modifier.weight(1f), colors = libraryChipColors())
+                        FilterChip(view == option, { view = option }, { Text(option.label + (count?.let { " $it" } ?: ""), Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = libraryChipColors())
                     }
                 }
             }
             HorizontalDivider()
-            Box {
-                TextButton({ types = true }) { Text("任务类型：${SERVER_TASK_TYPES[type] ?: "全部"}") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.weight(1f)) {
+                TaskFilterField("任务类型", SERVER_TASK_TYPES[type] ?: "全部") { types = true }
                 DropdownMenu(types, { types = false }, modifier = Modifier.heightIn(max = 360.dp)) {
-                    DropdownMenuItem({ Text("全部类型") }, { type = ""; types = false })
-                    SERVER_TASK_TYPES.filterKeys { it !in setOf("file.delete.permanent", "trash.delete.permanent") }.forEach { (id, label) -> DropdownMenuItem({ Text(label) }, { type = id; types = false }) }
+                    FilewayMenuItem("全部类型", { type = ""; types = false }, selected = type.isEmpty())
+                    SERVER_TASK_TYPES.filterKeys { it !in setOf("file.delete.permanent", "trash.delete.permanent") }.forEach { (id, label) -> FilewayMenuItem(label, { type = id; types = false }, selected = type == id) }
                 }
             }
-            Box {
-                TextButton({ owners = true }) { Text("账号：${owner.ifEmpty { "全部可见账号" }}") }
+            Box(Modifier.weight(1f)) {
+                TaskFilterField("账号", owner.ifEmpty { "全部可见账号" }) { owners = true }
                 DropdownMenu(owners, { owners = false }) {
-                    DropdownMenuItem({ Text("全部可见账号") }, { owner = ""; owners = false })
-                    (listOf(accountName) + state.owners).distinct().filter { it.isNotEmpty() }.forEach { name -> DropdownMenuItem({ Text(name) }, { owner = name; owners = false }) }
+                    FilewayMenuItem("全部可见账号", { owner = ""; owners = false }, selected = owner.isEmpty())
+                    (listOf(accountName) + state.owners).distinct().filter { it.isNotEmpty() }.forEach { name -> FilewayMenuItem(name, { owner = name; owners = false }, selected = owner == name) }
                 }
             }
-            TextButton({ dateTarget = true }) { Text("开始日期：${date(from)}") }
-            TextButton({ dateTarget = false }) { Text("结束日期：${date(to)}") }
-            TextButton({ from = 0; to = 0 }) { Text("不限日期") }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("日期", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                TextButton({ from = 0; to = 0 }, enabled = from > 0 || to > 0) { Text("清除日期") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.weight(1f)) { TaskFilterField("开始日期", date(from)) { dateTarget = true } }
+                Box(Modifier.weight(1f)) { TaskFilterField("结束日期", date(to)) { dateTarget = false } }
+            }
             if (from > 0 && to > 0 && from > to) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
         }
+    }
+}
+
+@Composable private fun TaskFilterField(label: String, value: String, onClick: () -> Unit) {
+    OutlinedButton(onClick, Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = MaterialTheme.shapes.small,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
+        Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
+            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(painterResource(R.drawable.ic_expand_more), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

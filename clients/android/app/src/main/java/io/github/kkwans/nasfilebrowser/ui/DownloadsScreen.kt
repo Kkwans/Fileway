@@ -9,6 +9,9 @@ import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -42,6 +45,7 @@ import kotlinx.coroutines.withContext
     var filter by rememberSaveable { mutableStateOf("全部") }
     var settings by rememberSaveable { mutableStateOf(false) }
     var remove by remember { mutableStateOf<DownloadRecord?>(null) }
+    var detailsId by remember { mutableStateOf<String?>(null) }
     var deleteFile by remember { mutableStateOf(false) }
     var reauthorizing by rememberSaveable { mutableStateOf<String?>(null) }
     val folder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri -> if (uri != null) model.downloads.selectDirectory(uri) }
@@ -72,7 +76,7 @@ import kotlinx.coroutines.withContext
     val records = state.items.filter { when (filter) { "已完成" -> it.complete; "未完成" -> !it.complete; else -> true } }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }) }
+            listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
             Spacer(Modifier.weight(1f))
             TextButton({ settings = true }) { Text("目录") }
         }
@@ -105,7 +109,7 @@ import kotlinx.coroutines.withContext
                             else Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null,
                                 Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                         }
-                        Column(Modifier.weight(1f).clickable(enabled = canOpen) { openDownloaded(context, model, item, kind) }.padding(start = 12.dp, top = 8.dp, bottom = 8.dp)) {
+                        Column(Modifier.weight(1f).clickable(enabled = canOpen) { openDownloaded(context, model, item, kind) }.padding(start = 12.dp)) {
                             Text(item.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(item.sourceLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (item.relativeDirectory.isNotEmpty()) Text(item.relativeDirectory, style = MaterialTheme.typography.bodySmall,
@@ -115,7 +119,7 @@ import kotlinx.coroutines.withContext
                     val fraction = if (item.expectedSize > 0) (item.downloaded.toDouble() / item.expectedSize).toFloat().coerceIn(0f, 1f) else 0f
                     val unknownZip = item.zipExport && !item.complete
                     val status = when (item.status) { "completed" -> "已完成"; "queued" -> if (unknownZip) "等待打包" else "等待下载"; "running" -> if (unknownZip) "正在打包下载" else "正在下载"; "paused" -> "已暂停"; "interrupted" -> "下载中断"; else -> "下载失败" }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    if (!item.complete) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(status, style = MaterialTheme.typography.labelMedium, color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(if (item.complete) readableSize(item.expectedSize) else if (unknownZip) "已接收 ${readableSize(item.downloaded)}" else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}", style = MaterialTheme.typography.labelMedium)
                     }
@@ -123,8 +127,12 @@ import kotlinx.coroutines.withContext
                     if (unknownZip && item.active) LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
                     if (unknownZip) Text("ZIP总大小生成中；恢复时从零重新打包，旧的未完成输出会被截断。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (item.active) Text(state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取下载速度", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (item.complete) Column(Modifier.weight(1f)) {
+                            Text("已完成", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(readableSize(item.expectedSize), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                         if (canOpen) TextButton({ openDownloaded(context, model, item, kind) }, Modifier.semantics { contentDescription = "打开下载：${item.name}" }, enabled = !state.busy) { Text(if (item.complete) "打开" else "边下边播") }
                         if (!item.complete) TextButton({ if (item.active) model.downloads.pause(item) else model.downloads.resume(item) },
                             Modifier.semantics { contentDescription = "${if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载"}：${item.name}" }, enabled = !state.busy) { Text(if (item.active) "暂停" else if (item.zipExport) "重新打包" else "继续下载") }
@@ -132,6 +140,7 @@ import kotlinx.coroutines.withContext
                         Box {
                             TextButton({ more = true }, enabled = !state.busy) { Text("更多") }
                             DropdownMenu(more, { more = false }) {
+                                DropdownMenuItem({ Text("任务信息") }, { more = false; detailsId = item.id })
                                 DropdownMenuItem({ Text("打开所在目录") }, { more = false; openFolder(item.treeUri, item.relativeDirectory) })
                                 if (item.treeUri.isNotEmpty()) DropdownMenuItem({ Text("重新授权目录") }, {
                                     more = false; reauthorizing = item.id
@@ -144,6 +153,22 @@ import kotlinx.coroutines.withContext
                         }
                     }
                 }
+                }
+            }
+        }
+    }
+    state.items.firstOrNull { it.id == detailsId }?.let { item ->
+        FileOperationSheet("下载任务信息", { detailsId = null }, footer = { TextButton({ detailsId = null }) { Text("关闭") } }) {
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                SelectionContainer {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(item.name, style = MaterialTheme.typography.titleMedium)
+                        Text(item.sourceLabel, style = MaterialTheme.typography.bodyMedium)
+                        Text("服务器原位置：${item.path}", style = MaterialTheme.typography.bodySmall)
+                        if (item.relativeDirectory.isNotEmpty()) Text("本机子目录：${item.relativeDirectory}", style = MaterialTheme.typography.bodySmall)
+                        Text(if (item.zipExport && !item.complete) "已接收 ${readableSize(item.downloaded)} · ZIP 总量待生成" else "${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}", style = MaterialTheme.typography.bodySmall)
+                        if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }
