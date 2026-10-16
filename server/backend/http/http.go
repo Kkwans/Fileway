@@ -149,6 +149,7 @@ func NewHandler(
 	api.Handle("/recent", monkey(recentListHandler, "")).Methods("GET")
 	api.Handle("/recent", monkey(recentRecordHandler, "")).Methods("POST")
 	api.Handle("/media/playback", monkey(playbackGetHandler, "")).Methods("GET")
+	api.Handle("/media/playback/recent", monkey(playbackRecentHandler, "")).Methods("GET")
 	api.Handle("/media/playback", monkey(playbackPutHandler, "")).Methods("PUT")
 	api.Handle("/media/playback", monkey(playbackDeleteHandler, "")).Methods("DELETE")
 	api.Handle("/media/info", monkey(mediaInfoHandler(defaultMediaProbe), "")).Methods("GET")

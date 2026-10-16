@@ -28,6 +28,49 @@ type playbackResponse struct {
 	Exists    bool    `json:"exists"`
 }
 
+var playbackRecentHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	if !d.user.Perm.Download {
+		return http.StatusForbidden, fmt.Errorf("没有读取播放记录的权限")
+	}
+	limit := 100
+	if value := r.URL.Query().Get("limit"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 100 {
+			return http.StatusBadRequest, fmt.Errorf("播放记录数量应在1到100之间")
+		}
+		limit = parsed
+	}
+	entries, err := d.store.Playback.Recent(d.user.ID, limit)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	type response struct {
+		playbackResponse
+		WirePath string `json:"wirePath"`
+		Name     string `json:"name"`
+		Type     string `json:"type"`
+	}
+	result := make([]response, 0, len(entries))
+	for _, entry := range entries {
+		file, identity, status, failure := playbackFile(d, entry.Path)
+		if failure != nil {
+			if status >= 500 {
+				return status, failure
+			}
+			continue // Missing or newly forbidden objects must not leak through history.
+		}
+		if identity != entry.Identity {
+			continue // Do not relabel old progress as a replacement file.
+		}
+		result = append(result, response{
+			playbackResponse: playbackResponse{Path: files.DisplayPath(file.Path), Identity: identity,
+				Position: entry.Position, Duration: entry.Duration, UpdatedAt: entry.UpdatedAt, Exists: true},
+			WirePath: files.EncodeWirePath(file.Path), Name: files.DisplayName(file.Name), Type: file.Type,
+		})
+	}
+	return renderJSON(w, r, result)
+})
+
 var playbackGetHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 	file, identity, status, err := playbackFile(d, r.URL.Query().Get("path"))
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/asdine/storm/v3"
+	"github.com/asdine/storm/v3/q"
 
 	"github.com/Kkwans/nas-file-browser/backend/playback"
 )
@@ -20,6 +21,19 @@ type playbackRecord struct {
 
 type playbackBackend struct {
 	db *storm.DB
+}
+
+func (backend playbackBackend) Recent(userID uint, limit int) ([]*playback.Entry, error) {
+	var records []playbackRecord
+	err := backend.db.Select(q.Eq("UserID", userID)).OrderBy("UpdatedAt", "ID").Reverse().Limit(limit).Find(&records)
+	if err != nil && !errors.Is(err, storm.ErrNotFound) {
+		return nil, err
+	}
+	result := make([]*playback.Entry, 0, len(records))
+	for _, record := range records {
+		result = append(result, record.entry())
+	}
+	return result, nil
 }
 
 func (backend playbackBackend) GetByID(id string) (*playback.Entry, error) {

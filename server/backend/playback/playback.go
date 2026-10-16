@@ -49,6 +49,32 @@ func NewStorage(back StorageBackend) *Storage {
 	return &Storage{back: back}
 }
 
+// Recent is a read-only snapshot; existing position backends remain compatible.
+func (storage *Storage) Recent(userID uint, limit int) ([]*Entry, error) {
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("invalid playback history limit")
+	}
+	lister, ok := storage.back.(interface {
+		Recent(uint, int) ([]*Entry, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("playback history listing unavailable")
+	}
+	storage.mu.Lock()
+	defer storage.mu.Unlock()
+	rows, err := lister.Recent(userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*Entry, 0, len(rows))
+	for _, entry := range rows {
+		if entry != nil && entry.UserID == userID {
+			result = append(result, entry.Clone())
+		}
+	}
+	return result, nil
+}
+
 func (storage *Storage) Get(userID uint, value, identity string) (*Entry, error) {
 	storage.mu.Lock()
 	defer storage.mu.Unlock()
