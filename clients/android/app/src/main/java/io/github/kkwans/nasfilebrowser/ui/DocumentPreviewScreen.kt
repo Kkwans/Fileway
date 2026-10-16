@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -247,7 +248,13 @@ import kotlin.math.roundToInt
 }
 
 @Composable private fun ColumnScope.DocumentPdfContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
+    var jumpOpen by remember(state.scope, state.file?.wirePath) { mutableStateOf(false) }
     var pageInput by remember(state.page, state.pageCount) { mutableStateOf((state.page + 1).toString()) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val validPage = pageInput.toIntOrNull()?.takeIf { it in 1..state.pageCount }
+    fun jump() {
+        validPage?.let { controller.selectPage(it - 1); keyboard?.hide(); jumpOpen = false }
+    }
     val borrowed by produceState<DocumentBitmapLease?>(null, state.pageImage) {
         val lease = state.pageImage?.borrow()
         value = lease
@@ -255,18 +262,23 @@ import kotlin.math.roundToInt
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         IconButton({ controller.selectPage(state.page - 1) }, enabled = state.page > 0, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "上一页 PDF") }
-        OutlinedTextField(pageInput, { pageInput = it }, Modifier.width(84.dp), label = { Text("页码") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { pageInput.toIntOrNull()?.let { controller.selectPage(it - 1) } }))
-        Text("/ ${state.pageCount}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-        TextButton({ pageInput.toIntOrNull()?.let { controller.selectPage(it - 1) } }, enabled = pageInput.toIntOrNull()?.let { it in 1..state.pageCount } == true) { Text("转到") }
+        TextButton({ jumpOpen = true }, Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "跳转 PDF 页码" }) {
+            Text("${state.page + 1} / ${state.pageCount}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
         IconButton({ controller.selectPage(state.page + 1) }, enabled = state.page + 1 < state.pageCount, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_forward), "下一页 PDF") }
-    }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("第 ${state.page + 1} 页", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton({ controller.zoom(state.zoom - 25) }, enabled = state.zoom > 50) { Text("缩小") }
+        IconButton({ controller.zoom(state.zoom - 25) }, enabled = state.zoom > 50, modifier = Modifier.size(48.dp).semantics { contentDescription = "缩小 PDF" }) { Text("−", style = MaterialTheme.typography.titleLarge) }
         Text("${state.zoom}%", style = MaterialTheme.typography.bodySmall)
-        TextButton({ controller.zoom(state.zoom + 25) }, enabled = state.zoom < 200) { Text("放大") }
+        IconButton({ controller.zoom(state.zoom + 25) }, enabled = state.zoom < 200, modifier = Modifier.size(48.dp).semantics { contentDescription = "放大 PDF" }) { Text("+", style = MaterialTheme.typography.titleLarge) }
+    }
+    if (jumpOpen) FileOperationDialog("跳转页码", { jumpOpen = false }, footer = {
+        TextButton({ jumpOpen = false }) { Text("取消") }
+        Button(::jump, enabled = validPage != null) { Text("转到") }
+    }) {
+        OutlinedTextField(pageInput, { pageInput = it }, Modifier.fillMaxWidth(), label = { Text("页码") }, singleLine = true,
+            isError = pageInput.isNotBlank() && validPage == null,
+            supportingText = { Text("有效范围：1–${state.pageCount}") },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { jump() }))
     }
     if (state.rendering) LinearProgressIndicator(Modifier.fillMaxWidth())
     state.pageError?.let { message -> Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
