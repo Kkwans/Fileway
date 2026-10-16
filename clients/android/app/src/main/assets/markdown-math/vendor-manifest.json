@@ -3,6 +3,24 @@
   "version": "4.1.3",
   "files": [
     {
+      "package": "mathjax-mhchem-font-extension",
+      "version": "4.1.3",
+      "archiveUrl": "https://registry.npmjs.org/@mathjax/mathjax-mhchem-font-extension/-/mathjax-mhchem-font-extension-4.1.3.tgz",
+      "archiveIntegrity": "sha512-WFx0IooitEJq1TXc9V941o8eaZdICSPn8FpsIBDdhkMhb0if61jCvk6vtQN84dlLnNEorK011NfpirMkHYygSQ==",
+      "path": "fonts/mathjax-mhchem-font-extension/package.json",
+      "bytes": 4385,
+      "sha256": "c61057212d281a8fda24797a939460531417dbdf904b6f33976cde8ca313c6b7"
+    },
+    {
+      "package": "mathjax-mhchem-font-extension",
+      "version": "4.1.3",
+      "archiveUrl": "https://registry.npmjs.org/@mathjax/mathjax-mhchem-font-extension/-/mathjax-mhchem-font-extension-4.1.3.tgz",
+      "archiveIntegrity": "sha512-WFx0IooitEJq1TXc9V941o8eaZdICSPn8FpsIBDdhkMhb0if61jCvk6vtQN84dlLnNEorK011NfpirMkHYygSQ==",
+      "path": "fonts/mathjax-mhchem-font-extension/svg.js",
+      "bytes": 14006,
+      "sha256": "59cbf08305ddd6bac14dbf2e2a6b3c2f3f6870107ad16d381870fdb0486eea73"
+    },
+    {
       "package": "mathjax-newcm-font",
       "version": "4.1.3",
       "archiveUrl": "https://registry.npmjs.org/@mathjax/mathjax-newcm-font/-/mathjax-newcm-font-4.1.3.tgz",

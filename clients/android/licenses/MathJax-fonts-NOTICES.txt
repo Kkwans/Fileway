@@ -11,6 +11,12 @@ that package metadata and its archive integrity/file hashes. The published
 archive contains no separate LICENSE or NOTICE file. The Apache-2.0 text is
 preserved as MathJax-Apache-2.0.txt.
 
+The official @mathjax/mathjax-mhchem-font-extension version 4.1.3 package
+also declares Apache-2.0. Its SVG chemistry glyph extension and package
+metadata are retained without alteration, with archive integrity and file
+hashes recorded in the same vendor manifest:
+https://registry.npmjs.org/@mathjax/mathjax-mhchem-font-extension/4.1.3
+
 The MathJax-NewCM glyph design is based on New Computer Modern by
 Antonis Tsolomitis and its contributors. Original font distributions have
 their own licenses (including GUST Font License and font-specific terms):

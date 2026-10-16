@@ -20,6 +20,8 @@ PACKAGES = {
         "BN/8Pkgn7G1pIDYJqd9md+JHsE/jydSYbyOZnSdSA0WziuVO8mRxdYiWFumkVVly/8U+hm9DpIIoWuvySverzw=="),
     "mathjax-newcm-font": ("https://registry.npmjs.org/@mathjax/mathjax-newcm-font/-/mathjax-newcm-font-4.1.3.tgz",
         "gzAB3dFHilHX1l5x2xUqRL+1jDQt3Fyza1DkEMVXWC4E8SvsGdlgEza47HYi2WhVcgfkvf4zgUGzuhbq3Pjlew=="),
+    "mathjax-mhchem-font-extension": ("https://registry.npmjs.org/@mathjax/mathjax-mhchem-font-extension/-/mathjax-mhchem-font-extension-4.1.3.tgz",
+        "WFx0IooitEJq1TXc9V941o8eaZdICSPn8FpsIBDdhkMhb0if61jCvk6vtQN84dlLnNEorK011NfpirMkHYygSQ=="),
 }
 EXTENSIONS = ("ams", "newcommand", "configmacros", "color", "boldsymbol", "mathtools",
     "cancel", "enclose", "mhchem", "textmacros", "braket", "bbox", "amscd", "upgreek")
@@ -66,14 +68,14 @@ def main():
             for member in tar.getmembers():
                 relative = member.name.removeprefix("package/")
                 selected = relative in CORE if name == "mathjax" else (
-                    relative in {"svg.js", "package.json"} or
+                    relative in {"svg.js", "package.json", "LICENSE", "NOTICE"} or
                     relative.startswith("svg/dynamic/") and relative.endswith(".js"))
                 if not selected:
                     continue
                 if not member.isfile() or ".." in Path(relative).parts:
                     raise SystemExit("Invalid archive member")
                 content = tar.extractfile(member).read()
-                destination = f"mathjax/{relative}" if name == "mathjax" else f"fonts/mathjax-newcm-font/{relative}"
+                destination = f"mathjax/{relative}" if name == "mathjax" else f"fonts/{name}/{relative}"
                 inventory.append({"package": name, "version": VERSION, "archiveUrl": url,
                     "archiveIntegrity": "sha512-" + sri, "path": destination,
                     "bytes": len(content), "sha256": hashlib.sha256(content).hexdigest()})
@@ -83,7 +85,19 @@ def main():
     manifest = (json.dumps({"schema": 1, "version": VERSION, "files": inventory}, ensure_ascii=False, indent=2) + "\n").encode()
     write_exact(cache / "selected-assets.json", manifest, "evidence")
     if args.write:
-        write_exact(output / "vendor-manifest.json", manifest, "source")
+        manifest_path = output / "vendor-manifest.json"
+        if manifest_path.exists() and manifest_path.read_bytes() != manifest:
+            previous = json.loads(manifest_path.read_bytes())
+            current = {entry["path"]: entry for entry in inventory}
+            # Permit only additive same-version dependencies. Existing upstream
+            # files and their provenance remain byte-for-byte unchanged.
+            if previous.get("schema") != 1 or previous.get("version") != VERSION or any(
+                    current.get(entry["path"]) != entry for entry in previous["files"]):
+                raise SystemExit("Refusing non-additive vendor manifest change")
+            gate(manifest_path, "source", "edit-file")
+            manifest_path.write_bytes(manifest)
+        else:
+            write_exact(manifest_path, manifest, "source")
     print(json.dumps({"mode": "write" if args.write else "list", "files": len(inventory),
         "bytes": sum(item["bytes"] for item in inventory), "inventory": str(cache / "selected-assets.json")}))
 
