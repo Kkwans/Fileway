@@ -28,3 +28,13 @@
   behavior. Do not rerun an unaffected gate or repeat engine/package hashes after a
   previously verified source boundary; retain only the checks needed before a
   candidate install or release.
+
+## 0.8 delivery override (user, 2026-10-16)
+
+- Prioritize remaining implementation and crash fixes. The user performs visual,
+  media and interaction acceptance; do not run full device journeys or add routine
+  unit tests to mirror UI changes. Keep necessary compilation/package checks and
+  focused diagnosis of actual blocking failures. Do not repeat baseline hashes.
+- The user explicitly authorized the 0.8 release. Preserve the original package,
+  signing identity and user data, and bind the release to an exact pushed source.
+  Report known issues honestly; perfect bug-free acceptance is not a release gate.
