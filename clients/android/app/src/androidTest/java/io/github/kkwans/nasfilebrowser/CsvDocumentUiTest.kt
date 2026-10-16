@@ -316,13 +316,13 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
             scrollUntil("CSV末行") { swipe(gutterX, screen.bottom - (64 * density).toInt(), gutterX, header.bottom + (24 * density).toInt()) }
             assertEquals("The header stays above the vertically scrolled body", header.top, visibleText("CSV列01").bounds.top)
             captureOwned("vertical-end")
-            click("源码"); setInput("单元格终点TAIL")
+            click("源码"); click("查找文档文字"); setInput("单元格终点TAIL")
             withTimeout(5000) { preview.state.first { !it.searching && it.search.matches.size == 1 } }
             visibleText("1 / 1 处匹配"); click("复制全文"); assertEquals(source, copiedText())
             assertArrayEquals(original, fixture.files.getValue(fixture.sourceWire)); assertTrue(fixture.writes.isEmpty())
-            click("表格"); delimiterState("逗号")
-            click("下载文档"); main { assertEquals(1, downloads) }
-            click("编辑文本"); visibleText("文本内容")
+            click("关闭文档查找"); click("表格"); delimiterState("逗号")
+            click("文档操作"); click("下载文档"); main { assertEquals(1, downloads) }
+            click("文档操作"); click("编辑文本"); visibleText("文本内容")
             assertEquals(documentEditorText(opened.text!!), editor.state.value.draft)
             val edited = source.replace("CSV末行", "CSV新末行")
             setInput(edited.replace("\r\n", "\n"))
@@ -358,18 +358,20 @@ internal class CsvDocumentUiTest : LibraryUiHarness() {
                 DocumentPreviewScreen(preview, {}, { error("Readonly download must remain disabled") }, canDownload = false)
             } } } }
             fun permissions() {
+                click("文档操作")
                 await("readonly controls") { nodes ->
                     nodes.none { it.visible && it.description == "编辑文本" } &&
                         nodes.any { it.visible && it.description == "下载文档" && !it.enabled }
                 }
+                device.pressBack()
             }
             main { preview.bind(owner); preview.open(fixture.file, owner.api.id) }
             withTimeout(5000) { preview.state.first { !it.loading && it.text != null } }
             visibleText("查看完整源码"); permissions()
-            click("查看完整源码"); setInput("1,2")
+            click("查看完整源码"); click("查找文档文字"); setInput("1,2")
             withTimeout(5000) { preview.state.first { !it.searching && it.search.matches.size == 1 } }
             visibleText("1 / 1 处匹配"); click("复制全文"); assertEquals(source, copiedText()); permissions()
-            click("表格"); chooseDelimiter("分号")
+            click("关闭文档查找"); click("表格"); chooseDelimiter("分号")
             visibleText("a,b"); visibleText("1,2"); captureOwned("readonly-semicolon")
             click("首行作为表头"); checked("首行作为表头", false)
             visibleText("列 1"); visibleText("列 2"); visibleText("a,b"); visibleText("1,2")

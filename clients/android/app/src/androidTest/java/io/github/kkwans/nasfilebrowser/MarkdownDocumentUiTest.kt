@@ -392,13 +392,15 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             click("横向滚动代码"); action("自动换行代码")
             click("自动换行代码"); action("横向滚动代码")
             click("源码"); text("UTF-8 · 只读")
+            click("查找文档文字")
             val input = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5000) ?: error("Missing source search")
             input.text = "needle"
             withTimeout(5000) { controller.state.first { !it.searching && it.search.matches.size == 2 } }
             text("1 / 2 处匹配")
             click("复制全文"); assertEquals(source, copiedText())
+            click("关闭文档查找")
             click("阅读"); text("Owned heading")
-            click("编辑文本"); click("下载文档")
+            click("文档操作"); click("编辑文本"); click("文档操作"); click("下载文档")
             instrumentation.runOnMainSync { assertSame(opened.text, edited); assertEquals(1, downloads) }
             assertEquals(source, controller.state.value.text!!.text)
             assertTrue(fixture.writes.isEmpty())
@@ -424,8 +426,11 @@ internal class MarkdownDocumentUiTest : LibraryUiHarness() {
             withTimeout(5000) { controller.state.first { !it.loading && it.text != null } }
             text("Markdown 超过 2 MiB 阅读渲染上限，已显示完整源码；原文件未改变。")
             text("UTF-8 · 只读")
+            click("文档操作")
             assertFalse(device.hasObject(By.desc("编辑文本")))
             assertFalse(action("下载文档").isEnabled)
+            device.pressBack()
+            click("查找文档文字")
             val input = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5000) ?: error("Missing fallback search")
             input.text = "tail-owned"
             withTimeout(5000) { controller.state.first { !it.searching && it.search.matches.size == 1 } }

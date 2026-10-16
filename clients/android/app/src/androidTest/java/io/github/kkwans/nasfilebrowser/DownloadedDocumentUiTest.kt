@@ -70,6 +70,8 @@ private class DownloadedDocumentRequestCounter(upstream: String) : AutoCloseable
 @RunWith(AndroidJUnit4::class)
 internal class DownloadedDocumentUiTest : LibraryUiHarness() {
     private suspend fun clickDisabledDownloadAndProveNoEffects(counter: DownloadedDocumentRequestCounter) {
+        action("文档操作").click()
+        assertNull(device.findObject(By.desc("编辑文本")))
         val icon = device.wait(Until.findObject(By.desc("下载文档")), 5000) ?: error("Missing document toolbar")
         val ancestors = generateSequence(icon) { it.parent }.take(10).toList()
         val semantics = ancestors.joinToString(" > ") { "${it.className}(enabled=${it.isEnabled},clickable=${it.isClickable})" }
@@ -98,7 +100,7 @@ internal class DownloadedDocumentUiTest : LibraryUiHarness() {
             assertEquals("No rejected download callback should run either", error, model.downloads.state.value.error)
             assertEquals(notice, model.downloads.state.value.notice)
             assertTrue("Local document touch sent NAS requests: ${counter.requests}", counter.requests.isEmpty())
-        } finally { counter.recording = false }
+        } finally { counter.recording = false; device.pressBack() }
     }
     @Test fun completedTextAndPdfOpenInsideAppAndBackReturnsToDownloads(): Unit = runBlocking {
         val context = instrumentation.targetContext
@@ -126,10 +128,13 @@ internal class DownloadedDocumentUiTest : LibraryUiHarness() {
             text("UTF-8 · 只读")
             assertNull(device.findObject(By.desc("编辑文本")))
             clickDisabledDownloadAndProveNoEffects(counter)
+            action("查找文档文字").click()
             val search = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5000) ?: error("Missing local text search")
             search.text = "needle"
             withTimeout(5000) { model.documents.state.first { !it.searching && it.search.matches.size == 2 } }
             text("1 / 2 处匹配")
+            action("关闭文档查找").click()
+            awaitKeyboardHidden()
             action("关闭文档").click(); text("本机下载")
             assertEquals("downloads", model.state.value.tab)
             action("打开下载：${pdfRow.name}").click()

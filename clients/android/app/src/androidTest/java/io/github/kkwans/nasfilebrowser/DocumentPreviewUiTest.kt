@@ -51,6 +51,8 @@ internal class DocumentPreviewUiTest : LibraryUiHarness() {
             main { controller.bind(owner); controller.open(file, api.id) }
             withTimeout(5000) { controller.state.first { it.text != null && !it.loading } }
             text("notes.txt"); text("UTF-8 · 只读")
+            assertFalse(device.hasObject(By.clazz("android.widget.EditText")))
+            action("查找文档文字").click()
             val input = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5000) ?: error("Missing text search")
             input.text = "needle"
             withTimeout(5000) { controller.state.first { !it.searching && it.search.matches.size == 2 } }
@@ -60,7 +62,11 @@ internal class DocumentPreviewUiTest : LibraryUiHarness() {
                 val clipboard = instrumentation.targetContext.getSystemService(ClipboardManager::class.java)
                 assertEquals(bytes.toString(Charsets.UTF_8), clipboard.primaryClip!!.getItemAt(0).text.toString())
             }
-            action("下载文档").click(); action("关闭文档").click()
+            action("关闭文档查找").click()
+            awaitKeyboardHidden()
+            assertFalse(device.hasObject(By.clazz("android.widget.EditText")))
+            assertEquals("needle", controller.state.value.query)
+            action("文档操作").click(); action("下载文档").click(); action("关闭文档").click()
             instrumentation.runOnMainSync { assertEquals(1, downloads); assertEquals(1, closed) }
             assertNull(controller.state.value.file)
         } finally { main { controller.close() }; scope.cancel() }

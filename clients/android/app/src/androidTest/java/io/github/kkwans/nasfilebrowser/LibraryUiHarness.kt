@@ -2,6 +2,8 @@ package io.github.kkwans.nasfilebrowser
 
 import android.os.SystemClock
 import androidx.lifecycle.ViewModelProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.*
@@ -20,6 +22,16 @@ internal open class LibraryUiHarness {
     protected val device get() = UiDevice.getInstance(instrumentation)
     protected lateinit var model: ClientModel
     protected suspend fun main(action: () -> Unit) = withContext(Dispatchers.Main) { action() }
+    protected suspend fun awaitKeyboardHidden() = withTimeout(5000) {
+        while (true) {
+            var hidden = false
+            activity.scenario.onActivity { host ->
+                hidden = ViewCompat.getRootWindowInsets(host.window.decorView)?.isVisible(WindowInsetsCompat.Type.ime()) == false
+            }
+            if (hidden) break
+            delay(50)
+        }
+    }
     protected fun text(label: String): UiObject2 { device.waitForIdle(); return device.wait(Until.findObject(By.text(label)), 5000) ?: missing(label) }
     protected fun action(label: String): UiObject2 { device.waitForIdle(); return device.wait(Until.findObject(By.desc(label)), 5000) ?: missing(label) }
     /** Opt-in readiness query; a caller performs exactly one click after this

@@ -22,6 +22,13 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.font.FontFamily
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -43,6 +50,7 @@ import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.DocumentPreviewController
 import io.github.kkwans.nasfilebrowser.app.DocumentPreviewState
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
+import io.github.kkwans.nasfilebrowser.app.FileCategory
 import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
@@ -55,16 +63,34 @@ import kotlin.math.roundToInt
     onEdit: ((ResourceRef, DocumentText) -> Unit)? = null, imageCache: CacheController? = null) {
     val state by controller.state.collectAsStateWithLifecycle()
     val file = state.file ?: return
-    fun leave() { controller.close(); onClose() }
+    val view = LocalView.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    var menu by remember(state.scope, file.wirePath) { mutableStateOf(false) }
+    var info by remember(state.scope, file.wirePath) { mutableStateOf(false) }
+    fun leave() {
+        if (ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true) {
+            focus.clearFocus(); keyboard?.hide(); return
+        }
+        controller.close(); onClose()
+    }
     BackHandler { leave() }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
-            FilewayTopAppBar(file.name, "${fileTypeLabel(file)} · ${if (state.loading) "读取中" else "只读"}", R.drawable.ic_arrow_back, "关闭文档", ::leave, actions = {
-                if (onEdit != null && state.text != null) DocumentIcon(R.drawable.ic_edit, "编辑文本", enabled = !state.loading) {
-                    state.text?.let { onEdit(file, it) }
+            val summary = if (state.loading) "读取中" else if (state.kind == DocumentPreviewKind.TEXT) null else "${fileTypeLabel(file)} · 只读"
+            FilewayTopAppBar(file.name, summary, R.drawable.ic_arrow_back, "关闭文档", ::leave, actions = {
+                Box {
+                    DocumentIcon(R.drawable.ic_more_vert, "文档操作") { focus.clearFocus(); keyboard?.hide(); menu = true }
+                    DropdownMenu(menu, { menu = false }) {
+                        if (onEdit != null && state.text != null) DocumentMenuAction(R.drawable.ic_edit, "编辑文本", enabled = !state.loading) {
+                            menu = false; state.text?.let { onEdit(file, it) }
+                        }
+                        DocumentMenuAction(R.drawable.ic_refresh, "重新读取文档", enabled = !state.loading) { menu = false; controller.retry() }
+                        DocumentMenuAction(R.drawable.ic_download, "下载文档", enabled = canDownload) { menu = false; onDownload(file) }
+                        DocumentMenuAction(R.drawable.ic_info, "文档信息") { menu = false; info = true }
+                        if (onOpenExternal != null) DocumentMenuAction(R.drawable.ic_arrow_forward, "使用系统应用打开已下载文件") { menu = false; onOpenExternal(file) }
+                    }
                 }
-                DocumentIcon(R.drawable.ic_refresh, "重新读取文档", enabled = !state.loading) { controller.retry() }
-                DocumentIcon(R.drawable.ic_download, "下载文档", enabled = canDownload) { onDownload(file) }
             })
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { message ->
@@ -94,9 +120,30 @@ import kotlin.math.roundToInt
                     Button({ onDownload(file) }, enabled = canDownload) { Text("下载文件") }
                 }
             }
-            if (onOpenExternal != null) TextButton({ onOpenExternal(file) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("使用系统应用打开已下载文件") }
         }
     }
+    if (info) FileOperationSheet("文档信息", { info = false }, footer = { TextButton({ info = false }) { Text("关闭") } }) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SelectionContainer {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(file.name, style = MaterialTheme.typography.titleMedium)
+                    Text(file.path, style = MaterialTheme.typography.bodyMedium)
+                    Text("${fileTypeLabel(file)} · ${readableSize(file.size)}", style = MaterialTheme.typography.bodySmall)
+                    Text(displayModified(file.modified) ?: "未提供修改时间", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable private fun DocumentMenuAction(icon: Int, label: String, enabled: Boolean = true, click: () -> Unit) {
+    DropdownMenuItem(text = { Text(label) }, onClick = click, enabled = enabled,
+        leadingIcon = { Icon(painterResource(icon), null, Modifier.size(22.dp)) },
+        modifier = Modifier.heightIn(min = 48.dp).clearAndSetSemantics {
+            contentDescription = label
+            role = Role.Button
+            if (enabled) onClick { click(); true } else disabled()
+        })
 }
 
 @Composable private fun DocumentIcon(icon: Int, label: String, enabled: Boolean = true, click: () -> Unit) {
@@ -123,6 +170,7 @@ import kotlin.math.roundToInt
     key(state.scope, file.mediaKey, document) {
         var sourceMode by rememberSaveable { mutableStateOf(false) }
         var outlineOpen by rememberSaveable { mutableStateOf(false) }
+        val modeState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
         val preview by produceState<MarkdownPreview?>(null) {
             value = withContext(Dispatchers.Default) { markdownPreview(document) }
         }
@@ -141,8 +189,8 @@ import kotlin.math.roundToInt
         }
         fallback?.let { Text(it.reason, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (showSource) DocumentSourceContent(controller, state)
-        else {
+        if (showSource) modeState.SaveableStateProvider("markdown-source") { DocumentSourceContent(controller, state) }
+        else modeState.SaveableStateProvider("markdown-reading") {
             val reading = preview as? MarkdownPreview.Reading
             if (reading == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
@@ -177,7 +225,7 @@ import kotlin.math.roundToInt
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (sourceMode) DocumentSourceContent(controller, state)
+        if (sourceMode) tableState.SaveableStateProvider("csv-source") { DocumentSourceContent(controller, state) }
         else tableState.SaveableStateProvider("csv-table") {
             CsvReader(document, file.name, { sourceMode = true }, Modifier.weight(1f).fillMaxWidth())
         }
@@ -187,19 +235,23 @@ import kotlin.math.roundToInt
 @Composable private fun ColumnScope.DocumentSourceContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
     val document = state.text ?: return
     val clipboard = LocalClipboardManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val focus = LocalFocusManager.current
+    val findFocus = remember { FocusRequester() }
+    var findOpen by rememberSaveable(state.scope, state.file?.wirePath) { mutableStateOf(false) }
     var copied by remember(document) { mutableStateOf(false) }
     var copyError by remember(document) { mutableStateOf(false) }
     val list = key(state.scope, state.file?.wirePath) { rememberLazyListState() }
     val active = state.search.matches.getOrNull(state.matchIndex)
     var matchOffset by remember(active, document) { mutableStateOf<Int?>(null) }
-    LaunchedEffect(active, document) {
-        if (active != null) {
+    LaunchedEffect(active, document, findOpen) {
+        if (findOpen && active != null) {
             val index = document.blocks.indexOfLast { it.start <= active.start }
             if (index >= 0) list.scrollToItem(index)
         }
     }
-    LaunchedEffect(active, matchOffset, document) {
-        if (active != null && matchOffset != null) {
+    LaunchedEffect(active, matchOffset, document, findOpen) {
+        if (findOpen && active != null && matchOffset != null) {
             val index = document.blocks.indexOfLast { it.start <= active.start }
             if (index >= 0) list.scrollToItem(index, matchOffset!!)
         }
@@ -210,36 +262,45 @@ import kotlin.math.roundToInt
             try { clipboard.setText(AnnotatedString(document.text)); copied = true; copyError = false }
             catch (_: Exception) { copyError = true }
         }, enabled = document.text.length <= 131_072) { Text(if (copied) "已复制全文" else "复制全文") }
+        DocumentIcon(if (findOpen) R.drawable.ic_close else R.drawable.ic_search,
+            if (findOpen) "关闭文档查找" else "查找文档文字") {
+            findOpen = !findOpen
+            if (!findOpen) { focus.clearFocus(); keyboard?.hide() }
+        }
     }
     if (copyError) Text("无法复制全文，请长按选择需要的文字。", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
     if (document.text.length > 131_072) Text("全文较长，请长按选择需要的文字后复制。", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        OutlinedTextField(state.query, controller::search, Modifier.weight(1f), label = { Text("查找文档文字") }, singleLine = true,
+    if (findOpen) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        LaunchedEffect(Unit) { findFocus.requestFocus(); keyboard?.show() }
+        OutlinedTextField(state.query, controller::search, Modifier.weight(1f).focusRequester(findFocus), label = { Text("查找文档文字") }, singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { controller.nextMatch(1) }))
         IconButton({ controller.nextMatch(-1) }, enabled = state.search.matches.isNotEmpty(), modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "上一个匹配") }
         IconButton({ controller.nextMatch(1) }, enabled = state.search.matches.isNotEmpty(), modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_forward), "下一个匹配") }
     }
-    if (state.query.isNotEmpty()) Text(state.searchError ?: if (state.searching) "正在查找…" else if (state.search.matches.isEmpty()) "没有匹配文字"
+    if (findOpen && state.query.isNotEmpty()) Text(state.searchError ?: if (state.searching) "正在查找…" else if (state.search.matches.isEmpty()) "没有匹配文字"
         else "${state.matchIndex + 1} / ${state.search.matches.size}${if (state.search.truncated) "+" else ""} 处匹配",
         Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     val highlight = MaterialTheme.colorScheme.primaryContainer
     val selected = MaterialTheme.colorScheme.tertiaryContainer
+    val file = state.file
+    val monospace = file != null && (FileCategory.CODE.matches(file.name, false) || FileCategory.CONFIG.matches(file.name, false) || isMarkdownDocument(file) || isCsvDocument(file))
+    val sourceStyle = if (monospace) MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace) else MaterialTheme.typography.bodyLarge
     SelectionContainer(Modifier.weight(1f).fillMaxWidth()) {
         LazyColumn(Modifier.fillMaxSize().semantics { contentDescription = "文档文本内容" }, state = list,
             contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             if (document.text.isEmpty()) item { Text("文件内容为空", color = MaterialTheme.colorScheme.onSurfaceVariant) }
             itemsIndexed(document.blocks, key = { _, block -> block.start }) { _, block ->
-                val value = remember(block, state.search, active, highlight, selected) {
+                val value = remember(block, state.search, active, highlight, selected, findOpen) {
                     AnnotatedString.Builder(block.text.removeSuffix("\n")).apply {
-                        state.search.matches.forEach { match ->
+                        if (findOpen) state.search.matches.forEach { match ->
                             val from = (match.start - block.start).coerceIn(0, length)
                             val to = (match.end - block.start).coerceIn(0, length)
                             if (from < to) addStyle(SpanStyle(background = if (match == active) selected else highlight), from, to)
                         }
                     }.toAnnotatedString()
                 }
-                Text(value, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyLarge, onTextLayout = { layout ->
-                    if (active != null && active.start >= block.start && active.start < block.start + block.text.length && value.isNotEmpty())
+                Text(value, Modifier.fillMaxWidth(), style = sourceStyle, onTextLayout = { layout ->
+                    if (findOpen && active != null && active.start >= block.start && active.start < block.start + block.text.length && value.isNotEmpty())
                         matchOffset = layout.getBoundingBox((active.start - block.start).coerceAtMost(value.lastIndex)).top.toInt().coerceAtLeast(0)
                 })
             }

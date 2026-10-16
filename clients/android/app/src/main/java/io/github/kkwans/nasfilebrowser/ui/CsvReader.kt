@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -24,6 +25,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.kkwans.nasfilebrowser.data.CsvDelimiter
@@ -135,18 +137,17 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
                     Text("表格为空，可切换源码查看。", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } else key(table.delimiter, firstRowHeader) {
                     val horizontal = rememberScrollState()
-                    Box(Modifier.weight(1f).fillMaxWidth().horizontalScroll(horizontal).padding(horizontal = 16.dp)) {
-                        // The header and lazy body share one horizontal coordinate system.
-                        Column(Modifier.width(48.dp + 160.dp * table.columns)) {
-                            CsvRow(headers, "#", header = true, alternate = false)
-                            LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
-                                itemsIndexed(rows, key = { index, _ -> index }) { index, cells ->
-                                    CsvRow(List(table.columns) { cells.getOrElse(it) { "" } }, "${index + 1}",
-                                        header = false, alternate = index % 2 == 1)
-                                }
-                                if (rows.isEmpty()) item {
-                                    Text("只有表头，暂无数据行。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                    Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp)) {
+                        // Only equally wide data rows move horizontally. Header and
+                        // body share the offset; row numbers remain in place.
+                        CsvRow(headers, "#", header = true, alternate = false, horizontal = horizontal)
+                        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                            itemsIndexed(rows, key = { index, _ -> index }) { index, cells ->
+                                CsvRow(List(table.columns) { cells.getOrElse(it) { "" } }, "${index + 1}",
+                                    header = false, alternate = index % 2 == 1, horizontal = horizontal)
+                            }
+                            if (rows.isEmpty()) item {
+                                Text("只有表头，暂无数据行。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -157,7 +158,7 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
 }
 
 @Composable
-private fun CsvRow(cells: List<String>, number: String, header: Boolean, alternate: Boolean) {
+private fun CsvRow(cells: List<String>, number: String, header: Boolean, alternate: Boolean, horizontal: ScrollState) {
     val background = when {
         header -> MaterialTheme.colorScheme.surfaceContainerHigh
         alternate -> MaterialTheme.colorScheme.surfaceContainerLow
@@ -165,16 +166,18 @@ private fun CsvRow(cells: List<String>, number: String, header: Boolean, alterna
     }
     Column(Modifier.fillMaxWidth().background(background)) {
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-            Box(Modifier.width(48.dp).fillMaxHeight().padding(8.dp), contentAlignment = Alignment.TopCenter) {
-                Text(number, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Box(Modifier.width(48.dp).fillMaxHeight().padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.TopCenter) {
+                Text(number, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace, fontSize = 13.sp, lineHeight = 22.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            cells.forEachIndexed { column, value ->
-                SelectionContainer(Modifier.width(160.dp).heightIn(min = 48.dp, max = if (header) 96.dp else 320.dp)
-                    .semantics { contentDescription = "第 ${column + 1} 列"; if (header) heading() }) {
-                    Box(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(12.dp)) {
-                        Text(value, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
-                            fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
-                            color = MaterialTheme.colorScheme.onSurface)
+            Row(Modifier.weight(1f).horizontalScroll(horizontal).height(IntrinsicSize.Min)) {
+                cells.forEachIndexed { column, value ->
+                    SelectionContainer(Modifier.width(160.dp).heightIn(min = 48.dp, max = if (header) 96.dp else 320.dp)
+                        .semantics { contentDescription = "第 ${column + 1} 列"; if (header) heading() }) {
+                        Box(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(12.dp)) {
+                            Text(value, style = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 22.sp),
+                                fontWeight = if (header) FontWeight.SemiBold else FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurface)
+                        }
                     }
                 }
             }
