@@ -33,8 +33,8 @@ android {
         applicationId = "io.github.kkwans.nasfilebrowser"
         minSdk = 29
         targetSdk = 37
-        versionCode = 17
-        versionName = "0.7.7-preview"
+        versionCode = 18
+        versionName = "0.8.0-preview"
         // AGP reads test versionCode before placeholder expansion. Keep the
         // explicit test metadata aligned so upgrades never fall back to code 0.
         val testManifest = file("src/androidTest/AndroidManifest.xml").readText()
