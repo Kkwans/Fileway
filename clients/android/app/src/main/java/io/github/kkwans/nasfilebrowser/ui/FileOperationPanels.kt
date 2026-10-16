@@ -28,6 +28,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 /** One object's foreground. The details owner survives while its child window is shown. */
 internal enum class FileOperationDestination { DETAILS, RENAME, TAGS, CHECKSUM, FAVORITE, TRASH }
 internal class FileOperationForeground {
+    var onClosed: () -> Unit = {}
+    fun close() { onClosed(); onClosed = {} }
     var destination by mutableStateOf(FileOperationDestination.DETAILS)
         private set
     var revision by mutableIntStateOf(0)

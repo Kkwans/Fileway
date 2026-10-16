@@ -84,7 +84,8 @@ import kotlinx.coroutines.withTimeout
     val favorites by model.favorites.state.collectAsStateWithLifecycle()
     val operations by model.fileOperations.state.collectAsStateWithLifecycle()
     val checksum by model.fileChecksum.state.collectAsStateWithLifecycle()
-    val foreground = LocalFileOperationForeground.current ?: remember(file.mediaKey, operations.scope) { FileOperationForeground() }
+    val parentForeground = LocalFileOperationForeground.current
+    val foreground = parentForeground ?: remember(file.mediaKey, operations.scope) { FileOperationForeground() }
     val context = LocalContext.current
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
@@ -92,11 +93,13 @@ import kotlinx.coroutines.withTimeout
     var more by remember(file.mediaKey, operations.scope) { mutableStateOf(false) }
     val initialScope = remember(file.mediaKey) { operations.scope }
     LaunchedEffect(operations.scope) { if (operations.scope != initialScope) { more = false; foreground.back(); onMoved() } }
-    // This owner is retained across details/child windows. It is no longer a toolbar cleanup.
-    DisposableEffect(file.mediaKey, operations.scope) {
+    // Cleanup belongs to the stable details owner, not to a toolbar that is
+    // removed when the operation opens in another Dialog composition.
+    SideEffect {
         val scope = operations.scope
-        onDispose { if (model.fileChecksum.state.value.scope == scope && model.fileChecksum.state.value.file?.mediaKey == file.mediaKey) model.fileChecksum.close() }
+        foreground.onClosed = { if (model.fileChecksum.state.value.scope == scope && model.fileChecksum.state.value.file?.mediaKey == file.mediaKey) model.fileChecksum.close() }
     }
+    if (parentForeground == null) DisposableEffect(foreground) { onDispose { foreground.close() } }
     fun switch(destination: FileOperationDestination, action: String) {
         more = false; focus.clearFocus(); keyboard?.hide(); foreground.open(destination, action)
     }
@@ -104,13 +107,11 @@ import kotlinx.coroutines.withTimeout
     fun leave() { more = false; focus.clearFocus(); keyboard?.hide(); onMoved() }
     val enabled = !trash.changing && !client.busy && !operations.changing
     CompositionLocalProvider(LocalFileOperationForeground provides foreground) {
-        // Favorite action owns its draft outside the toolbar branch, so changing windows preserves it.
-        val favoriteSlot = remember(file.mediaKey, operations.scope) { movableContentOf<Boolean> { currentEnabled -> FavoriteFileAction(model, file, currentEnabled) } }
         if (foreground.destination == FileOperationDestination.DETAILS) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Surface(color = FilewayTheme.colors.surfaceContainerLow, shape = MaterialTheme.shapes.small) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                        favoriteSlot(enabled)
+                        FavoriteFileAction(model, file, enabled)
                         FileActionIcon(R.drawable.ic_tag, "设置文件标签", enabled && !tags.changing, model.tags.assigned(file).isNotEmpty(), caption = "标签") {
                             switch(FileOperationDestination.TAGS, "设置文件标签")
                         }
@@ -120,8 +121,8 @@ import kotlinx.coroutines.withTimeout
                             if (!file.directory && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
                                 notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                         }
-                        if (client.permissions.delete && file.path != "/") FileActionIcon(R.drawable.ic_trash, "移入回收站", enabled && !tags.changing, caption = "回收站") {
-                            switch(FileOperationDestination.TRASH, "移入回收站")
+                        if (client.permissions.delete && file.path != "/") FileActionIcon(R.drawable.ic_trash, "删除", enabled && !tags.changing, caption = "删除") {
+                            switch(FileOperationDestination.TRASH, "删除")
                         }
                         if (file.path != "/" && (client.permissions.rename || client.permissions.create || client.permissions.download)) Box {
                             FileActionIcon(R.drawable.ic_more_vert, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
@@ -154,7 +155,7 @@ import kotlinx.coroutines.withTimeout
                 operations.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
             }
         } else {
-            Box(Modifier.size(0.dp)) { favoriteSlot(enabled) }
+            Box(Modifier.size(0.dp)) { FavoriteFileAction(model, file, enabled) }
         }
         when (foreground.destination) {
             FileOperationDestination.TAGS -> FileTagPicker(model, file, ::back)
@@ -162,16 +163,19 @@ import kotlinx.coroutines.withTimeout
                 model.fileChecksum.close(); back()
             }, back = true) else LaunchedEffect(Unit) { back() }
             FileOperationDestination.RENAME -> FileRenameDialog(model, file, ::back) { back(); onMoved() }
-            FileOperationDestination.TRASH -> FileOperationDialog("移入回收站？", ::back, canDismiss = !trash.changing, footer = {
-                TextButton(::back, enabled = !trash.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
-                Button({ model.trash.move(file) { back(); onMoved() } }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
+            FileOperationDestination.TRASH -> FileOperationDialog("删除文件？", ::back, canDismiss = !trash.changing, footer = {
+                TextButton({ model.trash.permanentlyDeleteResource(file) { back(); onMoved() } },
+                    enabled = enabled && !trash.permanentResultUnknown, modifier = Modifier.heightIn(min = 48.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = FilewayTheme.colors.error)) { Text("永久删除") }
+                Button({ model.trash.move(file) { back(); onMoved() } }, enabled = enabled && !trash.permanentResultUnknown, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(if (trash.changing) "正在移动" else "移入回收站")
                 }
             }) {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     SelectionContainer { Text(file.name, style = FilewayTheme.text.fileName) }
                     FileOperationLocation("原位置", file.path)
-                    Text("可从回收站恢复。收藏和标签会随服务端操作同步。", style = MaterialTheme.typography.bodyMedium)
+                    Text("移入回收站后可以恢复；永久删除不会进入回收站，执行后无法恢复。", style = MaterialTheme.typography.bodyMedium)
+                    Text("永久删除提交为后台任务，开始前有短暂撤销窗口，可在任务中心查看。", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
                     trash.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
                 }
             }

@@ -18,9 +18,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 @Composable internal fun FileDetailsDialog(file: ResourceRef, showSize: Boolean = true, onOpen: (() -> Unit)? = null,
     openEnabled: Boolean = true, onLocation: (() -> Unit)? = null, actions: (@Composable () -> Unit)? = null, onDismiss: () -> Unit) {
     val foreground = remember(file.mediaKey) { FileOperationForeground() }
-    val currentActions by rememberUpdatedState(actions)
-    // Moving the slot preserves its lifecycle, launcher and child drafts, while the old window is removed.
-    val retainedActions = remember(file.mediaKey) { movableContentOf { currentActions?.invoke() } }
+    // Dialog has its own composition. Moving movableContent between that owner
+    // and the screen corrupts Compose's slot groups when opening child actions.
+    DisposableEffect(foreground) { onDispose { foreground.close() } }
     val scroll = rememberScrollState()
     @Composable fun field(label: String, value: String) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -42,7 +42,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                     .semantics { contentDescription = "文件详情内容" }, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     field("名称", file.name)
                     FileOperationLocation("位置", file.path)
-                    retainedActions()
+                    actions?.invoke()
                     HorizontalDivider(color = FilewayTheme.colors.outlineVariant)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                         Column(Modifier.weight(1f)) { field("类型", fileTypeLabel(file)) }
@@ -53,7 +53,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
             }
         } else {
             // No old Modal window, touch target or accessibility tree remains behind the child.
-            Box(Modifier.size(0.dp).clearAndSetSemantics {}) { retainedActions() }
+            Box(Modifier.size(0.dp).clearAndSetSemantics {}) { actions?.invoke() }
         }
     }
 }

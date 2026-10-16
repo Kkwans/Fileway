@@ -15,7 +15,8 @@ data class TrashItem(val id: String, val userId: Long, val owner: String, val pa
 }
 data class TrashState(val scope: String = "", val items: List<TrashItem> = emptyList(), val loaded: Boolean = false,
     val loading: Boolean = false, val changing: Boolean = false, val error: String? = null, val notice: String? = null,
-    val permissions: ServerPermissions = ServerPermissions(), val conflict: TrashItem? = null, val lastTask: ServerTask? = null)
+    val permissions: ServerPermissions = ServerPermissions(), val conflict: TrashItem? = null, val lastTask: ServerTask? = null,
+    val permanentResultUnknown: Boolean = false)
 private data class TrashResult(val notice: String, val task: ServerTask? = null, val moved: ResourceRef? = null, val restored: String? = null)
 
 class TrashController(private val scope: CoroutineScope, private val isCurrent: (SessionContext) -> Boolean,
@@ -67,7 +68,7 @@ class TrashController(private val scope: CoroutineScope, private val isCurrent: 
             }
         }
     }
-    private fun change(done: (() -> Unit)? = null, action: suspend (SessionContext) -> TrashResult) {
+    private fun change(done: (() -> Unit)? = null, uncertainOnFailure: () -> Boolean = { false }, action: suspend (SessionContext) -> TrashResult) {
         val context = bound ?: return
         if (!current(context) || mutable.value.changing) return
         reads?.cancel(); revision++
@@ -82,8 +83,13 @@ class TrashController(private val scope: CoroutineScope, private val isCurrent: 
                 val rows = list(context); val permissions = context.api.permissions()
                 if (current(context)) mutable.value = mutable.value.copy(items = rows, loaded = true, permissions = permissions, changing = false)
             } catch (error: Exception) {
-                if (error !is CancellationException && current(context)) mutable.value = mutable.value.copy(changing = false,
-                    error = if (applied != null) "操作已保存，列表刷新失败，请刷新查看实际状态" else error.message ?: "回收站操作失败，请重试")
+                if (error !is CancellationException && current(context)) {
+                    val unknown = applied == null && uncertainOnFailure() && (error !is ServiceException || error.status >= 500)
+                    mutable.value = mutable.value.copy(changing = false,
+                        permanentResultUnknown = mutable.value.permanentResultUnknown || unknown,
+                        error = if (unknown) "删除提交结果未确认，请先在任务中心核对，勿重复提交"
+                            else if (applied != null) "操作已保存，列表刷新失败，请刷新查看实际状态" else error.message ?: "回收站操作失败，请重试")
+                }
             }
         }
     }
@@ -135,6 +141,21 @@ class TrashController(private val scope: CoroutineScope, private val isCurrent: 
         TrashResult(if (skipped) "已跳过，项目仍在回收站" else "已恢复到 $path", restored = path.takeUnless { skipped })
     }
     fun closeConflict() { mutable.value = mutable.value.copy(conflict = null) }
+    fun permanentlyDeleteResource(file: ResourceRef, done: () -> Unit) {
+        if (mutable.value.permanentResultUnknown) return
+        var submitted = false
+        change(done, uncertainOnFailure = { submitted }) { context ->
+            require(file.path != "/" && file.path.startsWith('/') && file.downloadId.isEmpty()) { "请选择服务器文件，不能永久删除根目录" }
+            check(context.api.permissions().delete) { "当前账号没有永久删除权限" }
+            check(current(context)) { "文件来源已切换，请重新选择" }
+            val target = recentAccessRecordTarget(file)
+            val body = JSONObject().put("kind", "resources").put("wirePaths", JSONArray().put(target.wirePath))
+            if (target.legacyCompatible) body.put("paths", JSONArray().put(target.path))
+            submitted = true
+            val task = ServerTask.from(context.api.action("POST", "/api/deletions/pending", body))
+            TrashResult("永久删除任务已提交，开始前可以在任务中心撤销", task = task)
+        }
+    }
     fun permanentlyDelete(ids: List<String>, all: Boolean = false) = change { context ->
         check(context.api.permissions().delete) { "当前账号没有永久删除权限" }
         require(all || ids.isNotEmpty())
