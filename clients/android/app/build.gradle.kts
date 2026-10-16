@@ -35,6 +35,11 @@ android {
         targetSdk = 37
         versionCode = 17
         versionName = "0.7.7-preview"
+        // AGP reads test versionCode before placeholder expansion. Keep the
+        // explicit test metadata aligned so upgrades never fall back to code 0.
+        val testManifest = file("src/androidTest/AndroidManifest.xml").readText()
+        require(testManifest.contains("android:versionCode=\"$versionCode\"")) { "Align androidTest manifest versionCode with the app" }
+        require(testManifest.contains("android:versionName=\"$versionName\"")) { "Align androidTest manifest versionName with the app" }
         buildConfigField("boolean", "NATIVE_VERBOSE", "false")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // External control-plane acceptance runs explicitly through adb.
