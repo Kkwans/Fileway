@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,6 +33,7 @@ import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
 import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.core.NativeTransport
 import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
@@ -52,6 +52,15 @@ import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
 import kotlin.math.abs
 
 @Composable internal fun ImageScreen(model: ClientModel, file: ResourceRef) {
+    FilewayTheme(darkTheme = true) {
+        Surface(Modifier.fillMaxSize(), color = Color.Black, contentColor = FilewayTheme.status.mediaContent) {
+            ImageViewerContent(model, file)
+        }
+    }
+}
+
+@Composable private fun ImageViewerContent(model: ClientModel, file: ResourceRef) {
+    val media = FilewayTheme.status
     val client by model.state.collectAsStateWithLifecycle()
     val queue = client.mediaQueue
     key(client.previewScope, queue?.snapshotId ?: file.mediaKey) {
@@ -69,7 +78,7 @@ import kotlin.math.abs
         LaunchedEffect(pager.settledPage) {
             model.navigateMedia(pager.settledPage)
         }
-        Scaffold(containerColor = Color(0xFF141416)) { padding ->
+        Scaffold(containerColor = Color.Black) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).background(Color.Black)) {
                 HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1,
                     userScrollEnabled = !zoomed, key = { entries[it].mediaKey }) { index ->
@@ -79,21 +88,21 @@ import kotlin.math.abs
                         onClick = { chrome = !chrome }, onZoom = { zoomedPages[entries[index].mediaKey] = it })
                 }
                 if (chrome) {
-                    Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color(0xDC141416)), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = model::closeImage) { Icon(painterResource(R.drawable.ic_arrow_back), "返回文件", tint = Color.White) }
-                        Text(current.name, Modifier.weight(1f).clickable { details = current }.padding(vertical = 12.dp),
-                            color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(media.mediaSurface.copy(alpha = .9f)), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = model::closeImage) { Icon(painterResource(R.drawable.ic_arrow_back), "返回文件") }
+                        Text(current.name, Modifier.weight(1f).heightIn(min = 48.dp).clickable { details = current }.padding(vertical = 12.dp),
+                            color = media.mediaContent, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text("${pager.currentPage + 1} / ${entries.size}", Modifier.padding(horizontal = 12.dp),
-                            color = Color(0xFFB5B5BE), style = MaterialTheme.typography.bodySmall)
+                            color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
                     }
-                    Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color(0xDC141416)).padding(horizontal = 8.dp),
+                    Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(media.mediaSurface.copy(alpha = .9f)).padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = model::previousMedia, enabled = queue?.hasPrevious == true) {
-                            Icon(painterResource(R.drawable.ic_arrow_back), "上一张图片", tint = Color.White.copy(alpha = if (queue?.hasPrevious == true) 1f else .35f))
+                            Icon(painterResource(R.drawable.ic_arrow_back), "上一张图片")
                         }
-                        Text("双击缩放 · 左右翻页", Modifier.weight(1f), color = Color(0xFFB5B5BE), style = MaterialTheme.typography.bodySmall)
+                        Text("双击缩放 · 左右翻页", Modifier.weight(1f), color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
                         IconButton(onClick = model::nextMedia, enabled = queue?.hasNext == true) {
-                            Icon(painterResource(R.drawable.ic_arrow_forward), "下一张图片", tint = Color.White.copy(alpha = if (queue?.hasNext == true) 1f else .35f))
+                            Icon(painterResource(R.drawable.ic_arrow_forward), "下一张图片")
                         }
                     }
                 }
@@ -106,6 +115,8 @@ import kotlin.math.abs
 @Composable private fun ImagePage(model: ClientModel, file: ResourceRef, active: Boolean, previewEnabled: Boolean,
     sourceScope: String, previews: Semaphore, chrome: Boolean, onClick: () -> Unit, onZoom: (Boolean) -> Unit) {
     val context = LocalContext.current
+    val media = FilewayTheme.status
+    val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     val cache by model.cache.state.collectAsStateWithLifecycle()
     val local = file.downloadId.isNotEmpty()
@@ -250,29 +261,29 @@ import kotlin.math.abs
         if (!imageState.isImageDisplayed && !imageState.isPlaceholderDisplayed) {
             preview?.let { Image(it.asPainter(context), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
             if (preview == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(painterResource(R.drawable.ic_image), "图片预览", Modifier.size(36.dp), tint = Color(0xFF63636D))
-                Text(previewStatus, color = Color(0xFFB5B5BE), style = MaterialTheme.typography.bodySmall)
+                Icon(painterResource(R.drawable.ic_image), "图片预览", Modifier.size(36.dp), tint = media.mediaSecondary)
+                Text(previewStatus, color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
             }
         }
         ZoomableAsyncImage(request, file.name, Modifier.fillMaxSize(), state = imageState, imageLoader = imageLoader,
             contentScale = ContentScale.Fit, onClick = { onClick() })
         if (active && (chrome || !ready || failure != null)) Surface(
             modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp, vertical = if (chrome) 64.dp else 16.dp),
-            shape = RoundedCornerShape(10.dp), color = Color(0xE6202023),
+            shape = MaterialTheme.shapes.medium, color = media.mediaSurface.copy(alpha = .95f),
         ) {
             Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (!canceled && failure == null && (!ready || !imageState.isImageDisplayedInFullQuality)) {
                     val progress = readProgress
                     if (progress != null && !fetched) {
-                        CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = Color(0xFF69A8FF))
-                        Text("${(progress * 100).toInt()}%", color = Color.White, style = MaterialTheme.typography.labelSmall)
-                    } else CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color(0xFF69A8FF))
+                        CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = colors.primary)
+                        Text("${(progress * 100).toInt()}%", color = media.mediaContent, style = MaterialTheme.typography.labelSmall)
+                    } else CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.primary)
                 }
-                Text(message, Modifier.weight(1f, fill = false).padding(vertical = 12.dp), color = Color.White, style = MaterialTheme.typography.bodySmall)
-                if (failure != null || canceled) TextButton(onClick = { canceled = false; failure = null; attempt++ }) { Text("重试", color = Color(0xFF69A8FF)) }
-                else if (!ready) TextButton(onClick = { canceled = true }) { Text("取消读取", color = Color(0xFF69A8FF)) }
+                Text(message, Modifier.weight(1f, fill = false).padding(vertical = 12.dp), color = media.mediaContent, style = MaterialTheme.typography.bodySmall)
+                if (failure != null || canceled) TextButton(onClick = { canceled = false; failure = null; attempt++ }) { Text("重试") }
+                else if (!ready) TextButton(onClick = { canceled = true }) { Text("取消读取") }
                 if (quality != ImageQuality.ORIGINAL && (ready || failure != null || canceled)) {
-                    TextButton(onClick = { requestToken++; canceled = false; failure = null; originalRequested = true }) { Text("查看原图", color = Color(0xFF69A8FF)) }
+                    TextButton(onClick = { requestToken++; canceled = false; failure = null; originalRequested = true }) { Text("查看原图") }
                 } else if (ready) Spacer(Modifier.width(8.dp))
             }
         }
