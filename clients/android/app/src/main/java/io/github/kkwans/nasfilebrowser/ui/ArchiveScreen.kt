@@ -20,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ArchiveController
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun ArchiveScreen(controller: ArchiveController, onBack: () -> Unit, onOpenTasks: () -> Unit,
@@ -33,11 +34,11 @@ import io.github.kkwans.nasfilebrowser.data.*
     val compactHeight = LocalConfiguration.current.screenHeightDp < 600
     val compactScroll = rememberScrollState()
     Scaffold(topBar = {
-        TopAppBar(title = { Text("压缩包浏览") }, navigationIcon = { IconButton(onBack, enabled = !state.submitting) {
-            Icon(painterResource(R.drawable.ic_arrow_back), "返回文件")
-        } }, actions = { IconButton(controller::refresh, enabled = !busy && state.task?.active != true && !state.reportLoading) {
-            Icon(painterResource(R.drawable.ic_refresh), "刷新压缩包")
-        } })
+        FilewayTopAppBar("压缩包浏览", state.file?.name, R.drawable.ic_arrow_back, "返回文件", { if (!state.submitting) onBack() }, actions = {
+            IconButton(controller::refresh, enabled = !busy && state.task?.active != true && !state.reportLoading) {
+                Icon(painterResource(R.drawable.ic_refresh), "刷新压缩包")
+            }
+        })
     }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)
             .then(if (compactHeight) Modifier.verticalScroll(compactScroll) else Modifier).padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
