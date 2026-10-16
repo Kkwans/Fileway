@@ -32,9 +32,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +54,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.TextSubtitleAppearance
 import io.github.kkwans.nasfilebrowser.data.TextSubtitleArea
@@ -75,6 +73,7 @@ internal fun PlayerTrackList(
     subtitle: Boolean,
     modifier: Modifier = Modifier,
     header: (@Composable () -> Unit)? = null,
+    footer: (@Composable () -> Unit)? = null,
     choose: (Int) -> Unit,
 ) {
     // NativePlayer already supplies -1. Also cover the opening/empty state
@@ -86,7 +85,7 @@ internal fun PlayerTrackList(
         if (header != null) item(key = "actions") { header() }
         item(key = "heading") {
             Text(if (subtitle) "字幕轨道" else "音轨", Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                color = PlayerSecondary, fontSize = 12.sp)
+                color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
         }
         itemsIndexed(choices, key = { _, track -> track.id }) { index, track ->
             val title = when {
@@ -101,8 +100,9 @@ internal fun PlayerTrackList(
         }
         if (choices.none { it.id != -1 }) item(key = "empty") {
             Text(if (subtitle) "没有可用字幕，可添加外挂字幕。" else "没有可用音轨。",
-                Modifier.padding(horizontal = 24.dp, vertical = 16.dp), color = PlayerSecondary, fontSize = 13.sp)
+                Modifier.padding(horizontal = 24.dp, vertical = 16.dp), color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
         }
+        if (footer != null) item(key = "actions-footer") { footer() }
     }
 }
 
@@ -110,7 +110,7 @@ internal fun PlayerTrackList(
 private fun PlayerTrackRow(title: String, detail: String, selected: Boolean, pending: Boolean, choose: () -> Unit) {
     Row(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth()
         .clip(RoundedCornerShape(8.dp))
-        .background(if (selected) PlayerAccent.copy(alpha = .10f) else Color.Transparent)
+        .background(if (selected) FilewayTheme.colors.primary.copy(alpha = .10f) else Color.Transparent)
         .selectable(selected, role = Role.RadioButton, onClick = choose)
         .clearAndSetSemantics {
             text = AnnotatedString(title)
@@ -127,15 +127,15 @@ private fun PlayerTrackRow(title: String, detail: String, selected: Boolean, pen
         }.heightIn(min = 56.dp).padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = if (selected) PlayerAccent else Color.White, fontSize = 15.sp,
+            Text(title, color = if (selected) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent, fontSize = 15.sp,
                 fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (detail.isNotBlank()) Text(detail, color = PlayerSecondary, fontSize = 12.sp,
+            if (detail.isNotBlank()) Text(detail, color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (pending) Text("正在切换", color = PlayerSecondary, fontSize = 12.sp)
+            if (pending) Text("正在切换", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
         }
-        if (pending) CircularProgressIndicator(Modifier.size(16.dp), color = PlayerSecondary, strokeWidth = 2.dp)
-        if (selected) Icon(painterResource(R.drawable.art_check), null, Modifier.size(20.dp), tint = PlayerAccent)
+        if (pending) CircularProgressIndicator(Modifier.size(16.dp), color = FilewayTheme.status.mediaSecondary, strokeWidth = 2.dp)
+        if (selected) Icon(painterResource(R.drawable.art_check), null, Modifier.size(20.dp), tint = FilewayTheme.colors.primary)
     }
 }
 
@@ -150,7 +150,7 @@ private fun trackDetails(track: NativeTrack, title: String): String {
     ).filter { it.isNotBlank() }.distinctBy { it.lowercase(Locale.ROOT) }.joinToString(" · ")
 }
 
-/** Shortcuts stay above the track list; adjustments own a separate scrollable page. */
+/** Low-frequency actions follow tracks; adjustments own a separate scrollable page. */
 @Composable
 internal fun PlayerSubtitleHomeActions(
     downloadLocal: Boolean,
@@ -170,7 +170,7 @@ internal fun PlayerSubtitleHomeActions(
             loading -> "正在读取字幕"
             else -> "从手机或文档提供方选择"
         }, !loading && !readingDocument, onLocalSubtitle)
-        HorizontalDivider(color = PlayerSecondary.copy(alpha = .16f))
+        HorizontalDivider(color = FilewayTheme.status.mediaSecondary.copy(alpha = .16f))
     }
 }
 
@@ -183,12 +183,12 @@ private fun SubtitleAction(icon: Int, title: String, detail: String, enabled: Bo
             role = Role.Button
             if (enabled) onClick { click(); true } else disabled()
         }
-        .heightIn(min = 64.dp).padding(vertical = 10.dp),
+        .heightIn(min = 56.dp).padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        val secondary = PlayerSecondary.copy(alpha = if (enabled) 1f else .5f)
+        val secondary = FilewayTheme.status.mediaSecondary.copy(alpha = if (enabled) 1f else .5f)
         Icon(painterResource(icon), null, Modifier.size(20.dp), tint = secondary)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = Color.White.copy(alpha = if (enabled) 1f else .5f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(title, color = FilewayTheme.status.mediaContent.copy(alpha = if (enabled) 1f else .5f), fontSize = 14.sp, fontWeight = FontWeight.Medium)
             Text(detail, color = secondary, fontSize = 12.sp)
         }
         Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp), tint = secondary)
@@ -207,12 +207,13 @@ internal fun PlayerSubtitleAdjustments(
     appearance: TextSubtitleAppearance,
     onAppearance: (TextSubtitleAppearance) -> Unit,
     onSaveAppearance: () -> Unit,
+    onChooseFont: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val format = codec.lowercase(Locale.ROOT)
     val authorStyled = format.contains("ssa") || format == "ass" || format.endsWith("/ass") || format.endsWith("/x-ass")
     val bitmap = listOf("pgs", "dvbsub", "vobsub").any { format.contains(it) }
-    val buttonColors = ButtonDefaults.textButtonColors(contentColor = PlayerAccent)
+    val buttonColors = ButtonDefaults.textButtonColors(contentColor = FilewayTheme.colors.primary)
     Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text("字幕时间", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
@@ -220,7 +221,7 @@ internal fun PlayerSubtitleAdjustments(
             delayMs > 0 -> "延后 ${delayMs / 1000.0} 秒"
             delayMs < 0 -> "提前 ${-(delayMs / 1000.0)} 秒"
             else -> "无偏移"
-        }, color = PlayerSecondary, fontSize = 13.sp)
+        }, color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             TextButton(onClick = { onDelay(delayMs - 500) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = buttonColors,
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("提前 0.5 秒") }
@@ -236,27 +237,26 @@ internal fun PlayerSubtitleAdjustments(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             TextButton(onClick = onApplyOffset, modifier = Modifier.heightIn(min = 48.dp), colors = buttonColors) { Text("应用") }
         }
-        HorizontalDivider(color = PlayerSecondary.copy(alpha = .16f))
+        HorizontalDivider(color = FilewayTheme.status.mediaSecondary.copy(alpha = .16f))
         Text("字幕外观", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         when {
             authorStyled -> Text("ASS / SSA 使用作者字体、位置与动画，保留原始样式。时间偏移仍可调整。",
-                color = PlayerSecondary, fontSize = 13.sp, lineHeight = 20.sp)
+                color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp, lineHeight = 20.sp)
             bitmap -> Text("PGS / DVB / VobSub 位图字幕使用片源图像，不支持文字字号与底边距调整。时间偏移仍可调整。",
-                color = PlayerSecondary, fontSize = 13.sp, lineHeight = 20.sp)
+                color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp, lineHeight = 20.sp)
             else -> {
                 val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
-                var choosingFont by remember { mutableStateOf(false) }
                 val font = fonts.resolve(appearance.fontKey)
                 LaunchedEffect(Unit) { SubtitleFontCatalog.request() }
-                Text("文本字号 ${(appearance.scale * 100).roundToInt()}%", color = PlayerSecondary, fontSize = 13.sp)
+                Text("文本字号 ${(appearance.scale * 100).roundToInt()}%", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
                 Slider(appearance.scale, { onAppearance(appearance.copy(scale = it)) },
                     Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "文本字幕字号"; stateDescription = "${(appearance.scale * 100).roundToInt()}%" },
-                    valueRange = .5f..2f, colors = SliderDefaults.colors(thumbColor = PlayerAccent, activeTrackColor = PlayerAccent))
-                Text("底边距 ${(appearance.bottomPadding * 100).roundToInt()}%", color = PlayerSecondary, fontSize = 13.sp)
+                    valueRange = .5f..2f, colors = SliderDefaults.colors(thumbColor = FilewayTheme.colors.primary, activeTrackColor = FilewayTheme.colors.primary))
+                Text("底边距 ${(appearance.bottomPadding * 100).roundToInt()}%", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
                 Slider(appearance.bottomPadding, { onAppearance(appearance.copy(bottomPadding = it)) },
                     Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "文本字幕底边距"; stateDescription = "${(appearance.bottomPadding * 100).roundToInt()}%" },
-                    valueRange = 0f.. .4f, colors = SliderDefaults.colors(thumbColor = PlayerAccent, activeTrackColor = PlayerAccent))
-                Text("外观预览", color = PlayerSecondary, fontSize = 12.sp)
+                    valueRange = 0f.. .4f, colors = SliderDefaults.colors(thumbColor = FilewayTheme.colors.primary, activeTrackColor = FilewayTheme.colors.primary))
+                Text("外观预览", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
                 Box(Modifier.fillMaxWidth().heightIn(min = 96.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF667384))
                     .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.BottomCenter) {
                     Text("字幕外观预览", Modifier.padding(bottom = 96.dp * appearance.bottomPadding)
@@ -272,36 +272,55 @@ internal fun PlayerSubtitleAdjustments(
                     onAppearance(appearance.copy(area = TextSubtitleArea.STAGE))
                 }
                 Text("背景不透明度 ${(appearance.backgroundOpacity * 100).roundToInt()}%" +
-                    if (appearance.backgroundOpacity == 0f) " · 无背景" else " · 黑色", color = PlayerSecondary, fontSize = 13.sp)
+                    if (appearance.backgroundOpacity == 0f) " · 无背景" else " · 黑色", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
                 Slider(appearance.backgroundOpacity, { onAppearance(appearance.copy(backgroundOpacity = it)) },
                     Modifier.fillMaxWidth().height(48.dp).semantics {
                         contentDescription = "字幕背景不透明度"
                         stateDescription = "${(appearance.backgroundOpacity * 100).roundToInt()}%"
-                    }, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = PlayerAccent, activeTrackColor = PlayerAccent))
+                    }, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = FilewayTheme.colors.primary, activeTrackColor = FilewayTheme.colors.primary))
                 TextButton({ onAppearance(appearance.copy(backgroundOpacity = if (appearance.backgroundOpacity == 0f) .5f else 0f)) },
                     Modifier.heightIn(min = 48.dp), colors = buttonColors) {
                     Text(if (appearance.backgroundOpacity == 0f) "使用半透明黑背景" else "无背景")
                 }
                 Text("字幕字体", color = Color.White, fontSize = 14.sp)
-                TextButton({ choosingFont = !choosingFont }, Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                TextButton(onChooseFont, Modifier.fillMaxWidth().heightIn(min = 48.dp)
                     .semantics { contentDescription = "选择字幕字体"; stateDescription = font.label }, colors = buttonColors) {
                     Text(font.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
-                if (fonts.loading) Text("正在读取系统可用字体…", color = PlayerSecondary, fontSize = 12.sp)
-                if (fonts.failed) Text("系统字体暂时不可用，可使用字幕默认或跟随系统。", color = PlayerSecondary, fontSize = 12.sp)
-                if (fonts.missing(appearance.fontKey)) Text("所选字体已不可用，当前使用字幕默认；可重新选择。", color = PlayerSecondary, fontSize = 12.sp)
-                if (choosingFont) LazyColumn(Modifier.fillMaxWidth().height(240.dp)) {
-                    itemsIndexed(fonts.options, key = { _, option -> option.key }) { _, option ->
-                        PlayerTrackRow(option.label, "", font.key == option.key, false) {
-                            onAppearance(appearance.copy(fontKey = option.key)); choosingFont = false
-                        }
-                    }
-                }
-                Text("调整会即时预览；保存后用于此设备的文本字幕。", color = PlayerSecondary, fontSize = 12.sp)
+                if (fonts.loading) Text("正在读取系统可用字体…", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
+                if (fonts.failed) Text("系统字体暂时不可用，可使用字幕默认或跟随系统。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
+                if (fonts.missing(appearance.fontKey)) Text("所选字体已不可用，当前使用字幕默认；可重新选择。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
+                Text("调整会即时预览；保存后用于此设备的文本字幕。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = { onAppearance(TextSubtitleAppearance()) }, modifier = Modifier.heightIn(min = 48.dp), colors = buttonColors) { Text("重置预览") }
                     TextButton(onClick = onSaveAppearance, modifier = Modifier.heightIn(min = 48.dp), colors = buttonColors) { Text("保存到此设备") }
                 }
+            }
+        }
+    }
+}
+
+
+/** One full bounded scrolling font list, with no nested fixed-height picker. */
+@Composable internal fun PlayerSubtitleFontPicker(
+    appearance: TextSubtitleAppearance,
+    onChoose: (TextSubtitleAppearance) -> Unit,
+) {
+    val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
+    val current = fonts.resolve(appearance.fontKey)
+    LaunchedEffect(Unit) { SubtitleFontCatalog.request() }
+    LazyColumn(Modifier.fillMaxWidth().selectableGroup(), contentPadding = PaddingValues(vertical = 12.dp)) {
+        if (fonts.loading || fonts.failed || fonts.missing(appearance.fontKey)) item(key = "status") {
+            Text(when {
+                fonts.loading -> "正在读取系统可用字体…"
+                fonts.failed -> "系统字体暂时不可用，可使用字幕默认或跟随系统。"
+                else -> "所选字体已不可用，当前使用字幕默认；可重新选择。"
+            }, Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
+        }
+        itemsIndexed(fonts.options, key = { _, option -> option.key }) { _, option ->
+            PlayerTrackRow(option.label, "", current.key == option.key, false) {
+                onChoose(appearance.copy(fontKey = option.key))
             }
         }
     }

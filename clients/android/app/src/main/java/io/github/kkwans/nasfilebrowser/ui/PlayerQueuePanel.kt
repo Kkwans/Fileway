@@ -1,5 +1,7 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,13 +15,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +34,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
@@ -38,12 +44,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.MediaQueue
 import io.github.kkwans.nasfilebrowser.app.mediaKey
 
 /** Renders the existing immutable snapshot; navigation remains owned by the caller. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun PlayerQueuePanel(
     model: ClientModel,
@@ -56,9 +64,9 @@ internal fun PlayerQueuePanel(
     Column(modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(queue.source.label, Modifier.weight(1f), color = PlayerSecondary, fontSize = 13.sp,
+            Text(queue.source.label, Modifier.weight(1f), color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${queue.index + 1} / ${queue.items.size}", color = PlayerSecondary, fontSize = 13.sp,
+            Text("${queue.index + 1} / ${queue.items.size}", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp,
                 fontFamily = FontFamily.Monospace, maxLines = 1)
         }
         key(queue.snapshotId) {
@@ -66,6 +74,7 @@ internal fun PlayerQueuePanel(
                 state = rememberLazyListState(initialFirstVisibleItemIndex = queue.index),
                 contentPadding = PaddingValues(bottom = 20.dp)) {
                 itemsIndexed(queue.items, key = { _, item -> item.mediaKey }) { index, file ->
+                    var expandedName by remember(queue.snapshotId, file.mediaKey) { mutableStateOf(false) }
                     val current = index == queue.index
                     val status = if (current) {
                         if (playing) "正在播放" else "当前视频"
@@ -73,8 +82,10 @@ internal fun PlayerQueuePanel(
                     val duration = if (current && currentDurationMs > 0) clock(currentDurationMs) else null
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (current) PlayerAccent.copy(alpha = .10f) else Color.Transparent)
-                        .selectable(current, role = Role.RadioButton, onClick = { choose(index) })
+                        .background(if (current) FilewayTheme.colors.primary.copy(alpha = .10f) else Color.Transparent)
+                        .combinedClickable(role = Role.RadioButton, onClick = { choose(index) },
+                            onLongClickLabel = if (expandedName) "收起完整名称" else "展开完整名称",
+                            onLongClick = { expandedName = !expandedName })
                         // One complete target avoids announcing the preview and title twice.
                         // The full name remains available even when its visual label truncates.
                         .clearAndSetSemantics {
@@ -83,6 +94,9 @@ internal fun PlayerQueuePanel(
                             stateDescription = if (current) "已选择，$status" + (duration?.let { "，时长 $it" } ?: "") else "未选择"
                             role = Role.RadioButton
                             onClick("选择视频") { choose(index); true }
+                            onLongClick(if (expandedName) "收起完整名称" else "展开完整名称") {
+                                expandedName = !expandedName; true
+                            }
                         }.heightIn(min = 96.dp).padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -91,24 +105,24 @@ internal fun PlayerQueuePanel(
                                 contentScale = ContentScale.Crop)
                             if (duration != null) Text(duration,
                                 Modifier.align(Alignment.BottomEnd).padding(3.dp)
-                                    .clip(RoundedCornerShape(3.dp)).background(PlayerCanvas.copy(alpha = .88f))
+                                    .clip(RoundedCornerShape(3.dp)).background(FilewayTheme.status.mediaCanvas.copy(alpha = .88f))
                                     .padding(horizontal = 4.dp, vertical = 2.dp),
                                 color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace,
                                 maxLines = 1, overflow = TextOverflow.Clip)
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(file.name, color = if (current) PlayerAccent else Color.White,
+                            Text(file.name, color = if (current) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent,
                                 fontSize = 14.sp, lineHeight = 20.sp,
                                 fontWeight = if (current) FontWeight.Medium else FontWeight.Normal,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                maxLines = if (expandedName) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
                             Row(verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("${index + 1}", color = PlayerSecondary, fontSize = 12.sp,
+                                Text("${index + 1}", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace, maxLines = 1)
                                 if (current) {
                                     Icon(painterResource(if (playing) R.drawable.art_play else R.drawable.art_check),
-                                        null, Modifier.size(14.dp), tint = PlayerAccent)
-                                    Text(status, color = PlayerAccent, fontSize = 12.sp,
+                                        null, Modifier.size(14.dp), tint = FilewayTheme.colors.primary)
+                                    Text(status, color = FilewayTheme.colors.primary, fontSize = 12.sp,
                                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                             }

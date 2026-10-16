@@ -74,7 +74,7 @@ class PlayerTrackPanelsTest {
         fun homeShown() = freshNodes()?.let { nodes ->
             nodes.any { it.visible && it.description == "播放设置" } &&
                 nodes.none { it.visible && it.description == "返回字幕轨道" } &&
-                nodes.any { it.visible && it.description == "字幕调整" }
+                nodes.any { it.visible && it.checkable }
         } == true
 
         suspend fun find(label: String, predicate: (FreshAccessibilityNodeBounds) -> Boolean): FreshAccessibilityNodeBounds = withTimeout(5_000) {
@@ -156,7 +156,7 @@ class PlayerTrackPanelsTest {
             @Suppress("UNREACHABLE_CODE") error("Panel item missing: $label")
         }
         suspend fun adjust() {
-            tap(scrollToBounds("字幕调整", description = true, towardEnd = false))
+            tap(scrollToBounds("字幕调整", description = true, towardEnd = true))
         }
         suspend fun await(label: String, predicate: () -> Boolean) {
             stage = label
@@ -257,11 +257,11 @@ class PlayerTrackPanelsTest {
             val mediaSets = model.player.diagnosticSnapshot().count { it.action == PlaybackTraceAction.MEDIA_SET }
             stage = "subtitle-home"
             click("选择字幕")
-            described("字幕调整")
-            described("选择外挂字幕")
-            described("选择本地字幕")
+            scrollToBounds("字幕调整", description = true, towardEnd = true)
+            scrollToBounds("选择外挂字幕", description = true, towardEnd = true)
+            scrollToBounds("选择本地字幕", description = true, towardEnd = true)
             absent("文本字幕字号")
-            tap(find("关闭字幕") { it.text == "关闭字幕" && it.checkable })
+            tap(scrollToBounds("关闭字幕", description = false, towardEnd = false))
             await("off-confirmed") { model.player.state.value.let { it.selectedSubtitle == -1 && it.pendingSubtitle == null } }
             await("off-checked") { confirmedRow("关闭字幕") }
             assertEquals(before, geometry())
@@ -324,6 +324,11 @@ class PlayerTrackPanelsTest {
             adjust()
             assertTrue(described("文本字幕字号").enabled)
             assertTrue(described("文本字幕底边距").enabled)
+            tap(scrollToBounds("选择字幕字体", description = true, towardEnd = true))
+            described("返回字幕调整")
+            assertEquals("Font picker keeps native layers", before, geometry())
+            back("font-to-adjustments")
+            described("返回字幕轨道")
             click("返回字幕轨道")
 
             choose(model.player.state.value.subtitles.single { it.title.contains("NFB ASS Attachment") })

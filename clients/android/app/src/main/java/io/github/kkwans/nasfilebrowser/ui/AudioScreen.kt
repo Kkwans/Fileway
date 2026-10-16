@@ -76,7 +76,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
         Column(Modifier.fillMaxWidth()) {
             PlayerSlider(dragging ?: state.positionMs.toFloat(), state.durationMs.coerceAtLeast(1).toFloat(), "音频播放进度", !client.busy && state.seekable,
                 { dragging = it }, { dragging?.let { model.player.seek(it.toLong()) }; dragging = null },
-                description = "${audioTime(state.positionMs)} / ${audioTime(state.durationMs)}", downloadedValue = state.bufferedPositionMs.toFloat())
+                description = "${audioTime(state.positionMs)} / ${audioTime(state.durationMs)}", bufferedValue = state.bufferedPositionMs.toFloat())
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(audioTime(dragging?.toLong() ?: state.positionMs), color = media.mediaContent, style = FilewayTheme.text.clock)
                 Text(audioTime(state.durationMs), color = media.mediaSecondary, style = FilewayTheme.text.clock)

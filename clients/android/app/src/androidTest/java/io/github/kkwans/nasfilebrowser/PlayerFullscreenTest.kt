@@ -286,6 +286,13 @@ class PlayerFullscreenTest {
                     hiddenFocusedWindow("subtitle-adjustments-hidden")
                     assertEquals("Subtitle adjustments must preserve native layers", before, geometry())
                 }
+                if (panel == "播放速度") {
+                    assertFalse("Speed presets must not open a keyboard", device.hasObject(By.clazz("android.widget.EditText")))
+                    val edit = device.wait(Until.findObject(By.text("自定义播放速度")), 5_000)
+                        ?: error("Custom speed entry missing")
+                    edit.click()
+                    assertTrue(device.wait(Until.hasObject(By.desc("返回播放速度")), 5_000))
+                }
                 val field = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 5_000)
                     ?: error(if (panel == "选择字幕") "Subtitle offset input missing" else "Custom rate input missing")
                 val bounds = field.visibleBounds
@@ -314,6 +321,13 @@ class PlayerFullscreenTest {
                             nodes.any { it.visible && it.description == "字幕调整" }
                     }
                     hiddenFocusedWindow("subtitle-home-hidden")
+                    assertEquals(before, geometry())
+                }
+                if (panel == "播放速度") {
+                    assertTrue("IME Back must keep the speed editor", device.hasObject(By.desc("返回播放速度")))
+                    device.pressBack()
+                    assertTrue(device.wait(Until.hasObject(By.text("自定义播放速度")), 5_000))
+                    assertFalse("Returning to presets removes the editor", device.hasObject(By.clazz("android.widget.EditText")))
                     assertEquals(before, geometry())
                 }
                 click("关闭播放设置")
