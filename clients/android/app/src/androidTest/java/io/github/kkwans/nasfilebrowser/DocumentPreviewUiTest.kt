@@ -57,6 +57,12 @@ internal class DocumentPreviewUiTest : LibraryUiHarness() {
             input.text = "needle"
             withTimeout(5000) { controller.state.first { !it.searching && it.search.matches.size == 2 } }
             text("1 / 2 处匹配"); action("下一个匹配").click(); text("2 / 2 处匹配")
+            input.click()
+            assertTrue(device.pressKeyCode(android.view.KeyEvent.KEYCODE_BACK))
+            awaitKeyboardHidden()
+            action("文档操作")
+            assertEquals("Input Back must retain the document", file.wirePath, controller.state.value.file?.wirePath)
+            assertEquals(0, closed)
             text("复制全文").click(); text("已复制全文")
             instrumentation.runOnMainSync {
                 val clipboard = instrumentation.targetContext.getSystemService(ClipboardManager::class.java)

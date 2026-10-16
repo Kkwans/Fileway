@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontFamily
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -68,8 +69,9 @@ import kotlin.math.roundToInt
     val focus = LocalFocusManager.current
     var menu by remember(state.scope, file.wirePath) { mutableStateOf(false) }
     var info by remember(state.scope, file.wirePath) { mutableStateOf(false) }
+    var inputFocused by remember(state.scope, file.wirePath) { mutableStateOf(false) }
     fun leave() {
-        if (ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true) {
+        if (inputFocused || ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true) {
             focus.clearFocus(); keyboard?.hide(); return
         }
         controller.close(); onClose()
@@ -106,7 +108,7 @@ import kotlin.math.roundToInt
             if (state.loading && state.text == null && state.pageCount == 0) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(if (state.kind == DocumentPreviewKind.PDF) "正在准备 PDF…" else "正在读取文档…", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else when (state.kind) {
-                DocumentPreviewKind.TEXT -> if (state.text != null) DocumentTextContent(controller, state, imageCache)
+                DocumentPreviewKind.TEXT -> if (state.text != null) DocumentTextContent(controller, state, imageCache) { inputFocused = it }
                 DocumentPreviewKind.PDF -> if (state.pageCount > 0) DocumentPdfContent(controller, state)
                 DocumentPreviewKind.OTHER -> Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("文件详情", style = MaterialTheme.typography.titleMedium)
@@ -154,15 +156,15 @@ import kotlin.math.roundToInt
     }) { Icon(painterResource(icon), null) }
 }
 
-@Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState, imageCache: CacheController?) {
+@Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState, imageCache: CacheController?, onInputFocus: (Boolean) -> Unit) {
     val document = state.text ?: return
     val file = state.file ?: return
     if (isCsvDocument(file)) {
-        DocumentCsvContent(controller, state)
+        DocumentCsvContent(controller, state, onInputFocus)
         return
     }
     if (!isMarkdownDocument(file)) {
-        DocumentSourceContent(controller, state)
+        DocumentSourceContent(controller, state, onInputFocus)
         return
     }
     // Re-key the entire reading tree so no old account/file result is displayed
@@ -180,7 +182,7 @@ import kotlin.math.roundToInt
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !showSource, onClick = { sourceMode = false }, enabled = fallback == null, label = { Text("阅读") })
             FilterChip(selected = showSource, onClick = { outlineOpen = false; sourceMode = true }, label = { Text("源码") })
-            if (!showSource) Text("${document.encoding} · 阅读 · 只读", Modifier.weight(1f),
+            if (!showSource) Text("${document.encoding} · 只读", Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (!showSource) TextButton(onClick = { outlineOpen = true },
@@ -189,7 +191,7 @@ import kotlin.math.roundToInt
         }
         fallback?.let { Text(it.reason, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (showSource) modeState.SaveableStateProvider("markdown-source") { DocumentSourceContent(controller, state) }
+        if (showSource) modeState.SaveableStateProvider("markdown-source") { DocumentSourceContent(controller, state, onInputFocus) }
         else modeState.SaveableStateProvider("markdown-reading") {
             val reading = preview as? MarkdownPreview.Reading
             if (reading == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -211,7 +213,7 @@ import kotlin.math.roundToInt
     }
 }
 
-@Composable private fun ColumnScope.DocumentCsvContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
+@Composable private fun ColumnScope.DocumentCsvContent(controller: DocumentPreviewController, state: DocumentPreviewState, onInputFocus: (Boolean) -> Unit) {
     val document = state.text ?: return
     val file = state.file ?: return
     key(state.scope, file.mediaKey, document) {
@@ -225,19 +227,20 @@ import kotlin.math.roundToInt
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (sourceMode) tableState.SaveableStateProvider("csv-source") { DocumentSourceContent(controller, state) }
+        if (sourceMode) tableState.SaveableStateProvider("csv-source") { DocumentSourceContent(controller, state, onInputFocus) }
         else tableState.SaveableStateProvider("csv-table") {
             CsvReader(document, file.name, { sourceMode = true }, Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
 
-@Composable private fun ColumnScope.DocumentSourceContent(controller: DocumentPreviewController, state: DocumentPreviewState) {
+@Composable private fun ColumnScope.DocumentSourceContent(controller: DocumentPreviewController, state: DocumentPreviewState, onInputFocus: (Boolean) -> Unit) {
     val document = state.text ?: return
     val clipboard = LocalClipboardManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val findFocus = remember { FocusRequester() }
+    DisposableEffect(Unit) { onDispose { onInputFocus(false) } }
     var findOpen by rememberSaveable(state.scope, state.file?.wirePath) { mutableStateOf(false) }
     var copied by remember(document) { mutableStateOf(false) }
     var copyError by remember(document) { mutableStateOf(false) }
@@ -260,7 +263,7 @@ import kotlin.math.roundToInt
         Text("${document.encoding} · 只读", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton({
             try { clipboard.setText(AnnotatedString(document.text)); copied = true; copyError = false }
-            catch (_: Exception) { copyError = true }
+            catch (_: Exception) { copied = false; copyError = true }
         }, enabled = document.text.length <= 131_072) { Text(if (copied) "已复制全文" else "复制全文") }
         DocumentIcon(if (findOpen) R.drawable.ic_close else R.drawable.ic_search,
             if (findOpen) "关闭文档查找" else "查找文档文字") {
@@ -272,7 +275,7 @@ import kotlin.math.roundToInt
     if (document.text.length > 131_072) Text("全文较长，请长按选择需要的文字后复制。", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (findOpen) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         LaunchedEffect(Unit) { findFocus.requestFocus(); keyboard?.show() }
-        OutlinedTextField(state.query, controller::search, Modifier.weight(1f).focusRequester(findFocus), label = { Text("查找文档文字") }, singleLine = true,
+        OutlinedTextField(state.query, controller::search, Modifier.weight(1f).focusRequester(findFocus).onFocusChanged { onInputFocus(it.isFocused) }, label = { Text("查找文档文字") }, singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { controller.nextMatch(1) }))
         IconButton({ controller.nextMatch(-1) }, enabled = state.search.matches.isNotEmpty(), modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "上一个匹配") }
         IconButton({ controller.nextMatch(1) }, enabled = state.search.matches.isNotEmpty(), modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_forward), "下一个匹配") }
