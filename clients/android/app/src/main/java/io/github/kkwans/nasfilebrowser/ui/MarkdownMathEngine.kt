@@ -9,6 +9,9 @@ import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
+import android.webkit.ConsoleMessage
+import android.webkit.WebResourceError
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -43,6 +46,13 @@ internal class MarkdownMathSession(private val context: Context) : Closeable {
     private var closed = false
     private var generation = 0
     private var pendingEvaluation: CancellableContinuation<String>? = null
+    private var stage = "initial"
+
+    // No exception message, script, URL or TeX crosses this diagnostic boundary.
+    private fun trace(event: String, category: String = "none") {
+        if (io.github.kkwans.nasfilebrowser.BuildConfig.DEBUG)
+            android.util.Log.i("FilewayMath", "stage=$stage event=$event category=$category")
+    }
 
     suspend fun render(formulas: List<MarkdownMathFormula>, metrics: MarkdownMathMetrics): Map<String, MarkdownMathResult> =
         withContext(Dispatchers.Main.immediate) {
@@ -59,19 +69,24 @@ internal class MarkdownMathSession(private val context: Context) : Closeable {
             try {
                 // A whole-document elapsed-time budget, never reset per expression.
                 withTimeout(30_000) {
+                    stage = "create_view"
                     val web = createView()
                     view = web
+                    stage = "load_document"
                     web.loadUrl("$ORIGIN/index.html")
+                    stage = "await_ready"
                     awaitState(web, ownGeneration, setOf("ready", "unavailable"))
-                        .also { check(it.optString("kind") == "ready") }
+                        .also { trace("ready_result", if (it.optString("kind") == "ready") "ready" else "unavailable"); check(it.optString("kind") == "ready") }
                     var retained = 0L
                     for (formula in ordered) {
                         currentCoroutineContext().ensureActive()
                         checkCurrent(web, ownGeneration)
                         val json = JSONObject().put("emPx", metrics.emPx).put("exPx", metrics.exPx)
                             .put("containerWidthPx", metrics.containerWidthPx).put("foregroundRgb", metrics.foregroundRgb)
+                        stage = "begin_formula"
                         val accepted = evaluate(web, "window.NfbMath.begin(${JSONObject.quote(formula.tex)},${formula.display},$json)", ownGeneration)
                         check(accepted == "true")
+                        stage = "await_formula"
                         val state = awaitState(web, ownGeneration, setOf("rendered", "failed", "unavailable"))
                         val result = if (state.optString("kind") == "rendered") {
                             val rendered = MarkdownMathResult.Rendered(state.getString("svg"), state.getDouble("widthPx").toFloat(),
@@ -81,6 +96,7 @@ internal class MarkdownMathSession(private val context: Context) : Closeable {
                             else MarkdownMathResult.Failed(MarkdownMathBudget.TOO_LARGE)
                         } else MarkdownMathResult.Failed(MarkdownMathBudget.INVALID)
                         results[formula.key] = result
+                        stage = "consume_formula"
                         evaluate(web, "window.NfbMath.consume()", ownGeneration)
                     }
                 }
@@ -89,7 +105,9 @@ internal class MarkdownMathSession(private val context: Context) : Closeable {
                 // timeout may become a visible error only while the parent is live.
                 currentCoroutineContext().ensureActive()
                 if (cancelled !is kotlinx.coroutines.TimeoutCancellationException) throw cancelled
-            } catch (_: Exception) {
+                trace("timeout")
+            } catch (error: Exception) {
+                trace("exception", error.javaClass.simpleName)
                 // Error details can contain user TeX. Only a fixed message escapes.
             } finally {
                 withContext(NonCancellable + Dispatchers.Main.immediate) { close() }
@@ -111,10 +129,20 @@ internal class MarkdownMathSession(private val context: Context) : Closeable {
         settings.blockNetworkLoads = true
         isFocusable = false
         isClickable = false
+        webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                if (message.messageLevel() == ConsoleMessage.MessageLevel.ERROR) trace("javascript_error")
+                return true
+            }
+        }
         webViewClient = object : WebViewClient() {
+            override fun onReceivedError(web: WebView, request: WebResourceRequest, error: WebResourceError) {
+                trace("resource_error", error.errorCode.toString())
+            }
             override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
                 // Handle only this owned view. Do not terminate shared renderers
                 // or change any global browser/user state.
+                trace("renderer_gone")
                 close()
                 return true
             }
@@ -131,7 +159,7 @@ internal class MarkdownMathSession(private val context: Context) : Closeable {
                     WebResourceResponse(if (relative.endsWith(".js")) "application/javascript" else "text/html", "UTF-8",
                         200, "OK", mapOf("Cache-Control" to "no-store", "X-Content-Type-Options" to "nosniff"),
                         context.assets.open("markdown-math/$relative"))
-                } catch (_: Exception) { denied() }
+                } catch (error: Exception) { trace("asset_open_failed", error.javaClass.simpleName); denied() }
             }
         }
     }
