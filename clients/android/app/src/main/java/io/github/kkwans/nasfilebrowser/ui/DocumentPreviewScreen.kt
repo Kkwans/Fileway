@@ -44,6 +44,7 @@ import io.github.kkwans.nasfilebrowser.app.DocumentPreviewState
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
 import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -57,15 +58,13 @@ import kotlin.math.roundToInt
     BackHandler { leave() }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                DocumentIcon(R.drawable.ic_arrow_back, "关闭文档") { leave() }
-                Text(file.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            FilewayTopAppBar(file.name, "${fileTypeLabel(file)} · ${if (state.loading) "读取中" else "只读"}", R.drawable.ic_arrow_back, "关闭文档", ::leave, actions = {
                 if (onEdit != null && state.text != null) DocumentIcon(R.drawable.ic_edit, "编辑文本", enabled = !state.loading) {
                     state.text?.let { onEdit(file, it) }
                 }
                 DocumentIcon(R.drawable.ic_refresh, "重新读取文档", enabled = !state.loading) { controller.retry() }
                 DocumentIcon(R.drawable.ic_download, "下载文档", enabled = canDownload) { onDownload(file) }
-            }
+            })
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { message ->
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

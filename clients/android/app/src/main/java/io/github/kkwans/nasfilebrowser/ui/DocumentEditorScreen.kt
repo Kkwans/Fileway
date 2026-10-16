@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.DocumentEditController
 import io.github.kkwans.nasfilebrowser.data.documentLineEnding
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 
 @Composable internal fun DocumentEditorScreen(controller: DocumentEditController, onClose: () -> Unit) {
     val state by controller.state.collectAsStateWithLifecycle()
@@ -42,11 +43,10 @@ import io.github.kkwans.nasfilebrowser.data.documentLineEnding
     BackHandler { leave() }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ leave() }, enabled = !busy, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "关闭文本编辑") }
-                Text(file.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                TextButton(controller::save, enabled = !busy && state.dirty && !state.unknownWrite && !state.conflict) { Text(if (state.saving) "正在保存" else "保存") }
-            }
+            FilewayTopAppBar(file.name, saveStatus.trimStart(' ', '·'), R.drawable.ic_arrow_back, "关闭文本编辑", ::leave, actions = {
+                TextButton(controller::save, enabled = !busy && state.dirty && !state.unknownWrite && !state.conflict,
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在保存" else "保存") }
+            })
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${document.encoding}${if (document.bom) " BOM" else ""} · $ending$saveStatus", Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
