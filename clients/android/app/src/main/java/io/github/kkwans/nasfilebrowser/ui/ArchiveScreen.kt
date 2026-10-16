@@ -79,12 +79,14 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                                 Checkbox(chosen, { controller.toggle(entry) }, enabled = !state.submitting && !inherited)
                                 Row(Modifier.weight(1f).clickable(enabled = !state.submitting, role = Role.Button) {
                                     if (entry.isDir) controller.enter(entry) else controller.toggle(entry)
-                                }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
-                                    Icon(painterResource(if (entry.isDir) R.drawable.ic_folder else R.drawable.ic_history), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                                }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(painterResource(fileArtworkIcon(entry.name, entry.isDir)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                        Text(entry.name, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text(entry.path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text(if (inherited) "已随上级目录选中" else if (entry.isDir) "文件夹" else readableSize(entry.size), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(entry.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        if (state.query.isNotBlank()) Text(entry.path.substringBeforeLast('/', "").ifEmpty { "压缩包根目录" },
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        if (inherited || !entry.isDir) Text(if (inherited) "已随上级目录选中" else readableSize(entry.size),
+                                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                                 if (!entry.isDir && onOpenEntry != null) IconButton({ onOpenEntry(entry) }, enabled = !busy) { Icon(painterResource(R.drawable.ic_visibility), "打开包内文件：${entry.name}") }
@@ -159,15 +161,18 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 @Composable private fun ArchiveDestinationPicker(controller: ArchiveController) {
     val state by controller.state.collectAsStateWithLifecycle()
     val directory = state.destinationDraft ?: return
-    ModalBottomSheet(onDismissRequest = controller::closeDestination, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("选择解压目标目录", style = MaterialTheme.typography.titleLarge)
+    FileOperationSheet("选择解压目标目录", controller::closeDestination, footer = {
+        TextButton(controller::closeDestination) { Text("取消") }
+        Button(controller::confirmDestination, enabled = !state.directoryLoading && state.directoryError == null && directory.wirePath != null) { Text("使用此目录") }
+    }) {
+        Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             DirectoryBreadcrumbs(directory.path, directory.wirePath.orEmpty(), state.directoryLoading, {
                 directoryTrail(directory.path, directory.wirePath.orEmpty()).dropLast(1).lastOrNull()?.let(controller::browseDestination)
             }, controller::browseDestination)
             if (state.directoryLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.directoryError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error); TextButton({ controller.browseDestination(directory) }) { Text("重试目录") } }
-            LazyColumn(Modifier.heightIn(min = 72.dp, max = 360.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            LazyColumn(Modifier.weight(1f, fill = false).heightIn(min = 72.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                item { FileOperationLocation("当前解压目标", directory.path) }
                 if (state.directories.isEmpty() && !state.directoryLoading && state.directoryError == null) item { Text("没有子目录，可使用当前目录", Modifier.padding(vertical = 20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.directories, key = { it.wirePath }) { folder ->
                     ListItem(headlineContent = { Text(folder.name, maxLines = 2, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(folder.path, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -175,10 +180,6 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                             controller.browseDestination(DirectoryCrumb(folder.name, folder.path, folder.wirePath))
                         })
                 }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(controller::closeDestination) { Text("取消") }
-                Button(controller::confirmDestination, enabled = !state.directoryLoading && state.directoryError == null && directory.wirePath != null) { Text("使用此目录") }
             }
         }
     }
