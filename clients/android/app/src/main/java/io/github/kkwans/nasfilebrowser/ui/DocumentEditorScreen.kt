@@ -8,15 +8,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.DocumentEditController
+import io.github.kkwans.nasfilebrowser.app.FileCategory
 import io.github.kkwans.nasfilebrowser.data.documentLineEnding
+import io.github.kkwans.nasfilebrowser.data.isMarkdownDocument
+import io.github.kkwans.nasfilebrowser.data.isCsvDocument
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 
 @Composable internal fun DocumentEditorScreen(controller: DocumentEditController, onClose: () -> Unit) {
@@ -24,10 +33,16 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     val file = state.file ?: return
     val document = state.document ?: return
     val clipboard = LocalClipboardManager.current
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    var more by remember(state.scope, file.wirePath) { mutableStateOf(false) }
     var discard by remember(state.scope, file.wirePath) { mutableStateOf(false) }
     var reload by remember(state.scope, file.wirePath) { mutableStateOf(false) }
     var copied by remember(state.scope, file.wirePath) { mutableStateOf<String?>(null) }
     val busy = state.saving || state.loading
+    val monospace = FileCategory.CODE.matches(file.name, false) || FileCategory.CONFIG.matches(file.name, false) || isMarkdownDocument(file) || isCsvDocument(file)
+    LaunchedEffect(state.draft) { copied = null }
     val ending = remember(document) { documentLineEnding(document.text).label }
     val saveStatus = when {
         state.unknownWrite && state.acknowledged -> " · 已确认保存，后续待恢复"
@@ -36,6 +51,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
         else -> ""
     }
     fun leave() {
+        if (ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true) {
+            focus.clearFocus(); keyboard?.hide(); return
+        }
         if (busy) return
         if (state.dirty || state.unknownWrite) discard = true
         else { controller.close(); onClose() }
@@ -46,22 +64,33 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             FilewayTopAppBar(file.name, saveStatus.trimStart(' ', '·'), R.drawable.ic_arrow_back, "关闭文本编辑", ::leave, actions = {
                 TextButton(controller::save, enabled = !busy && state.dirty && !state.unknownWrite && !state.conflict,
                     modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在保存" else "保存") }
+                Box {
+                    IconButton({ more = true }) { Icon(painterResource(R.drawable.ic_more_vert), "编辑操作") }
+                    DropdownMenu(more, { more = false }) {
+                        DropdownMenuItem({ Text("复制草稿") }, {
+                            more = false
+                            copied = try { clipboard.setText(AnnotatedString(state.draft)); "已复制草稿" } catch (_: Exception) { "无法复制，请选择文字后复制" }
+                        }, enabled = state.draft.length <= 131_072)
+                        DropdownMenuItem({ Text("重新读取服务器版本") }, {
+                            more = false
+                            focus.clearFocus(); keyboard?.hide()
+                            if (state.dirty) reload = true else controller.reload()
+                        }, enabled = !busy && !state.unknownWrite)
+                    }
+                }
             })
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("${document.encoding}${if (document.bom) " BOM" else ""} · $ending$saveStatus", Modifier.weight(1f),
+                Text("${document.encoding}${if (document.bom) " BOM" else ""} · $ending", Modifier.weight(1f).padding(vertical = 8.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton({
-                    copied = try { clipboard.setText(AnnotatedString(state.draft)); "已复制草稿" } catch (_: Exception) { "无法复制，请选择文字后复制" }
-                }, enabled = state.draft.length <= 131_072) { Text("复制草稿") }
+                copied?.let { Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             (state.error ?: state.notice)?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall, color = if (state.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
-            copied?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (state.unknownWrite) TextButton(controller::verifySave, enabled = !busy, modifier = Modifier.padding(horizontal = 8.dp)) { Text(if (state.acknowledged) "核对并恢复刷新" else "核对保存结果") }
-            else TextButton({ if (state.dirty) reload = true else controller.reload() }, enabled = !busy, modifier = Modifier.padding(horizontal = 8.dp)) { Text("重新读取服务器版本") }
             OutlinedTextField(state.draft, controller::edit, modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                label = { Text("文本内容") }, readOnly = busy || state.unknownWrite, textStyle = MaterialTheme.typography.bodyLarge,
+                label = { Text("文本内容") }, readOnly = busy || state.unknownWrite,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = if (monospace) FontFamily.Monospace else FontFamily.SansSerif),
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
         }
     }
