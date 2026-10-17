@@ -41,6 +41,7 @@ var resourceGetHandler = withUser(func(w http.ResponseWriter, r *http.Request, d
 		Modify:     d.user.Perm.Modify,
 		Expand:     !metadataOnly,
 		ReadHeader: d.server.TypeDetectionByHeader,
+		CalcImgRes: d.user.Perm.Download && r.URL.Query().Get("dimensions") == "1",
 		Checker:    d,
 		Content:    d.user.Perm.Download && !metadataOnly,
 	})
