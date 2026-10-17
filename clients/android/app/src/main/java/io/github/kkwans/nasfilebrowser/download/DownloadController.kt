@@ -63,6 +63,7 @@ class DownloadController(private val context: Context, private val scope: Corout
         try { DownloadScheduler.start(context, record) } catch (failure: Exception) { dao.command(record.id, "failed", now); throw failure }
         "ZIP打包下载已加入任务；恢复时从零重新打包"
     }
+    fun refresh() { scope.launch { val rows = dao.observe().first(); mutable.value = mutable.value.copy(items = rows) } }
     fun visible(active: Boolean) {
         if (active == (sampling?.isActive == true)) return
         sampling?.cancel(); sampling = null

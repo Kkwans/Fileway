@@ -335,22 +335,13 @@ class PlayerFullscreenTest {
                 hiddenFocusedWindow("panel-$panel-closed")
                 assertEquals(before, geometry())
             }
-            for (option in listOf("媒体系统音量", "窗口亮度", "播放来源")) {
-                click("更多播放选项")
-                assertTrue(device.wait(Until.hasObject(By.desc("播放设置")), 5_000))
-                click(option)
-                val content = when (option) {
-                    "媒体系统音量" -> By.text(java.util.regex.Pattern.compile("与设备媒体音量键同步.*|此设备使用固定音量.*"))
-                    "窗口亮度" -> By.text("恢复系统亮度")
-                    else -> By.text("播放方式")
-                }
-                assertTrue("More must open its existing $option content", device.wait(Until.hasObject(content), 5_000))
-                hiddenFocusedWindow("more-$option-hidden")
-                assertEquals("More settings must not resize video", before, geometry())
-                click("关闭播放设置")
-                assertTrue(device.wait(Until.gone(By.desc("播放设置")), 5_000))
-                hiddenFocusedWindow("more-$option-closed")
-            }
+            click("播放来源")
+            assertTrue(device.wait(Until.hasObject(By.text("播放方式")), 5_000))
+            hiddenFocusedWindow("source-hidden")
+            assertEquals("Source must not resize video", before, geometry())
+            click("关闭播放设置")
+            assertTrue(device.wait(Until.gone(By.desc("播放设置")), 5_000))
+            hiddenFocusedWindow("source-closed")
             // Exercise real inset changes as well as hidden bars. Manual shade
             // gestures remain a separate real-device interaction acceptance.
             activity.scenario.onActivity { host ->

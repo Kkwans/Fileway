@@ -46,7 +46,7 @@ enum class TaskCenterSection(val route: String, val label: String) {
 }
 enum class LibrarySection(val label: String, val title: String) { FAVORITES("收藏", "收藏夹"), TAGS("标签", "标签"), TRASH("回收站", "回收站"), TASKS("任务", "任务中心"), TOOLS("工具", "存储工具") }
 
-data class ResourceRef(val path: String, val wirePath: String, val name: String, val directory: Boolean, val type: String, val size: Long, val modified: String = "", val downloadId: String = "")
+data class ResourceRef(val path: String, val wirePath: String, val name: String, val directory: Boolean, val type: String, val size: Long, val modified: String = "", val downloadId: String = "", val previewWidth: Int = 0, val previewHeight: Int = 0)
 data class ClientState(
     val startupPending: Boolean = false,
     val connected: Boolean = false, val busy: Boolean = false, val stage: String = "",
@@ -345,7 +345,14 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val expected = generation
         mutable.value = mutable.value.copy(profile = profile, editorVersion = mutable.value.editorVersion + 1, busy = profile != null, stage = if (profile != null) "正在读取档案" else "")
         if (profile != null) operation = viewModelScope.launch {
-            try { val accounts = store.accounts(profile); if (generation == expected) mutable.value = mutable.value.copy(accounts = accounts, busy = false, stage = "") }
+            try {
+                val accounts = store.accounts(profile)
+                val recent = accounts.firstOrNull { store.token(profile, it) != null }
+                if (generation == expected) {
+                    mutable.value = mutable.value.copy(accounts = accounts, busy = false, stage = "")
+                    if (recent != null) restore(recent)
+                }
+            }
             catch (error: Exception) { if (error !is CancellationException && generation == expected) mutable.value = mutable.value.copy(busy = false, error = "无法读取档案账号，请重试") }
         }
     }
@@ -365,7 +372,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     private suspend fun loadDirectory(path: String, wire: String, bound: SessionContext) {
         val encoded = wire.ifEmpty { path.split('/').joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") } }
-        applyDirectory(bound.api.request("GET", "/api/resources$encoded"), path, wire, bound)
+        applyDirectory(bound.api.request("GET", "/api/resources$encoded?dimensions=1"), path, wire, bound)
     }
     private suspend fun applyDirectory(data: JSONObject, path: String, wire: String, bound: SessionContext) {
         val files = directoryFiles(data)
@@ -382,7 +389,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val items = data.optJSONArray("items") ?: error("服务器返回了不支持的目录格式")
         return (0 until items.length()).map { index ->
             val item = items.getJSONObject(index)
-            ResourceRef(item.optString("path"), item.optString("wirePath"), item.optString("name"), item.optBoolean("isDir"), item.optString("type"), item.optLong("size"), item.optString("modified"))
+            ResourceRef(item.optString("path"), item.optString("wirePath"), item.optString("name"), item.optBoolean("isDir"), item.optString("type"), item.optLong("size"), item.optString("modified"), previewWidth = item.optJSONObject("resolution")?.optInt("width") ?: 0, previewHeight = item.optJSONObject("resolution")?.optInt("height") ?: 0)
         }.sortedWith(compareByDescending<ResourceRef> { it.directory }.thenBy { it.name.lowercase() })
     }
 
@@ -739,6 +746,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun retry() {
+        if (mutable.value.busy) return
         val target = pendingDirectory ?: (mutable.value.path to mutable.value.wirePath)
         browse(target.first, target.second)
     }
@@ -831,6 +839,17 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         } catch (error: Throwable) { asset.release(); throw error }
     }
     fun closeImage() { if (mutable.value.image?.let(::isTemporaryContent) == true) closeTemporaryContent(); mutable.value = mutable.value.copy(image = null, mediaQueue = null) }
+    suspend fun hasCachedOriginal(file: ResourceRef): Boolean {
+        cache.awaitReady()
+        val account = if (file.downloadId.isNotEmpty()) "local-downloads" else cacheAccount()
+        return cache.hasCachedImage(cache.key(account, file.mediaKey, "${file.size}/${file.modified}/${ImageQuality.ORIGINAL.name}"), account)
+    }
+    suspend fun saveImageToAlbum(file: ResourceRef) {
+        val account = if (file.downloadId.isNotEmpty()) "local-downloads" else cacheAccount()
+        val key = cache.key(account, file.mediaKey, "${file.size}/${file.modified}/${ImageQuality.ORIGINAL.name}")
+        val image = cache.cachedImages(account).firstOrNull { it.key == key } ?: error("原图尚未缓存，请等待原图加载后保存")
+        cache.saveCachedImageToAlbum(image)
+    }
     suspend fun image(file: ResourceRef, quality: ImageQuality): Pair<PreviewLease, ResourceRef> {
         temporaryMedia?.takeIf { it.file.mediaKey == file.mediaKey && context === it.context }?.let { return PreviewLease(it.asset.url, it.asset.scope) {} to file }
         if (file.downloadId.isNotEmpty()) {
@@ -840,6 +859,12 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }
         val bound = context ?: error("服务器尚未连接")
         cache.awaitReady()
+        val cachedKey = cache.key(cacheAccount(), file.mediaKey, "${file.size}/${file.modified}/${quality.name}")
+        if (cache.hasCachedImage(cachedKey, cacheAccount())) {
+            val cached = cache.openCachedImage(cachedKey, cacheAccount())
+            if (context !== bound || generation != bound.generation) { cached.close(); error("服务器来源已切换") }
+            return PreviewLease(android.net.Uri.fromFile(cached.file).toString(), bound.api.id) { cached.close() } to file
+        }
         val wire = file.wirePath.ifEmpty { file.path.split('/').joinToString("/") { android.net.Uri.encode(it) } }
         val data = bound.api.request("GET", "/api/resources$wire")
         require(!data.optBoolean("isDir")) { "该文件已变化" }
@@ -1178,7 +1203,13 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 if (context === bound && generation == bound.generation) mutable.value = mutable.value.copy(
                     recentPlaybackLoading = false, recentPlaybackError = if (error is ServiceException && error.status in setOf(404, 501))
                         "服务器尚不支持云端播放列表，需升级服务；当前显示本机记录"
-                    else "云端记录刷新失败，已保留现有记录")
+                    else when {
+                        error is ServiceException && error.status == 401 -> "登录已过期，请重新连接；已保留本机记录"
+                        error is ServiceException && error.status == 403 -> "当前账号无权读取播放记录"
+                        error is org.json.JSONException -> "服务器未返回有效播放列表，请升级配套服务；已保留本机记录"
+                        error is ServiceException -> "播放记录暂不可用（HTTP ${error.status}），已保留现有记录"
+                        else -> "无法连接播放记录服务，已保留现有记录"
+                    })
             }
         }
     }

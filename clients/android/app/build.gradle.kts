@@ -33,8 +33,8 @@ android {
         applicationId = "io.github.kkwans.nasfilebrowser"
         minSdk = 29
         targetSdk = 37
-        versionCode = 19
-        versionName = "0.8.1-preview"
+        versionCode = 20
+        versionName = "0.8.2-preview"
         // AGP reads test versionCode before placeholder expansion. Keep the
         // explicit test metadata aligned so upgrades never fall back to code 0.
         val testManifest = file("src/androidTest/AndroidManifest.xml").readText()
@@ -94,6 +94,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+    implementation("androidx.palette:palette:1.0.0")
+    implementation("com.airbnb.android:lottie-compose:6.7.1")
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
     implementation("io.coil-kt.coil3:coil-gif:3.6.3")

@@ -69,6 +69,7 @@ import kotlin.math.abs
         val previews = remember { Semaphore(2) }
         var chrome by rememberSaveable { mutableStateOf(true) }
         var details by remember { mutableStateOf<ResourceRef?>(null) }
+        var originalOverrides by rememberSaveable { mutableStateOf(emptySet<String>()) }
         val zoomedPages = remember { mutableStateMapOf<String, Boolean>() }
         val zoomed = zoomedPages[entries[pager.settledPage].mediaKey] == true
         val current = entries[pager.currentPage.coerceIn(entries.indices)]
@@ -78,6 +79,9 @@ import kotlin.math.abs
         LaunchedEffect(pager.settledPage) {
             model.navigateMedia(pager.settledPage)
         }
+        val scope = rememberCoroutineScope()
+        val context = LocalContext.current
+        var saving by remember { mutableStateOf(false) }
         Scaffold(containerColor = Color.Black) { padding ->
             Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).background(Color.Black)) {
                 HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1,
@@ -85,44 +89,55 @@ import kotlin.math.abs
                     ImagePage(model, entries[index], active = index == pager.settledPage,
                         sourceScope = client.previewScope,
                         previewEnabled = abs(index - pager.settledPage) <= 1, previews = previews, chrome = chrome,
-                        onClick = { chrome = !chrome }, onZoom = { zoomedPages[entries[index].mediaKey] = it })
+                        onClick = { chrome = !chrome }, onZoom = { zoomedPages[entries[index].mediaKey] = it }, forceOriginal = entries[index].mediaKey in originalOverrides)
                 }
                 if (chrome) {
-                    Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(media.mediaSurface.copy(alpha = .9f)), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = model::closeImage) { Icon(painterResource(R.drawable.ic_arrow_back), "返回文件") }
-                        Text(current.name, Modifier.weight(1f).heightIn(min = 48.dp).clickable { details = current }.padding(vertical = 12.dp),
-                            color = media.mediaContent, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${pager.currentPage + 1} / ${entries.size}", Modifier.padding(horizontal = 12.dp),
-                            color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
+                    Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .55f)), verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = model::closeImage) { Icon(painterResource(R.drawable.ic_arrow_back), "返回文件", tint = Color.White) }
+                        Text(current.name, Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        IconButton({ details = current }) { Icon(painterResource(R.drawable.ic_info), "图片详情", tint = Color.White) }
+                        if (!model.isTemporaryContent(current)) IconButton({ saving = true; scope.launch {
+                            val message = try { model.saveImageToAlbum(current); "已保存到相册" }
+                            catch (cancelled: CancellationException) { throw cancelled }
+                            catch (error: Exception) { error.message ?: "保存失败，请重试" }
+                            finally { saving = false }
+                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                        } }, enabled = !saving) { Icon(painterResource(R.drawable.ic_download), "保存原图到相册", tint = Color.White) }
                     }
-                    Row(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(media.mediaSurface.copy(alpha = .9f)).padding(horizontal = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = model::previousMedia, enabled = queue?.hasPrevious == true) {
-                            Icon(painterResource(R.drawable.ic_arrow_back), "上一张图片")
-                        }
-                        Text("双击缩放 · 左右翻页", Modifier.weight(1f), color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
-                        IconButton(onClick = model::nextMedia, enabled = queue?.hasNext == true) {
-                            Icon(painterResource(R.drawable.ic_arrow_forward), "下一张图片")
-                        }
+                    Surface(Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.Black.copy(alpha = .5f),
+                        contentColor = Color.White, shape = MaterialTheme.shapes.medium) {
+                        Text("${pager.currentPage + 1} / ${entries.size}", Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
         }
-        details?.let { FileDetailsDialog(it, actions = { FileActions(model, it) { details = null } }, onDismiss = { details = null }) }
+        details?.let { FileDetailsDialog(it, actions = {
+            FileActions(model, it) { details = null }
+            if (it.downloadId.isEmpty() && !model.isTemporaryContent(it)) TextButton({ originalOverrides = originalOverrides + it.mediaKey; details = null }) { Text("加载原图") }
+        }, onDismiss = { details = null }) }
     }
 }
 
 @Composable private fun ImagePage(model: ClientModel, file: ResourceRef, active: Boolean, previewEnabled: Boolean,
-    sourceScope: String, previews: Semaphore, chrome: Boolean, onClick: () -> Unit, onZoom: (Boolean) -> Unit) {
+    sourceScope: String, previews: Semaphore, chrome: Boolean, onClick: () -> Unit, onZoom: (Boolean) -> Unit, forceOriginal: Boolean = false) {
     val context = LocalContext.current
     val media = FilewayTheme.status
     val colors = MaterialTheme.colorScheme
     val scope = rememberCoroutineScope()
     val cache by model.cache.state.collectAsStateWithLifecycle()
     val local = file.downloadId.isNotEmpty()
+    val temporarySource = model.isTemporaryContent(file)
     val account = if (local) "local-downloads" else model.cacheAccount()
     var originalRequested by rememberSaveable(file.mediaKey) { mutableStateOf(false) }
-    val quality = if (local || originalRequested) ImageQuality.ORIGINAL else cache.settings.imageQuality
+    var originalCached by remember(file.mediaKey) { mutableStateOf(false) }
+    var cacheChecked by remember(file.mediaKey) { mutableStateOf(local) }
+    LaunchedEffect(file.mediaKey, cache.revision) {
+        try { originalCached = !local && model.hasCachedOriginal(file); if (originalCached) originalRequested = true }
+        finally { cacheChecked = true }
+    }
+    val quality = if (local || originalRequested || forceOriginal) ImageQuality.ORIGINAL else cache.settings.imageQuality
     val activeNow by rememberUpdatedState(active)
     var preview by remember { mutableStateOf<CoilImage?>(null) }
     var previewStatus by remember { mutableStateOf("正在读取预览") }
@@ -140,8 +155,8 @@ import kotlin.math.abs
     var phase by remember { mutableStateOf("正在读取图片信息") }
     val imageState = rememberZoomableImageState(rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 8f)))
 
-    LaunchedEffect(previewEnabled, file.mediaKey, cache.revision, attempt) {
-        if (!previewEnabled) return@LaunchedEffect
+    LaunchedEffect(previewEnabled, cacheChecked, originalCached, file.mediaKey, cache.revision, attempt) {
+        if (!previewEnabled || !cacheChecked || originalCached || local) return@LaunchedEffect
         previewStatus = "正在读取预览"
         try {
             previews.withPermit {
@@ -163,10 +178,10 @@ import kotlin.math.abs
         }
     }
 
-    LaunchedEffect(active, canceled, quality, cache.revision, forceWorkingFile, attempt) {
+    LaunchedEffect(previewEnabled, cacheChecked, canceled, quality, cache.revision, forceWorkingFile, attempt) {
         val token = ++requestToken
         fetched = false; failure = null
-        if (!active || canceled) return@LaunchedEffect
+        if (!previewEnabled || !cacheChecked || canceled) return@LaunchedEffect
         var owned: PreviewLease? = null
         var temporary: TemporaryImage? = null
         phase = "正在读取图片信息"
@@ -175,8 +190,12 @@ import kotlin.math.abs
             owned = result.first; current = result.second
             readingLease = owned
             phase = if (local) "正在打开本机图片" else if (quality == ImageQuality.ORIGINAL) "正在读取原图" else "正在读取图片"
-            if (!local && (cache.settings.imageMB == 0L || forceWorkingFile)) {
+            if (!local && !owned.url.startsWith("file:") && (cache.settings.imageMB == 0L || forceWorkingFile)) {
                 temporary = TemporaryImages.read(context, owned, if (quality == ImageQuality.ORIGINAL || quality == ImageQuality.HIGH) current.size else 0)
+                if (!temporarySource && cache.settings.imageMB > 0 && quality == ImageQuality.ORIGINAL) {
+                    val key = model.cache.key(account, current.mediaKey, "${current.size}/${current.modified}/${quality.name}")
+                    model.cache.cacheImageFile(CachedImage(key, account, current.name, current.path, current.wirePath, current.modified, current.size, 0), temporary.file)
+                }
             }
             asset = ImagePageAsset(owned, temporary, quality, cache.revision, attempt, token)
             awaitCancellation()
@@ -211,33 +230,33 @@ import kotlin.math.abs
     val cacheKey = model.cache.key(account, current.mediaKey, "${current.size}/${current.modified}/${quality.name}")
     // A quality/retry change is composed before the previous effect finishes.
     // Never load its old lease under the new request's cache key or callbacks.
-    val loaded = asset?.takeIf { active && !canceled && it.quality == quality &&
+    val loaded = asset?.takeIf { !canceled && it.quality == quality &&
         it.cacheRevision == cache.revision && it.attempt == attempt && it.token == requestToken }
     val lease = loaded?.lease
     val token = requestToken
     val imageLoader = model.cache.imageLoader.value
-    val data = loaded?.working?.file ?: lease?.url?.let { if (local) android.net.Uri.parse(it) else it }
+    val data = loaded?.working?.file ?: lease?.url?.let { if (local || it.startsWith("file:")) android.net.Uri.parse(it) else it }
     val request = remember(data, cacheKey, token, attempt, quality, imageLoader) {
         ImageRequest.Builder(context).data(data).placeholder { latestPreview }.error { latestPreview }.fallback { latestPreview }
             .memoryCacheKey(cacheKey).diskCacheKey(cacheKey)
-            .diskCachePolicy(if (cache.settings.imageMB == 0L) CachePolicy.DISABLED else CachePolicy.ENABLED)
+            .diskCachePolicy(if (temporarySource || cache.settings.imageMB == 0L) CachePolicy.DISABLED else CachePolicy.ENABLED)
             .apply { quality.pixels?.let { size(it, it) } }
             .listener(onSuccess = { _, result ->
                 if (data != null) scope.launch {
-                    if (requestToken != token || !activeNow) return@launch
+                    if (requestToken != token) return@launch
                     if (data is String && result.diskCacheKey == null && result.image is BitmapImage && quality == ImageQuality.ORIGINAL) {
                         preview = result.image
                         forceWorkingFile = true
                     } else {
                         fetched = true; failure = null
                         if (quality != ImageQuality.ORIGINAL && result.image is BitmapImage) preview = result.image
-                        if (data is String) try {
+                        if (data is String && !temporarySource) try {
                             model.cache.recordImage(CachedImage(cacheKey, account, current.name, current.path, current.wirePath, current.modified, current.size, 0))
                         } catch (error: Exception) { if (error is CancellationException) throw error }
                     }
                 }
             }, onError = { _, result ->
-                if (data != null) scope.launch { if (requestToken == token && activeNow) failure = imageFailure(result.throwable) }
+                if (data != null) scope.launch { if (requestToken == token) failure = imageFailure(result.throwable) }
             }).build()
     }
     val ready = fetched && imageState.isImageDisplayed
@@ -267,24 +286,23 @@ import kotlin.math.abs
         }
         ZoomableAsyncImage(request, file.name, Modifier.fillMaxSize(), state = imageState, imageLoader = imageLoader,
             contentScale = ContentScale.Fit, onClick = { onClick() })
-        if (active && (chrome || !ready || failure != null)) Surface(
-            modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp, vertical = if (chrome) 64.dp else 16.dp),
-            shape = MaterialTheme.shapes.medium, color = media.mediaSurface.copy(alpha = .95f),
-        ) {
-            Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (!canceled && failure == null && (!ready || !imageState.isImageDisplayedInFullQuality)) {
-                    val progress = readProgress
-                    if (progress != null && !fetched) {
-                        CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(24.dp), strokeWidth = 2.dp, color = colors.primary)
-                        Text("${(progress * 100).toInt()}%", color = media.mediaContent, style = MaterialTheme.typography.labelSmall)
-                    } else CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.primary)
-                }
-                Text(message, Modifier.weight(1f, fill = false).padding(vertical = 12.dp), color = media.mediaContent, style = MaterialTheme.typography.bodySmall)
-                if (failure != null || canceled) TextButton(onClick = { canceled = false; failure = null; attempt++ }) { Text("重试") }
-                else if (!ready) TextButton(onClick = { canceled = true }) { Text("取消读取") }
-                if (quality != ImageQuality.ORIGINAL && (ready || failure != null || canceled)) {
-                    TextButton(onClick = { requestToken++; canceled = false; failure = null; originalRequested = true }) { Text("查看原图") }
-                } else if (ready) Spacer(Modifier.width(8.dp))
+        var showLoading by remember { mutableStateOf(false) }
+        LaunchedEffect(active, ready, failure, canceled) {
+            showLoading = false
+            if (active && !ready && failure == null && !canceled) { delay(350); showLoading = true }
+        }
+        if (showLoading) Surface(Modifier.align(Alignment.Center), color = Color.Black.copy(alpha = .35f), shape = MaterialTheme.shapes.medium) {
+            Box(Modifier.padding(14.dp)) {
+                val progress = readProgress
+                if (progress == null) CircularProgressIndicator(Modifier.size(30.dp), color = Color.White, strokeWidth = 2.dp)
+                else CircularProgressIndicator(progress = { progress }, modifier = Modifier.size(30.dp), color = Color.White, strokeWidth = 2.dp)
+            }
+        }
+        if (active && (failure != null || canceled)) Surface(Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp, start = 16.dp, end = 16.dp),
+            color = Color.Black.copy(alpha = .65f), contentColor = Color.White, shape = MaterialTheme.shapes.medium) {
+            Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                TextButton({ canceled = false; failure = null; attempt++ }) { Text("重试", color = Color.White) }
             }
         }
     }

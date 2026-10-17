@@ -89,7 +89,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     BackHandler(selecting) { selecting = false; selected = emptySet() }
     MaterialTheme(colorScheme = colors) {
         Scaffold(containerColor = colors.background, bottomBar = { ClientNavigation(model, "files") }) { insets ->
-            Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+            FilewayRefresh(state.busy, model::retry, Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+Column(Modifier.fillMaxSize()) {
                 FilewayPageHeader("文件", state.profile?.name) {
                     if (state.permissions.create) Box {
                         IconButton({ createMenu = true }, enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null) {
@@ -176,8 +177,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                     if (selectionBusy) LinearProgressIndicator(Modifier.fillMaxWidth())
                     val error = if (batchKind == "trash") trash.error else if (batchKind == "download") downloads.error else if (batchKind == "rename") operations.error else null
                     val notice = if (batchKind == "trash") trash.notice else if (batchKind == "download") downloads.notice else if (batchKind == "rename") operations.notice else null
-                    (error ?: notice)?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
-                        color = if (error != null) colors.error else colors.onSurfaceVariant) }
+                    FilewayToast(notice)
+                    error?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = colors.error) }
                 }
                 if (!selecting) TransferTaskBanner(model)
                 state.error?.let { message ->
@@ -190,7 +191,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                     Text("标签：${tag.name} · ${if (tags.globalFilter) "含目录关联" else "直接标记"}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     TextButton({ model.tags.filter(null) }) { Text("清除筛选") }
                 } }
-                if (state.busy) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (state.busy && state.files.isEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), color = colors.primary, strokeWidth = 2.dp)
                     Text(state.stage, Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = model::cancel) { Text("取消") }
@@ -209,6 +210,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                     }, { details = file }, selected = if (selecting) key(file) in selected else null, compactGridSize = state.compactGridSize)
                 }
             }
+}
+
         }
         details?.let { file -> FileDetailsDialog(file, actions = { FileActions(model, file) { details = null } }, onDismiss = { details = null }) }
         operations.batchRename?.let { rename -> BatchRenameSheet(model.fileOperations) {

@@ -34,7 +34,8 @@ import java.util.Locale
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
     val entries = remember(state.items) { state.items.filter { it.isDir || mediaKind(it.name, false, "") != MediaKind.VIDEO } }
-    Column(Modifier.fillMaxSize()) {
+    FilewayRefresh(state.loading, { controller.refresh() }) {
+Column(Modifier.fillMaxSize()) {
         if (!connected || state.scope.isEmpty()) {
             RecentAccessMessage("连接后查看最近访问", "成功进入目录或打开文件后，与同一账号的网页端同步。", "连接服务器", onConnect)
             return@Column
@@ -42,9 +43,7 @@ import java.util.Locale
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("与服务器同步 · 不含视频", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            IconButton(onClick = { controller.refresh() }, enabled = !state.loading) {
-                Icon(painterResource(R.drawable.ic_refresh), "刷新最近访问")
-            }
+
         }
         if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         state.recordWarning?.let { message ->
@@ -116,6 +115,8 @@ import java.util.Locale
             }
         }
     }
+}
+
 }
 
 @Composable private fun ColumnScope.RecentAccessMessage(title: String, message: String, action: String, onAction: () -> Unit) {

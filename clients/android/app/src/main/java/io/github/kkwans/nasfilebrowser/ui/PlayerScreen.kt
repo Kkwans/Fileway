@@ -108,7 +108,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable internal fun PlayerScreen(model: ClientModel, file: ResourceRef) {
-    val pageColors = MaterialTheme.colorScheme
+    val pageColors = rememberMediaColors(model, file)
     val state by model.player.state.collectAsStateWithLifecycle()
     val client by model.state.collectAsStateWithLifecycle()
     val downloads by model.downloads.state.collectAsStateWithLifecycle()
@@ -178,7 +178,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var pictureSeek by remember(file, state.mediaGeneration) { mutableStateOf<Long?>(null) }
     var dragSession by remember(file, state.mediaGeneration) { mutableStateOf<SeekDragSession?>(null) }
     val seekPreview = rememberSeekPreview(model, file, state.mediaGeneration, seek != null || pictureSeek != null)
-    val showControls = visible && pictureSeek == null && !touchLocked
+    val showControls = (!fullscreen || visible) && pictureSeek == null && !touchLocked
     var showRequest by remember(file) { mutableStateOf(false) }
     val feedback = remember { SnackbarHostState() }
     var documentGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -598,7 +598,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             IntOffset(position.x.roundToInt(), position.y.roundToInt())
                         })
                 }
-                if (sheet != null) PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; else -> "播放来源" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
+                if (sheet != null) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
+                    if (fullscreen) MaterialTheme.colorScheme else pageColors, fullscreen) { PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; else -> "播放来源" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
                     { sheet = PlayerSheet.SUBTITLE; touch() }
                 } else if (sheet == PlayerSheet.SUBTITLE_FONT) {
                     { sheet = PlayerSheet.SUBTITLE_ADJUST; touch() }
@@ -761,6 +762,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         null -> Unit
                     }
                 }
+                }
             }
         }
     }
@@ -886,7 +888,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             else (back ?: dismiss)()
         }
         val panelWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-        PlayerWindowBars(panelWindow, immersive)
+        PlayerWindowBars(panelWindow, immersive, FilewayTheme.status.mediaSurface.luminance() < .5f)
         SideEffect {
             @Suppress("DEPRECATION")
             panelWindow?.navigationBarColor = android.graphics.Color.TRANSPARENT
@@ -909,7 +911,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     Text(title, style = FilewayTheme.text.appBar, modifier = Modifier.weight(1f))
                     PlayerIcon(R.drawable.art_close, "关闭播放设置", dismiss)
                 }
-                HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = Color(0xFF323236))
+                HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f))
                 Box(Modifier.weight(1f, fill = false).fillMaxWidth()) { content() }
             }
             }

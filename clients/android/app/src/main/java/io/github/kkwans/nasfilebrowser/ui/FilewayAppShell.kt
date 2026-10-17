@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
@@ -18,12 +19,14 @@ import io.github.kkwans.nasfilebrowser.data.ConnectionMode
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.launch
 
+internal val LocalFilewayPageActive = staticCompositionLocalOf { true }
+internal val LocalSkipBottomNavigation = staticCompositionLocalOf { false }
 internal val LocalFilewayDrawer = staticCompositionLocalOf<() -> Unit> { {} }
 internal val LocalFilewayBack = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 /** Drawer chrome exists only around library pages, never around a native content surface. */
 @Composable
-internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () -> Unit, content: @Composable () -> Unit) {
+internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () -> Unit, content: @Composable (ClientMainDestination?) -> Unit) {
     val appearance by model.appearance.state.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -44,10 +47,14 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                 else "尚未连接服务器",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            if (state.connected) Text(
+                            if (state.connected) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
+                                io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.CONNECTION, state.previewScope, Modifier.size(22.dp), play = drawer.isOpen)
+                            Text(
                                 "已连接 · ${if (state.profile?.network == ConnectionMode.TAILNET) "Tailscale" else "本地网络"}",
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
                             )
+                            }
                         }
                         fun navigate(action: () -> Unit) { scope.launch { drawer.close() }; action() }
                         FilewayDrawerItem(if (state.connected) "切换服务器或账号" else "连接服务器", R.drawable.ic_server) {
@@ -81,10 +88,14 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                         Text("主题", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.labelLarge)
                         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             AppTheme.entries.forEach { mode ->
-                                FilterChip(selected = appearance.theme == mode,
-                                    onClick = { model.appearance.save(mode) },
-                                    enabled = appearance.loaded && !appearance.saving,
-                                    label = { Text(when (mode) { AppTheme.SYSTEM -> "系统"; AppTheme.LIGHT -> "浅色"; AppTheme.DARK -> "深色" }, maxLines = 1) }, modifier = Modifier.weight(1f))
+                                val label = when (mode) { AppTheme.SYSTEM -> "跟随系统"; AppTheme.LIGHT -> "浅色"; AppTheme.DARK -> "深色" }
+                                val icon = when (mode) { AppTheme.SYSTEM -> R.drawable.ic_theme_system; AppTheme.LIGHT -> R.drawable.ic_theme_light; AppTheme.DARK -> R.drawable.ic_theme_dark }
+                                Surface(Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
+                                    color = if (appearance.theme == mode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
+                                    IconButton({ model.appearance.save(mode) }, enabled = appearance.loaded && !appearance.saving, modifier = Modifier.fillMaxWidth()) {
+                                        Icon(painterResource(icon), label, tint = if (appearance.theme == mode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
                             }
                         }
                         if (state.connected) {
@@ -102,10 +113,19 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
             },
         ) {
             CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack) {
-                Box(Modifier.fillMaxSize().swipeTabs(state.destination.main?.ordinal ?: 0,
-                    ClientMainDestination.entries.size, enabled = gestures && !drawer.isOpen, edge = 24.dp) {
-                    model.navigateMain(ClientMainDestination.entries[it])
-                }) { content() }
+                if (state.destination.main != null && !state.searchDisplayed) {
+                    val destinations = ClientMainDestination.entries
+                    val pager = rememberFilewayPager(state.destination.main!!.ordinal, destinations.size) { model.navigateMain(destinations[it]) }
+                    Column(Modifier.fillMaxSize()) {
+                        androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth()
+                            .consumeWindowInsets(WindowInsets.navigationBars), beyondViewportPageCount = 1,
+                            userScrollEnabled = !drawer.isOpen) { page ->
+                            CompositionLocalProvider(LocalSkipBottomNavigation provides true,
+                                LocalFilewayPageActive provides (page == pager.settledPage)) { content(destinations[page]) }
+                        }
+                        ClientNavigation(model, destinations[pager.currentPage].route, activeOverride = destinations[pager.currentPage])
+                    }
+                } else content(null)
             }
         }
     }

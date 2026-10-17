@@ -58,6 +58,7 @@ class UploadController(private val context: Context, private val scope: Coroutin
             completed = done
         }
     } }
+    fun refresh() { scope.launch { val rows = dao.observe().first(); mutable.value = mutable.value.copy(items = rows) } }
     fun visible(active: Boolean) {
         if (active == (sampling?.isActive == true)) return
         sampling?.cancel(); sampling = null

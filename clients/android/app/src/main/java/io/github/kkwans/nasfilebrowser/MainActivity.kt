@@ -1,6 +1,7 @@
 package io.github.kkwans.nasfilebrowser
 
 import android.os.Bundle
+import androidx.compose.foundation.layout.fillMaxSize
 import android.graphics.Color
 import androidx.activity.SystemBarStyle
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -46,7 +47,16 @@ class MainActivity : ComponentActivity() {
                 bars.isAppearanceLightNavigationBars = lightBars
                 onDispose { }
             }
-            ClientTheme(darkTheme = dark) { ClientApp(model) }
+            androidx.compose.runtime.SideEffect {
+                if (client.selected == null && client.image == null) {
+                    val bars = WindowCompat.getInsetsController(window, window.decorView)
+                    bars.isAppearanceLightStatusBars = !dark
+                    bars.isAppearanceLightNavigationBars = !dark
+                }
+            }
+            ClientTheme(darkTheme = dark) {
+                androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.background) { ClientApp(model) }
+            }
         }
         // Theme.Material's native content parent consumes Insets via fitsSystemWindows.
         // Compose owns those Insets; prevent duplicate native padding after recreation.

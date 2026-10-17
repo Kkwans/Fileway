@@ -160,9 +160,21 @@ object FilewayMotion {
     ) {
         MaterialTheme(
             colorScheme = colors, typography = FilewayTypography,
-            shapes = Shapes(RoundedCornerShape(6.dp), RoundedCornerShape(8.dp), RoundedCornerShape(12.dp),
-                RoundedCornerShape(16.dp), RoundedCornerShape(20.dp)),
+            shapes = Shapes(RoundedCornerShape(12.dp), RoundedCornerShape(12.dp), RoundedCornerShape(12.dp),
+                RoundedCornerShape(12.dp), RoundedCornerShape(12.dp)),
             content = content,
         )
+    }
+}
+
+/** Media overlays inherit the page's tonal surface in portrait and neutral glass in fullscreen. */
+@Composable fun FilewayMediaTheme(colors: ColorScheme, fullscreen: Boolean, content: @Composable () -> Unit) {
+    val status = FilewayTheme.status.copy(
+        mediaSurface = if (fullscreen) Color(0xC7202124) else colors.background,
+        mediaContent = if (fullscreen) Color(0xFFF2F2F2) else colors.onBackground,
+        mediaSecondary = if (fullscreen) Color(0xFFBFC2C6) else colors.onSurfaceVariant,
+    )
+    CompositionLocalProvider(LocalFilewayColors provides colors, LocalFilewayStatus provides status) {
+        MaterialTheme(colorScheme = colors, content = content)
     }
 }

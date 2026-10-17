@@ -51,7 +51,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     MaterialTheme(colorScheme = colors) {
         Scaffold(containerColor = colors.background) { insets ->
             Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
-                Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
+                FilewayRefresh(state.running, { if (!state.running && !client.busy && state.query.isNotBlank()) model.search.refresh() }) {
+Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                             Icon(painterResource(R.drawable.ic_arrow_back), "返回文件", Modifier.size(22.dp), tint = colors.onBackground)
@@ -148,6 +149,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                             open = { if (!model.state.value.busy) { focus.clearFocus(); model.search.openResult(result) } }, details = { details = result })
                     }
                 }
+}
+
             }
         }
         details?.let { result ->

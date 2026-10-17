@@ -29,7 +29,7 @@ class ServerTasksController(private val scope: CoroutineScope, private val isCur
     fun bind(context: SessionContext?) {
         reads?.cancel(); changes?.cancel(); detail?.cancel(); poll?.cancel(); revision++; detailEpoch++
         bound = context; visible = false; watched = emptySet()
-        mutable.value = ServerTasksState(scope = context?.owner.orEmpty(), permissions = context?.api?.identity?.permissions ?: ServerPermissions())
+        mutable.value = ServerTasksState(scope = context?.owner.orEmpty(), filter = TaskFilter(owner = context?.account?.username.orEmpty()), permissions = context?.api?.identity?.permissions ?: ServerPermissions())
     }
     private fun current(context: SessionContext) = bound === context && isCurrent(context)
     fun setVisible(value: Boolean) {

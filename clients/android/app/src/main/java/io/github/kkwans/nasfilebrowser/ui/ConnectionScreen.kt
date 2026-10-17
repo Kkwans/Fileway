@@ -200,7 +200,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                     }
                     if (mode == "tailnet") NetworkSection(model, network)
                     if (Build.VERSION.SDK_INT >= 37 && !localAccess) {
-                        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(10.dp)) {
+                        Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) {
                             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("本地网络访问", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
@@ -223,7 +223,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                                     focus.clearFocus()
                                     val action = { model.restore(account) }
                                     if (Build.VERSION.SDK_INT >= 37 && mode == "direct" && !hasLocalAccess() && !accessDenied) { afterPermission = action; permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK) } else action()
-                                }, enabled = !state.busy && unchanged && (mode == "direct" || network.connected)) { Text("继续使用 ${account.username}") } }
+                                }, enabled = !state.busy && unchanged && (mode == "direct" || network.connected)) { Text(account.username) } }
                             }
                         }
                         ConnectionField(username, { username = it }, "账号", R.drawable.ic_person, enabled = !state.busy)
@@ -279,7 +279,7 @@ import io.github.kkwans.nasfilebrowser.data.*
 
 @Composable private fun ConnectionMode(title: String, icon: Int, selected: Boolean, modifier: Modifier, enabled: Boolean, choose: () -> Unit) {
     Surface(modifier.selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = choose),
-        shape = RoundedCornerShape(8.dp), color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.medium, color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Icon(painterResource(icon), null, Modifier.size(18.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -300,7 +300,7 @@ import io.github.kkwans.nasfilebrowser.data.*
         trailingIcon = trailing, placeholder = if (placeholder.isEmpty()) null else ({ Text(placeholder) }),
         supportingText = if (supporting == null) null else ({ Text(supporting) }),
         visualTransformation = visualTransformation, keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),
-        keyboardActions = KeyboardActions(onDone = { onDone() }), shape = RoundedCornerShape(8.dp),
+        keyboardActions = KeyboardActions(onDone = { onDone() }), shape = MaterialTheme.shapes.medium,
         colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surface, focusedContainerColor = MaterialTheme.colorScheme.surface,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant), modifier = Modifier.fillMaxWidth())
 }

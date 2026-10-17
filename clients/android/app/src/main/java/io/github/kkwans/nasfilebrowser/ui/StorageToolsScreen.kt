@@ -46,7 +46,6 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
     LaunchedEffect(state.scope) { model.storageTools.refresh() }
     LibraryScaffold(model, LibrarySection.TOOLS, actions = {
         TextButton({ scan = true }, enabled = enabled && state.permissions.download) { Text("新建扫描") }
-        IconButton({ model.storageTools.refresh() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_refresh), "刷新存储工具") }
     }) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(state.tool == "storage", { model.storageTools.tool("storage") }, { Text("存储占用") }, enabled = enabled, colors = libraryChipColors())

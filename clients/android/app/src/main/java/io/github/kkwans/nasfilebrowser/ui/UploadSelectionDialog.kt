@@ -56,7 +56,7 @@ import io.github.kkwans.nasfilebrowser.upload.UploadConflict
                     if (files.any { it.existingIdentity != null && it.choice == UploadConflict.REPLACE }) Text("已选择覆盖同名文件，原服务器文件内容将被替换。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                FilewayToast(state.notice)
             }
         }, confirmButton = {
             TextButton({

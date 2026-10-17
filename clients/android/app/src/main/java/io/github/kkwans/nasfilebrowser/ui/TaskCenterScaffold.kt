@@ -19,21 +19,15 @@ import java.time.ZoneOffset
 
 /** Owns global insets and navigation once; each group supplies content only. */
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun TaskCenterScaffold(model: ClientModel, section: TaskCenterSection, content: @Composable ColumnScope.() -> Unit) {
+@Composable internal fun TaskCenterScaffold(model: ClientModel, section: TaskCenterSection, content: @Composable ColumnScope.(TaskCenterSection) -> Unit) {
     Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "taskcenter") }) { insets ->
-        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)
-            .swipeTabs(section.ordinal, TaskCenterSection.entries.size) { model.taskCenterSection(TaskCenterSection.entries[it]) }) {
+        val pager = rememberFilewayPager(section.ordinal, TaskCenterSection.entries.size) { model.taskCenterSection(TaskCenterSection.entries[it]) }
+        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
             FilewayPageHeader("任务中心")
-            PrimaryTabRow(selectedTabIndex = section.ordinal, containerColor = MaterialTheme.colorScheme.background) {
-                TaskCenterSection.entries.forEach { group ->
-                    Tab(selected = group == section, onClick = { model.taskCenterSection(group) },
-                        selectedContentColor = MaterialTheme.colorScheme.primary,
-                        unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.semantics { contentDescription = "${group.label}分组" },
-                        text = { Text(group.label) })
-                }
+            FilewayPagerTabs(pager, TaskCenterSection.entries.map { it.label })
+            androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), beyondViewportPageCount = 1) { page ->
+                Column(Modifier.fillMaxSize()) { content(TaskCenterSection.entries[page]) }
             }
-            content()
         }
     }
 }

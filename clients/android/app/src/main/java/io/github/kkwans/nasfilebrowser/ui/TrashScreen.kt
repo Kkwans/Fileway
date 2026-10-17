@@ -45,7 +45,6 @@ import io.github.kkwans.nasfilebrowser.app.*
             Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_check), if (selecting) "退出回收站多选" else "多选回收项目")
         }
         TextButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) { Text("清空") }
-        IconButton({ model.trash.refresh() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_refresh), "刷新回收站") }
     }) {
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.trash.refresh() }
         state.lastTask?.let { task ->

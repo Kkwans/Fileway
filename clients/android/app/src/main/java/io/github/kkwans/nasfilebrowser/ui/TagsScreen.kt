@@ -50,7 +50,6 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
     LaunchedEffect(tag, currentOnly, client.path, client.wirePath) { tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, parentWire = if (currentOnly) client.wirePath else null) } }
     LibraryScaffold(model, LibrarySection.TAGS, actions = {
         TextButton({ creating = true }, enabled = enabled && state.loaded) { Text("新建标签") }
-        IconButton(model.tags::refresh, enabled = enabled) { Icon(painterResource(R.drawable.ic_refresh), "刷新标签") }
     }) {
         LibraryMessage(state.error ?: client.error, state.notice, state.loading || state.changing, model.tags::refresh)
         if (state.loaded && state.items.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -74,24 +73,17 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(10.dp).background(metadataColor(selected.color, MaterialTheme.colorScheme.primary), CircleShape))
                             Text(selected.name, Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleMedium)
-                            Box {
-                                IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "标签更多：${selected.name}") }
-                                DropdownMenu(menu, { menu = false }) {
-                                    DropdownMenuItem({ Text("编辑标签") }, { menu = false; editing = selected })
-                                    DropdownMenuItem({ Text("删除标签") }, { menu = false; removing = selected })
-                                }
-                            }
+                            IconButton({ editing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_edit), "编辑标签") }
+                            IconButton({ removing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), "删除标签", tint = MaterialTheme.colorScheme.error) }
+
                         }
                     }
-                    Text("作用范围", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         FilterChip(!currentOnly, { currentOnly = false }, { Text("全部关联") }, colors = libraryChipColors())
                         FilterChip(currentOnly, { currentOnly = true }, { Text("当前目录") }, colors = libraryChipColors())
+                        if (currentOnly) IconButton({ scopeDetails = true }) { Icon(painterResource(R.drawable.ic_info), "核对当前目录") }
                     }
-                    if (currentOnly) {
-                        Text("${libraryBasename(client.path)} · 仅此目录直接关联的项目", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        TextButton({ scopeDetails = true }) { Text("核对完整目录") }
-                    } else Text("此标签在所有有权访问位置的关联", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
                 }
             }
             tag?.let { selected -> LibrarySectionLabel("关联结果", "已加载 ${state.paths.size} 项 / 共 ${state.pathTotal} 项") {
@@ -110,8 +102,8 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                         } } else null, onOpen = {
                             if (file.directory) model.tags.filter(tag?.id, true)
                             model.openTagged(file, candidates, sourceScope)
-                        }, trailing = { IconButton({ details = file }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "标签文件操作：${file.name}") } }) {
-                        Text(listOfNotNull(if (!file.directory) readableSize(file.size) else null, displayModified(file.modified)).joinToString(" · "),
+                        }, trailing = { IconButton({ details = file }, enabled = enabled) { Icon(painterResource(R.drawable.ic_info), "标签文件操作：${file.name}") } }) {
+                        Text(if (!file.directory) readableSize(file.size) else "目录",
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     else Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {

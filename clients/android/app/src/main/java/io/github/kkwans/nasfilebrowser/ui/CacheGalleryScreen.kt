@@ -79,7 +79,8 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
     }
     BackHandler(selecting) { selecting = false; selected = emptySet() }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
-        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+        FilewayRefresh(busy, { if (!busy && current()) refresh++ }, Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+Column(Modifier.fillMaxSize()) {
             FilewayTopAppBar(if (selecting) "已选 ${selected.size} 张" else "图片缓存", leadingIcon = R.drawable.ic_arrow_back,
                 leadingDescription = "返回我的", onLeadingClick = { model.back() }, actions = {
                     if (selecting) {
@@ -108,7 +109,6 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
                             }
                         }
                         IconButton({ selecting = true }, enabled = !busy && images.isNotEmpty()) { Icon(painterResource(R.drawable.ic_check), "多选缓存图片") }
-                        IconButton({ refresh++ }, enabled = !busy) { Icon(painterResource(R.drawable.ic_refresh), "刷新缓存图片") }
                     }
                 })
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -131,6 +131,8 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
                 }
             }
         }
+}
+
     }
 }
 

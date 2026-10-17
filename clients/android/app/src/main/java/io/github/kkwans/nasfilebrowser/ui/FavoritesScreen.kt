@@ -40,7 +40,6 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     LaunchedEffect(state.groups) { if (!filter.isNullOrEmpty() && state.groups.none { it.id == filter }) filter = null }
     val items = state.items.filter { filter == null || it.groupId == filter }
     LibraryScaffold(model, LibrarySection.FAVORITES, actions = {
-        IconButton(onClick = model.favorites::refresh, enabled = enabled) { Icon(painterResource(R.drawable.ic_refresh), "刷新收藏") }
     }) {
             LibrarySectionLabel("收藏分组", "按服务器顺序排列") {
                 TextButton(onClick = { managing = true }, enabled = enabled && state.loaded) { Text("管理分组") }
@@ -62,7 +61,9 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
             FilewayToast(state.notice)
             if (state.loaded && items.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
+                    if (state.items.isEmpty()) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
+                        io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.EMPTY_FAVORITES, state.scope, Modifier.size(40.dp), play = LocalFilewayPageActive.current)
+                    else Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
                     Text(if (state.items.isEmpty()) "常用文件，随手收藏" else if (filter == "") "还没有未分组的收藏" else "这个分组还没有收藏", style = MaterialTheme.typography.titleMedium)
                     Text(if (state.items.isEmpty()) "长按文件或文件夹，在详情中加入收藏。这里与网页端同步。" else "试试其他分组，或在收藏的更多菜单中调整分组。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     TextButton(onClick = { model.tab("files") }) { Text("浏览文件") }

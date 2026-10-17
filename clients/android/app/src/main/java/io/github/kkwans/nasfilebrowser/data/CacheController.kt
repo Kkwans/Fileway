@@ -205,6 +205,30 @@ class CacheController(private val context: Context, private val scope: Coroutine
         if (updated != original) writeIndex(updated)
         updated.filter { it.account == account && exists(it.key) }
     } }
+    suspend fun cacheImageFile(image: CachedImage, source: File): Boolean = lock.withLock { withContext(Dispatchers.IO) {
+        val disk = imageDisk ?: return@withContext false
+        if (source.length() > disk.maxSize) return@withContext false
+        val editor = disk.openEditor(image.key) ?: return@withContext false
+        try {
+            source.inputStream().use { input -> editor.data.toFile().outputStream().use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val count = input.read(buffer); if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+            } }
+            editor.metadata.toFile().writeBytes(byteArrayOf())
+            val metadata = imageMetadata(image, editor.data.toFile())
+            editor.commit()
+            val items = readIndex().filter { it.key != image.key && exists(it.key) }.toMutableList()
+            items.add(metadata); writeIndex(items)
+            true
+        } catch (failure: Exception) { runCatching { editor.abort() }; throw failure }
+    } }
+    suspend fun hasCachedImage(key: String, account: String): Boolean = lock.withLock { withContext(Dispatchers.IO) {
+        readIndex().any { it.key == key && it.account == account } && exists(key)
+    } }
     suspend fun openCachedImage(key: String, account: String): CachedImageLease = lock.withLock { withContext(Dispatchers.IO) {
         check(readIndex().any { it.key == key && it.account == account }) { "缓存来源已变化，请刷新" }
         val snapshot = imageDisk?.openSnapshot(key) ?: error("图片缓存已被清理")

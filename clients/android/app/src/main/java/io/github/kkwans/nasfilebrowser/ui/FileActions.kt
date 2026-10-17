@@ -149,7 +149,7 @@ import kotlinx.coroutines.withTimeout
                     }
                 }
                 favorites.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR, model.favorites::refresh, "重试") }
-                downloads.notice?.let { FilewayStatusBanner(it) }
+                FilewayToast(downloads.notice)
                 downloads.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
                 tags.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
                 operations.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }

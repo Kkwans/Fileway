@@ -74,14 +74,15 @@ import kotlinx.coroutines.withContext
         }
     }
     val records = state.items.filter { when (filter) { "已完成" -> it.complete; "未完成" -> !it.complete; else -> true } }
-    Column(Modifier.fillMaxSize()) {
+    FilewayRefresh(false, model.downloads::refresh) {
+Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
             Spacer(Modifier.weight(1f))
             TextButton({ settings = true }) { Text("目录") }
         }
         state.error?.let { message -> Text(message, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
-        state.notice?.let { message -> Text(message, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        FilewayToast(state.notice)
         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机下载列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -98,6 +99,8 @@ import kotlinx.coroutines.withContext
                 }
             }
             items(records, key = { it.id }) { item ->
+                var completionObserved by remember(item.id) { mutableStateOf(item.active) }
+                LaunchedEffect(item.active) { if (item.active) completionObserved = true }
                 val file = ResourceRef(item.path, item.wirePath, item.name, false, item.type, item.expectedSize, item.modified, item.id)
                 val kind = file.mediaKind()
                 val canOpen = item.localUri.isNotEmpty() && (item.complete || kind == MediaKind.VIDEO)
@@ -128,7 +131,9 @@ import kotlinx.coroutines.withContext
                     if (unknownZip) Text("ZIP总大小生成中；恢复时从零重新打包，旧的未完成输出会被截断。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (item.active) Text(state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取下载速度", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                        if (item.complete) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
+                            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(22.dp), play = completionObserved && LocalFilewayPageActive.current)
                         if (item.complete) Column(Modifier.weight(1f)) {
                             Text("已完成", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(readableSize(item.expectedSize), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -138,7 +143,7 @@ import kotlinx.coroutines.withContext
                             Modifier.semantics { contentDescription = "${if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载"}：${item.name}" }, enabled = !state.busy) { Text(if (item.active) "暂停" else if (item.zipExport) "重新打包" else "继续下载") }
                         var more by remember(item.id) { mutableStateOf(false) }
                         Box {
-                            TextButton({ more = true }, enabled = !state.busy) { Text("更多") }
+                            IconButton({ more = true }, enabled = !state.busy) { Icon(painterResource(R.drawable.ic_more_horiz), "下载更多操作", Modifier.size(22.dp)) }
                             DropdownMenu(more, { more = false }) {
                                 DropdownMenuItem({ Text("任务信息") }, { more = false; detailsId = item.id })
                                 DropdownMenuItem({ Text("打开所在目录") }, { more = false; openFolder(item.treeUri, item.relativeDirectory) })
@@ -157,6 +162,8 @@ import kotlinx.coroutines.withContext
             }
         }
     }
+}
+
     state.items.firstOrNull { it.id == detailsId }?.let { item ->
         FileOperationSheet("下载任务信息", { detailsId = null }, footer = { TextButton({ detailsId = null }) { Text("关闭") } }) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -196,7 +203,7 @@ import kotlinx.coroutines.withContext
             Text(downloadDirectoryLabel(state.tree), style = MaterialTheme.typography.bodyLarge)
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            FilewayToast(state.notice)
             Text("更改目录只影响新下载。现有文件留在原目录，不会自动移动或删除。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button({ try { folder.launch(model.downloads.target.directoryUri(state.tree)) } catch (_: Exception) { model.downloads.reportError("无法打开目录选择器") } }, Modifier.fillMaxWidth(), enabled = !state.busy) { Text("选择下载目录") }
             OutlinedButton({ openFolder(state.tree) }, Modifier.fillMaxWidth()) { Text("打开下载目录") }

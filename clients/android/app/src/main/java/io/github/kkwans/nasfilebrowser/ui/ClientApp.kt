@@ -25,6 +25,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.app.ClientState
+import io.github.kkwans.nasfilebrowser.app.ClientMainDestination
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
 import io.github.kkwans.nasfilebrowser.app.mediaKind
@@ -142,14 +143,17 @@ import java.util.Locale
     }; return }
     if (shell.open && state.connected) { LibraryTheme { ShellScreen(model.shell, model::finishShellNavigation) }; return }
     if (state.tab == "updates") { LibraryTheme { AppUpdatesScreen(model) }; return }
+    val rootState = state
+    FilewayAppShell(model, state, ::requestBack) { mainPage ->
+    val state = if (mainPage == null) rootState else rootState.copy(
+        tab = if (mainPage == ClientMainDestination.TASKS) rootState.taskCenterSection.route else mainPage.route)
     val taskGroup = TaskCenterSection.forRoute(state.tab)
-    FilewayAppShell(model, state, ::requestBack) {
     if (taskGroup != null) {
         LibraryTheme {
-            TaskCenterScaffold(model, taskGroup) {
-                val holder = if (taskGroup == TaskCenterSection.DOWNLOADS || taskGroup == TaskCenterSection.UPLOADS) localTaskState else pageState
-                holder.SaveableStateProvider("taskcenter/${taskGroup.route}") {
-                    when (taskGroup) {
+            TaskCenterScaffold(model, taskGroup) { pageGroup ->
+                val holder = if (pageGroup == TaskCenterSection.DOWNLOADS || pageGroup == TaskCenterSection.UPLOADS) localTaskState else pageState
+                holder.SaveableStateProvider("taskcenter/${pageGroup.route}") {
+                    when (pageGroup) {
                         TaskCenterSection.DOWNLOADS -> DownloadsScreen(model)
                         TaskCenterSection.UPLOADS -> UploadsScreen(model) { row, restart ->
                             uploadSourceId = row.id; uploadSourceGeneration = row.generation; uploadSourceRestart = restart
@@ -173,7 +177,7 @@ import java.util.Locale
         // Keep input focus and selection alive; FileCollection owns layout/filter anchors.
         searchShown -> clientPageStateKey("search", search.baseWirePath)
         state.tab == "files" -> clientPageStateKey("files", state.wirePath)
-        state.tab == "library" -> clientPageStateKey("library", state.librarySection.name)
+        state.tab == "library" -> "library"
         else -> state.tab
     }
     pageState.SaveableStateProvider(pageKey) {
@@ -184,14 +188,14 @@ import java.util.Locale
                 state.tab == "cache-images" -> CacheGalleryScreen(model)
                 state.tab == "settings" -> SettingsScreen(model, state, onBack = ::requestBack)
                 state.tab == "about" -> SettingsScreen(model, state, openAbout = true, onBack = ::requestBack)
-                state.tab == "library" -> when (state.librarySection) {
+                state.tab == "library" -> LibraryPagerContent(model, state) { section -> when (section) {
                     io.github.kkwans.nasfilebrowser.app.LibrarySection.FAVORITES -> FavoritesScreen(model, state)
                     io.github.kkwans.nasfilebrowser.app.LibrarySection.TAGS -> TagsScreen(model, state)
                     // Compatibility only: old task routes render in the unified center.
                     io.github.kkwans.nasfilebrowser.app.LibrarySection.TASKS -> TaskCenterScaffold(model, TaskCenterSection.BACKGROUND) { ServerTasksScreen(model, state) }
                     io.github.kkwans.nasfilebrowser.app.LibrarySection.TRASH -> TrashScreen(model, state)
                     io.github.kkwans.nasfilebrowser.app.LibrarySection.TOOLS -> StorageToolsScreen(model, state)
-                }
+                } }
                 else -> RecentScreen(model, state, recent)
             }
         }
@@ -203,10 +207,12 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable private fun RecentScreen(model: ClientModel, state: ClientState, recent: List<PlaybackSnapshot>) {
     val colors = MaterialTheme.colorScheme
+    val pager = rememberFilewayPager(state.recentSection.ordinal, RecentSection.entries.size) { model.recentSection(RecentSection.entries[it]) }
     var details by remember(state.previewScope) { mutableStateOf<ResourceRef?>(null) }
     var detailsActionsEnabled by remember(state.previewScope) { mutableStateOf(true) }
-    LaunchedEffect(state.previewScope, state.connected, state.recentSection) {
-        if (state.connected && state.recentSection == RecentSection.PLAYBACK) while (isActive) {
+    val pageActive = LocalFilewayPageActive.current
+    LaunchedEffect(state.previewScope, state.connected, state.recentSection, pageActive) {
+        if (pageActive && state.connected && state.recentSection == RecentSection.PLAYBACK) while (isActive) {
             model.refreshRecentPlayback(); delay(15_000)
         }
     }
@@ -215,18 +221,13 @@ import java.util.Locale
     }
     MaterialTheme(colorScheme = colors) {
         Scaffold(containerColor = colors.background, bottomBar = { ClientNavigation(model, "recent") }) { insets ->
-            Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)
-                .swipeTabs(state.recentSection.ordinal, RecentSection.entries.size) { model.recentSection(RecentSection.entries[it]) }) {
+            Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
                 FilewayPageHeader("最近")
-                PrimaryTabRow(selectedTabIndex = state.recentSection.ordinal, containerColor = colors.background) {
-                    RecentSection.entries.forEach { section ->
-                        Tab(selected = section == state.recentSection, onClick = { model.recentSection(section) },
-                            modifier = Modifier.semantics { contentDescription = "${section.label}分组" }, text = { Text(section.label) })
-                    }
-                }
+                FilewayPagerTabs(pager, RecentSection.entries.map { it.label })
                 val recentState = rememberSaveableStateHolder()
-                recentState.SaveableStateProvider(state.recentSection.name) {
-                    if (state.recentSection == RecentSection.ACCESS) {
+                androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), beyondViewportPageCount = 1) { page ->
+                recentState.SaveableStateProvider(RecentSection.entries[page].name) {
+                    if (RecentSection.entries[page] == RecentSection.ACCESS) {
                         val access by model.recentAccess.state.collectAsStateWithLifecycle()
                         val sourceScope = access.scope
                         Column(Modifier.fillMaxSize()) {
@@ -242,16 +243,8 @@ import java.util.Locale
                                 onLocation = { model.openRecentAccessLocation(it, sourceScope) },
                                 onDetails = { detailsActionsEnabled = false; details = it.resource() }) { model.openRecentAccess(it, sourceScope) }
                         }
-                    } else Column(Modifier.fillMaxSize()) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (state.connected && state.recentPlaybackError == null) "云端最近播放" else "最近播放", style = MaterialTheme.typography.titleMedium, color = colors.onBackground, modifier = Modifier.weight(1f))
-                            IconButton({ model.refreshRecentPlayback(force = true) }, enabled = state.connected && !state.recentPlaybackLoading) {
-                                Icon(painterResource(R.drawable.ic_refresh), "刷新云端播放记录", Modifier.size(22.dp))
-                            }
-                        }
-                        if (state.recentPlaybackLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                        state.recentPlaybackError?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.bodySmall, color = colors.error) }
+                    } else FilewayRefresh(state.recentPlaybackLoading, { model.refreshRecentPlayback(force = true) }) { Column(Modifier.fillMaxSize()) {
+                        FilewayToast(state.recentPlaybackError)
                         state.error?.let { message ->
                             Surface(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = colors.errorContainer, shape = RoundedCornerShape(10.dp)) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp)) { Text(message, color = colors.onErrorContainer); if (state.connected) TextButton(onClick = model::retry) { Text("重试") } }
@@ -278,7 +271,9 @@ import java.util.Locale
                             }
                         }
                     }
+                    }
                 }
+            }
             }
             details?.let { file -> FileDetailsDialog(file, showSize = false, openEnabled = !state.busy,
                 actions = if (detailsActionsEnabled) { { FileActions(model, file) { details = null } } } else null,

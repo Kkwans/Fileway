@@ -23,13 +23,16 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
     var filter by rememberSaveable { mutableStateOf("全部") }
     var remove by remember { mutableStateOf<UploadRecord?>(null) }
     var cancel by remember { mutableStateOf<UploadRecord?>(null) }
-    val items = state.items.filter { when (filter) { "已完成" -> it.complete; "未完成" -> !it.complete; else -> true } }
-    Column(Modifier.fillMaxSize()) {
+    val client by model.state.collectAsStateWithLifecycle()
+    val account = model.cacheAccount()
+    val items = state.items.filter { it.accountKey == account && client.connected }.filter { when (filter) { "已完成" -> it.complete; "未完成" -> !it.complete; else -> true } }
+    FilewayRefresh(false, model.uploads::refresh) {
+Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
         }
         state.error?.let { Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
-        state.notice?.let { Text(it, Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall) }
+        FilewayToast(state.notice)
         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机上传列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -52,7 +55,6 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
                         Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                         Text(item.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    Text(item.sourceLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("服务器目录：" + item.targetPath.substringBeforeLast('/').ifEmpty { "/" }, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (item.targetPath.substringAfterLast('/') != item.name) Text("服务器名称：" + item.targetPath.substringAfterLast('/'),
@@ -67,7 +69,7 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
                     if (!item.complete) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
                     if (item.active) Text(state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取上传速度", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
                         if (item.canResume) TextButton({ if (item.active) model.uploads.pause(item) else model.uploads.resume(item) }, enabled = !state.busy,
                             modifier = Modifier.semantics { contentDescription = "${if (item.active) "暂停上传" else "继续上传"}：${item.name}" }) { Text(if (item.active) "暂停" else "继续") }
                         if (item.status == "cancel_failed") TextButton({ model.uploads.cancel(item) }, enabled = !state.busy,
@@ -86,6 +88,8 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
             }
         }
     }
+}
+
     state.restart?.let { draft -> AlertDialog(onDismissRequest = { model.uploads.dismissRestart() }, title = { Text("从零重新开始上传？") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("本机文件：${draft.source.name} · ${readableSize(draft.source.size)}")

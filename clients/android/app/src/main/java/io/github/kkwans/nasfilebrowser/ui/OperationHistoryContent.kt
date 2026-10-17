@@ -46,16 +46,14 @@ import java.time.format.DateTimeFormatter
         }
         return
     }
-    Column(Modifier.fillMaxSize()) {
+    FilewayRefresh(state.loading, { controller.refresh() }) {
+Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(search, { search = it }, placeholder = { Text("查找操作、文件或详情") }, singleLine = true,
-                enabled = !state.clearing, modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { if (enabled) { controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide() } }),
-                trailingIcon = { IconButton({ controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide() }, enabled = enabled) {
-                    Icon(painterResource(R.drawable.ic_search), "查找操作历史")
-                } })
-            TextButton({ filters = true }, enabled = enabled) { Text("筛选") }
-            IconButton({ controller.refresh() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_refresh), "刷新操作历史") }
+            FilewaySearchField(search, { search = it }, "查找操作、文件或详情", Modifier.weight(1f), enabled) {
+                controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
+            }
+            IconButton({ filters = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选操作历史") }
+
         }
         if (state.filter.active) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(listOfNotNull(state.filter.text.takeIf { it.isNotBlank() }?.let { "关键词：$it" },
@@ -73,7 +71,7 @@ import java.time.format.DateTimeFormatter
         }
         if (state.showingPreviousFilter) Text("筛选结果尚未更新，以下保留上次读取的记录。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        state.notice?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        FilewayToast(state.notice)
         LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = "操作历史列表" },
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
@@ -121,6 +119,8 @@ import java.time.format.DateTimeFormatter
             }
         }
     }
+}
+
     detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = { TextButton({ detail = null }) { Text("关闭") } }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${entry.actionLabel} · ${entry.statusLabel}", style = MaterialTheme.typography.titleMedium)

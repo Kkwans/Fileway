@@ -42,7 +42,7 @@ import io.github.kkwans.nasfilebrowser.app.ClientModel
                 FileOperationLocation("保存位置", downloadDirectoryLabel(state.tree))
                 if (plan.emptyDirectories > 0) Text("${plan.emptyDirectories} 个空文件夹不建立下载记录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-                state.notice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                FilewayToast(state.notice)
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             } else state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }

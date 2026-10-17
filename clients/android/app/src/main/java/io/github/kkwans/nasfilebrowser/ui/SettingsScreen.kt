@@ -44,9 +44,10 @@ import kotlinx.coroutines.launch
 /** Compatibility boundary: every library page now inherits the single application theme. */
 @Composable internal fun LibraryTheme(content: @Composable () -> Unit) = content()
 
-@Composable internal fun ClientNavigation(model: ClientModel, selected: String) {
+@Composable internal fun ClientNavigation(model: ClientModel, selected: String, activeOverride: ClientMainDestination? = null) {
+    if (LocalSkipBottomNavigation.current) return
     val state by model.state.collectAsStateWithLifecycle()
-    val active = state.destination.main ?: ClientDestination.forRoute(selected)?.main
+    val active = activeOverride ?: state.destination.main ?: ClientDestination.forRoute(selected)?.main
     val labelStyle = MaterialTheme.typography.labelMedium
     val barHeight = 68.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
@@ -98,7 +99,7 @@ import kotlinx.coroutines.launch
                             }
                         }
                         SettingsAction("切换登录", "切换服务器或账号", R.drawable.ic_server, action = model::disconnect)
-                        SettingsAction("退出登录", "清除当前登录凭据，保留服务器档案", R.drawable.ic_close, action = model::signOut)
+                        SettingsAction("退出登录", "清除当前登录凭据，保留服务器档案", R.drawable.ic_logout, action = model::signOut)
                         SettingsAction("账户安全", "当前账号与密码", R.drawable.ic_lock) { model.tab("account") }
                         SettingsAction("服务器档案", "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
                     }

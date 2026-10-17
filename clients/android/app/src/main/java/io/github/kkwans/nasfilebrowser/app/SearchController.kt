@@ -60,7 +60,9 @@ class SearchController(private val scope: CoroutineScope, private val isCurrent:
         mutable.value = mutable.value.copy(scope = value, items = emptyList(), running = false, ending = null, message = null, openingPath = null)
     }
 
-    fun submit() {
+    fun submit() = submit(false)
+    fun refresh() = submit(true)
+    private fun submit(preserveResults: Boolean) {
         val context = bound ?: return
         if (!mutable.value.open || !isCurrent(context)) return
         invalidate()
@@ -70,14 +72,14 @@ class SearchController(private val scope: CoroutineScope, private val isCurrent:
             return
         }
         val expected = epoch
-        mutable.value = input.copy(items = emptyList(), running = true, ending = null, message = null, openingPath = null)
+        mutable.value = input.copy(items = if (preserveResults) input.items else emptyList(), running = true, ending = null, message = null, openingPath = null)
         searchJob = scope.launch {
             try {
                 val results = linkedMapOf<String, SearchResult>()
                 context.api.search(input.resultBasePath, input.resultBaseWirePath, input.query, input.scope).collect { update ->
                     if (!current(context, expected)) return@collect
                     update.items.forEach { results[it.relativePath] = it }
-                    mutable.value = mutable.value.copy(items = results.values.toList(), running = !update.done,
+                    mutable.value = mutable.value.copy(items = if (preserveResults && !update.done) input.items else results.values.toList(), running = !update.done,
                         ending = update.ending, message = update.message)
                 }
             } catch (error: Exception) {

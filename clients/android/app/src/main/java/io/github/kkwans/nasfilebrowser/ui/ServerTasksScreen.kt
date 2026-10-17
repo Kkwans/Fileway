@@ -50,18 +50,14 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
     val list = rememberLazyListState()
     val enabled = !state.loading && !state.changing && !state.paging
     LaunchedEffect(list, state.scope) { snapshotFlow { list.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }.collect(model.tasks::watch) }
-    Column(Modifier.fillMaxSize()) {
+    FilewayRefresh(state.loading, { model.tasks.refresh() }) {
+Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(search, { search = it }, placeholder = { Text("查找任务") }, modifier = Modifier.weight(1f), singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = {
-                    if (enabled) { model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide() }
-                }),
-                trailingIcon = { IconButton({ model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide() }, enabled = enabled) {
-                    Icon(painterResource(R.drawable.ic_search), "查找任务")
-                } })
-            TextButton({ advanced = true }, enabled = enabled) { Text("筛选") }
-            IconButton({ model.tasks.refresh() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_refresh), "刷新任务") }
+            FilewaySearchField(search, { search = it }, "查找任务", Modifier.weight(1f), enabled) {
+                model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
+            }
+            IconButton({ advanced = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选任务") }
+
         }
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.tasks.refresh() }
         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端任务列表" }, state = list, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -71,11 +67,21 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
             Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
                 Text("${if (state.filter.category == "file") "文件任务" else "其他后台任务"} · ${state.filter.view.label} · ${state.items.size}/${state.total}", style = MaterialTheme.typography.labelLarge)
                 val conditions = listOfNotNull(state.filter.type.takeIf { it.isNotEmpty() }?.let { SERVER_TASK_TYPES[it] ?: it },
-                    state.filter.owner.takeIf { it.isNotEmpty() }, if (state.filter.from > 0 || state.filter.to > 0) "限定日期" else null)
+                    if (state.filter.from > 0 || state.filter.to > 0) "限定日期" else null)
                 if (conditions.isNotEmpty()) Text(conditions.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (state.filter.view != TaskView.ACTIVE) Box {
-                IconButton({ bulkMenu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "批量任务操作") }
+            val singleBulk = when (state.filter.view) {
+                TaskView.ARCHIVED -> "batch-unarchive"
+                TaskView.COMPLETED, TaskView.CANCELED -> "batch-archive"
+                TaskView.ALL -> "archive-ended"
+                TaskView.ATTENTION -> if (state.filter.type.isEmpty()) "batch-archive" else null
+                else -> null
+            }
+            if (singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && (state.total > 0 || singleBulk == "archive-ended")) {
+                Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_archive),
+                    if (singleBulk == "batch-unarchive") "全部移出归档" else "归档已结束任务", Modifier.size(22.dp))
+            } else if (state.filter.view != TaskView.ACTIVE) Box {
+                IconButton({ bulkMenu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_horiz), "批量任务操作") }
                 DropdownMenu(bulkMenu, { bulkMenu = false }) {
                     when (state.filter.view) {
                         TaskView.ARCHIVED -> DropdownMenuItem({ Text("全部移出归档") }, { bulkMenu = false; confirmAction(null, "batch-unarchive") }, enabled = state.total > 0)
@@ -100,20 +106,21 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
                             Text(task.title.ifEmpty { task.typeLabel }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             TaskActionMenu(model, task, enabled && model.tasks.canEdit(task)) { command -> confirmAction(task, command) }
                         }
-                        if (task.title.isNotEmpty() && task.title != task.typeLabel) Text(task.typeLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(listOfNotNull(task.statusLabel, task.owner.takeIf { it.isNotEmpty() }).joinToString(" · "), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            Text(task.statusLabel, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                                 color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(serverTime(if (task.status == "completed") task.finishedAt else task.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         if (task.active || task.status != "completed" && (task.processedItems > 0 || task.processedBytes > 0 || task.processedSeconds > 0)) TaskProgress(task)
-                        task.error.takeIf { it.isNotEmpty() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                        task.error.takeIf { it.isNotEmpty() && !(task.status == "canceled" && it in setOf("任务已取消", "task canceled", "context canceled")) }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                     }
                 }
             }
             if (state.nextCursor.isNotEmpty()) item { TextButton({ model.tasks.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text(if (state.paging) "正在加载" else "加载更多任务") } }
         }
     }
+}
+
     if (advanced) TaskFilterDialog(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
     if (state.focusId != null) FileOperationSheet(title = "任务详情", onDismiss = model::closeTaskDetail,
         footer = { TextButton(model::closeTaskDetail) { Text("关闭") } }) {
@@ -123,7 +130,7 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
             state.selected?.let { task ->
                 Text(task.title.ifEmpty { task.typeLabel }, style = MaterialTheme.typography.titleMedium)
                 Text("${task.typeLabel} · ${task.statusLabel}"); TaskProgress(task)
-                Text("${task.owner} · 创建于 ${serverTime(task.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("创建于 ${serverTime(task.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (task.sourcePath.isNotEmpty()) FileOperationLocation("来源", task.sourcePath)
@@ -165,9 +172,28 @@ private fun taskTimestamp(value: Long): String = if (value <= 0) "未提供" els
 }.getOrDefault("未提供")
 
 @Composable private fun TaskActionMenu(model: ClientModel, task: ServerTask, enabled: Boolean, confirm: (String) -> Unit) {
+    val commands = buildList {
+        add(Triple("查看详情", R.drawable.ic_info, "detail"))
+        if (task.active) add(Triple(if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, "cancel"))
+        if (task.canRetry) add(Triple("重试", R.drawable.ic_refresh, "retry"))
+        if (task.canArchive) add(Triple("归档", R.drawable.ic_archive, "archive"))
+        if (task.archivedAt > 0) add(Triple("移出归档", R.drawable.ic_restore, "unarchive"))
+    }
+    if (commands.size <= 2) {
+        Row {
+            commands.forEach { (label, icon, command) -> IconButton({
+                when {
+                    command == "detail" -> model.tasks.select(task.id)
+                    command == "cancel" && task.pendingDeletion -> model.tasks.action(task, command)
+                    else -> confirm(command)
+                }
+            }, enabled = command == "detail" || enabled) { Icon(painterResource(icon), label, Modifier.size(22.dp)) } }
+        }
+        return
+    }
     var expanded by remember(task.id) { mutableStateOf(false) }
     Box {
-        IconButton({ expanded = true }) { Icon(painterResource(R.drawable.ic_more_vert), "任务操作：${task.title.ifEmpty { task.typeLabel }}") }
+        IconButton({ expanded = true }) { Icon(painterResource(R.drawable.ic_more_horiz), "任务操作：${task.title.ifEmpty { task.typeLabel }}") }
         DropdownMenu(expanded, { expanded = false }) {
             DropdownMenuItem({ Text("查看详情") }, { expanded = false; model.tasks.select(task.id) })
             if (task.active) DropdownMenuItem({ Text(if (task.pendingDeletion) "撤销删除" else "停止任务") }, {
