@@ -171,6 +171,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var touchLockPosition by remember { mutableStateOf(Offset.Zero) }
     val gestureSeek = remember(file) { SeekGestureAccumulator() }
     var gestureMessage by remember(file) { mutableStateOf<String?>(null) }
+    var gestureMeter by remember(file) { mutableStateOf<Pair<Boolean, Float>?>(null) }
     var interaction by remember { mutableIntStateOf(0) }
     var sheet by remember { mutableStateOf<PlayerSheet?>(null) }
     var expandedTitle by remember(file) { mutableStateOf(false) }
@@ -240,7 +241,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     BackHandler(fullscreen && !touchLocked) { changeDisplay(PlayerDisplayMode.AUTOMATIC) }
     BackHandler(touchLocked) { unlockTouch() }
     LaunchedEffect(exploration) { if (exploration) touchLocked = false }
-    LaunchedEffect(gestureMessage, interaction) { if (gestureMessage != null) { delay(1_000); gestureMessage = null } }
+    LaunchedEffect(gestureMessage, gestureMeter, interaction) { if (gestureMessage != null || gestureMeter != null) { delay(1_000); gestureMessage = null; gestureMeter = null } }
     DisposableEffect(accessibility) {
         val listener = AccessibilityManager.TouchExplorationStateChangeListener { exploration = it }
         accessibility.addTouchExplorationStateChangeListener(listener)
@@ -347,10 +348,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     val next = (dragStart + delta).coerceIn(0f, 1f)
                                     if (dragLeft) {
                                         changeBrightness(next)
-                                        gestureMessage = "亮度 ${(brightness * 100).roundToInt()}%"
+                                        gestureMessage = null; gestureMeter = true to brightness
                                     } else if (!audioManager.isVolumeFixed) {
                                         changeVolume(next * maximumVolume)
-                                        gestureMessage = "媒体音量 ${(mediaVolume * 100f / maximumVolume).roundToInt()}%"
+                                        gestureMessage = null; gestureMeter = false to (mediaVolume.toFloat() / maximumVolume)
                                     } else gestureMessage = "此设备使用固定音量"
                                     interaction++
                                 }, finish = { draggingVertical = false; touch() },
@@ -387,7 +388,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                             else if (liveState.seekable && liveState.durationMs > 0) {
                                                 val target = gestureSeek.next(liveState.positionMs, liveState.durationMs, delta, SystemClock.elapsedRealtime())
                                                 model.player.seek(target)
-                                                gestureMessage = (if (delta < 0) "后退" else "快进") + " · " + clock(target)
+                                                gestureMeter = null
+                                                gestureMessage = (if (delta < 0) "−" else "+") + "10 s"
                                             }
                                         }
                                     },
@@ -414,7 +416,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             if (holding) Text("${holdRate}× 倍速播放", Modifier.align(Alignment.TopCenter).padding(top = 20.dp)
                                 .clip(RoundedCornerShape(8.dp)).background(FilewayTheme.status.mediaSurface).padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp)
                             gestureMessage?.let { message -> Text(message, Modifier.align(Alignment.Center)
-                                .clip(RoundedCornerShape(8.dp)).background(FilewayTheme.status.mediaSurface).padding(12.dp), fontSize = 14.sp) }
+                                .clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .62f)).padding(horizontal = 20.dp, vertical = 14.dp), color = Color.White, fontSize = 18.sp) }
+                            gestureMeter?.let { (brightnessControl, level) ->
+                                PlayerLevelFeedback(brightnessControl, level, Modifier.align(Alignment.Center))
+                            }
                             pictureSeek?.let { target -> dragSession?.let { drag ->
                                 PictureSeekFeedback(target, drag.startMs, drag.durationMs, seekPreview.takeIf { fullscreen }, Modifier.align(Alignment.Center))
                             } }

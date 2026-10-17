@@ -1,11 +1,15 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -13,9 +17,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.Image as CoilImage
 import coil3.compose.AsyncImage
+import coil3.compose.asPainter
+import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import io.github.kkwans.nasfilebrowser.R
@@ -29,62 +35,63 @@ import kotlinx.coroutines.delay
 
 internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<String, Float>?> { null }
 
-/** NAS generates the preview; Coil fetches/decodes only the local capability. */
+/** Every layout consumes the same uncropped bytes; only its viewport differs. */
 @Composable internal fun MediaThumbnail(model: ClientModel, file: ResourceRef, modifier: Modifier, showStatusText: Boolean = true,
     contentScale: ContentScale = ContentScale.Crop, naturalAspect: Boolean = false) {
     val client by model.state.collectAsStateWithLifecycle()
     val cache by model.cache.state.collectAsStateWithLifecycle()
-    val aspectCache = LocalNaturalPreviewAspects.current
-    val aspectKey = remember(client.previewScope, file.mediaKey, file.size, file.modified) { model.thumbnailKey(file) }
-    key(naturalAspect, cache.revision, client.previewScope, file.mediaKey, file.size, file.modified) {
+    val context = LocalContext.current
+    val aspects = LocalNaturalPreviewAspects.current
+    val previewKey = model.thumbnailKey(file)
+    val cacheKey = previewKey + "/contain"
+    val loader = model.previewImageLoader
+    key(cache.revision, client.previewScope, file.mediaKey, file.size, file.modified) {
+        var decoded by remember { mutableStateOf<CoilImage?>(loader.memoryCache?.get(MemoryCache.Key(cacheKey))?.image) }
         var asset by remember { mutableStateOf<PreviewLease?>(null) }
-        var phase by remember { mutableStateOf("预览加载中") }
-        val aspect = remember(file.previewWidth, file.previewHeight) {
-            (if (file.previewWidth > 0 && file.previewHeight > 0)
-                (file.previewWidth.toFloat() / file.previewHeight).coerceIn(.2f, 5f) else aspectCache?.get(aspectKey) ?: model.cache.previewAspect(aspectKey) ?:
-                if (file.type == "video") 16f / 9f else 1f).also { aspectCache?.put(aspectKey, it) }
-        }
+        var failed by remember { mutableStateOf(false) }
+        var aspect by remember { mutableFloatStateOf(decoded?.let { it.width.toFloat() / it.height.coerceAtLeast(1) }
+            ?: model.cache.previewAspect(previewKey) ?: aspects?.get(previewKey) ?: if (file.previewWidth > 0 && file.previewHeight > 0)
+                file.previewWidth.toFloat() / file.previewHeight else if (file.type == "video") 16f / 9f else 1f) }
         var showLoading by remember { mutableStateOf(false) }
-        LaunchedEffect(phase) { showLoading = false; if (phase == "预览加载中") { delay(350); showLoading = true } }
-        val context = LocalContext.current
+        LaunchedEffect(decoded, failed) { showLoading = false; if (decoded == null && !failed) { delay(350); showLoading = true } }
         LaunchedEffect(Unit) {
+            if (decoded != null) return@LaunchedEffect
             var owned: PreviewLease? = null
             try {
-                if (client.previewScope.isEmpty() && file.downloadId.isEmpty()) { phase = "暂无预览"; return@LaunchedEffect }
-                owned = model.preview(file, contain = naturalAspect)
-                asset = owned
+                if (client.previewScope.isEmpty() && file.downloadId.isEmpty()) { failed = true; return@LaunchedEffect }
+                owned = model.thumbnailPreview(file); asset = owned
                 awaitCancellation()
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { phase = "暂无预览" }
-            finally { owned?.let { runCatching { it.release() } } }
+            catch (_: Exception) { failed = true }
+            finally { runCatching { owned?.release() } }
         }
-        val frame = if (naturalAspect) modifier.aspectRatio(aspect) else modifier
-        Box(frame.background(MaterialTheme.colorScheme.surface).semantics {
-            contentDescription = "${file.name} 预览"
-            stateDescription = phase
-        }, contentAlignment = Alignment.Center) {
-            val lease = asset
-            if (lease != null) {
-                val request = remember(lease.url) { ImageRequest.Builder(context.applicationContext)
-                    .data(lease.url).diskCacheKey(model.thumbnailKey(file) + (if (naturalAspect) "/contain" else "/crop")).memoryCacheKey(model.thumbnailKey(file) + (if (naturalAspect) "/contain" else "/crop"))
-                    .diskCachePolicy(if (cache.settings.thumbnailMB == 0L) CachePolicy.DISABLED else CachePolicy.ENABLED).size(512, 512).build() }
-                AsyncImage(model = request, imageLoader = model.previewImageLoader, contentDescription = null,
-                    modifier = Modifier.fillMaxSize(), contentScale = contentScale,
+        val shape = RoundedCornerShape(12.dp)
+        val frame = if (naturalAspect) modifier.aspectRatio(aspect.coerceIn(.2f, 5f)) else modifier
+        Box(frame.clip(shape).background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f), shape).semantics {
+                contentDescription = "${file.name} 预览"
+                stateDescription = if (decoded != null) "预览已加载" else if (failed) "暂无预览" else "预览加载中"
+            }, contentAlignment = Alignment.Center) {
+            if (decoded == null) Icon(painterResource(if (file.type == "video") R.drawable.ic_video else R.drawable.ic_image),
+                null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .32f))
+            val image = decoded
+            if (image != null) Image(image.asPainter(context), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else asset?.let { source ->
+                val request = remember(source.url) { ImageRequest.Builder(context).data(source.url).size(512, 512)
+                    .memoryCacheKey(cacheKey).diskCacheKey(cacheKey)
+                    .diskCachePolicy(if (cache.settings.thumbnailMB == 0L || model.isTemporaryContent(file)) CachePolicy.DISABLED else CachePolicy.ENABLED).build() }
+                AsyncImage(request, null, imageLoader = loader, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                     onSuccess = { result ->
                         val loaded = result.result.image
-                        if (naturalAspect && loaded.width > 0 && loaded.height > 0) {
-                            val ratio = (loaded.width.toFloat() / loaded.height).coerceIn(.2f, 5f)
-                            model.cache.rememberPreviewAspect(aspectKey, ratio)
+                        if (loaded.width > 0 && loaded.height > 0) {
+                            val ratio = loaded.width.toFloat() / loaded.height
+                            model.cache.rememberPreviewAspect(previewKey, ratio); aspects?.put(previewKey, ratio); aspect = ratio
                         }
-                        phase = "预览已加载"
-                    }, onError = { phase = "暂无预览" })
+                        decoded = loaded; failed = false
+                    }, onError = { failed = true })
             }
-            if (showLoading) CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .6f))
-            if (phase == "暂无预览") {
-                Icon(painterResource(if (file.type == "image" || file.name.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp", "gif", "bmp", "avif")) R.drawable.ic_image else R.drawable.art_play), null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (showStatusText && phase == "暂无预览") Text(phase, modifier = Modifier.align(Alignment.BottomCenter).padding(4.dp),
-                    style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
+            if (showLoading) CircularProgressIndicator(Modifier.align(Alignment.BottomEnd).padding(8.dp).size(20.dp), strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = .8f))
         }
     }
 }

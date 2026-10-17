@@ -50,3 +50,9 @@ fun presentFiles(files: List<ResourceRef>, category: FileCategory, order: FileOr
         if (value != 0) value else compareValuesBy(a, b, { it.name.lowercase(Locale.ROOT) }, { it.mediaKey })
     }
 }
+
+val ClientState.selectedFileCategories: Set<FileCategory>
+    get() = fileCategories.ifEmpty { if (fileCategory == FileCategory.ALL) emptySet() else setOf(fileCategory) }
+
+fun presentFiles(files: List<ResourceRef>, categories: Set<FileCategory>, order: FileOrder): List<ResourceRef> =
+    presentFiles(if (categories.isEmpty()) files else files.filter { file -> categories.any { it.matches(file.name, file.directory) } }, FileCategory.ALL, order)

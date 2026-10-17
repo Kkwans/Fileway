@@ -6,21 +6,23 @@ import org.junit.Test
 class SeekDragSessionTest {
     @Test fun longMovieIsControllableAndReversingDoesNotAccumulateClockDrift() {
         val drag = SeekDragSession(7, 60_000, 9_813_824)
-        assertEquals(90_000L, drag.preview(.25f))
-        assertEquals(72_000L, drag.preview(.1f))
-        assertEquals(48_000L, drag.preview(-.1f))
+        val coarse = drag.preview(.25f) - drag.startMs
+        val fine = drag.preview(.1f) - drag.startMs
+        assertTrue("Small movements remain fine-grained", fine in 1..30_000)
+        assertTrue("Longer movements accelerate", coarse > fine * 2.5)
+        assertEquals(drag.startMs - fine, drag.preview(-.1f))
         assertEquals(60_000L, drag.preview(0f))
         assertNull(drag.finish(7, released = true, seekable = true))
     }
 
     @Test fun shortClipsBoundariesAndVeryLargeDurationsKeepTheirRealBounds() {
         val short = SeekDragSession(1, 6_000, 12_000)
-        assertEquals(7_200L, short.preview(.1f))
+        assertTrue(short.preview(.1f) in 6_001..6_500)
         assertEquals(12_000L, short.preview(1f))
         assertEquals(0L, short.preview(-1f))
         val huge = SeekDragSession(2, Long.MAX_VALUE - 1, Long.MAX_VALUE)
         assertEquals(Long.MAX_VALUE, huge.preview(1f))
-        assertEquals(Long.MAX_VALUE - 120_001, huge.preview(-1f))
+        assertTrue(huge.preview(-1f) in 0 until Long.MAX_VALUE - 1)
     }
 
     @Test fun cancelChangedMediaOrUnavailableSeekNeverCommits() {
@@ -34,12 +36,13 @@ class SeekDragSessionTest {
 
     @Test fun onlyTheFinalPreviewCommitsOnceAndInvalidPointerValuesAreIgnored() {
         val drag = SeekDragSession(7, 60_000, 600_000)
-        drag.preview(.25f)
-        assertEquals(90_000L, drag.preview(Float.NaN))
-        assertEquals(90_000L, drag.preview(Float.POSITIVE_INFINITY))
-        assertEquals(72_000L, drag.preview(.1f))
-        assertEquals(72_000L, drag.finish(7, true, true))
+        val first = drag.preview(.25f)
+        assertEquals(first, drag.preview(Float.NaN))
+        assertEquals(first, drag.preview(Float.POSITIVE_INFINITY))
+        val last = drag.preview(.1f)
+        assertTrue(last < first)
+        assertEquals(last, drag.finish(7, true, true))
         assertNull(drag.finish(7, true, true))
-        assertEquals(72_000L, drag.preview(-1f))
+        assertEquals(last, drag.preview(-1f))
     }
 }

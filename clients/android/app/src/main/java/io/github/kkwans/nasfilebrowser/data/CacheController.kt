@@ -66,7 +66,7 @@ class CacheController(private val context: Context, private val scope: Coroutine
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Float>?): Boolean = size > 4096
     }
     @Synchronized fun previewAspect(key: String): Float? = previewAspects[key]
-    @Synchronized fun rememberPreviewAspect(key: String, ratio: Float): Float = previewAspects.getOrPut(key) { ratio }
+    @Synchronized fun rememberPreviewAspect(key: String, ratio: Float): Float = ratio.also { previewAspects[key] = it }
 
     val thumbnailLoader = mutableStateOf(loader(null, 16))
     val imageLoader = mutableStateOf(loader(null, 32))
@@ -226,6 +226,7 @@ class CacheController(private val context: Context, private val scope: Coroutine
             true
         } catch (failure: Exception) { runCatching { editor.abort() }; throw failure }
     } }
+    suspend fun openThumbnail(key: String): DiskCache.Snapshot? = withContext(Dispatchers.IO) { thumbnailDisk?.openSnapshot(key) }
     suspend fun hasCachedImage(key: String, account: String): Boolean = lock.withLock { withContext(Dispatchers.IO) {
         readIndex().any { it.key == key && it.account == account } && exists(key)
     } }

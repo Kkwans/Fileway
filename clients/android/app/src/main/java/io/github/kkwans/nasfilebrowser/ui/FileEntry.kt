@@ -52,7 +52,7 @@ import java.util.Locale
         if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) {
             // Preview failures are signalled by the existing lease component; black media remains media.
             MaterialTheme(colorScheme = colors) {
-                MediaThumbnail(model, file, modifier.clip(RoundedCornerShape(8.dp)),
+                MediaThumbnail(model, file, modifier,
                     showStatusText = layout == FileLayout.COVER || layout == FileLayout.DETAIL,
                     contentScale = if (layout == FileLayout.UNBOUNDED) ContentScale.Fit else ContentScale.Crop,
                     naturalAspect = layout == FileLayout.UNBOUNDED)

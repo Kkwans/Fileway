@@ -40,10 +40,11 @@ internal data class ClientNavigationPoint(
     val category: FileCategory,
     val order: FileOrder,
     val searchDisplayed: Boolean,
+    val categories: Set<FileCategory> = emptySet(),
 ) {
     companion object {
         fun from(state: ClientState) = ClientNavigationPoint(state.tab, state.librarySection, state.recentSection,
-            state.taskCenterSection, state.path, state.wirePath, state.fileCategory, state.fileOrder, state.searchDisplayed)
+            state.taskCenterSection, state.path, state.wirePath, state.fileCategory, state.fileOrder, state.searchDisplayed, state.selectedFileCategories)
     }
 }
 

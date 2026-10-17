@@ -21,6 +21,11 @@ import io.github.kkwans.nasfilebrowser.app.LibrarySection
     selectedLeadingIconColor = MaterialTheme.colorScheme.primary)
 
 private val LocalLibraryPager = staticCompositionLocalOf<PagerState?> { null }
+private class LibraryChrome {
+    var owner by mutableStateOf<LibrarySection?>(null)
+    var actions by mutableStateOf<@Composable RowScope.() -> Unit>({})
+}
+private val LocalLibraryChrome = staticCompositionLocalOf<LibraryChrome?> { null }
 
 @Composable internal fun LibraryPagerContent(model: ClientModel, state: io.github.kkwans.nasfilebrowser.app.ClientState,
     content: @Composable (LibrarySection) -> Unit) {
@@ -28,9 +33,17 @@ private val LocalLibraryPager = staticCompositionLocalOf<PagerState?> { null }
     val pager = rememberFilewayPager(sections.indexOf(state.librarySection).coerceAtLeast(0), sections.size) { model.librarySection(sections[it]) }
     val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     val parentActive = LocalFilewayPageActive.current
-    HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
-        holder.SaveableStateProvider(sections[page].name) {
-            CompositionLocalProvider(LocalLibraryPager provides pager, LocalFilewayPageActive provides (parentActive && page == pager.settledPage)) { content(sections[page]) }
+    val chrome = remember { LibraryChrome() }
+    Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "library") }) { insets ->
+        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+            FilewayPageHeader(sections[pager.currentPage].title, actions = chrome.actions)
+            FilewayPagerTabs(pager, sections.map { it.label })
+            HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), beyondViewportPageCount = 1) { page ->
+                holder.SaveableStateProvider(sections[page].name) {
+                    CompositionLocalProvider(LocalLibraryPager provides pager, LocalLibraryChrome provides chrome,
+                        LocalFilewayPageActive provides (parentActive && page == pager.settledPage)) { content(sections[page]) }
+                }
+            }
         }
     }
 }
@@ -38,6 +51,18 @@ private val LocalLibraryPager = staticCompositionLocalOf<PagerState?> { null }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun LibraryScaffold(model: ClientModel, section: LibrarySection,
     actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
+    val chrome = LocalLibraryChrome.current
+    if (chrome != null) {
+        val latest = rememberUpdatedState(actions)
+        val slot: @Composable RowScope.() -> Unit = remember(section) { { latest.value(this) } }
+        val active = LocalFilewayPageActive.current
+        DisposableEffect(chrome, section, active) {
+            if (active) { chrome.owner = section; chrome.actions = slot }
+            onDispose { if (chrome.owner == section) { chrome.owner = null; chrome.actions = {} } }
+        }
+        Column(Modifier.fillMaxSize()) { LibraryRefreshContent(model, section, content) }
+        return
+    }
     val pages = LibrarySection.entries.filter { it != LibrarySection.TASKS }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "library") }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
@@ -47,20 +72,7 @@ private val LocalLibraryPager = staticCompositionLocalOf<PagerState?> { null }
             else PrimaryTabRow(selectedTabIndex = pages.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.background) {
                 pages.forEach { page -> Tab(page == section, { model.librarySection(page) }, text = { Text(page.label) }) }
             }
-            val favorite by model.favorites.state.collectAsStateWithLifecycle()
-            val tags by model.tags.state.collectAsStateWithLifecycle()
-            val trash by model.trash.state.collectAsStateWithLifecycle()
-            val tools by model.storageTools.state.collectAsStateWithLifecycle()
-            val refreshing = when (section) { LibrarySection.FAVORITES -> favorite.loading; LibrarySection.TAGS -> tags.loading || tags.pathsLoading; LibrarySection.TRASH -> trash.loading; LibrarySection.TOOLS -> tools.loading; else -> false }
-            FilewayRefresh(refreshing, {
-                when (section) {
-                    LibrarySection.FAVORITES -> model.favorites.refresh()
-                    LibrarySection.TAGS -> { model.tags.refresh(); tags.pathTag?.let { model.tags.loadPaths(it, tags.pathParent, parentWire = tags.pathParentWire) } }
-                    LibrarySection.TRASH -> model.trash.refresh()
-                    LibrarySection.TOOLS -> model.storageTools.refresh()
-                    else -> Unit
-                }
-            }, Modifier.weight(1f).fillMaxWidth()) { Column(Modifier.fillMaxSize()) { content() } }
+            LibraryRefreshContent(model, section, content)
         }
     }
 }
@@ -85,4 +97,21 @@ private val LocalLibraryPager = staticCompositionLocalOf<PagerState?> { null }
             shown = message
         }
     }
+}
+
+@Composable private fun ColumnScope.LibraryRefreshContent(model: ClientModel, section: LibrarySection, content: @Composable ColumnScope.() -> Unit) {
+            val favorite by model.favorites.state.collectAsStateWithLifecycle()
+            val tags by model.tags.state.collectAsStateWithLifecycle()
+            val trash by model.trash.state.collectAsStateWithLifecycle()
+            val tools by model.storageTools.state.collectAsStateWithLifecycle()
+            val refreshing = when (section) { LibrarySection.FAVORITES -> favorite.loading; LibrarySection.TAGS -> tags.loading || tags.pathsLoading; LibrarySection.TRASH -> trash.loading; LibrarySection.TOOLS -> tools.loading; else -> false }
+            FilewayRefresh(refreshing, {
+                when (section) {
+                    LibrarySection.FAVORITES -> model.favorites.refresh()
+                    LibrarySection.TAGS -> { model.tags.refresh(); tags.pathTag?.let { model.tags.loadPaths(it, tags.pathParent, parentWire = tags.pathParentWire) } }
+                    LibrarySection.TRASH -> model.trash.refresh()
+                    LibrarySection.TOOLS -> model.storageTools.refresh()
+                    else -> Unit
+                }
+            }, Modifier.weight(1f).fillMaxWidth()) { Column(Modifier.fillMaxSize()) { content() } }
 }

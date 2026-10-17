@@ -16,13 +16,13 @@ data class SearchState(
     val open: Boolean = false, val query: String = "", val scope: SearchScope = SearchScope.RECURSIVE,
     val basePath: String = "/", val baseWirePath: String = "/",
     val items: List<SearchResult> = emptyList(), val running: Boolean = false,
-    val category: FileCategory = FileCategory.ALL,
+    val category: FileCategory = FileCategory.ALL, val categories: Set<FileCategory> = emptySet(),
     val ending: SearchEnding? = null, val message: String? = null, val openingPath: String? = null,
 ) {
     // Keep the entry directory so changing scope never loses the browser context.
     val resultBasePath: String get() = if (scope == SearchScope.GLOBAL) "/" else basePath
     val resultBaseWirePath: String get() = if (scope == SearchScope.GLOBAL) "/" else baseWirePath
-    val visibleItems: List<SearchResult> get() = items.filter { category.matches(it.name, it.directory) }
+    val visibleItems: List<SearchResult> get() = items.filter { file -> val selected = categories.ifEmpty { if (category == FileCategory.ALL) emptySet() else setOf(category) }; selected.isEmpty() || selected.any { it.matches(file.name, file.directory) } }
 }
 
 /** All entry points and state updates run on the owning ViewModel's main scope. */
@@ -39,7 +39,8 @@ class SearchController(private val scope: CoroutineScope, private val isCurrent:
         val input = mutable.value
         return input.visibleItems.mapNotNull { it.resource(input.resultBasePath, input.resultBaseWirePath) }
     }
-    fun category(value: FileCategory) { mutable.value = mutable.value.copy(category = value) }
+    fun category(value: FileCategory) = categories(if (value == FileCategory.ALL) emptySet() else setOf(value))
+    fun categories(values: Set<FileCategory>) { val selected = values - FileCategory.ALL; mutable.value = mutable.value.copy(category = selected.singleOrNull() ?: FileCategory.ALL, categories = selected) }
 
     fun open(context: SessionContext, path: String, wirePath: String) {
         close()

@@ -8,7 +8,6 @@ import android.provider.DocumentsContract
 import android.webkit.MimeTypeMap
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -83,7 +82,7 @@ Column(Modifier.fillMaxSize()) {
         }
         state.error?.let { message -> Text(message, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
         FilewayToast(state.notice)
-        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机下载列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机下载列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("本机下载", style = MaterialTheme.typography.labelLarge)
@@ -104,60 +103,72 @@ Column(Modifier.fillMaxSize()) {
                 val file = ResourceRef(item.path, item.wirePath, item.name, false, item.type, item.expectedSize, item.modified, item.id)
                 val kind = file.mediaKind()
                 val canOpen = item.localUri.isNotEmpty() && (item.complete || kind == MediaKind.VIDEO)
-                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
-                            if (item.complete && kind == MediaKind.IMAGE) MediaThumbnail(model, file, Modifier.fillMaxSize(), showStatusText = false)
-                            else Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null,
-                                Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
-                        }
-                        Column(Modifier.weight(1f).clickable(enabled = canOpen) { openDownloaded(context, model, item, kind) }.padding(start = 12.dp)) {
-                            Text(item.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(item.sourceLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            if (item.relativeDirectory.isNotEmpty()) Text(item.relativeDirectory, style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                    }
-                    val fraction = if (item.expectedSize > 0) (item.downloaded.toDouble() / item.expectedSize).toFloat().coerceIn(0f, 1f) else 0f
-                    val unknownZip = item.zipExport && !item.complete
-                    val status = when (item.status) { "completed" -> "已完成"; "queued" -> if (unknownZip) "等待打包" else "等待下载"; "running" -> if (unknownZip) "正在打包下载" else "正在下载"; "paused" -> "已暂停"; "interrupted" -> "下载中断"; else -> "下载失败" }
-                    if (!item.complete) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(status, style = MaterialTheme.typography.labelMedium, color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(if (item.complete) readableSize(item.expectedSize) else if (unknownZip) "已接收 ${readableSize(item.downloaded)}" else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}", style = MaterialTheme.typography.labelMedium)
-                    }
-                    if (!item.complete && !unknownZip) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
-                    if (unknownZip && item.active) LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
-                    if (unknownZip) Text("ZIP总大小生成中；恢复时从零重新打包，旧的未完成输出会被截断。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.active) Text(state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取下载速度", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
-                        if (item.complete) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
-                            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(22.dp), play = completionObserved && LocalFilewayPageActive.current)
-                        if (item.complete) Column(Modifier.weight(1f)) {
-                            Text("已完成", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(readableSize(item.expectedSize), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (canOpen) TextButton({ openDownloaded(context, model, item, kind) }, Modifier.semantics { contentDescription = "打开下载：${item.name}" }, enabled = !state.busy) { Text(if (item.complete) "打开" else "边下边播") }
-                        if (!item.complete) TextButton({ if (item.active) model.downloads.pause(item) else model.downloads.resume(item) },
-                            Modifier.semantics { contentDescription = "${if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载"}：${item.name}" }, enabled = !state.busy) { Text(if (item.active) "暂停" else if (item.zipExport) "重新打包" else "继续下载") }
-                        var more by remember(item.id) { mutableStateOf(false) }
-                        Box {
-                            IconButton({ more = true }, enabled = !state.busy) { Icon(painterResource(R.drawable.ic_more_horiz), "下载更多操作", Modifier.size(22.dp)) }
-                            DropdownMenu(more, { more = false }) {
-                                DropdownMenuItem({ Text("任务信息") }, { more = false; detailsId = item.id })
-                                DropdownMenuItem({ Text("打开所在目录") }, { more = false; openFolder(item.treeUri, item.relativeDirectory) })
-                                if (item.treeUri.isNotEmpty()) DropdownMenuItem({ Text("重新授权目录") }, {
-                                    more = false; reauthorizing = item.id
-                                    try { recoverFolder.launch(model.downloads.target.directoryUri(item.treeUri)) }
-                                    catch (_: Exception) { reauthorizing = null; model.downloads.reportError("无法打开目录选择器，请检查系统文件管理器") }
-                                }, enabled = !item.active)
-                                DropdownMenuItem({ Text("移除记录") }, { more = false; deleteFile = false; remove = item }, enabled = item.complete)
-                                DropdownMenuItem({ Text("删除文件与记录") }, { more = false; deleteFile = true; remove = item }, enabled = !item.active)
-                            }
-                        }
-                    }
+                val fraction = if (item.expectedSize > 0) (item.downloaded.toDouble() / item.expectedSize).toFloat().coerceIn(0f, 1f) else 0f
+                val unknownZip = item.zipExport && !item.complete
+                val status = when (item.status) {
+                    "completed" -> "已完成"
+                    "queued" -> if (unknownZip) "等待打包" else "等待下载"
+                    "running" -> if (unknownZip) "正在打包下载" else "正在下载"
+                    "paused" -> "已暂停"
+                    "interrupted" -> "下载中断"
+                    else -> "下载失败"
                 }
+                val progress = if (item.complete) readableSize(item.expectedSize)
+                else if (unknownZip) "已接收 ${readableSize(item.downloaded)}"
+                else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}"
+                val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取下载速度" else null
+                val summary = if (item.complete) "$status · $progress" else "$status · $progress${speed?.let { " · $it" }.orEmpty()}"
+                val cardActions = buildList {
+                    add(FilewayTaskAction("detail", "任务信息", R.drawable.ic_info, enabled = !state.busy))
+                    if (canOpen) add(FilewayTaskAction("open", if (item.complete) "打开下载" else "边下边播", R.drawable.ic_visibility, enabled = !state.busy))
+                    if (!item.complete) add(FilewayTaskAction("toggle", if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载",
+                        if (item.active) R.drawable.ic_close else R.drawable.ic_refresh, enabled = !state.busy))
+                    add(FilewayTaskAction("folder", "打开所在目录", R.drawable.ic_folder, enabled = !state.busy))
+                    if (item.treeUri.isNotEmpty()) add(FilewayTaskAction("reauthorize", "重新授权目录", R.drawable.ic_restore,
+                        enabled = !state.busy && !item.active))
+                    if (item.complete) add(FilewayTaskAction("remove", "移除记录", R.drawable.ic_trash, enabled = !state.busy))
+                    if (!item.active) add(FilewayTaskAction("delete", "删除文件与记录", R.drawable.ic_trash, enabled = !state.busy))
+                }
+                FilewayTaskCard(
+                    title = item.name,
+                    icon = { Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
+                    titleSupporting = {
+                        Text(item.sourceLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    titleAction = if (canOpen) ({ openDownloaded(context, model, item, kind) }) else null,
+                    meta = {
+                        Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                            color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    actions = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (item.complete) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
+                                io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(22.dp),
+                                play = completionObserved && LocalFilewayPageActive.current)
+                            FilewayTaskActionStrip(cardActions, onAction = { action ->
+                                when (action) {
+                                    "detail" -> detailsId = item.id
+                                    "open" -> openDownloaded(context, model, item, kind)
+                                    "toggle" -> if (item.active) model.downloads.pause(item) else model.downloads.resume(item)
+                                    "folder" -> openFolder(item.treeUri, item.relativeDirectory)
+                                    "reauthorize" -> {
+                                        reauthorizing = item.id
+                                        try { recoverFolder.launch(model.downloads.target.directoryUri(item.treeUri)) }
+                                        catch (_: Exception) { reauthorizing = null; model.downloads.reportError("无法打开目录选择器，请检查系统文件管理器") }
+                                    }
+                                    "remove" -> { deleteFile = false; remove = item }
+                                    "delete" -> { deleteFile = true; remove = item }
+                                }
+                            }, moreLabel = "下载操作：${item.name}")
+                        }
+                    },
+                ) {
+                    if (!item.complete && !unknownZip) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
+                    if (unknownZip && item.active) LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
+                    if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -174,6 +185,8 @@ Column(Modifier.fillMaxSize()) {
                         Text("服务器原位置：${item.path}", style = MaterialTheme.typography.bodySmall)
                         if (item.relativeDirectory.isNotEmpty()) Text("本机子目录：${item.relativeDirectory}", style = MaterialTheme.typography.bodySmall)
                         Text(if (item.zipExport && !item.complete) "已接收 ${readableSize(item.downloaded)} · ZIP 总量待生成" else "${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}", style = MaterialTheme.typography.bodySmall)
+                        if (item.zipExport && !item.complete) Text("ZIP总大小生成中；恢复时从零重新打包，旧的未完成输出会被截断。", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                 }

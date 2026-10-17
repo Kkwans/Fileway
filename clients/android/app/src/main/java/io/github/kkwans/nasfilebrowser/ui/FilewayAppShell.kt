@@ -114,16 +114,12 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
         ) {
             CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack) {
                 if (state.destination.main != null && !state.searchDisplayed) {
-                    val destinations = ClientMainDestination.entries
-                    val pager = rememberFilewayPager(state.destination.main!!.ordinal, destinations.size) { model.navigateMain(destinations[it]) }
+                    val destination = state.destination.main!!
                     Column(Modifier.fillMaxSize()) {
-                        androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth()
-                            .consumeWindowInsets(WindowInsets.navigationBars), beyondViewportPageCount = 1,
-                            userScrollEnabled = !drawer.isOpen) { page ->
-                            CompositionLocalProvider(LocalSkipBottomNavigation provides true,
-                                LocalFilewayPageActive provides (page == pager.settledPage)) { content(destinations[page]) }
+                        Box(Modifier.weight(1f).fillMaxWidth().consumeWindowInsets(WindowInsets.navigationBars)) {
+                            CompositionLocalProvider(LocalSkipBottomNavigation provides true, LocalFilewayPageActive provides true) { content(destination) }
                         }
-                        ClientNavigation(model, destinations[pager.currentPage].route, activeOverride = destinations[pager.currentPage])
+                        ClientNavigation(model, destination.route, activeOverride = destination)
                     }
                 } else content(null)
             }

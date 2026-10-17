@@ -42,7 +42,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 @Composable internal fun SearchScreen(model: ClientModel, client: ClientState) {
     val state by model.search.state.collectAsStateWithLifecycle()
-    val displayed = remember(state.items, state.category) { state.visibleItems }
+    val displayed = remember(state.items, state.category, state.categories) { state.visibleItems }
     val colors = FilewayTheme.colors
     val focus = LocalFocusManager.current
     val onBack = LocalFilewayBack.current ?: { model.back(); Unit }
@@ -57,30 +57,8 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                         IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
                             Icon(painterResource(R.drawable.ic_arrow_back), "返回文件", Modifier.size(22.dp), tint = colors.onBackground)
                         }
-                        Row(Modifier.weight(1f).background(colors.background, RoundedCornerShape(8.dp))
-                            .border(1.dp, colors.outlineVariant, RoundedCornerShape(8.dp)).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(painterResource(R.drawable.ic_search), null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
-                            BasicTextField(value = state.query, onValueChange = { if (!model.state.value.busy) model.search.query(it) },
-                                modifier = Modifier.weight(1f).heightIn(min = 48.dp).padding(vertical = 12.dp).semantics { contentDescription = "搜索文件名" },
-                                singleLine = true, textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
-                                enabled = !client.busy,
-                                cursorBrush = SolidColor(colors.primary), keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { submit() }), decorationBox = { inner ->
-                                    Box(contentAlignment = Alignment.CenterStart) {
-                                        if (state.query.isEmpty()) Text("搜索文件名", color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyLarge)
-                                        inner()
-                                    }
-                                })
-                            if (state.query.isNotEmpty()) IconButton(onClick = { if (!model.state.value.busy) model.search.query("") }, modifier = Modifier.size(48.dp), enabled = !client.busy) {
-                                Icon(painterResource(R.drawable.art_close), "清除关键词", Modifier.size(16.dp), tint = colors.onSurfaceVariant)
-                            } else Spacer(Modifier.width(12.dp))
-                        }
-                        Spacer(Modifier.width(8.dp))
-                        IconButton(onClick = ::submit, modifier = Modifier.size(48.dp).background(colors.primary.copy(alpha = .10f), RoundedCornerShape(8.dp)),
-                            enabled = state.query.isNotBlank() && !client.busy) {
-                            Icon(painterResource(R.drawable.ic_search), "执行搜索", Modifier.size(22.dp), tint = if (state.query.isNotBlank() && !client.busy) colors.primary else colors.onSurfaceVariant)
-                        }
+                        FilewaySearchField(state.query, { if (!model.state.value.busy) model.search.query(it) },
+                            "搜索文件名", Modifier.weight(1f), enabled = !client.busy, submit = ::submit)
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(state.resultBasePath, modifier = Modifier.weight(1f).padding(end = 8.dp),
@@ -89,7 +67,7 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                                 onCompactGridSize = model::compactGridSize, select = model::fileLayout)
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FileCategoryMenu(state.category, !client.busy, model.search::category)
+                        FileCategoryMenu(state.categories.ifEmpty { if (state.category == FileCategory.ALL) emptySet() else setOf(state.category) }, !client.busy, model.search::categories)
                         if (state.category != FileCategory.ALL) Text("当前结果 ${displayed.size} / ${state.items.size} 项", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
                     FileCollection(displayed, client.fileLayout, Modifier.weight(1f), "搜索结果",

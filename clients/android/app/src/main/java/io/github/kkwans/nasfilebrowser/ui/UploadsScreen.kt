@@ -7,10 +7,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,7 +33,7 @@ Column(Modifier.fillMaxSize()) {
         }
         state.error?.let { Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
         FilewayToast(state.notice)
-        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机上传列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机上传列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("本机上传", style = MaterialTheme.typography.labelLarge)
@@ -49,41 +49,59 @@ Column(Modifier.fillMaxSize()) {
                 }
             }
             items(items, key = { it.id }) { item ->
-                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text(item.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    }
-                    Text("服务器目录：" + item.targetPath.substringBeforeLast('/').ifEmpty { "/" }, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (item.targetPath.substringAfterLast('/') != item.name) Text("服务器名称：" + item.targetPath.substringAfterLast('/'),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    val transferred = maxOf(item.uploaded, state.sent[item.id] ?: 0).coerceAtMost(item.expectedSize)
-                    val fraction = if (item.expectedSize > 0) (transferred.toDouble() / item.expectedSize).toFloat().coerceIn(0f, 1f) else if (item.complete) 1f else 0f
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(when (item.status) { "completed" -> "上传完成"; "queued" -> "等待上传"; "running" -> "正在上传"; "paused" -> "已暂停"; "interrupted" -> "上传中断"; "expired" -> "服务器片段已过期"; "canceling" -> "正在清理未完成片段"; "cancel_failed" -> "已停止，清理待重试"; "canceled" -> "已取消上传"; "restarted" -> "已重新开始，原任务已结束"; else -> "上传失败" },
-                            style = MaterialTheme.typography.labelMedium, color = if (item.status in setOf("failed", "expired")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(if (item.complete) readableSize(item.expectedSize) else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(transferred)} / ${readableSize(item.expectedSize)}", style = MaterialTheme.typography.labelMedium)
-                    }
-                    if (!item.complete) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
-                    if (item.active) Text(state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取上传速度", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End)) {
-                        if (item.canResume) TextButton({ if (item.active) model.uploads.pause(item) else model.uploads.resume(item) }, enabled = !state.busy,
-                            modifier = Modifier.semantics { contentDescription = "${if (item.active) "暂停上传" else "继续上传"}：${item.name}" }) { Text(if (item.active) "暂停" else "继续") }
-                        if (item.status == "cancel_failed") TextButton({ model.uploads.cancel(item) }, enabled = !state.busy,
-                            modifier = Modifier.semantics { contentDescription = "重试清理上传：${item.name}" }) { Text("重试清理") }
-                        else if (!item.complete && item.status !in setOf("canceled", "canceling", "restarted")) TextButton({ cancel = item }, enabled = !state.busy,
-                            modifier = Modifier.semantics { contentDescription = "取消上传：${item.name}" }) { Text("取消上传") }
-                        if (item.canReselectSource) TextButton({ reselectSource(item, false) }, enabled = !state.busy,
-                            modifier = Modifier.semantics { contentDescription = "重新选择上传原文件：${item.name}" }) { Text("重新选择原文件") }
-                        if (item.canRestart) TextButton({ reselectSource(item, true) }, enabled = !state.busy,
-                            modifier = Modifier.semantics { contentDescription = "重新开始上传：${item.name}" }) { Text("重新开始") }
-                        if (item.complete) TextButton({ model.openUploadedFile(item) }, enabled = !state.busy) { Text("定位服务器文件") }
-                        if (item.complete || item.status in setOf("canceled", "restarted")) TextButton({ remove = item }, enabled = !state.busy) { Text("移除记录") }
-                    }
+                val transferred = maxOf(item.uploaded, state.sent[item.id] ?: 0).coerceAtMost(item.expectedSize)
+                val fraction = if (item.expectedSize > 0) (transferred.toDouble() / item.expectedSize).toFloat().coerceIn(0f, 1f) else if (item.complete) 1f else 0f
+                val status = when (item.status) {
+                    "completed" -> "上传完成"
+                    "queued" -> "等待上传"
+                    "running" -> "正在上传"
+                    "paused" -> "已暂停"
+                    "interrupted" -> "上传中断"
+                    "expired" -> "服务器片段已过期"
+                    "canceling" -> "正在清理未完成片段"
+                    "cancel_failed" -> "已停止，清理待重试"
+                    "canceled" -> "已取消上传"
+                    "restarted" -> "已重新开始，原任务已结束"
+                    else -> "上传失败"
                 }
+                val progress = if (item.complete) readableSize(item.expectedSize) else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(transferred)} / ${readableSize(item.expectedSize)}"
+                val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取上传速度" else null
+                val summary = if (item.complete) "$status · $progress" else "$status · $progress${speed?.let { " · $it" }.orEmpty()}"
+                val cardActions = buildList {
+                    if (item.canResume) add(FilewayTaskAction("toggle", if (item.active) "暂停上传" else "继续上传",
+                        if (item.active) R.drawable.ic_close else R.drawable.ic_refresh, enabled = !state.busy))
+                    if (item.status == "cancel_failed") add(FilewayTaskAction("cleanup", "重试清理上传", R.drawable.ic_refresh, enabled = !state.busy))
+                    else if (!item.complete && item.status !in setOf("canceled", "canceling", "restarted")) add(FilewayTaskAction("cancel", "取消上传", R.drawable.ic_close, enabled = !state.busy))
+                    if (item.canReselectSource) add(FilewayTaskAction("reselect", "重新选择上传原文件", R.drawable.ic_refresh, enabled = !state.busy))
+                    if (item.canRestart) add(FilewayTaskAction("restart", "重新开始上传", R.drawable.ic_refresh, enabled = !state.busy))
+                    if (item.complete) add(FilewayTaskAction("open", "定位服务器文件", R.drawable.ic_folder, enabled = !state.busy))
+                    if (item.complete || item.status in setOf("canceled", "restarted")) add(FilewayTaskAction("remove", "移除记录", R.drawable.ic_trash, enabled = !state.busy))
+                }
+                FilewayTaskCard(
+                    title = item.name,
+                    icon = { Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
+                    meta = {
+                        Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                            color = if (item.status in setOf("failed", "expired")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    actions = {
+                        FilewayTaskActionStrip(cardActions, onAction = { action ->
+                            when (action) {
+                                "toggle" -> if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
+                                "cleanup" -> model.uploads.cancel(item)
+                                "cancel" -> cancel = item
+                                "reselect" -> reselectSource(item, false)
+                                "restart" -> reselectSource(item, true)
+                                "open" -> model.openUploadedFile(item)
+                                "remove" -> remove = item
+                            }
+                        }, moreLabel = "上传操作：${item.name}")
+                    },
+                ) {
+                    if (!item.complete) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
+                    if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }

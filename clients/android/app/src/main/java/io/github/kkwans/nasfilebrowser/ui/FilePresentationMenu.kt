@@ -83,19 +83,22 @@ private fun layoutIcon(layout: FileLayout) = when (layout) {
     }
 }
 
-@Composable internal fun FileCategoryMenu(value: FileCategory, enabled: Boolean = true, select: (FileCategory) -> Unit) {
+@Composable internal fun FileCategoryMenu(value: FileCategory, enabled: Boolean = true, select: (FileCategory) -> Unit) =
+    FileCategoryMenu(if (value == FileCategory.ALL) emptySet() else setOf(value), enabled) { select((it - value).firstOrNull() ?: it.firstOrNull() ?: FileCategory.ALL) }
+
+@Composable internal fun FileCategoryMenu(values: Set<FileCategory>, enabled: Boolean = true, select: (Set<FileCategory>) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
+    val label = if (values.isEmpty()) "全部" else if (values.size == 1) values.first().label else "${values.size} 类"
     Box {
-        TextButton(onClick = { expanded = true }, enabled = enabled,
-            modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = "筛选文件类型，当前${value.label}" }) {
-            Text("类型 · ${value.label}", style = MaterialTheme.typography.labelLarge, color = FilewayTheme.colors.primary)
+        TextButton({ expanded = true }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text("类型 · $label", style = MaterialTheme.typography.labelLarge, color = FilewayTheme.colors.primary)
         }
         DropdownMenu(expanded, { expanded = false }, containerColor = FilewayTheme.colors.surfaceContainerHigh,
             modifier = Modifier.widthIn(min = 184.dp)) {
             FileCategory.entries.forEach { item ->
-                DropdownMenuItem(text = { Text(item.label, style = MaterialTheme.typography.labelLarge) },
-                    trailingIcon = { MenuCheck(item == value) }, enabled = enabled,
-                    onClick = { expanded = false; select(item) })
+                val checked = if (item == FileCategory.ALL) values.isEmpty() else item in values
+                DropdownMenuItem(text = { Text(item.label) }, trailingIcon = { MenuCheck(checked) }, enabled = enabled,
+                    onClick = { select(if (item == FileCategory.ALL) emptySet() else if (checked) values - item else values + item) })
             }
         }
     }

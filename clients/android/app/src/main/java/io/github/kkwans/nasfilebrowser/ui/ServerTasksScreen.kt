@@ -60,7 +60,7 @@ Column(Modifier.fillMaxSize()) {
 
         }
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.tasks.refresh() }
-        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端任务列表" }, state = list, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端任务列表" }, state = list, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Chrome uses a non-string key so visible-task polling never treats it as a task ID.
         item(key = 0) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -100,19 +100,38 @@ Column(Modifier.fillMaxSize()) {
             }
         }
             items(state.items, key = { it.id }) { task ->
-                Surface(onClick = { model.tasks.select(task.id) }, modifier = Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(task.title.ifEmpty { task.typeLabel }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            TaskActionMenu(model, task, enabled && model.tasks.canEdit(task)) { command -> confirmAction(task, command) }
-                        }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(task.statusLabel, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(serverTime(if (task.status == "completed") task.finishedAt else task.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (task.active || task.status != "completed" && (task.processedItems > 0 || task.processedBytes > 0 || task.processedSeconds > 0)) TaskProgress(task)
-                        task.error.takeIf { it.isNotEmpty() && !(task.status == "canceled" && it in setOf("任务已取消", "task canceled", "context canceled")) }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 3, overflow = TextOverflow.Ellipsis) }
+                val cardActions = buildList {
+                    add(FilewayTaskAction("detail", "查看详情", R.drawable.ic_info))
+                    if (task.active) add(FilewayTaskAction(if (task.pendingDeletion) "unarchive" else "cancel",
+                        if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, enabled = enabled && model.tasks.canEdit(task)))
+                    if (task.canRetry) add(FilewayTaskAction("retry", "重试", R.drawable.ic_refresh, enabled = enabled && model.tasks.canEdit(task)))
+                    if (task.canArchive) add(FilewayTaskAction("archive", "归档", R.drawable.ic_archive, enabled = enabled && model.tasks.canEdit(task)))
+                    if (task.archivedAt > 0) add(FilewayTaskAction("unarchive", "移出归档", R.drawable.ic_restore, enabled = enabled && model.tasks.canEdit(task)))
+                }
+                FilewayTaskCard(
+                    title = task.title.ifEmpty { task.typeLabel },
+                    icon = { Icon(painterResource(serverTaskIcon(task)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
+                    meta = {
+                        Text(task.statusLabel, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(serverTime(if (task.status == "completed") task.finishedAt else task.createdAt), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    },
+                    actions = {
+                        FilewayTaskActionStrip(cardActions, onAction = { command ->
+                            when {
+                                command == "detail" -> model.tasks.select(task.id)
+                                command == "unarchive" && task.pendingDeletion -> model.tasks.action(task, "cancel")
+                                else -> confirmAction(task, command)
+                            }
+                        }, moreLabel = "任务操作：${task.title.ifEmpty { task.typeLabel }}")
+                    },
+                    onClick = { model.tasks.select(task.id) },
+                ) {
+                    if (task.active || task.status != "completed" && (task.processedItems > 0 || task.processedBytes > 0 || task.processedSeconds > 0)) TaskProgress(task)
+                    task.error.takeIf { it.isNotEmpty() && !(task.status == "canceled" && it in setOf("任务已取消", "task canceled", "context canceled")) }?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -171,47 +190,19 @@ private fun taskTimestamp(value: Long): String = if (value <= 0) "未提供" els
     DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(value))
 }.getOrDefault("未提供")
 
-@Composable private fun TaskActionMenu(model: ClientModel, task: ServerTask, enabled: Boolean, confirm: (String) -> Unit) {
-    val commands = buildList {
-        add(Triple("查看详情", R.drawable.ic_info, "detail"))
-        if (task.active) add(Triple(if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, "cancel"))
-        if (task.canRetry) add(Triple("重试", R.drawable.ic_refresh, "retry"))
-        if (task.canArchive) add(Triple("归档", R.drawable.ic_archive, "archive"))
-        if (task.archivedAt > 0) add(Triple("移出归档", R.drawable.ic_restore, "unarchive"))
-    }
-    if (commands.size <= 2) {
-        Row {
-            commands.forEach { (label, icon, command) -> IconButton({
-                when {
-                    command == "detail" -> model.tasks.select(task.id)
-                    command == "cancel" && task.pendingDeletion -> model.tasks.action(task, command)
-                    else -> confirm(command)
-                }
-            }, enabled = command == "detail" || enabled) { Icon(painterResource(icon), label, Modifier.size(22.dp)) } }
-        }
-        return
-    }
-    var expanded by remember(task.id) { mutableStateOf(false) }
-    Box {
-        IconButton({ expanded = true }) { Icon(painterResource(R.drawable.ic_more_horiz), "任务操作：${task.title.ifEmpty { task.typeLabel }}") }
-        DropdownMenu(expanded, { expanded = false }) {
-            DropdownMenuItem({ Text("查看详情") }, { expanded = false; model.tasks.select(task.id) })
-            if (task.active) DropdownMenuItem({ Text(if (task.pendingDeletion) "撤销删除" else "停止任务") }, {
-                expanded = false
-                if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirm("cancel")
-            }, enabled = enabled)
-            if (task.canRetry) DropdownMenuItem({ Text("重试") }, { expanded = false; confirm("retry") }, enabled = enabled)
-            if (task.canArchive) DropdownMenuItem({ Text("归档") }, { expanded = false; confirm("archive") }, enabled = enabled)
-            if (task.archivedAt > 0) DropdownMenuItem({ Text("移出归档") }, { expanded = false; confirm("unarchive") }, enabled = enabled)
-        }
-    }
+private fun serverTaskIcon(task: ServerTask): Int = when {
+    task.fileCategory -> R.drawable.ic_file
+    task.type.startsWith("archive") -> R.drawable.ic_archive
+    task.type.startsWith("analysis") -> R.drawable.ic_storage
+    task.type.startsWith("media") -> R.drawable.ic_video
+    else -> R.drawable.ic_tasks
 }
 
 @Composable internal fun TaskProgress(task: ServerTask) {
     val value = task.progress
     if (task.active) {
-        if (value != null) LinearProgressIndicator(progress = { value }, modifier = Modifier.fillMaxWidth().height(4.dp), gapSize = 0.dp, drawStopIndicator = {})
-        else LinearProgressIndicator(Modifier.fillMaxWidth().height(4.dp))
+        if (value != null) LinearProgressIndicator(progress = { value }, modifier = Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
+        else LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
     }
     val counters = when {
         task.duration > 0 -> "${clock((task.processedSeconds * 1000).toLong())} / ${clock((task.duration * 1000).toLong())}"

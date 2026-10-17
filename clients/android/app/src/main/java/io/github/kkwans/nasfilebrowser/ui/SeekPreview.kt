@@ -6,6 +6,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.res.painterResource
+import io.github.kkwans.nasfilebrowser.R
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -86,5 +90,20 @@ import kotlin.math.abs
             drawImage(image, srcOffset = IntOffset(x, y), srcSize = IntSize(sprite.width, sprite.height),
                 dstSize = IntSize(size.width.toInt(), size.height.toInt()))
         }
+    }
+}
+
+/** Compact neutral glass feedback. Percent remains available to accessibility. */
+@Composable internal fun PlayerLevelFeedback(brightness: Boolean, level: Float, modifier: Modifier = Modifier) {
+    val amount = level.coerceIn(0f, 1f)
+    Row(modifier.clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .62f))
+        .padding(horizontal = 18.dp, vertical = 16.dp).clearAndSetSemantics {
+            contentDescription = if (brightness) "亮度" else "音量"
+            stateDescription = "${(amount * 100).toInt()}%"
+        }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Icon(painterResource(if (brightness) R.drawable.ic_theme_light else R.drawable.art_volume), null,
+            Modifier.size(26.dp), tint = Color.White)
+        LinearProgressIndicator(progress = { amount }, modifier = Modifier.width(104.dp).height(4.dp),
+            color = Color.White, trackColor = Color.White.copy(alpha = .22f))
     }
 }

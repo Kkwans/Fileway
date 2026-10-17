@@ -16,6 +16,7 @@ import io.github.kkwans.nasfilebrowser.download.DownloadRecord
 import io.github.kkwans.nasfilebrowser.download.DownloadDataSource
 import io.github.kkwans.nasfilebrowser.upload.UploadController
 import io.github.kkwans.nasfilebrowser.upload.UploadRecord
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,7 +54,7 @@ data class ClientState(
     val serverLabel: String = "", val accountName: String = "", val path: String = "/", val wirePath: String = "/", val files: List<ResourceRef> = emptyList(),
     val error: String? = null, val selected: ResourceRef? = null, val image: ResourceRef? = null,
     val mediaQueue: MediaQueue? = null,
-    val fileCategory: FileCategory = FileCategory.ALL, val fileOrder: FileOrder = FileOrder.NAME,
+    val fileCategory: FileCategory = FileCategory.ALL, val fileCategories: Set<FileCategory> = emptySet(), val fileOrder: FileOrder = FileOrder.NAME,
     val downloadBytesPerSecond: Long? = null,
     val profile: ServerProfile? = null, val accounts: List<AccountRecord> = emptyList(), val editorVersion: Int = 0,
     val librarySection: LibrarySection = LibrarySection.FAVORITES,
@@ -393,8 +394,12 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }.sortedWith(compareByDescending<ResourceRef> { it.directory }.thenBy { it.name.lowercase() })
     }
 
-    fun directoryItems(): List<ResourceRef> = mutable.value.let { presentFiles(it.files, it.fileCategory, it.fileOrder).filter { file -> tags.matches(file) } }
-    fun fileCategory(value: FileCategory) { mutable.value = mutable.value.copy(fileCategory = value) }
+    fun directoryItems(): List<ResourceRef> = mutable.value.let { presentFiles(it.files, it.selectedFileCategories, it.fileOrder).filter { file -> tags.matches(file) } }
+    fun fileCategory(value: FileCategory) = fileCategories(if (value == FileCategory.ALL) emptySet() else setOf(value))
+    fun fileCategories(values: Set<FileCategory>) {
+        val selected = values - FileCategory.ALL
+        mutable.value = mutable.value.copy(fileCategory = selected.singleOrNull() ?: FileCategory.ALL, fileCategories = selected)
+    }
     fun fileOrder(value: FileOrder) { mutable.value = mutable.value.copy(fileOrder = value) }
     fun open(file: ResourceRef) = openFrom(file, directoryItems(), MediaQueueSource.DIRECTORY)
     fun startFileCreation(sourceScope: String) {
@@ -764,6 +769,20 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         navigation.clear()
         browse(crumb.path, crumb.wirePath)
     }
+    suspend fun thumbnailPreview(file: ResourceRef): PreviewLease {
+        cache.awaitReady()
+        if (isTemporaryContent(file)) return preview(file, contain = true)
+        val scope = state.value.previewScope
+        var cached: coil3.disk.DiskCache.Snapshot? = null
+        try {
+            withContext(NonCancellable) { cached = cache.openThumbnail(thumbnailKey(file) + "/contain") }
+            currentCoroutineContext().ensureActive()
+            check(state.value.previewScope == scope) { "预览来源已变化" }
+            val snapshot = cached
+            if (snapshot != null) return PreviewLease(android.net.Uri.fromFile(snapshot.data.toFile()).toString(), scope) { snapshot.close() }
+        } catch (failure: Exception) { cached?.close(); throw failure }
+        return preview(file, contain = true)
+    }
     suspend fun preview(file: ResourceRef, contain: Boolean = false): PreviewLease {
         temporaryMedia?.takeIf { it.file.mediaKey == file.mediaKey && context === it.context }?.let { return PreviewLease(it.asset.url, it.asset.scope) {} }
         if (file.downloadId.isNotEmpty()) return image(file, ImageQuality.ORIGINAL).first
@@ -1021,7 +1040,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         navigation.clear(); navigation.addAll(source.directoryHistory)
         val old = mutable.value
         mutable.value = old.copy(tab = point.route, librarySection = point.library, recentSection = point.recent,
-            taskCenterSection = point.task, fileCategory = point.category, fileOrder = point.order,
+            taskCenterSection = point.task, fileCategory = point.category, fileCategories = point.categories, fileOrder = point.order,
             searchDisplayed = point.searchDisplayed && search.state.value.open)
         if (old.connected && (old.path != point.path || old.wirePath != point.wirePath))
             browse(point.path, point.wirePath, preserveSearch = point.searchDisplayed || returnNavigation.keepsSearch(navigationScope()))
@@ -1034,7 +1053,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             navigation.clear()
         } else if (path != current.path || wire != current.wirePath) navigation.addLast(current.path to current.wirePath)
         mutable.value = current.copy(tab = "files", searchDisplayed = false,
-            fileCategory = if (resetCategory) FileCategory.ALL else current.fileCategory)
+            fileCategory = if (resetCategory) FileCategory.ALL else current.fileCategory, fileCategories = if (resetCategory) emptySet() else current.selectedFileCategories)
         browse(path, wire)
     }
     fun compactGridSize(value: CompactGridSize) {
@@ -1111,7 +1130,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         favorites.refresh(); tags.refresh()
         if (removed(mutable.value.wirePath)) {
             navigation.clear()
-            mutable.value = mutable.value.copy(tab = "files", fileCategory = FileCategory.ALL, searchDisplayed = false)
+            mutable.value = mutable.value.copy(tab = "files", fileCategory = FileCategory.ALL, fileCategories = emptySet(), searchDisplayed = false)
             browse(file.path.substringBeforeLast('/').ifEmpty { "/" }, wire.substringBeforeLast('/').ifEmpty { "/" })
         }
     }

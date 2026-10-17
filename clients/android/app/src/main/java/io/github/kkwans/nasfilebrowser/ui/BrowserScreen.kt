@@ -50,7 +50,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     val layout = state.fileLayout
     val tags by model.tags.state.collectAsStateWithLifecycle()
     LaunchedEffect(tags.scope) { if (tags.scope.isNotEmpty()) model.tags.refresh() }
-    val displayed = remember(state.files, state.fileCategory, state.fileOrder, tags.items, tags.filterId, tags.globalFilter) { model.directoryItems() }
+    val displayed = remember(state.files, state.fileCategory, state.fileCategories, state.fileOrder, tags.items, tags.filterId, tags.globalFilter) { model.directoryItems() }
     var details by remember(state.previewScope, state.wirePath) { mutableStateOf<ResourceRef?>(null) }
     var createMenu by remember(state.previewScope, state.wirePath) { mutableStateOf(false) }
     var selecting by remember(state.previewScope, state.wirePath) { mutableStateOf(false) }
@@ -135,7 +135,7 @@ Column(Modifier.fillMaxSize()) {
                 }
                 if (state.path != "/") DirectoryBreadcrumbs(state.path, state.wirePath, state.busy, { model.back() }, model::jumpDirectory)
                 if (!selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FileCategoryMenu(state.fileCategory, !state.busy, model::fileCategory)
+                    FileCategoryMenu(state.fileCategories.ifEmpty { if (state.fileCategory == FileCategory.ALL) emptySet() else setOf(state.fileCategory) }, !state.busy, model::fileCategories)
                     Spacer(Modifier.weight(1f))
                     FileOrderMenu(state.fileOrder, !state.busy, model::fileOrder)
                     FileLayoutMenu(layout, !state.busy, select = model::fileLayout,
@@ -199,10 +199,10 @@ Column(Modifier.fillMaxSize()) {
                 if (!state.busy && displayed.isEmpty() && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (state.files.isEmpty()) "这个目录还没有文件。" else "当前目录没有此类型的文件。", color = colors.onSurfaceVariant)
-                        if (state.fileCategory != FileCategory.ALL) TextButton(onClick = { model.fileCategory(FileCategory.ALL) }) { Text("显示全部文件") }
+                        if (state.fileCategory != FileCategory.ALL || state.fileCategories.isNotEmpty()) TextButton(onClick = { model.fileCategory(FileCategory.ALL) }) { Text("显示全部文件") }
                     }
                 } else FileCollection(displayed, layout, Modifier.weight(1f), layout.collectionDescription(),
-                    resetKey = listOf(state.previewScope, state.wirePath, state.fileCategory, state.fileOrder,
+                    resetKey = listOf(state.previewScope, state.wirePath, state.fileCategory, state.fileCategories, state.fileOrder,
                         tags.filterId, tags.globalFilter), keyOf = { it.wirePath.ifEmpty { it.path } }, compactGridSize = state.compactGridSize) { file ->
                     FileEntry(model, file, layout, !state.busy && (!selecting || !selectionBusy), {
                         if (selecting) selected = if (key(file) in selected) selected - key(file) else selected + key(file)

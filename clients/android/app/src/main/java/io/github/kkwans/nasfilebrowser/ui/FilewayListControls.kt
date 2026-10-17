@@ -23,9 +23,19 @@ import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun FilewayRefresh(refreshing: Boolean, onRefresh: () -> Unit, modifier: Modifier = Modifier.fillMaxSize(), content: @Composable BoxScope.() -> Unit) {
-    var delayed by remember { mutableStateOf(false) }
-    LaunchedEffect(refreshing) { delayed = false; if (refreshing) { delay(250); delayed = true } }
-    PullToRefreshBox(isRefreshing = refreshing && delayed, onRefresh = onRefresh, modifier = modifier, content = content)
+    var acknowledged by remember { mutableStateOf(false) }
+    var started by remember { mutableLongStateOf(0) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(refreshing) {
+        if (refreshing) { if (!acknowledged) started = android.os.SystemClock.uptimeMillis(); acknowledged = true }
+        else if (acknowledged) { delay((500 - (android.os.SystemClock.uptimeMillis() - started)).coerceAtLeast(0)); acknowledged = false }
+    }
+    PullToRefreshBox(isRefreshing = refreshing || acknowledged, onRefresh = {
+        if (!acknowledged && !refreshing) {
+            acknowledged = true; started = android.os.SystemClock.uptimeMillis(); onRefresh()
+            scope.launch { delay(500); if (!refreshing) acknowledged = false }
+        }
+    }, modifier = modifier, content = content)
 }
 
 @Composable internal fun FilewaySearchField(value: String, change: (String) -> Unit, hint: String, modifier: Modifier = Modifier, enabled: Boolean = true, submit: () -> Unit) {

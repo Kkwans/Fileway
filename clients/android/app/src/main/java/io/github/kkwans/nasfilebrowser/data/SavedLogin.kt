@@ -1,13 +1,14 @@
 package io.github.kkwans.nasfilebrowser.data
 
 import io.github.kkwans.nasfilebrowser.core.NativeTransport
+import io.github.kkwans.nasfilebrowser.core.TransportException
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 internal data class SavedSession(val api: NasSession, val verification: JSONObject)
 
-/** Only a read may be retried, and only after a definitive unauthenticated reply.
+/** Only a read may be retried, and only after an unauthenticated reply or the native renewal-expired signal.
  * A failed token renewal after a mutation never enters this recovery path. */
 internal suspend fun restoreSavedSession(
     store: ProfileStore, profile: ServerProfile, account: AccountRecord,
@@ -15,14 +16,19 @@ internal suspend fun restoreSavedSession(
     native: suspend (JSONObject) -> Any? = NativeTransport::call,
 ): SavedSession {
     val token = store.token(profile, account) ?: error("保存的登录已失效，请重新输入密码")
-    val saved = NasSession.restore(profile, token, account.userId, native)
+    var saved: NasSession? = null
     try {
-        return SavedSession(saved, saved.request("GET", verificationEndpoint))
+        val restored = NasSession.restore(profile, token, account.userId, native)
+        saved = restored
+        return SavedSession(restored, restored.request("GET", verificationEndpoint))
     } catch (failure: Exception) {
-        withContext(NonCancellable) { runCatching { saved.close() }.onFailure(failure::addSuppressed) }
-        if (failure !is ServiceException || failure.status != 401) throw failure
+        withContext(NonCancellable) { runCatching { saved?.close() }.onFailure(failure::addSuppressed) }
+        val expired = failure is ServiceException && failure.status == 401 ||
+            failure is TransportException && failure.message == "session expired; sign in again" ||
+            failure is IllegalStateException && failure.message == "服务器返回了不支持的账号格式"
+        if (!expired) throw failure
         val password = store.password(profile, account) ?: throw failure
-        val renewed = try { NasSession.login(profile, saved.identity.username, password, native) }
+        val renewed = try { NasSession.login(profile, account.username, password, native) }
         catch (loginFailure: Exception) {
             if (loginFailure is ServiceException && loginFailure.status in setOf(401, 403))
                 store.forgetRejectedPassword(profile, account, password)
