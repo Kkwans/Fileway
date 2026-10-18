@@ -794,7 +794,7 @@ func (p *directoryPublisher) finish() error {
 			}
 		}
 		alreadyRemoving := p.j.Phase == "sourceRemoveIntent"
-		if !p.matches(p.j.SourceID, from) && !(alreadyRemoving && p.absent(from)) {
+		if !p.matches(p.j.SourceID, from) && (!alreadyRemoving || !p.absent(from)) {
 			return errDirectoryRecovery
 		}
 		if err := p.stage("sourceRemoveIntent"); err != nil {
