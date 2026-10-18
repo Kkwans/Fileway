@@ -24,7 +24,8 @@
 对任意磁盘、过滤驱动或断电情况的普遍持久性承诺。shared/core 与 server 已加入 additive
 conditionalDownloadV1 契约基础：能力清单声明该能力，资源元数据可携带 opaque sourceVersion，
 raw 读取返回相同观察值，请求携带不匹配的 X-Fileway-Source-Version 时返回 412，Go broker
-透传该请求/响应头；raw 也接受受控的 sourceVersion 查询参数，供后续 lease endpoint 传递。
+透传该请求/响应头；raw 也接受受控的 sourceVersion 查询参数，bridge 的 lease 命令已能将
+可选 SourceVersion 安全编码到该参数，供后续 Windows 下载源接入。
 Windows fresh 下载尚未消费此能力，仍拒绝带版本的下载源；这项契约基础
 不代表断点续传已经启用。
 
