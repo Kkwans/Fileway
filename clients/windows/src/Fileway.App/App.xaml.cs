@@ -165,11 +165,23 @@ public partial class App : Application, IAsyncDisposable
         if (_closing) return;
         await DisposeAsync();
         _closed = true;
-        var shutdownUiThread = _window?.DispatcherQueue.HasThreadAccess == true;
-        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseBegin, shutdownUiThread);
-        _window?.PrepareForClose();
-        _window?.Close();
-        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseReturned, shutdownUiThread);
+        var window = _window;
+        if (window is not null && !window.DispatcherQueue.TryEnqueue(() =>
+        {
+            // Do not re-enter native destruction while the original Closing
+            // callback is still on the stack. The queued close runs after that
+            // callback has returned, while _closed lets the second Closing
+            // notification proceed without cancelling it again.
+            var shutdownUiThread = window.DispatcherQueue.HasThreadAccess;
+            ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseBegin, shutdownUiThread);
+            window.PrepareForClose();
+            window.Close();
+            ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseReturned, shutdownUiThread);
+        }))
+        {
+            _closed = false;
+            throw new InvalidOperationException("主窗口关闭调度器已停止，无法安全完成关闭。");
+        }
     }
 
     public async ValueTask DisposeAsync()
