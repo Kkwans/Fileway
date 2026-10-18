@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"sync"
 	"time"
 
@@ -34,6 +35,7 @@ type Command struct {
 	BodyBase64      *string                 `json:"bodyBase64,omitempty"`
 	Path            string                  `json:"path"`
 	WirePath        string                  `json:"wirePath"`
+	SourceVersion   string                  `json:"sourceVersion,omitempty"`
 	URL             string                  `json:"url"`
 	Network         string                  `json:"network"`
 	StateDir        string                  `json:"stateDir"`
@@ -281,6 +283,16 @@ func (e *Engine) execute(c Command) (any, error) {
 		endpoint, err := transport.RawEndpoint(c.Path, c.WirePath)
 		if err != nil {
 			return nil, err
+		}
+		if c.SourceVersion != "" {
+			parsed, parseErr := url.Parse(endpoint)
+			if parseErr != nil {
+				return nil, errors.New("invalid source version endpoint")
+			}
+			query := parsed.Query()
+			query.Set("sourceVersion", c.SourceVersion)
+			parsed.RawQuery = query.Encode()
+			endpoint = parsed.RequestURI()
 		}
 		if c.CacheKey != "" {
 			return b.LeaseCachedForOwner(c.Session, endpoint, c.CacheKey, c.CacheOwner)

@@ -9,7 +9,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kkwans/nas-file-browser-client/core/transport"
 )
@@ -109,6 +111,37 @@ func TestPreviewLeaseStreamsAuthenticatedImageAndRevokesWithSession(t *testing.T
 	response.Body.Close()
 	if response.StatusCode != http.StatusGone {
 		t.Fatal("old account preview lease survived session closure")
+	}
+}
+
+func TestConditionalLeaseCarriesSourceVersionInEndpoint(t *testing.T) {
+	wire := "/movie.mkv"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.EscapedPath() != "/nas/api/raw/movie.mkv" || r.URL.Query().Get("sourceVersion") != "v1-fixture" {
+			t.Fatalf("conditional source version was not carried: %s", r.URL.String())
+		}
+		http.ServeContent(w, r, "movie.mkv", time.Unix(42, 0), strings.NewReader("fixture"))
+	}))
+	defer server.Close()
+	e := &Engine{}
+	defer e.Call([]byte(`{"op":"shutdown"}`))
+	opened := command(t, e, Command{Op: "open", BaseURL: server.URL + "/nas", Token: "owned.conditional.token"})
+	var session string
+	if err := json.Unmarshal(opened["result"], &session); err != nil || session == "" {
+		t.Fatal(opened)
+	}
+	out := command(t, e, Command{Op: "lease", Session: session, WirePath: wire, SourceVersion: "v1-fixture"})
+	var lease string
+	if string(out["ok"]) != "true" || json.Unmarshal(out["result"], &lease) != nil {
+		t.Fatal(out)
+	}
+	response, err := http.Get(lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("conditional lease status=%d", response.StatusCode)
 	}
 }
 
