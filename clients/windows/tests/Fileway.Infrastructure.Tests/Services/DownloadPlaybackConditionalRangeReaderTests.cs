@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
+using Fileway.Infrastructure.Services;
 
 namespace Fileway.Infrastructure.Tests.Services;
 
