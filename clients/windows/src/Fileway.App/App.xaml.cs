@@ -182,10 +182,8 @@ public partial class App : Application, IAsyncDisposable
         var window = _window;
         if (window is not null && !window.DispatcherQueue.TryEnqueue(() =>
         {
-            // Do not re-enter native destruction while the original Closing
-            // callback is still on the stack. The queued close runs after that
-            // callback has returned, while _closed lets the second Closing
-            // notification proceed without cancelling it again.
+            // Leave the originating WM_CLOSE callback before final destruction.
+            // Preparation removes our interception so this close can proceed.
             var shutdownUiThread = window.DispatcherQueue.HasThreadAccess;
             ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseBegin, shutdownUiThread);
             window.PrepareForClose();
