@@ -158,3 +158,26 @@ Subtitle preferences and temporary control-bar clearance are separate. Text subt
 Diagnostics separately represent source format, decode path, display capabilities and actual output. Unavailable information is null/unknown. HDR input metadata, a 10-bit buffer or a normal-looking SDR screenshot cannot prove HDR output. Backdrop controller attachment and an enabled transparency setting likewise do not prove visible video-background blur; native visual acceptance remains required.
 
 Runtime packages require pinned hashes, actual configuration/nonfree checks, complete import/runtime closure, notices and corresponding source/build materials before distribution. Engine load success alone does not establish rendering, compatibility or redistribution readiness.
+
+## Native shutdown investigation boundary
+
+The application shutdown crash remains unresolved. Native smoke run `39091009837`
+completed moving-frame, three settings cycles, pause/resume, button/F11 fullscreen
+cycles and player-surface close, then failed application shutdown with
+`0xC0000409`, fast-fail subcode 10. Completing those interactions does not grant a
+full smoke pass. The main close call did not return after its Closed markers.
+
+The same run's bounded dispatch evidence identifies `USER32!DispatchHookA`
+(`shutdown-dispatch-frame`, frame index 3, symbol ID 5). The candidate target is
+in a `MEM_FREE` region. This supports investigating an invalid Windows hook
+callback, but does not identify the registering library or prove that libmpv
+owns it. Existing debugger attachment occurs after player closure and therefore
+cannot establish the hook registration/unregistration lifetime. Attribution
+requires matching the callback to its registration and corresponding unhook;
+changing CFG policy or retaining a DLL without ownership evidence is not a fix.
+
+Shutdown preparation and native close interception are shared window code.
+Only owners subscribing to `CloseRequested` intercept `WM_CLOSE`; image viewers
+use the normal native close path. After successful close preparation, layout
+notifications must not recreate caption or resize input regions. A successful
+build does not prove either native close path completed normally.
