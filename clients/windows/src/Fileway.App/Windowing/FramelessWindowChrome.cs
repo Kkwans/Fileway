@@ -153,7 +153,7 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     private void UpdateCaptionRegions()
     {
-        if (_disposed || _windowClosed || _titleBar.InteractiveRegions.Count == 0 || _nonClientPointerSource is not { } source || _window.Content is not UIElement root) return;
+        if (_disposed || _preparedForClose || _windowClosed || _titleBar.InteractiveRegions.Count == 0 || _nonClientPointerSource is not { } source || _window.Content is not UIElement root) return;
         var rectangles = new List<RectInt32>();
         foreach (var element in _titleBar.InteractiveRegions)
         {
@@ -172,7 +172,7 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     private void UpdateResizeRegions()
     {
-        if (_disposed || _windowClosed || _nonClientPointerSource is not { } source
+        if (_disposed || _preparedForClose || _windowClosed || _nonClientPointerSource is not { } source
             || !GetClientRect(_handle, out var bounds)) return;
         var width = Math.Max(0, bounds.Right - bounds.Left);
         var height = Math.Max(0, bounds.Bottom - bounds.Top);
@@ -207,9 +207,11 @@ internal sealed class FramelessWindowChrome : IDisposable
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
     {
         if (_disposed) return DefSubclassProc(window, message, wParam, lParam);
-        if (message == 0x0010) // WM_CLOSE: keep async shutdown out of AppWindow.Closing.
+        if (message == 0x0010 && CloseRequested is { } closeRequested)
         {
-            CloseRequested?.Invoke(this, EventArgs.Empty);
+            // Only owners with an asynchronous shutdown handler intercept close.
+            // Image windows retain the default native close path.
+            closeRequested.Invoke(this, EventArgs.Empty);
             return 0;
         }
         if (message is 0x0083 or 0x0085) return 0; // Full-window client; no classic nonclient paint.
@@ -370,7 +372,6 @@ internal sealed class FramelessWindowChrome : IDisposable
     {
         VerifyThread();
         if (_disposed || _preparedForClose) return;
-        _preparedForClose = true;
         var source = _nonClientPointerSource;
         _resizeRegionState = null;
         _captionRegionsState = null;
@@ -386,10 +387,11 @@ internal sealed class FramelessWindowChrome : IDisposable
         if (GetCapture() == _handle) ReleaseCapture();
         if (_subclassed)
         {
-            _subclassed = false;
             if (!RemoveWindowSubclass(_handle, _procedure, SubclassId))
                 throw new InvalidOperationException("无法在主窗口关闭前释放无边框窗口过程。");
+            _subclassed = false;
         }
+        _preparedForClose = true;
     }
 
     public void Dispose()
