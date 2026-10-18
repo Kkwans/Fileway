@@ -3,7 +3,7 @@ using Fileway.Core.Contracts;
 namespace Fileway.Core.Integration;
 
 /// <summary>Pinned source and length. SourceVersion is opaque; null permits only a fresh, unconditioned read.</summary>
-public sealed record DownloadLeaseRequest(RemoteResourceRef Source, long Length)
+public sealed record DownloadLeaseRequest(RemoteResourceRef Source, long Length, string? SourceVersion = null)
 {
     public override string ToString() => "DownloadLeaseRequest (private source redacted)";
 }

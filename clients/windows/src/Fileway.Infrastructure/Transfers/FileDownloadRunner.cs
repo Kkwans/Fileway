@@ -187,7 +187,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
                 state.Execution.Stop.Token).ConfigureAwait(false);
             RequireRemote(state, metadata.Resource);
             if (metadata.IsDirectory || metadata.Size < 0) throw Safe(ErrorCode.ProtocolMismatch);
-            var snapshot = new TransferSourceSnapshot(metadata.Size, metadata.Modified?.ToUniversalTime());
+            var snapshot = new TransferSourceSnapshot(metadata.Size, metadata.Modified?.ToUniversalTime(), metadata.Resource.SourceVersion);
             await SaveAsync(state, state.Record.Checkpoint with { Source = snapshot }, release: false).ConfigureAwait(false);
             await CheckIntentAsync(state).ConfigureAwait(false);
             destination = await AcquireFreshDestinationAsync(state).ConfigureAwait(false);
@@ -197,10 +197,10 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             { Phase = TransferPhase.Running, Files = destination.Files, ConfirmedOffset = 0 }, release: false).ConfigureAwait(false);
             AcceptReaderDestination(state, destination);
             await CheckIntentAsync(state).ConfigureAwait(false);
-            lease = await AcquireOwnedAsync(token => _sources.AcquireDownloadAsync(new(state.Source, snapshot.Length), token),
+            lease = await AcquireOwnedAsync(token => _sources.AcquireDownloadAsync(new(state.Source, snapshot.Length, snapshot.SourceVersion), token),
                 state, state.Execution.Stop.Token).ConfigureAwait(false);
             RequireRemote(state, lease.Resource);
-            if (lease.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
+            if (!StringComparer.Ordinal.Equals(lease.SourceVersion, snapshot.SourceVersion)) throw Safe(ErrorCode.SourceChanged);
             if (lease.Length != snapshot.Length) throw Safe(ErrorCode.SourceChanged);
             RequireAddress(lease.Address);
             await ReceiveAsync(state, destination, lease).ConfigureAwait(false);
@@ -515,7 +515,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         internal TransferTaskRecord Record { get; set; } = record;
         internal TransferRunToken Run { get; } = record.Run ?? throw Safe(ErrorCode.Conflict);
         internal RemoteResourceRef Source { get; } = new(record.Plan.Remote.Account, record.Plan.Remote.WirePath,
-            record.Plan.Remote.DisplayName, record.Plan.Remote.DisplayPath);
+            record.Plan.Remote.DisplayName, record.Plan.Remote.DisplayPath, record.Plan.Remote.SourceVersion);
         internal bool DestinationAccepted;
         internal bool PublishAttempted;
         internal bool PersistenceFailed;

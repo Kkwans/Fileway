@@ -1069,7 +1069,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         _ => -1,
     };
 
-    private RemoteFile ParseFile(JsonElement item, SessionState state)
+    private RemoteFile ParseFile(JsonElement item, SessionState state, bool includeSourceVersion = false)
     {
         string wirePath = RequiredText(item.GetProperty("wirePath"));
         ValidateWirePath(wirePath);
@@ -1081,7 +1081,9 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         if (size < 0) throw InvalidResponse();
         DateTimeOffset? modified = null;
         if (OptionalText(item, "modified") is { } date && DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)) modified = parsed;
-        return new RemoteFile(BindResource(new RemoteResourceRef(state.Session.Account, wirePath, name, displayPath), state),
+        string? sourceVersion = includeSourceVersion ? OptionalText(item, "sourceVersion") : null;
+        if (sourceVersion is { Length: > 4096 }) throw InvalidResponse();
+        return new RemoteFile(BindResource(new RemoteResourceRef(state.Session.Account, wirePath, name, displayPath, sourceVersion), state),
             isDirectory, size, modified, OptionalText(item, "type"));
     }
 

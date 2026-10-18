@@ -21,8 +21,8 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
     private readonly RemoteResourceRef _source;
     private readonly TransferSourceSnapshot _observed;
     private readonly byte[] _wireIdentity;
-    private readonly DateTimeOffset _modified;
-    private readonly DateTimeOffset _httpModified;
+    private readonly DateTimeOffset? _modified;
+    private readonly DateTimeOffset? _httpModified;
     private readonly Action _requireAvailable;
     private readonly CancellationToken _authorityStop;
     private readonly CancellationScope _lifetime;
@@ -52,7 +52,7 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(observed);
         ArgumentNullException.ThrowIfNull(requireAvailable);
         ArgumentNullException.ThrowIfNull(options);
-        if (source.SourceVersion is not null || observed.SourceVersion is not null || observed.Modified is null)
+        if (observed.SourceVersion is null && observed.Modified is null)
             throw Safe(ErrorCode.CapabilityMissing);
         if (observed.Length < 0 || options.OperationTimeout <= TimeSpan.Zero ||
             options.OperationTimeout > TimeSpan.FromMinutes(5)) throw Safe(ErrorCode.InvalidRequest);
@@ -60,8 +60,9 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
         _source = source;
         _observed = observed;
         _wireIdentity = WireBytes(source.WirePath);
-        _modified = observed.Modified.Value.ToUniversalTime();
-        _httpModified = new(_modified.Ticks - _modified.Ticks % TimeSpan.TicksPerSecond, TimeSpan.Zero);
+        _modified = observed.Modified?.ToUniversalTime();
+        _httpModified = _modified is { } modified
+            ? new(modified.Ticks - modified.Ticks % TimeSpan.TicksPerSecond, TimeSpan.Zero) : null;
         _requireAvailable = requireAvailable;
         _authorityStop = authorityStop;
         _operationTimeout = options.OperationTimeout;
@@ -149,7 +150,7 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
                 {
                     RequireAvailable(token);
                     // Capture before checking cancellation: even a noncooperative late result is owned.
-                    lease = await _sources.AcquireDownloadAsync(new(_source, _observed.Length), control.Token).ConfigureAwait(false);
+                    lease = await _sources.AcquireDownloadAsync(new(_source, _observed.Length, _observed.SourceVersion), control.Token).ConfigureAwait(false);
                     RequireAvailable(token);
                     control.ThrowIfCanceled();
                 }
@@ -161,7 +162,7 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
             long end = offset + length - 1;
             using var request = new HttpRequestMessage(HttpMethod.Get, lease.Address);
             request.Headers.Range = new(offset, end);
-            request.Headers.IfRange = new(_httpModified);
+            if (_httpModified is { } httpModified) request.Headers.IfRange = new(httpModified);
             request.Headers.AcceptEncoding.Add(new("identity"));
             request.Headers.CacheControl = new() { NoCache = true, NoStore = true };
             using var response = await SendAsync(request, token).ConfigureAwait(false);
@@ -202,9 +203,8 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
             RequireAvailable(token);
             control.ThrowIfCanceled();
             if (file is null || file.Resource is null) throw Safe(ErrorCode.ProtocolMismatch);
-            if (file.Resource.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
             if (!SameSource(file.Resource) || file.IsDirectory || file.Size != _observed.Length ||
-                file.Modified is null || file.Modified.Value.ToUniversalTime() != _modified) throw Safe(ErrorCode.SourceChanged);
+                !SameVersion(file.Resource.SourceVersion, file.Modified)) throw Safe(ErrorCode.SourceChanged);
         }
         catch (Exception error) { throw StageFailure(error, control, token); }
     }
@@ -272,8 +272,9 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
     private void RequireLease(IDownloadLease? lease)
     {
         if (lease is null || lease.Resource is null) throw Safe(ErrorCode.ProtocolMismatch);
-        if (lease.SourceVersion is not null || lease.Resource.SourceVersion is not null || lease.SupportsResume)
-            throw Safe(ErrorCode.CapabilityMissing);
+        if (lease.SupportsResume || !StringComparer.Ordinal.Equals(lease.SourceVersion, _observed.SourceVersion) ||
+            !StringComparer.Ordinal.Equals(lease.Resource.SourceVersion, _observed.SourceVersion))
+            throw Safe(ErrorCode.SourceChanged);
         if (!SameSource(lease.Resource)) throw Safe(ErrorCode.ProtocolMismatch);
         if (lease.Length != _observed.Length) throw Safe(ErrorCode.SourceChanged);
         RequireAddress(lease.Address);
@@ -281,6 +282,11 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
 
     private bool SameSource(RemoteResourceRef resource) => resource.Account == _source.Account &&
         _wireIdentity.AsSpan().SequenceEqual(WireBytes(resource.WirePath));
+
+    private bool SameVersion(string? sourceVersion, DateTimeOffset? modified) =>
+        _observed.SourceVersion is { } expected
+            ? StringComparer.Ordinal.Equals(sourceVersion, expected)
+            : modified?.ToUniversalTime() == _modified;
 
     // Match the existing transfer protocol's opaque byte identity without Unicode replacement decoding.
     private static byte[] WireBytes(string wire)
