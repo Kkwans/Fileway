@@ -98,7 +98,10 @@ The desktop shortcut is selected by default and can be disabled. Start menu shor
 Installer language defaults to Chinese for Chinese UI or China region, and English otherwise; you can change it.
 The selected language names the app 栖卷 or Fileway and is saved in product-language.txt beside the installed EXE.
 The ZIP has no installation language selection and follows the local UI language or region.
-Close Fileway normally before installing or uninstalling. No process is forcefully stopped.
+Closing the main window hides it to the tray by default. Use File > Exit or the tray menu to exit fully.
+The close behavior is configurable in Tools and the tray menu.
+The installer can request normal exit of this user's instances under the selected install folder.
+It waits for shutdown and never forcefully stops a process. Other folders' instances are left alone.
 No file associations, startup entries, system services, or global configuration are created.
 Uninstall removes this version's program files and unchanged shortcuts it created; other versions, extra files and downloads are kept.
 

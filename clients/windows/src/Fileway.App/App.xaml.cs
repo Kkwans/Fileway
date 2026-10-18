@@ -10,6 +10,7 @@ using Fileway.Playback;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Fileway.App.Windowing;
 
 namespace Fileway.App;
 
@@ -17,6 +18,7 @@ public partial class App : Application, IAsyncDisposable
 {
     private readonly CancellationTokenSource _lifetime = new();
     private MainWindow? _window;
+    private ApplicationTray? _tray;
     private GoHostClient? _host;
     private FilewayClientServices? _services;
     private UploadCoordinator? _uploadCoordinator;
@@ -43,6 +45,9 @@ public partial class App : Application, IAsyncDisposable
         {
             _window = new MainWindow();
             _window.CloseRequested += MainWindow_CloseRequested;
+            _window.ExitRequested += (_, _) => RequestExit();
+            try { _tray = new ApplicationTray(ShowMainWindow, RequestExit); }
+            catch (Exception error) { RecordStartupFailure(error); }
             _window.Activate();
             _startup = InitializeServicesAsync();
         }
@@ -162,6 +167,32 @@ public partial class App : Application, IAsyncDisposable
     private void MainWindow_CloseRequested(object? sender, EventArgs args)
     {
         if (_closed) return;
+        if (!_closing && _tray is { CloseToTray: true })
+        {
+            _window?.AppWindow.Hide();
+            return;
+        }
+        RequestExit();
+    }
+
+    private void ShowMainWindow()
+    {
+        if (_closing || _closed || _window is null) return;
+        _window.AppWindow.Show();
+        if (_window.AppWindow.Presenter is OverlappedPresenter presenter && presenter.State == OverlappedPresenterState.Minimized)
+            presenter.Restore();
+        _window.Activate();
+    }
+
+    internal bool CloseToTray => _tray?.CloseToTray ?? false;
+    internal void SetCloseToTray(bool enabled)
+    {
+        if (_tray is not null) _tray.CloseToTray = enabled;
+    }
+
+    internal void RequestExit()
+    {
+        if (_closed) return;
         if (_closeRequested) return;
         _closeRequested = true;
         // WM_CLOSE is intercepted by the window subclass. This avoids the
@@ -187,6 +218,8 @@ public partial class App : Application, IAsyncDisposable
             var shutdownUiThread = window.DispatcherQueue.HasThreadAccess;
             ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseBegin, shutdownUiThread);
             window.PrepareForClose();
+            _tray?.Dispose();
+            _tray = null;
             window.Close();
             ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseReturned, shutdownUiThread);
         }))

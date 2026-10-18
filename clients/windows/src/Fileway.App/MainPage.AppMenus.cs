@@ -91,6 +91,7 @@ public sealed partial class MainPage
         MenuSystemThemeItem.IsChecked = _applicationTheme == ElementTheme.Default;
         MenuLightThemeItem.IsChecked = _applicationTheme == ElementTheme.Light;
         MenuDarkThemeItem.IsChecked = _applicationTheme == ElementTheme.Dark;
+        MenuCloseToTrayItem.IsChecked = ((App)Application.Current).CloseToTray;
 
         PathLocationHost.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceTitle.Visibility = browser ? Visibility.Collapsed : Visibility.Visible;
@@ -117,7 +118,12 @@ public sealed partial class MainPage
     private void MoveSelection_Click(object sender, RoutedEventArgs args) => Transfer_Click(FileTransferAction.Move);
     private void SelectAll_Click(object sender, RoutedEventArgs args) { if (BrowserReady) ActiveFiles.SelectAll(); }
     private void ClearSelection_Click(object sender, RoutedEventArgs args) { if (BrowserReady) ActiveFiles.SelectedItems.Clear(); }
-    private void ApplicationExit_Click(object sender, RoutedEventArgs args) => _applicationTitleBar?.RequestClose();
+    private void ApplicationExit_Click(object sender, RoutedEventArgs args) => ((App)Application.Current).RequestExit();
+    private void CloseToTray_Click(object sender, RoutedEventArgs args)
+    {
+        try { ((App)Application.Current).SetCloseToTray(MenuCloseToTrayItem.IsChecked); }
+        catch (Exception) { MenuCloseToTrayItem.IsChecked = ((App)Application.Current).CloseToTray; SetNotice("设置未保存", "无法保存关闭偏好，请检查当前用户的设置权限。", InfoBarSeverity.Error); }
+    }
 
     private void ApplicationTheme_Click(object sender, RoutedEventArgs args)
     {

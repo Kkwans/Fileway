@@ -15,6 +15,7 @@ namespace Fileway.App.Windowing;
 internal sealed class FramelessWindowChrome : IDisposable
 {
     private const nuint SubclassId = 0x465743;
+    internal static readonly uint ExitMessage = RegisterWindowMessageW("Fileway.Preview.RequestExit.v1");
     private readonly Window _window;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _shutdownDispatcher;
     private readonly bool _recordShutdownStages;
@@ -73,6 +74,7 @@ internal sealed class FramelessWindowChrome : IDisposable
     }
 
     internal event EventHandler? CloseRequested;
+    internal event EventHandler? ExitRequested;
 
     private void ApplyFrame()
     {
@@ -207,6 +209,11 @@ internal sealed class FramelessWindowChrome : IDisposable
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
     {
         if (_disposed) return DefSubclassProc(window, message, wParam, lParam);
+        if (ExitMessage != 0 && message == ExitMessage)
+        {
+            ExitRequested?.Invoke(this, EventArgs.Empty);
+            return 0;
+        }
         if (message == 0x0010 && CloseRequested is { } closeRequested)
         {
             // Only owners with an asynchronous shutdown handler intercept close.
@@ -435,6 +442,8 @@ internal sealed class FramelessWindowChrome : IDisposable
     }
 
     private static Win32Exception NativeFailure(string operation) => new(Marshal.GetLastPInvokeError(), $"{operation} 失败。");
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
+    private static extern uint RegisterWindowMessageW(string name);
     private delegate nint SubclassProc(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference);
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { internal int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { internal int Left, Top, Right, Bottom; }

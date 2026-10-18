@@ -2,6 +2,8 @@
 ; Unsigned, current-user development preview. Payload and uninstall lists are generated externally.
 Unicode true
 RequestExecutionLevel user
+ManifestDPIAware true
+ManifestDPIAwareness PerMonitorV2
 ; Local development packages favor short packaging time over maximum compression.
 SetCompressor /SOLID zlib
 AllowSkipFiles off
@@ -86,6 +88,10 @@ LangString CheckRunningFailed ${LANG_SIMPCHINESE} "无法检查运行中的应�
 LangString CheckRunningFailed ${LANG_ENGLISH} "Unable to check running applications. Please close Fileway normally and try again."
 LangString AppRunning ${LANG_SIMPCHINESE} "栖卷或本地核心正在运行。请先正常关闭栖卷，再继续安装或卸载。"
 LangString AppRunning ${LANG_ENGLISH} "Fileway or its local core is running. Please close Fileway normally before installing or uninstalling."
+LangString CloseRunning ${LANG_SIMPCHINESE} "目标安装目录中的栖卷正在运行（可能在后台）。是否自动正常退出并继续？$\r$\n$\r$\n进行中的传输将停止；不会强制结束进程。"
+LangString CloseRunning ${LANG_ENGLISH} "Fileway is running from the selected folder, possibly in the background. Exit it normally and continue?$\r$\n$\r$\nActive transfers will stop. Processes will not be force-killed."
+LangString CloseTimedOut ${LANG_SIMPCHINESE} "已请求退出，但应用或本地核心仍未结束。请从托盘右键退出；旧版本或无响应进程可在任务管理器中查看。其他目录的开发实例不会阻止安装。"
+LangString CloseTimedOut ${LANG_ENGLISH} "Exit was requested but the app or local core is still running. Exit from the tray, or inspect old or unresponsive processes in Task Manager. Instances in other folders do not block installation."
 LangString RequiresX64 ${LANG_SIMPCHINESE} "此版本需要 x64 Windows。"
 LangString RequiresX64 ${LANG_ENGLISH} "This version requires x64 Windows."
 LangString VersionExists ${LANG_SIMPCHINESE} "此版本已安装，或目标版本目录已存在。请先正常卸载同版本，或安装新的版本；不会覆盖现有文件。"
@@ -99,44 +105,32 @@ LangString VersionCreateFailed ${LANG_ENGLISH} "Unable to create a new folder fo
 LangString InstallFailed ${LANG_SIMPCHINESE} "安装未完成，已有版本和用户数据未被替换。$\r$\n$\r$\n未完成目录：$INSTDIR\versions\${PACKAGE_VERSION}$\r$\n如该目录内存在 uninstall.exe，可运行它清理本次文件；也可选择另一个安装目录重试。"
 LangString InstallFailed ${LANG_ENGLISH} "Installation did not complete. Existing versions and user data were not replaced.$\r$\n$\r$\nIncomplete folder: $INSTDIR\versions\${PACKAGE_VERSION}$\r$\nIf uninstall.exe exists there, it can remove this attempt's files. You can also choose another installation folder and retry."
 
-; NSIS uses a 32-bit installer stub, so PROCESSENTRY32W is 556 bytes and szExeFile begins at 36.
-; Toolhelp only reads process names. It never terminates or sends close messages to an application.
+; Check the selected install root, not every process sharing a development executable name.
+; The bundled helper requests normal shutdown and never terminates processes.
 !macro DefineCheckRunning Prefix
 Function ${Prefix}CheckRunning
-  System::Call 'kernel32::CreateToolhelp32Snapshot(i 2, i 0) p.r0'
-  ${If} $0 == -1
+  InitPluginsDir
+  File /oname=$PLUGINSDIR\Fileway-RequestExit.ps1 "${__FILEDIR__}\Request-AppExit.ps1"
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Fileway-RequestExit.ps1" -InstallRoot "$INSTDIR"'
+  Pop $0
+  Pop $1
+  ${If} $0 == 0
+    Return
+  ${EndIf}
+  ${If} $0 != 10
     MessageBox MB_OK|MB_ICONSTOP "$(CheckRunningFailed)" /SD IDOK
     Abort
   ${EndIf}
-  System::Alloc 556
-  Pop $1
-  ${If} $1 == 0
-    System::Call 'kernel32::CloseHandle(p r0)'
-    Abort
-  ${EndIf}
-  System::Call '*$1(i 556)'
-  System::Call 'kernel32::Process32FirstW(p r0, p r1) i.r2'
-  loop:
-    ${If} $2 == 0
-      Goto finished
-    ${EndIf}
-    IntOp $3 $1 + 36
-    System::Call '*$3(&w260 .r4)'
-    System::Call 'kernel32::lstrcmpiW(w r4, w "Fileway.App.exe") i.r5'
-    ${If} $5 != 0
-      System::Call 'kernel32::lstrcmpiW(w r4, w "fileway-host.exe") i.r5'
-    ${EndIf}
-    ${If} $5 == 0
-      System::Free $1
-      System::Call 'kernel32::CloseHandle(p r0)'
-      MessageBox MB_OK|MB_ICONSTOP "$(AppRunning)" /SD IDOK
+  MessageBox MB_YESNO|MB_ICONQUESTION "$(CloseRunning)" /SD IDNO IDYES request_close
+  Abort
+  request_close:
+    nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\Fileway-RequestExit.ps1" -InstallRoot "$INSTDIR" -RequestClose'
+    Pop $0
+    Pop $1
+    ${If} $0 != 0
+      MessageBox MB_OK|MB_ICONSTOP "$(CloseTimedOut)" /SD IDOK
       Abort
     ${EndIf}
-    System::Call 'kernel32::Process32NextW(p r0, p r1) i.r2'
-    Goto loop
-  finished:
-    System::Free $1
-    System::Call 'kernel32::CloseHandle(p r0)'
 FunctionEnd
 !macroend
 !insertmacro DefineCheckRunning ""
@@ -167,7 +161,6 @@ Function .onInit
     MessageBox MB_OK|MB_ICONSTOP "$(RequiresX64)" /SD IDOK
     Abort
   ${EndIf}
-  Call CheckRunning
 FunctionEnd
 
 Function un.onInit
