@@ -34,10 +34,10 @@ public sealed partial class MainPage
         NewFileMenuItem.IsEnabled = FileManagement is not null;
         LastResultsButton.IsEnabled = _session is { } owner && _fileResults.ContainsKey(owner.Account);
         UpdateReceiptWarning();
-        if (HasUnresolvedWrite && !Notice.IsOpen) SetNotice("操作结果仍待核实", "当前账号的文件写入已暂停。请核实服务器结果，不要重复提交。", InfoBarSeverity.Warning);
+        if (HasUnresolvedWrite && !Notice.IsOpen) SetNotice("操作结果仍待核实", "当前账号的文件写入已暂停。请核实服务器结果，不要重复提交。", InfoBarSeverity.Warning, repeat: false);
         UpdateOperationAction();
     }
-    private MenuFlyout CreateBrowserMenu() { var menu = new MenuFlyout(); PopulateBrowserMenu(menu); return menu; }
+    private MenuFlyout CreateBrowserMenu() { var menu = new MenuFlyout(); ConfigurePopupMaterial(menu); PopulateBrowserMenu(menu); return menu; }
     private void PopulateBrowserMenu(MenuFlyout menu)
     {
         menu.Items.Clear();
@@ -66,7 +66,7 @@ public sealed partial class MainPage
                 Add(CollectionsPanel.IsCurrentResourceFavorite ? "取消收藏" : "收藏", () => FavoriteResource_Click(this, new RoutedEventArgs()), !_connecting && CollectionsPanel.CanManageCurrentResource);
                 Add("标记…", () => TagResource_Click(this, new RoutedEventArgs()), !_connecting && CollectionsPanel.CanManageCurrentResource);
             }
-            menu.Items.Add(new MenuFlyoutSeparator());
+            return;
         }
         if (permissions?.Create == true)
         {
@@ -76,6 +76,7 @@ public sealed partial class MainPage
             menu.Items.Add(create);
         }
         Add("粘贴", async () => await PasteClipboardAsync(), CanPasteClipboard);
+        Add("上传文件…", () => UploadFile_Click(this, new RoutedEventArgs()), CanSubmitUpload);
         Add("刷新", () => Refresh_Click(this, new RoutedEventArgs()), BrowserReady);
         Add("全选", () => ActiveFiles.SelectAll(), BrowserReady && _rows.Count > 0);
         var views = new MenuFlyoutSubItem { Text = "视图" };
@@ -117,7 +118,7 @@ public sealed partial class MainPage
     }
     private static bool IsTextInput(DependencyObject? source)
     {
-        while (source is not null) { if (source is TextBox or Microsoft.UI.Xaml.Controls.PasswordBox or AutoSuggestBox) return true; source = VisualTreeHelper.GetParent(source); }
+        while (source is not null) { if (source is TextBox or Microsoft.UI.Xaml.Controls.PasswordBox or AutoSuggestBox or TextBlock { IsTextSelectionEnabled: true } or RichTextBlock { IsTextSelectionEnabled: true }) return true; source = VisualTreeHelper.GetParent(source); }
         return false;
     }
 
@@ -276,8 +277,9 @@ public sealed partial class MainPage
     {
         if (ReceiptWarning is null) return;
         var warnings = _session is { } session ? _receiptWarnings.GetValueOrDefault(session.Account) : null;
-        ReceiptWarning.IsOpen = warnings is { Count: > 0 };
         ReceiptWarning.Message = warnings is null ? "" : "此提示不改变服务器已返回的操作结果，请勿因此重复提交。\n" + string.Join("\n", warnings);
+        if (warnings is { Count: > 0 }) ShowToast(ReceiptWarning, ReceiptWarning.Message);
+        else ReceiptWarning.IsOpen = false;
     }
     private async void ResultDetails_Click(object sender, RoutedEventArgs args)
     {

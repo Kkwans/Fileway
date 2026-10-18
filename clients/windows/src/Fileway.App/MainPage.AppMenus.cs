@@ -96,7 +96,7 @@ public sealed partial class MainPage
         PathLocationHost.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceTitle.Visibility = browser ? Visibility.Collapsed : Visibility.Visible;
         WorkspaceTitle.Text = connectionView ? "连接服务器" : RecentPane.Visibility == Visibility.Visible ? "最近访问"
-            : SearchPane.Visibility == Visibility.Visible ? "搜索结果" : NasTasksPane.Visibility == Visibility.Visible ? "NAS 文件任务"
+            : SearchPane.Visibility == Visibility.Visible ? "搜索结果" : NasTasksPane.Visibility == Visibility.Visible ? "文件任务"
             : TrashPane.Visibility == Visibility.Visible ? "回收站"
             : TransfersPanel.Visibility == Visibility.Visible ? "传输中心" : CollectionsPanel.Visibility == Visibility.Visible ? "收藏与标签" : "我的文件";
         SearchBox.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;

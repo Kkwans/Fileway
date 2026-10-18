@@ -554,7 +554,8 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
     public async Task SetSubtitlesAsync(SubtitlePreferences preferences, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(preferences);
-        if (!double.IsFinite(preferences.Scale) || preferences.Scale is < 0.1 or > 10 || !double.IsFinite(preferences.VerticalPositionPercent) || preferences.VerticalPositionPercent is < 0 or > 100)
+        if (!double.IsFinite(preferences.Scale) || preferences.Scale is < 0.1 or > 10 || !double.IsFinite(preferences.VerticalPositionPercent) || preferences.VerticalPositionPercent is < 0 or > 100 ||
+            !double.IsFinite(preferences.FontSize) || preferences.FontSize is < 8 or > 120 || preferences.FontFamily?.Length > 256)
             throw MpvNative.Error(ErrorCode.InvalidRequest, "字幕显示参数无效。");
         SubtitlePreferences previous;
         lock (_gate) { previous = _subtitlePreferences; _subtitlePreferences = preferences; }
@@ -580,14 +581,18 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
         {
             var preferences = _subtitlePreferences;
             var preserve = _scriptSubtitleSelected && !preferences.OverrideScriptStyle;
-            // Author-positioned ASS remains at its native geometry. Plain text
-            // temporarily rises above controls, then returns to the user's position.
-            var position = preserve ? 100 : Math.Min(preferences.VerticalPositionPercent, 100 * (1 - _subtitleBottomInset));
+            // Author-positioned ASS remains at its native geometry. The full-window
+            // mode deliberately includes letterboxing instead of clamping to video.
+            // Video-only mode retains the temporary control-bar safety inset.
+            var position = preserve ? 100 : preferences.UseWindowArea ? preferences.VerticalPositionPercent : Math.Min(preferences.VerticalPositionPercent, 100 * (1 - _subtitleBottomInset));
             var scale = preserve ? 1 : preferences.Scale;
             return [["set", "sub-scale", scale.ToString("R", CultureInfo.InvariantCulture)],
                 ["set", "sub-pos", position.ToString("R", CultureInfo.InvariantCulture)],
                 ["set", "sub-delay", preferences.Delay.TotalSeconds.ToString("R", CultureInfo.InvariantCulture)],
                 ["set", "sub-ass-override", preserve ? "no" : "force"],
+                ["set", "sub-use-margins", !preserve && preferences.UseWindowArea ? "yes" : "no"],
+                ["set", "sub-ass-force-margins", !preserve && preferences.UseWindowArea ? "yes" : "no"],
+                ["set", "sub-font-size", preferences.FontSize.ToString("R", CultureInfo.InvariantCulture)],
                 ["set", "sub-font", string.IsNullOrWhiteSpace(preferences.FontFamily) ? "sans-serif" : preferences.FontFamily]];
         }
     }

@@ -123,7 +123,7 @@ internal sealed class BrowserThumbnailController : IDisposable
             if (state.Attempted || !state.Row.IsImage && !state.Row.IsVideo) continue;
             // ContentChanging can precede template creation. LayoutUpdated retries only visual lookup.
             state.Image ??= Find<Image>(state.Container, "ThumbnailImage");
-            state.Icon ??= Find<FontIcon>(state.Container, "ThumbnailIcon");
+            state.Icon ??= Find<FrameworkElement>(state.Container, "ThumbnailIcon");
             if (state.Image is null || state.Icon is null) continue;
             state.Attempted = true;
             var request = new Request(_generation, CancellationTokenSource.CreateLinkedTokenSource(_lifetime));
@@ -274,7 +274,7 @@ internal sealed class BrowserThumbnailController : IDisposable
         public FileRow Row { get; } = row;
         public RemoteResourceRef Resource { get; } = row.File.Resource;
         public Image? Image { get; set; }
-        public FontIcon? Icon { get; set; }
+        public FrameworkElement? Icon { get; set; }
         public bool Attempted { get; set; }
         public Request? Request { get; set; }
     }

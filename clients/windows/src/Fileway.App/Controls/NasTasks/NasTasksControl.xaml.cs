@@ -162,8 +162,8 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             UpdateCounts(); UpdateNotice(); RenderDetails(); UpdateCommands(); UpdateLayoutState();
             int count = _historyMode ? _operations.Count : _tasks.Count;
             EmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyTitle.Text = Busy ? "正在读取服务器记录" : !Active ? "连接后查看 NAS 文件任务" :
-                _historyMode ? "暂无任务操作记录" : "暂无匹配的 NAS 文件任务";
+            EmptyTitle.Text = Busy ? "正在读取服务器记录" : !Active ? "连接后查看 文件任务" :
+                _historyMode ? "暂无任务操作记录" : "暂无匹配的 文件任务";
             EmptyDescription.Text = _historyMode ? "这里保留任务提交与操作确认。结果未知时可选择记录进行核实。" :
                 "服务器接受复制或移动请求后会建立任务。可调整状态筛选或刷新查看。";
             LoadedText.Text = _historyMode

@@ -30,7 +30,21 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private PlaybackResumePrompt? _visibleResumePrompt;
     private readonly UISettings _uiSettings = new();
     private PlaybackSnapshot _snapshot;
-    private SubtitlePreferences _subtitlePreferences = new();
+    private SubtitlePreferences _subtitlePreferences = PresentationPreferences.Subtitles;
+    private static readonly string[] DefaultFontChoices = ["默认（影片 / 系统字体）"];
+    private readonly Dictionary<Microsoft.UI.Input.InputSystemCursorShape, Microsoft.UI.Input.InputSystemCursor> _windowCursors = [];
+    private Microsoft.UI.Input.InputSystemCursorShape? _windowCursorShape;
+    internal void SetWindowCursor(Microsoft.UI.Input.InputSystemCursorShape shape)
+    {
+        if (_disposed || _windowCursorShape == shape) return;
+        if (!_windowCursors.TryGetValue(shape, out var cursor)) _windowCursors[shape] = cursor = Microsoft.UI.Input.InputSystemCursor.Create(shape);
+        ProtectedCursor = cursor; _windowCursorShape = shape;
+    }
+    private SubtitlePreferences? _pendingSubtitlePreferences;
+    private bool _subtitleStyleRunning;
+    private double? _seekTarget;
+    private long _seekRequestedAt;
+    private readonly DispatcherQueueTimer _noticeTimer;
     private bool _applying;
     private bool _seeking;
     private bool _keyboardSeeking;
@@ -72,13 +86,16 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _inlineVolumeControl.UseInlineLayout();
         InlineVolumeHost.Content = _inlineVolumeControl;
         _hideTimer = DispatcherQueue.CreateTimer();
-        _hideTimer.Interval = TimeSpan.FromSeconds(4);
+        _hideTimer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ControlsHideSeconds);
         _hideTimer.IsRepeating = false;
         _hideTimer.Tick += HideTimer_Tick;
         _resumeTimer = DispatcherQueue.CreateTimer();
         _resumeTimer.Interval = TimeSpan.FromSeconds(6);
         _resumeTimer.IsRepeating = false;
         _resumeTimer.Tick += ResumeTimer_Tick;
+        _noticeTimer = DispatcherQueue.CreateTimer();
+        _noticeTimer.IsRepeating = false;
+        _noticeTimer.Tick += (_, _) => { Notice.IsOpen = false; NotifyActivity(); };
         SeekSlider.AddHandler(PointerPressedEvent, new PointerEventHandler(Seek_PointerPressed), true);
         SeekSlider.AddHandler(PointerReleasedEvent, new PointerEventHandler(Seek_PointerReleased), true);
         SeekSlider.AddHandler(PointerCanceledEvent, new PointerEventHandler(Seek_PointerCanceled), true);
@@ -176,7 +193,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         if (_disposed) return;
         var wasPlaying = _snapshot.Status == PlaybackStatus.Playing;
-        if (_snapshot.Generation != snapshot.Generation) ResetSpritePreview();
+        if (_snapshot.Generation != snapshot.Generation) { _seekTarget = null; ResetSpritePreview(); }
         _snapshot = snapshot;
         _applying = true;
         var extension = System.IO.Path.GetExtension(snapshot.DisplayName).ToLowerInvariant();
@@ -192,10 +209,12 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         SeekSlider.IsEnabled = snapshot.Seekable && snapshot.Duration is { TotalSeconds: > 0 };
         BackTenButton.IsEnabled = snapshot.Seekable;
         ForwardTenButton.IsEnabled = snapshot.Seekable;
+        if (_seekTarget is { } pending && (Math.Abs((snapshot.ConfirmedPosition ?? TimeSpan.MinValue).TotalSeconds - pending) <= 1.5 && snapshot.Status != PlaybackStatus.Seeking ||
+            TimeProvider.System.GetElapsedTime(_seekRequestedAt) > TimeSpan.FromSeconds(15) || snapshot.Error is not null)) _seekTarget = null;
         if (!_seeking)
         {
             SeekSlider.Maximum = Math.Max(1, snapshot.Duration?.TotalSeconds ?? 1);
-            SeekSlider.Value = Math.Clamp((snapshot.ConfirmedPosition ?? snapshot.Position).TotalSeconds, 0, SeekSlider.Maximum);
+            SeekSlider.Value = Math.Clamp(_seekTarget ?? (snapshot.ConfirmedPosition ?? snapshot.Position).TotalSeconds, 0, SeekSlider.Maximum);
         }
         UpdateTime();
         UpdateChapterProgress();
@@ -227,8 +246,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _applying = false;
         UpdateResumePrompt();
         if (snapshot.Error is { } error) ShowError(error.Message);
-        if (snapshot.Status != PlaybackStatus.Playing) ShowControls();
-        else if (!wasPlaying) NotifyActivity();
+        if (snapshot.Status is PlaybackStatus.Preparing or PlaybackStatus.Failed or PlaybackStatus.Ended) ShowControls();
+        else if (wasPlaying != (snapshot.Status == PlaybackStatus.Playing)) NotifyActivity();
     }
 
     internal void SetTransientLoading(bool loading, bool seeking)
@@ -253,7 +272,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _synchronizePointerPosition?.Invoke();
         ShowControls();
         _hideTimer.Stop();
-        if (_snapshot.Status == PlaybackStatus.Playing && !_seeking && !_menuOpen && !Notice.IsOpen && _visibleResumePrompt is null) _hideTimer.Start();
+        _hideTimer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ControlsHideSeconds);
+        if (_snapshot.Status is PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Buffering && !_seeking && !_menuOpen && _visibleResumePrompt is null) _hideTimer.Start();
     }
 
     public void ShowControls()
@@ -277,6 +297,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         VisualStateManager.GoToState(this, ActualWidth < ExpandedControlsMinWidth ? "AdaptiveHidden" : "Expanded", false);
         UpdateResumePrompt();
         NotifyActivity(); UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged();
+        RequestSubtitlePreferences(_subtitlePreferences);
     }
 
     private void Controls_Unloaded(object sender, RoutedEventArgs args)
@@ -346,8 +367,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void HideTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        if (_snapshot.Status != PlaybackStatus.Playing || _seeking || _menuOpen || Notice.IsOpen || _visibleResumePrompt is not null) return;
-        if (XamlRoot is not null && FocusManager.GetFocusedElement(XamlRoot) is Control { FocusState: FocusState.Keyboard }) return;
+        if (_snapshot.Status is not (PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Buffering) || _seeking || _menuOpen || _visibleResumePrompt is not null) return;
         ControlsVisible = false;
         Chrome.IsHitTestVisible = false;
         ControlsVisibilityChanged?.Invoke(this, EventArgs.Empty);
@@ -355,7 +375,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         try { animations = _uiSettings.AnimationsEnabled; } catch (System.Runtime.InteropServices.COMException) { animations = false; }
         if (!animations) { Chrome.Opacity = 0; return; }
         _fade = new Storyboard();
-        var animation = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(160), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        var animation = new DoubleAnimation { To = 0, Duration = TimeSpan.FromMilliseconds(280), EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
         Storyboard.SetTarget(animation, Chrome); Storyboard.SetTargetProperty(animation, "Opacity");
         _fade.Children.Add(animation); _fade.Begin();
     }
@@ -366,7 +386,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (!_seeking) return;
         var target = SeekSlider.Value; ++_seekEditGeneration; _seeking = false; PreviewText.Visibility = Visibility.Collapsed;
         SeekPreviewCard.Visibility = Visibility.Collapsed;
-        await RunAsync(token => _session.SeekAsync(TimeSpan.FromSeconds(target), token)); NotifyActivity();
+        await CommitSeekAsync(target); NotifyActivity();
     }
     private void Seek_PointerCanceled(object sender, PointerRoutedEventArgs args) { ++_seekEditGeneration; _seeking = false; PreviewText.Visibility = Visibility.Collapsed; SeekPreviewCard.Visibility = Visibility.Collapsed; ApplySnapshot(_session.Snapshot); NotifyActivity(); }
     private void Seek_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
@@ -383,7 +403,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, async () =>
         {
             if (!_disposed && !_seeking && generation == _seekEditGeneration)
-                await RunAsync(token => _session.SeekAsync(TimeSpan.FromSeconds(target), token));
+                await CommitSeekAsync(target);
         });
     }
     private void Seek_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
@@ -407,14 +427,14 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             var target = SeekSlider.Value;
             _keyboardSeeking = false; _seeking = false; ++_seekEditGeneration; PreviewText.Visibility = Visibility.Collapsed;
             SeekPreviewCard.Visibility = Visibility.Collapsed;
-            await RunAsync(token => _session.SeekAsync(TimeSpan.FromSeconds(target), token));
+            await CommitSeekAsync(target);
         }
         NotifyActivity();
     }
     private static bool IsSeekKey(VirtualKey key) => key is VirtualKey.Left or VirtualKey.Right or VirtualKey.Home or VirtualKey.End or VirtualKey.PageUp or VirtualKey.PageDown;
     private void UpdateTime()
     {
-        var position = _seeking ? TimeSpan.FromSeconds(SeekSlider.Value) : _snapshot.ConfirmedPosition ?? _snapshot.Position;
+        var position = _seeking ? TimeSpan.FromSeconds(SeekSlider.Value) : _seekTarget is { } target ? TimeSpan.FromSeconds(target) : _snapshot.ConfirmedPosition ?? _snapshot.Position;
         TimeText.Text = Clock(position) + " / " + (_snapshot.Duration is { } duration ? Clock(duration) : "--:--");
         AutomationProperties.SetHelpText(SeekSlider, "当前位置 " + TimeText.Text);
     }
@@ -423,7 +443,18 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (!ControlsVisible && !force) return;
         var duration = _snapshot.Duration?.TotalSeconds ?? 0;
         SeekSlider.ApplyTimeline(duration,
-            _seeking ? SeekSlider.Value : (_snapshot.ConfirmedPosition ?? _snapshot.Position).TotalSeconds, _snapshot.BufferedRanges, _snapshot.Chapters);
+            _seeking ? SeekSlider.Value : _seekTarget ?? (_snapshot.ConfirmedPosition ?? _snapshot.Position).TotalSeconds, _snapshot.BufferedRanges, _snapshot.Chapters);
+    }
+
+    private async Task CommitSeekAsync(double target)
+    {
+        _seekTarget = target;
+        _seekRequestedAt = TimeProvider.System.GetTimestamp();
+        await RunAsync(async token =>
+        {
+            try { await _session.SeekAsync(TimeSpan.FromSeconds(target), token); }
+            catch { if (_seekTarget == target) _seekTarget = null; throw; }
+        });
     }
 
     private void UpdateDownloadRate()
@@ -529,6 +560,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (SubtitleStyleButton.Visibility == Visibility.Visible) Add("字幕样式", "TextFontSize", () => SubtitleStyle_Click(MoreButton, args));
         Add("播放速度 · " + FormatRate(_snapshot.PlaybackRate), "TopSpeed", () => Speed_Click(MoreButton, args));
         if (_snapshot.Chapters is { Count: > 0 }) Add("章节", "BookOpen", () => Chapter_Click(MoreButton, args));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        Add("控件与提示", "TextFontSize", ShowPresentationSettings);
         ShowFlyout(menu, MoreButton);
 
         void Add(string label, string iconName, Action action)
@@ -545,6 +578,18 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             item.Click += (_, _) => DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => { if (!_disposed) action(); });
             menu.Items.Add(item);
         }
+    }
+    private void ShowPresentationSettings()
+    {
+        var panel = new StackPanel { Width = 288, Margin = new Thickness(20), Spacing = 20 };
+        panel.Children.Add(new TextBlock { Text = "控件与提示", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var controls = new Slider { Header = "控件自动隐藏（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
+        var toast = new Slider { Header = "提示自动消失（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ToastSeconds };
+        controls.ValueChanged += (_, _) => { try { PresentationPreferences.ControlsHideSeconds = (int)controls.Value; NotifyActivity(); } catch (Exception) { ShowError("无法保存控件隐藏偏好。"); } };
+        toast.ValueChanged += (_, _) => { try { PresentationPreferences.ToastSeconds = (int)toast.Value; } catch (Exception) { ShowError("无法保存提示时长。"); } };
+        panel.Children.Add(controls); panel.Children.Add(toast);
+        panel.Children.Add(new TextBlock { Text = "播放和暂停时均会隐藏；打开菜单时保留，键盘操作时重新显示。", FontSize = 12, Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
+        ShowFlyout(new Flyout { Content = panel }, MoreButton);
     }
     private void ShowTracks(FrameworkElement anchor, MediaTrackKind kind)
     {
@@ -619,27 +664,70 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         }
     }
 
-    private void SubtitleStyle_Click(object sender, RoutedEventArgs args)
+    private async void SubtitleStyle_Click(object sender, RoutedEventArgs args)
     {
         _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 5);
         var caps = _snapshot.SubtitleCapabilities;
         var panel = new StackPanel { Spacing = 16, Width = 288, Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock { Text = "字幕样式", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var scale = new NumberBox { Header = "大小比例", Minimum = 0.25, Maximum = 5, Value = _subtitlePreferences.Scale, SmallChange = 0.1, IsEnabled = caps.CanScale };
-        var position = new NumberBox { Header = "垂直位置（%）", Minimum = 0, Maximum = 100, Value = _subtitlePreferences.VerticalPositionPercent, SmallChange = 1, IsEnabled = caps.CanPosition };
+        var position = new Slider { Header = "垂直位置", Minimum = 0, Maximum = 100, Value = _subtitlePreferences.VerticalPositionPercent, StepFrequency = 1, IsEnabled = caps.CanPosition };
+        var size = new Slider { Header = "字号", Minimum = 16, Maximum = 96, Value = _subtitlePreferences.FontSize, StepFrequency = 1, IsEnabled = caps.CanChangeFont };
+        var scale = new Slider { Header = "大小比例", Minimum = 0.5, Maximum = 2, Value = _subtitlePreferences.Scale, StepFrequency = 0.05, IsEnabled = caps.CanScale };
         var delay = new NumberBox { Header = "延迟（秒）", Minimum = -60, Maximum = 60, Value = _subtitlePreferences.Delay.TotalSeconds, SmallChange = 0.1, IsEnabled = caps.CanDelay };
-        var font = new TextBox { Header = "字体（留空使用默认）", Text = _subtitlePreferences.FontFamily ?? "", IsEnabled = caps.CanChangeFont };
+        var font = new ComboBox { Header = "字体", HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = caps.CanChangeFont, PlaceholderText = "正在读取系统字体…", MaxDropDownHeight = 280 };
+        font.ItemsSource = string.IsNullOrEmpty(_subtitlePreferences.FontFamily) ? DefaultFontChoices : new[] { DefaultFontChoices[0], _subtitlePreferences.FontFamily };
+        font.SelectedIndex = string.IsNullOrEmpty(_subtitlePreferences.FontFamily) ? 0 : 1;
+        var margins = new ToggleSwitch { Header = "使用上下黑边放置字幕", IsOn = _subtitlePreferences.UseWindowArea, IsEnabled = caps.CanPosition, OnContent = "整个窗口", OffContent = "视频画面内" };
         var preserve = new CheckBox { Content = "保留 ASS 原始排版", IsChecked = !_subtitlePreferences.OverrideScriptStyle, Visibility = caps.PreservesScriptStyle ? Visibility.Visible : Visibility.Collapsed };
-        panel.Children.Add(scale); panel.Children.Add(position); panel.Children.Add(delay); panel.Children.Add(font); panel.Children.Add(preserve);
-        var apply = new Button { Content = "应用字幕样式", Style = (Style)Resources["PlayerActionButtonStyle"] };
+        panel.Children.Add(preserve); panel.Children.Add(position); panel.Children.Add(margins); panel.Children.Add(font); panel.Children.Add(size); panel.Children.Add(scale); panel.Children.Add(delay);
+        panel.Children.Add(new TextBlock { Text = caps.PreservesScriptStyle ? "特效字幕默认保留影片排版；取消勾选后才覆盖其字体和位置。" : caps.CanChangeFont ? "调节即时生效。垂直位置以整个窗口为范围，可移入上下黑边。" : "当前为图像字幕，字体与字号不可修改。", TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 });
         var flyout = new Flyout { Content = new ScrollViewer { Content = panel, MaxHeight = 560 } };
-        apply.Click += async (_, _) =>
+        void Apply()
         {
-            if (!double.IsFinite(scale.Value) || !double.IsFinite(position.Value) || !double.IsFinite(delay.Value)) return;
-            var preferences = new SubtitlePreferences(Math.Clamp(scale.Value, 0.25, 5), Math.Clamp(position.Value, 0, 100), string.IsNullOrWhiteSpace(font.Text) ? null : font.Text, TimeSpan.FromSeconds(Math.Clamp(delay.Value, -60, 60)), caps.PreservesScriptStyle && preserve.IsChecked != true);
-            await RunAsync(async token => { await _session.SetSubtitlesAsync(preferences, token); _subtitlePreferences = preferences; CloseSettingsFlyout(flyout); });
-        };
-        panel.Children.Add(apply); ShowFlyout(flyout, SubtitleStyleButton);
+            if (!double.IsFinite(delay.Value)) return;
+            var editable = !caps.PreservesScriptStyle || preserve.IsChecked != true;
+            position.IsEnabled = margins.IsEnabled = caps.CanPosition && editable;
+            size.IsEnabled = font.IsEnabled = caps.CanChangeFont && editable;
+            scale.IsEnabled = caps.CanScale && editable;
+            RequestSubtitlePreferences(new SubtitlePreferences(scale.Value, position.Value,
+                font.SelectedIndex <= 0 ? null : font.SelectedItem as string, TimeSpan.FromSeconds(Math.Clamp(delay.Value, -60, 60)),
+                caps.PreservesScriptStyle && preserve.IsChecked != true, margins.IsOn, size.Value));
+        }
+        var authorStyle = caps.PreservesScriptStyle && preserve.IsChecked == true;
+        position.IsEnabled = margins.IsEnabled = caps.CanPosition && !authorStyle;
+        size.IsEnabled = font.IsEnabled = caps.CanChangeFont && !authorStyle;
+        scale.IsEnabled = caps.CanScale && !authorStyle;
+        position.ValueChanged += (_, _) => Apply(); size.ValueChanged += (_, _) => Apply(); scale.ValueChanged += (_, _) => Apply();
+        delay.ValueChanged += (_, _) => Apply(); margins.Toggled += (_, _) => Apply();
+        preserve.Checked += (_, _) => Apply(); preserve.Unchecked += (_, _) => Apply();
+        ShowFlyout(flyout, SubtitleStyleButton);
+        var families = await InstalledFonts.GetAsync();
+        if (_disposed || _activeFlyout != flyout) return;
+        var names = DefaultFontChoices.Concat(families).ToArray();
+        font.ItemsSource = names;
+        font.SelectedItem = names.Contains(_subtitlePreferences.FontFamily) ? _subtitlePreferences.FontFamily : names[0];
+        font.SelectionChanged += (_, _) => Apply();
+    }
+
+    private async void RequestSubtitlePreferences(SubtitlePreferences preferences)
+    {
+        _pendingSubtitlePreferences = preferences;
+        if (_subtitleStyleRunning) return;
+        _subtitleStyleRunning = true;
+        try
+        {
+            while (!_disposed && _pendingSubtitlePreferences is { } next)
+            {
+                _pendingSubtitlePreferences = null;
+                await RunAsync(async token =>
+                {
+                    await _session.SetSubtitlesAsync(next, token);
+                    _subtitlePreferences = next;
+                    await Task.Run(() => PresentationPreferences.Subtitles = next, token);
+                }, notifyActivity: false);
+            }
+        }
+        finally { _subtitleStyleRunning = false; }
     }
 
     private void ShowFlyout(FlyoutBase flyout, FrameworkElement anchor)
@@ -739,7 +827,12 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         catch (Exception exception) { if (!_disposed) ShowError(MainPage.ErrorMessage(exception)); }
         finally { if (!_disposed) ApplySnapshot(_session.Snapshot); }
     }
-    private void ShowError(string message) { Notice.Title = "播放操作未完成"; Notice.Message = message; Notice.IsOpen = true; ShowControls(); }
+    private void ShowError(string message)
+    {
+        if (Notice.IsOpen && Notice.Message == message) return;
+        Notice.Title = "播放操作未完成"; Notice.Message = message; Notice.IsOpen = true; ShowControls();
+        _noticeTimer.Stop(); _noticeTimer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ToastSeconds); _noticeTimer.Start();
+    }
     public void ReportError(string message) { if (!_disposed) ShowError(message); }
     private void Notice_Closed(InfoBar sender, InfoBarClosedEventArgs args) => NotifyActivity();
     private void Root_PointerMoved(object sender, PointerRoutedEventArgs args)
@@ -827,6 +920,10 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _disposed = true; _pendingSubtitleSafeArea = null; BottomBar.SizeChanged -= BottomBar_SizeChanged;
         ResetSpritePreview();
         _resumeTimer.Stop(); _resumeTimer.Tick -= ResumeTimer_Tick;
+        _noticeTimer.Stop();
+        ProtectedCursor = null;
+        foreach (var cursor in _windowCursors.Values) cursor.Dispose();
+        _windowCursors.Clear();
         Loaded -= Controls_Loaded; Unloaded -= Controls_Unloaded;
         SizeChanged -= Controls_SizeChanged;
         ControlsVisibilityChanged -= Controls_SafeAreaVisibilityChanged;

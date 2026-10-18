@@ -19,7 +19,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
 {
     private readonly Grid _root = new() { RequestedTheme = ElementTheme.Dark };
     private readonly FrameworkElement _presenter;
-    private readonly SettingsAcrylicBackdrop _backdrop = new();
+    private readonly SettingsAcrylicBackdrop _backdrop;
     private readonly NativeVideoWindow.SubclassProc _procedure;
     private readonly KeyEventHandler _keyHandler;
     private readonly nint _window;
@@ -32,9 +32,11 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private bool _released;
 
     internal PlayerSettingsWindow(nint owner, FrameworkElement content, Style? presenterStyle, Action onClosed,
-        PlaybackResponsivenessDiagnostics? responsiveness = null)
+        PlaybackResponsivenessDiagnostics? responsiveness = null, ElementTheme theme = ElementTheme.Dark)
     {
         _responsiveness = responsiveness;
+        _root.RequestedTheme = theme;
+        _backdrop = new SettingsAcrylicBackdrop(theme);
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(onClosed);
         _onClosed = onClosed;
@@ -70,7 +72,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             if (!NativeVideoWindow.SetWindowSubclass(_window, _procedure, 1, 0))
                 throw new InvalidOperationException("无法安装播放器设置窗口过程。");
             _subclassed = true;
-            SetDwmAttribute(20, 1); // Dark nonclient appearance.
+            SetDwmAttribute(20, theme == ElementTheme.Dark ? 1 : 0);
             SetDwmAttribute(33, 2); // DWMWCP_ROUND; DWM retains its native shadow.
             SetDwmAttribute(34, unchecked((int)0xfffffffeu)); // DWMWA_COLOR_NONE.
             if (DesktopAcrylicController.IsSupported()) SystemBackdrop = _backdrop;
@@ -79,7 +81,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
                 // Material availability must never disable playback settings.
                 var fallback = new AccessibilitySettings().HighContrast
                     ? new UISettings().GetColorValue(UIColorType.Background)
-                    : Windows.UI.Color.FromArgb(255, 44, 44, 44);
+                    : theme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 44, 44, 44) : Windows.UI.Color.FromArgb(255, 248, 248, 248);
                 _root.Background = new SolidColorBrush(fallback);
             }
             _root.AddHandler(UIElement.KeyDownEvent, _keyHandler, true);
@@ -269,6 +271,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         finally
         {
             _root.Children.Clear();
+            if (_presenter is FlyoutPresenter presenter) presenter.Content = null;
             var callback = _onClosed;
             _onClosed = null;
             callback?.Invoke();
@@ -300,7 +303,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
 
     private static Win32Exception NativeFailure(string operation) => new(Marshal.GetLastPInvokeError(), $"{operation} 失败。");
 
-    private sealed class SettingsAcrylicBackdrop : SystemBackdrop, IDisposable
+    internal sealed class SettingsAcrylicBackdrop(ElementTheme theme) : SystemBackdrop, IDisposable
     {
         private DesktopAcrylicController? _controller;
         private ICompositionSupportsSystemBackdrop? _target;
@@ -319,9 +322,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
                 CopySystemPolicy(connectedTarget, xamlRoot);
                 _controller = new DesktopAcrylicController { Kind = DesktopAcrylicKind.Thin };
                 _controller.SetSystemBackdropConfiguration(_configuration);
-                _controller.TintColor = Windows.UI.Color.FromArgb(255, 44, 44, 44);
-                _controller.TintOpacity = 0.15f;
-                _controller.FallbackColor = Windows.UI.Color.FromArgb(255, 44, 44, 44);
+                ApplyPalette();
                 // Keep the SDK's Thin luminosity/noise recipe and system fallback.
                 if (!_controller.AddSystemBackdropTarget(connectedTarget))
                     throw new InvalidOperationException("无法连接设置窗口的 Acrylic 背景。");
@@ -340,8 +341,19 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             var policy = GetDefaultSystemBackdropConfiguration(target, xamlRoot);
             _configuration.IsHighContrast = policy.IsHighContrast;
             _configuration.HighContrastBackgroundColor = policy.HighContrastBackgroundColor;
-            _configuration.Theme = SystemBackdropTheme.Dark;
+            _configuration.Theme = theme switch { ElementTheme.Dark => SystemBackdropTheme.Dark, ElementTheme.Light => SystemBackdropTheme.Light, _ => policy.Theme };
             _configuration.IsInputActive = true;
+            ApplyPalette();
+        }
+
+        private void ApplyPalette()
+        {
+            if (_controller is null || _configuration is null) return;
+            var color = _configuration.Theme == SystemBackdropTheme.Dark
+                ? Windows.UI.Color.FromArgb(255, 44, 44, 44) : Windows.UI.Color.FromArgb(255, 248, 248, 248);
+            _controller.TintColor = color;
+            _controller.TintOpacity = 0.15f;
+            _controller.FallbackColor = _configuration.IsHighContrast ? _configuration.HighContrastBackgroundColor : color;
         }
 
         protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop disconnectedTarget) => Disconnect();

@@ -180,13 +180,14 @@ public sealed partial class MainPage
         if (UploadNotice is null) return;
         if (_uploadErrorMessage is { } message && ActiveUploadContext is not null)
         {
-            UploadNotice.IsOpen = true; UploadNotice.Title = _uploadErrorTitle; UploadNotice.Message = message;
+            UploadNotice.Title = _uploadErrorTitle; UploadNotice.Message = message;
+            ShowToast(UploadNotice, _uploadErrorTitle + message);
             UploadNotice.Severity = InfoBarSeverity.Warning; UploadDetailsButton.IsEnabled = _latestUpload is not null && !_uploadCommandBusy;
             return;
         }
         if (_latestUpload is not { } item || !IsCurrentUploadContext(item.Context)) { UploadNotice.IsOpen = false; return; }
-        UploadNotice.IsOpen = true;
         UploadNotice.Title = UploadItemStatusLabel(item);
+        ShowToast(UploadNotice, item.Snapshot.Task.Id.ToString() + UploadNotice.Title);
         UploadNotice.Message = $"{item.Name} · {ConfirmedBytesLabel(item)}";
         UploadNotice.Severity = Tone(item) switch
         {

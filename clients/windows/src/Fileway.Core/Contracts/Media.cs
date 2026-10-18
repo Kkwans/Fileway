@@ -56,7 +56,9 @@ public sealed record SubtitlePreferences(
     double VerticalPositionPercent = 95.0,
     string? FontFamily = null,
     TimeSpan Delay = default,
-    bool OverrideScriptStyle = false);
+    bool OverrideScriptStyle = false,
+    bool UseWindowArea = true,
+    double FontSize = 38);
 
 /// <summary>Each value is observed or null. Input HDR metadata never implies HDR display output.</summary>
 public sealed record PlaybackDiagnostics(

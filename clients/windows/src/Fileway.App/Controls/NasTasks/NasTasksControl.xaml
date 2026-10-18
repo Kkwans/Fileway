@@ -6,8 +6,8 @@
  <Grid x:Name="PanelRoot" Padding="20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <StackPanel Spacing="4"><TextBlock Text="NAS 文件任务" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="当前账号在服务器执行的复制、移动任务。本机上传与下载请查看传输中心。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-   <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" AutomationProperties.Name="离开 NAS 文件任务，返回文件"/>
+   <StackPanel Spacing="4"><TextBlock Text="文件任务" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="当前账号在服务器执行的复制、移动任务。本机上传与下载请查看传输中心。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+   <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" AutomationProperties.Name="离开 文件任务，返回文件"/>
   </Grid>
   <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Orientation="Horizontal" Spacing="8"><ToggleButton x:Name="TasksTab" Content="服务器任务" IsChecked="True" Click="TasksTab_Click"/><ToggleButton x:Name="HistoryTab" Content="操作记录与核实" Click="HistoryTab_Click"/></StackPanel>
@@ -27,7 +27,7 @@
     </CommandBar.SecondaryCommands>
    </CommandBar>
    <Grid x:Name="Filters" ColumnSpacing="8" RowSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="140"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <ComboBox x:Name="StatusFilter" Header="任务状态" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed" AutomationProperties.Name="筛选 NAS 文件任务状态">
+    <ComboBox x:Name="StatusFilter" Header="任务状态" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed" AutomationProperties.Name="筛选 文件任务状态">
      <ComboBoxItem Content="全部状态"/><ComboBoxItem Content="进行中"/><ComboBoxItem Content="需要处理"/><ComboBoxItem Content="已完成"/><ComboBoxItem Content="已取消"/>
     </ComboBox>
     <ComboBox x:Name="TypeFilter" Grid.Column="1" Header="任务类型" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed"><ComboBoxItem Content="全部类型"/><ComboBoxItem Content="复制"/><ComboBoxItem Content="移动"/></ComboBox>
@@ -55,7 +55,7 @@
      <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="8"/><Setter Property="Margin" Value="0,0,0,4"/></Style></ListView.ItemContainerStyle>
      <ListView.ItemTemplate><DataTemplate x:DataType="local:NasTaskOperationRow"><StackPanel Spacing="4" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind Stage, Mode=OneWay}" TextWrapping="Wrap"/><TextBlock Text="{x:Bind When, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></DataTemplate></ListView.ItemTemplate>
     </ListView>
-    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360" Spacing="8" Margin="12"><FontIcon Glyph="&#xE9D9;" FontSize="32" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="暂无 NAS 文件任务" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyDescription" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360" Spacing="8" Margin="12"><FontIcon Glyph="&#xE9D9;" FontSize="32" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="暂无 文件任务" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyDescription" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    </Grid>
    <Border x:Name="DetailsPane" Grid.Column="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0" Padding="16,4,0,4">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

@@ -20,17 +20,19 @@
      <SolidColorBrush x:Key="FileContentEdgeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
     </ResourceDictionary>
    </ResourceDictionary.ThemeDictionaries>
+  <Style x:Key="LayoutChoiceStyle" TargetType="ToggleButton" BasedOn="{StaticResource DefaultToggleButtonStyle}"><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Padding" Value="12,8"/><Setter Property="BorderThickness" Value="0"/><Setter Property="CornerRadius" Value="6"/><Setter Property="Background" Value="Transparent"/></Style>
+  <Style x:Key="ApplicationMenuItemStyle" TargetType="MenuBarItem"><Setter Property="MinHeight" Value="36"/><Setter Property="Height" Value="36"/><Setter Property="Margin" Value="2,0"/><Setter Property="Padding" Value="12,4"/><Setter Property="FontSize" Value="14"/><Setter Property="VerticalAlignment" Value="Center"/></Style>
   <Style x:Key="BrowserNavigationButtonStyle" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}"><Setter Property="Width" Value="32"/><Setter Property="Height" Value="32"/><Setter Property="MinHeight" Value="32"/><Setter Property="Padding" Value="0"/></Style>
   <Style x:Key="SidebarNavigationButtonStyle" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}"><Setter Property="HorizontalAlignment" Value="Stretch"/><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="Height" Value="36"/><Setter Property="MinHeight" Value="36"/><Setter Property="Padding" Value="12,0"/><Setter Property="CornerRadius" Value="4"/><Setter Property="FontSize" Value="14"/></Style>
   <Style x:Key="SidebarSelectedNavigationButtonStyle" TargetType="Button" BasedOn="{StaticResource SidebarNavigationButtonStyle}"><Setter Property="Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/><Setter Property="FontWeight" Value="SemiBold"/></Style>
   <Style x:Key="BrowserListItemStyle" TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="4,0"/><Setter Property="MinHeight" Value="52"/><Setter Property="CornerRadius" Value="4"/></Style>
   <DataTemplate x:Key="BrowserGridTemplate" x:DataType="local:FileRow"><Grid Padding="8" RowSpacing="6"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-   <Grid Width="{x:Bind VisualSize}" Height="{x:Bind VisualSize}" HorizontalAlignment="Center"><FontIcon x:Name="ThumbnailIcon" Glyph="{x:Bind Glyph}" FontSize="{x:Bind VisualSize}" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/><Image x:Name="ThumbnailImage" Width="{x:Bind VisualSize}" Height="{x:Bind VisualSize}" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/></Grid>
+   <Grid Width="{x:Bind VisualSize}" Height="{x:Bind VisualSize}" HorizontalAlignment="Center"><Image x:Name="ThumbnailIcon" Source="{x:Bind IconSource}" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsHitTestVisible="False"/><Image x:Name="ThumbnailImage" Width="{x:Bind VisualSize}" Height="{x:Bind VisualSize}" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/></Grid>
    <TextBlock Grid.Row="1" Text="{x:Bind Name}" FontSize="14" TextAlignment="Center" HorizontalAlignment="Stretch" TextWrapping="Wrap" MaxLines="2" MinHeight="40" LineHeight="20" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/>
    <StackPanel Grid.Row="2" Spacing="2" Visibility="{x:Bind GridMetadataVisibility}"><TextBlock Text="{x:Bind Summary}" FontSize="12" TextAlignment="Center" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind Modified}" FontSize="12" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
   </Grid></DataTemplate>
   <DataTemplate x:Key="BrowserCompactListTemplate" x:DataType="local:FileRow"><Grid Padding="8,4" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-   <Grid Width="32" Height="32"><FontIcon x:Name="ThumbnailIcon" Glyph="{x:Bind Glyph}" FontSize="24" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center"/><Image x:Name="ThumbnailImage" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/></Grid>
+   <Grid Width="32" Height="32"><Image x:Name="ThumbnailIcon" Source="{x:Bind IconSource}" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsHitTestVisible="False"/><Image x:Name="ThumbnailImage" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/></Grid>
    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2"><TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"/><TextBlock Text="{x:Bind Metadata}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}" ToolTipService.ToolTip="{x:Bind Metadata}"/></StackPanel>
   </Grid></DataTemplate>
   </ResourceDictionary>
@@ -41,8 +43,8 @@
   <!-- MainWindow hosts the pane toggle and application menus together in the caption. -->
   <StackPanel x:Name="ApplicationCommandHost" Orientation="Horizontal" Spacing="4" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center">
    <Button x:Name="PaneButton" Style="{StaticResource BrowserNavigationButtonStyle}" Click="Pane_Click" AutomationProperties.Name="折叠导航侧栏" ToolTipService.ToolTip="折叠导航侧栏 (Ctrl+B)"><FontIcon Glyph="&#xE700;" FontSize="16"/></Button>
-   <MenuBar x:Name="ApplicationMenus" Height="32" MinHeight="32" Padding="0" Background="Transparent" HorizontalAlignment="Left" VerticalAlignment="Center" GettingFocus="ApplicationMenus_GettingFocus" PointerEntered="ApplicationMenus_PointerEntered" AutomationProperties.Name="应用菜单">
-   <MenuBarItem Title="文件" AccessKey="F">
+   <MenuBar x:Name="ApplicationMenus" Height="40" MinHeight="40" Padding="0" Background="Transparent" HorizontalAlignment="Left" VerticalAlignment="Center" GettingFocus="ApplicationMenus_GettingFocus" PointerEntered="ApplicationMenus_PointerEntered" AutomationProperties.Name="应用菜单">
+   <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="文件" AccessKey="F">
     <MenuFlyoutItem x:Name="MenuConnectionItem" Text="连接服务器…" Click="Connection_Click"/>
     <MenuFlyoutSeparator/>
     <MenuFlyoutItem x:Name="MenuOpenItem" Text="打开" Click="DetailsOpen_Click" IsEnabled="False"/>
@@ -54,7 +56,7 @@
     <MenuFlyoutItem x:Name="LogoutButton" Text="退出登录" Visibility="Collapsed" Click="Logout_Click"/>
     <MenuFlyoutItem Text="退出" Click="ApplicationExit_Click"/>
    </MenuBarItem>
-   <MenuBarItem Title="编辑" AccessKey="E">
+   <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="编辑" AccessKey="E">
     <MenuFlyoutItem x:Name="MenuClipboardCopyItem" Text="复制" Click="CopyClipboard_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuClipboardCutItem" Text="剪切" Click="CutClipboard_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuClipboardPasteItem" Text="粘贴" Click="PasteClipboard_Click" IsEnabled="False"/>
@@ -67,9 +69,9 @@
     <MenuFlyoutItem x:Name="MenuSelectAllItem" Text="全选" Click="SelectAll_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuClearSelectionItem" Text="取消选择" Click="ClearSelection_Click" IsEnabled="False"/>
    </MenuBarItem>
-   <MenuBarItem Title="视图" AccessKey="V">
+   <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="视图" AccessKey="V">
     <MenuFlyoutItem x:Name="MenuRefreshItem" Text="刷新" Click="Refresh_Click" IsEnabled="False"/>
-    <ToggleMenuFlyoutItem x:Name="MenuDetailsItem" Text="详细信息面板" Click="Details_Click" IsEnabled="False"/>
+    <ToggleMenuFlyoutItem x:Name="MenuDetailsItem" Text="详细信息" Click="Details_Click" IsEnabled="False"/>
     <MenuFlyoutSeparator/>
     <MenuFlyoutSubItem x:Name="MenuLayoutItem" Text="文件布局" IsEnabled="False">
      <RadioMenuFlyoutItem x:Name="MenuMosaicItem" Text="详细网格" Tag="Mosaic" GroupName="ApplicationBrowserView" Click="ViewMode_Click"/>
@@ -80,23 +82,23 @@
     </MenuFlyoutSubItem>
     <MenuFlyoutSubItem Text="界面主题"><RadioMenuFlyoutItem x:Name="MenuSystemThemeItem" Text="跟随系统" Tag="Default" GroupName="ApplicationTheme" IsChecked="True" Click="ApplicationTheme_Click"/><RadioMenuFlyoutItem x:Name="MenuLightThemeItem" Text="浅色" Tag="Light" GroupName="ApplicationTheme" Click="ApplicationTheme_Click"/><RadioMenuFlyoutItem x:Name="MenuDarkThemeItem" Text="深色" Tag="Dark" GroupName="ApplicationTheme" Click="ApplicationTheme_Click"/></MenuFlyoutSubItem>
    </MenuBarItem>
-   <MenuBarItem Title="工具" AccessKey="T">
-    <ToggleMenuFlyoutItem x:Name="MenuCloseToTrayItem" Text="关闭窗口后保留在托盘" IsChecked="True" Click="CloseToTray_Click"/>
+   <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="工具" AccessKey="T">
+    <MenuFlyoutItem Text="交互偏好…" Click="PresentationSettings_Click"/><ToggleMenuFlyoutItem x:Name="MenuCloseToTrayItem" Text="关闭窗口后保留在托盘" IsChecked="True" Click="CloseToTray_Click"/>
     <MenuFlyoutSeparator/>
     <MenuFlyoutItem x:Name="MenuServerSearchItem" Text="搜索文件…" Click="ServerSearch_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuRecentItem" Text="最近访问" Click="RecentAccess_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuTransfersItem" Text="传输中心" Click="TransferCenter_Click" IsEnabled="False"/>
-    <MenuFlyoutItem x:Name="MenuNasTasksItem" Text="NAS 文件任务" Click="NasTasks_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuNasTasksItem" Text="文件任务" Click="NasTasks_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuTrashPageItem" Text="回收站" Click="TrashPage_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="CollectionsButton" Text="管理收藏与标签…" Click="Collections_Click" IsEnabled="False" AutomationProperties.Name="管理收藏与标签"/>
     <MenuFlyoutSeparator/>
     <MenuFlyoutItem x:Name="StorageSettingsButton" Text="缓存与存储…" Click="StorageSettings_Click" IsEnabled="False" AutomationProperties.Name="缓存与存储设置"/>
    </MenuBarItem>
-   <MenuBarItem Title="帮助" AccessKey="H"><MenuFlyoutItem Text="键盘快捷键" Click="KeyboardHelp_Click"/><MenuFlyoutItem Text="关于" Click="AboutApplication_Click"/></MenuBarItem>
+   <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="帮助" AccessKey="H"><MenuFlyoutItem Text="键盘快捷键" Click="KeyboardHelp_Click"/><MenuFlyoutItem Text="关于" Click="AboutApplication_Click"/></MenuBarItem>
    </MenuBar>
   </StackPanel>
   <Border x:Name="ContentBackdrop" Grid.Column="1" Grid.RowSpan="2" Background="{ThemeResource FileContentSurfaceBrush}" BorderThickness="0" CornerRadius="8,0,0,0" IsHitTestVisible="False"/>
-  <Grid x:Name="NavigationHeader" Grid.Column="1" Height="56" Padding="20,12" ColumnSpacing="8" Background="Transparent">
+  <Grid x:Name="NavigationHeader" Grid.Column="1" Height="64" Padding="16,10" ColumnSpacing="8" Background="Transparent">
    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Orientation="Horizontal" Spacing="4">
     <ContentControl x:Name="NavigationCommands" IsEnabled="False" IsTabStop="False"><StackPanel Orientation="Horizontal" Spacing="4">
@@ -106,9 +108,9 @@
     </StackPanel></ContentControl>
    </StackPanel>
    <Grid Grid.Column="1" MinWidth="120">
-    <Border x:Name="PathLocationHost" Background="{ThemeResource ControlFillColorDefaultBrush}" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="4">
+    <Border x:Name="PathLocationHost" Padding="4,0" Background="{ThemeResource SubtleFillColorSecondaryBrush}" BorderThickness="0" CornerRadius="8">
      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="32"/></Grid.ColumnDefinitions>
-      <BreadcrumbBar x:Name="PathBreadcrumb" Padding="4,0" ItemClicked="Breadcrumb_Click" VerticalAlignment="Center" AutomationProperties.Name="目录导航"><BreadcrumbBar.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/></DataTemplate></BreadcrumbBar.ItemTemplate></BreadcrumbBar>
+      <BreadcrumbBar x:Name="PathBreadcrumb" Padding="4,0" FontSize="14" ItemClicked="Breadcrumb_Click" VerticalAlignment="Center" AutomationProperties.Name="目录导航"><BreadcrumbBar.ItemTemplate><DataTemplate><TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis"/></DataTemplate></BreadcrumbBar.ItemTemplate></BreadcrumbBar>
       <TextBox x:Name="PathBox" Grid.ColumnSpan="2" Visibility="Collapsed" Height="32" MinHeight="32" Padding="8,4" KeyDown="PathBox_KeyDown" LostFocus="PathBox_LostFocus" AutomationProperties.Name="原始路径，按 Enter 导航，Escape 取消" PlaceholderText="原始路径（保留百分号编码）" ToolTipService.ToolTip="原始路径；保留服务器返回的百分号编码。Enter 导航，Escape 取消。"/>
       <Button x:Name="EditPathButton" Grid.Column="1" Style="{StaticResource BrowserNavigationButtonStyle}" Click="EditPath_Click" AutomationProperties.Name="编辑原始路径" ToolTipService.ToolTip="编辑原始路径 (Ctrl+L)"><FontIcon Glyph="&#xE70F;" FontSize="16"/></Button>
      </Grid>
@@ -120,12 +122,12 @@
   <Grid x:Name="Sidebar" Grid.RowSpan="2" Padding="12,16,12,12" Background="Transparent" Canvas.ZIndex="3">
    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <Border x:Name="SidebarOverlayBackground" Grid.RowSpan="2" Margin="-12,-16,-12,-12" Background="{ThemeResource FileContentSurfaceBrush}" Visibility="Collapsed" IsHitTestVisible="False"/>
-   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="16">
+   <ScrollViewer Padding="0,0,12,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel Spacing="16">
     <StackPanel Spacing="4">
      <Button x:Name="MyFilesButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="Root_Click" AutomationProperties.Name="我的文件根目录" ToolTipService.ToolTip="我的文件"><StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE8B7;" FontSize="16"/><TextBlock x:Name="MyFilesLabel" Text="我的文件"/></StackPanel></Button>
      <Button x:Name="RecentAccessButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="RecentAccess_Click" IsEnabled="False" AutomationProperties.Name="最近访问" ToolTipService.ToolTip="最近访问"><StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE81C;" FontSize="16"/><TextBlock x:Name="RecentAccessLabel" Text="最近访问"/></StackPanel></Button>
      <Button x:Name="TransferCenterButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="TransferCenter_Click" IsEnabled="False" AutomationProperties.Name="传输中心" ToolTipService.ToolTip="传输中心"><StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE895;" FontSize="16"/><TextBlock x:Name="TransferCenterLabel" Text="传输中心"/></StackPanel></Button>
-     <Button x:Name="NasTasksButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="NasTasks_Click" IsEnabled="False" AutomationProperties.Name="NAS 文件任务" ToolTipService.ToolTip="NAS 文件任务"><StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE9D9;" FontSize="16"/><TextBlock x:Name="NasTasksLabel" Text="NAS 文件任务"/></StackPanel></Button>
+     <Button x:Name="NasTasksButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="NasTasks_Click" IsEnabled="False" AutomationProperties.Name="文件任务" ToolTipService.ToolTip="文件任务"><StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE9D9;" FontSize="16"/><TextBlock x:Name="NasTasksLabel" Text="文件任务"/></StackPanel></Button>
      <Button x:Name="TrashPageButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="TrashPage_Click" IsEnabled="False" AutomationProperties.Name="回收站" ToolTipService.ToolTip="回收站"><StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE74D;" FontSize="16"/><TextBlock x:Name="TrashPageLabel" Text="回收站"/></StackPanel></Button>
     </StackPanel>
     <browser:SidebarCollectionsControl x:Name="SidebarCollections" IsEnabled="False"/>
@@ -139,34 +141,48 @@
   <browser:SidebarResizeThumb x:Name="SidebarResize" Grid.RowSpan="2" Grid.ColumnSpan="2" Width="8" HorizontalAlignment="Left" VerticalAlignment="Stretch" DragDelta="SidebarResize_DragDelta" KeyDown="SidebarResize_KeyDown" IsTabStop="True" UseSystemFocusVisuals="True" Canvas.ZIndex="4" AutomationProperties.Name="调整导航侧栏宽度，方向键调整" ToolTipService.ToolTip="拖动调整侧栏宽度，或使用左右方向键"/>
   <Border x:Name="WorkspaceSurface" Grid.Row="1" Grid.Column="1" Background="Transparent" BorderThickness="0">
   <Grid>
-  <Grid x:Name="Workspace" Visibility="Collapsed" Padding="20,0,20,0" RowSpacing="0" SizeChanged="Workspace_SizeChanged">
+  <Grid x:Name="Workspace" Visibility="Collapsed" Padding="16,0,16,0" RowSpacing="0" SizeChanged="Workspace_SizeChanged">
    <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="28"/></Grid.RowDefinitions>
    <CommandBar x:Name="BrowserCommands" Height="44" DefaultLabelPosition="Collapsed" Background="Transparent" HorizontalContentAlignment="Stretch">
     <CommandBar.Content><StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-     <ComboBox x:Name="SortBox" SelectedIndex="0" Width="112" Height="32" MinHeight="32" SelectionChanged="Sort_Changed" AutomationProperties.Name="文件排序"><ComboBoxItem Content="名称 ↑"/><ComboBoxItem Content="名称 ↓"/><ComboBoxItem Content="修改时间 ↑"/><ComboBoxItem Content="修改时间 ↓"/><ComboBoxItem Content="大小 ↑"/><ComboBoxItem Content="大小 ↓"/><ComboBoxItem Content="类型 ↑"/><ComboBoxItem Content="类型 ↓"/></ComboBox>
-     <ComboBox x:Name="TypeFilterBox" SelectedIndex="0" SelectionChanged="TypeFilter_Changed" AutomationProperties.Name="当前目录类型筛选" Width="148" Height="32" MinHeight="32"><ComboBoxItem Content="全部类型"/><ComboBoxItem Content="图片"/><ComboBoxItem Content="音频"/><ComboBoxItem Content="视频"/><ComboBoxItem Content="PDF 文档"/><ComboBoxItem Content="Markdown 文档"/><ComboBoxItem Content="配置文件"/><ComboBoxItem Content="代码文件"/></ComboBox>
-     <Button x:Name="ViewOptionsButton" Content="布局" Style="{StaticResource SubtleButtonStyle}" AutomationProperties.Name="文件视图与图标大小"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="详细信息" Click="Details_Click"/><MenuFlyoutSeparator/>
-      <RadioMenuFlyoutItem x:Name="MosaicViewItem" Text="详细网格" Tag="Mosaic" GroupName="BrowserView" Click="ViewMode_Click"/>
-      <RadioMenuFlyoutItem x:Name="CompactGridViewItem" Text="紧凑网格" Tag="CompactGrid" GroupName="BrowserView" Click="ViewMode_Click"/>
-      <RadioMenuFlyoutItem x:Name="WindowsIconsViewItem" Text="无界网格" Tag="WindowsIcons" GroupName="BrowserView" Click="ViewMode_Click"/>
-      <RadioMenuFlyoutItem x:Name="DetailsViewItem" Text="详细列表" Tag="Details" GroupName="BrowserView" Click="ViewMode_Click"/>
-      <RadioMenuFlyoutItem x:Name="CompactListViewItem" Text="紧凑列表" Tag="CompactList" GroupName="BrowserView" Click="ViewMode_Click"/>
-      <MenuFlyoutSubItem x:Name="IconSizesMenu" Text="图标大小"><RadioMenuFlyoutItem x:Name="SmallIconItem" Text="小图标" Tag="Small" GroupName="BrowserSize" Click="IconSize_Click"/><RadioMenuFlyoutItem x:Name="MediumIconItem" Text="中图标" Tag="Medium" GroupName="BrowserSize" Click="IconSize_Click"/><RadioMenuFlyoutItem x:Name="LargeIconItem" Text="大图标" Tag="Large" GroupName="BrowserSize" Click="IconSize_Click"/><RadioMenuFlyoutItem x:Name="ExtraLargeIconItem" Text="超大图标" Tag="ExtraLarge" GroupName="BrowserSize" Click="IconSize_Click"/></MenuFlyoutSubItem>
-     </MenuFlyout></Button.Flyout></Button>
+     <ComboBox x:Name="SortBox" SelectedIndex="0" Width="140" Height="36" MinHeight="36" SelectionChanged="Sort_Changed" AutomationProperties.Name="文件排序"><ComboBoxItem Content="名称 ↑"/><ComboBoxItem Content="名称 ↓"/><ComboBoxItem Content="修改时间 ↑"/><ComboBoxItem Content="修改时间 ↓"/><ComboBoxItem Content="大小 ↑"/><ComboBoxItem Content="大小 ↓"/><ComboBoxItem Content="类型 ↑"/><ComboBoxItem Content="类型 ↓"/></ComboBox>
+     <DropDownButton x:Name="TypeFilterBox" Content="全部类型" Width="148" Height="36" AutomationProperties.Name="文件类型筛选，可多选"><DropDownButton.Flyout><Flyout Placement="BottomEdgeAlignedLeft"><StackPanel Width="224" Spacing="4"><TextBlock Text="文件类型 · 可多选" Margin="12,4,0,8" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+      <ToggleButton Content="全部类型" Tag="All" IsChecked="True" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
+      <ToggleButton Content="图片" Tag="Image" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
+      <ToggleButton Content="音频" Tag="Audio" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
+      <ToggleButton Content="视频" Tag="Video" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
+      <ToggleButton Content="PDF 文档" Tag="Pdf" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
+      <ToggleButton Content="Markdown 文档" Tag="Markdown" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
+      <ToggleButton Content="配置文件" Tag="Config" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
+      <ToggleButton Content="代码文件" Tag="Code" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
+     </StackPanel></Flyout></DropDownButton.Flyout></DropDownButton>
+     <DropDownButton x:Name="ViewOptionsButton" Content="详细网格" Height="36" MinWidth="140" AutomationProperties.Name="文件布局"><DropDownButton.Flyout><Flyout Placement="BottomEdgeAlignedLeft"><StackPanel Width="224" Spacing="4">
+      <ToggleButton x:Name="MosaicViewItem" Content="详细网格" Tag="Mosaic" Style="{StaticResource LayoutChoiceStyle}" Click="ViewMode_Click"/>
+      <ToggleButton x:Name="CompactGridViewItem" Content="紧凑网格" Tag="CompactGrid" Style="{StaticResource LayoutChoiceStyle}" Click="ViewMode_Click"/>
+      <ToggleButton x:Name="WindowsIconsViewItem" Content="无界网格" Tag="WindowsIcons" Style="{StaticResource LayoutChoiceStyle}" Click="ViewMode_Click"/>
+      <ToggleButton x:Name="DetailsViewItem" Content="详细列表" Tag="Details" Style="{StaticResource LayoutChoiceStyle}" Click="ViewMode_Click"/>
+      <ToggleButton x:Name="CompactListViewItem" Content="紧凑列表" Tag="CompactList" Style="{StaticResource LayoutChoiceStyle}" Click="ViewMode_Click"/>
+      <StackPanel x:Name="IconSizesMenu" Spacing="4" Margin="0,12,0,0"><TextBlock Text="图标大小" FontSize="12" Margin="12,0,0,4" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+       <ToggleButton x:Name="SmallIconItem" Content="小" Tag="Small" Style="{StaticResource LayoutChoiceStyle}" Click="IconSize_Click"/>
+       <ToggleButton x:Name="MediumIconItem" Content="中" Tag="Medium" Style="{StaticResource LayoutChoiceStyle}" Click="IconSize_Click"/>
+       <ToggleButton x:Name="LargeIconItem" Content="大" Tag="Large" Style="{StaticResource LayoutChoiceStyle}" Click="IconSize_Click"/>
+       <ToggleButton x:Name="ExtraLargeIconItem" Content="超大" Tag="ExtraLarge" Style="{StaticResource LayoutChoiceStyle}" Click="IconSize_Click"/>
+      </StackPanel>
+     </StackPanel></Flyout></DropDownButton.Flyout></DropDownButton>
     </StackPanel></CommandBar.Content>
     <AppBarButton x:Name="NewButton" Icon="Add" Label="新建" Height="40" IsEnabled="False" ToolTipService.ToolTip="新建"><AppBarButton.Flyout><MenuFlyout><MenuFlyoutItem Text="文件夹" Click="CreateDirectory_Click"/><MenuFlyoutItem x:Name="NewFileMenuItem" Text="空文件" Click="CreateEmptyFile_Click"/></MenuFlyout></AppBarButton.Flyout></AppBarButton>
     <AppBarButton x:Name="UploadFileButton" Icon="Upload" Label="上传文件" Height="40" IsEnabled="False" Click="UploadFile_Click" ToolTipService.ToolTip="上传一个本地文件到当前目录"/>
     <AppBarButton x:Name="DownloadFileButton" Icon="Download" Label="下载" Height="40" IsEnabled="False" Click="DownloadFile_Click" ToolTipService.ToolTip="下载选中的文件到已生效的默认下载目录"/>
     <CommandBar.SecondaryCommands><AppBarButton x:Name="DownloadHistoryButton" Icon="Clock" Label="下载记录" Click="DownloadHistory_Click" IsEnabled="False"/><AppBarButton x:Name="UploadHistoryButton" Icon="Clock" Label="上传记录" Click="UploadHistory_Click" IsEnabled="False"/><AppBarButton Icon="View" Label="详细信息" Click="Details_Click"/><AppBarButton x:Name="FavoriteActionButton" Icon="Favorite" Label="收藏" Click="FavoriteResource_Click" IsEnabled="False"/><AppBarButton x:Name="TagActionButton" Icon="Tag" Label="标记" Click="TagResource_Click" IsEnabled="False"/><AppBarButton x:Name="LastResultsButton" Label="上次操作的完整结果" Click="ResultDetails_Click" IsEnabled="False"/></CommandBar.SecondaryCommands>
    </CommandBar>
-   <StackPanel Grid.Row="1" Spacing="4" Margin="0,0,0,8"><InfoBar x:Name="Notice" Padding="12,8" FontSize="12" IsOpen="True" IsClosable="False" Severity="Informational" Title="正在启动" Message="正在准备本地核心服务…"><InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click"/></InfoBar.ActionButton></InfoBar><InfoBar x:Name="ReceiptWarning" Padding="12,8" FontSize="12" IsOpen="False" IsClosable="False" Severity="Warning" Title="本机操作记录提示"/><InfoBar x:Name="UploadNotice" Padding="12,8" FontSize="12" IsOpen="False" IsClosable="False" Severity="Informational" Title="文件上传"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="查看上传" Click="UploadDetails_Click"/></InfoBar.ActionButton></InfoBar><InfoBar x:Name="DownloadNotice" Padding="12,8" FontSize="12" IsOpen="False" IsClosable="False" Severity="Informational" Title="文件下载"><InfoBar.ActionButton><Button x:Name="DownloadDetailsButton" Content="查看下载" Click="DownloadDetails_Click"/></InfoBar.ActionButton></InfoBar></StackPanel>
+
    <Grid x:Name="BrowserBody" Grid.Row="2" SizeChanged="BrowserBody_SizeChanged">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="DetailsColumn" Width="0"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition x:Name="DetailsRow" Height="0"/></Grid.RowDefinitions>
     <Grid x:Name="FilesArea" SizeChanged="FilesArea_SizeChanged" RightTapped="FilesArea_RightTapped" Background="Transparent"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
     <Grid x:Name="ListHeader" Padding="56,8,16,8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions><TextBlock Text="名称" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Grid.Column="1" Text="大小 / 修改时间" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></Grid>
     <ListView x:Name="FileList" Grid.Row="1" ItemContainerStyle="{StaticResource BrowserListItemStyle}" SelectionMode="Extended" DoubleTapped="FileList_DoubleTapped" PreviewKeyDown="FileList_PreviewKeyDown" KeyDown="FileList_KeyDown" RightTapped="FileResource_RightTapped" SelectionChanged="FileList_SelectionChanged" HorizontalContentAlignment="Stretch" AutomationProperties.Name="文件列表">
      <ListView.ItemTemplate><DataTemplate x:DataType="local:FileRow"><Grid Padding="8,4" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="130"/></Grid.ColumnDefinitions>
-      <Grid Width="32" Height="32" VerticalAlignment="Center"><FontIcon x:Name="ThumbnailIcon" Glyph="{x:Bind Glyph}" FontSize="22" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" VerticalAlignment="Center"/><Image x:Name="ThumbnailImage" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/></Grid>
+      <Grid Width="32" Height="32" VerticalAlignment="Center"><Image x:Name="ThumbnailIcon" Source="{x:Bind IconSource}" Stretch="Uniform" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsHitTestVisible="False"/><Image x:Name="ThumbnailImage" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/></Grid>
       <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center"><TextBlock Text="{x:Bind Name}" FontSize="14" TextTrimming="CharacterEllipsis"/><TextBlock Text="{x:Bind Kind}" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
       <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2"><TextBlock Text="{x:Bind Size}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind Modified}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
      </Grid></DataTemplate></ListView.ItemTemplate>
@@ -232,5 +248,11 @@
   </Grid>
   </Grid>
   </Border>
+  <StackPanel x:Name="ToastHost" Grid.ColumnSpan="2" Grid.RowSpan="2" Spacing="8" Margin="16,72,16,16" Width="420" HorizontalAlignment="Right" VerticalAlignment="Top" Canvas.ZIndex="20">
+   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="True"><InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="ReceiptWarning" IsOpen="False" IsClosable="True" Severity="Warning" Title="本机操作记录提示"/>
+   <InfoBar x:Name="UploadNotice" IsOpen="False" IsClosable="True" Title="文件上传"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="查看上传" Click="UploadDetails_Click"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="DownloadNotice" IsOpen="False" IsClosable="True" Title="文件下载"><InfoBar.ActionButton><Button x:Name="DownloadDetailsButton" Content="查看下载" Click="DownloadDetails_Click"/></InfoBar.ActionButton></InfoBar>
+  </StackPanel>
  </Grid>
 </Page>

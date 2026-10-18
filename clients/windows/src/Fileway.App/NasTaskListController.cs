@@ -161,7 +161,7 @@ internal sealed class NasTaskListController : IDisposable
         {
             lock (_gate)
                 if (IsCurrent(context, request, _listRequest) && !request.Token.IsCancellationRequested)
-                    _error = ReadError(error, "暂时无法读取 NAS 文件任务，请重试。");
+                    _error = ReadError(error, "暂时无法读取 文件任务，请重试。");
         }
         finally
         {

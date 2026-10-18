@@ -89,7 +89,7 @@ default to **Fileway**, with an explicit installation language choice taking
 priority. Internal executable names and data paths stay stable. This naming
 policy is separate from future complete UI localization.
 
-This preview uses explicit direct connections, including routes supplied by the system Tailscale installation. System/PAC proxies, embedded tsnet, transfers, file mutations and external-player integration remain separate application work. The main interface contains no placeholder actions for those features.
+The local preview uses explicit direct connections, including routes supplied by the system Tailscale installation. It includes connection profiles, browsing, collections, server search/tasks, basic trash restore, file operations, single-file transfers, images and native mpv playback. System/PAC proxies, embedded tsnet, reliable directory/resumable transfers and external-player integration remain separate work. The maintained scope and acceptance boundaries are in [the product roadmap](docs/product-roadmap.md); [0.3.0](docs/release-0.3.0.md) focuses on playback and browser interaction quality.
 
 The Go auxiliary process is managed by the app: it starts locally, uses private inherited control pipes, and exits with the parent. Process management prevents orphan processes and supports crash recovery. Server authorization continues to enforce the existing account permissions.
 

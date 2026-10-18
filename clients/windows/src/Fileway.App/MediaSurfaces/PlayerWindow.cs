@@ -187,6 +187,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
 
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint subclassId, nuint reference)
     {
+        if (!_disposed && message == 0x0020 && ((long)lParam & 0xffff) == 1)
+        {
+            _ = NativePlayerOverlay.SetCursor(NativePlayerOverlay.LoadCursorW(0, (nint)32512));
+            return 1;
+        }
         if (window == _window && (message is 0x001a or 0x02e0)) CancelVideoGestures(resetPolicy: true);
         if ((window == _window || window == _child) && message == 0x001f) CancelVideoGestures();
         if (window == _child && message == 0x0215) CancelVideoInput(PlaybackVideoInputSurface.Native);

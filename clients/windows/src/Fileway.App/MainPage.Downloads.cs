@@ -267,19 +267,22 @@ public sealed partial class MainPage
         if (DownloadNotice is null) return;
         if (_downloadErrorMessage is { } error && ActiveDownloadContext is not null)
         {
-            DownloadNotice.IsOpen = true; DownloadNotice.Title = _downloadErrorTitle; DownloadNotice.Message = error;
+            DownloadNotice.Title = _downloadErrorTitle; DownloadNotice.Message = error;
+            ShowToast(DownloadNotice, _downloadErrorTitle + error);
             DownloadNotice.Severity = InfoBarSeverity.Warning; DownloadDetailsButton.IsEnabled = _latestDownload is not null && !_downloadOperationBusy;
             return;
         }
         if (_downloadPreparing && ActiveDownloadContext is not null)
         {
-            DownloadNotice.IsOpen = true; DownloadNotice.Title = "正在核对下载目标";
+            DownloadNotice.Title = "正在核对下载目标";
+            ShowToast(DownloadNotice, "preparing");
             DownloadNotice.Message = "正在读取文件信息与已生效的默认下载目录…";
             DownloadNotice.Severity = InfoBarSeverity.Informational; DownloadDetailsButton.IsEnabled = false;
             return;
         }
         if (_latestDownload is not { } item || !IsCurrentDownloadContext(item.Context)) { DownloadNotice.IsOpen = false; return; }
-        DownloadNotice.IsOpen = true; DownloadNotice.Title = DownloadPolicy.Stage(item);
+        DownloadNotice.Title = DownloadPolicy.Stage(item);
+        ShowToast(DownloadNotice, item.Snapshot.Task.Id.ToString() + DownloadNotice.Title);
         DownloadNotice.Message = $"{item.Name} · {DownloadPolicy.Progress(item).ActivityText}";
         DownloadNotice.Severity = DownloadPolicy.Tone(item) switch
         {

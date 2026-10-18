@@ -57,6 +57,7 @@ public sealed partial class MainPage : Page, IDisposable
     public MainPage()
     {
         InitializeComponent();
+        InitializePresentation();
         _thumbnailController = new BrowserThumbnailController(_lifetime.Token, FileList, FileGrid);
         CollectionsPanel.CloseRequested += (_, _) => HideCollections();
         CollectionsPanel.OpenResourceAsync = OpenCollectionResourceAsync;
@@ -182,6 +183,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed) return;
         _remoteClipboard.Clear();
+        DisposePresentation();
         DisposeApplicationMenus();
         DisposeUploadPresentation();
         DisposeDownloadPresentation();
@@ -444,7 +446,7 @@ public sealed partial class MainPage : Page, IDisposable
         _loadStateTitle = _loadStateDescription = null;
         _directory = directory; PathBox.Text = directory.WirePath; UpdateBreadcrumbs(); CloseSidebarOverlay();
         var preferenceRevision = ++_preferenceRevision;
-        _browserPreferences = new BrowserPreferences(); ApplyBrowserPresentation();
+        RestoreDirectoryTypeFilters(directory); _browserPreferences = new BrowserPreferences(); ApplyBrowserPresentation();
         _ = ReadBrowserPreferencesAsync(directory, session, generation, preferenceRevision, token);
         _items.Clear(); _rows.Clear(); SearchBox.Text = "";
         SetLoading(true); Notice.IsOpen = false; EmptyState.Visibility = Visibility.Collapsed;
@@ -478,7 +480,7 @@ public sealed partial class MainPage : Page, IDisposable
     private void ApplyFilter()
     {
         var filter = SearchBox.Text.Trim();
-        var filtered = _items.Where(item => item.Resource.DisplayName.Contains(filter, StringComparison.CurrentCultureIgnoreCase) && FileRow.MatchesType(item, _browserPreferences.TypeFilter));
+        var filtered = _items.Where(item => item.Resource.DisplayName.Contains(filter, StringComparison.CurrentCultureIgnoreCase) && MatchesTypeFilters(item));
         var matching = SortFiles(filtered).ToArray();
         var append = _rows.Count <= matching.Length && _rows.Select((row, index) => ReferenceEquals(row.File, matching[index])).All(same => same);
         var selected = ActiveFiles.SelectedItems.Cast<FileRow>().Select(row => row.File.Resource).ToHashSet();
@@ -494,7 +496,7 @@ public sealed partial class MainPage : Page, IDisposable
         UpdateSelection();
         if (LoadingRing.IsActive) return;
         EmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        var filtering = filter.Length > 0 || _browserPreferences.TypeFilter != BrowserFileTypeFilter.All;
+        var filtering = filter.Length > 0 || _typeFilters.Count > 0;
         EmptyTitle.Text = _session is null ? "你的文件，在这里相遇" : _loadStateTitle ?? (filtering ? "没有匹配的文件" : "这个目录还没有文件");
         EmptyDescription.Text = _session is null ? "连接服务器后即可浏览文件、打开图片和播放视频。" : _loadStateDescription ?? (filtering ? "可清除名称或类型筛选；筛选仅覆盖当前目录。" : "可以刷新目录，查看服务器上的最新内容。");
         RetryLoadButton.Visibility = _session is not null && _loadStateTitle is not null ? Visibility.Visible : Visibility.Collapsed;
@@ -579,8 +581,8 @@ public sealed partial class MainPage : Page, IDisposable
         else await OpenFileAsync(new FileRow(file), [file.Resource]);
     }
     private void SetLoading(bool loading) { LoadingRing.IsActive = loading; LoadingRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed; CancelButton.Visibility = loading ? Visibility.Visible : Visibility.Collapsed; if (loading) StatusText.Text = "正在加载目录…"; UpdateApplicationMenus(); }
-    private void SetNotice(string title, string message, InfoBarSeverity severity) { Notice.Title = title; Notice.Message = message; Notice.Severity = severity; Notice.IsOpen = true; }
-    private void LoginError(string message) { LoginNotice.Severity = InfoBarSeverity.Error; LoginNotice.Message = message; LoginNotice.IsOpen = true; }
+    private void SetNotice(string title, string message, InfoBarSeverity severity, bool repeat = true) { Notice.Title = title; Notice.Message = message; Notice.Severity = severity; ShowToast(Notice, title + message, repeat); }
+    private void LoginError(string message) { LoginNotice.Severity = InfoBarSeverity.Error; LoginNotice.Message = message; ShowToast(LoginNotice, message, repeat: true); }
     internal static string ErrorMessage(Exception exception) => exception is FilewayException known ? known.Error.Message : "操作未能完成。请检查服务器连接后重试。";
     private void Server_Changed(object sender, TextChangedEventArgs e) { }
     private void Authentication_Changed(object sender, SelectionChangedEventArgs e)
@@ -597,11 +599,6 @@ public sealed partial class MainPage : Page, IDisposable
         if (_applyingPreferences || FileList is null) return;
         var sort = (SortBox.SelectedIndex / 2) switch { 1 => FileSortField.Modified, 2 => FileSortField.Size, 3 => FileSortField.Type, _ => FileSortField.Name };
         ChangeBrowserPreferences(_browserPreferences with { SortBy = sort, Descending = SortBox.SelectedIndex % 2 == 1 });
-    }
-    private void TypeFilter_Changed(object sender, SelectionChangedEventArgs e)
-    {
-        if (_applyingPreferences || FileList is null || TypeFilterBox.SelectedIndex < 0) return;
-        ChangeBrowserPreferences(_browserPreferences with { TypeFilter = (BrowserFileTypeFilter)TypeFilterBox.SelectedIndex });
     }
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
@@ -663,12 +660,12 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)
     {
-        if (_applyingPreferences || sender is not RadioMenuFlyoutItem { Tag: string mode } || !Enum.TryParse<BrowserViewMode>(mode, out var view)) return;
+        if (_applyingPreferences || sender is not FrameworkElement { Tag: string mode } || !Enum.TryParse<BrowserViewMode>(mode, out var view)) return;
         ChangeBrowserPreferences(_browserPreferences with { ViewMode = view });
     }
     private void IconSize_Click(object sender, RoutedEventArgs e)
     {
-        if (_applyingPreferences || sender is not RadioMenuFlyoutItem { Tag: string value } || !Enum.TryParse<BrowserIconSize>(value, out var size)) return;
+        if (_applyingPreferences || sender is not FrameworkElement { Tag: string value } || !Enum.TryParse<BrowserIconSize>(value, out var size)) return;
         ChangeBrowserPreferences(_browserPreferences.ViewMode == BrowserViewMode.WindowsIcons ? _browserPreferences with { WindowsIconSize = size } : _browserPreferences with { CompactGridSize = size });
     }
     private void ChangeBrowserPreferences(BrowserPreferences preferences)
@@ -692,7 +689,8 @@ public sealed partial class MainPage : Page, IDisposable
             IconSizesMenu.Visibility = mode is BrowserViewMode.CompactGrid or BrowserViewMode.WindowsIcons ? Visibility.Visible : Visibility.Collapsed;
             var size = mode == BrowserViewMode.WindowsIcons ? _browserPreferences.WindowsIconSize : _browserPreferences.CompactGridSize;
             SmallIconItem.IsChecked = size == BrowserIconSize.Small; MediumIconItem.IsChecked = size == BrowserIconSize.Medium; LargeIconItem.IsChecked = size == BrowserIconSize.Large; ExtraLargeIconItem.IsChecked = size == BrowserIconSize.ExtraLarge;
-            TypeFilterBox.SelectedIndex = (int)_browserPreferences.TypeFilter;
+            UpdateTypeFilterMenu();
+            ViewOptionsButton.Content = mode switch { BrowserViewMode.Mosaic => "详细网格", BrowserViewMode.CompactGrid => "紧凑网格", BrowserViewMode.WindowsIcons => "无界网格", BrowserViewMode.CompactList => "紧凑列表", _ => "详细列表" };
             SortBox.SelectedIndex = (_browserPreferences.SortBy switch { FileSortField.Modified => 1, FileSortField.Size => 2, FileSortField.Type => 3, _ => 0 }) * 2 + (_browserPreferences.Descending ? 1 : 0);
             ActiveFiles.SelectedItems.Clear();
             foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource))) ActiveFiles.SelectedItems.Add(row);
@@ -777,17 +775,28 @@ public sealed partial class MainPage : Page, IDisposable
         var visible = !_connecting && ConnectionPanel.Visibility != Visibility.Visible && Workspace.Visibility == Visibility.Visible;
         _thumbnailController.SetContext(visible ? _thumbnails : null, visible ? _session : null);
     }
-    private void SetDetailsVisible(bool visible) { _detailsVisible = visible; DetailsPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed; UpdateDetailsLayout(); }
+    private void SetDetailsVisible(bool visible)
+    {
+        if (!visible) { _detailsPopup?.Dispose(); _detailsPopup = null; _detailsVisible = false; return; }
+        if (_detailsPopup is not null || _storageOwnerHwnd == 0 || XamlRoot is null) return;
+        _detailsVisible = true; DetailsPanel.Visibility = Visibility.Visible;
+        try
+        {
+            _detailsPopup = new MediaSurfaces.PlayerSettingsWindow(_storageOwnerHwnd, DetailsPanel, null,
+                () => { _detailsPopup = null; _detailsVisible = false; if (!_disposed) UpdateApplicationMenus(); },
+                theme: ActualTheme == ElementTheme.Dark ? ElementTheme.Dark : ElementTheme.Light);
+            _detailsPopup.Title = "详细信息";
+            _detailsPopup.ShowAt(ViewOptionsButton);
+        }
+        catch (Exception) { _detailsPopup?.Dispose(); _detailsPopup = null; _detailsVisible = false; SetNotice("详情未能打开", "请重新选择项目后重试。", InfoBarSeverity.Warning); }
+    }
     private void BrowserBody_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateDetailsLayout(); UpdateGridMetrics(); }
     private void FilesArea_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateGridMetrics();
     private void UpdateDetailsLayout()
     {
         if (DetailsColumn is null) return;
-        var narrow = Workspace.ActualWidth < 800;
-        Grid.SetColumn(DetailsPanel, narrow ? 0 : 1); Grid.SetRow(DetailsPanel, narrow ? 1 : 0); Grid.SetColumnSpan(DetailsPanel, narrow ? 2 : 1);
-        DetailsColumn.Width = new GridLength(_detailsVisible && !narrow ? 288 : 0);
-        DetailsRow.Height = new GridLength(_detailsVisible && narrow ? Math.Min(240, BrowserBody.ActualHeight * 0.45) : 0);
-        DetailsPanel.BorderThickness = narrow ? new Thickness(0, 1, 0, 0) : new Thickness(1, 0, 0, 0);
+        DetailsColumn.Width = new GridLength(0);
+        DetailsRow.Height = new GridLength(0);
     }
     private void ApplyTheme()
     {
@@ -821,6 +830,22 @@ public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = n
     public bool IsImage => !File.IsDirectory && (File.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true || ImageExtensions.Contains(Path.GetExtension(Name)));
     public bool IsVideo => !File.IsDirectory && (File.MediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true || VideoExtensions.Contains(Path.GetExtension(Name)));
     public string Glyph => File.IsDirectory ? "\uE8B7" : IsImage ? "\uEB9F" : IsVideo ? "\uE714" : "\uE8A5";
+    // File rows are materialized on the app's UI thread. Reuse seven vector
+    // sources, rather than allocating a native SVG object for every directory entry.
+    private static readonly Dictionary<string, Microsoft.UI.Xaml.Media.Imaging.SvgImageSource> IconSources = [];
+    public Microsoft.UI.Xaml.Media.ImageSource IconSource => CreateFileIcon(File);
+    private static Microsoft.UI.Xaml.Media.Imaging.SvgImageSource CreateFileIcon(RemoteFile file)
+    {
+        var extension = Path.GetExtension(file.Resource.DisplayName);
+        var type = file.IsDirectory ? "folder" : file.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true || ImageExtensions.Contains(extension) ? "image"
+            : file.MediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true || VideoExtensions.Contains(extension) ? "video"
+            : file.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true || new[] { ".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac", ".opus" }.Contains(extension, StringComparer.OrdinalIgnoreCase) ? "audio"
+            : new[] { ".cs", ".go", ".js", ".ts", ".py", ".json", ".xml", ".yaml", ".html", ".css" }.Contains(extension, StringComparer.OrdinalIgnoreCase) ? "code"
+            : new[] { ".srt", ".ass", ".ssa", ".txt", ".md", ".log" }.Contains(extension, StringComparer.OrdinalIgnoreCase) ? "text" : "file";
+        if (!IconSources.TryGetValue(type, out var icon))
+            IconSources[type] = icon = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri($"ms-appx:///Assets/FileIcons/{type}.svg"));
+        return icon;
+    }
     public string Kind => File.IsDirectory ? "文件夹" : IsImage ? "图片" : IsVideo ? "视频" : string.IsNullOrEmpty(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant() + " 文件";
     public string Size => File.IsDirectory ? "—" : FormatSize(File.Size);
     public string Summary => File.IsDirectory ? Kind : $"{Kind} · {Size}";

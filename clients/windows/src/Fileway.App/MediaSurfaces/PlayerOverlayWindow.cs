@@ -29,7 +29,6 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private uint? _videoPointerId;
     private readonly KeyEventHandler _gestureKeyHandler;
     private PlayerSettingsWindow? _settingsWindow;
-    private OverlappedPresenter? _windowedPresenter;
     private readonly UISettings _policySettings = new();
     private readonly AccessibilitySettings _policyAccessibility = new();
     private bool _ownerFullscreen;
@@ -88,6 +87,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             _controls.AddHandler(UIElement.KeyDownEvent, _gestureKeyHandler, true);
             _controls.AddHandler(UIElement.PointerReleasedEvent, _videoReleasedHandler, true);
             _controls.PointerCanceled += Controls_VideoPointerCanceled;
+            _controls.PointerMoved += Controls_WindowPointerMoved;
             _controls.PointerCaptureLost += Controls_VideoPointerCanceled;
             _controls.ActualThemeChanged += Controls_ActualThemeChanged;
             _controls.Loaded += Controls_Loaded;
@@ -160,10 +160,54 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void Controls_VideoPointerPressed(object sender, PointerRoutedEventArgs args)
     {
         if (args.GetCurrentPoint(_controls).Properties.PointerUpdateKind != Microsoft.UI.Input.PointerUpdateKind.LeftButtonPressed) return;
+        if (!args.Handled && !_ownerFullscreen && _settingsWindow is null && TryWindowPointer(args, out var windowPoint, out var hit) && hit != 1)
+        {
+            args.Handled = true;
+            ReleaseVideoPointer();
+            _ = NativeVideoWindow.ReleaseCapture();
+            NativePlayerOverlay.SetForegroundWindow(_owner);
+            var packed = (nint)unchecked((int)((windowPoint.Y & 0xffff) << 16 | (windowPoint.X & 0xffff)));
+            _ = NativePlayerOverlay.PostMessageW(_owner, 0x00a1, (nuint)hit, packed);
+            return;
+        }
         if (!TryVideoPointer(args, out var point) || !_controls.CapturePointer(args.Pointer)) return;
         _videoPointerId = args.Pointer.PointerId;
         args.Handled = true;
         VideoPointerPressed?.Invoke(point);
+    }
+
+    private bool TryWindowPointer(PointerRoutedEventArgs args, out NativeVideoWindow.NativePoint screen, out int hit)
+    {
+        screen = default; hit = 1;
+        if (_disposed || _controls.XamlRoot is null || args.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Mouse) return false;
+        var point = args.GetCurrentPoint(_controls).Position;
+        var scale = _controls.XamlRoot.RasterizationScale;
+        screen = new NativeVideoWindow.NativePoint { X = (int)Math.Round(point.X * scale), Y = (int)Math.Round(point.Y * scale) };
+        if (!NativeVideoWindow.ClientToScreen(_window, ref screen)) return false;
+        if (_ownerFullscreen) return true;
+        if (!NativePlayerOverlay.IsZoomed(_owner) && NativePlayerOverlay.GetWindowRect(_owner, out var bounds))
+        {
+            var dpi = NativeVideoWindow.GetDpiForWindow(_owner);
+            var edge = Math.Max(1, NativeVideoWindow.GetSystemMetricsForDpi(32, dpi) + NativeVideoWindow.GetSystemMetricsForDpi(92, dpi));
+            var left = screen.X < bounds.Left + edge; var right = screen.X >= bounds.Right - edge;
+            var top = screen.Y < bounds.Top + edge; var bottom = screen.Y >= bounds.Bottom - edge;
+            hit = top ? left ? 13 : right ? 14 : 12 : bottom ? left ? 16 : right ? 17 : 15 : left ? 10 : right ? 11 : 1;
+        }
+        if (hit == 1 && _controls.GetTitleBarDragBounds().Contains(point)) hit = 2;
+        return true;
+    }
+
+    private void Controls_WindowPointerMoved(object sender, PointerRoutedEventArgs args)
+    {
+        if (!TryWindowPointer(args, out _, out var hit)) return;
+        _controls.SetWindowCursor(hit switch
+        {
+            10 or 11 => Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast,
+            12 or 15 => Microsoft.UI.Input.InputSystemCursorShape.SizeNorthSouth,
+            13 or 17 => Microsoft.UI.Input.InputSystemCursorShape.SizeNorthwestSoutheast,
+            14 or 16 => Microsoft.UI.Input.InputSystemCursorShape.SizeNortheastSouthwest,
+            _ => Microsoft.UI.Input.InputSystemCursorShape.Arrow,
+        });
     }
 
     private void Controls_VideoPointerReleased(object sender, PointerRoutedEventArgs args)
@@ -362,13 +406,8 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     internal void SetFullscreen(bool fullscreen)
     {
         if (_disposed) return;
-        if (fullscreen && AppWindow.Presenter.Kind != AppWindowPresenterKind.FullScreen)
-        {
-            _windowedPresenter = AppWindow.Presenter as OverlappedPresenter;
-            AppWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-        }
-        else if (!fullscreen && AppWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen)
-            AppWindow.SetPresenter(_windowedPresenter ?? OverlappedPresenter.Create());
+        // Only the video owner has a fullscreen presenter. The HUD follows its
+        // actual physical bounds; a second fullscreen presenter competes with it.
         _windowBounds = null;
         _ownerFullscreen = fullscreen;
         _controls.SetFullscreen(fullscreen);
@@ -445,11 +484,9 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         if (_windowBounds is not { } previous || !previous.Equals(windowBounds))
         {
             _windowBounds = windowBounds;
-            if (!NativeVideoWindow.SetWindowPos(_window, 0, windowBounds.X, windowBounds.Y, windowBounds.Width, windowBounds.Height, 0x0014))
-            {
-                _windowBounds = null;
-                if (!allowInitialActivation) throw new FilewayException(new(ErrorCode.Unknown, "播放控件位置未能更新。"));
-            }
+            // AppWindow also updates the XAML content island. SetWindowPos alone
+            // can leave the controls arranged at their old windowed dimensions.
+            AppWindow.MoveAndResize(windowBounds);
         }
         if (allowInitialActivation && !_activatedOnce && NativePlayerOverlay.GetForegroundWindow() == _owner)
         {
@@ -481,6 +518,18 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
     private nint WindowProcedureCore(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
     {
+        if (!_disposed && message == 0x00a1 && (wParam == 2 || wParam is >= 10 and <= 17))
+        {
+            _ = NativeVideoWindow.ReleaseCapture();
+            NativePlayerOverlay.SetForegroundWindow(_owner);
+            _ = NativePlayerOverlay.PostMessageW(_owner, message, wParam, lParam);
+            return 0;
+        }
+        if (!_disposed && message == 0x0020 && ((long)lParam & 0xffff) == 1)
+        {
+            _ = NativePlayerOverlay.SetCursor(NativePlayerOverlay.LoadCursorW(0, (nint)32512));
+            return 1;
+        }
         if (!_disposed && message == 0x0083) return 0; // Entire owned window is client content.
         if (!_disposed && message == 0x0085) return 0; // No classic nonclient border paint.
         if (!_disposed && message == 0x0086)
@@ -507,7 +556,9 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
                 var edge = Math.Max(1, NativeVideoWindow.GetSystemMetricsForDpi(32, dpi) + NativeVideoWindow.GetSystemMetricsForDpi(92, dpi));
                 if (point.X < bounds.Left + edge || point.X >= bounds.Right - edge
                     || point.Y < bounds.Top + edge || point.Y >= bounds.Bottom - edge)
-                    return -1; // Resize always belongs to the video owner, even over a HUD button.
+                    return point.Y < bounds.Top + edge ? (point.X < bounds.Left + edge ? 13 : point.X >= bounds.Right - edge ? 14 : 12)
+                        : point.Y >= bounds.Bottom - edge ? (point.X < bounds.Left + edge ? 16 : point.X >= bounds.Right - edge ? 17 : 15)
+                        : point.X < bounds.Left + edge ? 10 : 11;
             }
             NativePlayerOverlay.ScreenToClient(window, ref point);
             var scale = _controls.XamlRoot.RasterizationScale;
@@ -518,6 +569,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
                     && (element is ButtonBase or RangeBase or TextBox or PasswordBox or ComboBox or SelectorItem or ToggleSwitch or ScrollViewer))
                     return 1; // HTCLIENT: native controls retain keyboard/IME.
             }
+            if (!_ownerFullscreen && _controls.GetTitleBarDragBounds().Contains(position)) return 2;
             if (_controls.IsVideoBackground(position)) return 1; // One HUD input path owns picture press/release.
             return -1; // HTTRANSPARENT: same UI-thread video container receives input.
         }
@@ -561,6 +613,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         _controls.RemoveHandler(UIElement.KeyDownEvent, _gestureKeyHandler);
         _controls.RemoveHandler(UIElement.PointerReleasedEvent, _videoReleasedHandler);
         _controls.PointerCanceled -= Controls_VideoPointerCanceled;
+        _controls.PointerMoved -= Controls_WindowPointerMoved;
         _controls.PointerCaptureLost -= Controls_VideoPointerCanceled;
         _controls.ActualThemeChanged -= Controls_ActualThemeChanged;
         _controls.Loaded -= Controls_Loaded;
@@ -573,6 +626,9 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
 internal static class NativePlayerOverlay
 {
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool PostMessageW(nint window, uint message, nuint wParam, nint lParam);
+    [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint LoadCursorW(nint instance, nint cursor);
+    [DllImport("user32.dll")] internal static extern nint SetCursor(nint cursor);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool GetPhysicalCursorPos(out NativeVideoWindow.NativePoint point);
     [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint GetDC(nint window);
