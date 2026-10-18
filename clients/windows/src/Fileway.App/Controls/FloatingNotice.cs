@@ -41,15 +41,17 @@ internal static class FloatingNotice
         {
             if (_moving) return;
             Grid? root = null;
+            var dialog = false;
             for (DependencyObject? item = VisualTreeHelper.GetParent(_bar); item is not null; item = VisualTreeHelper.GetParent(item))
             {
                 if (item is Grid grid) root = grid;
-                if (item is UserControl or Page or ContentDialog) break;
+                if (item is ContentDialog) { dialog = true; break; }
+                if (item is UserControl or Page) break;
             }
             if (root is null) return;
             var host = _bar.Parent is StackPanel { Name: "ToastHost" } existing ? existing : Hosts.GetValue(root, grid =>
             {
-                var stack = new StackPanel { Spacing = 8, Margin = new Thickness(16), MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
+                var stack = new StackPanel { Spacing = 8, Margin = new Thickness(16), MaxWidth = 420, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = dialog ? VerticalAlignment.Top : VerticalAlignment.Bottom };
                 Grid.SetRowSpan(stack, Math.Max(1, grid.RowDefinitions.Count)); Grid.SetColumnSpan(stack, Math.Max(1, grid.ColumnDefinitions.Count));
                 Canvas.SetZIndex(stack, 100); grid.Children.Add(stack); return stack;
             });

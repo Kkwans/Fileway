@@ -259,7 +259,7 @@
   </Grid>
   </Grid>
   </Border>
-  <StackPanel x:Name="ToastHost" Grid.ColumnSpan="2" Grid.RowSpan="2" Spacing="8" Margin="16,72,16,16" Width="420" HorizontalAlignment="Right" VerticalAlignment="Top" Canvas.ZIndex="20">
+  <StackPanel x:Name="ToastHost" Grid.ColumnSpan="2" Grid.RowSpan="2" Spacing="8" Margin="16" MaxWidth="420" HorizontalAlignment="Right" VerticalAlignment="Bottom" Canvas.ZIndex="100">
    <InfoBar x:Name="Notice" IsOpen="False" IsClosable="True"><InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click"/></InfoBar.ActionButton></InfoBar>
    <InfoBar x:Name="ReceiptWarning" IsOpen="False" IsClosable="True" Severity="Warning" Title="本机操作记录提示"/>
    <InfoBar x:Name="UploadNotice" IsOpen="False" IsClosable="True" Title="文件上传"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="查看上传" Click="UploadDetails_Click"/></InfoBar.ActionButton></InfoBar>
