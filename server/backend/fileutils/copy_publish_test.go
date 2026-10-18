@@ -198,7 +198,7 @@ func TestLegacyCopySpecialNamesPreserveIdentity(t *testing.T) {
 func TestLegacyCopyExplicitOverwriteAndConcurrentTarget(t *testing.T) {
 	for _, native := range []bool{false, true} {
 		t.Run(fmt.Sprintf("native=%t", native), func(t *testing.T) {
-			var afs afero.Fs = afero.NewMemMapFs()
+			afs := afero.Fs(afero.NewMemMapFs())
 			if native {
 				afs = afero.NewBasePathFs(afero.NewOsFs(), t.TempDir())
 			}
@@ -364,7 +364,7 @@ func (f *copyPostPublishErrorFS) LstatIfPossible(name string) (os.FileInfo, bool
 	if fs, ok := f.Fs.(afero.Lstater); ok {
 		return fs.LstatIfPossible(name)
 	}
-	info, err := f.Fs.Stat(name)
+	info, err := f.Stat(name)
 	return info, false, err
 }
 func (f *copyPostPublishErrorFS) Rename(from, to string) error {
@@ -380,7 +380,7 @@ func (f *copyPostPublishErrorFS) Rename(from, to string) error {
 func TestLegacyCopyPostPublishErrorPreservesRecreatedPart(t *testing.T) {
 	for _, native := range []bool{false, true} {
 		t.Run(fmt.Sprintf("native=%t", native), func(t *testing.T) {
-			var afs afero.Fs = afero.NewMemMapFs()
+			afs := afero.Fs(afero.NewMemMapFs())
 			if native {
 				afs = afero.NewBasePathFs(afero.NewOsFs(), t.TempDir())
 			}

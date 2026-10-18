@@ -489,7 +489,7 @@ func (p *directoryPublisher) owned() error {
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	names, err := dir.Readdirnames(4)
 	if err != nil && err != io.EOF {
 		return err
