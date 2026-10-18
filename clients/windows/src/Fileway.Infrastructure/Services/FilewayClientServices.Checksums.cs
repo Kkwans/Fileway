@@ -60,7 +60,7 @@ public sealed partial class FilewayClientServices
     {
         try
         {
-            var file = ParseFile(row, state, includeSourceVersion: true);
+            var file = ParseFile(row, state);
             if (FileOperationWireIdentity(file.Resource.WirePath, allowRoot: true) !=
                 FileOperationWireIdentity(requested.WirePath, allowRoot: true) || file.Modified is null)
                 throw InvalidResponse();
