@@ -409,7 +409,7 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
     private static string? OptionalHeader(HttpResponseMessage response, string name)
     {
         string? value = null;
-        foreach (var headers in new[] { response.Headers, response.Content.Headers })
+        foreach (HttpHeaders headers in new HttpHeaders[] { response.Headers, response.Content.Headers })
         {
             if (!headers.NonValidated.TryGetValues(name, out var values)) continue;
             string[] raw = values.ToArray();
