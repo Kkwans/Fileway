@@ -162,4 +162,10 @@ func TestRawFileHandlerConditionalSourceVersion(t *testing.T) {
 	if status, err := rawFileHandler(staleResponse, stale, file); status != http.StatusPreconditionFailed || err == nil {
 		t.Fatalf("stale source version status=%d err=%v", status, err)
 	}
+
+	query := httptest.NewRequest(http.MethodGet, "/resume.bin?sourceVersion="+url.QueryEscape(version), nil)
+	queryResponse := httptest.NewRecorder()
+	if status, err := rawFileHandler(queryResponse, query, file); status != 0 || err != nil || queryResponse.Code != http.StatusOK {
+		t.Fatalf("query source version status=%d err=%v", status, err)
+	}
 }

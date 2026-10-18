@@ -374,7 +374,11 @@ func rawFileHandler(w http.ResponseWriter, r *http.Request, file *files.FileInfo
 	version := file.SourceVersion()
 	if version != "" {
 		w.Header().Set("X-Fileway-Source-Version", version)
-		if expected := strings.TrimSpace(r.Header.Get("X-Fileway-Source-Version")); expected != "" && expected != version {
+		expected := strings.TrimSpace(r.Header.Get("X-Fileway-Source-Version"))
+		if expected == "" {
+			expected = strings.TrimSpace(r.URL.Query().Get("sourceVersion"))
+		}
+		if expected != "" && expected != version {
 			return http.StatusPreconditionFailed, fmt.Errorf("文件版本已变化")
 		}
 	}
