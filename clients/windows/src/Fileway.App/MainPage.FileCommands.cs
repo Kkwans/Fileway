@@ -125,6 +125,8 @@ public sealed partial class MainPage
     private async Task<ContentDialogResult> ShowBrowserDialogAsync(ContentDialog dialog)
     {
         if (_browserDialog is not null) return ContentDialogResult.None;
+        SetDetailsVisible(false);
+        if (_storageOwnerHwnd != 0) MediaSurfaces.NativePlayerOverlay.SetForegroundWindow(_storageOwnerHwnd);
         dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = Shell.RequestedTheme;
         _browserDialog = dialog;
         try { return await dialog.ShowAsync(); }
@@ -301,7 +303,7 @@ public sealed partial class MainPage
         if (resources.Length == 0) return;
         var path = new TextBox { Header = "目标文件夹的原始路径", Text = directory.WirePath, MinWidth = 360 };
         if (clipboard is not null) path.Visibility = Visibility.Collapsed;
-        var conflicts = new ComboBox { Header = "同名项目", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
+        var conflicts = new Fileway.App.Controls.ChoiceBox { Header = "同名项目", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
         foreach (var label in new[] { "保留两者（自动改名）", "遇到冲突停止", "跳过同名项目", "替换同名项目" }) conflicts.Items.Add(label);
         var explanation = new TextBlock { Text = $"已选择 {resources.Length} 项。目标会在提交前向服务器核实。复制或移动由服务器任务执行，提交接受不表示完成。", TextWrapping = TextWrapping.Wrap, MaxWidth = 460 };
         var content = new StackPanel { Spacing = 16 }; content.Children.Add(path); content.Children.Add(conflicts); content.Children.Add(explanation);

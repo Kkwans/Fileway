@@ -14,29 +14,50 @@ public sealed partial class MainPage
     private readonly Dictionary<(AccountKey Account, string WirePath), BrowserFileTypeFilter[]> _directoryTypeFilters = [];
     private bool _typeFiltersEdited;
     private PlayerSettingsWindow? _detailsPopup;
+    private PlayerSettingsWindow? _choicePopup;
+    private StackPanel? _typeFilterOptions;
     private readonly Dictionary<InfoBar, (DispatcherQueueTimer Timer, string Key)> _toasts = [];
 
     private void InitializePresentation()
     {
         BrowserBody.Children.Remove(DetailsPanel);
-        DetailsPanel.Width = 400;
+        DetailsPanel.Width = 520;
+        DetailsPanel.Height = 520;
         DetailsPanel.MaxHeight = 560;
         DetailsPanel.Padding = new Thickness(20);
         DetailsPanel.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         DetailsPanel.BorderThickness = new Thickness(0);
         Notice.IsOpen = false;
         LoginNotice.IsClosable = true;
-        if (ViewOptionsButton.Flyout is { } layouts) ConfigurePopupMaterial(layouts);
-        if (TypeFilterBox.Flyout is { } filters) ConfigurePopupMaterial(filters);
+        AttachChoices(ViewOptionsButton);
+        _typeFilterOptions = (TypeFilterBox.Flyout as Flyout)?.Content as StackPanel;
+        AttachChoices(TypeFilterBox);
     }
 
-    private static void ConfigurePopupMaterial(FlyoutBase flyout)
+    private void AttachChoices(DropDownButton button)
+    {
+        if (button.Flyout is not Flyout { Content: FrameworkElement content } flyout) return;
+        flyout.Content = null; button.Flyout = null;
+        content.Width = double.NaN; content.Margin = new Thickness(0);
+        var frame = new Border { Width = 208, Padding = new Thickness(8), Child = content };
+        button.Click += (_, _) =>
+        {
+            _choicePopup?.Dispose();
+            if (XamlRoot is null) return;
+            var owner = Microsoft.UI.Win32Interop.GetWindowFromWindowId(XamlRoot.ContentIslandEnvironment.AppWindowId);
+            var popup = new PlayerSettingsWindow(owner, frame, null, () => _choicePopup = null, theme: ActualTheme, wrapContent: false);
+            popup.Title = button == TypeFilterBox ? "筛选文件类型" : "文件布局";
+            _choicePopup = popup; popup.ShowAt(button, preferBelow: true);
+        };
+    }
+
+    private void ConfigurePopupMaterial(FlyoutBase flyout)
     {
         if (!Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported() ||
             !new Windows.UI.ViewManagement.UISettings().AdvancedEffectsEnabled || new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast) return;
-        flyout.SystemBackdrop = new PlayerSettingsWindow.SettingsAcrylicBackdrop(ElementTheme.Default);
         var style = new Style(typeof(MenuFlyoutPresenter));
-        style.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Microsoft.UI.Colors.Transparent)));
+        var tint = ActualTheme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 40, 43, 48) : Windows.UI.Color.FromArgb(255, 249, 250, 252);
+        style.Setters.Add(new Setter(Control.BackgroundProperty, new AcrylicBrush { TintOpacity = 0.8, TintColor = tint, FallbackColor = tint }));
         style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(8)));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(4)));
         if (flyout is MenuFlyout menu) menu.MenuFlyoutPresenterStyle = style;
@@ -76,6 +97,7 @@ public sealed partial class MainPage
     private void DisposePresentation()
     {
         _detailsPopup?.Dispose(); _detailsPopup = null;
+        _choicePopup?.Dispose(); _choicePopup = null;
         foreach (var state in _toasts.Values) state.Timer.Stop();
         _toasts.Clear();
     }
@@ -112,7 +134,7 @@ public sealed partial class MainPage
             _typeFilters.Clear();
             if (_browserPreferences.TypeFilter != BrowserFileTypeFilter.All) _typeFilters.Add(_browserPreferences.TypeFilter);
         }
-        if (TypeFilterBox.Flyout is not Flyout { Content: StackPanel panel }) return;
+        if (_typeFilterOptions is not { } panel) return;
         var labels = new List<string>();
         foreach (var item in panel.Children.OfType<ToggleButton>())
         {
@@ -131,9 +153,12 @@ public sealed partial class MainPage
         var panel = new StackPanel { Spacing = 20, Width = 300, Margin = new Thickness(16) };
         var toast = new Slider { Header = "提示自动消失（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ToastSeconds };
         var controls = new Slider { Header = "播放控件自动隐藏（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
+        var remember = new ToggleSwitch { Header = "再次打开视频", OnContent = "保留上次窗口大小", OffContent = "按视频比例自动调整", IsOn = PresentationPreferences.RememberPlayerSize };
+        remember.Toggled += (_, _) => Save(() => PresentationPreferences.RememberPlayerSize = remember.IsOn);
         toast.ValueChanged += (_, _) => Save(() => PresentationPreferences.ToastSeconds = (int)toast.Value);
         controls.ValueChanged += (_, _) => Save(() => PresentationPreferences.ControlsHideSeconds = (int)controls.Value);
         panel.Children.Add(toast); panel.Children.Add(controls);
+        panel.Children.Add(remember);
         _ = ShowBrowserDialogAsync(new ContentDialog { Title = "交互偏好", CloseButtonText = "完成", Content = panel });
         void Save(Action action) { try { action(); } catch (Exception) { SetNotice("偏好未保存", "请检查当前用户的设置权限。", InfoBarSeverity.Warning); } }
     }

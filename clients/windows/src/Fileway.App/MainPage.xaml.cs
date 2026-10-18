@@ -187,6 +187,7 @@ public sealed partial class MainPage : Page, IDisposable
         DisposeApplicationMenus();
         DisposeUploadPresentation();
         DisposeDownloadPresentation();
+        TransfersPanel.Dispose();
         RetireChecksumDialog();
         _browserDialog?.Hide();
         _storageDialog?.Hide(); _storageControl?.Dispose();
@@ -550,16 +551,19 @@ public sealed partial class MainPage : Page, IDisposable
         FavoriteActionButton.IsEnabled = TagActionButton.IsEnabled = DetailsFavoriteButton.IsEnabled = DetailsTagButton.IsEnabled = enabled;
         var favorite = CollectionsPanel.IsCurrentResourceFavorite;
         FavoriteActionButton.Label = favorite ? "取消收藏" : "收藏";
-        DetailsFavoriteButton.Content = favorite ? "取消收藏" : "收藏";
+        ToolTipService.SetToolTip(DetailsFavoriteButton, favorite ? "取消收藏" : "收藏");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DetailsFavoriteButton, favorite ? "取消收藏" : "收藏");
     }
     private async void FavoriteResource_Click(object sender, RoutedEventArgs args)
     {
         if (_disposed || _connecting) return;
+        SetDetailsVisible(false);
         UpdateCollectionsContext(); await CollectionsPanel.ToggleCurrentFavoriteAsync();
     }
     private async void TagResource_Click(object sender, RoutedEventArgs args)
     {
         if (_disposed || _connecting) return;
+        SetDetailsVisible(false);
         UpdateCollectionsContext(); await CollectionsPanel.ManageCurrentResourceTagsAsync();
     }
     private void HideCollections()
@@ -641,7 +645,7 @@ public sealed partial class MainPage : Page, IDisposable
         if (e.Handled || e.Key != VirtualKey.Escape) return;
         e.Handled = true; CloseDetails_Click(sender, e);
     }
-    private async void DetailsOpen_Click(object sender, RoutedEventArgs e) => await OpenSelectedAsync();
+    private async void DetailsOpen_Click(object sender, RoutedEventArgs e) { SetDetailsVisible(false); await OpenSelectedAsync(); }
     private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (StatusText is not null && !_changingView && ReferenceEquals(sender, ActiveFiles)) UpdateSelection(); }
     private void UpdateSelection()
     {
@@ -653,6 +657,13 @@ public sealed partial class MainPage : Page, IDisposable
         DetailsMetadata.Text = row is not null ? $"类型：{row.Kind}\n大小：{row.Size}\n修改时间：{row.Modified}" : "选择单个文件或目录，查看详细信息。";
         DetailsPath.Text = row?.File.Resource.DisplayPath ?? "";
         DetailsOpenButton.IsEnabled = row is not null && !_connecting;
+        DetailsFileIcon.IconName = row?.IconName ?? "file";
+        DetailsDownloadButton.IsEnabled = row is not null && CanDownloadSelection;
+        DetailsCopyButton.IsEnabled = CanCaptureClipboard(FileTransferAction.Copy);
+        DetailsCutButton.IsEnabled = CanCaptureClipboard(FileTransferAction.Move);
+        DetailsRenameButton.IsEnabled = row is not null && CanWrite(p => p.Rename);
+        DetailsMoveButton.IsEnabled = row is not null && CanWrite(p => p.Rename && p.Create);
+        DetailsTrashButton.IsEnabled = row is not null && CanWrite(p => p.Delete);
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
         UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateRemoteToolsContext(); UpdateChecksumContext();
@@ -784,9 +795,9 @@ public sealed partial class MainPage : Page, IDisposable
         {
             _detailsPopup = new MediaSurfaces.PlayerSettingsWindow(_storageOwnerHwnd, DetailsPanel, null,
                 () => { _detailsPopup = null; _detailsVisible = false; if (!_disposed) UpdateApplicationMenus(); },
-                theme: ActualTheme == ElementTheme.Dark ? ElementTheme.Dark : ElementTheme.Light);
+                theme: ActualTheme == ElementTheme.Dark ? ElementTheme.Dark : ElementTheme.Light, wrapContent: false, lightDismiss: false, movable: true);
             _detailsPopup.Title = "详细信息";
-            _detailsPopup.ShowAt(ViewOptionsButton);
+            _detailsPopup.ShowCentered();
         }
         catch (Exception) { _detailsPopup?.Dispose(); _detailsPopup = null; _detailsVisible = false; SetNotice("详情未能打开", "请重新选择项目后重试。", InfoBarSeverity.Warning); }
     }
@@ -830,22 +841,7 @@ public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = n
     public bool IsImage => !File.IsDirectory && (File.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true || ImageExtensions.Contains(Path.GetExtension(Name)));
     public bool IsVideo => !File.IsDirectory && (File.MediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true || VideoExtensions.Contains(Path.GetExtension(Name)));
     public string Glyph => File.IsDirectory ? "\uE8B7" : IsImage ? "\uEB9F" : IsVideo ? "\uE714" : "\uE8A5";
-    // File rows are materialized on the app's UI thread. Reuse seven vector
-    // sources, rather than allocating a native SVG object for every directory entry.
-    private static readonly Dictionary<string, Microsoft.UI.Xaml.Media.Imaging.SvgImageSource> IconSources = [];
-    public Microsoft.UI.Xaml.Media.ImageSource IconSource => CreateFileIcon(File);
-    private static Microsoft.UI.Xaml.Media.Imaging.SvgImageSource CreateFileIcon(RemoteFile file)
-    {
-        var extension = Path.GetExtension(file.Resource.DisplayName);
-        var type = file.IsDirectory ? "folder" : file.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true || ImageExtensions.Contains(extension) ? "image"
-            : file.MediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true || VideoExtensions.Contains(extension) ? "video"
-            : file.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true || new[] { ".mp3", ".flac", ".wav", ".m4a", ".ogg", ".aac", ".opus" }.Contains(extension, StringComparer.OrdinalIgnoreCase) ? "audio"
-            : new[] { ".cs", ".go", ".js", ".ts", ".py", ".json", ".xml", ".yaml", ".html", ".css" }.Contains(extension, StringComparer.OrdinalIgnoreCase) ? "code"
-            : new[] { ".srt", ".ass", ".ssa", ".txt", ".md", ".log" }.Contains(extension, StringComparer.OrdinalIgnoreCase) ? "text" : "file";
-        if (!IconSources.TryGetValue(type, out var icon))
-            IconSources[type] = icon = new Microsoft.UI.Xaml.Media.Imaging.SvgImageSource(new Uri($"ms-appx:///Assets/FileIcons/{type}.svg"));
-        return icon;
-    }
+    public string IconName => File.IsDirectory ? "folder" : IsImage ? "image" : IsVideo ? "film-strip" : File.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true ? "headphones" : Path.GetExtension(Name).ToLowerInvariant() switch { ".srt" or ".ass" or ".txt" or ".md" => "article", ".cs" or ".py" or ".go" or ".json" => "file-code", _ => "file" };
     public string Kind => File.IsDirectory ? "文件夹" : IsImage ? "图片" : IsVideo ? "视频" : string.IsNullOrEmpty(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant() + " 文件";
     public string Size => File.IsDirectory ? "—" : FormatSize(File.Size);
     public string Summary => File.IsDirectory ? Kind : $"{Kind} · {Size}";

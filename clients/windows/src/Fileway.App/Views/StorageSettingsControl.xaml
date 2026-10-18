@@ -16,8 +16,8 @@
                 <InfoBar x:Name="CacheNotice" IsOpen="False" IsClosable="False" Severity="Informational"/>
                 <ContentControl x:Name="CacheActions" IsEnabled="False" HorizontalContentAlignment="Stretch">
                     <CommandBar Background="Transparent" DefaultLabelPosition="Right" IsDynamicOverflowEnabled="False">
-                        <AppBarButton Label="刷新" Icon="Refresh" Click="RefreshCache_Click" AutomationProperties.Name="刷新缓存占用"/>
-                        <AppBarButton Label="清理未使用缓存" Icon="Delete" Click="ClearCache_Click" AutomationProperties.Name="清理未使用缓存"/>
+                        <AppBarButton Label="刷新" Click="RefreshCache_Click" AutomationProperties.Name="刷新缓存占用"><AppBarButton.Icon><PathIcon Data="{StaticResource Phosphor-arrows-clockwise}"/></AppBarButton.Icon></AppBarButton>
+                        <AppBarButton Label="清理未使用缓存" Click="ClearCache_Click" AutomationProperties.Name="清理未使用缓存"><AppBarButton.Icon><PathIcon Data="{StaticResource Phosphor-trash}"/></AppBarButton.Icon></AppBarButton>
                     </CommandBar>
                 </ContentControl>
             </StackPanel>

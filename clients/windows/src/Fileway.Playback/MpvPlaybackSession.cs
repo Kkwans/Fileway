@@ -12,7 +12,7 @@ using Fileway.Playback.Native;
 
 namespace Fileway.Playback;
 
-internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSource
+internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSource, ISubtitleViewportControl
 {
     RemoteResourceRef? IPlaybackResourceSource.Resource => _originalResource;
     private static readonly TimeSpan NativeDeadline = TimeSpan.FromSeconds(10);
@@ -49,6 +49,9 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
     private SubtitlePreferences _subtitlePreferences = new();
     private double _subtitleBottomInset;
     private bool _scriptSubtitleSelected;
+    private bool _bitmapSubtitleSelected;
+    private double _subtitleViewportAspect;
+    private double? _lastViewportSubtitlePosition;
 
     private sealed record PlaybackCommand(string[][] Arguments, TaskCompletionSource Completion, CancellationToken Cancellation);
 
@@ -136,7 +139,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
                 ulong observer = 0;
                 foreach (var property in new (string Name, int Format)[]
                 {
-                    ("time-pos", 5), ("duration", 5), ("pause", 3), ("seeking", 3), ("paused-for-cache", 3),
+                    ("time-pos", 5), ("duration", 5), ("pause", 3), ("seeking", 3), ("paused-for-cache", 3), ("cache-buffering-state", 5),
                     ("eof-reached", 3), ("seekable", 3), ("track-list", 6), ("video-format", 1),
                     ("audio-codec-name", 1), ("hwdec-current", 1), ("current-gpu-context", 1), ("video-params/gamma", 1),
                     ("fullscreen", 3), ("speed", 5), ("volume", 5), ("mute", 3),
@@ -366,6 +369,8 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
             case "pause" when property.Value is bool paused: _paused = paused; Publish(snapshot => snapshot with { Status = CurrentStatus(), IsPaused = paused }); break;
             case "seeking" when property.Value is bool seeking: _seeking = seeking; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
             case "paused-for-cache" when property.Value is bool buffering: _buffering = buffering; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
+            case "cache-buffering-state":
+                Publish(snapshot => snapshot with { BufferingPercent = property.Value is double percent && double.IsFinite(percent) ? Math.Clamp(percent, 0, 100) : null }); break;
             case "eof-reached" when property.Value is bool ended: _ended = ended; Publish(snapshot => snapshot with { Status = CurrentStatus() }); break;
             case "seekable" when property.Value is bool seekable: Publish(snapshot => snapshot with { Seekable = seekable }); break;
             case "speed" when property.Value is double rate && double.IsFinite(rate) && rate > 0:
@@ -470,7 +475,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
         }
         bool bitmap = parsed.Any(track => track.Kind == MediaTrackKind.Subtitle && track.Selected && track.Codec is "hdmv_pgs_subtitle" or "dvd_subtitle");
         bool script = parsed.Any(track => track.Kind == MediaTrackKind.Subtitle && track.Selected && track.Codec is "ass" or "ssa");
-        lock (_gate) _scriptSubtitleSelected = script;
+        lock (_gate) { _scriptSubtitleSelected = script; _bitmapSubtitleSelected = bitmap; _lastViewportSubtitlePosition = null; }
         Publish(snapshot => snapshot with { Tracks = parsed.AsReadOnly(), SubtitleCapabilities = new SubtitleCapabilities(!bitmap, !bitmap, true, true, script) });
         try { _ = ObserveWindowCommandAsync(QueueAsync(CurrentSubtitleCommands(), CancellationToken.None)); }
         catch (FilewayException) { }
@@ -554,7 +559,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
     public async Task SetSubtitlesAsync(SubtitlePreferences preferences, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(preferences);
-        if (!double.IsFinite(preferences.Scale) || preferences.Scale is < 0.1 or > 10 || !double.IsFinite(preferences.VerticalPositionPercent) || preferences.VerticalPositionPercent is < 0 or > 100 ||
+        if (!double.IsFinite(preferences.Scale) || preferences.Scale is < 0.1 or > 10 || !double.IsFinite(preferences.VerticalPositionPercent) || preferences.VerticalPositionPercent is < 0 or > 150 ||
             !double.IsFinite(preferences.FontSize) || preferences.FontSize is < 8 or > 120 || preferences.FontFamily?.Length > 256)
             throw MpvNative.Error(ErrorCode.InvalidRequest, "字幕显示参数无效。");
         SubtitlePreferences previous;
@@ -584,17 +589,42 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
             // Author-positioned ASS remains at its native geometry. The full-window
             // mode deliberately includes letterboxing instead of clamping to video.
             // Video-only mode retains the temporary control-bar safety inset.
-            var position = preserve ? 100 : preferences.UseWindowArea ? preferences.VerticalPositionPercent : Math.Min(preferences.VerticalPositionPercent, 100 * (1 - _subtitleBottomInset));
+            var position = SubtitlePosition();
             var scale = preserve ? 1 : preferences.Scale;
             return [["set", "sub-scale", scale.ToString("R", CultureInfo.InvariantCulture)],
                 ["set", "sub-pos", position.ToString("R", CultureInfo.InvariantCulture)],
                 ["set", "sub-delay", preferences.Delay.TotalSeconds.ToString("R", CultureInfo.InvariantCulture)],
-                ["set", "sub-ass-override", preserve ? "no" : "force"],
-                ["set", "sub-use-margins", !preserve && preferences.UseWindowArea ? "yes" : "no"],
-                ["set", "sub-ass-force-margins", !preserve && preferences.UseWindowArea ? "yes" : "no"],
+                ["set", "sub-ass-override", preserve ? "yes" : "force"],
+                ["set", "sub-use-margins", preferences.UseWindowArea ? "yes" : "no"],
+                ["set", "sub-ass-force-margins", preferences.UseWindowArea ? "yes" : "no"],
                 ["set", "sub-font-size", preferences.FontSize.ToString("R", CultureInfo.InvariantCulture)],
                 ["set", "sub-font", string.IsNullOrWhiteSpace(preferences.FontFamily) ? "sans-serif" : preferences.FontFamily]];
         }
+    }
+    private double SubtitlePosition()
+    {
+        var prefs = _subtitlePreferences;
+        var position = prefs.UseWindowArea ? prefs.VerticalPositionPercent : Math.Min(prefs.VerticalPositionPercent, 100 * (1 - _subtitleBottomInset));
+        // Bitmap subtitles ignore text margin options. Move their original
+        // canvas down into the observed letterbox, without stretching the bitmap.
+        if (_bitmapSubtitleSelected && prefs.UseWindowArea && _subtitleViewportAspect > 0 &&
+            _snapshot.DisplayAspectRatio is { } aspect && aspect > _subtitleViewportAspect)
+            position += (1 - _subtitleViewportAspect / aspect) / 2 * 60 + 5;
+        return Math.Clamp(position, 0, 150);
+    }
+    public Task SetSubtitleViewportAsync(double width, double height, CancellationToken cancellationToken)
+    {
+        if (!double.IsFinite(width) || !double.IsFinite(height) || width <= 0 || height <= 0) return Task.CompletedTask;
+        double position;
+        lock (_gate)
+        {
+            _subtitleViewportAspect = width / height;
+            if (!_bitmapSubtitleSelected || !_subtitlePreferences.UseWindowArea) return Task.CompletedTask;
+            position = SubtitlePosition();
+            if (_lastViewportSubtitlePosition is { } previous && Math.Abs(position - previous) < 0.25) return Task.CompletedTask;
+            _lastViewportSubtitlePosition = position;
+        }
+        return QueueAsync([["set", "sub-pos", position.ToString("R", CultureInfo.InvariantCulture)]], cancellationToken);
     }
     public async Task AddSubtitleAsync(PlaybackInput subtitle, CancellationToken cancellationToken)
     {

@@ -67,7 +67,7 @@ internal static class DownloadPresentationPolicy
     internal static string Stage(DownloadItem item) => EffectiveStatus(item) switch
     {
         DownloadStatus.NotStarted => "尚未开始", DownloadStatus.Queued => "等待下载", DownloadStatus.Preparing => "正在准备",
-        DownloadStatus.Downloading => "正在下载", DownloadStatus.Canceling => "正在取消并清理", DownloadStatus.Stopped => "下载已停止",
+        DownloadStatus.Downloading => "正在下载", DownloadStatus.Paused => "已暂停", DownloadStatus.Canceling => "正在取消并清理", DownloadStatus.Stopped => "下载已停止",
         DownloadStatus.WaitingNetwork => "下载已停止，网络不可用", DownloadStatus.WaitingAuthentication => "下载已停止，需要重新登录",
         DownloadStatus.Conflict => "本地存在同名文件", DownloadStatus.SourceChanged => "远端文件已变化", DownloadStatus.Failed => "下载失败",
         DownloadStatus.OutcomeUnknown => item.Snapshot.Intent == TransferIntent.Cancel ? "取消结果待本地核实" : "本地保存结果待核实",

@@ -342,14 +342,14 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             var choices = new List<GroupChoice> { new("", "未分组") };
             choices.AddRange((_snapshot?.FavoriteGroups ?? []).Select(item => new GroupChoice(item.Id, item.Name, item)));
             if (!string.IsNullOrEmpty(groupId) && choices.All(item => item.Id != groupId)) panel.Children.Add(new TextBlock { Text = "原分组已不可用，保存时请选择现有分组或未分组。", TextWrapping = TextWrapping.Wrap });
-            groups = new ComboBox { Header = "收藏分组", ItemsSource = choices, DisplayMemberPath = "Label", HorizontalAlignment = HorizontalAlignment.Stretch };
+            groups = new Fileway.App.Controls.ChoiceBox { Header = "收藏分组", ItemsSource = choices, DisplayMemberPath = "Label", HorizontalAlignment = HorizontalAlignment.Stretch };
             groups.SelectedItem = choices.FirstOrDefault(item => item.Id == groupId) ?? choices[0]; panel.Children.Add(groups);
         }
         if (chooseColor)
         {
             var choices = Colors.Select(item => new ColorChoice(item.Name, item.Value)).ToList();
             if (!string.IsNullOrEmpty(color) && choices.All(item => !StringComparer.OrdinalIgnoreCase.Equals(item.Value, color))) choices.Insert(0, new("保留原颜色", color));
-            colors = new ComboBox { Header = "标签颜色", ItemsSource = choices, HorizontalAlignment = HorizontalAlignment.Stretch };
+            colors = new Fileway.App.Controls.ChoiceBox { Header = "标签颜色", ItemsSource = choices, HorizontalAlignment = HorizontalAlignment.Stretch };
             colors.SelectedItem = choices.FirstOrDefault(item => StringComparer.OrdinalIgnoreCase.Equals(item.Value, color)) ?? choices[0];
             colors.ItemTemplate = (DataTemplate)Resources["TagColorTemplate"]; panel.Children.Add(colors);
         }

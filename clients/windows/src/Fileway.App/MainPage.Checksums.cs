@@ -40,7 +40,7 @@ public sealed partial class MainPage
         content.Children.Add(new TextBlock { Text = source.DisplayName, FontSize = 18,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         content.Children.Add(new TextBlock { Text = source.DisplayPath, FontSize = 12, TextWrapping = TextWrapping.Wrap });
-        var algorithm = new ComboBox { Header = "算法", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var algorithm = new Fileway.App.Controls.ChoiceBox { Header = "算法", HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var label in new[] { "MD5", "SHA-1", "SHA-256", "SHA-512" }) algorithm.Items.Add(label);
         algorithm.SelectedIndex = 2;
         var expected = new TextBox { Header = "预期校验和（可选）", MaxLength = 1024, PlaceholderText = "十六进制字符；留空只计算" };

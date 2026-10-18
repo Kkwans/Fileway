@@ -43,3 +43,8 @@ public interface IFileDownloadRunner : IAsyncDisposable
     /// <summary>Persists cancellation and drains all active writers/capabilities before the original connection retires.</summary>
     Task StopAndDrainAsync(CancellationToken cancellationToken);
 }
+
+public interface IActiveDownloadPauseControl
+{
+    Task<TransferTaskRecord> SetPausedAsync(TransferTaskRef task, bool paused, CancellationToken cancellationToken);
+}

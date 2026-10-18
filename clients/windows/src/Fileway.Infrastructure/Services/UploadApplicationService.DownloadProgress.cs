@@ -149,7 +149,7 @@ public sealed partial class UploadApplicationService
             (files.PartialPath is not null && files.PartialIdentity is not null || files.PublishedFileIdentity is not null);
         return new(record.Plan.Reference, record.Intent, checkpoint.Phase, checkpoint.ConfirmedOffset, checkpoint.Source?.Length,
             published, checkpoint.Uncertainty, checkpoint.Error is { } error ? DownloadSafe(error.Code, error.HttpStatus, error.Retryable).Error : null,
-            record.Revision, record.Generation, localEvidence && !DownloadTerminal(checkpoint.Phase));
+            record.Revision, record.Generation, localEvidence && !DownloadTerminal(checkpoint.Phase), record.CreatedAt, record.UpdatedAt);
     }
 
     private DownloadItem ObserveDownload(Binding binding, TransferTaskRecord record, DownloadTaskProgress? progress = null, bool publish = true)
@@ -198,6 +198,7 @@ public sealed partial class UploadApplicationService
             status = snapshot.LocalPublished ? DownloadStatus.Completed : DownloadStatus.OutcomeUnknown;
         else if (snapshot.Phase == TransferPhase.Canceled) status = DownloadStatus.Canceled;
         else if (item.Control is { } control) status = control;
+        else if (snapshot.Intent == TransferIntent.Pause && item.Scheduled) status = DownloadStatus.Paused;
         else if (snapshot.Intent == TransferIntent.Cancel) status = DownloadStatus.OutcomeUnknown;
         else if (snapshot.Error is not null && snapshot.Phase is TransferPhase.Queued or TransferPhase.Preparing or TransferPhase.Running or
             TransferPhase.Verifying or TransferPhase.Publishing or TransferPhase.Reconciling) status = DownloadStatus.Failed;
@@ -209,7 +210,8 @@ public sealed partial class UploadApplicationService
             TransferPhase.Queued => DownloadStatus.Queued,
             TransferPhase.Preparing => DownloadStatus.Preparing,
             TransferPhase.Running => DownloadStatus.Downloading,
-            TransferPhase.Paused or TransferPhase.Skipped => DownloadStatus.Stopped,
+            TransferPhase.Paused => item.Scheduled ? DownloadStatus.Paused : DownloadStatus.Stopped,
+            TransferPhase.Skipped => DownloadStatus.Stopped,
             TransferPhase.WaitingNetwork => DownloadStatus.WaitingNetwork,
             TransferPhase.WaitingAuthentication => DownloadStatus.WaitingAuthentication,
             TransferPhase.Conflict => DownloadStatus.Conflict,
@@ -221,7 +223,8 @@ public sealed partial class UploadApplicationService
             _ => DownloadStatus.Failed,
         };
         return new(binding.DownloadContext, item.Source, item.Source.DisplayName, item.Destination, status, snapshot, item.Progress,
-            checked(++_downloadPresentationRevision));
+            checked(++_downloadPresentationRevision), CanPause: item.Scheduled && status == DownloadStatus.Downloading,
+            CanResume: item.Scheduled && status == DownloadStatus.Paused);
     }
 
     private void RecordDownloadFailure(Binding binding, TransferTaskRef task, Exception error)

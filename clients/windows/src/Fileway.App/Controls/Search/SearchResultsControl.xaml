@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<UserControl x:Class="Fileway.App.Controls.Search.SearchResultsControl"
+<UserControl x:Class="Fileway.App.Controls.Search.SearchResultsControl" xmlns:ui="using:Fileway.App.Controls"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:search="using:Fileway.App.Controls.Search">
@@ -11,7 +11,7 @@
   </Grid>
   <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <TextBox x:Name="QueryBox" MinWidth="120" MaxLength="8192" PlaceholderText="输入文件名或搜索条件" TextChanged="Query_Changed" KeyDown="Query_KeyDown" AutomationProperties.Name="服务器搜索条件，按 Enter 开始搜索"/>
-   <ComboBox x:Name="ScopeBox" Grid.Column="1" Width="120" SelectedIndex="1" SelectionChanged="Scope_Changed" AutomationProperties.Name="服务器搜索范围"><ComboBoxItem Content="当前目录"/><ComboBoxItem Content="含子目录"/></ComboBox>
+   <ui:ChoiceBox x:Name="ScopeBox" Grid.Column="1" Width="120" SelectedIndex="1" SelectionChanged="Scope_Changed" AutomationProperties.Name="服务器搜索范围"><ComboBoxItem Content="当前目录"/><ComboBoxItem Content="含子目录"/></ui:ChoiceBox>
    <Button x:Name="SearchButton" Grid.Column="2" Content="搜索" Click="Search_Click" IsEnabled="False" AutomationProperties.Name="开始服务器搜索" ToolTipService.ToolTip="在服务器搜索指定范围 (Enter)"/>
   </Grid>
   <Grid Grid.Row="2" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -27,7 +27,7 @@
      <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/><TextBlock Text="{x:Bind DisplayPath}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}" ToolTipService.ToolTip="{x:Bind DisplayPath}"/><TextBlock Text="{x:Bind Summary}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind IdentityHint}" Visibility="{x:Bind IdentityVisibility}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
     </Grid></DataTemplate></ListView.ItemTemplate>
    </ListView>
-   <StackPanel x:Name="SearchEmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="380" Spacing="12" Margin="12"><FontIcon Glyph="&#xE721;" FontSize="36" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="SearchEmptyTitle" Text="搜索服务器文件" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="SearchEmptyText" Text="输入条件并选择范围，然后开始搜索。" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+   <StackPanel x:Name="SearchEmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="380" Spacing="12" Margin="12"><ui:PhosphorIcon IconName="magnifying-glass" Width="36" Height="36" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="SearchEmptyTitle" Text="搜索服务器文件" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="SearchEmptyText" Text="输入条件并选择范围，然后开始搜索。" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
   </Grid>
   <TextBlock x:Name="SearchCount" Grid.Row="5" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
  </Grid>

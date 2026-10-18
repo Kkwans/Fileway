@@ -4,6 +4,19 @@ namespace Fileway.Infrastructure.Persistence;
 
 public sealed partial class InMemoryProfileStore
 {
+    public Task RemoveTransferAsync(TransferTaskRef task, long expectedRevision, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_gate)
+        {
+            var record = _transfers.GetValueOrDefault(task) ?? throw TransferTaskValidation.Conflict();
+            EnsureJournalAccount(task.Account);
+            if (record.Revision != expectedRevision || TransferTaskValidation.IsProtected(record) || record.Checkpoint.Phase is not (TransferPhase.Completed or TransferPhase.Canceled or TransferPhase.Skipped)) throw TransferTaskValidation.Conflict();
+            _transfers.Remove(task); _transferRunIds.Remove(task); _transferRoutes.Remove(task);
+            return Task.CompletedTask;
+        }
+    }
+
     private readonly Dictionary<TransferTaskRef, TransferTaskRecord> _transfers = [];
     private readonly Dictionary<TransferTaskRef, Guid> _transferRunIds = [];
     private readonly Dictionary<TransferTaskRef, string> _transferRoutes = [];

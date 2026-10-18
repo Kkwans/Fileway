@@ -8,6 +8,12 @@ namespace Fileway.App;
 internal static class PresentationPreferences
 {
     private const string Key = @"HKEY_CURRENT_USER\Software\Fileway\Preview\Presentation";
+    internal static bool RememberPlayerSize { get => Registry.GetValue(Key, "RememberPlayerSize", 0) is int value && value == 1; set => Registry.SetValue(Key, "RememberPlayerSize", value ? 1 : 0); }
+    internal static (int Width, int Height)? PlayerSize
+    {
+        get => Registry.GetValue(Key, "PlayerWidth", 0) is int w && Registry.GetValue(Key, "PlayerHeight", 0) is int h && w is >= 480 and <= 7680 && h is >= 270 and <= 4320 ? (w, h) : null;
+        set { if (value is { } size) { Registry.SetValue(Key, "PlayerWidth", size.Width); Registry.SetValue(Key, "PlayerHeight", size.Height); } }
+    }
     internal static int ControlsHideSeconds { get => ReadSeconds("ControlsHideSeconds"); set => Registry.SetValue(Key, "ControlsHideSeconds", Math.Clamp(value, 2, 30)); }
     internal static int ToastSeconds { get => ReadSeconds("ToastSeconds"); set => Registry.SetValue(Key, "ToastSeconds", Math.Clamp(value, 2, 30)); }
     private static int ReadSeconds(string name)
@@ -25,7 +31,7 @@ internal static class PresentationPreferences
                 var prefs = value is { Length: < 4096 } ? JsonSerializer.Deserialize<SubtitlePreferences>(value) : null;
                 return prefs is not null && double.IsFinite(prefs.FontSize) && prefs.FontSize is >= 8 and <= 120 &&
                     double.IsFinite(prefs.Scale) && prefs.Scale is >= 0.1 and <= 10 &&
-                    double.IsFinite(prefs.VerticalPositionPercent) && prefs.VerticalPositionPercent is >= 0 and <= 100
+                    double.IsFinite(prefs.VerticalPositionPercent) && prefs.VerticalPositionPercent is >= 0 and <= 150
                     ? prefs : new();
             }
             catch (Exception) { return new(); }

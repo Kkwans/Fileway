@@ -426,12 +426,12 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
 
     private void UpdateLayoutState()
     {
-        DetailColumn.Width = _narrow ? new GridLength(0) : new GridLength(360);
         bool hasDetail = _historyMode ? OperationRecords.SelectedItem is not null : DetailTask is not null;
+        DetailColumn.Width = _narrow || !hasDetail ? new GridLength(0) : new GridLength(340);
         DetailRow.Height = _narrow && hasDetail ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         Grid.SetColumn(DetailsPane, _narrow ? 0 : 1); Grid.SetRow(DetailsPane, _narrow ? 1 : 0);
         Grid.SetColumnSpan(ListArea, _narrow ? 2 : 1); Grid.SetColumnSpan(DetailsPane, _narrow ? 2 : 1);
-        DetailsPane.Visibility = !_narrow || hasDetail ? Visibility.Visible : Visibility.Collapsed;
+        DetailsPane.Visibility = hasDetail ? Visibility.Visible : Visibility.Collapsed;
         DetailsPane.BorderThickness = _narrow ? new Thickness(0, 1, 0, 0) : new Thickness(1, 0, 0, 0);
         DetailsPane.Padding = _narrow ? new Thickness(0, 12, 0, 0) : new Thickness(16, 4, 0, 4);
     }

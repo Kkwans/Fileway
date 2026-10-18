@@ -105,6 +105,11 @@ internal sealed class TransferCenterPageState<T>
 
     /// <summary>Accepts a current-context event or command result without changing paging state.</summary>
     internal bool Upsert(T item) => Merge(_items, _indexes, item);
+    internal void Remove(TransferTaskRef task)
+    {
+        _items.RemoveAll(item => _key(item) == task); _indexes.Clear();
+        for (var i = 0; i < _items.Count; i++) _indexes[_key(_items[i])] = i;
+    }
 
     private bool IsCurrentLoad(long generation) => IsLoading && generation == Generation;
 

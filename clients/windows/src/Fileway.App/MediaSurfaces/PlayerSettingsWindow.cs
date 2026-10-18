@@ -30,11 +30,16 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private bool _closing;
     private bool _closed;
     private bool _released;
+    private readonly bool _lightDismiss;
+    private readonly bool _movable;
+    private readonly nint _owner;
 
     internal PlayerSettingsWindow(nint owner, FrameworkElement content, Style? presenterStyle, Action onClosed,
-        PlaybackResponsivenessDiagnostics? responsiveness = null, ElementTheme theme = ElementTheme.Dark)
+        PlaybackResponsivenessDiagnostics? responsiveness = null, ElementTheme theme = ElementTheme.Dark,
+        bool wrapContent = true, bool lightDismiss = true, bool movable = false)
     {
         _responsiveness = responsiveness;
+        _owner = owner; _lightDismiss = lightDismiss; _movable = movable;
         _root.RequestedTheme = theme;
         _backdrop = new SettingsAcrylicBackdrop(theme);
         ArgumentNullException.ThrowIfNull(content);
@@ -43,7 +48,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         _procedure = WindowProcedure;
         _keyHandler = Root_KeyDown;
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
-        _presenter = content is FlyoutPresenter or MenuFlyoutPresenter ? content : new FlyoutPresenter { Content = content };
+        _presenter = !wrapContent || content is FlyoutPresenter or MenuFlyoutPresenter ? content : new FlyoutPresenter { Content = content };
         try
         {
             if (owner == 0 || !IsWindow(owner)) throw new ArgumentException("需要有效的播放器所属窗口。", nameof(owner));
@@ -85,6 +90,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
                 _root.Background = new SolidColorBrush(fallback);
             }
             _root.AddHandler(UIElement.KeyDownEvent, _keyHandler, true);
+            _root.PointerPressed += Root_PointerPressed;
             Activated += Window_Activated;
             Closed += Window_Closed;
         }
@@ -102,7 +108,33 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
 
     internal nint Hwnd => _closed ? 0 : _window;
 
-    internal void ShowAt(FrameworkElement anchor)
+    internal void ShowCentered()
+    {
+        ObjectDisposedException.ThrowIf(_closed || _released, this); VerifyThread();
+        if (!NativePlayerOverlay.GetWindowRect(_owner, out var owner)) throw NativeFailure("GetWindowRect");
+        var scale = NativeVideoWindow.GetDpiForWindow(_owner) / 96d;
+        var work = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(Microsoft.UI.Win32Interop.GetWindowIdFromWindow(_owner), DisplayAreaFallback.Primary).WorkArea;
+        var width = Math.Min(560, work.Width / scale - 48); var height = Math.Min(680, work.Height / scale - 48);
+        _root.MaxWidth = _presenter.MaxWidth = width; _root.MaxHeight = _presenter.MaxHeight = height;
+        _root.Measure(new Size(width, height));
+        var w = (int)Math.Ceiling(_root.DesiredSize.Width * scale); var h = (int)Math.Ceiling(_root.DesiredSize.Height * scale);
+        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(Math.Clamp(owner.Left + (owner.Right-owner.Left-w)/2, work.X, work.X+work.Width-w), Math.Clamp(owner.Top+(owner.Bottom-owner.Top-h)/2,work.Y,work.Y+work.Height-h),w,h));
+        _shown = true; Activate(); _root.UpdateLayout(); FocusFirstControl(_root, FocusState.Programmatic);
+    }
+
+    private void Root_PointerPressed(object sender, PointerRoutedEventArgs args)
+    {
+        if (!_movable || args.Handled || !args.GetCurrentPoint(_root).Properties.IsLeftButtonPressed || args.GetCurrentPoint(_root).Position.Y > 56) return;
+        for (DependencyObject? current = args.OriginalSource as DependencyObject; current is not null && current != _root; current = VisualTreeHelper.GetParent(current))
+            if (current is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase or TextBox) return;
+        var point = args.GetCurrentPoint(_root).Position; var scale = _root.XamlRoot?.RasterizationScale ?? 1;
+        var screen = new NativeVideoWindow.NativePoint { X=(int)(point.X*scale), Y=(int)(point.Y*scale) };
+        if (!ClientToScreen(_window,ref screen)) return;
+        args.Handled = true; _=NativeVideoWindow.ReleaseCapture();
+        _=NativePlayerOverlay.PostMessageW(_window,0x00a1,2,(nint)unchecked((int)((screen.Y&0xffff)<<16|(screen.X&0xffff))));
+    }
+
+    internal void ShowAt(FrameworkElement anchor, bool preferBelow = false)
     {
         ArgumentNullException.ThrowIfNull(anchor);
         ObjectDisposedException.ThrowIf(_closed || _released, this);
@@ -115,6 +147,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         var logical = anchor.TransformToVisual(xamlRoot.Content).TransformPoint(new Point(0, 0));
         var anchorScale = xamlRoot.RasterizationScale;
         var anchorRight = checked(origin.X + (int)Math.Ceiling((logical.X + anchor.ActualWidth) * anchorScale));
+        var anchorLeft = checked(origin.X + (int)Math.Floor(logical.X * anchorScale));
         var anchorTop = checked(origin.Y + (int)Math.Floor(logical.Y * anchorScale));
         var anchorBottom = checked(origin.Y + (int)Math.Ceiling((logical.Y + anchor.ActualHeight) * anchorScale));
         var monitor = MonitorFromPoint(new NativeVideoWindow.NativePoint { X = anchorRight, Y = anchorTop }, 2);
@@ -125,7 +158,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         {
             // Size before the first show, then finish XAML initialization without
             // activation. Re-measure once using the target window's actual DPI.
-            PlaceAndMeasure(information.Work, anchorRight, anchorTop, anchorBottom, anchorScale);
+            PlaceAndMeasure(information.Work, anchorRight, anchorTop, anchorBottom, anchorScale, preferBelow, anchorLeft);
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsShowBegin);
             AppWindow.Show(false);
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsShowEnd);
@@ -133,7 +166,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             _root.UpdateLayout();
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutEnd, 1);
             PlaceAndMeasure(information.Work, anchorRight, anchorTop, anchorBottom,
-                _root.XamlRoot?.RasterizationScale ?? anchorScale);
+                _root.XamlRoot?.RasterizationScale ?? anchorScale, preferBelow, anchorLeft);
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutBegin, 2);
             _root.UpdateLayout();
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutEnd, 2);
@@ -151,13 +184,13 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         }
     }
 
-    private void PlaceAndMeasure(NativePlayerOverlay.Rect work, int anchorRight, int anchorTop, int anchorBottom, double scale)
+    private void PlaceAndMeasure(NativePlayerOverlay.Rect work, int anchorRight, int anchorTop, int anchorBottom, double scale, bool preferBelow, int anchorLeft)
     {
         _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsMeasureBegin);
         var gap = Math.Max(1, (int)Math.Ceiling(8 * scale));
         var availableWidth = Math.Max(1, work.Right - work.Left - gap * 2);
         var availableHeight = Math.Max(1, work.Bottom - work.Top - gap * 2);
-        var maxWidth = Math.Min(420, availableWidth / scale);
+        var maxWidth = Math.Min(double.IsFinite(_presenter.Width) ? _presenter.Width : 420, availableWidth / scale);
         var maxHeight = availableHeight / scale;
         _root.MaxWidth = _presenter.MaxWidth = maxWidth;
         _root.MaxHeight = _presenter.MaxHeight = maxHeight;
@@ -167,8 +200,8 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         _root.Measure(new Size(maxWidth, maxHeight));
         var width = Math.Clamp((int)Math.Ceiling(_root.DesiredSize.Width * scale), 1, availableWidth);
         var height = Math.Clamp((int)Math.Ceiling(_root.DesiredSize.Height * scale), 1, availableHeight);
-        var left = Math.Clamp(anchorRight - width, work.Left + gap, work.Right - gap - width);
-        var top = anchorTop - gap - height;
+        var left = Math.Clamp(preferBelow ? anchorLeft : anchorRight - width, work.Left + gap, work.Right - gap - width);
+        var top = preferBelow && anchorBottom + gap + height <= work.Bottom - gap ? anchorBottom + gap : anchorTop - gap - height;
         if (top < work.Top + gap && anchorBottom + gap + height <= work.Bottom - gap) top = anchorBottom + gap;
         top = Math.Clamp(top, work.Top + gap, work.Bottom - gap - height);
         if (!NativeVideoWindow.SetWindowPos(_window, 0, left, top, width, height, 0x0214)) // NOACTIVATE | NOZORDER | NOOWNERZORDER.
@@ -179,7 +212,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
     {
         _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsActivation, (int)args.WindowActivationState);
-        if (_shown && args.WindowActivationState == WindowActivationState.Deactivated)
+        if (_lightDismiss && _shown && args.WindowActivationState == WindowActivationState.Deactivated)
             DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, DismissIfOutside);
     }
 
@@ -260,6 +293,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         if (_released) return;
         _released = true;
         _root.RemoveHandler(UIElement.KeyDownEvent, _keyHandler);
+        _root.PointerPressed -= Root_PointerPressed;
         Activated -= Window_Activated;
         Closed -= Window_Closed;
         if (_subclassed)

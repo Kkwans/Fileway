@@ -88,6 +88,11 @@ public sealed record PlaybackDownloadState(DownloadItem Item, long? ReadablePref
     public override string ToString() => "PlaybackDownloadState (task details redacted)";
 }
 
+public interface ISubtitleViewportControl
+{
+    Task SetSubtitleViewportAsync(double width, double height, CancellationToken cancellationToken);
+}
+
 public sealed record PlaybackSnapshot(
     Guid SessionId,
     long Generation,
@@ -112,7 +117,8 @@ public sealed record PlaybackSnapshot(
     double? DownloadBytesPerSecond = null,
     // Engine-confirmed pause is independent of transient buffering/seeking; null means not observed yet.
     bool? IsPaused = null,
-    PlaybackDownloadState? Download = null)
+    PlaybackDownloadState? Download = null,
+    double? BufferingPercent = null)
 {
     public override string ToString() => "PlaybackSnapshot (private media details redacted)";
 }

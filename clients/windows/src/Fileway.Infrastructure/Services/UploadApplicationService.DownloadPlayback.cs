@@ -119,7 +119,7 @@ public sealed partial class UploadApplicationService
         RequireDownloadPermission(binding);
         if (binding.DownloadDraining || !binding.DownloadItems.TryGetValue(run.Task, out var item) ||
             item.Control is not null || item.Snapshot is not { } snapshot || snapshot.Generation != run.Generation ||
-            snapshot.TotalBytes != total || snapshot.Intent != TransferIntent.Run || snapshot.Error is not null)
+            snapshot.TotalBytes != total || snapshot.Intent is not (TransferIntent.Run or TransferIntent.Pause) || snapshot.Error is not null)
             throw DownloadSafe(ErrorCode.SourceChanged);
         bool complete = snapshot.Phase == TransferPhase.Completed && snapshot.LocalPublished;
         bool protectedExecution = item.Scheduled && snapshot.Uncertainty == TransferUncertainty.LocalPublish &&
@@ -147,7 +147,7 @@ public sealed partial class UploadApplicationService
         if (record.Plan.Reference != task || record.Plan.Direction != TransferDirection.Download ||
             record.Plan.Remote != item.Source || record.Plan.LocalPath != item.Destination)
             throw DownloadSafe(ErrorCode.ProtocolMismatch);
-        if (record.Intent != TransferIntent.Run || record.Checkpoint.Error is not null ||
+        if (record.Intent is not (TransferIntent.Run or TransferIntent.Pause) || record.Checkpoint.Error is not null ||
             record.Checkpoint.Uncertainty != TransferUncertainty.None)
             throw DownloadSafe(ErrorCode.SourceChanged);
         if (record.Checkpoint.Phase is TransferPhase.Queued or TransferPhase.Preparing)

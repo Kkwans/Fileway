@@ -115,6 +115,77 @@ internal sealed class TrashListController : IDisposable
         lock (_gate) return CanRestoreCore(item, conflict);
     }
 
+    internal bool CanDelete(TrashItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        lock (_gate) return CanReadCore() && _read is null && _flight is null &&
+            _hasVerifiedOperations && _trash is ITrashManagementService && IsEligibleDeleteCore(item);
+    }
+
+    internal async Task<FileOperationResult?> DeleteAsync(TrashItem item, CancellationToken cancellationToken = default)
+    {
+        RequestContext context;
+        RequestCancellation request;
+        lock (_gate)
+        {
+            if (!CanDelete(item)) return null;
+            context = CaptureContext(); request = StartFlightCore(restore: true, cancellationToken);
+            _error = null;
+        }
+        FileOperationResult? result = null;
+        bool invoked = false;
+        try
+        {
+            if (!await VerifyOperationsAsync(context, request, forRestore: true).ConfigureAwait(false)) return null;
+            Task<FileOperationResult> pending;
+            lock (_gate)
+            {
+                if (!IsCurrent(context, request, _flight) || request.Token.IsCancellationRequested || !IsEligibleDeleteCore(item)) return null;
+                invoked = true;
+                pending = ((ITrashManagementService)context.Trash).DeletePermanentlyAsync(item.Reference, request.Token);
+            }
+            result = await pending.ConfigureAwait(false);
+            if (result is null || !Enum.IsDefined(result.Outcome) ||
+                result.Receipt is { OperationId: var id } && id == Guid.Empty ||
+                result.Outcome == OperationOutcome.Confirmed && result.Error is not null)
+                result = new(OperationOutcome.OutcomeUnknown, Receipt: result?.Receipt);
+        }
+        catch (Exception) when (invoked) { result = new(OperationOutcome.OutcomeUnknown, Receipt: result?.Receipt); }
+        catch (Exception error)
+        {
+            lock (_gate) if (IsCurrent(context, request, _flight))
+            { _hasVerifiedOperations = false; _operationsError = SafeError((error as FilewayException)?.Error, JournalUnavailableText); }
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                if (!_disposed && result is not null)
+                {
+                    if (result.Outcome == OperationOutcome.OutcomeUnknown)
+                    {
+                        if (!_unknownRestores.TryGetValue(item.Reference, out var ids)) _unknownRestores.Add(item.Reference, ids = []);
+                        ids.Add(result.Receipt?.OperationId ?? Guid.Empty);
+                    }
+                    else if (result.Outcome == OperationOutcome.Confirmed)
+                    {
+                        _restoredItems.Add(item.Reference);
+                        if (result.Receipt is { } receipt)
+                        { var operation = new OperationRef(item.Reference.Account, receipt.OperationId); _resolvedOperations.Add(operation); ClearUnknownCore(operation); }
+                    }
+                    if (IsCurrent(context, request, _flight))
+                    {
+                        if (result.Outcome == OperationOutcome.Confirmed) _items = Array.AsReadOnly(_items.Where(row => !ReferenceEquals(row, item)).ToArray());
+                        if (result.Outcome == OperationOutcome.OutcomeUnknown) { _hasVerifiedOperations = false; _error = UnknownText; }
+                    }
+                }
+                if (ReferenceEquals(_flight, request)) _flight = null;
+            }
+            request.Dispose();
+        }
+        return result;
+    }
+
     internal async Task<TrashRestoreResult?> RestoreAsync(TrashItem item, FileConflictPolicy conflict,
         CancellationToken cancellationToken = default)
     {
@@ -214,7 +285,7 @@ internal sealed class TrashListController : IDisposable
                 foreach (var row in rows)
                 {
                     if (!ids.Add(row.Intent.Reference.Id)) throw InvalidResponse();
-                    if (row.Intent.Kind == OperationKind.Restore) evidence.Add(row);
+                    if (row.Intent.Kind is OperationKind.Restore or OperationKind.DeleteTrashPermanent) evidence.Add(row);
                 }
                 if (page.NextCursor is null)
                 {
@@ -340,6 +411,10 @@ internal sealed class TrashListController : IDisposable
     private bool CurrentFlightCore() => _flight is not null && _flightGeneration == _generation && _flightViewGeneration == _viewGeneration;
     private bool CanRestoreCore(TrashItem item, FileConflictPolicy conflict) => CanReadCore() && _read is null &&
         _flight is null && _hasVerifiedOperations && IsEligibleItemCore(item, conflict);
+    private bool IsEligibleDeleteCore(TrashItem item) => _session is not null && _session.Permissions.Delete &&
+        item.Reference.Account == _session.Account && item.OwnerUserId == _session.Account.ServerUserId &&
+        _items.Any(row => ReferenceEquals(row, item)) && item.Status is "available" or "failed" &&
+        !_unknownRestores.ContainsKey(item.Reference) && !_restoredItems.Contains(item.Reference);
     private bool IsEligibleItemCore(TrashItem item, FileConflictPolicy conflict) => _session is not null &&
         item.Reference.Account == _session.Account && item.OwnerUserId == _session.Account.ServerUserId &&
         _items.Any(row => ReferenceEquals(row, item)) && item.Status is "available" or "failed" &&
@@ -347,7 +422,7 @@ internal sealed class TrashListController : IDisposable
         (conflict != FileConflictPolicy.Replace || _session.Permissions.Delete) &&
         !_unknownRestores.ContainsKey(item.Reference) && !_restoredItems.Contains(item.Reference);
     private bool ContainsOperationCore(OperationRecord record) => _session is not null &&
-        record.Intent.Reference.Account == _session.Account && record.Intent.Kind == OperationKind.Restore &&
+        record.Intent.Reference.Account == _session.Account && (record.Intent.Kind is OperationKind.Restore or OperationKind.DeleteTrashPermanent) &&
         _operations.Any(row => ReferenceEquals(row, record)) && NeedsReconciliation(record) &&
         !_resolvedOperations.Contains(record.Intent.Reference);
     private bool CanReconcileCore(OperationRecord record) => CanReadCore() && _history is not null &&
@@ -394,7 +469,7 @@ internal sealed class TrashListController : IDisposable
     {
         var operation = record.Intent.Reference;
         var item = new TrashItemRef(operation.Account, record.Intent.Options!.RecordId!);
-        if (record.Phase == OperationPhase.Acknowledged && record.Acknowledgement!.Skipped == false)
+        if (record.Phase == OperationPhase.Acknowledged && (record.Acknowledgement!.Skipped == false || record.Intent.Kind == OperationKind.DeleteTrashPermanent))
             _restoredItems.Add(item);
         if (_resolvedOperations.Contains(operation)) return;
         if (NeedsReconciliation(record))
@@ -406,7 +481,7 @@ internal sealed class TrashListController : IDisposable
             IsExactResolution(record.Reconciliation))
         {
             _resolvedOperations.Add(operation); ClearUnknownCore(operation);
-            if (record.Phase == OperationPhase.Acknowledged && record.Acknowledgement!.Skipped == false)
+            if (record.Phase == OperationPhase.Acknowledged && (record.Acknowledgement!.Skipped == false || record.Intent.Kind == OperationKind.DeleteTrashPermanent))
                 _restoredItems.Add(item);
         }
     }
@@ -415,8 +490,8 @@ internal sealed class TrashListController : IDisposable
         foreach (var pair in _unknownRestores.Where(pair => pair.Key.Account == operation.Account).ToArray())
             if (pair.Value.Remove(operation.Id) && pair.Value.Count == 0) _unknownRestores.Remove(pair.Key);
     }
-    private static bool NeedsReconciliation(OperationRecord record) => record.Intent.Kind == OperationKind.Restore &&
-        record.Phase is OperationPhase.Intent or OperationPhase.DispatchMarked or OperationPhase.OutcomeUnknown &&
+    private static bool NeedsReconciliation(OperationRecord record) => (record.Intent.Kind is OperationKind.Restore or OperationKind.DeleteTrashPermanent) &&
+        (record.Phase is OperationPhase.Intent or OperationPhase.DispatchMarked or OperationPhase.OutcomeUnknown) &&
         !IsExactResolution(record.Reconciliation);
     private static bool IsExactResolution(OperationReconciliation? result) => result is not null && result.Error is null &&
         result.Resolution is OperationResolution.NotSent or OperationResolution.Confirmed;
@@ -463,6 +538,12 @@ internal sealed class TrashListController : IDisposable
                         ack.Task is not null || ack.Skipped is null || !ValidDisplayPath(ack.DisplayPath) ||
                         ack.Skipped == true && conflict != FileConflictPolicy.Skip)) throw InvalidResponse();
             }
+            else if (row.Intent.Kind == OperationKind.DeleteTrashPermanent)
+            {
+                if (!ValidRecordId(row.Intent.Options?.RecordId) || row.Intent.Items.Count != 0 ||
+                    row.Phase == OperationPhase.Acknowledged && row.Acknowledgement is null ||
+                    row.Acknowledgement is { } deleted && (deleted.Kind != OperationAckKind.MetadataConfirmed || deleted.Outcome != OperationOutcome.Confirmed || deleted.RecordId != row.Intent.Options!.RecordId || deleted.Task is not null)) throw InvalidResponse();
+            }
             rows[index] = row;
         }
         return rows;
@@ -491,8 +572,8 @@ internal sealed class TrashListController : IDisposable
             OperationOutcome.OutcomeUnknown => true,
             _ => false,
         });
-    private const string UnknownText = "恢复结果未知，请核实操作记录；不要重复提交恢复。";
-    private const string JournalUnavailableText = "操作记录尚未完整核实，恢复已暂停；请重试读取。";
+    private const string UnknownText = "原操作结果未知，请核实操作记录；不要重复提交恢复或删除。";
+    private const string JournalUnavailableText = "操作记录尚未完整核实，恢复和删除已暂停；请重试读取。";
     private static TrashRestoreResult UnknownRestore(OperationReceipt? receipt) =>
         new(OperationOutcome.OutcomeUnknown, Receipt: receipt, Error: new(ErrorCode.OutcomeUnknown, UnknownText));
     private static FilewayException InvalidResponse() => new(new(ErrorCode.ProtocolMismatch,

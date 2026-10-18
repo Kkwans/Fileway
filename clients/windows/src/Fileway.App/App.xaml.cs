@@ -37,6 +37,7 @@ public partial class App : Application, IAsyncDisposable
     {
         UnhandledException += (_, args) => RecordStartupFailure(args.Exception);
         InitializeComponent();
+        Controls.PhosphorIcon.RegisterResources(Resources);
     }
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)

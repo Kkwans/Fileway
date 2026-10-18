@@ -19,13 +19,14 @@ public enum DownloadStatus
 {
     NotStarted, Queued, Preparing, Downloading, Canceling, Stopped, WaitingNetwork,
     WaitingAuthentication, Conflict, SourceChanged, Failed, OutcomeUnknown,
-    Verifying, Publishing, Reconciling, Completed, Canceled,
+    Verifying, Publishing, Reconciling, Completed, Canceled, Paused,
 }
 
 /// <summary>Safe evidence. ConfirmedOffset is the flushed local prefix; received body bytes are separate.</summary>
 public sealed record DownloadTaskSnapshot(TransferTaskRef Task, TransferIntent Intent, TransferPhase Phase,
     long? ConfirmedOffset, long? TotalBytes, bool LocalPublished, TransferUncertainty Uncertainty,
-    ErrorInfo? Error, long Revision, long Generation, bool CanReconcileLocally = false);
+    ErrorInfo? Error, long Revision, long Generation, bool CanReconcileLocally = false,
+    DateTimeOffset? CreatedAt = null, DateTimeOffset? UpdatedAt = null);
 
 /// <summary>
 /// Presentation data only; no private plan, owned file identity, partial path or read capability.
@@ -34,9 +35,16 @@ public sealed record DownloadTaskSnapshot(TransferTaskRef Task, TransferIntent I
 /// </summary>
 public sealed record DownloadItem(DownloadContext Context, RemoteResourceRef Source, string Name,
     string DestinationDisplayPath, DownloadStatus Status, DownloadTaskSnapshot Snapshot,
-    DownloadTaskProgress? Progress = null, long PresentationRevision = 0)
+    DownloadTaskProgress? Progress = null, long PresentationRevision = 0, bool CanPause = false, bool CanResume = false)
 {
     public override string ToString() => "DownloadItem (private display locations redacted)";
+}
+
+/// <summary>Explicit current-process writer control; never claims restart resume support.</summary>
+public interface IDownloadControlService
+{
+    Task<DownloadItem> SetPausedAsync(DownloadContext context, TransferTaskRef task, bool paused, CancellationToken cancellationToken);
+    Task RemoveAsync(DownloadContext context, TransferTaskRef task, bool deleteLocalFile, CancellationToken cancellationToken);
 }
 
 public sealed record DownloadPage(IReadOnlyList<DownloadItem> Items, string? NextCursor);

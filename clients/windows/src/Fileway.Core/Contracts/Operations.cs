@@ -7,7 +7,7 @@ public enum OperationKind
     TaskCancel, TaskRetry, TaskArchive, TaskUnarchive,
     AddFavorite, UpdateFavorite, RemoveFavorite, CreateFavoriteGroup, UpdateFavoriteGroup,
     RemoveFavoriteGroup, ReorderFavorites, ReorderFavoriteGroups, CreateTag, UpdateTag, RemoveTag,
-    AddTagResource, RemoveTagResource,
+    AddTagResource, RemoveTagResource, DeleteTrashPermanent,
 }
 public enum OperationPhase { Intent, DispatchMarked, Acknowledged, Rejected, OutcomeUnknown, NotSent }
 public enum OperationAckKind

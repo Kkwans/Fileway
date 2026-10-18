@@ -77,6 +77,7 @@ public sealed partial class MainPage
 
     private async void DownloadFile_Click(object sender, RoutedEventArgs args)
     {
+        SetDetailsVisible(false);
         if (!CanDownloadSelection || _downloads is not { } service || _session is not { } session
             || _directory is not { } directory || ActiveDownloadContext is not { } context) return;
         var source = SelectedRows()[0].File.Resource;
@@ -249,7 +250,7 @@ public sealed partial class MainPage
 
     private void AcceptDownloadItem(DownloadItem item)
     {
-        if (!IsCurrentDownloadContext(item.Context) || item.Snapshot.Task.Account != item.Context.Account) return;
+        if (!IsCurrentDownloadContext(item.Context) || item.Snapshot.Task.Account != item.Context.Account || _removedDownloadTasks.Contains(item.Snapshot.Task)) return;
         if (_downloadItems.TryGetValue(item.Snapshot.Task, out var previous)
             && ReferenceEquals(DownloadPolicy.Prefer(previous, item), previous))
         {

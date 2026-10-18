@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<UserControl x:Class="Fileway.App.Controls.NasTasks.NasTasksControl"
+<UserControl x:Class="Fileway.App.Controls.NasTasks.NasTasksControl" xmlns:ui="using:Fileway.App.Controls"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="using:Fileway.App.Controls.NasTasks" KeyDown="Panel_KeyDown">
@@ -15,22 +15,22 @@
   </Grid>
   <StackPanel Grid.Row="2" Spacing="8">
    <CommandBar x:Name="Commands" DefaultLabelPosition="Right" Background="Transparent" IsDynamicOverflowEnabled="True">
-    <AppBarButton x:Name="RefreshButton" Label="刷新任务" Icon="Refresh" Click="Refresh_Click" ToolTipService.ToolTip="刷新 (F5)"/>
-    <AppBarButton x:Name="DetailRefreshButton" Label="刷新详情" Icon="View" Click="DetailRefresh_Click"/>
+    <AppBarButton x:Name="RefreshButton" Label="刷新任务" Click="Refresh_Click" ToolTipService.ToolTip="刷新 (F5)"><AppBarButton.Icon><PathIcon Data="{StaticResource Phosphor-arrows-clockwise}"/></AppBarButton.Icon></AppBarButton>
+    <AppBarButton x:Name="DetailRefreshButton" Label="刷新详情" Click="DetailRefresh_Click"><AppBarButton.Icon><PathIcon Data="{StaticResource Phosphor-eye}"/></AppBarButton.Icon></AppBarButton>
     <AppBarButton x:Name="ReconcileButton" Label="核实记录" Icon="Sync" Click="Reconcile_Click" Visibility="Collapsed"/>
     <AppBarSeparator x:Name="TaskActionSeparator"/>
     <AppBarButton x:Name="CancelTaskButton" Label="请求取消" Icon="Cancel" Click="CancelTask_Click"/>
-    <AppBarButton x:Name="RetryTaskButton" Label="重试" Icon="Refresh" Click="RetryTask_Click"/>
+    <AppBarButton x:Name="RetryTaskButton" Label="重试" Click="RetryTask_Click"><AppBarButton.Icon><PathIcon Data="{StaticResource Phosphor-arrows-clockwise}"/></AppBarButton.Icon></AppBarButton>
     <CommandBar.SecondaryCommands>
      <AppBarButton x:Name="ArchiveTaskButton" Label="归档记录" Click="ArchiveTask_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE7B8;"/></AppBarButton.Icon></AppBarButton>
-     <AppBarButton x:Name="UnarchiveTaskButton" Label="移出归档" Icon="Undo" Click="UnarchiveTask_Click"/>
+     <AppBarButton x:Name="UnarchiveTaskButton" Label="移出归档" Click="UnarchiveTask_Click"><AppBarButton.Icon><PathIcon Data="{StaticResource Phosphor-arrow-counter-clockwise}"/></AppBarButton.Icon></AppBarButton>
     </CommandBar.SecondaryCommands>
    </CommandBar>
    <Grid x:Name="Filters" ColumnSpacing="8" RowSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="140"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-    <ComboBox x:Name="StatusFilter" Header="任务状态" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed" AutomationProperties.Name="筛选 文件任务状态">
+    <ui:ChoiceBox x:Name="StatusFilter" Header="任务状态" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed" AutomationProperties.Name="筛选 文件任务状态">
      <ComboBoxItem Content="全部状态"/><ComboBoxItem Content="进行中"/><ComboBoxItem Content="需要处理"/><ComboBoxItem Content="已完成"/><ComboBoxItem Content="已取消"/>
-    </ComboBox>
-    <ComboBox x:Name="TypeFilter" Grid.Column="1" Header="任务类型" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed"><ComboBoxItem Content="全部类型"/><ComboBoxItem Content="复制"/><ComboBoxItem Content="移动"/></ComboBox>
+    </ui:ChoiceBox>
+    <ui:ChoiceBox x:Name="TypeFilter" Grid.Column="1" Header="任务类型" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed"><ComboBoxItem Content="全部类型"/><ComboBoxItem Content="复制"/><ComboBoxItem Content="移动"/></ui:ChoiceBox>
     <CheckBox x:Name="ArchivedFilter" Grid.Column="2" Content="已归档" VerticalAlignment="Bottom" Checked="Archived_Changed" Unchecked="Archived_Changed"/>
    </Grid>
   </StackPanel>
@@ -55,7 +55,7 @@
      <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="8"/><Setter Property="Margin" Value="0,0,0,4"/></Style></ListView.ItemContainerStyle>
      <ListView.ItemTemplate><DataTemplate x:DataType="local:NasTaskOperationRow"><StackPanel Spacing="4" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind Stage, Mode=OneWay}" TextWrapping="Wrap"/><TextBlock Text="{x:Bind When, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></DataTemplate></ListView.ItemTemplate>
     </ListView>
-    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360" Spacing="8" Margin="12"><FontIcon Glyph="&#xE9D9;" FontSize="32" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="暂无 文件任务" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyDescription" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360" Spacing="8" Margin="12"><ui:PhosphorIcon IconName="file-code" Width="32" Height="32" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="暂无 文件任务" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyDescription" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    </Grid>
    <Border x:Name="DetailsPane" Grid.Column="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0" Padding="16,4,0,4">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

@@ -15,10 +15,13 @@ public sealed partial class MainPage
     private readonly Dictionary<TransferTaskRef, TransferCenterRow> _transferDownloadRowIndex = [];
     private UploadContext? _transferUploadContext;
     private DownloadContext? _transferDownloadContext;
+    private readonly HashSet<TransferTaskRef> _removedDownloadTasks = [];
 
     private void InitializeTransferCenter()
     {
-        TransfersPanel.SelectDirection(TransferDirection.Upload);
+        TransfersPanel.SelectDirection(TransferDirection.Download);
+        TransfersPanel.PauseRequested += async (_, task) => await ToggleDownloadPausedAsync(task);
+        TransfersPanel.RemoveRequested += async (_, task) => await RemoveDownloadAsync(task);
         TransfersPanel.CloseRequested += (_, _) =>
         {
             HideCollections();
@@ -154,7 +157,7 @@ public sealed partial class MainPage
             {
                 var page = await service.ListAsync(context, cursor, 30, _lifetime.Token);
                 if (!IsCurrentDownloadContext(context) || !ReferenceEquals(service, _downloads)) return;
-                var items = page.Items.Where(item => item.Context == context && item.Snapshot.Task.Account == context.Account).ToArray();
+                var items = page.Items.Where(item => item.Context == context && item.Snapshot.Task.Account == context.Account && !_removedDownloadTasks.Contains(item.Snapshot.Task)).ToArray();
                 if (!_transferDownloads.CompleteLoad(token, items, page.NextCursor)) return;
                 foreach (var item in items)
                     _downloadItems[item.Snapshot.Task] = _downloadItems.TryGetValue(item.Snapshot.Task, out var current)

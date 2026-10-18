@@ -39,6 +39,9 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private RectInt32 _windowedBounds;
     private bool _wasMaximized;
     private bool _hasFrame;
+    private long? _bufferingSince;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _bufferingTimer;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _boundsTimer;
     private bool _showingState = true;
     private bool _closing;
     private bool _disposed;
@@ -54,6 +57,10 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     public PlayerWindow(IPlaybackSession session, IVideoSpriteService? sprites = null)
     {
         _session = session;
+        _bufferingTimer = DispatcherQueue.CreateTimer(); _bufferingTimer.IsRepeating = false; _bufferingTimer.Interval = TimeSpan.FromMilliseconds(500);
+        _bufferingTimer.Tick += (_, _) => { if (!_closing && !_disposed && _hasFrame && _session.Snapshot.Status is PlaybackStatus.Seeking or PlaybackStatus.Buffering) _overlay?.ApplySnapshot(_session.Snapshot, transientLoading: true); };
+        _boundsTimer = DispatcherQueue.CreateTimer(); _boundsTimer.IsRepeating = false; _boundsTimer.Interval = TimeSpan.FromMilliseconds(16);
+        _boundsTimer.Tick += (_, _) => { if (!_disposed && _overlay is not null) ApplyBoundsFrame(); };
         var origin = session.Snapshot;
         // Settings and seek UIA work also defer at Low. Snapshot rendering must
         // yield to input without continually outranking those pending callbacks.
@@ -132,7 +139,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
                 DispatcherQueue.TryEnqueue(() => { UpdateBounds(); _overlay.SynchronizePointerPosition(); });
         };
         AppWindow.Closing += (_, args) => { if (_disposed) return; args.Cancel = true; BeginClose(); };
-        Closed += (_, _) => { CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
+        Closed += (_, _) => { _bufferingTimer.Stop(); _boundsTimer.Stop(); CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
         _ = WatchAsync();
     }
 
@@ -150,9 +157,12 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         var margin = (int)Math.Round(24 * scale);
         var availableWidth = Math.Max(1, work.Width - margin * 2 - frameWidth);
         var availableHeight = Math.Max(1, work.Height - margin * 2 - frameHeight);
-        var fit = Math.Min(1, Math.Min(availableWidth / (1120 * scale), availableHeight / (630 * scale)));
-        var width = Math.Max(1, (int)Math.Floor(1120 * scale * fit));
-        var height = Math.Max(1, (int)Math.Floor(630 * scale * fit));
+        var remembered = PresentationPreferences.RememberPlayerSize ? PresentationPreferences.PlayerSize : null;
+        if (remembered is not null) _userAdjustedWindow = true;
+        var requestedWidth = remembered?.Width ?? 1120; var requestedHeight = remembered?.Height ?? 630;
+        var fit = Math.Min(1, Math.Min(availableWidth / (requestedWidth * scale), availableHeight / (requestedHeight * scale)));
+        var width = Math.Max(1, (int)Math.Floor(requestedWidth * scale * fit));
+        var height = Math.Max(1, (int)Math.Floor(requestedHeight * scale * fit));
         var outerWidth = Math.Min(work.Width, width + frameWidth);
         var outerHeight = Math.Min(work.Height, height + frameHeight);
         AppWindow.MoveAndResize(new RectInt32(work.X + (work.Width - outerWidth) / 2, work.Y + (work.Height - outerHeight) / 2, outerWidth, outerHeight));
@@ -198,6 +208,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         if ((window == _window || window == _child) && message == 0x0008
             && wParam != 0 && !_overlay.OwnsInputWindow((nint)wParam)) CancelVideoGestures();
         if (window == _window && message == 0x0231) _userAdjustedWindow = true; // Native move/resize loop.
+        if (window == _window && message == 0x0232) SaveWindowSize();
         if (!_disposed && window == _window && message == 0x0083) return 0; // WM_NCCALCSIZE: full-window client.
         if (!_disposed && window == _window && message == 0x0085) return 0;
         if (!_disposed && window == _window && message == 0x0086)
@@ -432,6 +443,10 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private void Root_Changed(XamlRoot sender, XamlRootChangedEventArgs args) => UpdateBounds();
     private void UpdateBounds()
     {
+        if (!_disposed && !_boundsTimer.IsRunning) _boundsTimer.Start();
+    }
+    private void ApplyBoundsFrame()
+    {
         var diagnostics = _responsiveness;
         var started = diagnostics?.Timestamp ?? 0;
         try { UpdateBoundsCore(); }
@@ -521,8 +536,10 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             || (_closing && !PlaybackSnapshotDispatcher.IsLifecycleSnapshot(snapshot))) return;
         FitInitialVideoAspect(snapshot.DisplayAspectRatio);
         // A repeated progress snapshot must not stop/start the loading animation.
-        var transientLoading = snapshot.Error is null && (snapshot.Status == PlaybackStatus.Seeking
-            || snapshot.Status == PlaybackStatus.Buffering && _hasFrame);
+        var waiting = snapshot.Error is null && _hasFrame && snapshot.Status is PlaybackStatus.Seeking or PlaybackStatus.Buffering;
+        if (waiting && _bufferingSince is null) { _bufferingSince = TimeProvider.System.GetTimestamp(); _bufferingTimer.Start(); }
+        if (!waiting) { _bufferingSince = null; _bufferingTimer.Stop(); }
+        var transientLoading = waiting && _bufferingSince is { } since && TimeProvider.System.GetElapsedTime(since) >= TimeSpan.FromMilliseconds(500);
         _overlay.ApplySnapshot(snapshot, transientLoading);
         // Stop retains any prior failure metadata. Closing must still happen.
         if (snapshot.Status == PlaybackStatus.Stopped) { BeginClose(); return; }
@@ -557,11 +574,10 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
 
     private void ShowTransientLoading()
     {
-        // Keep the accepted HUD and its loading ring visible, but do not present
-        // an old video/subtitle frame as the newly requested position. Native
-        // playback-restart/confirmed state restores the surface; no guessed delay.
+        // Retain the last rendered frame during seek/buffering. The separate HUD
+        // only shows its loading indicator after the 500 ms presentation delay.
         CancelVideoGestures();
-        _showingState = true;
+        _showingState = false;
         _state.Visibility = Visibility.Collapsed;
         _progress.IsIndeterminate = false;
         UpdateVideoVisibility();
@@ -753,12 +769,21 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private void BeginClose()
     {
         if (_closing || _disposed) return;
+        SaveWindowSize(); _bufferingTimer.Stop(); _boundsTimer.Stop();
         CancelVideoGestures();
         _closing = true;
         _snapshotDispatcher.BeginClosing();
         Interlocked.Increment(ref _subtitlePickerGeneration);
         ShowState("正在关闭视频", "正在释放播放资源…", loading: true);
         _ = CloseSessionAsync();
+    }
+    private void SaveWindowSize()
+    {
+        if (_disposed || FullscreenGeometry || NativePlayerOverlay.IsZoomed(_window)) return;
+        var dpi = NativeVideoWindow.GetDpiForWindow(_window);
+        var scale = dpi == 0 ? 1 : dpi / 96d;
+        try { PresentationPreferences.PlayerSize = ((int)Math.Round(AppWindow.Size.Width / scale), (int)Math.Round(AppWindow.Size.Height / scale)); }
+        catch (Exception) { /* Window geometry is optional; never interfere with close. */ }
     }
     private async Task CloseSessionAsync()
     {

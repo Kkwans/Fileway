@@ -126,6 +126,7 @@
         <ProgressRing x:Name="PlaybackBusyRing" Width="40" Height="40" IsActive="False" Visibility="Collapsed"
                       IsHitTestVisible="False" HorizontalAlignment="Center" VerticalAlignment="Center"
                       Foreground="{ThemeResource PlayerForeground}" AutomationProperties.Name="正在加载视频"/>
+        <TextBlock x:Name="PlaybackBusyText" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,78,0,0" Visibility="Collapsed" Foreground="{ThemeResource PlayerForeground}" FontSize="13" IsHitTestVisible="False"/>
         <Grid x:Name="Chrome">
             <!-- Native window behavior is owned
                  by the host; these buttons only raise requests. -->

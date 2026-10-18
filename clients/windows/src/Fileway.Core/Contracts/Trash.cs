@@ -14,3 +14,8 @@ public interface ITrashService
     Task<IReadOnlyList<TrashItem>> ListTrashAsync(AccountKey account, CancellationToken cancellationToken);
     Task<TrashRestoreResult> RestoreTrashAsync(TrashItemRef item, FileConflictPolicy conflict, CancellationToken cancellationToken);
 }
+
+public interface ITrashManagementService : ITrashService
+{
+    Task<FileOperationResult> DeletePermanentlyAsync(TrashItemRef item, CancellationToken cancellationToken);
+}

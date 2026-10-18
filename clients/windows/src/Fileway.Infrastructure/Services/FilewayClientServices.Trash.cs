@@ -4,8 +4,41 @@ using Fileway.Core.Integration;
 
 namespace Fileway.Infrastructure.Services;
 
-public sealed partial class FilewayClientServices
+public sealed partial class FilewayClientServices : ITrashManagementService
 {
+    public async Task<FileOperationResult> DeletePermanentlyAsync(TrashItemRef item, CancellationToken cancellationToken)
+    {
+        _ = ServiceRecordId(item.Id);
+        var state = GetState(item.Account);
+        string? originalDisplayPath = null;
+        var journal = PrepareJournalContext(state, OperationKind.DeleteTrashPermanent, [], response =>
+        {
+            RequireExactStatus(response, 204);
+            return new OperationAcknowledgement(OperationAckKind.MetadataConfirmed, RecordId: item.Id);
+        }, new OperationOptions(RecordId: item.Id), captureOptions: () => new OperationOptions(RecordId: item.Id, DisplayPath: originalDisplayPath));
+        void Authorize() { EnsureActive(state); if (!state.Session.Permissions.Delete) throw Safe(ErrorCode.PermissionDenied, Message(ErrorCode.PermissionDenied)); }
+        try
+        {
+            _ = await SessionRequestAsync(state, new { method = "DELETE", endpoint = "/api/trash/" + Uri.EscapeDataString(item.Id) },
+                requireDownload: false, HostCallSafety.Mutation, cancellationToken, beforeSend: async token =>
+                {
+                    Authorize();
+                    using var body = ParseBody(await RequestAsync(state.CoreSession, "/api/trash", token).ConfigureAwait(false));
+                    var selected = ParseOwnTrash(body.RootElement, item.Account).SingleOrDefault(row => row.Reference == item);
+                    if (selected is null) throw Safe(ErrorCode.PermissionDenied, "此回收站项目已不可用。", 403);
+                    if (selected.Status is not ("available" or "failed")) throw Safe(ErrorCode.Conflict, "此项目正在处理，请刷新后重试。", 409);
+                    originalDisplayPath = selected.DisplayPath;
+                }, authorizeSend: Authorize, journal: journal).ConfigureAwait(false);
+            return new(OperationOutcome.Confirmed, Receipt: journal.Receipt);
+        }
+        catch (FilewayException error)
+        {
+            var unknown = IsUncertainJournalFailure(error, journal);
+            return new(unknown ? OperationOutcome.OutcomeUnknown : OperationOutcome.Partial, Receipt: journal.Receipt,
+                Error: unknown ? UnknownMutationError(error.Error.HttpStatus) : error.Error);
+        }
+    }
+
     public async Task<IReadOnlyList<TrashItem>> ListTrashAsync(AccountKey account, CancellationToken cancellationToken)
     {
         var state = GetState(account);

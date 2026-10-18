@@ -81,7 +81,7 @@ public sealed class SidebarCollectionsControl : UserControl
         var content = new Grid { ColumnSpacing = 8 };
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var hint = FileRow.NameTypeHint(favorite.Name);
-        content.Children.Add(new FontIcon { Glyph = hint.Glyph, FontSize = 16, VerticalAlignment = VerticalAlignment.Center });
+        content.Children.Add(new PhosphorIcon { IconName = hint.Glyph switch { "\uE8B7" => "folder", "\uEB9F" => "image", "\uE714" => "film-strip", _ => "file" }, Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center });
         var text = new StackPanel { Spacing = 2 };
         text.Children.Add(new TextBlock { Text = favorite.Name, TextTrimming = TextTrimming.CharacterEllipsis });
         var state = favorite.Reference.Resource is null ? "历史路径身份无法确认" : hint.Kind;

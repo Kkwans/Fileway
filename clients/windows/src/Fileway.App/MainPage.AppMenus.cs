@@ -94,7 +94,8 @@ public sealed partial class MainPage
         MenuCloseToTrayItem.IsChecked = ((App)Application.Current).CloseToTray;
 
         PathLocationHost.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
-        WorkspaceTitle.Visibility = browser ? Visibility.Collapsed : Visibility.Visible;
+        NavigationCommands.Visibility = NavigationHeader.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
+        WorkspaceTitle.Visibility = Visibility.Collapsed;
         WorkspaceTitle.Text = connectionView ? "连接服务器" : RecentPane.Visibility == Visibility.Visible ? "最近访问"
             : SearchPane.Visibility == Visibility.Visible ? "搜索结果" : NasTasksPane.Visibility == Visibility.Visible ? "文件任务"
             : TrashPane.Visibility == Visibility.Visible ? "回收站"

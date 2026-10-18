@@ -6,6 +6,17 @@ namespace Fileway.Infrastructure.Persistence;
 
 public sealed partial class SqliteProfileStore
 {
+    public Task RemoveTransferAsync(TransferTaskRef task, long expectedRevision, CancellationToken cancellationToken) => RunAsync(connection =>
+    {
+        using var transaction = connection.BeginTransaction(deferred: false);
+        EnsureJournalNotLoggingOut(connection, transaction, task.Account);
+        var record = ReadTransfer(connection, transaction, task)?.Record ?? throw TransferTaskValidation.Conflict();
+        if (record.Revision != expectedRevision || TransferTaskValidation.IsProtected(record) || record.Checkpoint.Phase is not (TransferPhase.Completed or TransferPhase.Canceled or TransferPhase.Skipped)) throw TransferTaskValidation.Conflict();
+        using var command = Command(connection, "DELETE FROM transfer_tasks WHERE " + TransferPredicate + " AND revision = $expected", transaction);
+        BindTransfer(command, task); command.Parameters.AddWithValue("$expected", expectedRevision);
+        if (command.ExecuteNonQuery() != 1) throw TransferTaskValidation.Conflict();
+        cancellationToken.ThrowIfCancellationRequested(); transaction.Commit(); return true;
+    }, cancellationToken);
     private const string TransferColumns = "profile_id, source_revision, server_user_id, task_id, direction, intent, phase, revision, generation, run_id, last_run_id, uncertainty, created_at, created_ticks, updated_at, batch_id, ordinal, target_key, record_json, route_key";
     private const string TransferPredicate = AccountPredicate + " AND task_id = $task";
     private const string TransferActiveRunsSql = "SELECT " + TransferColumns + " FROM transfer_tasks INDEXED BY transfer_tasks_active_runs WHERE run_id IS NOT NULL AND task_id <> $task";

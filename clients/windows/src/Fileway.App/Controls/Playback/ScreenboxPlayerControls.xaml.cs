@@ -31,6 +31,9 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private readonly UISettings _uiSettings = new();
     private PlaybackSnapshot _snapshot;
     private SubtitlePreferences _subtitlePreferences = PresentationPreferences.Subtitles;
+    private (double Width, double Height, double? Aspect)? _lastSubtitleViewport;
+    private (double Width, double Height)? _pendingSubtitleViewport;
+    private bool _viewportUpdating;
     private static readonly string[] DefaultFontChoices = ["默认（影片 / 系统字体）"];
     private readonly Dictionary<Microsoft.UI.Input.InputSystemCursorShape, Microsoft.UI.Input.InputSystemCursor> _windowCursors = [];
     private Microsoft.UI.Input.InputSystemCursorShape? _windowCursorShape;
@@ -195,6 +198,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         var wasPlaying = _snapshot.Status == PlaybackStatus.Playing;
         if (_snapshot.Generation != snapshot.Generation) { _seekTarget = null; ResetSpritePreview(); }
         _snapshot = snapshot;
+        UpdateSubtitleViewport();
         _applying = true;
         var extension = System.IO.Path.GetExtension(snapshot.DisplayName).ToLowerInvariant();
         var hasMediaExtension = extension is ".mp4" or ".mkv" or ".webm" or ".mov" or ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv" or ".flv" or ".mp3" or ".flac" or ".m4a" or ".wav" or ".ogg";
@@ -255,6 +259,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (_disposed) return;
         PlaybackBusyRing.IsActive = loading;
         PlaybackBusyRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        PlaybackBusyText.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        PlaybackBusyText.Text = _snapshot.BufferingPercent is { } percent ? $"正在缓冲 {percent:0}%" : seeking ? "正在跳转" : "正在缓冲";
         AutomationProperties.SetName(PlaybackBusyRing, seeking ? "正在跳转视频" : "正在缓冲视频");
     }
 
@@ -527,8 +533,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Audio_Click(object sender, RoutedEventArgs args) { _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 1); ShowTracks(AudioButton, MediaTrackKind.Audio); }
     private void Subtitle_Click(object sender, RoutedEventArgs args) { _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 2); ShowTracks(SubtitleButton, MediaTrackKind.Subtitle); }
-    private static string? SourceResolution(PlaybackSnapshot snapshot) => snapshot.Diagnostics is { VideoWidth: > 0, VideoHeight: > 0 } diagnostics
-        ? $"{diagnostics.VideoWidth}×{diagnostics.VideoHeight}" : null;
+    private static string? SourceResolution(PlaybackSnapshot snapshot) => snapshot.Diagnostics is { VideoWidth: > 0, VideoHeight: > 0 } d
+        ? Math.Max(d.VideoWidth.Value / 16d * 9, d.VideoHeight.Value) switch { >= 4000 => "8K", >= 2000 => "4K", >= 1300 => "2K", >= 1000 => "1080p", >= 700 => "720p", _ => "标清" } : null;
 
     private static RadioMenuFlyoutItem SourceResolutionItem(string resolution) => new()
     {
@@ -543,7 +549,22 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (SourceResolution(_snapshot) is not { } resolution) return;
         var menu = new MenuFlyout();
         menu.Items.Add(SourceResolutionItem(resolution));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        var info = new MenuFlyoutItem { Text = "媒体信息…" };
+        info.Click += (_, _) => DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, ShowMediaInformation);
+        menu.Items.Add(info);
         ShowFlyout(menu, ResolutionButton);
+    }
+    private void ShowMediaInformation()
+    {
+        if (_disposed) return;
+        var d = _snapshot.Diagnostics;
+        var panel = new StackPanel { Width = 300, Margin = new Thickness(20), Spacing = 16 };
+        panel.Children.Add(new TextBlock { Text = "媒体信息", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = _snapshot.DisplayName, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+        var rows = $"分辨率：{d.VideoWidth?.ToString(CultureInfo.CurrentCulture) ?? "—"} × {d.VideoHeight?.ToString(CultureInfo.CurrentCulture) ?? "—"}\n视频编码：{d.VideoCodec ?? "—"}\n音频编码：{d.AudioCodec ?? "—"}\n解码方式：{d.Decoder ?? "—"}\n实际输出：{d.ActualOutputMode ?? "尚未确认"}";
+        panel.Children.Add(new TextBlock { Text = rows, TextWrapping = TextWrapping.Wrap, LineHeight = 26, IsTextSelectionEnabled = true });
+        ShowFlyout(new Flyout { Content = panel }, ResolutionButton);
     }
 
     private void More_Click(object sender, RoutedEventArgs args)
@@ -670,23 +691,23 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         var caps = _snapshot.SubtitleCapabilities;
         var panel = new StackPanel { Spacing = 16, Width = 288, Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock { Text = "字幕样式", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var position = new Slider { Header = "垂直位置", Minimum = 0, Maximum = 100, Value = _subtitlePreferences.VerticalPositionPercent, StepFrequency = 1, IsEnabled = caps.CanPosition };
+        var position = new Slider { Header = "垂直位置（越大越靠下）", Minimum = 0, Maximum = 150, Value = _subtitlePreferences.VerticalPositionPercent, StepFrequency = 1, IsEnabled = caps.CanPosition };
         var size = new Slider { Header = "字号", Minimum = 16, Maximum = 96, Value = _subtitlePreferences.FontSize, StepFrequency = 1, IsEnabled = caps.CanChangeFont };
         var scale = new Slider { Header = "大小比例", Minimum = 0.5, Maximum = 2, Value = _subtitlePreferences.Scale, StepFrequency = 0.05, IsEnabled = caps.CanScale };
         var delay = new NumberBox { Header = "延迟（秒）", Minimum = -60, Maximum = 60, Value = _subtitlePreferences.Delay.TotalSeconds, SmallChange = 0.1, IsEnabled = caps.CanDelay };
-        var font = new ComboBox { Header = "字体", HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = caps.CanChangeFont, PlaceholderText = "正在读取系统字体…", MaxDropDownHeight = 280 };
+        var font = new Fileway.App.Controls.ChoiceBox { Header = "字体", HorizontalAlignment = HorizontalAlignment.Stretch, IsEnabled = caps.CanChangeFont, PlaceholderText = "正在读取系统字体…", MaxDropDownHeight = 280 };
         font.ItemsSource = string.IsNullOrEmpty(_subtitlePreferences.FontFamily) ? DefaultFontChoices : new[] { DefaultFontChoices[0], _subtitlePreferences.FontFamily };
         font.SelectedIndex = string.IsNullOrEmpty(_subtitlePreferences.FontFamily) ? 0 : 1;
         var margins = new ToggleSwitch { Header = "使用上下黑边放置字幕", IsOn = _subtitlePreferences.UseWindowArea, IsEnabled = caps.CanPosition, OnContent = "整个窗口", OffContent = "视频画面内" };
         var preserve = new CheckBox { Content = "保留 ASS 原始排版", IsChecked = !_subtitlePreferences.OverrideScriptStyle, Visibility = caps.PreservesScriptStyle ? Visibility.Visible : Visibility.Collapsed };
         panel.Children.Add(preserve); panel.Children.Add(position); panel.Children.Add(margins); panel.Children.Add(font); panel.Children.Add(size); panel.Children.Add(scale); panel.Children.Add(delay);
-        panel.Children.Add(new TextBlock { Text = caps.PreservesScriptStyle ? "特效字幕默认保留影片排版；取消勾选后才覆盖其字体和位置。" : caps.CanChangeFont ? "调节即时生效。垂直位置以整个窗口为范围，可移入上下黑边。" : "当前为图像字幕，字体与字号不可修改。", TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = caps.PreservesScriptStyle ? "保留影片字体与特效，位置可独立调整；移位可能影响特效与画面对齐。" : caps.CanChangeFont ? "调节即时生效。文字字幕优先使用黑边开关；超过 100 可能裁切文字。" : "图像字幕无法更换字体；位置可调至 100 以上，移入下黑边。", TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 });
         var flyout = new Flyout { Content = new ScrollViewer { Content = panel, MaxHeight = 560 } };
         void Apply()
         {
             if (!double.IsFinite(delay.Value)) return;
             var editable = !caps.PreservesScriptStyle || preserve.IsChecked != true;
-            position.IsEnabled = margins.IsEnabled = caps.CanPosition && editable;
+            position.IsEnabled = margins.IsEnabled = caps.CanPosition;
             size.IsEnabled = font.IsEnabled = caps.CanChangeFont && editable;
             scale.IsEnabled = caps.CanScale && editable;
             RequestSubtitlePreferences(new SubtitlePreferences(scale.Value, position.Value,
@@ -694,7 +715,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
                 caps.PreservesScriptStyle && preserve.IsChecked != true, margins.IsOn, size.Value));
         }
         var authorStyle = caps.PreservesScriptStyle && preserve.IsChecked == true;
-        position.IsEnabled = margins.IsEnabled = caps.CanPosition && !authorStyle;
+        position.IsEnabled = margins.IsEnabled = caps.CanPosition;
         size.IsEnabled = font.IsEnabled = caps.CanChangeFont && !authorStyle;
         scale.IsEnabled = caps.CanScale && !authorStyle;
         position.ValueChanged += (_, _) => Apply(); size.ValueChanged += (_, _) => Apply(); scale.ValueChanged += (_, _) => Apply();
@@ -723,6 +744,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
                 {
                     await _session.SetSubtitlesAsync(next, token);
                     _subtitlePreferences = next;
+                    UpdateSubtitleSafeArea();
                     await Task.Run(() => PresentationPreferences.Subtitles = next, token);
                 }, notifyActivity: false);
             }
@@ -888,6 +910,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private async void UpdateSubtitleSafeArea()
     {
+        UpdateSubtitleViewport();
+        if (_subtitlePreferences.UseWindowArea) return;
         if (_disposed || !IsLoaded || ActualHeight <= 0 || _session.Snapshot.Status is PlaybackStatus.Closing or PlaybackStatus.Stopped) return;
         var fraction = ControlsVisible ? Math.Clamp((BottomBar.ActualHeight + 24) / ActualHeight, 0, 0.4) : 0;
         if (_lastQueuedSubtitleSafeArea == fraction) return;
@@ -906,6 +930,25 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             }
         }
         finally { _subtitleSafeAreaRunning = false; }
+    }
+    private async void UpdateSubtitleViewport()
+    {
+        if (_disposed || !IsLoaded || ActualWidth <= 0 || ActualHeight <= 0 || _session is not ISubtitleViewportControl control) return;
+        var shape = (ActualWidth, ActualHeight, _snapshot.DisplayAspectRatio);
+        if (_lastSubtitleViewport == shape) return;
+        _lastSubtitleViewport = shape; _pendingSubtitleViewport = (ActualWidth, ActualHeight);
+        if (_viewportUpdating) return;
+        _viewportUpdating = true;
+        try
+        {
+            while (!_disposed && _pendingSubtitleViewport is { } next)
+            {
+                _pendingSubtitleViewport = null;
+                await control.SetSubtitleViewportAsync(next.Width, next.Height, _lifetime.Token);
+            }
+        }
+        catch (Exception error) { if (!_disposed) ShowError(MainPage.ErrorMessage(error)); }
+        finally { _viewportUpdating = false; }
     }
     private static void Announce(FrameworkElement source, string message)
     {

@@ -16,7 +16,7 @@ public sealed record FileDownloadRunnerOptions
 }
 
 /// <summary>One explicit fresh file at a time. Construction, listing and reconciliation never initiate a GET.</summary>
-public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownloadReadLeaseProvider
+public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownloadReadLeaseProvider, IActiveDownloadPauseControl
 {
     private readonly ITransferTaskStore _store;
     private readonly IDownloadSourceProvider _sources;
@@ -192,6 +192,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             await CheckIntentAsync(state).ConfigureAwait(false);
             destination = await AcquireFreshDestinationAsync(state).ConfigureAwait(false);
             RequireFreshDestination(state, destination);
+            state.Destination = destination;
             state.DestinationAccepted = true;
             await SaveAsync(state, state.Record.Checkpoint with
             { Phase = TransferPhase.Running, Files = destination.Files, ConfirmedOffset = 0 }, release: false).ConfigureAwait(false);
@@ -508,6 +509,9 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         internal long ReceivedBytes;
         internal DownloadTaskProgress? PendingProgress;
         internal int PublishingProgress;
+        internal TaskCompletionSource ResumeGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Paused = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource Resumed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
     private sealed class RunState(Execution execution, TransferTaskRecord record)
     {
@@ -518,6 +522,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             record.Plan.Remote.DisplayName, record.Plan.Remote.DisplayPath);
         internal bool DestinationAccepted;
         internal bool PublishAttempted;
+        internal IDownloadDestination? Destination;
         internal bool PersistenceFailed;
         internal bool RejectedDestinationWasCanceled;
         internal FilewayException? RejectedAcquisitionReleaseFailure;

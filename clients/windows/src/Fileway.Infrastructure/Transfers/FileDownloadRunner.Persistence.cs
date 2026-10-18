@@ -114,6 +114,22 @@ public sealed partial class FileDownloadRunner
         if (fresh.Run != state.Run || fresh.Plan != state.Record.Plan) throw Safe(ErrorCode.Conflict);
         state.Record = fresh;
         state.Execution.Stop.Token.ThrowIfCancellationRequested();
+        if (fresh.Intent == TransferIntent.Pause && !state.PublishAttempted)
+        {
+            var phase = fresh.Checkpoint.Phase;
+            var flushed = state.Destination is { } target ? await target.FlushToDiskAsync(state.Execution.Stop.Token).ConfigureAwait(false) : fresh.Checkpoint.ConfirmedOffset;
+            // Keep the execution claim and held file. Paused intent is durable;
+            // the generic Paused phase releases a run and must not be used here.
+            await SaveAsync(state, state.Record.Checkpoint with { ConfirmedOffset = flushed }, release: false).ConfigureAwait(false);
+            state.Execution.Paused.TrySetResult();
+            await state.Execution.ResumeGate.Task.WaitAsync(state.Execution.Stop.Token).ConfigureAwait(false);
+            fresh = await ReadRequiredAsync(state.Run.Task, state.Execution.Stop.Token).ConfigureAwait(false);
+            if (fresh.Run != state.Run || fresh.Intent != TransferIntent.Run) throw new OperationCanceledException(state.Execution.Stop.Token);
+            state.Record = fresh;
+            await SaveAsync(state, state.Record.Checkpoint with { Phase = phase }, release: false).ConfigureAwait(false);
+            state.Execution.Resumed.TrySetResult();
+            return;
+        }
         if (fresh.Intent != TransferIntent.Run) throw new OperationCanceledException(state.Execution.Stop.Token);
     }
 

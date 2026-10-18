@@ -6,6 +6,7 @@ namespace Fileway.Infrastructure.Persistence;
 public interface ITransferTaskStore
 {
     bool IsPersistent { get; }
+    Task RemoveTransferAsync(TransferTaskRef task, long expectedRevision, CancellationToken cancellationToken) => Task.FromException(new NotSupportedException());
     Task<TransferTaskRecord> CreateTransferAsync(TransferPlan plan, CancellationToken cancellationToken);
     Task<TransferTaskRecord?> GetTransferAsync(TransferTaskRef task, CancellationToken cancellationToken);
     Task<TransferTaskPage> ListTransfersAsync(AccountKey account, string? cursor, int limit, CancellationToken cancellationToken);

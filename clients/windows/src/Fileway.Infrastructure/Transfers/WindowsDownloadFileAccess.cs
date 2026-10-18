@@ -12,6 +12,13 @@ namespace Fileway.Infrastructure.Transfers;
 /// <summary>Fresh, same-directory local downloads. Persisted paths alone never grant mutation authority.</summary>
 public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
 {
+    public async Task DeletePublishedAsync(string finalPath, TransferWorkFiles files, CancellationToken cancellationToken)
+    {
+        await using var destination = await OpenOwnedAsync(finalPath, files, cancellationToken).ConfigureAwait(false);
+        if (destination is not DownloadDestination owned || !destination.IsPublished) throw Unknown();
+        await owned.DeleteOwnedPublishedAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     private const string PartialPrefix = "fileway-download-v1-", PartialSuffix = ".partial";
     private const int CreationAttempts = 16;
     private static readonly SearchValues<char> PartialHex = SearchValues.Create("0123456789abcdef");
@@ -713,7 +720,9 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
             finally { _serial.Release(); }
         }
 
-        public async Task DeleteOwnedPartialAsync(CancellationToken cancellationToken)
+        public Task DeleteOwnedPartialAsync(CancellationToken cancellationToken) => DeleteOwnedFileAsync(false, cancellationToken);
+        internal Task DeleteOwnedPublishedAsync(CancellationToken cancellationToken) => DeleteOwnedFileAsync(true, cancellationToken);
+        private async Task DeleteOwnedFileAsync(bool published, CancellationToken cancellationToken)
         {
             // Revoke outside the I/O semaphore so prefix waits and queued native reads can leave.
             // A failed/expired drain never grants deletion or close authority.
@@ -723,7 +732,7 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
             {
                 if (_deleted) return;
                 RequireActive();
-                if (_published || _publishUncertain || _deleteUncertain) throw Unknown();
+                if (_published != published || _publishUncertain || _deleteUncertain) throw Unknown();
                 Verify(compareLength: false);
                 cancellationToken.ThrowIfCancellationRequested();
                 _deleteUncertain = true;
