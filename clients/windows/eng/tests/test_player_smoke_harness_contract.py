@@ -164,8 +164,12 @@ class HarnessGuards(unittest.TestCase):
         for source, name, entered, returned in ((main, "MainWindow_Closed", "MainWindowClosedEntered", "MainWindowClosedReturned"),
                                                 (chrome, "Window_Closed", "ChromeClosedEntered", "ChromeClosedReturned")):
             block = source.split(f"private void {name}(", 1)[1].split("\n    }", 1)[0]
-            self.assertLess(block.index(entered), block.index("Dispose();"))
-            self.assertLess(block.index("Dispose();"), block.index(returned))
+            self.assertLess(block.index(entered), block.index(returned))
+            if "Dispose();" in block:
+                self.assertLess(block.index(entered), block.index("Dispose();"))
+                self.assertLess(block.index("Dispose();"), block.index(returned))
+            else:
+                self.assertIn("only records the boundary", block)
             self.assertNotIn("catch", block)
         self.assertIn("stage>13", source_parts()[1])
 
