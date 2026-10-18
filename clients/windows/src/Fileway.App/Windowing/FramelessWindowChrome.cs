@@ -372,6 +372,10 @@ internal sealed class FramelessWindowChrome : IDisposable
             ClearResizeRegions(source);
             source.ClearRegionRects(NonClientRegionKind.Passthrough);
         }
+        // SetTitleBar installs a XAML non-client callback owned by the window.
+        // Detach it before Close so native destruction does not call back into
+        // a content tree that is already being torn down.
+        _window.SetTitleBar(null);
         if (GetCapture() == _handle) ReleaseCapture();
         if (_subclassed)
         {
