@@ -9,10 +9,12 @@ namespace Fileway.App;
 public sealed partial class MainWindow : Window, IDisposable
 {
     private readonly FramelessWindowChrome _chrome;
+    private readonly Microsoft.UI.Dispatching.DispatcherQueue _shutdownDispatcher;
 
     public MainWindow()
     {
         InitializeComponent();
+        _shutdownDispatcher = DispatcherQueue;
         Title = AppTitleBar.Caption = AppBranding.DisplayName;
         _chrome = new FramelessWindowChrome(this, AppTitleBar, recordShutdownStages: true);
         _chrome.CloseRequested += Chrome_CloseRequested;
@@ -25,6 +27,7 @@ public sealed partial class MainWindow : Window, IDisposable
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(work.X + (work.Width - width) / 2, work.Y + (work.Height - height) / 2, width, height));
         RootFrame.Navigate(typeof(MainPage));
         ((MainPage)RootFrame.Content).AttachTitleBar(AppTitleBar);
+        Closed += MainWindow_Closed;
     }
     public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
         => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails);
@@ -48,6 +51,16 @@ public sealed partial class MainWindow : Window, IDisposable
     public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);
     private void Chrome_CloseRequested(object? sender, EventArgs args) => CloseRequested?.Invoke(this, args);
+
+    private void MainWindow_Closed(object sender, WindowEventArgs args)
+    {
+        var uiThread = _shutdownDispatcher.HasThreadAccess;
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.MainWindowClosedEntered, uiThread);
+        // All content and native resources are released before Close. The
+        // Closed callback only records the boundary; it must not re-enter the
+        // XAML tree while native destruction is still unwinding.
+        ShutdownDiagnostics.Record(ShutdownDiagnosticStage.MainWindowClosedReturned, uiThread);
+    }
 
     public void Dispose()
     {
