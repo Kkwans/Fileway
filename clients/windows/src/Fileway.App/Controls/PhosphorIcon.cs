@@ -25,12 +25,8 @@ public sealed class PhosphorIcon : UserControl
         }
         Content = new Viewbox { Child = canvas, Stretch = Stretch.Uniform };
     }
-    internal static PathIcon Action(string name) => new() { Data = (Geometry)Application.Current.Resources["Phosphor-" + name] };
-    internal static void RegisterResources(ResourceDictionary resources)
+    internal static PathIcon Action(string name) => new()
     {
-        foreach (var entry in PhosphorIconData.Paths)
-        {
-            resources["Phosphor-" + entry.Key] = ((Microsoft.UI.Xaml.Shapes.Path)resources["Phosphor-source-" + entry.Key]).Data;
-        }
-    }
+        Data = (Geometry)XamlBindingHelper.ConvertValue(typeof(Geometry), "F1 " + PhosphorIconData.Paths[name].Last().Data),
+    };
 }

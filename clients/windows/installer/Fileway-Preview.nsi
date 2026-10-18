@@ -62,6 +62,8 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "Fileway contributors"
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_TITLE "$(FinishTitle)"
 !define MUI_FINISHPAGE_TEXT "$(FinishText)"
+!define MUI_FINISHPAGE_CANCEL_ENABLED
+!define MUI_PAGE_CUSTOMFUNCTION_SHOW FinishActionsShow
 !insertmacro MUI_PAGE_FINISH
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -78,6 +80,10 @@ LangString FinishTitle ${LANG_SIMPCHINESE} "栖卷已安装"
 LangString FinishTitle ${LANG_ENGLISH} "Fileway is installed"
 LangString FinishText ${LANG_SIMPCHINESE} "从开始菜单或已选择创建的桌面快捷方式打开栖卷。$\r$\n$\r$\n版本 ${PACKAGE_VERSION}"
 LangString FinishText ${LANG_ENGLISH} "Open Fileway from the Start menu, or from the desktop shortcut if selected.$\r$\n$\r$\nVersion ${PACKAGE_VERSION}"
+LangString OpenButtonText ${LANG_SIMPCHINESE} "打开"
+LangString OpenButtonText ${LANG_ENGLISH} "Open"
+LangString OpenFailed ${LANG_SIMPCHINESE} "无法打开应用。可从开始菜单重试。"
+LangString OpenFailed ${LANG_ENGLISH} "Unable to open the app. Please try the Start menu shortcut."
 LangString DesktopShortcutLabel ${LANG_SIMPCHINESE} "创建桌面快捷方式"
 LangString DesktopShortcutLabel ${LANG_ENGLISH} "Create a desktop shortcut"
 LangString ApplicationDescription ${LANG_SIMPCHINESE} "安装应用并创建此版本的开始菜单快捷方式。"
@@ -104,6 +110,58 @@ LangString VersionCreateFailed ${LANG_SIMPCHINESE} "无法创建此版本的独�
 LangString VersionCreateFailed ${LANG_ENGLISH} "Unable to create a new folder for this version. It may already exist or be unwritable. Existing files will not be overwritten."
 LangString InstallFailed ${LANG_SIMPCHINESE} "安装未完成，已有版本和用户数据未被替换。$\r$\n$\r$\n未完成目录：$INSTDIR\versions\${PACKAGE_VERSION}$\r$\n如该目录内存在 uninstall.exe，可运行它清理本次文件；也可选择另一个安装目录重试。"
 LangString InstallFailed ${LANG_ENGLISH} "Installation did not complete. Existing versions and user data were not replaced.$\r$\n$\r$\nIncomplete folder: $INSTDIR\versions\${PACKAGE_VERSION}$\r$\nIf uninstall.exe exists there, it can remove this attempt's files. You can also choose another installation folder and retry."
+
+; Keep the platform-scaled footer positions, but own both controls in nsDialogs.
+; The right-hand action must be a real button, not a repurposed Cancel command:
+; Esc / closing the installer must never launch the app.
+!macro FinishAction NativeId Text Handler
+  GetDlgItem $0 $HWNDPARENT ${NativeId}
+  System::Alloc 16
+  Pop $5
+  System::Call 'user32::GetWindowRect(p r0, p r5)'
+  System::Call 'user32::MapWindowPoints(p 0, p $mui.FinishPage, p r5, i 2)'
+  System::Call '*$5(i.r1, i.r2, i.r3, i.r4)'
+  System::Free $5
+  IntOp $3 $3 - $1
+  IntOp $4 $4 - $2
+  ShowWindow $0 ${SW_HIDE}
+  ${NSD_CreateButton} $1 $2 $3 $4 ${Text}
+  Pop $6
+  SendMessage $0 ${WM_GETFONT} 0 0 $7
+  SendMessage $6 ${WM_SETFONT} $7 1
+  ${NSD_OnClick} $6 ${Handler}
+!macroend
+
+Function FinishActionsShow
+  ; Include the footer in the inner dialog so its buttons receive normal
+  ; nsDialogs click/keyboard notifications at the current monitor's DPI.
+  System::Alloc 16
+  Pop $0
+  System::Call 'user32::GetClientRect(p $HWNDPARENT, p r0)'
+  System::Call 'user32::MapWindowPoints(p $HWNDPARENT, p $mui.FinishPage, p r0, i 2)'
+  System::Call '*$0(i, i, i.r1, i.r2)'
+  System::Free $0
+  System::Call 'user32::SetWindowPos(p $mui.FinishPage, p 0, i 0, i 0, i r1, i r2, i 0x0006)'
+  !insertmacro FinishAction 1 '"$(MUI_BUTTONTEXT_FINISH)"' FinishActionClose
+  !insertmacro FinishAction 2 '"$(OpenButtonText)"' FinishActionOpen
+FunctionEnd
+
+Function FinishActionClose
+  Pop $0
+  ; Use NSIS's normal successful completion path, including page-leave cleanup.
+  SendMessage $HWNDPARENT ${WM_COMMAND} 1 0
+FunctionEnd
+
+Function FinishActionOpen
+  Pop $0
+  ClearErrors
+  Exec '"$INSTDIR\versions\${PACKAGE_VERSION}\Fileway.App.exe"'
+  ${If} ${Errors}
+    MessageBox MB_OK|MB_ICONSTOP "$(OpenFailed)" /SD IDOK
+    Return
+  ${EndIf}
+  SendMessage $HWNDPARENT ${WM_COMMAND} 1 0
+FunctionEnd
 
 ; Check the selected install root, not every process sharing a development executable name.
 ; The bundled helper requests normal shutdown and never terminates processes.

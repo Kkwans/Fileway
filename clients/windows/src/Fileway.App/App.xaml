@@ -8,7 +8,6 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-                <ResourceDictionary Source="Resources/PhosphorGeometry.xaml"/>
                 <!-- Other merged dictionaries here -->
             </ResourceDictionary.MergedDictionaries>
             <ResourceDictionary.ThemeDictionaries>
@@ -38,13 +37,13 @@
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
             <DataTemplate x:Key="FilewayChoiceLabelTemplate"><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="8,6" ToolTipService.ToolTip="{Binding}"/></DataTemplate>
-            <Style x:Key="FilewayChoiceBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource DefaultComboBoxStyle}">
+            <Style x:Key="FilewayChoiceBoxStyle" TargetType="ComboBox">
                 <Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="12,8"/>
                 <Setter Property="BorderThickness" Value="1"/><Setter Property="BorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}"/>
                 <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}"/>
                 <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="MinHeight" Value="36"/>
             </Style>
-            <Style x:Key="FilewaySelectorButtonStyle" TargetType="DropDownButton" BasedOn="{StaticResource DefaultDropDownButtonStyle}">
+            <Style x:Key="FilewaySelectorButtonStyle" TargetType="DropDownButton">
                 <Setter Property="CornerRadius" Value="8"/><Setter Property="Height" Value="36"/><Setter Property="Padding" Value="12,8"/>
                 <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}"/>
                 <Setter Property="HorizontalContentAlignment" Value="Center"/>
