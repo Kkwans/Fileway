@@ -25,9 +25,9 @@
 conditionalDownloadV1 契约基础：能力清单声明该能力，资源元数据可携带 opaque sourceVersion，
 raw 读取返回相同观察值，请求携带不匹配的 X-Fileway-Source-Version 时返回 412，Go broker
 透传该请求/响应头；raw 也接受受控的 sourceVersion 查询参数，bridge 的 lease 命令已能将
-可选 SourceVersion 安全编码到该参数；Windows fresh 下载和活动边下边播 Range 读取已绑定
-该版本观察。仍没有 partial checkpoint 恢复、续传 runner 或启动自动恢复，因此这项接入
-不代表断点续传已经启用。
+可选 SourceVersion 安全编码到该参数。Windows 客户端的消费切片因现有播放器/下载契约仍在
+迁移中而暂未启用；仍没有 partial checkpoint 恢复、续传 runner 或启动自动恢复，因此这项
+接入不代表断点续传已经启用。
 
 契约提交 `fcb251d3` 已通过 Unified server/Web 的 lint、Web、Linux server 和 Windows server
 门槛，以及 Go transport 回归；这证明新增头部和能力字段在跨平台构建中可用，不代表客户端已
