@@ -353,7 +353,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
                 ? Windows.UI.Color.FromArgb(255, 44, 44, 44) : Windows.UI.Color.FromArgb(255, 248, 248, 248);
             _controller.TintColor = color;
             _controller.TintOpacity = 0.15f;
-            _controller.FallbackColor = _configuration.IsHighContrast ? _configuration.HighContrastBackgroundColor : color;
+            _controller.FallbackColor = _configuration.IsHighContrast && _configuration.HighContrastBackgroundColor is { } contrast ? contrast : color;
         }
 
         protected override void OnTargetDisconnected(ICompositionSupportsSystemBackdrop disconnectedTarget) => Disconnect();
