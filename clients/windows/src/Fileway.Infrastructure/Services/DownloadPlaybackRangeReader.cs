@@ -18,6 +18,7 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
     private readonly object _gate = new();
     private readonly SemaphoreSlim _serial = new(1, 1);
     private readonly IDownloadSourceProvider _sources;
+    private readonly IConditionalDownloadSourceProvider? _conditionalSources;
     private readonly RemoteResourceRef _source;
     private readonly TransferSourceSnapshot _observed;
     private readonly byte[] _wireIdentity;
@@ -36,6 +37,7 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
     private byte[]? _cache;
     private long _cacheOffset;
     private int _cacheLength;
+    private string? _conditionalVersion;
 
     internal DownloadPlaybackRangeReader(IDownloadSourceProvider sources, RemoteResourceRef source,
         TransferSourceSnapshot observed, Action requireAvailable, CancellationToken authorityStop,
@@ -57,6 +59,8 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
         if (observed.Length < 0 || options.OperationTimeout <= TimeSpan.Zero ||
             options.OperationTimeout > TimeSpan.FromMinutes(5)) throw Safe(ErrorCode.InvalidRequest);
         _sources = sources;
+        _conditionalSources = sources is IConditionalDownloadSourceProvider conditional &&
+            conditional.CanUseConditionalDownload(source) ? conditional : null;
         _source = source;
         _observed = observed;
         _wireIdentity = WireBytes(source.WirePath);
@@ -149,13 +153,24 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
                 {
                     RequireAvailable(token);
                     // Capture before checking cancellation: even a noncooperative late result is owned.
-                    lease = await _sources.AcquireDownloadAsync(new(_source, _observed.Length), control.Token).ConfigureAwait(false);
+                    if (_conditionalSources is { } conditional)
+                    {
+                        string version = _conditionalVersion ?? throw Safe(ErrorCode.CapabilityMissing);
+                        lease = await conditional.AcquireConditionalDownloadAsync(new(
+                            _source with { SourceVersion = version }, _observed.Length, version), control.Token)
+                            .ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        lease = await _sources.AcquireDownloadAsync(new(_source, _observed.Length), control.Token)
+                            .ConfigureAwait(false);
+                    }
                     RequireAvailable(token);
                     control.ThrowIfCanceled();
                 }
                 catch (Exception error) { throw StageFailure(error, control, token); }
             }
-            RequireLease(lease);
+            RequireLease(lease, _conditionalSources is not null);
             if (lease is null) throw Safe(ErrorCode.ProtocolMismatch);
             length = checked((int)Math.Min(PrefetchBytes, _observed.Length - offset));
             long end = offset + length - 1;
@@ -165,7 +180,7 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
             request.Headers.AcceptEncoding.Add(new("identity"));
             request.Headers.CacheControl = new() { NoCache = true, NoStore = true };
             using var response = await SendAsync(request, token).ConfigureAwait(false);
-            RequireResponse(response, offset, end, length);
+            RequireResponse(response, offset, end, length, _conditionalVersion);
             _cache ??= new byte[PrefetchBytes];
             await ReceiveAsync(response, _cache.AsMemory(0, length), token).ConfigureAwait(false);
             await ObserveAsync(token).ConfigureAwait(false);
@@ -198,11 +213,22 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
         try
         {
             RequireAvailable(token);
-            var file = await _sources.PrepareDownloadAsync(_source, control.Token).ConfigureAwait(false);
+            var file = _conditionalSources is { } conditional
+                ? await conditional.PrepareConditionalDownloadAsync(_source, control.Token).ConfigureAwait(false)
+                : await _sources.PrepareDownloadAsync(_source, control.Token).ConfigureAwait(false);
             RequireAvailable(token);
             control.ThrowIfCanceled();
             if (file is null || file.Resource is null) throw Safe(ErrorCode.ProtocolMismatch);
-            if (file.Resource.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
+            if (_conditionalSources is not null)
+            {
+                string version = file.Resource.SourceVersion ?? throw Safe(ErrorCode.CapabilityMissing);
+                lock (_gate)
+                {
+                    if (_conditionalVersion is null) _conditionalVersion = version;
+                    else if (!StringComparer.Ordinal.Equals(_conditionalVersion, version)) throw Safe(ErrorCode.SourceChanged);
+                }
+            }
+            else if (file.Resource.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
             if (!SameSource(file.Resource) || file.IsDirectory || file.Size != _observed.Length ||
                 file.Modified is null || file.Modified.Value.ToUniversalTime() != _modified) throw Safe(ErrorCode.SourceChanged);
         }
@@ -269,10 +295,17 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
         if (failure is not null) throw failure;
     }
 
-    private void RequireLease(IDownloadLease? lease)
+    private void RequireLease(IDownloadLease? lease, bool conditional)
     {
         if (lease is null || lease.Resource is null) throw Safe(ErrorCode.ProtocolMismatch);
-        if (lease.SourceVersion is not null || lease.Resource.SourceVersion is not null || lease.SupportsResume)
+        if (conditional)
+        {
+            string expected = _conditionalVersion ?? throw Safe(ErrorCode.CapabilityMissing);
+            if (!StringComparer.Ordinal.Equals(lease.SourceVersion, expected) ||
+                !StringComparer.Ordinal.Equals(lease.Resource.SourceVersion, expected)) throw Safe(ErrorCode.SourceChanged);
+            if (lease.SupportsResume) throw Safe(ErrorCode.CapabilityMissing);
+        }
+        else if (lease.SourceVersion is not null || lease.Resource.SourceVersion is not null || lease.SupportsResume)
             throw Safe(ErrorCode.CapabilityMissing);
         if (!SameSource(lease.Resource)) throw Safe(ErrorCode.ProtocolMismatch);
         if (lease.Length != _observed.Length) throw Safe(ErrorCode.SourceChanged);
@@ -328,18 +361,24 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
             if (!char.IsAsciiLetterOrDigit(character) && character is not '-' and not '_') throw Safe(ErrorCode.ProtocolMismatch);
     }
 
-    private void RequireResponse(HttpResponseMessage response, long start, long end, int length)
+    private void RequireResponse(HttpResponseMessage response, long start, long end, int length, string? expectedVersion)
     {
         if (response.StatusCode != HttpStatusCode.PartialContent)
             throw Safe(response.StatusCode switch
             {
                 HttpStatusCode.Unauthorized => ErrorCode.AuthenticationExpired,
                 HttpStatusCode.Forbidden => ErrorCode.PermissionDenied,
-                HttpStatusCode.NotFound or HttpStatusCode.OK or HttpStatusCode.RequestedRangeNotSatisfiable => ErrorCode.SourceChanged,
+                HttpStatusCode.NotFound or HttpStatusCode.OK or HttpStatusCode.PreconditionFailed or
+                    HttpStatusCode.RequestedRangeNotSatisfiable => ErrorCode.SourceChanged,
                 _ => ErrorCode.ProtocolMismatch,
             }, (int)response.StatusCode);
-        if (response.Headers.Contains("X-Fileway-Source-Version") || response.Content.Headers.Contains("X-Fileway-Source-Version"))
-            throw Safe(ErrorCode.CapabilityMissing);
+        string? responseVersion = OptionalHeader(response, "X-Fileway-Source-Version");
+        if (expectedVersion is null)
+        {
+            if (responseVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
+        }
+        else if (!StringComparer.Ordinal.Equals(responseVersion, expectedVersion))
+            throw Safe(responseVersion is null ? ErrorCode.ProtocolMismatch : ErrorCode.SourceChanged);
         if (response.Headers.Contains("Transfer-Encoding")) throw Safe(ErrorCode.ProtocolMismatch);
         var content = response.Content.Headers;
         string range = SingleHeader(content, "Content-Range");
@@ -365,6 +404,20 @@ internal sealed class DownloadPlaybackRangeReader : IAsyncDisposable
         string[] raw = values.ToArray();
         if (raw.Length != 1 || string.IsNullOrWhiteSpace(raw[0])) throw Safe(ErrorCode.ProtocolMismatch);
         return raw[0];
+    }
+
+    private static string? OptionalHeader(HttpResponseMessage response, string name)
+    {
+        string? value = null;
+        foreach (var headers in new[] { response.Headers, response.Content.Headers })
+        {
+            if (!headers.NonValidated.TryGetValues(name, out var values)) continue;
+            string[] raw = values.ToArray();
+            if (raw.Length != 1 || string.IsNullOrWhiteSpace(raw[0])) throw Safe(ErrorCode.ProtocolMismatch);
+            if (value is not null && !StringComparer.Ordinal.Equals(value, raw[0])) throw Safe(ErrorCode.ProtocolMismatch);
+            value = raw[0];
+        }
+        return value;
     }
 
     private void RequireAvailable(CancellationToken token)

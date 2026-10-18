@@ -30,3 +30,24 @@ public interface IDownloadSourceProvider
     /// <summary>SHA-256 for the pinned source, conditioned on SourceVersion when available; no task/journal mutation.</summary>
     Task<FileChecksumResult> CalculateDownloadChecksumAsync(DownloadLeaseRequest request, CancellationToken cancellationToken);
 }
+
+/// <summary>
+/// Optional playback-only source capability. It carries an authenticated opaque source version
+/// for conditional Range reads; it does not grant transfer resume or durable checkpoint authority.
+/// </summary>
+public sealed record ConditionalDownloadLeaseRequest(RemoteResourceRef Source, long Length, string SourceVersion)
+{
+    public override string ToString() => "ConditionalDownloadLeaseRequest (private source redacted)";
+}
+
+/// <summary>
+/// Additive conditional-read surface. Existing download providers remain fresh-only when they do not
+/// implement this interface, so old servers and test doubles keep their original contract.
+/// </summary>
+public interface IConditionalDownloadSourceProvider
+{
+    bool CanUseConditionalDownload(RemoteResourceRef resource);
+    Task<RemoteFile> PrepareConditionalDownloadAsync(RemoteResourceRef resource, CancellationToken cancellationToken);
+    Task<IDownloadLease> AcquireConditionalDownloadAsync(ConditionalDownloadLeaseRequest request,
+        CancellationToken cancellationToken);
+}
