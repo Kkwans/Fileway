@@ -21,8 +21,11 @@
    handle-based、同目录、不替换目标的 rename。身份和摘要证据齐全后保存 Completed。
 
 没有复制替代原子 rename 的退路，没有覆盖既有目标的退路。flush 与 rename 不构成
-对任意磁盘、过滤驱动或断电情况的普遍持久性承诺。当前服务端没有条件版本契约，
-新读取及摘要相符也不等于锁住历史版本；非 null SourceVersion 继续拒绝。
+对任意磁盘、过滤驱动或断电情况的普遍持久性承诺。shared/core 与 server 已加入 additive
+conditionalDownloadV1 契约基础：能力清单声明该能力，资源元数据可携带 opaque sourceVersion，
+raw 读取返回相同观察值，请求携带不匹配的 X-Fileway-Source-Version 时返回 412，Go broker
+透传该请求/响应头。Windows fresh 下载尚未消费此能力，仍拒绝带版本的下载源；这项契约基础
+不代表断点续传已经启用。
 
 ## 取消与不明结果
 
