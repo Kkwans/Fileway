@@ -28,6 +28,7 @@ public partial class App : Application, IAsyncDisposable
     private Task _startup = Task.CompletedTask;
     private Task? _shutdown;
     private bool _closing;
+    private bool _closeRequested;
     private bool _closed;
 
     public App()
@@ -158,12 +159,27 @@ public partial class App : Application, IAsyncDisposable
         await _playback!.OpenAsync(new PlaybackOpenRequest(new LocalPlaybackInput(path, Path.GetFileName(path))), _lifetime.Token);
     }
 
-    private async void MainWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    private void MainWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (_closed) return;
         args.Cancel = true;
-        if (_closing) return;
-        await DisposeAsync();
+        if (_closeRequested) return;
+        _closeRequested = true;
+        // AppWindow.Closing has no async deferral. Returning immediately is
+        // required; awaiting disposal here leaves WinUI's native close path in
+        // a partially torn-down state and can trigger CFG fast-fail in DestroyWindow.
+        _ = CompleteCloseAsync();
+    }
+
+    private async Task CompleteCloseAsync()
+    {
+        try { await DisposeAsync().ConfigureAwait(true); }
+        catch (Exception error)
+        {
+            RecordStartupFailure(error);
+            _closeRequested = false;
+            return;
+        }
         _closed = true;
         var window = _window;
         if (window is not null && !window.DispatcherQueue.TryEnqueue(() =>
@@ -180,6 +196,7 @@ public partial class App : Application, IAsyncDisposable
         }))
         {
             _closed = false;
+            _closeRequested = false;
             throw new InvalidOperationException("主窗口关闭调度器已停止，无法安全完成关闭。");
         }
     }
