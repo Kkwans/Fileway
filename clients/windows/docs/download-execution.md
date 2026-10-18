@@ -32,7 +32,10 @@ raw 读取返回相同观察值，请求携带不匹配的 X-Fileway-Source-Vers
 
 契约提交 `fcb251d3` 已通过 Unified server/Web 的 lint、Web、Linux server 和 Windows server
 门槛，以及 Go transport 回归；这证明新增头部和能力字段在跨平台构建中可用，不代表客户端已
-获得续传语义。
+获得续传语义。Windows 播放消费切片提交 `fdb8727f`，随后由 `a162994c` 修复响应头遍历编译
+问题、`ba212789` 修复测试引用；Windows native run `39086956881` 在同一候选 SHA 上通过
+Release/x64 编译和 Windows infrastructure 测试。该证据仍不替代真实 NAS 播放器画面和任意
+容器的原生验收。
 
 ## 取消与不明结果
 
