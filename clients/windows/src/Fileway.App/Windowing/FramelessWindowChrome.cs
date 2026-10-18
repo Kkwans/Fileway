@@ -30,6 +30,7 @@ internal sealed class FramelessWindowChrome : IDisposable
     private bool _maximizePressed;
     private bool _trackingNonClient;
     private bool _disposed;
+    private bool _preparedForClose;
 
     internal FramelessWindowChrome(Window window, WindowTitleBar titleBar, bool recordShutdownStages = false)
     {
@@ -352,6 +353,34 @@ internal sealed class FramelessWindowChrome : IDisposable
         if (!_window.DispatcherQueue.HasThreadAccess) throw new InvalidOperationException("窗口 chrome 必须在其 UI 线程上使用和释放。");
     }
 
+    /// <summary>
+    /// Removes native input ownership while the window is still alive. WinUI raises
+    /// Closed from inside native destruction, so waiting until that callback to
+    /// remove a subclass can leave a stale managed callback in the destroy path.
+    /// The Closed subscription remains until the callback returns for diagnostics.
+    /// </summary>
+    internal void PrepareForClose()
+    {
+        VerifyThread();
+        if (_disposed || _preparedForClose) return;
+        _preparedForClose = true;
+        var source = _nonClientPointerSource;
+        _resizeRegionState = null;
+        _captionRegionsState = null;
+        if (source is not null)
+        {
+            ClearResizeRegions(source);
+            source.ClearRegionRects(NonClientRegionKind.Passthrough);
+        }
+        if (GetCapture() == _handle) ReleaseCapture();
+        if (_subclassed)
+        {
+            _subclassed = false;
+            if (!RemoveWindowSubclass(_handle, _procedure, SubclassId))
+                throw new InvalidOperationException("无法在主窗口关闭前释放无边框窗口过程。");
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
@@ -373,7 +402,11 @@ internal sealed class FramelessWindowChrome : IDisposable
         {
             // A closed window releases its input source itself. Explicit early
             // disposal removes only our borders, never WinUI's caption region.
-            if (!_windowClosed && source is not null) { ClearResizeRegions(source); if (_captionRegionsState is not null) source.ClearRegionRects(NonClientRegionKind.Passthrough); }
+            if (!_windowClosed && !_preparedForClose && source is not null)
+            {
+                ClearResizeRegions(source);
+                if (_captionRegionsState is not null) source.ClearRegionRects(NonClientRegionKind.Passthrough);
+            }
         }
         finally
         {

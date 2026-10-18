@@ -38,6 +38,7 @@ public sealed partial class MainWindow : Window, IDisposable
         => ((MainPage)RootFrame.Content).SetStorageSettings(settings, WinRT.Interop.WindowNative.GetWindowHandle(this));
     public void ShowStorageWarning(string message) => ((MainPage)RootFrame.Content).ShowStorageWarning(message);
     public void RequestShutdown() => ((MainPage)RootFrame.Content).Shutdown();
+    public void PrepareForClose() => _chrome.PrepareForClose();
     public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);
     private void MainWindow_Closed(object sender, WindowEventArgs args)

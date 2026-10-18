@@ -167,6 +167,7 @@ public partial class App : Application, IAsyncDisposable
         _closed = true;
         var shutdownUiThread = _window?.DispatcherQueue.HasThreadAccess == true;
         ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseBegin, shutdownUiThread);
+        _window?.PrepareForClose();
         _window?.Close();
         ShutdownDiagnostics.Record(ShutdownDiagnosticStage.WindowCloseReturned, shutdownUiThread);
     }
