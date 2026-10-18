@@ -37,6 +37,11 @@ raw 读取返回相同观察值，请求携带不匹配的 X-Fileway-Source-Vers
 Release/x64 编译和 Windows infrastructure 测试。该证据仍不替代真实 NAS 播放器画面和任意
 容器的原生验收。
 
+专用 progressive decoder run `39087415443`（候选提交 `201bd281`）已通过固定 Y4M 前置头的真实
+libmpv 解码、前缀耗尽等待、追加后恢复、暂停期间追加、取消和销毁生命周期。该 harness 使用
+`vo=null`，只证明固定夹具的解码与 reader 生命周期，不证明可见画面、通用 MP4/MKV、任意跳转
+或原生播放器窗口退出稳定性。
+
 ## 取消与不明结果
 
 取消先持久化意图并排空请求和文件 I/O。只能通过已确认属于任务、尚未发布的原生句柄
