@@ -26,7 +26,7 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
 
     public TransferCenterControl()
     {
-        InitializeComponent();
+        InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(LoadError);
         _clock = DispatcherQueue.CreateTimer(); _clock.Interval = TimeSpan.FromSeconds(1);
         _clock.Tick += (_, _) => { if (_rows is not null) foreach (var row in _rows) row.RefreshClock(); };
         _noticeTimer = DispatcherQueue.CreateTimer(); _noticeTimer.IsRepeating = false;

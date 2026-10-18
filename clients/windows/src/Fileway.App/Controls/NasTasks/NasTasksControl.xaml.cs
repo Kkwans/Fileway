@@ -42,7 +42,7 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
 
     public NasTasksControl()
     {
-        InitializeComponent();
+        InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(Notice);
         TaskRecords.ItemsSource = _tasks; OperationRecords.ItemsSource = _operations; OperationItems.ItemsSource = _operationItems;
         _visibilityCallback = RegisterPropertyChangedCallback(VisibilityProperty, (_, _) =>
         { if (Visibility != Visibility.Visible) SuspendView(); });
@@ -172,6 +172,7 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             bool more = _historyMode ? _controller.OperationNextCursor is not null : _controller.NextCursor is not null;
             MoreButton.Visibility = more ? Visibility.Visible : Visibility.Collapsed;
             MoreButton.IsEnabled = Active && !HasOpenDialog && (_historyMode ? _controller.CanLoadMoreOperations : _controller.CanLoadMore);
+            AuthorityHint.Visibility = !_controller.HasVerifiedOperations || _controller.IsVerifyingOperations ? Visibility.Visible : Visibility.Collapsed;
             AuthorityHint.Text = !Active ? "连接后仅显示当前账号的服务器任务。" : _controller.IsVerifyingOperations ? "正在核实操作记录，任务动作暂时不可用。" :
                 !_controller.HasVerifiedOperations ? "操作记录尚未完整核实，任务动作已暂停。刷新任务可重新核实。" :
                 _historyMode ? "核实只读取原操作证据，不会重新提交。仅观察任务状态时，原操作结果可能仍未知。" :

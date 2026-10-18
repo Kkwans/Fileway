@@ -8,6 +8,16 @@ namespace Fileway.App;
 internal static class PresentationPreferences
 {
     private const string Key = @"HKEY_CURRENT_USER\Software\Fileway\Preview\Presentation";
+    internal static event Action? AppearanceChanged;
+    internal static int ShellMaterial { get => ReadChoice("ShellMaterial"); set { Registry.SetValue(Key, "ShellMaterial", Math.Clamp(value,0,2)); AppearanceChanged?.Invoke(); } }
+    internal static int ShellTone { get => ReadChoice("ShellTone",3); set { Registry.SetValue(Key,"ShellTone",Math.Clamp(value,0,3)); AppearanceChanged?.Invoke(); } }
+    internal static Windows.UI.Color ShellTint
+    {
+        get { try { var value = Registry.GetValue(Key,"ShellTint",0x808080) is int rgb ? rgb : 0x808080; return Windows.UI.Color.FromArgb(255,(byte)(value>>16),(byte)(value>>8),(byte)value); } catch (Exception) { return Windows.UI.Color.FromArgb(255,128,128,128); } }
+        set { Registry.SetValue(Key,"ShellTint",value.R<<16|value.G<<8|value.B); AppearanceChanged?.Invoke(); }
+    }
+    private static int ReadChoice(string name, int maximum = 2)
+    { try { return Registry.GetValue(Key,name,0) is int value ? Math.Clamp(value,0,maximum) : 0; } catch (Exception) { return 0; } }
     internal static bool RememberPlayerSize { get => Registry.GetValue(Key, "RememberPlayerSize", 0) is int value && value == 1; set => Registry.SetValue(Key, "RememberPlayerSize", value ? 1 : 0); }
     internal static (int Width, int Height)? PlayerSize
     {

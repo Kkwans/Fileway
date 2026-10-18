@@ -1,54 +1,66 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Application
-    x:Class="Fileway.App.App"
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:Fileway.App">
-    <Application.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
-                <!-- Other merged dictionaries here -->
-            </ResourceDictionary.MergedDictionaries>
-            <ResourceDictionary.ThemeDictionaries>
-                <ResourceDictionary x:Key="HighContrast">
-                    <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="SystemColorHighlightColorBrush"/>
-                    <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="SystemColorHighlightColorBrush"/>
-                    <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="SystemColorHighlightColorBrush"/>
-                    <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="SystemColorHighlightTextColorBrush"/>
-                    <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="SystemColorHighlightTextColorBrush"/>
-                    <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="SystemColorHighlightTextColorBrush"/>
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E7EDF5"/>
-                    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#DCE5F1"/>
-                    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#D1DDEC"/>
-                    <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#26364B"/>
-                    <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#26364B"/>
-                    <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#26364B"/>
-                </ResourceDictionary>
-                <ResourceDictionary x:Key="Default">
-                    <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#354356"/>
-                    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#40516A"/>
-                    <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#304055"/>
-                    <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#F1F5FA"/>
-                    <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#F1F5FA"/>
-                    <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#F1F5FA"/>
-                </ResourceDictionary>
-            </ResourceDictionary.ThemeDictionaries>
-            <DataTemplate x:Key="FilewayChoiceLabelTemplate"><TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="8,6" ToolTipService.ToolTip="{Binding}"/></DataTemplate>
-            <Style x:Key="FilewayChoiceBoxStyle" TargetType="ComboBox">
-                <Setter Property="CornerRadius" Value="8"/><Setter Property="Padding" Value="12,8"/>
-                <Setter Property="BorderThickness" Value="1"/><Setter Property="BorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}"/>
-                <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}"/>
-                <Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="MinHeight" Value="36"/>
-            </Style>
-            <Style x:Key="FilewaySelectorButtonStyle" TargetType="DropDownButton">
-                <Setter Property="CornerRadius" Value="8"/><Setter Property="Height" Value="36"/><Setter Property="Padding" Value="12,8"/>
-                <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}"/>
-                <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            </Style>
-            <!-- Other app resources here -->
+<Application x:Class="Fileway.App.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+        <!-- Other merged dictionaries here -->
+      </ResourceDictionary.MergedDictionaries>
+      <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="HighContrast">
+          <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="SystemColorHighlightColorBrush" />
+          <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="SystemColorHighlightColorBrush" />
+          <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="SystemColorHighlightColorBrush" />
+          <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="SystemColorHighlightTextColorBrush" />
+          <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="SystemColorHighlightTextColorBrush" />
+          <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="SystemColorHighlightTextColorBrush" />
         </ResourceDictionary>
-    </Application.Resources>
+        <ResourceDictionary x:Key="Light">
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E7EDF5" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#DCE5F1" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#D1DDEC" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#26364B" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#26364B" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#26364B" />
+          <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+          <AcrylicBrush x:Key="FlyoutBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+          <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+          <AcrylicBrush x:Key="ContentDialogBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Default">
+          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#354356" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#40516A" />
+          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#304055" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#F1F5FA" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#F1F5FA" />
+          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#F1F5FA" />
+          <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+          <AcrylicBrush x:Key="FlyoutBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+          <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+          <AcrylicBrush x:Key="ContentDialogBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+        </ResourceDictionary>
+      </ResourceDictionary.ThemeDictionaries>
+      <DataTemplate x:Key="FilewayChoiceLabelTemplate">
+        <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="8,6" ToolTipService.ToolTip="{Binding}" />
+      </DataTemplate>
+      <Style x:Key="FilewayChoiceBoxStyle" TargetType="ComboBox">
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}" />
+        <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="MinHeight" Value="36" />
+      </Style>
+      <Style x:Key="FilewaySelectorButtonStyle" TargetType="DropDownButton">
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+      </Style>
+                  <Style TargetType="ComboBox" BasedOn="{StaticResource FilewayChoiceBoxStyle}"/>
+            <Style TargetType="ComboBoxItem"><Setter Property="HorizontalContentAlignment" Value="Center"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="MinHeight" Value="36"/><Setter Property="Padding" Value="10,6"/><Setter Property="CornerRadius" Value="6"/></Style><!-- Other app resources here -->
+    </ResourceDictionary>
+  </Application.Resources>
 </Application>

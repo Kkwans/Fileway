@@ -28,6 +28,7 @@ public sealed partial class MainWindow : Window, IDisposable
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(work.X + (work.Width - width) / 2, work.Y + (work.Height - height) / 2, width, height));
         RootFrame.Navigate(typeof(MainPage));
         ((MainPage)RootFrame.Content).AttachTitleBar(AppTitleBar);
+        InitializeAppearance();
         Closed += MainWindow_Closed;
     }
     public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
@@ -42,6 +43,7 @@ public sealed partial class MainWindow : Window, IDisposable
     public void RequestShutdown() => ((MainPage)RootFrame.Content).Shutdown();
     public void PrepareForClose()
     {
+        DisposeAppearance();
         // MicaBackdrop owns a composition target callback. Release it while
         // the Window is still alive instead of letting XAML tear it down from
         // inside the native destroy path.

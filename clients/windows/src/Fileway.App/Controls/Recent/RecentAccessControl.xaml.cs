@@ -21,7 +21,7 @@ public sealed partial class RecentAccessControl : UserControl, IDisposable
 
     public RecentAccessControl()
     {
-        InitializeComponent(); RecentRecords.ItemsSource = _rows;
+        InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(RecentError); RecentRecords.ItemsSource = _rows;
         Render();
     }
 

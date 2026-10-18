@@ -14,7 +14,6 @@ public sealed partial class MainPage
     private readonly Dictionary<(AccountKey Account, string WirePath), BrowserFileTypeFilter[]> _directoryTypeFilters = [];
     private bool _typeFiltersEdited;
     private PlayerSettingsWindow? _detailsPopup;
-    private PlayerSettingsWindow? _choicePopup;
     private StackPanel? _typeFilterOptions;
     private readonly Dictionary<InfoBar, (DispatcherQueueTimer Timer, string Key)> _toasts = [];
 
@@ -29,6 +28,11 @@ public sealed partial class MainPage
         DetailsPanel.BorderThickness = new Thickness(0);
         Notice.IsOpen = false;
         LoginNotice.IsClosable = true;
+        Controls.FloatingNotice.Attach(Notice);
+        Controls.FloatingNotice.Attach(LoginNotice);
+        Controls.FloatingNotice.Attach(ReceiptWarning);
+        Controls.FloatingNotice.Attach(UploadNotice);
+        Controls.FloatingNotice.Attach(DownloadNotice);
         AttachChoices(ViewOptionsButton);
         _typeFilterOptions = (TypeFilterBox.Flyout as Flyout)?.Content as StackPanel;
         AttachChoices(TypeFilterBox);
@@ -37,40 +41,17 @@ public sealed partial class MainPage
     private void AttachChoices(DropDownButton button)
     {
         if (button.Flyout is not Flyout { Content: FrameworkElement content } flyout) return;
-        flyout.Content = null; button.Flyout = null;
-        content.Width = double.NaN; content.Margin = new Thickness(0);
-        var frame = new Border { Width = 208, Padding = new Thickness(8), Child = content };
-        button.Click += (_, _) =>
+        content.Margin = new Thickness(0); content.Width = 136; content.MinWidth = 0;
+        flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft;
+        flyout.Opening += (_, _) =>
         {
-            _choicePopup?.Dispose();
-            if (XamlRoot is null) return;
-            var owner = Microsoft.UI.Win32Interop.GetWindowFromWindowId(XamlRoot.ContentIslandEnvironment.AppWindowId);
-            var popup = new PlayerSettingsWindow(owner, frame, null, () => _choicePopup = null, theme: ActualTheme, wrapContent: false);
-            popup.Title = button == TypeFilterBox ? "筛选文件类型" : "文件布局";
-            _choicePopup = popup; popup.ShowAt(button, preferBelow: true);
+            Controls.SurfaceStyles.Apply(flyout, ActualTheme);
+            if (content is Panel panel)
+                foreach (var choice in panel.Children.OfType<ToggleButton>()) Controls.SurfaceStyles.Soften(choice, "ToggleButton", ActualTheme);
         };
     }
 
-    private void ConfigurePopupMaterial(FlyoutBase flyout)
-    {
-        if (!Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported() ||
-            !new Windows.UI.ViewManagement.UISettings().AdvancedEffectsEnabled || new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast) return;
-        var style = new Style(typeof(MenuFlyoutPresenter));
-        var tint = ActualTheme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 40, 43, 48) : Windows.UI.Color.FromArgb(255, 249, 250, 252);
-        style.Setters.Add(new Setter(Control.BackgroundProperty, new AcrylicBrush { TintOpacity = 0.8, TintColor = tint, FallbackColor = tint }));
-        style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(8)));
-        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(4)));
-        if (flyout is MenuFlyout menu) menu.MenuFlyoutPresenterStyle = style;
-        else if (flyout is Flyout panel)
-        {
-            var presenter = new Style(typeof(FlyoutPresenter));
-            presenter.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Microsoft.UI.Colors.Transparent)));
-            presenter.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8)));
-            presenter.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(8)));
-            panel.FlyoutPresenterStyle = presenter;
-        }
-    }
-
+    private void ConfigurePopupMaterial(FlyoutBase flyout) => Controls.SurfaceStyles.Apply(flyout, ActualTheme);
     private void ShowToast(InfoBar bar, string key, bool repeat = false)
     {
         if (_disposed) return;
@@ -97,7 +78,7 @@ public sealed partial class MainPage
     private void DisposePresentation()
     {
         _detailsPopup?.Dispose(); _detailsPopup = null;
-        _choicePopup?.Dispose(); _choicePopup = null;
+
         foreach (var state in _toasts.Values) state.Timer.Stop();
         _toasts.Clear();
     }
@@ -154,12 +135,25 @@ public sealed partial class MainPage
         var toast = new Slider { Header = "提示自动消失（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ToastSeconds };
         var controls = new Slider { Header = "播放控件自动隐藏（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
         var remember = new ToggleSwitch { Header = "再次打开视频", OnContent = "保留上次窗口大小", OffContent = "按视频比例自动调整", IsOn = PresentationPreferences.RememberPlayerSize };
+        var material = new Controls.ChoiceBox { Header = "侧栏与顶栏背景", HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var label in new[] { "中性底色", "实时模糊", "壁纸取色" }) material.Items.Add(label);
+        material.SelectedIndex = PresentationPreferences.ShellMaterial;
+        var tone = new Controls.ChoiceBox { Header = "中性底色配色", HorizontalAlignment = HorizontalAlignment.Stretch };
+        foreach (var label in new[] { "雾灰", "暖灰", "冷灰", "自定义取色" }) tone.Items.Add(label);
+        tone.SelectedIndex = PresentationPreferences.ShellTone; tone.IsEnabled = material.SelectedIndex == 0;
+        var color = new ColorPicker { Color = PresentationPreferences.ShellTint, IsAlphaEnabled = false, IsHexInputVisible = true, IsMoreButtonVisible = false, IsColorSliderVisible = true, Width = 268, Visibility = material.SelectedIndex == 0 && tone.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed };
+        color.ColorChanged += (_, args) => Save(() => PresentationPreferences.ShellTint = args.NewColor);
+        material.SelectionChanged += (_, _) => { tone.IsEnabled = material.SelectedIndex == 0; color.Visibility = material.SelectedIndex == 0 && tone.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed; Save(() => PresentationPreferences.ShellMaterial = material.SelectedIndex); };
+        tone.SelectionChanged += (_, _) => { color.Visibility = material.SelectedIndex == 0 && tone.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed; Save(() => PresentationPreferences.ShellTone = tone.SelectedIndex); };
         remember.Toggled += (_, _) => Save(() => PresentationPreferences.RememberPlayerSize = remember.IsOn);
         toast.ValueChanged += (_, _) => Save(() => PresentationPreferences.ToastSeconds = (int)toast.Value);
         controls.ValueChanged += (_, _) => Save(() => PresentationPreferences.ControlsHideSeconds = (int)controls.Value);
         panel.Children.Add(toast); panel.Children.Add(controls);
         panel.Children.Add(remember);
-        _ = ShowBrowserDialogAsync(new ContentDialog { Title = "交互偏好", CloseButtonText = "完成", Content = panel });
+        panel.Children.Add(material); panel.Children.Add(tone);
+        panel.Children.Add(color);
+        panel.Children.Add(new TextBlock { Text = "自定义取色会自动生成可读的浅色与深色底色。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
+        _ = ShowBrowserDialogAsync(new ContentDialog { Title = "交互与外观", CloseButtonText = "完成", Content = new ScrollViewer { Content = panel, MaxHeight = 520, HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } });
         void Save(Action action) { try { action(); } catch (Exception) { SetNotice("偏好未保存", "请检查当前用户的设置权限。", InfoBarSeverity.Warning); } }
     }
 }

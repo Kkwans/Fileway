@@ -6,7 +6,7 @@
  <Grid x:Name="PanelRoot" Padding="20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <StackPanel Spacing="4"><TextBlock Text="文件任务" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="当前账号在服务器执行的复制、移动任务。本机上传与下载请查看传输中心。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+   <StackPanel Spacing="4"><TextBlock Text="文件任务" FontSize="20" FontWeight="SemiBold"/><TextBlock Text="复制与移动任务" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" AutomationProperties.Name="离开 文件任务，返回文件"/>
   </Grid>
   <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -14,16 +14,16 @@
    <ProgressRing x:Name="LoadingRing" Grid.Column="1" Width="20" Height="20" IsActive="False" AutomationProperties.Name="正在读取 NAS 任务或核实操作记录"/>
   </Grid>
   <StackPanel Grid.Row="2" Spacing="8">
-   <CommandBar x:Name="Commands" DefaultLabelPosition="Right" Background="Transparent" IsDynamicOverflowEnabled="True">
-    <AppBarButton x:Name="RefreshButton" Label="刷新任务" Click="Refresh_Click" ToolTipService.ToolTip="刷新 (F5)"><AppBarButton.Icon><PathIcon Data="F1 M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="DetailRefreshButton" Label="刷新详情" Click="DetailRefresh_Click"><AppBarButton.Icon><PathIcon Data="F1 M247.31,124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57,61.26,162.88,48,128,48S61.43,61.26,36.34,86.35C17.51,105.18,9,124,8.69,124.76a8,8,0,0,0,0,6.5c.35.79,8.82,19.57,27.65,38.4C61.43,194.74,93.12,208,128,208s66.57-13.26,91.66-38.34c18.83-18.83,27.3-37.61,27.65-38.4A8,8,0,0,0,247.31,124.76ZM128,192c-30.78,0-57.67-11.19-79.93-33.25A133.47,133.47,0,0,1,25,128,133.33,133.33,0,0,1,48.07,97.25C70.33,75.19,97.22,64,128,64s57.67,11.19,79.93,33.25A133.46,133.46,0,0,1,231.05,128C223.84,141.46,192.43,192,128,192Zm0-112a48,48,0,1,0,48,48A48.05,48.05,0,0,0,128,80Zm0,80a32,32,0,1,1,32-32A32,32,0,0,1,128,160Z"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="ReconcileButton" Label="核实记录" Icon="Sync" Click="Reconcile_Click" Visibility="Collapsed"/>
+   <CommandBar x:Name="Commands" HorizontalAlignment="Left" MinHeight="40" Height="40" DefaultLabelPosition="Right" Background="Transparent" IsDynamicOverflowEnabled="True">
+    <AppBarButton x:Name="RefreshButton" Label="刷新任务" Click="Refresh_Click" ToolTipService.ToolTip="刷新 (F5)"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrows-clockwise"/></AppBarButton.Icon></AppBarButton>
+    <AppBarButton x:Name="DetailRefreshButton" Label="刷新详情" Click="DetailRefresh_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="eye"/></AppBarButton.Icon></AppBarButton>
+    <AppBarButton x:Name="ReconcileButton" Label="核实记录" Click="Reconcile_Click" Visibility="Collapsed"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrows-clockwise"/></AppBarButton.Icon></AppBarButton>
     <AppBarSeparator x:Name="TaskActionSeparator"/>
-    <AppBarButton x:Name="CancelTaskButton" Label="请求取消" Icon="Cancel" Click="CancelTask_Click"/>
-    <AppBarButton x:Name="RetryTaskButton" Label="重试" Click="RetryTask_Click"><AppBarButton.Icon><PathIcon Data="F1 M224,48V96a8,8,0,0,1-8,8H168a8,8,0,0,1,0-16h28.69L182.06,73.37a79.56,79.56,0,0,0-56.13-23.43h-.45A79.52,79.52,0,0,0,69.59,72.71,8,8,0,0,1,58.41,61.27a96,96,0,0,1,135,.79L208,76.69V48a8,8,0,0,1,16,0ZM186.41,183.29a80,80,0,0,1-112.47-.66L59.31,168H88a8,8,0,0,0,0-16H40a8,8,0,0,0-8,8v48a8,8,0,0,0,16,0V179.31l14.63,14.63A95.43,95.43,0,0,0,130,222.06h.53a95.36,95.36,0,0,0,67.07-27.33,8,8,0,0,0-11.18-11.44Z"/></AppBarButton.Icon></AppBarButton>
+    <AppBarButton x:Name="CancelTaskButton" Label="请求取消" Click="CancelTask_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="x"/></AppBarButton.Icon></AppBarButton>
+    <AppBarButton x:Name="RetryTaskButton" Label="重试" Click="RetryTask_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrows-clockwise"/></AppBarButton.Icon></AppBarButton>
     <CommandBar.SecondaryCommands>
      <AppBarButton x:Name="ArchiveTaskButton" Label="归档记录" Click="ArchiveTask_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE7B8;"/></AppBarButton.Icon></AppBarButton>
-     <AppBarButton x:Name="UnarchiveTaskButton" Label="移出归档" Click="UnarchiveTask_Click"><AppBarButton.Icon><PathIcon Data="F1 M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z"/></AppBarButton.Icon></AppBarButton>
+     <AppBarButton x:Name="UnarchiveTaskButton" Label="移出归档" Click="UnarchiveTask_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrow-counter-clockwise"/></AppBarButton.Icon></AppBarButton>
     </CommandBar.SecondaryCommands>
    </CommandBar>
    <Grid x:Name="Filters" ColumnSpacing="8" RowSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="140"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -55,7 +55,7 @@
      <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="8"/><Setter Property="Margin" Value="0,0,0,4"/></Style></ListView.ItemContainerStyle>
      <ListView.ItemTemplate><DataTemplate x:DataType="local:NasTaskOperationRow"><StackPanel Spacing="4" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind Stage, Mode=OneWay}" TextWrapping="Wrap"/><TextBlock Text="{x:Bind When, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></DataTemplate></ListView.ItemTemplate>
     </ListView>
-    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360" Spacing="8" Margin="12"><ui:PhosphorIcon IconName="file-code" Width="32" Height="32" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="暂无 文件任务" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyDescription" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="360" Spacing="8" Margin="12"><ui:LucideIcon IconName="file-code" Width="32" Height="32" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="暂无 文件任务" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyDescription" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    </Grid>
    <Border x:Name="DetailsPane" Grid.Column="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0" Padding="16,4,0,4">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

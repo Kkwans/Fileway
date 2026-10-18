@@ -54,12 +54,9 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     public ResourceCollectionsControl()
     {
         InitializeComponent();
-        if (Status.Parent is Grid host)
-        {
-            var row = Grid.GetRow(Status); host.Children.Remove(Status);
-            var statusArea = new StackPanel { Spacing = 4 }; Grid.SetRow(statusArea, row);
-            statusArea.Children.Add(Status); statusArea.Children.Add(_receiptWarningBar); host.Children.Add(statusArea);
-        }
+        if (Content is Grid host) host.Children.Add(_receiptWarningBar);
+        Fileway.App.Controls.FloatingNotice.Attach(Status);
+        Fileway.App.Controls.FloatingNotice.Attach(_receiptWarningBar);
         Status.ActionButton = _reconcileButton;
         _reconcileButton.Click += async (_, _) => await ReconcileUnknownAsync();
         Records.ItemsSource = _records; TagResources.ItemsSource = _resources;
@@ -181,6 +178,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     private void ApplyPurpose()
     {
         var browse = _browseTagId is not null;
+        OpenTagResourceButton.Visibility = UnlinkButton.Visibility = TagMode ? Visibility.Visible : Visibility.Collapsed;
         ManagementSelection.Visibility = Records.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
         RecordsRow.Height = new GridLength(browse ? 0 : 1, browse ? GridUnitType.Pixel : GridUnitType.Star);
         AddFavoriteButton.Visibility = ResourceTagsButton.Visibility = CreateGroupButton.Visibility = CreateTagButton.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
@@ -188,7 +186,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         EmptyText.Visibility = Visibility.Collapsed; TagResourcesArea.Visibility = Visibility.Visible; TagResourcesRow.Height = new GridLength(1, GridUnitType.Star);
         var tag = Selected?.Tag;
         CollectionHeading.Text = tag is null ? "标签不可用" : tag.Name;
-        CurrentResourceText.Text = tag is null ? "此标签已删除或当前账号不可见，请刷新或返回文件。" : $"{tag.Resources.Count} 个直接关联 · 双击或按 Enter 打开";
+        CurrentResourceText.Text = tag is null ? "此标签已删除或当前账号不可见，请刷新或返回文件。" : $"{tag.Resources.Count} 个项目 · 双击或按 Enter 打开";
     }
 
     private void RenderTagResources()
@@ -199,11 +197,11 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         if (Selected?.Tag is not { } tag) return;
         var index = 0;
         foreach (var reference in tag.Resources)
-            _resources.Add(new CollectionRow($"{tag.Id}:{index++}", reference.DisplayPath, "", IdentityState(reference), reference, Tag: tag));
+            _resources.Add(new CollectionRow($"{tag.Id}:{index++}", reference.DisplayPath.TrimEnd('/').Split('/').LastOrDefault() is { Length: > 0 } name ? name : "/", reference.DisplayPath, IdentityState(reference), reference, Tag: tag));
         TagEmptyText.Text = "此标签暂无关联资源。可用“设置资源标签”绑定当前选中资源。";
         TagEmptyText.Visibility = _resources.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
-    private static string IdentityState(CollectionResource reference) => reference.Resource is null ? "历史路径身份无法确认：不可打开或按路径取消关联" : "打开时核实资源状态";
+    private static string IdentityState(CollectionResource reference) => reference.Resource is null ? "历史记录，资源身份暂不可用" : "";
 
     private void UpdateCommands()
     {
@@ -279,8 +277,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         var state = _session is { } session ? AccountState(session.Account) : null;
         _requiresRefresh = state?.RequiresRefresh == true;
         _unknownWrite = state is not null && (state.UntrackedUnknown || state.UnknownOperations.Count > 0);
-        _receiptWarningBar.IsOpen = state?.Warnings.Count > 0;
         _receiptWarningBar.Message = state is null ? "" : "此提示不改变服务器已返回的操作结果，请勿因此重复提交。\n" + string.Join("\n", state.Warnings);
+        _receiptWarningBar.IsOpen = state?.Warnings.Count > 0;
     }
     private void TrackUnknown(AccountKey account, OperationReceipt? receipt)
     {
@@ -416,7 +414,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         if (!CanWrite || Capture() is not { } scope || _currentResource is not { } resource || _snapshot is not { } snapshot) return;
         var resourceGeneration = _resourceGeneration;
         var rows = new StackPanel { Spacing = 8, MinWidth = 260 };
-        var localStatus = new InfoBar { IsOpen = false, IsClosable = false };
+        var localStatus = new InfoBar { IsOpen = false, IsClosable = true };
+        Fileway.App.Controls.FloatingNotice.Attach(localStatus);
         var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(new TextBlock { Text = resource.DisplayName, TextWrapping = TextWrapping.Wrap }); panel.Children.Add(localStatus);
         panel.Children.Add(new ScrollViewer { Content = rows, MaxHeight = 360, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
         var create = new Button { Content = "新建标签", HorizontalAlignment = HorizontalAlignment.Left }; panel.Children.Add(create);
@@ -540,7 +539,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         }
         finally { if (Current(scope)) { _busy = false; UpdateCommands(); } }
     }
-    private void ShowStatus(string message, InfoBarSeverity severity) { Status.Message = message; Status.Severity = severity; Status.IsOpen = true; StatusChanged?.Invoke(this, new CollectionStatus(message, severity)); }
+    private void ShowStatus(string message, InfoBarSeverity severity) { Status.Message = message; Status.Severity = severity; Fileway.App.Controls.FloatingNotice.Show(Status); StatusChanged?.Invoke(this, new CollectionStatus(message, severity)); }
     // Closing the view must not discard an acknowledged/unknown write on this session.
     // Only resource navigation is retired; account/session replacement cancels all work.
     public void SuspendView() { ++_openGeneration; _dialog?.Hide(); }
@@ -594,7 +593,7 @@ public sealed class ColorChoice(string name, string value)
 {
     public string Name { get; } = name;
     public string Value { get; } = value;
-    public string Label => $"{Name} · {Value}";
+    public string Label => Name;
     public override string ToString() => Label;
     public SolidColorBrush Brush
     {
@@ -609,6 +608,7 @@ public sealed class ColorChoice(string name, string value)
 public sealed record CollectionRow(string Id, string Name, string Detail, string State, CollectionResource? Reference = null, ResourceFavorite? Favorite = null, ResourceTag? Tag = null)
 {
     public override string ToString() => Name;
+    public Visibility IconVisibility => Tag is not null && Reference is null ? Visibility.Collapsed : Visibility.Visible;
     public Visibility TagColorVisibility => Tag is not null && Reference is null ? Visibility.Visible : Visibility.Collapsed;
     public SolidColorBrush TagColorBrush => new ColorChoice("", Tag?.Color ?? "").Brush;
 }

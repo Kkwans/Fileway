@@ -11,7 +11,7 @@
   </Grid>
   <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Orientation="Horizontal" Spacing="8"><ToggleButton x:Name="DownloadsTab" Content="下载" Width="96" IsChecked="True" Click="Downloads_Click" AutomationProperties.Name="下载记录"/><ToggleButton x:Name="UploadsTab" Content="上传" Width="96" Click="Uploads_Click" AutomationProperties.Name="上传记录"/></StackPanel>
-   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><ProgressRing x:Name="HistoryLoadingRing" Width="20" Height="20" IsActive="False" AutomationProperties.Name="正在加载传输记录"/><Button x:Name="RefreshButton" Click="Refresh_Click" Width="32" Height="32" Padding="0" AutomationProperties.Name="刷新当前传输记录" ToolTipService.ToolTip="刷新记录"><ui:PhosphorIcon IconName="arrows-clockwise" Width="16" Height="16"/></Button></StackPanel>
+   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"><ProgressRing x:Name="HistoryLoadingRing" Width="20" Height="20" IsActive="False" AutomationProperties.Name="正在加载传输记录"/><Button x:Name="RefreshButton" Click="Refresh_Click" Width="32" Height="32" Padding="0" AutomationProperties.Name="刷新当前传输记录" ToolTipService.ToolTip="刷新记录"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/></Button></StackPanel>
   </Grid>
   <StackPanel Grid.Row="2" Spacing="8"><TextBlock x:Name="HintText" Visibility="Collapsed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><InfoBar x:Name="LoadError" IsOpen="False" IsClosable="True" Severity="Warning" Title="记录未能加载"><InfoBar.ActionButton><Button Content="重试" Click="More_Click"/></InfoBar.ActionButton></InfoBar></StackPanel>
   <Grid Grid.Row="3">
@@ -20,7 +20,7 @@
     <ListView.ItemTemplate><DataTemplate x:DataType="local:TransferCenterRow">
      <Grid Padding="16,14" ColumnSpacing="14" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="10" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
       <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <ui:PhosphorIcon IconName="{x:Bind IconName}" Width="28" Height="28" VerticalAlignment="Top" Margin="0,2,0,0"/>
+      <ui:LucideIcon IconName="{x:Bind IconName}" Width="28" Height="28" VerticalAlignment="Top" Margin="0,2,0,0"/>
       <StackPanel Grid.Column="1" Spacing="8">
        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"/><TextBlock Grid.Column="1" Text="{x:Bind Stage, Mode=OneWay}" FontSize="12" Margin="12,0,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></Grid>
        <ProgressBar Minimum="0" Maximum="100" Value="{x:Bind Progress, Mode=OneWay}" IsIndeterminate="{x:Bind Indeterminate, Mode=OneWay}" Height="4" AutomationProperties.Name="{x:Bind ProgressName}"/>
@@ -29,14 +29,14 @@
        <TextBlock Text="{x:Bind Destination, Mode=OneWay}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorTertiaryBrush}" ToolTipService.ToolTip="{x:Bind Destination, Mode=OneWay}"/>
       </StackPanel>
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Visibility="{x:Bind ActionsVisibility}">
-       <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Pause_Click" IsEnabled="{x:Bind CanTogglePause, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind PauseLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind PauseLabel, Mode=OneWay}"><ui:PhosphorIcon IconName="{x:Bind PauseIcon, Mode=OneWay}" Width="20" Height="20"/></Button>
-       <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Remove_Click" IsEnabled="{x:Bind CanRemove, Mode=OneWay}" ToolTipService.ToolTip="删除任务" AutomationProperties.Name="删除任务"><ui:PhosphorIcon IconName="trash" Width="20" Height="20"/></Button>
+       <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Pause_Click" IsEnabled="{x:Bind CanTogglePause, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind PauseLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind PauseLabel, Mode=OneWay}"><ui:LucideIcon IconName="{x:Bind PauseIcon, Mode=OneWay}" Width="20" Height="20"/></Button>
+       <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Remove_Click" IsEnabled="{x:Bind CanRemove, Mode=OneWay}" ToolTipService.ToolTip="删除任务" AutomationProperties.Name="删除任务"><ui:LucideIcon IconName="trash" Width="20" Height="20"/></Button>
       </StackPanel>
      </Grid>
     </DataTemplate></ListView.ItemTemplate>
     <ListView.ItemContainerTransitions><TransitionCollection><EntranceThemeTransition IsStaggeringEnabled="False"/></TransitionCollection></ListView.ItemContainerTransitions>
    </ListView>
-   <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="360" Spacing="12" Margin="12"><ui:PhosphorIcon IconName="arrows-clockwise" Width="36" Height="36" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="暂无传输记录" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyText" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+   <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="360" Spacing="12" Margin="12"><ui:LucideIcon IconName="arrows-clockwise" Width="36" Height="36" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="EmptyTitle" Text="暂无传输记录" FontSize="18" FontWeight="SemiBold" TextAlignment="Center"/><TextBlock x:Name="EmptyText" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
   </Grid>
   <Grid Grid.Row="4" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="LoadedText" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" TextWrapping="Wrap"/><Button x:Name="MoreButton" Grid.Column="1" Content="加载更多" Click="More_Click" Visibility="Collapsed"/></Grid>
  </Grid>

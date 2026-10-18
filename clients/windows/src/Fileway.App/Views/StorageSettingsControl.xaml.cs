@@ -21,6 +21,8 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
         _settings = settings; _ownerHwnd = ownerHwnd;
         _lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         InitializeComponent();
+        Fileway.App.Controls.FloatingNotice.Attach(StatusNotice);
+        Fileway.App.Controls.FloatingNotice.Attach(CacheNotice);
         MaximumCacheGbBox.Maximum = ClientStorageSettings.MaximumSupportedCacheBytes / BytesPerGb;
     }
 

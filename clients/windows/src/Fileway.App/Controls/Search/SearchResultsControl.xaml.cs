@@ -38,7 +38,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
 
     public SearchResultsControl()
     {
-        InitializeComponent();
+        InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(SearchNotice);
         SearchRecords.ItemsSource = _rows;
         _controller.Changed += Controller_Changed;
         QueryBox.TextCompositionStarted += (_, _) => { ++_compositionRevision; _queryComposing = true; UpdateCommands(); };

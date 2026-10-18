@@ -31,7 +31,7 @@ public sealed partial class TrashControl : UserControl, IDisposable
 
     public TrashControl()
     {
-        InitializeComponent(); Records.ItemsSource = _rows; UnknownRecords.ItemsSource = _unknown;
+        InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(Notice); Records.ItemsSource = _rows; UnknownRecords.ItemsSource = _unknown;
         _noticeTimer = DispatcherQueue.CreateTimer(); _noticeTimer.IsRepeating = false; _noticeTimer.Tick += (_, _) => Notice.IsOpen = false;
         _ready = true; Unloaded += (_, _) => SuspendView(); Render();
     }
@@ -150,7 +150,7 @@ public sealed partial class TrashControl : UserControl, IDisposable
         var menu = new MenuFlyout();
         void Add(string text, string icon, Action action, bool enabled)
         {
-            var item = new MenuFlyoutItem { Text = text, Icon = Fileway.App.Controls.PhosphorIcon.Action(icon), IsEnabled = enabled };
+            var item = new MenuFlyoutItem { Text = text, Icon = Fileway.App.Controls.LucideIcon.Action(icon), IsEnabled = enabled };
             item.Click += (_, _) => action(); menu.Items.Add(item);
         }
         Add("恢复", "arrow-counter-clockwise", () => Restore_Click(this, new()), !Busy && _controller.CanRestore(row.Item, Conflict));
@@ -168,14 +168,14 @@ public sealed partial class TrashControl : UserControl, IDisposable
         var root = new StackPanel { Width = 480, Padding = new Thickness(20), Spacing = 16 };
         var header = new Grid { Height = 32 }; header.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         header.Children.Add(new TextBlock { Text = "回收站项目详情", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var close = new Button { Content = new Fileway.App.Controls.PhosphorIcon { IconName = "x", Width = 20, Height = 20 }, Padding = new Thickness(6) }; Grid.SetColumn(close,1); header.Children.Add(close); root.Children.Add(header);
-        root.Children.Add(new Fileway.App.Controls.PhosphorIcon { IconName = row.IconName, Width = 48, Height = 48, HorizontalAlignment = HorizontalAlignment.Left });
+        var close = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "x", Width = 20, Height = 20 }, Padding = new Thickness(6) }; Grid.SetColumn(close,1); header.Children.Add(close); root.Children.Add(header);
+        root.Children.Add(new Fileway.App.Controls.LucideIcon { IconName = row.IconName, Width = 48, Height = 48, HorizontalAlignment = HorizontalAlignment.Left });
         root.Children.Add(new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, IsTextSelectionEnabled = true });
         root.Children.Add(new TextBlock { Text = "原位置\n" + row.Path + "\n\n大小：" + row.Size + "\n删除时间：" + row.Deleted + "\n状态：" + row.Status, LineHeight = 25, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var restore = new Button { Content = new Fileway.App.Controls.PhosphorIcon { IconName = "arrow-counter-clockwise", Width = 20, Height = 20 }, IsEnabled = _controller.CanRestore(row.Item, Conflict) };
+        var restore = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "arrow-counter-clockwise", Width = 20, Height = 20 }, IsEnabled = _controller.CanRestore(row.Item, Conflict) };
         ToolTipService.SetToolTip(restore,"恢复"); restore.Click += (_, _) => { _detailsPopup?.Dispose(); Records.SelectedItem = row; Restore_Click(this,new()); };
-        var delete = new Button { Content = new Fileway.App.Controls.PhosphorIcon { IconName = "trash", Width = 20, Height = 20 }, IsEnabled = _controller.CanDelete(row.Item) };
+        var delete = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "trash", Width = 20, Height = 20 }, IsEnabled = _controller.CanDelete(row.Item) };
         ToolTipService.SetToolTip(delete,"永久删除"); delete.Click += (_, _) => { _detailsPopup?.Dispose(); DeleteRow(row); };
         actions.Children.Add(restore); actions.Children.Add(delete); root.Children.Add(actions);
         var owner = Microsoft.UI.Win32Interop.GetWindowFromWindowId(XamlRoot.ContentIslandEnvironment.AppWindowId);
