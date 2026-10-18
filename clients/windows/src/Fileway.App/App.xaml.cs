@@ -42,7 +42,7 @@ public partial class App : Application, IAsyncDisposable
         try
         {
             _window = new MainWindow();
-            _window.AppWindow.Closing += MainWindow_Closing;
+            _window.CloseRequested += MainWindow_CloseRequested;
             _window.Activate();
             _startup = InitializeServicesAsync();
         }
@@ -159,15 +159,13 @@ public partial class App : Application, IAsyncDisposable
         await _playback!.OpenAsync(new PlaybackOpenRequest(new LocalPlaybackInput(path, Path.GetFileName(path))), _lifetime.Token);
     }
 
-    private void MainWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+    private void MainWindow_CloseRequested(object? sender, EventArgs args)
     {
         if (_closed) return;
-        args.Cancel = true;
         if (_closeRequested) return;
         _closeRequested = true;
-        // AppWindow.Closing has no async deferral. Returning immediately is
-        // required; awaiting disposal here leaves WinUI's native close path in
-        // a partially torn-down state and can trigger CFG fast-fail in DestroyWindow.
+        // WM_CLOSE is intercepted by the window subclass. This avoids the
+        // AppWindow.Closing path, which has no async deferral in WinUI 3.
         _ = CompleteCloseAsync();
     }
 

@@ -72,6 +72,8 @@ internal sealed class FramelessWindowChrome : IDisposable
         }
     }
 
+    internal event EventHandler? CloseRequested;
+
     private void ApplyFrame()
     {
         if (_disposed) return;
@@ -205,6 +207,11 @@ internal sealed class FramelessWindowChrome : IDisposable
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
     {
         if (_disposed) return DefSubclassProc(window, message, wParam, lParam);
+        if (message == 0x0010) // WM_CLOSE: keep async shutdown out of AppWindow.Closing.
+        {
+            CloseRequested?.Invoke(this, EventArgs.Empty);
+            return 0;
+        }
         if (message is 0x0083 or 0x0085) return 0; // Full-window client; no classic nonclient paint.
         if (message == 0x0086) return DefSubclassProc(window, message, wParam, -1);
         if (message == 0x0084) return HitTest(PointFromLParam(lParam));
@@ -398,6 +405,7 @@ internal sealed class FramelessWindowChrome : IDisposable
         _titleBar.LayoutUpdated -= TitleBar_LayoutUpdated;
         _appWindow.Changed -= AppWindow_Changed;
         _window.Closed -= Window_Closed;
+        CloseRequested = null;
         var source = _nonClientPointerSource;
         _nonClientPointerSource = null;
         _resizeRegionState = null;

@@ -17,6 +17,7 @@ public sealed partial class MainWindow : Window, IDisposable
         _shutdownDispatcher = DispatcherQueue;
         Title = AppTitleBar.Caption = AppBranding.DisplayName;
         _chrome = new FramelessWindowChrome(this, AppTitleBar, recordShutdownStages: true);
+        _chrome.CloseRequested += Chrome_CloseRequested;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         var scale = NativeVideoWindow.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96d;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
@@ -46,6 +47,7 @@ public sealed partial class MainWindow : Window, IDisposable
         SystemBackdrop = null;
         _chrome.PrepareForClose();
     }
+    public event EventHandler? CloseRequested;
     public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);
     private void MainWindow_Closed(object sender, WindowEventArgs args)
@@ -56,8 +58,11 @@ public sealed partial class MainWindow : Window, IDisposable
         ShutdownDiagnostics.Record(ShutdownDiagnosticStage.MainWindowClosedReturned, uiThread);
     }
 
+    private void Chrome_CloseRequested(object? sender, EventArgs args) => CloseRequested?.Invoke(this, args);
+
     public void Dispose()
     {
+        _chrome.CloseRequested -= Chrome_CloseRequested;
         _chrome.Dispose();
         if (RootFrame.Content is MainPage page) page.Shutdown();
         GC.SuppressFinalize(this);
