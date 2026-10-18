@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/spf13/afero"
@@ -128,5 +129,37 @@ func TestRawFileHandlerDoesNotBoundAttachmentVideoRanges(t *testing.T) {
 	}
 	if got, want := recorder.Header().Get("Content-Range"), "bytes 0-2097168/2097169"; got != want {
 		t.Fatalf("Content-Range = %q, want %q", got, want)
+	}
+}
+
+func TestRawFileHandlerConditionalSourceVersion(t *testing.T) {
+	t.Parallel()
+	fs := afero.NewMemMapFs()
+	if err := afero.WriteFile(fs, "/resume.bin", []byte("abc"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	file := &files.FileInfo{Fs: fs, Path: "/resume.bin", Name: "resume.bin", Size: 3, ModTime: time.Unix(42, 0).UTC()}
+
+	first := httptest.NewRecorder()
+	if _, err := rawFileHandler(first, httptest.NewRequest(http.MethodGet, "/resume.bin", nil), file); err != nil {
+		t.Fatalf("initial raw read: %v", err)
+	}
+	version := first.Header().Get("X-Fileway-Source-Version")
+	if version == "" {
+		t.Fatal("missing source version")
+	}
+
+	matching := httptest.NewRequest(http.MethodGet, "/resume.bin", nil)
+	matching.Header.Set("X-Fileway-Source-Version", version)
+	matchingResponse := httptest.NewRecorder()
+	if _, err := rawFileHandler(matchingResponse, matching, file); err != nil || matchingResponse.Code != http.StatusOK {
+		t.Fatalf("matching source version status=%d err=%v", matchingResponse.Code, err)
+	}
+
+	stale := httptest.NewRequest(http.MethodGet, "/resume.bin", nil)
+	stale.Header.Set("X-Fileway-Source-Version", "v1-stale")
+	staleResponse := httptest.NewRecorder()
+	if status, err := rawFileHandler(staleResponse, stale, file); status != http.StatusPreconditionFailed || err == nil {
+		t.Fatalf("stale source version status=%d err=%v", status, err)
 	}
 }

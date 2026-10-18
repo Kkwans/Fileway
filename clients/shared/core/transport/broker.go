@@ -458,7 +458,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer l.telemetry.finish(requestID)
 	}
 	headers := make(http.Header)
-	for _, k := range []string{"Range", "If-Range", "If-Modified-Since", "If-None-Match"} {
+	for _, k := range []string{"Range", "If-Range", "If-Modified-Since", "If-None-Match", "If-Match", "X-Fileway-Source-Version"} {
 		if v := r.Header.Get(k); v != "" {
 			headers.Set(k, v)
 		}
@@ -491,7 +491,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if l.media && b.serveCached(ctx, w, r, res, l) {
 		return
 	}
-	for _, k := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"} {
+	for _, k := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified", "X-Fileway-Source-Version"} {
 		if v := res.Header.Get(k); v != "" {
 			w.Header().Set(k, v)
 		}

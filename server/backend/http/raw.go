@@ -371,6 +371,13 @@ func (reader *zipSourceReader) Read(data []byte) (int, error) {
 }
 
 func rawFileHandler(w http.ResponseWriter, r *http.Request, file *files.FileInfo) (int, error) {
+	version := file.SourceVersion()
+	if version != "" {
+		w.Header().Set("X-Fileway-Source-Version", version)
+		if expected := strings.TrimSpace(r.Header.Get("X-Fileway-Source-Version")); expected != "" && expected != version {
+			return http.StatusPreconditionFailed, fmt.Errorf("文件版本已变化")
+		}
+	}
 	fd, err := file.Fs.Open(file.Path)
 	if err != nil {
 		return http.StatusInternalServerError, err
