@@ -21,7 +21,7 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
         bool attempted = false;
         try
         {
-            _ = await SessionRequestAsync(state, new { wirePath = request.Source.WirePath, sourceVersion = request.SourceVersion }, requireDownload: true,
+            _ = await SessionRequestAsync(state, new { wirePath = request.Source.WirePath }, requireDownload: true,
                 HostCallSafety.Control, cancellationToken, operation: "lease", beforeSend: async token =>
                 {
                     // Operations is already held. Do not re-enter the session
@@ -29,7 +29,6 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
                     var metadata = await ReadFreshDownloadMetadataAsync(state, request.Source, token,
                         operationGateOwned: true).ConfigureAwait(false);
                     RequireDownloadLength(metadata.Size, request.Length);
-                    RequireSourceVersion(metadata.Resource.SourceVersion, request.SourceVersion);
                 }, authorizeSend: () =>
                 {
                     RequireDownload(state);
@@ -39,7 +38,7 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
                     // The strict validator is shared with upload capabilities;
                     // both use the same private loopback /stream/{id} origin.
                     var inner = new ResourceLease(this, state, request.Source, UploadAddress(response));
-                    captured = new FreshDownloadLease(this, inner, request.Length, request.SourceVersion);
+                    captured = new FreshDownloadLease(this, inner, request.Length);
                     lock (_gate)
                     {
                         EnsureActive(state);
@@ -139,8 +138,8 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
         {
             using var document = await DownloadMetadataDocumentAsync(state, resource, cancellationToken,
                 operationGateOwned).ConfigureAwait(false);
-            var file = ParseFile(document.RootElement, state, includeSourceVersion: true);
-            RequireSourceVersion(file.Resource.SourceVersion, resource.SourceVersion);
+            RequireUnversionedDownloadResponse(document.RootElement);
+            var file = ParseFile(document.RootElement, state);
             if (FileOperationWireIdentity(file.Resource.WirePath, allowRoot: true) !=
                 FileOperationWireIdentity(resource.WirePath, allowRoot: true)) throw InvalidResponse();
             if (file.IsDirectory) throw Safe(ErrorCode.InvalidRequest, "文件夹不能作为单文件下载源。");
@@ -166,9 +165,9 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
 
     private ChecksumMetadata ParseFreshDownloadChecksumMetadata(JsonElement row, DownloadLeaseRequest request, SessionState state)
     {
+        RequireUnversionedDownloadResponse(row);
         var metadata = ParseChecksumMetadata(row, request.Source, state);
         RequireDownloadLength(metadata.File.Size, request.Length);
-        RequireSourceVersion(metadata.File.Resource.SourceVersion, request.SourceVersion);
         return metadata;
     }
 
@@ -184,13 +183,15 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
         ArgumentNullException.ThrowIfNull(resource);
         // A capability flag alone cannot supply the missing conditional raw
         // and checksum protocol. Never downgrade a caller's pinned version.
+        if (resource.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing, Message(ErrorCode.CapabilityMissing));
         _ = FileOperationWireIdentity(resource.WirePath, allowRoot: true);
     }
 
-    private static void RequireSourceVersion(string? observed, string? expected)
+    private static void RequireUnversionedDownloadResponse(JsonElement row)
     {
-        if (expected is not null && !StringComparer.Ordinal.Equals(observed, expected))
-            throw Safe(ErrorCode.SourceChanged, "下载源版本已变化，请刷新后重试。", 412);
+        if (!row.TryGetProperty("sourceVersion", out var version) || version.ValueKind == JsonValueKind.Null) return;
+        if (version.ValueKind != JsonValueKind.String) throw InvalidResponse();
+        throw Safe(ErrorCode.CapabilityMissing, Message(ErrorCode.CapabilityMissing));
     }
 
     private static void RequireDownloadLength(long observed, long expected)
@@ -198,14 +199,14 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider
         if (observed != expected) throw Safe(ErrorCode.Conflict, "下载源长度已变化，请刷新后重试。", 409);
     }
 
-    private sealed class FreshDownloadLease(FilewayClientServices owner, ResourceLease inner, long length, string? sourceVersion) : IDownloadLease
+    private sealed class FreshDownloadLease(FilewayClientServices owner, ResourceLease inner, long length) : IDownloadLease
     {
         private readonly object _disposalGate = new();
         private Task? _disposal;
         public RemoteResourceRef Resource => inner.Resource;
         public Uri Address => inner.Address;
         public long Length { get; } = length;
-        public string? SourceVersion { get; } = sourceVersion;
+        public string? SourceVersion => null;
         public bool SupportsResume => false;
         public override string ToString() => "FreshDownloadLease (address redacted)";
 

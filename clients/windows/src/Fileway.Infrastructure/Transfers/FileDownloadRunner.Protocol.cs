@@ -16,6 +16,8 @@ public sealed partial class FileDownloadRunner
 
     private static void RequirePlan(TransferTaskRecord record)
     {
+        if (record.Plan.Remote.SourceVersion is not null || record.Checkpoint.Source?.SourceVersion is not null)
+            throw Safe(ErrorCode.CapabilityMissing);
         _ = TransferTaskValidation.Plan(record.Plan);
         if (record.Plan.Direction != TransferDirection.Download || record.Plan.Conflict != FileConflictPolicy.Fail ||
             record.Plan.AutomaticResume || record.Plan.BatchId is not null) throw Safe(ErrorCode.InvalidRequest);
@@ -32,11 +34,10 @@ public sealed partial class FileDownloadRunner
     private static void RequireRemote(RunState state, RemoteResourceRef observed)
     {
         if (observed is null) throw Safe(ErrorCode.ProtocolMismatch);
+        if (observed.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
         _ = TransferTaskValidation.Plan(state.Record.Plan with { Remote = observed });
         if (observed.Account != state.Source.Account || !WireBytes(state.Source.WirePath).AsSpan().SequenceEqual(WireBytes(observed.WirePath)))
             throw Safe(ErrorCode.ProtocolMismatch);
-        if (!StringComparer.Ordinal.Equals(observed.SourceVersion, state.Source.SourceVersion))
-            throw Safe(ErrorCode.SourceChanged);
     }
 
     // Keep opaque bytes: Uri.UnescapeDataString could collapse distinct invalid UTF-8 resource names.

@@ -78,7 +78,7 @@ public sealed partial class UploadApplicationService
         {
             var binding = RequireDownloadContext(context);
             RequireDownloadPermission(binding);
-            if (source is null || source.Account != context.Account)
+            if (source is null || source.Account != context.Account || source.SourceVersion is not null)
                 throw DownloadSafe(ErrorCode.InvalidRequest);
             string? requestedLeaf = explicitLocalName ? DownloadLocalName(localName) : null;
             var metadata = await _downloads!.Sources.PrepareDownloadAsync(source, cancellationToken).ConfigureAwait(false);
@@ -87,8 +87,7 @@ public sealed partial class UploadApplicationService
                 metadata.Resource.WirePath != source.WirePath) throw DownloadSafe(ErrorCode.InvalidRequest);
             var settings = await StorageAsync(token => _downloads.StorageSettings.ReadAsync(token), cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
-            var preparedSource = source with { DisplayName = metadata.Resource.DisplayName, DisplayPath = metadata.Resource.DisplayPath,
-                SourceVersion = metadata.Resource.SourceVersion };
+            var preparedSource = source with { DisplayName = metadata.Resource.DisplayName, DisplayPath = metadata.Resource.DisplayPath };
             string confirmedName = requestedLeaf ?? preparedSource.DisplayName;
             string path = DownloadDestination(settings.Active.DownloadDirectory, confirmedName);
             var draft = new DownloadDraftRef(Guid.NewGuid());
