@@ -27,6 +27,10 @@ raw 读取返回相同观察值，请求携带不匹配的 X-Fileway-Source-Vers
 透传该请求/响应头。Windows fresh 下载尚未消费此能力，仍拒绝带版本的下载源；这项契约基础
 不代表断点续传已经启用。
 
+契约提交 `fcb251d3` 已通过 Unified server/Web 的 lint、Web、Linux server 和 Windows server
+门槛，以及 Go transport 回归；这证明新增头部和能力字段在跨平台构建中可用，不代表客户端已
+获得续传语义。
+
 ## 取消与不明结果
 
 取消先持久化意图并排空请求和文件 I/O。只能通过已确认属于任务、尚未发布的原生句柄
