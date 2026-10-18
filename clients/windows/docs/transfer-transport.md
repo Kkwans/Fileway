@@ -45,7 +45,7 @@ UI 不构造服务器 URL、不读取 token，也不持有租约地址。上传�
 累计发送字节可能包含多次请求，不能拿它当确认偏移或服务端落盘速度；空闲状态、
 发送到总长度和界面百分比都不能证明上传已经完成。统计读取有原会话和释放竞态检查。
 
-## 下载源：仅支持 fresh-only
+## 下载源：传输 fresh-only，播放读取可选条件版本
 
 `IDownloadSourceProvider` 现已接通经过认证、Download 权限复核的单文件元数据、
 未缓存的只读回环租约和 SHA-256。目标始终使用原始 opaque wirePath，显示名称和路径
@@ -53,11 +53,16 @@ UI 不构造服务器 URL、不读取 token，也不持有租约地址。上传�
 写入本地目标，或创建传输任务及业务操作 journal。下载租约只发送 wirePath，
 不接入媒体缓存、缓存归属登记或缓存预算。
 
-当前服务器和共享通道没有固定源版本的 raw 与 checksum 条件请求契约。
-因此下载租约明确返回 `SourceVersion=null`、`SupportsResume=false`，只允许从头进行
-不带版本条件的新读取。三个下载源入口均拒绝调用方提供的非 null SourceVersion，
-元数据及校验响应显露版本时也拒绝；即使服务器宣告 conditionalDownloadV1，
-也不会静默丢掉版本或伪造条件支持。文件夹与动态归档不由此单文件入口处理。
+传输入口仍明确返回 `SourceVersion=null`、`SupportsResume=false`，只允许从头进行
+不带版本条件的新读取；`IDownloadSourceProvider` 的三个入口拒绝调用方提供的非 null
+SourceVersion，元数据及校验响应显露版本时也拒绝。文件夹与动态归档不由此单文件入口处理。
+
+shared/core 与 server 已提供 additive `conditionalDownloadV1`：能力清单、资源元数据、
+raw 读取响应头和版本条件均保持同一 opaque sourceVersion。Windows 通过独立的
+`IConditionalDownloadSourceProvider` 只给边下边播的 Range 读取使用这项能力：每次读取
+重新观察版本，临时 lease 和 `X-Fileway-Source-Version` 必须匹配；不支持该能力的服务器
+继续回落到上面的 fresh-only 播放读取。该接口不写传输 checkpoint、不开放旧 partial
+追加，也不代表下载续传或历史文件恢复。
 
 SHA-256 沿用既有长读取预算与权限、取消、会话复核，读取期间不占用会话操作 gate。
 摘要返回前核对请求长度、原始 modified 文本及计算前后元数据，并检查每次响应的
@@ -80,5 +85,6 @@ SHA-256 沿用既有长读取预算与权限、取消、会话复核，读取期
 恢复不能自动重放业务写入。
 [单文件 fresh 下载执行器](download-execution.md)已接通同目录 owned partial、flush 后确认、
 本地/服务器 SHA-256、无覆盖发布与发布中断的本地核实；原生入口与上传共用账号生命周期边界。
-它不支持断点续传。条件源版本、Range/Content-Range 续传验证、目录批次和完整任务页面仍独立推进。
+它不支持断点续传。完整下载续传、目录批次和任务页面仍独立推进；播放侧的条件版本
+Range 验证已接入，但不改变传输执行器的 fresh-only 语义。
 媒体缓存、默认下载目录设置和服务端复制任务均不能替代传输执行和真实原生旅程验证。
