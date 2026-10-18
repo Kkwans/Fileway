@@ -67,7 +67,7 @@ import kotlinx.coroutines.delay
                 Box(Modifier.offset(x = cell * (pager.currentPage + pager.currentPageOffsetFraction) + cell * .25f)
                     .width(cell * .5f).height(3.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
             } }) {
-            labels.forEachIndexed { index, label -> Tab(pager.currentPage == index, { scope.launch { pager.animateScrollToPage(index) } }, text = { Text(label) }) }
+            labels.forEachIndexed { index, label -> Tab(pager.currentPage == index, { scope.launch { pager.animateScrollToPage(index) } }, text = { Text(label) }, selectedContentColor = MaterialTheme.colorScheme.primary, unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }

@@ -36,8 +36,8 @@ internal fun FilewayTaskCard(
     val titleModifier = titleAction?.let { Modifier.clickable(onClick = it) } ?: Modifier
     val content: @Composable () -> Unit = {
         Column(
-            Modifier.fillMaxWidth().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Row(
                 Modifier.fillMaxWidth(),

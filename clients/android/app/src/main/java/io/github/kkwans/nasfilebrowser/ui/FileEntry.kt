@@ -57,16 +57,23 @@ import java.util.Locale
                     contentScale = if (layout == FileLayout.UNBOUNDED) ContentScale.Fit else ContentScale.Crop,
                     naturalAspect = layout == FileLayout.UNBOUNDED)
             }
-        } else Box((if (layout == FileLayout.UNBOUNDED) modifier.height(96.dp) else modifier)
-            .background(colors.surfaceContainer, RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+        } else Box((if (layout == FileLayout.UNBOUNDED) modifier.height(if (file.directory) 80.dp else 64.dp) else modifier)
+            .background(colors.surfaceContainer, MaterialTheme.shapes.medium), contentAlignment = Alignment.Center) {
             val iconSize = when (layout) {
                 FileLayout.COMPACT -> (compactGridSize.previewSizeDp * .66f).dp
                 FileLayout.COVER, FileLayout.UNBOUNDED -> 52.dp
                 FileLayout.DETAIL -> 44.dp
                 FileLayout.LIST -> 28.dp
             }
-            Icon(painterResource(fileArtworkIcon(file)), null, Modifier.size(iconSize),
-                tint = if (file.directory) colors.primary else colors.onSurfaceVariant)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Icon(painterResource(fileArtworkIcon(file)), null,
+                    Modifier.size(if (layout == FileLayout.UNBOUNDED && !file.directory) 32.dp else iconSize),
+                    tint = if (file.directory) colors.primary else colors.onSurfaceVariant)
+                if (layout == FileLayout.UNBOUNDED && !file.directory && fileArtworkIcon(file) == R.drawable.ic_file) {
+                    val extension = file.name.substringAfterLast('.', "").uppercase(Locale.ROOT).take(6)
+                    if (extension.isNotEmpty()) Text(extension, style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                }
+            }
         }
     }
     @Composable fun caption(modifier: Modifier) {

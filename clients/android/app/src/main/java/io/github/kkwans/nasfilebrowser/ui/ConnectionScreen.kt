@@ -118,37 +118,14 @@ import io.github.kkwans.nasfilebrowser.data.*
         }
     }
 
-    Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
-        Row(Modifier.fillMaxWidth().statusBarsPadding().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Fileway", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-            IconButton(onClick = { model.tab("taskcenter") }) { Icon(painterResource(R.drawable.ic_tasks), "任务中心") }
-            IconButton(onClick = model::openUpdates) { Icon(painterResource(R.drawable.ic_download), "检查更新") }
-        }
-    }, bottomBar = {
-        Surface(color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Column(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (state.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Text(if (state.busy) state.stage.ifBlank { "正在连接" } else missing, Modifier.weight(1f),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (state.busy) TextButton(onClick = model::cancel) { Text("取消") }
-                    }
-                    Button(onClick = connect, enabled = canConnect, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Text(if (state.busy) "正在连接服务器" else "连接服务器")
-                    }
-                }
-            }
-        }
-    }) { insets ->
+    Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
             val page = Modifier.widthIn(max = 560.dp).fillMaxWidth()
-                .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 16.dp)
+                .imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)
             val form: @Composable () -> Unit = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { focus.clearFocus(); profilesOpen = true }, enabled = !state.busy,
+                        OutlinedButton(onClick = { focus.clearFocus(); profilesOpen = true }, enabled = !state.busy, shape = MaterialTheme.shapes.medium,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = "选择服务器档案" }) {
                             Icon(painterResource(R.drawable.ic_storage), null, Modifier.size(22.dp))
                             Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.Start) {
@@ -159,7 +136,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                             }
                             Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp))
                         }
-                        DropdownMenu(expanded = profilesOpen, onDismissRequest = { profilesOpen = false }) {
+                        DropdownMenu(expanded = profilesOpen, onDismissRequest = { profilesOpen = false }, modifier = Modifier.widthIn(min = 280.dp, max = 360.dp)) {
                             FilewayMenuItem("新建服务器", { profilesOpen = false; model.selectProfile(null) }, R.drawable.ic_add)
                             if (profiles.isNotEmpty()) HorizontalDivider()
                             profiles.forEach { profile -> DropdownMenuItem(text = {
@@ -176,7 +153,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                         }
                     }
                     ConnectionSection("服务器", actions = {
-                        TextButton(onClick = { focus.clearFocus(); optionsOpen = !optionsOpen }, enabled = !state.busy) {
+                        TextButton(onClick = { focus.clearFocus(); optionsOpen = !optionsOpen }, enabled = !state.busy, shape = MaterialTheme.shapes.medium) {
                             Text(if (optionsOpen) "收起连接选项" else "更多连接选项")
                         }
                     }) {
@@ -190,7 +167,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                                 FilterChip(selected = backend == BackendKind.WINDOWS, onClick = { backend = BackendKind.WINDOWS }, enabled = !state.busy, label = { Text("Windows") })
                             }
                             OutlinedButton(onClick = { focus.clearFocus(); model.saveDraft(profileName, url.trim(), backend, mode) },
-                                enabled = canSave, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("仅保存服务器档案") }
+                                enabled = canSave, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("仅保存服务器档案") }
                             Text("档案只保存地址与连接方式，账号在登录后保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Row(Modifier.fillMaxWidth().selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -249,26 +226,30 @@ import io.github.kkwans.nasfilebrowser.data.*
                     state.error?.let { message ->
                         FilewayStatusBanner(message, FilewayStatusKind.ERROR)
                     }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (state.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Text(if (state.busy) state.stage.ifBlank { "正在连接" } else missing, Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (state.busy) TextButton(onClick = model::cancel, shape = MaterialTheme.shapes.medium) { Text("取消") }
+                        }
+                        Button(onClick = connect, enabled = canConnect, shape = MaterialTheme.shapes.medium,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Text(if (state.busy) "正在连接服务器" else "连接服务器")
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
                 }
             }
-            Column(page, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                ConnectionIntroduction()
-                form()
-            }
+            Column(page) { form() }
         }
     }
     remove?.let { profile -> AlertDialog(onDismissRequest = { remove = null }, title = { Text("移除 ${profile.name}？") }, text = { Text("将移除本机档案和保存的登录信息。服务器文件不会被删除。") }, confirmButton = { TextButton(onClick = { remove = null; model.removeProfile(profile) }) { Text("移除") } }, dismissButton = { TextButton(onClick = { remove = null }) { Text("取消") } }) }
 }
 
-@Composable private fun ConnectionIntroduction() {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text("连接你的文件库", style = MaterialTheme.typography.titleLarge)
-        Text("添加服务器后，使用服务账号登录。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
 @Composable private fun ConnectionSection(title: String, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             actions()
@@ -295,7 +276,7 @@ import io.github.kkwans.nasfilebrowser.data.*
     trailing: (@Composable () -> Unit)? = null,
 ) {
     OutlinedTextField(value, change, label = { Text(label, fontSize = 13.sp) }, enabled = enabled, singleLine = true,
-        textStyle = MaterialTheme.typography.bodyLarge,
+        textStyle = MaterialTheme.typography.bodyMedium,
         leadingIcon = { Icon(painterResource(icon), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         trailingIcon = trailing, placeholder = if (placeholder.isEmpty()) null else ({ Text(placeholder) }),
         supportingText = if (supporting == null) null else ({ Text(supporting) }),
