@@ -38,3 +38,18 @@
 - The user explicitly authorized the 0.8 release. Preserve the original package,
   signing identity and user data, and bind the release to an exact pushed source.
   Report known issues honestly; perfect bug-free acceptance is not a release gate.
+
+## Android 1.0 product contract (user, 2026-10-19)
+
+- Implement the confirmed 0.8.4-to-1.0 plan. Existing capabilities only: exclude the unrelated EPUB preparation and new background music, shuffle/repeat or automatic next-item behavior.
+- Ordinary pages share blue #1767E8, background #F5F7FA, white content surfaces and existing bottom-navigation selection. The player uses stable graphite #14181E / #1B1F27 with restrained artwork accents; never recolor the whole player from hue. Image canvas remains black.
+- Cards, ordinary buttons, fields, menus and floating dialogs explicitly consume 12dp shapes. Attached bottom panels use 12dp visible top corners and connect to system navigation insets without a gap. Semantic circles and rectangular content surfaces are exceptions. Keep >=48dp touch targets.
+- Reuse shared page chrome, typography, spacing, search, menu, filter, feedback and motion components. Standard rhythm is 4/8/12/16/24dp. Main tabs change by click only; small tabs support continuous pager gestures and animated indicators.
+- Menus measure their longest actual content plus real icon/check slots, constrained by window space. Start-aligned selection uses a fixed check column; centered selection uses row/block styling without an offset check. Never choose arbitrary universal menu widths.
+- Thumbnail loading uses one shared centered ring with delayed appearance and coordinated placeholder; preserve the common cache, leases, identity and natural-aspect geometry.
+- Cover: two columns, centered artwork/name, one name line. Compact: artwork/name only, centered; small four columns/two name lines, medium three/two, large two/one. Unbounded: natural aspect, two columns, max two name lines and compact metadata. Keep full name/path access and stable anchors.
+- Remove application-added connection server/user names from ordinary pages, drawer, cards, details and confirmations. Keep them in connection and My login-information areas, and keep managed usernames in user administration or explicit admin account selection. Trash owner is not a display exception. Never change internal owner/scope/permission/wire checks or rewrite user filenames, paths, document authors or content.
+- Reuse server GET/PUT /api/settings tokenExpirationTime and POST /api/renew for sliding expiry, 10 minutes to 30 days. Settings belong to each service instance; preserve existing values. Deduplicate renewal by bound account/generation/token; retain acknowledged writes on renewal/persistence failure, never replay a mutation.
+- Player panels own one title, share media tokens and 12dp controls. Separate decoder from source information; queue count belongs in its header. Keep SurfaceView stable for HUD/panels and do not emulate video backdrop blur with frame-copy loops.
+- Execute verified logical slices on main with exact staging and immediate fast-forward push. Preserve original package/signing/data and the four legacy tracked changes/thirteen EPUB files. Version candidates use explicit pushed source. User authorized preview milestones through final 1.0 release, subject to the confirmed quality gates.
+- Batch necessary compilation/lint, high-value contracts and bounded real-device checks; do not repeat unaffected tests or baseline hashes. New UI contracts need real visual evidence; final 1.0 key journeys remain a gate.
