@@ -22,30 +22,33 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     onEdit: (Boolean) -> Unit,
 ) {
     Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("当前播放速度 · ${rate}×", style = MaterialTheme.typography.titleMedium)
+        Text("当前 ${rate}×", style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
         listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f).chunked(3).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { value ->
-                    val colors = if (rate == value) ButtonDefaults.filledTonalButtonColors()
-                        else ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                    val colors = if (rate == value) ButtonDefaults.filledTonalButtonColors(
+                        containerColor = FilewayTheme.colors.primaryContainer, contentColor = FilewayTheme.colors.primary)
+                        else ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = FilewayTheme.status.mediaContent)
                     FilledTonalButton(
                         onClick = { onPreset(value) }, colors = colors,
+                        shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { selected = rate == value },
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp),
                     ) { Text("${value}×") }
                 }
             }
         }
-        OutlinedButton(onClick = { onEdit(false) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        OutlinedButton(onClick = { onEdit(false) }, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text("自定义播放速度")
         }
         HorizontalDivider()
         Text("长按倍速 · ${holdRate}×", style = MaterialTheme.typography.titleMedium)
         Text("松手立即恢复长按前的速度", style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
-        OutlinedButton(onClick = { onEdit(true) }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        OutlinedButton(onClick = { onEdit(true) }, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text("调整长按倍速")
         }
     }
@@ -62,18 +65,19 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         OutlinedTextField(
             value = value, onValueChange = onValue,
+            shape = MaterialTheme.shapes.medium,
             modifier = Modifier.fillMaxWidth().focusRequester(focus),
             label = { Text(if (hold) "长按倍速" else "自定义倍速") },
             supportingText = { Text(error ?: "支持 0.1–5 倍速") },
             isError = error != null, enabled = !saving, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         )
-        Button(onClick = onApply, enabled = !saving, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        Button(onClick = onApply, enabled = !saving, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text(if (saving) "正在保存…" else if (hold) "保存到此设备" else "应用")
         }
     }

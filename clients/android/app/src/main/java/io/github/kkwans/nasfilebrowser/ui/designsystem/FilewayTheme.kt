@@ -67,6 +67,31 @@ private val BlueDarkColors = darkColorScheme(
     scrim = Color.Black,
 )
 
+private val FilewayShapes = Shapes(
+    small = RoundedCornerShape(12.dp),
+    medium = RoundedCornerShape(12.dp),
+    large = RoundedCornerShape(12.dp),
+    extraLarge = RoundedCornerShape(12.dp),
+    extraSmall = RoundedCornerShape(12.dp),
+)
+
+/** Stable neutral player roles; artwork is allowed to occupy tertiary accents only. */
+internal val FilewayPlayerColors = BlueDarkColors.copy(
+    background = Color(0xFF14181E), onBackground = Color(0xFFF1F3F5),
+    surface = Color(0xFF1B1F27), onSurface = Color(0xFFF1F3F5),
+    surfaceDim = Color(0xFF14181E), surfaceBright = Color(0xFF242A34),
+    surfaceContainerLowest = Color(0xFF14181E), surfaceContainerLow = Color(0xFF1B1F27),
+    surfaceContainer = Color(0xFF1B1F27), surfaceContainerHigh = Color(0xFF242A34),
+    surfaceContainerHighest = Color(0xFF242A34),
+    surfaceVariant = Color(0xFF242A34), onSurfaceVariant = Color(0xFFADB4BE),
+    outline = Color(0xFF59626E), outlineVariant = Color(0xFF39424E),
+    inverseSurface = Color(0xFFF1F3F5), inverseOnSurface = Color(0xFF14181E),
+    secondary = Color(0xFFADB4BE), onSecondary = Color(0xFF1B1F27),
+    secondaryContainer = Color(0xFF333B47), onSecondaryContainer = Color(0xFFDCE1E7),
+    tertiary = BlueDarkColors.primary, onTertiary = BlueDarkColors.onPrimary,
+    tertiaryContainer = BlueDarkColors.primaryContainer, onTertiaryContainer = BlueDarkColors.onPrimaryContainer,
+)
+
 private fun text(size: Int, height: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
     fontFamily = if (mono) FontFamily.Monospace else FontFamily.SansSerif,
     fontWeight = weight, fontSize = size.sp, lineHeight = height.sp,
@@ -160,21 +185,29 @@ object FilewayMotion {
     ) {
         MaterialTheme(
             colorScheme = colors, typography = FilewayTypography,
-            shapes = Shapes(RoundedCornerShape(12.dp), RoundedCornerShape(12.dp), RoundedCornerShape(12.dp),
-                RoundedCornerShape(12.dp), RoundedCornerShape(12.dp)),
+            shapes = FilewayShapes,
             content = content,
         )
     }
 }
 
-/** Media overlays inherit the page's tonal surface in portrait and neutral glass in fullscreen. */
+/** Player content uses one graphite scheme; artwork remains a restrained tertiary accent. */
 @Composable fun FilewayMediaTheme(colors: ColorScheme, fullscreen: Boolean, content: @Composable () -> Unit) {
-    val status = FilewayTheme.status.copy(
-        mediaSurface = if (fullscreen) Color(0xC7202124) else colors.background,
-        mediaContent = if (fullscreen) Color(0xFFF2F2F2) else colors.onBackground,
-        mediaSecondary = if (fullscreen) Color(0xFFBFC2C6) else colors.onSurfaceVariant,
+    val playerColors = FilewayPlayerColors.copy(
+        tertiary = colors.tertiary,
+        tertiaryContainer = colors.tertiaryContainer,
     )
-    CompositionLocalProvider(LocalFilewayColors provides colors, LocalFilewayStatus provides status) {
-        MaterialTheme(colorScheme = colors, content = content)
+    val status = FilewayTheme.status.copy(
+        mediaCanvas = playerColors.background,
+        mediaSurface = playerColors.surface.copy(alpha = if (fullscreen) .88f else 1f),
+        mediaContent = playerColors.onSurface,
+        mediaSecondary = playerColors.onSurfaceVariant,
+    )
+    CompositionLocalProvider(
+        LocalFilewayColors provides playerColors,
+        LocalFilewayStatus provides status,
+        LocalTextSelectionColors provides TextSelectionColors(playerColors.primary, playerColors.primary.copy(alpha = .22f)),
+    ) {
+        MaterialTheme(colorScheme = playerColors, typography = FilewayTypography, shapes = FilewayShapes, content = content)
     }
 }

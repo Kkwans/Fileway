@@ -62,13 +62,6 @@ internal fun PlayerQueuePanel(
     modifier: Modifier = Modifier,
 ) {
     Column(modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(queue.source.label, Modifier.weight(1f), color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${queue.index + 1} / ${queue.items.size}", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp,
-                fontFamily = FontFamily.Monospace, maxLines = 1)
-        }
         key(queue.snapshotId) {
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).selectableGroup(),
                 state = rememberLazyListState(initialFirstVisibleItemIndex = queue.index),
@@ -81,7 +74,7 @@ internal fun PlayerQueuePanel(
                     } else ""
                     val duration = if (current && currentDurationMs > 0) clock(currentDurationMs) else null
                     Row(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(if (current) FilewayTheme.colors.primary.copy(alpha = .10f) else Color.Transparent)
                         .combinedClickable(role = Role.RadioButton, onClick = { choose(index) },
                             onLongClickLabel = if (expandedName) "收起完整名称" else "展开完整名称",
@@ -97,10 +90,10 @@ internal fun PlayerQueuePanel(
                             onLongClick(if (expandedName) "收起完整名称" else "展开完整名称") {
                                 expandedName = !expandedName; true
                             }
-                        }.heightIn(min = 96.dp).padding(horizontal = 12.dp, vertical = 12.dp),
+                        }.heightIn(min = 80.dp).padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Box(Modifier.size(width = 96.dp, height = 54.dp).clip(RoundedCornerShape(6.dp))) {
+                        Box(Modifier.size(width = 96.dp, height = 54.dp).clip(RoundedCornerShape(12.dp))) {
                             MediaThumbnail(model, file, Modifier.matchParentSize(), showStatusText = false,
                                 contentScale = ContentScale.Crop)
                             if (duration != null) Text(duration,

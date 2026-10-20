@@ -25,8 +25,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -83,10 +81,6 @@ internal fun PlayerTrackList(
     }
     LazyColumn(modifier.fillMaxWidth().selectableGroup(), contentPadding = PaddingValues(bottom = 20.dp)) {
         if (header != null) item(key = "actions") { header() }
-        item(key = "heading") {
-            Text(if (subtitle) "字幕轨道" else "音轨", Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
-        }
         itemsIndexed(choices, key = { _, track -> track.id }) { index, track ->
             val title = when {
                 track.id == -1 -> if (subtitle) "关闭字幕" else "关闭音轨"
@@ -109,7 +103,7 @@ internal fun PlayerTrackList(
 @Composable
 private fun PlayerTrackRow(title: String, detail: String, selected: Boolean, pending: Boolean, choose: () -> Unit) {
     Row(Modifier.padding(horizontal = 12.dp, vertical = 2.dp).fillMaxWidth()
-        .clip(RoundedCornerShape(8.dp))
+        .clip(RoundedCornerShape(12.dp))
         .background(if (selected) FilewayTheme.colors.primary.copy(alpha = .10f) else Color.Transparent)
         .selectable(selected, role = Role.RadioButton, onClick = choose)
         .clearAndSetSemantics {
@@ -160,7 +154,7 @@ internal fun PlayerSubtitleHomeActions(
     onServerSubtitle: () -> Unit,
     onLocalSubtitle: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
         SubtitleAction(R.drawable.ic_edit, "字幕调整", "时间偏移与文本外观", true, onAdjust)
         if (!downloadLocal) SubtitleAction(R.drawable.ic_folder, "服务器外挂字幕",
             if (loading) "正在读取字幕" else "浏览当前服务器的字幕文件", !loading && !readingDocument, onServerSubtitle,
@@ -214,28 +208,31 @@ internal fun PlayerSubtitleAdjustments(
     val authorStyled = format.contains("ssa") || format == "ass" || format.endsWith("/ass") || format.endsWith("/x-ass")
     val bitmap = listOf("pgs", "dvbsub", "vobsub").any { format.contains(it) }
     val buttonColors = ButtonDefaults.textButtonColors(contentColor = FilewayTheme.colors.primary)
-    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp),
+    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("字幕时间", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("字幕时间", Modifier.weight(1f), color = FilewayTheme.status.mediaContent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         Text(when {
             delayMs > 0 -> "延后 ${delayMs / 1000.0} 秒"
             delayMs < 0 -> "提前 ${-(delayMs / 1000.0)} 秒"
             else -> "无偏移"
         }, color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
+        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { onDelay(delayMs - 500) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = buttonColors,
+            TextButton(onClick = { onDelay(delayMs - 500) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors,
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("提前 0.5 秒") }
-            TextButton(onClick = { onDelay(0); onOffsetText("") }, modifier = Modifier.heightIn(min = 48.dp), colors = buttonColors,
+            TextButton(onClick = { onDelay(0); onOffsetText("") }, modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors,
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) { Text("归零") }
-            TextButton(onClick = { onDelay(delayMs + 500) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = buttonColors,
+            TextButton(onClick = { onDelay(delayMs + 500) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors,
                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text("延后 0.5 秒") }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(offsetText, onOffsetText, Modifier.weight(1f), label = { Text("偏移秒数") },
-                supportingText = { Text(offsetError ?: "正数延后，负数提前 · -600 到 600 秒") },
+                supportingText = { Text(offsetError ?: "±600 秒，正数延后") },
                 isError = offsetError != null, singleLine = true,
+                shape = RoundedCornerShape(12.dp),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-            TextButton(onClick = onApplyOffset, modifier = Modifier.heightIn(min = 48.dp), colors = buttonColors) { Text("应用") }
+            TextButton(onClick = onApplyOffset, modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors) { Text("应用") }
         }
         HorizontalDivider(color = FilewayTheme.status.mediaSecondary.copy(alpha = .16f))
         Text("字幕外观", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
@@ -249,15 +246,15 @@ internal fun PlayerSubtitleAdjustments(
                 val font = fonts.resolve(appearance.fontKey)
                 LaunchedEffect(Unit) { SubtitleFontCatalog.request() }
                 Text("文本字号 ${(appearance.scale * 100).roundToInt()}%", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
-                Slider(appearance.scale, { onAppearance(appearance.copy(scale = it)) },
-                    Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "文本字幕字号"; stateDescription = "${(appearance.scale * 100).roundToInt()}%" },
-                    valueRange = .5f..2f, colors = SliderDefaults.colors(thumbColor = FilewayTheme.colors.primary, activeTrackColor = FilewayTheme.colors.primary))
+                PlayerSlider(appearance.scale, 2f, "文本字幕字号", true,
+                    { onAppearance(appearance.copy(scale = it)) }, minimum = .5f,
+                    description = "${(appearance.scale * 100).roundToInt()}%")
                 Text("底边距 ${(appearance.bottomPadding * 100).roundToInt()}%", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
-                Slider(appearance.bottomPadding, { onAppearance(appearance.copy(bottomPadding = it)) },
-                    Modifier.fillMaxWidth().height(48.dp).semantics { contentDescription = "文本字幕底边距"; stateDescription = "${(appearance.bottomPadding * 100).roundToInt()}%" },
-                    valueRange = 0f.. .4f, colors = SliderDefaults.colors(thumbColor = FilewayTheme.colors.primary, activeTrackColor = FilewayTheme.colors.primary))
+                PlayerSlider(appearance.bottomPadding, .4f, "文本字幕底边距", true,
+                    { onAppearance(appearance.copy(bottomPadding = it)) },
+                    description = "${(appearance.bottomPadding * 100).roundToInt()}%")
                 Text("外观预览", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
-                Box(Modifier.fillMaxWidth().heightIn(min = 96.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFF667384))
+                Box(Modifier.fillMaxWidth().heightIn(min = 96.dp).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.surfaceContainerHigh)
                     .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.BottomCenter) {
                     Text("字幕外观预览", Modifier.padding(bottom = 96.dp * appearance.bottomPadding)
                         .background(Color.Black.copy(alpha = appearance.backgroundOpacity)),
@@ -273,27 +270,25 @@ internal fun PlayerSubtitleAdjustments(
                 }
                 Text("背景不透明度 ${(appearance.backgroundOpacity * 100).roundToInt()}%" +
                     if (appearance.backgroundOpacity == 0f) " · 无背景" else " · 黑色", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
-                Slider(appearance.backgroundOpacity, { onAppearance(appearance.copy(backgroundOpacity = it)) },
-                    Modifier.fillMaxWidth().height(48.dp).semantics {
-                        contentDescription = "字幕背景不透明度"
-                        stateDescription = "${(appearance.backgroundOpacity * 100).roundToInt()}%"
-                    }, valueRange = 0f..1f, colors = SliderDefaults.colors(thumbColor = FilewayTheme.colors.primary, activeTrackColor = FilewayTheme.colors.primary))
+                PlayerSlider(appearance.backgroundOpacity, 1f, "字幕背景不透明度", true,
+                    { onAppearance(appearance.copy(backgroundOpacity = it)) },
+                    description = "${(appearance.backgroundOpacity * 100).roundToInt()}%")
                 TextButton({ onAppearance(appearance.copy(backgroundOpacity = if (appearance.backgroundOpacity == 0f) .5f else 0f)) },
-                    Modifier.heightIn(min = 48.dp), colors = buttonColors) {
+                    Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors) {
                     Text(if (appearance.backgroundOpacity == 0f) "使用半透明黑背景" else "无背景")
                 }
                 Text("字幕字体", color = Color.White, fontSize = 14.sp)
                 TextButton(onChooseFont, Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .semantics { contentDescription = "选择字幕字体"; stateDescription = font.label }, colors = buttonColors) {
+                    .semantics { contentDescription = "选择字幕字体"; stateDescription = font.label }, shape = RoundedCornerShape(12.dp), colors = buttonColors) {
                     Text(font.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 if (fonts.loading) Text("正在读取系统可用字体…", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
                 if (fonts.failed) Text("系统字体暂时不可用，可使用字幕默认或跟随系统。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
                 if (fonts.missing(appearance.fontKey)) Text("所选字体已不可用，当前使用字幕默认；可重新选择。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
-                Text("调整会即时预览；保存后用于此设备的文本字幕。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
+                Text("即时预览，保存仅用于本设备", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { onAppearance(TextSubtitleAppearance()) }, modifier = Modifier.heightIn(min = 48.dp), colors = buttonColors) { Text("重置预览") }
-                    TextButton(onClick = onSaveAppearance, modifier = Modifier.heightIn(min = 48.dp), colors = buttonColors) { Text("保存到此设备") }
+                    TextButton(onClick = { onAppearance(TextSubtitleAppearance()) }, modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors) { Text("重置预览") }
+                    TextButton(onClick = onSaveAppearance, modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors) { Text("保存到此设备") }
                 }
             }
         }

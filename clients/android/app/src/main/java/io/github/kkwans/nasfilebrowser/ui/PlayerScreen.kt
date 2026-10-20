@@ -16,6 +16,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -47,7 +48,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
@@ -98,7 +98,7 @@ import io.github.kkwans.nasfilebrowser.download.DownloadIndex
 import io.github.kkwans.nasfilebrowser.download.DownloadRuntime
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
-private enum class PlayerSheet { AUDIO, SUBTITLE, SUBTITLE_ADJUST, SUBTITLE_FONT, SPEED, SPEED_EDIT, SOURCE, EXTERNAL, QUEUE }
+private enum class PlayerSheet { AUDIO, SUBTITLE, SUBTITLE_ADJUST, SUBTITLE_FONT, SPEED, SPEED_EDIT, SOURCE, DECODER, EXTERNAL, QUEUE }
 private enum class PlayerDisplayMode { AUTOMATIC, PORTRAIT_FULLSCREEN, LANDSCAPE_FULLSCREEN }
 private tailrec fun Context.activity(): Activity? = when (this) {
     is Activity -> this
@@ -132,7 +132,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val context = LocalContext.current
     val download = downloads.items.firstOrNull { it.id == file.downloadId }
     val playbackSourceLabel = when {
-        file.downloadId.isEmpty() -> client.serverLabel
+        file.downloadId.isEmpty() -> "服务器原文件"
         download == null -> "本机下载 · 下载状态待确认"
         download.complete -> "本机下载 · 离线读取"
         else -> "本机下载 · 未下载片段按需读取服务器"
@@ -174,13 +174,20 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var gestureMeter by remember(file) { mutableStateOf<Pair<Boolean, Float>?>(null) }
     var interaction by remember { mutableIntStateOf(0) }
     var sheet by remember { mutableStateOf<PlayerSheet?>(null) }
-    var expandedTitle by remember(file) { mutableStateOf(false) }
     var seek by remember(file) { mutableStateOf<Float?>(null) }
     var pictureSeek by remember(file, state.mediaGeneration) { mutableStateOf<Long?>(null) }
     var dragSession by remember(file, state.mediaGeneration) { mutableStateOf<SeekDragSession?>(null) }
     val seekPreview = rememberSeekPreview(model, file, state.mediaGeneration, seek != null || pictureSeek != null)
-    val showControls = (!fullscreen || visible) && pictureSeek == null && !touchLocked
+    val showControls = (!fullscreen || visible && sheet == null) && pictureSeek == null && !touchLocked
     var showRequest by remember(file) { mutableStateOf(false) }
+    var showBuffering by remember(file) { mutableStateOf(false) }
+    val networkStatus = client.downloadBytesPerSecond?.takeIf { it > 0 && (client.busy || state.waitingForBuffer) }?.let { speed ->
+        when {
+            speed >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1f MB/s", speed / 1_000_000.0)
+            speed >= 1000 -> String.format(java.util.Locale.ROOT, "%.1f KB/s", speed / 1000.0)
+            else -> "$speed B/s"
+        }
+    }
     val feedback = remember { SnackbarHostState() }
     var documentGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
     var readingDocument by remember(file) { mutableStateOf(false) }
@@ -218,7 +225,11 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     }
     LaunchedEffect(client.busy, file) {
         showRequest = false
-        if (client.busy) { delay(200); showRequest = true }
+        if (client.busy) { delay(350); showRequest = true }
+    }
+    LaunchedEffect(state.waitingForBuffer, file) {
+        showBuffering = false
+        if (state.waitingForBuffer) { delay(350); showBuffering = true }
     }
     LaunchedEffect(client.progressStatus) {
         if (client.progressStatus == "续播保存失败，请重试" &&
@@ -304,7 +315,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         val original = owner?.requestedOrientation
         onDispose { original?.let { owner.requestedOrientation = it } }
     }
-    ClientTheme(darkTheme = true) {
+    io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(pageColors, fullscreen) {
         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
             // Fullscreen media ignores changing system-bar visibility. Insets
             // protect only the overlay controls, never resize the video Surface.
@@ -315,19 +326,22 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
                     else WindowInsets.displayCutout.union(WindowInsets.navigationBarsIgnoringVisibility).union(WindowInsets.captionBar)
                 val headerDensity = LocalDensity.current
-                var fullscreenHeaderHeight by remember { mutableStateOf(56.dp) }
                 val controlPadding = if (landscape) 20.dp else 12.dp
                 val downloadCoverageHeight = with(headerDensity) { 16.sp.toDp() }
                 val portraitControlsReserve = (if (maxWidth - controlPadding * 2 >= 600.dp) 96.dp else 144.dp) +
                     if (download != null) downloadCoverageHeight else 0.dp
                 val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
                 Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
-                    if (!fullscreen) Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (!fullscreen) Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                        .background(Brush.horizontalGradient(listOf(pageColors.tertiary.copy(alpha = .08f), Color.Transparent)))
+                        .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         PlayerIcon(R.drawable.ic_arrow_back, "返回文件", model::leavePlayer)
                         Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
-                        PlayerIcon(R.drawable.ic_info, "播放来源", { touch(); sheet = PlayerSheet.SOURCE })
+                        networkStatus?.let { PlayerNetworkStatus(it) }
+                        PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
                     }
+                    if (!fullscreen) FilewaySessionNotice(model)
                     // Portrait keeps transport below the picture. Fullscreen
                     // uses the entire viewport with controls over the video;
                     // hiding the HUD never changes the native surface size.
@@ -414,7 +428,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     })
                             })
                             if (holding) Text("${holdRate}× 倍速播放", Modifier.align(Alignment.TopCenter).padding(top = 20.dp)
-                                .clip(RoundedCornerShape(8.dp)).background(FilewayTheme.status.mediaSurface).padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp)
+                                .clip(RoundedCornerShape(12.dp)).background(FilewayTheme.status.mediaSurface).padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp)
                             gestureMessage?.let { message -> Text(message, Modifier.align(Alignment.Center)
                                 .clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .62f)).padding(horizontal = 20.dp, vertical = 14.dp), color = Color.White, fontSize = 18.sp) }
                             gestureMeter?.let { (brightnessControl, level) ->
@@ -426,25 +440,25 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             val failure = if (client.busy) null else client.error ?: state.error
                             if (failure != null) {
                                 Column(Modifier.align(Alignment.Center).widthIn(max = 360.dp).padding(20.dp)
-                                    .clip(RoundedCornerShape(10.dp)).background(FilewayTheme.status.mediaSurface).padding(16.dp),
+                                    .clip(RoundedCornerShape(12.dp)).background(FilewayTheme.status.mediaSurface).padding(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                     Text(failure, style = MaterialTheme.typography.bodyMedium, color = FilewayTheme.colors.error)
+                                    if (fullscreen) FilewaySessionNotice(model)
                                     PlayerLabel("重试", "重试播放") {
                                         model.retryPlayback()
                                     }
                                 }
-                            } else if (client.busy) {
-                                Row(Modifier.align(Alignment.Center).clip(RoundedCornerShape(10.dp)).background(FilewayTheme.status.mediaSurface).padding(start = 16.dp),
+                            } else if (client.busy && showRequest) {
+                                Row(Modifier.align(Alignment.Center).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.status.mediaSurface).padding(start = 16.dp),
                                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    if (showRequest) CircularProgressIndicator(Modifier.size(18.dp), color = FilewayTheme.colors.primary, strokeWidth = 2.dp)
+                                    CircularProgressIndicator(Modifier.size(18.dp), color = FilewayTheme.colors.primary, strokeWidth = 2.dp)
                                     Text("正在加载", fontSize = 13.sp)
                                     PlayerLabel("取消", "取消播放请求") { model.cancel() }
                                 }
-                            } else if (state.waitingForBuffer) {
-                                Row(Modifier.align(Alignment.Center).clip(RoundedCornerShape(8.dp)).background(Color(0xCC151515)).padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    CircularProgressIndicator(Modifier.size(18.dp), color = FilewayTheme.colors.primary, strokeWidth = 2.dp)
-                                    Text("${state.phase} ${state.buffering.toInt()}%", fontSize = 13.sp)
-                                    PlayerLabel("取消", "取消播放等待") { model.leavePlayer() }
+                            } else if (!client.busy && state.waitingForBuffer && showBuffering) {
+                                Box(Modifier.align(Alignment.Center).size(52.dp).background(Color.Black.copy(alpha = .48f), CircleShape)
+                                    .semantics { contentDescription = "正在缓冲" }, contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
                                 }
                             }
                             if (showControls || touchLocked) Box(Modifier.align(AbsoluteAlignment.CenterLeft)
@@ -458,31 +472,20 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         .onGloballyPositioned { touchLockPosition = it.positionInRoot() })
                             }
                         }
-                        Text(client.downloadBytesPerSecond?.let { speed ->
-                            when {
-                                speed >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1f MB/s", speed / 1_000_000.0)
-                                speed >= 1000 -> String.format(java.util.Locale.ROOT, "%.1f KB/s", speed / 1000.0)
-                                else -> "$speed B/s"
-                            }
-                        } ?: "— B/s", color = Color.White, fontSize = 11.sp,
-                            modifier = Modifier.align(Alignment.TopEnd).then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)) else Modifier)
-                                .padding(top = if (fullscreen && showControls) fullscreenHeaderHeight else 8.dp, end = 12.dp)
-                                .background(Color(0x99000000), RoundedCornerShape(4.dp)).padding(horizontal = 6.dp, vertical = 3.dp)
-                                .semantics { contentDescription = "实际网络下载速度" })
                         if (showControls && fullscreen) Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
                             .windowInsetsPadding(controlInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
                             Row(Modifier.fillMaxWidth()
-                                .onSizeChanged { fullscreenHeaderHeight = with(headerDensity) { it.height.toDp() } }
                                 .padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                                 val deviceTime = rememberPlayerClock()
                                 PlayerIcon(R.drawable.ic_arrow_back, "退出全屏并返回详情", { changeDisplay(PlayerDisplayMode.AUTOMATIC) })
                                 Text(file.name, style = FilewayTheme.text.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                                networkStatus?.let { PlayerNetworkStatus(it) }
                                 Text(deviceTime, color = Color.White, fontSize = 12.sp, lineHeight = 16.sp,
                                     maxLines = 1, modifier = Modifier.padding(horizontal = 8.dp).clearAndSetSemantics {
                                         contentDescription = "设备时间"
                                         stateDescription = deviceTime
                                     })
-                                PlayerIcon(R.drawable.ic_info, "播放来源", { touch(); sheet = PlayerSheet.SOURCE })
+                                PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
                             }
                         }
                         if (showControls) MaterialTheme(colorScheme = if (fullscreen) MaterialTheme.colorScheme else pageColors) {
@@ -529,6 +532,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     PlayerLabel("${state.rate}×", "播放速度") { touch(); sheet = PlayerSheet.SPEED }
                                     PlayerIcon(R.drawable.ic_playlist_play, "播放列表", { touch(); sheet = PlayerSheet.QUEUE }, queue != null,
                                         description = queue?.let { "第 ${it.index + 1} 项，共 ${it.items.size} 项" } ?: "无播放列表")
+                                    PlayerIcon(R.drawable.ic_settings, "视频解码器", { touch(); sheet = PlayerSheet.DECODER }, !client.busy && !changingDecoder)
                                 }
                                 val display: @Composable RowScope.() -> Unit = {
                                     if (!fullscreen) PlayerIcon(R.drawable.ic_portrait_fullscreen, "竖屏全屏", { changeDisplay(PlayerDisplayMode.PORTRAIT_FULLSCREEN) })
@@ -555,39 +559,30 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         }
                     }
                     }
-                    if (!fullscreen) MaterialTheme(colorScheme = pageColors) { Column(Modifier.weight(1f).semantics { contentDescription = "播放详情" }.verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(file.name, style = FilewayTheme.text.appBar,
-                                maxLines = if (expandedTitle) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button,
-                                    onClickLabel = if (expandedTitle) "收起完整名称" else "展开完整名称") { expandedTitle = !expandedTitle; touch() })
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Text(playbackSourceLabel, Modifier.weight(1f), color = pageColors.onSurfaceVariant, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                if (state.width > 0) Text("${state.width} × ${state.height}", color = pageColors.onSurfaceVariant, fontSize = 12.sp)
-                            }
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically) {
-                            Text(queue?.let { "播放列表 · ${it.index + 1} / ${it.items.size}" } ?: "单个视频",
-                                style = FilewayTheme.text.metadata, color = pageColors.onSurfaceVariant)
-                            PlayerIcon(R.drawable.ic_info, "播放来源", { touch(); sheet = PlayerSheet.SOURCE })
-                        }
-                        DetailAction(R.drawable.ic_audio, "音轨", state.pendingAudio?.let { "正在切换" }
-                            ?: state.audio.firstOrNull { it.id == state.selectedAudio }?.title ?: "暂无音轨", "选择音轨", state.audio.isNotEmpty() && !client.busy) { touch(); sheet = PlayerSheet.AUDIO }
-                        DetailAction(R.drawable.ic_subtitles, "字幕", state.pendingSubtitle?.let { "正在切换" }
-                            ?: state.subtitles.firstOrNull { it.id == state.selectedSubtitle }?.title ?: "关闭", "选择字幕", !client.busy) { touch(); sheet = PlayerSheet.SUBTITLE }
+                    if (!fullscreen) Column(Modifier.weight(1f).semantics { contentDescription = "播放详情" }
+                        .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        val specifications = listOfNotNull(
+                            if (state.width > 0 && state.height > 0) "${state.width} × ${state.height}" else null,
+                            state.sourceVideoCodec.takeIf { it.isNotBlank() && it != "未知" },
+                            state.sourceDynamicRange.takeIf { it.isNotBlank() && it != "未知" },
+                        )
+                        if (specifications.isNotEmpty()) Text(specifications.joinToString(" · "),
+                            style = FilewayTheme.text.metadata, color = pageColors.onSurfaceVariant,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
                         queue?.takeIf { it.hasNext }?.let { snapshot ->
                             Text("接下来", style = MaterialTheme.typography.titleSmall)
                             snapshot.items.drop(snapshot.index + 1).take(2).forEachIndexed { offset, next ->
-                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = !client.busy, role = Role.Button) {
+                                Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(RoundedCornerShape(12.dp))
+                                    .background(pageColors.surface).clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
                                     model.navigateMedia(snapshot.index + offset + 1); touch()
-                                }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Icon(painterResource(R.drawable.art_play), null, Modifier.size(20.dp), tint = pageColors.primary)
-                                    Text(next.name, style = FilewayTheme.text.fileName, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    MediaThumbnail(model, next, Modifier.width(80.dp).aspectRatio(16f / 9f), showStatusText = false)
+                                    Text(next.name, Modifier.weight(1f), style = FilewayTheme.text.fileName,
+                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 }
                             }
                         }
-                    }
                     }
                 }
                 if (sheet == null) SnackbarHost(feedback, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp)
@@ -604,13 +599,14 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         })
                 }
                 if (sheet != null) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
-                    if (fullscreen) MaterialTheme.colorScheme else pageColors, fullscreen) { PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; else -> "播放来源" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
+                    pageColors, fullscreen) { PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; PlayerSheet.DECODER -> "视频解码器"; else -> "播放信息" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
                     { sheet = PlayerSheet.SUBTITLE; touch() }
                 } else if (sheet == PlayerSheet.SUBTITLE_FONT) {
                     { sheet = PlayerSheet.SUBTITLE_ADJUST; touch() }
                 } else if (sheet == PlayerSheet.SPEED_EDIT) {
                     { sheet = PlayerSheet.SPEED; speedError = null; touch() }
-                } else null, feedback = feedback, backLabel = when (sheet) { PlayerSheet.SPEED_EDIT -> "返回播放速度"; PlayerSheet.SUBTITLE_FONT -> "返回字幕调整"; else -> "返回字幕轨道" }) {
+                } else null, feedback = feedback, backLabel = when (sheet) { PlayerSheet.SPEED_EDIT -> "返回播放速度"; PlayerSheet.SUBTITLE_FONT -> "返回字幕调整"; else -> "返回字幕轨道" },
+                    headerDetail = if (sheet == PlayerSheet.QUEUE) queue?.let { "${it.index + 1} / ${it.items.size}" } else null) {
                     when (sheet) {
                         PlayerSheet.QUEUE -> queue?.let { snapshot ->
                             PlayerQueuePanel(model, snapshot, state.playing, state.durationMs, choose = { index ->
@@ -713,37 +709,42 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                 }
                             },
                         )
-                        PlayerSheet.SOURCE -> LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        PlayerSheet.DECODER -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SourceField("实际解码方式", state.videoDecoderKind)
+                                SourceField("实际解码器", state.videoDecoder)
+                            }
+                            VideoDecodePolicy.entries.forEach { policy ->
+                                Choice(policy.label, when (policy) {
+                                    VideoDecodePolicy.AUTO -> "优先硬件，故障时尝试可用的软件解码"
+                                    VideoDecodePolicy.HARDWARE -> "只使用硬件视频解码器"
+                                    VideoDecodePolicy.SOFTWARE -> "使用设备提供的软件视频解码器"
+                                }, state.videoDecodePolicy == policy, enabled = !changingDecoder && !client.busy) {
+                                    if (state.videoDecodePolicy != policy) {
+                                        changingDecoder = true
+                                        uiScope.launch {
+                                            try { model.changeVideoDecoder(policy); sheet = null }
+                                            catch (cancelled: CancellationException) { throw cancelled }
+                                            catch (_: Exception) { feedback.showSnackbar("无法切换解码策略，请重试") }
+                                            finally { changingDecoder = false }
+                                        }
+                                    }
+                                }
+                            }
+                            Text(if (changingDecoder) "正在切换解码器…" else "切换将保留进度并重新打开视频，后续视频沿用此策略。",
+                                Modifier.padding(horizontal = 24.dp), style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
+                        }
+                        PlayerSheet.SOURCE -> LazyColumn(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             item { SourceField("文件", file.name) }
-                            item { SourceField(if (file.downloadId.isEmpty()) "服务器与账号" else "来源", playbackSourceLabel) }
+                            item { SourceField("读取来源", playbackSourceLabel) }
                             item { SourceField("路径", file.path) }
                             item { SourceField("播放方式", "原生播放 · Media3") }
                             item { SourceField("画质", "原画 · 直接读取原文件") }
                             if (state.width > 0) item { SourceField("源分辨率", "${state.width} × ${state.height}") }
                             item { SourceField("视频编码", state.sourceVideoCodec) }
-                            item { SourceField("请求的视频解码策略", state.videoDecodePolicy.label) }
                             item { SourceField("实际视频解码方式", state.videoDecoderKind) }
                             item { SourceField("实际视频解码器", state.videoDecoder) }
-                            item {
-                                Column {
-                                    Text("切换策略会保存进度并重新打开当前视频，后续视频也使用此设置。", style = MaterialTheme.typography.bodySmall, color = FilewayTheme.status.mediaSecondary)
-                                    VideoDecodePolicy.entries.forEach { policy ->
-                                        Choice(policy.label, when (policy) {
-                                            VideoDecodePolicy.AUTO -> "优先硬件，解码器故障时尝试可用的软件解码"
-                                            VideoDecodePolicy.HARDWARE -> "只使用硬件视频解码器"
-                                            VideoDecodePolicy.SOFTWARE -> "使用设备提供的软件视频解码器"
-                                        }, state.videoDecodePolicy == policy, enabled = !changingDecoder && !client.busy && state.videoDecodePolicy != policy) {
-                                            changingDecoder = true
-                                            uiScope.launch {
-                                                try { model.changeVideoDecoder(policy); sheet = null }
-                                                catch (cancelled: CancellationException) { throw cancelled }
-                                                catch (_: Exception) { feedback.showSnackbar("无法切换解码策略，请重试") }
-                                                finally { changingDecoder = false }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
                             item { SourceField("实际音频解码器", state.audioDecoder) }
                             state.decoderRecovery?.let { recovery -> item { SourceField("解码恢复", recovery) } }
                             item { SourceField("片源动态范围", state.sourceDynamicRange) }
@@ -800,7 +801,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     }
 }
 @Composable private fun PlayerLabel(text: String, label: String, enabled: Boolean = true, click: () -> Unit) {
-    Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clickable(enabled = enabled, role = Role.Button, onClick = click).clearAndSetSemantics {
+    Box(Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(enabled = enabled, role = Role.Button, onClick = click).clearAndSetSemantics {
         contentDescription = label
         stateDescription = text
         role = Role.Button
@@ -810,7 +811,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun PlayerSlider(value: Float, maximum: Float, label: String, enabled: Boolean, change: (Float) -> Unit, finish: () -> Unit = {}, description: String = "${value.toInt()}%", downloadedValue: Float? = null, modifier: Modifier = Modifier, bufferedValue: Float? = null, mediaSurface: Boolean = true) {
+@Composable internal fun PlayerSlider(value: Float, maximum: Float, label: String, enabled: Boolean, change: (Float) -> Unit, finish: () -> Unit = {}, description: String = "${value.toInt()}%", downloadedValue: Float? = null, modifier: Modifier = Modifier, bufferedValue: Float? = null, mediaSurface: Boolean = true, minimum: Float = 0f) {
     // Preserve Material's drag and keyboard handling. Export one named range
     // with meaningful time/volume state, rather than split label/range nodes
     // and the default raw millisecond number. Accessibility uses the same
@@ -818,17 +819,18 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val accent = FilewayTheme.colors.primary
     val secondary = if (mediaSurface) FilewayTheme.status.mediaSecondary else MaterialTheme.colorScheme.onSurfaceVariant
     val contentColor = if (mediaSurface) FilewayTheme.status.mediaContent else MaterialTheme.colorScheme.onSurface
+    val span = maximum - minimum
     Box(modifier.fillMaxWidth().clearAndSetSemantics {
         contentDescription = label
         stateDescription = description
-        progressBarRangeInfo = ProgressBarRangeInfo(value.coerceIn(0f, maximum), 0f..maximum)
+        progressBarRangeInfo = ProgressBarRangeInfo(value.coerceIn(minimum, maximum), minimum..maximum)
         if (!enabled) disabled()
         setProgress { target ->
-            val next = target.coerceIn(0f, maximum)
+            val next = target.coerceIn(minimum, maximum)
             if (!enabled || !next.isFinite() || next == value) false else { change(next); finish(); true }
         }
     }) {
-        Slider(value = value.coerceIn(0f, maximum), onValueChange = change, onValueChangeFinished = finish, valueRange = 0f..maximum, enabled = enabled,
+        Slider(value = value.coerceIn(minimum, maximum), onValueChange = change, onValueChangeFinished = finish, valueRange = minimum..maximum, enabled = enabled,
         modifier = Modifier.fillMaxWidth().height(48.dp),
         // Equal slot heights give track and thumb the same vertical origin;
         // the visible 3dp line and 10dp circle are drawn around that centre.
@@ -839,30 +841,22 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             val y = size.height / 2
             drawLine(contentColor.copy(alpha = 0.24f), Offset(0f, y), Offset(size.width, y), 3.dp.toPx(), StrokeCap.Round)
             downloadedValue?.let { available ->
-                drawLine(accent.copy(alpha = .35f), Offset(0f, y), Offset(size.width * (available / maximum).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
+                drawLine(accent.copy(alpha = .35f), Offset(0f, y), Offset(size.width * ((available - minimum) / span).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
             }
             bufferedValue?.takeIf { it.isFinite() }?.let { buffered ->
-                drawLine(secondary.copy(alpha = .8f), Offset(0f, y), Offset(size.width * (buffered / maximum).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
+                drawLine(secondary.copy(alpha = .8f), Offset(0f, y), Offset(size.width * ((buffered - minimum) / span).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
             }
-            drawLine(if (enabled) accent else secondary, Offset(0f, y), Offset(size.width * (value / maximum).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
+            drawLine(if (enabled) accent else secondary, Offset(0f, y), Offset(size.width * ((value - minimum) / span).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
         } })
     }
 }
-@Composable private fun DetailAction(icon: Int, title: String, value: String, label: String, enabled: Boolean = true, click: () -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(enabled = enabled, role = Role.Button, onClick = click).clearAndSetSemantics {
-        contentDescription = label
-        stateDescription = value
-        role = Role.Button
-        if (enabled) onClick { click(); true } else disabled()
-    }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Icon(painterResource(icon), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Text(value, modifier = Modifier.weight(1f), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+@Composable private fun PlayerNetworkStatus(value: String) {
+    Text(value, Modifier.padding(horizontal = 8.dp).semantics { contentDescription = "实际网络读取速度 $value" },
+        style = FilewayTheme.text.metadata, fontFamily = FontFamily.Monospace,
+        color = FilewayTheme.status.mediaSecondary, maxLines = 1)
 }
 @OptIn(ExperimentalLayoutApi::class)
-@Composable private fun PlayerPanel(landscape: Boolean, immersive: Boolean, title: String, dismiss: () -> Unit, back: (() -> Unit)? = null, feedback: SnackbarHostState, backLabel: String = "返回字幕轨道", content: @Composable () -> Unit) {
+@Composable private fun PlayerPanel(landscape: Boolean, immersive: Boolean, title: String, dismiss: () -> Unit, back: (() -> Unit)? = null, feedback: SnackbarHostState, backLabel: String = "返回字幕轨道", headerDetail: String? = null, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = dismiss, properties = DialogProperties(dismissOnBackPress = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val keyboard = LocalSoftwareKeyboardController.current
         val imeVisible = WindowInsets.isImeVisible
@@ -908,15 +902,20 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             Box(Modifier.fillMaxSize().clickable(onClick = dismiss))
             val panel = if (landscape) Modifier.align(Alignment.CenterEnd).width(maxWidth.coerceAtMost(360.dp)).fillMaxHeight()
                 else Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = if (imeVisible || back != null) maxHeight else maxHeight * 0.85f)
+            val panelShape = if (landscape) RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)
+                else RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
             CompositionLocalProvider(LocalContentColor provides FilewayTheme.status.mediaContent) {
-            Column(panel.clip(if (landscape) RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp) else RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)).background(FilewayTheme.status.mediaSurface).pointerInput(Unit) { detectTapGestures(onTap = {}) }
+            Column(panel.clip(panelShape).background(FilewayTheme.status.mediaSurface)
+                .border(1.dp, Color.White.copy(alpha = .06f), panelShape).pointerInput(Unit) { detectTapGestures(onTap = {}) }
                 .windowInsetsPadding(panelInsets.only(WindowInsetsSides.Bottom)), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (back != null) PlayerIcon(R.drawable.ic_arrow_back, backLabel, back)
                     Text(title, style = FilewayTheme.text.appBar, modifier = Modifier.weight(1f))
+                    headerDetail?.let { Text(it, Modifier.padding(horizontal = 8.dp), style = FilewayTheme.text.metadata,
+                        fontFamily = FontFamily.Monospace, color = FilewayTheme.status.mediaSecondary, maxLines = 1) }
                     PlayerIcon(R.drawable.art_close, "关闭播放设置", dismiss)
                 }
-                HorizontalDivider(Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f))
+                HorizontalDivider(Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f))
                 Box(Modifier.weight(1f, fill = false).fillMaxWidth()) { content() }
             }
             }
@@ -927,7 +926,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     }
 }
 @Composable private fun Choice(title: String, detail: String, selected: Boolean, enabled: Boolean = true, choose: () -> Unit) {
-    Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(if (selected) FilewayTheme.colors.primary.copy(alpha = 0.10f) else Color.Transparent)
+    Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (selected) FilewayTheme.colors.primary.copy(alpha = 0.10f) else Color.Transparent)
         .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = choose).alpha(if (enabled) 1f else .38f).heightIn(min = 56.dp).padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(title, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, color = if (selected) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent)
