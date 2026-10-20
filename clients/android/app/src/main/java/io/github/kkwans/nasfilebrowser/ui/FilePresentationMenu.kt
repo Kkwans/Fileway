@@ -90,9 +90,9 @@ internal fun FileLayoutMenu(
             items = entries,
             selection = FilewayMenuSelection.Single,
             alignment = FilewayMenuAlignment.Start,
-            extraContentWidth = compactMetrics.width,
+            extraContentWidth = if (layout == FileLayout.COMPACT) compactMetrics.width else 0.dp,
             itemExtras = { item ->
-                if (item.key == FileLayout.COMPACT.name) {
+                if (item.key == FileLayout.COMPACT.name && layout == FileLayout.COMPACT) {
                     CompactGridSizeMenu(
                         layout = layout,
                         compactGridSize = compactGridSize,
