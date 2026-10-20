@@ -82,26 +82,24 @@ import java.util.Locale
             FileNameText(file.name,
                 style = if (layout == FileLayout.COMPACT) FilewayTheme.text.compactName else FilewayTheme.text.fileName,
                 color = colors.onSurface,
-                maxLines = when (layout) { FileLayout.COVER -> 1; FileLayout.COMPACT -> compactGridSize.nameLines; FileLayout.UNBOUNDED -> Int.MAX_VALUE; else -> 2 },
+                maxLines = when (layout) { FileLayout.COVER -> 1; FileLayout.COMPACT -> compactGridSize.nameLines; FileLayout.UNBOUNDED -> 2; else -> 2 },
                 centered = centered, modifier = Modifier.fillMaxWidth())
             // Compact is deliberately image + name only, including custom metadata supplied by callers.
             if (layout != FileLayout.COMPACT) {
                 if (metadata != null) metadata() else {
-                    val modified = displayModified(file.modified) ?: "时间未提供"
-                    val horizontal = layout == FileLayout.LIST || layout == FileLayout.DETAIL
-                    if (horizontal) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(modified, Modifier.weight(1f), style = FilewayTheme.text.metadata,
-                            color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (!file.directory) Text(readableSize(file.size), style = FilewayTheme.text.metadata,
-                            color = colors.onSurfaceVariant, maxLines = 1)
+                    val modified = displayModified(file.modified, compact = layout == FileLayout.COVER || layout == FileLayout.UNBOUNDED)
+                    // Keep both fields on one line; full timestamps remain available in details.
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = if (centered) Arrangement.Center else Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        if (modified != null) Text(modified, if (centered) Modifier else Modifier.weight(1f),
+                            style = FilewayTheme.text.metadata, color = colors.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (!file.directory) {
+                            if (centered && modified != null) Text(" · ", style = FilewayTheme.text.metadata, color = colors.onSurfaceVariant)
+                            Text(readableSize(file.size), style = FilewayTheme.text.metadata, color = colors.onSurfaceVariant, maxLines = 1)
+                        }
                     }
-                    else if (!file.directory) Text(readableSize(file.size), Modifier.fillMaxWidth(), style = FilewayTheme.text.metadata,
-                        color = colors.onSurfaceVariant, textAlign = if (centered) TextAlign.Center else TextAlign.Start)
                     if (!location.isNullOrBlank()) Text(location, Modifier.fillMaxWidth(), style = FilewayTheme.text.metadata,
-                        color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        textAlign = if (centered) TextAlign.Center else TextAlign.Start)
-                    // Time has its own slot so long result paths can never displace it.
-                    if (!horizontal) Text(modified, Modifier.fillMaxWidth(), style = FilewayTheme.text.metadata,
                         color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         textAlign = if (centered) TextAlign.Center else TextAlign.Start)
                 }

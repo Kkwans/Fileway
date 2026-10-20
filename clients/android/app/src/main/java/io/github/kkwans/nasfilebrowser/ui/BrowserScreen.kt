@@ -96,38 +96,38 @@ Column(Modifier.fillMaxSize()) {
                         IconButton({ createMenu = true }, enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null) {
                             Icon(painterResource(R.drawable.ic_add), "新建文件或文件夹", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                         }
-                        DropdownMenu(createMenu, { createMenu = false }) {
-                            DropdownMenuItem({ Text("新建文件") }, { createMenu = false; model.startFileCreation(state.previewScope) })
-                            DropdownMenuItem({ Text("新建文件夹") }, { createMenu = false; model.startDirectoryCreation(state.previewScope) },
-                                modifier = Modifier.semantics { contentDescription = "新建文件夹" })
-                        }
+                        FilewayMenu(createMenu, { createMenu = false }, items = listOf(
+                            FilewayMenuEntry("file", "新建文件", R.drawable.ic_file),
+                            FilewayMenuEntry("directory", "新建文件夹", R.drawable.ic_folder),
+                        ), onItemClick = { item ->
+                            createMenu = false
+                            if (item.key == "file") model.startFileCreation(state.previewScope)
+                            else model.startDirectoryCreation(state.previewScope)
+                        })
                     }
                     Box {
                         IconButton({ browserMenu = true }, enabled = !state.busy) {
                             Icon(painterResource(R.drawable.ic_more_vert), "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                         }
-                        DropdownMenu(browserMenu, { browserMenu = false }) {
+                        FilewayMenu(browserMenu, { browserMenu = false }, items = buildList {
                             if (state.permissions.create) {
-                                DropdownMenuItem({ Text("上传文件") }, {
-                                    browserMenu = false
-                                    if (model.beginUploadSelection()) try { uploadFiles.launch(arrayOf("*/*")) }
-                                    catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件选择器") }
-                                }, enabled = !uploads.busy && !uploads.selecting && !selectionBusy,
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_upload), null, Modifier.size(22.dp)) })
-                                DropdownMenuItem({ Text("上传文件夹") }, {
-                                    browserMenu = false
-                                    if (model.beginUploadSelection()) try { uploadFolder.launch(null) }
-                                    catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件夹选择器") }
-                                }, enabled = !uploads.busy && !uploads.selecting && !selectionBusy,
-                                    leadingIcon = { Icon(painterResource(R.drawable.ic_folder), null, Modifier.size(22.dp)) })
+                                val canUpload = !uploads.busy && !uploads.selecting && !selectionBusy
+                                add(FilewayMenuEntry("upload", "上传文件", R.drawable.ic_upload, enabled = canUpload))
+                                add(FilewayMenuEntry("uploadFolder", "上传文件夹", R.drawable.ic_folder, enabled = canUpload))
                             }
-                            DropdownMenuItem({ Text("刷新") }, { browserMenu = false; model.retry(); model.tags.refresh() },
-                                leadingIcon = { Icon(painterResource(R.drawable.ic_refresh), null, Modifier.size(22.dp)) })
-                            DropdownMenuItem({ Text("多选") }, {
-                                browserMenu = false; selecting = true; selected = emptySet(); batchKind = ""
-                            }, enabled = displayed.isNotEmpty() && !selectionBusy,
-                                leadingIcon = { Icon(painterResource(R.drawable.ic_check), null, Modifier.size(22.dp)) })
-                        }
+                            add(FilewayMenuEntry("refresh", "刷新", R.drawable.ic_refresh))
+                            add(FilewayMenuEntry("select", "多选", R.drawable.ic_check, enabled = displayed.isNotEmpty() && !selectionBusy))
+                        }, onItemClick = { item ->
+                            browserMenu = false
+                            when (item.key) {
+                                "upload" -> if (model.beginUploadSelection()) try { uploadFiles.launch(arrayOf("*/*")) }
+                                    catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件选择器") }
+                                "uploadFolder" -> if (model.beginUploadSelection()) try { uploadFolder.launch(null) }
+                                    catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件夹选择器") }
+                                "refresh" -> { model.retry(); model.tags.refresh() }
+                                "select" -> { selecting = true; selected = emptySet(); batchKind = "" }
+                            }
+                        })
                     }
                     IconButton(onClick = model::openSearch, enabled = !state.busy) {
                         Icon(painterResource(R.drawable.ic_search), "搜索文件", Modifier.size(22.dp), tint = colors.onBackground)

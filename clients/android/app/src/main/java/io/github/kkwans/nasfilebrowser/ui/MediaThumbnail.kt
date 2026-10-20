@@ -19,15 +19,17 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.Image as CoilImage
-import coil3.compose.AsyncImage
 import coil3.compose.asPainter
 import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import coil3.request.SuccessResult
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
 import io.github.kkwans.nasfilebrowser.app.mediaKey
+import io.github.kkwans.nasfilebrowser.app.mediaKind
+import io.github.kkwans.nasfilebrowser.app.MediaKind
 import io.github.kkwans.nasfilebrowser.data.PreviewLease
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
@@ -47,11 +49,10 @@ internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<St
     val loader = model.previewImageLoader
     key(cache.revision, client.previewScope, file.mediaKey, file.size, file.modified) {
         var decoded by remember { mutableStateOf<CoilImage?>(loader.memoryCache?.get(MemoryCache.Key(cacheKey))?.image) }
-        var asset by remember { mutableStateOf<PreviewLease?>(null) }
         var failed by remember { mutableStateOf(false) }
         var aspect by remember { mutableFloatStateOf(decoded?.let { it.width.toFloat() / it.height.coerceAtLeast(1) }
             ?: model.cache.previewAspect(previewKey) ?: aspects?.get(previewKey) ?: if (file.previewWidth > 0 && file.previewHeight > 0)
-                file.previewWidth.toFloat() / file.previewHeight else if (file.type == "video") 16f / 9f else 1f) }
+                file.previewWidth.toFloat() / file.previewHeight else if (file.mediaKind() == MediaKind.VIDEO) 16f / 9f else 1f) }
         var showLoading by remember { mutableStateOf(false) }
         LaunchedEffect(decoded, failed) { showLoading = false; if (decoded == null && !failed) { delay(350); showLoading = true } }
         LaunchedEffect(Unit) {
@@ -59,7 +60,18 @@ internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<St
             var owned: PreviewLease? = null
             try {
                 if (client.previewScope.isEmpty() && file.downloadId.isEmpty()) { failed = true; return@LaunchedEffect }
-                owned = model.thumbnailPreview(file); asset = owned
+                owned = model.thumbnailPreview(file)
+                val request = ImageRequest.Builder(context).data(owned.url).size(512, 512)
+                    .memoryCacheKey(cacheKey).diskCacheKey(cacheKey)
+                    .diskCachePolicy(if (cache.settings.thumbnailMB == 0L || model.isTemporaryContent(file)) CachePolicy.DISABLED else CachePolicy.ENABLED).build()
+                val loaded = (loader.execute(request) as? SuccessResult)?.image
+                if (loaded == null || loaded.width <= 0 || loaded.height <= 0) failed = true
+                else {
+                    val ratio = loaded.width.toFloat() / loaded.height
+                    model.cache.rememberPreviewAspect(previewKey, ratio); aspects?.put(previewKey, ratio)
+                    // Publish geometry and pixels together; never draw the image into the stale placeholder frame.
+                    aspect = ratio; decoded = loaded; failed = false
+                }
                 awaitCancellation()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { failed = true }
@@ -75,24 +87,10 @@ internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<St
             val compact = minOf(maxWidth, maxHeight) < 48.dp
             val ringSize = if (compact) 24.dp else 32.dp
             val placeholderSize = if (showLoading) { if (compact) 12.dp else 18.dp } else { if (compact) 24.dp else 36.dp }
-            if (decoded == null) Icon(painterResource(if (file.type == "video") R.drawable.ic_video else R.drawable.ic_image),
+            if (decoded == null) Icon(painterResource(if (file.mediaKind() == MediaKind.VIDEO) R.drawable.ic_video else R.drawable.ic_image),
                 null, Modifier.size(placeholderSize), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (showLoading) .22f else .32f))
             val image = decoded
             if (image != null) Image(image.asPainter(context), null, Modifier.fillMaxSize(), contentScale = contentScale)
-            else asset?.let { source ->
-                val request = remember(source.url) { ImageRequest.Builder(context).data(source.url).size(512, 512)
-                    .memoryCacheKey(cacheKey).diskCacheKey(cacheKey)
-                    .diskCachePolicy(if (cache.settings.thumbnailMB == 0L || model.isTemporaryContent(file)) CachePolicy.DISABLED else CachePolicy.ENABLED).build() }
-                AsyncImage(request, null, imageLoader = loader, modifier = Modifier.fillMaxSize(), contentScale = contentScale,
-                    onSuccess = { result ->
-                        val loaded = result.result.image
-                        if (loaded.width > 0 && loaded.height > 0) {
-                            val ratio = loaded.width.toFloat() / loaded.height
-                            model.cache.rememberPreviewAspect(previewKey, ratio); aspects?.put(previewKey, ratio); aspect = ratio
-                        }
-                        decoded = loaded; failed = false
-                    }, onError = { failed = true })
-            }
             if (showLoading && decoded == null && !failed) CircularProgressIndicator(Modifier.align(Alignment.Center).size(ringSize), strokeWidth = 2.dp,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = .8f))
         }

@@ -60,18 +60,14 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                         FilewaySearchField(state.query, { if (!model.state.value.busy) model.search.query(it) },
                             "搜索文件名", Modifier.weight(1f), enabled = !client.busy, submit = ::submit)
                     }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(state.resultBasePath, modifier = Modifier.weight(1f).padding(end = 8.dp),
-                                style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            FileLayoutMenu(client.fileLayout, enabled = !client.busy, compactGridSize = client.compactGridSize,
-                                onCompactGridSize = model::compactGridSize, select = model::fileLayout)
-                    }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         FileCategoryMenu(state.categories.ifEmpty { if (state.category == FileCategory.ALL) emptySet() else setOf(state.category) }, !client.busy, model.search::categories)
-                        if (state.category != FileCategory.ALL) Text("当前结果 ${displayed.size} / ${state.items.size} 项", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                        Spacer(Modifier.weight(1f))
+                        FileLayoutMenu(client.fileLayout, enabled = !client.busy, compactGridSize = client.compactGridSize,
+                            onCompactGridSize = model::compactGridSize, select = model::fileLayout)
                     }
                     FileCollection(displayed, client.fileLayout, Modifier.weight(1f), "搜索结果",
-                        resetKey = Triple(client.previewScope, state.resultBaseWirePath, Triple(state.query, state.scope, state.category)), keyOf = { it.relativePath }, compactGridSize = client.compactGridSize, header = {
+                        resetKey = listOf(client.previewScope, state.resultBaseWirePath, state.query, state.scope, state.categories, state.category), keyOf = { it.relativePath }, compactGridSize = client.compactGridSize, header = {
                         Column {
                         Column {
                             Row(Modifier.fillMaxWidth().padding(top = 4.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -90,6 +86,9 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                             HorizontalDivider(color = colors.outlineVariant)
                         }
                         Column {
+                            if (state.scope != SearchScope.GLOBAL) Text(state.resultBasePath,
+                                Modifier.fillMaxWidth().padding(top = 8.dp), style = FilewayTheme.text.metadata,
+                                color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             val active = state.running || state.openingPath != null || client.busy
                             Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 if (active) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = colors.primary)
@@ -123,7 +122,7 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                         }
                     }) { result ->
                         SearchResultRow(model, result, state.resultBasePath, state.resultBaseWirePath, client.fileLayout,
-                            state.openingPath == result.relativePath, enabled = !client.busy, compactGridSize = client.compactGridSize,
+                            state.scope, state.openingPath == result.relativePath, enabled = !client.busy, compactGridSize = client.compactGridSize,
                             open = { if (!model.state.value.busy) { focus.clearFocus(); model.search.openResult(result) } }, details = { details = result })
                     }
                 }
@@ -152,12 +151,16 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
 }
 
 @Composable private fun SearchResultRow(model: ClientModel, result: SearchResult, basePath: String, baseWirePath: String,
-    layout: FileLayout, opening: Boolean, enabled: Boolean, compactGridSize: CompactGridSize, open: () -> Unit, details: () -> Unit) {
+    layout: FileLayout, scope: SearchScope, opening: Boolean, enabled: Boolean, compactGridSize: CompactGridSize, open: () -> Unit, details: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val resource = remember(result, basePath, baseWirePath) { result.resource(basePath, baseWirePath) }
     Column(Modifier.fillMaxWidth()) {
         if (resource != null) FileEntry(model, resource, layout,
-            enabled, open, details, location = resource.path.substringBeforeLast('/', "").ifEmpty { "/" }, compactGridSize = compactGridSize)
+            enabled, open, details, location = when (scope) {
+                SearchScope.CURRENT -> null
+                SearchScope.RECURSIVE -> result.relativePath.substringBeforeLast('/', "").ifBlank { null }
+                SearchScope.GLOBAL -> resource.path.substringBeforeLast('/', "").ifEmpty { "/" }
+            }, compactGridSize = compactGridSize)
         else Column(Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = details,
             onLongClickLabel = "查看完整名称和位置", role = Role.Button, enabled = enabled).padding(vertical = 12.dp)) {
             Text(result.name, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
