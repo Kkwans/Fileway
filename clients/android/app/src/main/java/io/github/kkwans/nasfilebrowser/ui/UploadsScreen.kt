@@ -34,12 +34,6 @@ Column(Modifier.fillMaxSize()) {
         state.error?.let { Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
         FilewayToast(state.notice)
         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机上传列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
-                Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("本机上传", style = MaterialTheme.typography.labelLarge)
-                    Text("${items.size} 项", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
             if (items.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(painterResource(R.drawable.ic_upload), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
@@ -65,25 +59,28 @@ Column(Modifier.fillMaxSize()) {
                     else -> "上传失败"
                 }
                 val progress = if (item.complete) readableSize(item.expectedSize) else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(transferred)} / ${readableSize(item.expectedSize)}"
-                val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取上传速度" else null
-                val summary = if (item.complete) "$status · $progress" else "$status · $progress${speed?.let { " · $it" }.orEmpty()}"
+                val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } else null
+
                 val cardActions = buildList {
                     if (item.canResume) add(FilewayTaskAction("toggle", if (item.active) "暂停上传" else "继续上传",
-                        if (item.active) R.drawable.ic_close else R.drawable.ic_refresh, enabled = !state.busy))
-                    if (item.status == "cancel_failed") add(FilewayTaskAction("cleanup", "重试清理上传", R.drawable.ic_refresh, enabled = !state.busy))
+                        if (item.active) R.drawable.art_pause else R.drawable.art_play, enabled = !state.busy, primary = true))
+                    if (item.status == "cancel_failed") add(FilewayTaskAction("cleanup", "重试清理上传", R.drawable.ic_refresh, enabled = !state.busy, primary = true))
                     else if (!item.complete && item.status !in setOf("canceled", "canceling", "restarted")) add(FilewayTaskAction("cancel", "取消上传", R.drawable.ic_close, enabled = !state.busy))
                     if (item.canReselectSource) add(FilewayTaskAction("reselect", "重新选择上传原文件", R.drawable.ic_refresh, enabled = !state.busy))
                     if (item.canRestart) add(FilewayTaskAction("restart", "重新开始上传", R.drawable.ic_refresh, enabled = !state.busy))
-                    if (item.complete) add(FilewayTaskAction("open", "定位服务器文件", R.drawable.ic_folder, enabled = !state.busy))
+                    if (item.complete) add(FilewayTaskAction("open", "定位服务器文件", R.drawable.ic_folder, enabled = !state.busy, primary = true))
                     if (item.complete || item.status in setOf("canceled", "restarted")) add(FilewayTaskAction("remove", "移除记录", R.drawable.ic_trash, enabled = !state.busy))
                 }
                 FilewayTaskCard(
                     title = item.name,
                     icon = { Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     meta = {
-                        Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                        Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                             color = if (item.status in setOf("failed", "expired")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val trailing = if (item.complete) readableSize(item.expectedSize) else speed
+                        if (trailing != null) Text(trailing, style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     },
                     actions = {
                         FilewayTaskActionStrip(cardActions, onAction = { action ->
@@ -99,7 +96,9 @@ Column(Modifier.fillMaxSize()) {
                         }, moreLabel = "上传操作：${item.name}")
                     },
                 ) {
-                    if (!item.complete) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
+                    if (!item.complete) Text(progress, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (item.active) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }

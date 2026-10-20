@@ -54,6 +54,7 @@ Column(Modifier.fillMaxSize()) {
                 controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
             }
             IconButton({ filters = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选操作历史") }
+            IconButton({ controller.requestClear() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), "清空操作历史", tint = MaterialTheme.colorScheme.error) }
 
         }
         if (state.filter.active) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -74,18 +75,7 @@ Column(Modifier.fillMaxSize()) {
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         FilewayToast(state.notice)
         LazyColumn(Modifier.weight(1f).fillMaxWidth().semantics { contentDescription = "操作历史列表" },
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(if (state.loaded) "当前账号 · ${state.items.size} / ${state.total} 条" else "当前账号的操作记录", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Box {
-                        IconButton({ management = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "操作历史管理") }
-                        DropdownMenu(management, { management = false }) {
-                            DropdownMenuItem({ Text("清空记录", color = MaterialTheme.colorScheme.error) }, { management = false; controller.requestClear() })
-                        }
-                    }
-                }
-            }
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (state.items.isEmpty() && state.loaded && state.error == null && !state.loading) item {
                 Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(painterResource(R.drawable.ic_history), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -97,16 +87,16 @@ Column(Modifier.fillMaxSize()) {
             items(state.items, key = { it.id }) { entry ->
                 val target = operationHistoryTarget(entry.target)
                 Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp)) {
-                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(target.name.ifEmpty { entry.actionLabel }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            IconButton({ detail = entry }) { Icon(painterResource(R.drawable.ic_more_vert), "完整记录：${target.name.ifEmpty { entry.actionLabel }}") }
+                            IconButton({ detail = entry }) { Icon(painterResource(R.drawable.ic_info), "完整记录：${target.name.ifEmpty { entry.actionLabel }}") }
                         }
                         target.parent?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                         if (entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("${entry.actionLabel} · ${entry.statusLabel}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            Text(if (target.name.isEmpty()) entry.statusLabel else "${entry.actionLabel} · ${entry.statusLabel}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                                 color = when (entry.status) { "failed" -> MaterialTheme.colorScheme.error; "submitted" -> MaterialTheme.colorScheme.primary; else -> MaterialTheme.colorScheme.onSurfaceVariant })
                             Text(serverTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }

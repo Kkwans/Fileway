@@ -83,12 +83,6 @@ Column(Modifier.fillMaxSize()) {
         state.error?.let { message -> Text(message, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
         FilewayToast(state.notice)
         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机下载列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item {
-                Row(Modifier.padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("本机下载", style = MaterialTheme.typography.labelLarge)
-                    Text("${records.size} 项", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
             if (records.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Icon(painterResource(R.drawable.ic_download), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
@@ -100,6 +94,7 @@ Column(Modifier.fillMaxSize()) {
             items(records, key = { it.id }) { item ->
                 var completionObserved by remember(item.id) { mutableStateOf(item.active) }
                 LaunchedEffect(item.active) { if (item.active) completionObserved = true }
+                LaunchedEffect(item.complete) { if (item.complete && completionObserved) { kotlinx.coroutines.delay(2500); completionObserved = false } }
                 val file = ResourceRef(item.path, item.wirePath, item.name, false, item.type, item.expectedSize, item.modified, item.id)
                 val kind = file.mediaKind()
                 val canOpen = item.localUri.isNotEmpty() && (item.complete || kind == MediaKind.VIDEO)
@@ -116,13 +111,13 @@ Column(Modifier.fillMaxSize()) {
                 val progress = if (item.complete) readableSize(item.expectedSize)
                 else if (unknownZip) "已接收 ${readableSize(item.downloaded)}"
                 else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}"
-                val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } ?: "正在获取下载速度" else null
-                val summary = if (item.complete) "$status · $progress" else "$status · $progress${speed?.let { " · $it" }.orEmpty()}"
+                val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } else null
+
                 val cardActions = buildList {
                     add(FilewayTaskAction("detail", "任务信息", R.drawable.ic_info, enabled = !state.busy))
-                    if (canOpen) add(FilewayTaskAction("open", if (item.complete) "打开下载" else "边下边播", R.drawable.ic_visibility, enabled = !state.busy))
+                    if (canOpen) add(FilewayTaskAction("open", if (item.complete) "打开下载" else "边下边播", R.drawable.ic_visibility, enabled = !state.busy, primary = item.complete))
                     if (!item.complete) add(FilewayTaskAction("toggle", if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载",
-                        if (item.active) R.drawable.ic_close else R.drawable.ic_refresh, enabled = !state.busy))
+                        if (item.active) R.drawable.art_pause else R.drawable.art_play, enabled = !state.busy, primary = true))
                     add(FilewayTaskAction("folder", "打开所在目录", R.drawable.ic_folder, enabled = !state.busy))
                     if (item.treeUri.isNotEmpty()) add(FilewayTaskAction("reauthorize", "重新授权目录", R.drawable.ic_restore,
                         enabled = !state.busy && !item.active))
@@ -134,13 +129,16 @@ Column(Modifier.fillMaxSize()) {
                     icon = { Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     titleAction = if (canOpen) ({ openDownloaded(context, model, item, kind) }) else null,
                     meta = {
-                        Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                        Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                             color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val trailing = if (item.complete) readableSize(item.expectedSize) else speed
+                        if (trailing != null) Text(trailing, style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     },
                     actions = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (item.complete) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
+                            if (item.complete && completionObserved) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                                 io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(22.dp),
                                 play = completionObserved && LocalFilewayPageActive.current)
                             FilewayTaskActionStrip(cardActions, onAction = { action ->
@@ -161,6 +159,8 @@ Column(Modifier.fillMaxSize()) {
                         }
                     },
                 ) {
+                    if (!item.complete) Text(progress, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (!item.complete && !unknownZip) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
                     if (unknownZip && item.active) LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,

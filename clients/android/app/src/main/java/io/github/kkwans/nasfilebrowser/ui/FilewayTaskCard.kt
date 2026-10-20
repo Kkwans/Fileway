@@ -17,6 +17,7 @@ internal data class FilewayTaskAction(
     val label: String,
     val icon: Int,
     val enabled: Boolean = true,
+    val primary: Boolean = false,
 )
 
 /** Compact task layout shared by server, download, and upload task lists. */
@@ -39,40 +40,20 @@ internal fun FilewayTaskCard(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { icon() }
-                Column(
-                    Modifier.weight(1f).then(titleModifier),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleSmall,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    titleSupporting?.invoke()
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.weight(1f).then(titleModifier), verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { icon() }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        titleSupporting?.invoke()
+                    }
                 }
+                actions()
             }
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(
-                    Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) { meta() }
-                Box(
-                    Modifier.widthIn(min = 48.dp),
-                    contentAlignment = Alignment.CenterEnd,
-                ) { actions() }
-            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) { meta() }
             body()
         }
     }
@@ -90,26 +71,25 @@ internal fun FilewayTaskActionStrip(
     moreLabel: String = "更多任务操作",
 ) {
     if (actions.isEmpty()) return
+    val primary = actions.firstOrNull { it.primary }
     if (actions.size <= 2) {
         Row(horizontalArrangement = Arrangement.spacedBy(0.dp), verticalAlignment = Alignment.CenterVertically) {
-            actions.forEach { action ->
+            (actions.filterNot { it === primary } + listOfNotNull(primary)).forEach { action ->
                 FilewayTaskIconButton(action.icon, action.label, action.enabled) { onAction(action.key) }
             }
         }
         return
     }
+    val overflow = actions.filterNot { it === primary }
     var expanded by remember(actions.joinToString("|") { it.key }) { mutableStateOf(false) }
-    Box {
-        FilewayTaskIconButton(R.drawable.ic_more_horiz, moreLabel, actions.any { it.enabled }) { expanded = true }
-        DropdownMenu(expanded, { expanded = false }) {
-            actions.forEach { action ->
-                DropdownMenuItem(
-                    text = { Text(action.label) },
-                    onClick = { expanded = false; onAction(action.key) },
-                    enabled = action.enabled,
-                )
-            }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box {
+            FilewayTaskIconButton(R.drawable.ic_more_horiz, moreLabel, overflow.any { it.enabled }) { expanded = true }
+            FilewayMenu(expanded, { expanded = false }, items = overflow.map {
+                FilewayMenuEntry(it.key, it.label, it.icon, enabled = it.enabled)
+            }, onItemClick = { item -> expanded = false; onAction(item.key) })
         }
+        if (primary != null) FilewayTaskIconButton(primary.icon, primary.label, primary.enabled) { onAction(primary.key) }
     }
 }
 

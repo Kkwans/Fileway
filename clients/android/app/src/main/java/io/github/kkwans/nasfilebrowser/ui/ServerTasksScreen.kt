@@ -103,10 +103,10 @@ Column(Modifier.fillMaxSize()) {
                 val cardActions = buildList {
                     add(FilewayTaskAction("detail", "查看详情", R.drawable.ic_info))
                     if (task.active) add(FilewayTaskAction(if (task.pendingDeletion) "unarchive" else "cancel",
-                        if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, enabled = enabled && model.tasks.canEdit(task)))
-                    if (task.canRetry) add(FilewayTaskAction("retry", "重试", R.drawable.ic_refresh, enabled = enabled && model.tasks.canEdit(task)))
-                    if (task.canArchive) add(FilewayTaskAction("archive", "归档", R.drawable.ic_archive, enabled = enabled && model.tasks.canEdit(task)))
-                    if (task.archivedAt > 0) add(FilewayTaskAction("unarchive", "移出归档", R.drawable.ic_restore, enabled = enabled && model.tasks.canEdit(task)))
+                        if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, enabled = enabled && model.tasks.canEdit(task), primary = true))
+                    if (task.canRetry) add(FilewayTaskAction("retry", "重试", R.drawable.ic_refresh, enabled = enabled && model.tasks.canEdit(task), primary = true))
+                    if (task.canArchive) add(FilewayTaskAction("archive", "归档", R.drawable.ic_archive, enabled = enabled && model.tasks.canEdit(task), primary = true))
+                    if (task.archivedAt > 0) add(FilewayTaskAction("unarchive", "移出归档", R.drawable.ic_restore, enabled = enabled && model.tasks.canEdit(task), primary = true))
                 }
                 FilewayTaskCard(
                     title = task.title.ifEmpty { task.typeLabel },
