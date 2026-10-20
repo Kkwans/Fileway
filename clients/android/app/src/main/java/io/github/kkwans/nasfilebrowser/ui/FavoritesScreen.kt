@@ -40,10 +40,8 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     LaunchedEffect(state.groups) { if (!filter.isNullOrEmpty() && state.groups.none { it.id == filter }) filter = null }
     val items = state.items.filter { filter == null || it.groupId == filter }
     LibraryScaffold(model, LibrarySection.FAVORITES, actions = {
+        IconButton({ managing = true }, enabled = enabled && state.loaded) { Icon(painterResource(R.drawable.ic_settings), "管理收藏分组") }
     }) {
-            LibrarySectionLabel("收藏分组", "按服务器顺序排列") {
-                TextButton(onClick = { managing = true }, enabled = enabled && state.loaded) { Text("管理分组") }
-            }
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val chipColors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .10f),
                     selectedLabelColor = MaterialTheme.colorScheme.primary, selectedLeadingIconColor = MaterialTheme.colorScheme.primary)
@@ -74,25 +72,28 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                     val basename = libraryBasename(favorite.path)
                     LibraryObjectCard(favorite.name.ifEmpty { basename }, "位置 · ${libraryParent(favorite.path)}", R.drawable.ic_bookmark,
                         onOpen = { model.openFavorite(favorite, state.scope) }, enabled = enabled,
+                        summary = if (filter == null) state.groups.firstOrNull { it.id == favorite.groupId }?.name else null,
                         trailing = {
                             Box {
-                                IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "收藏更多：${favorite.name.ifEmpty { basename }}") }
-                                DropdownMenu(menu, { menu = false }) {
-                                    DropdownMenuItem({ Text("编辑收藏") }, { menu = false; editing = favorite })
-                                    DropdownMenuItem({ Text("上移") }, { menu = false; model.favorites.move(favorite, -1) }, enabled = state.items.firstOrNull()?.id != favorite.id)
-                                    DropdownMenuItem({ Text("下移") }, { menu = false; model.favorites.move(favorite, 1) }, enabled = state.items.lastOrNull()?.id != favorite.id)
-                                    DropdownMenuItem({ Text("取消收藏") }, { menu = false; model.favorites.remove(favorite) {} })
-                                }
+                                IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_horiz), "收藏更多：${favorite.name.ifEmpty { basename }}") }
+                                FilewayMenu(menu, { menu = false }, items = listOf(
+                                    FilewayMenuEntry("edit", "编辑收藏", R.drawable.ic_edit),
+                                    FilewayMenuEntry("up", "上移", enabled = state.items.firstOrNull()?.id != favorite.id),
+                                    FilewayMenuEntry("down", "下移", enabled = state.items.lastOrNull()?.id != favorite.id),
+                                    FilewayMenuEntry("remove", "取消收藏", R.drawable.ic_bookmark),
+                                ), onItemClick = { item ->
+                                    menu = false
+                                    when (item.key) {
+                                        "edit" -> editing = favorite
+                                        "up" -> model.favorites.move(favorite, -1)
+                                        "down" -> model.favorites.move(favorite, 1)
+                                        "remove" -> model.favorites.remove(favorite) {}
+                                    }
+                                })
                             }
                         }) {
                         if (favorite.name.isNotEmpty() && favorite.name != basename) Text("原名 · $basename", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        state.groups.firstOrNull { it.id == favorite.groupId }?.let { group ->
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Box(Modifier.size(6.dp).background(favoriteColor(group.color, MaterialTheme.colorScheme.primary), CircleShape))
-                                Text(group.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
                         if (!favorite.openable) Text("原始路径待确认，打开前请刷新核对", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                     }
                 }
@@ -147,7 +148,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                         Box(Modifier.size(12.dp).background(favoriteColor(group.color, MaterialTheme.colorScheme.primary), CircleShape))
                         Text(group.name, Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.titleSmall)
                         Box {
-                            IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_vert), "分组更多：${group.name}") }
+                            IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_horiz), "分组更多：${group.name}") }
                             DropdownMenu(menu, { menu = false }) {
                                 DropdownMenuItem({ Text("编辑分组") }, { menu = false; editing = group })
                                 DropdownMenuItem({ Text("上移") }, { menu = false; model.favorites.moveGroup(group, -1) }, enabled = state.groups.firstOrNull()?.id != group.id)

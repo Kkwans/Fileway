@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -17,14 +18,14 @@ internal fun libraryBasename(path: String): String = path.trimEnd('/').substring
 internal fun libraryParent(path: String): String = path.trimEnd('/').substringBeforeLast('/', "").ifEmpty { "/" }
 
 @Composable internal fun LibraryObjectCard(
-    name: String, location: String, icon: Int, modifier: Modifier = Modifier,
+    name: String, location: String, icon: Int, modifier: Modifier = Modifier, summary: String? = null,
     onOpen: (() -> Unit)? = null, enabled: Boolean = true,
     leading: @Composable RowScope.() -> Unit = {}, trailing: @Composable RowScope.() -> Unit = {},
     artwork: (@Composable () -> Unit)? = null,
     context: @Composable ColumnScope.() -> Unit = {},
 ) {
-    Surface(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (onOpen != null) Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onOpen) else Modifier),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 leading()
@@ -32,8 +33,13 @@ internal fun libraryParent(path: String): String = path.trimEnd('/').substringBe
                 Box(Modifier.weight(1f)) { FileNameText(name, FilewayTheme.text.fileName, MaterialTheme.colorScheme.onSurface, maxLines = 2, centered = false) }
                 trailing()
             }
-            Text(location, style = FilewayTheme.text.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(location, Modifier.weight(1f), style = FilewayTheme.text.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (!summary.isNullOrBlank()) Text(summary, Modifier.widthIn(max = 160.dp), style = FilewayTheme.text.metadata,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
             context()
         }
     }

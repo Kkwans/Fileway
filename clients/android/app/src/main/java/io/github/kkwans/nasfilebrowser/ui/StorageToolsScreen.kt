@@ -74,10 +74,13 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                 item { Text("最近分析", style = MaterialTheme.typography.titleMedium) }
                 if (state.recent.isEmpty() && !state.loading) item { Text("还没有分析记录。从当前目录开始一次扫描。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.recent, key = { "scan/" + it.getString("id") }) { row ->
-                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.background) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             val scopes = row.optJSONArray("scopes")
-                            Text(scopes?.let { (0 until it.length()).joinToString(" · ") { i -> it.getString(i) } }.orEmpty(), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            Text(scopes?.let { (0 until it.length()).joinToString(" · ") { i -> libraryBasename(it.getString(i)) } }.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (scopes != null) Text((0 until scopes.length()).joinToString(" · ") { scopes.getString(it) },
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text("${serverTime(row.optLong("createdAt"))} · " + when (row.optString("status")) { "completed" -> "已完成"; "failed" -> "失败"; "canceled" -> "已取消"; "interrupted" -> "已中断"; "running" -> "进行中"; else -> "排队中" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Row {
                                 TextButton({ model.storageTools.openReport(row.getString("id"), row.getString("tool")) }) { Text(if (row.optBoolean("resultReady")) "查看报告" else "查看进度") }

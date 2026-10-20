@@ -49,7 +49,8 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
     LaunchedEffect(state.items) { if (state.items.none { it.id == chosen }) chosen = state.items.firstOrNull()?.id }
     LaunchedEffect(tag, currentOnly, client.path, client.wirePath) { tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, parentWire = if (currentOnly) client.wirePath else null) } }
     LibraryScaffold(model, LibrarySection.TAGS, actions = {
-        TextButton({ creating = true }, enabled = enabled && state.loaded) { Text("新建标签") }
+        if (currentOnly) IconButton({ scopeDetails = true }) { Icon(painterResource(R.drawable.ic_info), "查看当前目录范围") }
+        IconButton({ creating = true }, enabled = enabled && state.loaded) { Icon(painterResource(R.drawable.ic_add), "新建标签") }
     }) {
         LibraryMessage(state.error ?: client.error, state.notice, state.loading || state.changing, model.tags::refresh)
         if (state.loaded && state.items.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -59,36 +60,36 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 TextButton({ creating = true }) { Text("新建第一个标签") }
             }
         } else {
-            LibrarySectionLabel("选择标签")
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .10f), selectedLabelColor = MaterialTheme.colorScheme.primary)
                 state.items.forEach { value -> FilterChip(chosen == value.id, { chosen = value.id }, { Text(value.name) }, colors = colors,
                     leadingIcon = { Box(Modifier.size(8.dp).background(metadataColor(value.color, MaterialTheme.colorScheme.primary), CircleShape)) }) }
             }
-            Surface(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colorScheme.surface) {
-                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    tag?.let { selected ->
-                        var menu by remember(selected.id) { mutableStateOf(false) }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(10.dp).background(metadataColor(selected.color, MaterialTheme.colorScheme.primary), CircleShape))
-                            Text(selected.name, Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.titleMedium)
-                            IconButton({ editing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_edit), "编辑标签") }
-                            IconButton({ removing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), "删除标签", tint = MaterialTheme.colorScheme.error) }
-
-                        }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                var scopeMenu by remember { mutableStateOf(false) }
+                Box {
+                    TextButton({ scopeMenu = true }, enabled = enabled, shape = RoundedCornerShape(12.dp)) {
+                        Text(if (currentOnly) "当前目录" else "全部关联")
+                        Icon(painterResource(R.drawable.ic_expand_more), null, Modifier.size(18.dp))
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FilterChip(!currentOnly, { currentOnly = false }, { Text("全部关联") }, colors = libraryChipColors())
-                        FilterChip(currentOnly, { currentOnly = true }, { Text("当前目录") }, colors = libraryChipColors())
-                        if (currentOnly) IconButton({ scopeDetails = true }) { Icon(painterResource(R.drawable.ic_info), "核对当前目录") }
+                    FilewayMenu(scopeMenu, { scopeMenu = false }, items = buildList {
+                        add(FilewayMenuEntry("all", "全部关联", selected = !currentOnly))
+                        add(FilewayMenuEntry("current", "当前目录", selected = currentOnly))
+                    }, selection = FilewayMenuSelection.Single, onItemClick = {
+                        scopeMenu = false
+                        when (it.key) { "all" -> currentOnly = false; "current" -> currentOnly = true }
+                    })
+                }
+                Text("${state.paths.size} / ${state.pathTotal}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                tag?.let { selected ->
+                    IconButton({ model.tags.filter(selected.id, !currentOnly); model.tab("files") }, enabled = enabled) {
+                        Icon(painterResource(R.drawable.ic_filter), "在文件页筛选此标签")
                     }
-
+                    IconButton({ editing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_edit), "编辑标签") }
+                    IconButton({ removing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), "删除标签", tint = MaterialTheme.colorScheme.error) }
                 }
             }
-            tag?.let { selected -> LibrarySectionLabel("关联结果", "已加载 ${state.paths.size} 项 / 共 ${state.pathTotal} 项") {
-                TextButton({ model.tags.filter(selected.id, currentOnly.not()); model.tab("files") }, enabled = enabled) { Text("筛选文件页") }
-            } }
             LibraryMessage(state.pathsError, null, state.pathsLoading) { tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, parentWire = if (currentOnly) client.wirePath else null) } }
             val candidates = state.paths.mapNotNull { it.file }
             val sourceScope = state.scope
@@ -97,15 +98,12 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 items(state.paths, key = { it.key }) { row ->
                     val file = row.file
                     if (file != null) LibraryObjectCard(file.name, "位置 · ${libraryParent(file.path)}", fileArtworkIcon(file.name, file.directory),
-                        enabled = enabled, artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
+                        enabled = enabled, summary = if (file.directory) null else readableSize(file.size), artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
                             MediaThumbnail(model, file, Modifier.size(36.dp).clip(MaterialTheme.shapes.small), showStatusText = false)
                         } } else null, onOpen = {
                             if (file.directory) model.tags.filter(tag?.id, true)
                             model.openTagged(file, candidates, sourceScope)
-                        }, trailing = { IconButton({ details = file }, enabled = enabled) { Icon(painterResource(R.drawable.ic_info), "标签文件操作：${file.name}") } }) {
-                        Text(if (!file.directory) readableSize(file.size) else "目录",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                        }, trailing = { IconButton({ details = file }, enabled = enabled) { Icon(painterResource(R.drawable.ic_info), "标签文件操作：${file.name}") } })
                     else Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(libraryBasename(row.path), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)

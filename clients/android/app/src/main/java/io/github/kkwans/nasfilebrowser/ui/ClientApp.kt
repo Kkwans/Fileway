@@ -251,7 +251,7 @@ import java.util.Locale
                     } else FilewayRefresh(state.recentPlaybackLoading, { model.refreshRecentPlayback(force = true) }) { Column(Modifier.fillMaxSize()) {
                         FilewayToast(state.recentPlaybackError)
                         state.error?.let { message ->
-                            Surface(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = colors.errorContainer, shape = RoundedCornerShape(10.dp)) {
+                            Surface(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = colors.errorContainer, shape = RoundedCornerShape(12.dp)) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp)) { Text(message, color = colors.onErrorContainer); if (state.connected) TextButton(onClick = model::retry) { Text("重试") } }
                             }
                         }
@@ -260,7 +260,7 @@ import java.util.Locale
                         }
                         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "最近播放列表" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (recent.isEmpty() && !state.busy) item {
-                                Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(10.dp), color = colors.background) {
+                                Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = colors.background) {
                                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Icon(painterResource(R.drawable.ic_history), null, Modifier.size(24.dp), tint = colors.primary)
                                         Text("还没有播放记录", style = MaterialTheme.typography.titleMedium)
@@ -291,8 +291,8 @@ import java.util.Locale
     val colors = MaterialTheme.colorScheme
     Text("${if (snapshot.sync == ProgressSync.IDENTITY_CHANGED) "原记录 " else ""}${clock(snapshot.positionMs)} / ${if (snapshot.durationMs > 0) clock(snapshot.durationMs) else "时长待确认"}",
         style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace, color = colors.onSurfaceVariant)
-    Text(when (snapshot.sync) {
-            ProgressSync.SYNCED -> "已同步"
+    if (snapshot.sync != ProgressSync.SYNCED) Text(when (snapshot.sync) {
+            ProgressSync.SYNCED -> ""
             ProgressSync.PENDING -> "待同步"
             ProgressSync.IDENTITY_CHANGED -> "文件已变化"
             ProgressSync.UNSUPPORTED -> "仅本机保存"
