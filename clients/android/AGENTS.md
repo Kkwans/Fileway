@@ -53,3 +53,8 @@
 - Player panels own one title, share media tokens and 12dp controls. Separate decoder from source information; queue count belongs in its header. Keep SurfaceView stable for HUD/panels and do not emulate video backdrop blur with frame-copy loops.
 - Execute verified logical slices on main with exact staging and immediate fast-forward push. Preserve original package/signing/data and the four legacy tracked changes/thirteen EPUB files. Version candidates use explicit pushed source. User authorized preview milestones through final 1.0 release, subject to the confirmed quality gates.
 - Batch necessary compilation/lint, high-value contracts and bounded real-device checks; do not repeat unaffected tests or baseline hashes. New UI contracts need real visual evidence; final 1.0 key journeys remain a gate.
+
+## Verification override (user, 2026-10-20)
+
+- Run only necessary checks. The user performs manual visual/interaction acceptance; do not launch routine screenshot journeys or repeat broad lint/JVM/contract suites for a small style or layout condition change.
+- Keep required compilation/package identity and focused diagnosis of actual failures. Reuse unchanged valid evidence, record skipped/interrupted checks honestly, and spend development time on product implementation. Do not recheck legacy baseline hashes.
