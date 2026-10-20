@@ -113,7 +113,6 @@ import io.github.kkwans.nasfilebrowser.app.*
                             }
                         }
                     }
-                    if (state.permissions.admin) Text("所属账号 · ${item.owner}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (item.status != "available") Text(when (item.status) { "pending" -> "等待完成移入"; "restoring" -> "正在恢复"; "failed" -> "处理失败"; else -> "状态暂不可用" },
                         color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     item.error.takeIf { it.isNotEmpty() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
@@ -138,7 +137,6 @@ import io.github.kkwans.nasfilebrowser.app.*
         SelectionContainer { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(item.name, style = MaterialTheme.typography.titleMedium); Text("原位置：${item.path}")
             Text("${if (item.directory) "文件夹" else "文件"} · ${trashSize(item)}"); Text("删除时间：${serverTime(item.deletedAt)}")
-            if (state.permissions.admin) Text("所属账号：${item.owner}")
             if (item.error.isNotEmpty()) Text(item.error, color = MaterialTheme.colorScheme.error)
         } }
     }, confirmButton = { TextButton({ details = null }) { Text("关闭") } }) }

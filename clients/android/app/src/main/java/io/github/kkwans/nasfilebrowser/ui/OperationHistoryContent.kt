@@ -24,6 +24,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.OperationHistoryController
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -133,7 +134,7 @@ Column(Modifier.fillMaxSize()) {
             }
         }
     } }
-    if (filters) OperationHistoryFilterDialog(state.filter, state.items.map { it.action }.distinct(), {
+    if (filters) OperationHistoryFilterSheet(state.filter, state.items.map { it.action }.distinct(), {
         controller.filter(it); search = it.text; filters = false
     }) { filters = false }
     if (state.clearConfirmation) AlertDialog(onDismissRequest = controller::cancelClear, title = { Text("清空当前账号的操作历史？") },
@@ -145,12 +146,12 @@ Column(Modifier.fillMaxSize()) {
 private fun historyDate(value: Long): String = if (value <= 0) "不限" else Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).toLocalDate().toString()
 private fun historyTime(value: Long): String = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(value))
 
-@Composable private fun OperationHistoryFilterDialog(filter: OperationHistoryFilter, observedActions: List<String>,
+@Composable private fun OperationHistoryFilterSheet(filter: OperationHistoryFilter, observedActions: List<String>,
     apply: (OperationHistoryFilter) -> Unit, dismiss: () -> Unit) {
-    var action by remember { mutableStateOf(filter.action) }
-    var status by remember { mutableStateOf(filter.status) }
-    var from by remember { mutableLongStateOf(filter.from) }
-    var to by remember { mutableLongStateOf(filter.to) }
+    var action by remember(filter) { mutableStateOf(filter.action) }
+    var status by remember(filter) { mutableStateOf(filter.status) }
+    var from by remember(filter) { mutableLongStateOf(filter.from) }
+    var to by remember(filter) { mutableLongStateOf(filter.to) }
     var actionsOpen by remember { mutableStateOf(false) }
     var statusesOpen by remember { mutableStateOf(false) }
     var dateTarget by remember { mutableStateOf<Boolean?>(null) }
@@ -160,29 +161,50 @@ private fun historyTime(value: Long): String = DateTimeFormatter.ofPattern("yyyy
             else to = picked.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
         }, onDismiss = { dateTarget = null })
     }
-    AlertDialog(onDismissRequest = dismiss, title = { Text("筛选操作历史") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box {
-                TextButton({ actionsOpen = true }) { Text("动作：${if (action.isEmpty()) "全部" else OPERATION_HISTORY_ACTIONS[action] ?: action}") }
-                DropdownMenu(actionsOpen, { actionsOpen = false }, modifier = Modifier.heightIn(max = 360.dp)) {
-                    DropdownMenuItem({ Text("全部动作") }, { action = ""; actionsOpen = false })
-                    (OPERATION_HISTORY_ACTIONS.keys + observedActions + listOf(action)).filter { it.isNotEmpty() }.distinct().forEach { id ->
-                        DropdownMenuItem({ Text(OPERATION_HISTORY_ACTIONS[id] ?: id) }, { action = id; actionsOpen = false })
-                    }
+    FilewayFilterSheet(
+        title = "筛选操作历史",
+        onDismiss = dismiss,
+        onReset = { action = ""; status = null; from = 0; to = 0 },
+        onApply = { apply(filter.copy(action = action, status = status, from = from, to = to)) },
+        applyEnabled = from == 0L || to == 0L || from <= to,
+    ) {
+        Box {
+            FilewayFilterField("动作", if (action.isEmpty()) "全部" else OPERATION_HISTORY_ACTIONS[action] ?: action,
+                { actionsOpen = true; statusesOpen = false })
+            DropdownMenu(
+                expanded = actionsOpen,
+                onDismissRequest = { actionsOpen = false },
+                modifier = Modifier.heightIn(max = 360.dp),
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                FilewayMenuItem("全部动作", { action = ""; actionsOpen = false }, selected = action.isEmpty())
+                (OPERATION_HISTORY_ACTIONS.keys + observedActions + listOf(action)).filter { it.isNotEmpty() }.distinct().forEach { id ->
+                    FilewayMenuItem(OPERATION_HISTORY_ACTIONS[id] ?: id, { action = id; actionsOpen = false }, selected = action == id)
                 }
             }
-            Box {
-                TextButton({ statusesOpen = true }) { Text("状态：${status?.label ?: "全部"}") }
-                DropdownMenu(statusesOpen, { statusesOpen = false }) {
-                    DropdownMenuItem({ Text("全部状态") }, { status = null; statusesOpen = false })
-                    OperationHistoryStatus.entries.forEach { value -> DropdownMenuItem({ Text(value.label) }, { status = value; statusesOpen = false }) }
-                }
-            }
-            TextButton({ dateTarget = true }) { Text("开始日期：${historyDate(from)}") }
-            TextButton({ dateTarget = false }) { Text("结束日期：${historyDate(to)}") }
-            TextButton({ from = 0; to = 0 }) { Text("不限日期") }
-            if (from > 0 && to > 0 && from > to) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
         }
-    }, confirmButton = { TextButton({ apply(filter.copy(action = action, status = status, from = from, to = to)) },
-        enabled = from == 0L || to == 0L || from <= to) { Text("应用") } }, dismissButton = { TextButton(dismiss) { Text("取消") } })
+        Box {
+            FilewayFilterField("状态", status?.label ?: "全部", { statusesOpen = true; actionsOpen = false })
+            DropdownMenu(
+                expanded = statusesOpen,
+                onDismissRequest = { statusesOpen = false },
+                shape = RoundedCornerShape(12.dp),
+            ) {
+                FilewayMenuItem("全部状态", { status = null; statusesOpen = false }, selected = status == null)
+                OperationHistoryStatus.entries.forEach { value ->
+                    FilewayMenuItem(value.label, { status = value; statusesOpen = false }, selected = status == value)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.weight(1f)) {
+                FilewayFilterField("开始日期", historyDate(from), { dateTarget = true })
+            }
+            Box(Modifier.weight(1f)) {
+                FilewayFilterField("结束日期", historyDate(to), { dateTarget = false })
+            }
+        }
+        TextButton({ from = 0; to = 0 }, enabled = from > 0 || to > 0, shape = RoundedCornerShape(12.dp)) { Text("不限日期") }
+        if (from > 0 && to > 0 && from > to) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
+    }
 }

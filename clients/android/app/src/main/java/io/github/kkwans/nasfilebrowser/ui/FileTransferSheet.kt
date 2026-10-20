@@ -46,8 +46,6 @@ import io.github.kkwans.nasfilebrowser.data.*
                 Text(if (state.changing) "正在处理" else if (draft.reviewed) "${draft.action.label} $selected 项" else "检查此目录")
             } }
         }) {
-            Text(client.serverLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("${draft.files.size} 项 · ${if (draft.reviewed) "${draft.conflicts.size} 项同名" else "选择目标目录"}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                 TextButton({ sources = true }) { Text("查看项目") }

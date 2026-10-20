@@ -132,10 +132,6 @@ Column(Modifier.fillMaxSize()) {
                 FilewayTaskCard(
                     title = item.name,
                     icon = { Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
-                    titleSupporting = {
-                        Text(item.sourceLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
                     titleAction = if (canOpen) ({ openDownloaded(context, model, item, kind) }) else null,
                     meta = {
                         Text(summary, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
@@ -181,7 +177,6 @@ Column(Modifier.fillMaxSize()) {
                 SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(item.name, style = MaterialTheme.typography.titleMedium)
-                        Text(item.sourceLabel, style = MaterialTheme.typography.bodyMedium)
                         Text("服务器原位置：${item.path}", style = MaterialTheme.typography.bodySmall)
                         if (item.relativeDirectory.isNotEmpty()) Text("本机子目录：${item.relativeDirectory}", style = MaterialTheme.typography.bodySmall)
                         Text(if (item.zipExport && !item.complete) "已接收 ${readableSize(item.downloaded)} · ZIP 总量待生成" else "${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}", style = MaterialTheme.typography.bodySmall)

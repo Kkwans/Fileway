@@ -65,7 +65,6 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
             Icon(painterResource(R.drawable.ic_audio), null, Modifier.size(52.dp), tint = colors.primary)
         }
         Text(file.name, color = media.mediaContent, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-        Text(if (file.downloadId.isNotEmpty()) "本机下载" else client.serverLabel, color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
         if (client.busy || state.waitingForBuffer) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             CircularProgressIndicator(Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
             Text(if (client.busy) client.stage else "正在缓冲 ${state.buffering.toInt()}%", color = media.mediaContent)

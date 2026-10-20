@@ -91,7 +91,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
         Scaffold(containerColor = colors.background, bottomBar = { ClientNavigation(model, "files") }) { insets ->
             FilewayRefresh(state.busy, model::retry, Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
 Column(Modifier.fillMaxSize()) {
-                FilewayPageHeader("文件", state.profile?.name) {
+                FilewayPageHeader("文件") {
                     if (state.permissions.create) Box {
                         IconButton({ createMenu = true }, enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null) {
                             Icon(painterResource(R.drawable.ic_add), "新建文件或文件夹", Modifier.size(22.dp), tint = colors.onSurfaceVariant)

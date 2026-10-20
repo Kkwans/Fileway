@@ -111,7 +111,7 @@ Column(Modifier.fillMaxSize()) {
     state.restart?.let { draft -> AlertDialog(onDismissRequest = { model.uploads.dismissRestart() }, title = { Text("从零重新开始上传？") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("本机文件：${draft.source.name} · ${readableSize(draft.source.size)}")
-            Text("原服务器：${draft.record.sourceLabel}\n目标：${draft.record.targetPath}")
+            Text("目标：${draft.record.targetPath}")
             Text("确认后将清理本次未完成片段，放弃原上传进度，从零建立新任务。本机原文件和服务器已发布的完整文件保留。")
         } },
         confirmButton = { TextButton(model.uploads::restart, enabled = !state.busy) { Text(if (state.busy) "正在处理" else "确认重新开始") } },

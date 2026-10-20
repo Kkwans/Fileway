@@ -1,11 +1,11 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -140,7 +140,7 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
-    if (advanced) TaskFilterDialog(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
+    if (advanced) TaskFilterSheet(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
     if (state.focusId != null) FileOperationSheet(title = "任务详情", onDismiss = model::closeTaskDetail,
         footer = { TextButton(model::closeTaskDetail) { Text("关闭") } }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -228,11 +228,11 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
     }
 }
 
-@Composable private fun TaskFilterDialog(state: ServerTasksState, accountName: String, apply: (TaskFilter) -> Unit, dismiss: () -> Unit) {
-    var category by remember { mutableStateOf(state.filter.category) }
-    var view by remember { mutableStateOf(state.filter.view) }
-    var type by remember { mutableStateOf(state.filter.type) }; var owner by remember { mutableStateOf(state.filter.owner) }
-    var from by remember { mutableLongStateOf(state.filter.from) }; var to by remember { mutableLongStateOf(state.filter.to) }
+@Composable private fun TaskFilterSheet(state: ServerTasksState, accountName: String, apply: (TaskFilter) -> Unit, dismiss: () -> Unit) {
+    var category by remember(state.filter) { mutableStateOf(state.filter.category) }
+    var view by remember(state.filter) { mutableStateOf(state.filter.view) }
+    var type by remember(state.filter) { mutableStateOf(state.filter.type) }; var owner by remember(state.filter) { mutableStateOf(state.filter.owner) }
+    var from by remember(state.filter) { mutableLongStateOf(state.filter.from) }; var to by remember(state.filter) { mutableLongStateOf(state.filter.to) }
     var types by remember { mutableStateOf(false) }; var owners by remember { mutableStateOf(false) }
     var dateTarget by remember { mutableStateOf<Boolean?>(null) }
     fun date(value: Long) = if (value <= 0) "不限" else Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).toLocalDate().toString()
@@ -242,38 +242,39 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
             else to = picked.plusDays(1).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli() - 1
         }, onDismiss = { dateTarget = null })
     }
-    FileOperationSheet(title = "任务筛选", onDismiss = dismiss, footer = {
-        TextButton({ category = TaskFilter().category; view = TaskView.ALL; type = ""; owner = ""; from = 0; to = 0 }) { Text("重置条件") }
-        Spacer(Modifier.weight(1f))
-        Button({ apply(state.filter.copy(category = category, view = view, type = type, owner = owner, from = from, to = to)) }, enabled = from == 0L || to == 0L || from <= to) { Text("应用") }
-    }) {
-        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    FilewayFilterSheet(
+        title = "任务筛选",
+        onDismiss = dismiss,
+        onReset = { category = TaskFilter().category; view = TaskView.ALL; type = ""; owner = ""; from = 0; to = 0 },
+        onApply = { apply(state.filter.copy(category = category, view = view, type = type, owner = owner, from = from, to = to)) },
+        applyEnabled = from == 0L || to == 0L || from <= to,
+    ) {
             Text("分类", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(category == "file", { category = "file" }, { Text("文件任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = libraryChipColors())
-                FilterChip(category == "background", { category = "background" }, { Text("其他后台任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = libraryChipColors())
+                FilterChip(category == "file", { category = "file" }, { Text("文件任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = libraryChipColors())
+                FilterChip(category == "background", { category = "background" }, { Text("其他后台任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = libraryChipColors())
             }
             Text("状态", style = MaterialTheme.typography.labelLarge)
             TaskView.entries.chunked(2).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     row.forEach { option ->
                         val count = if (category == state.filter.category) state.counts[option.name.lowercase(java.util.Locale.ROOT)] else null
-                        FilterChip(view == option, { view = option }, { Text(option.label + (count?.let { " $it" } ?: ""), Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), colors = libraryChipColors())
+                        FilterChip(view == option, { view = option }, { Text(option.label + (count?.let { " $it" } ?: ""), Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = libraryChipColors())
                     }
                 }
             }
             HorizontalDivider()
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
-                TaskFilterField("任务类型", SERVER_TASK_TYPES[type] ?: "全部") { types = true }
-                DropdownMenu(types, { types = false }, modifier = Modifier.heightIn(max = 360.dp)) {
+                FilewayFilterField("任务类型", SERVER_TASK_TYPES[type] ?: "全部", onClick = { types = true; owners = false })
+                DropdownMenu(types, { types = false }, modifier = Modifier.heightIn(max = 360.dp), shape = RoundedCornerShape(12.dp)) {
                     FilewayMenuItem("全部类型", { type = ""; types = false }, selected = type.isEmpty())
                     SERVER_TASK_TYPES.filterKeys { it !in setOf("file.delete.permanent", "trash.delete.permanent") }.forEach { (id, label) -> FilewayMenuItem(label, { type = id; types = false }, selected = type == id) }
                 }
             }
             Box(Modifier.weight(1f)) {
-                TaskFilterField("账号", owner.ifEmpty { "全部可见账号" }) { owners = true }
-                DropdownMenu(owners, { owners = false }) {
+                FilewayFilterField("账号", owner.ifEmpty { "全部可见账号" }, onClick = { owners = true; types = false })
+                DropdownMenu(owners, { owners = false }, shape = RoundedCornerShape(12.dp)) {
                     FilewayMenuItem("全部可见账号", { owner = ""; owners = false }, selected = owner.isEmpty())
                     (listOf(accountName) + state.owners).distinct().filter { it.isNotEmpty() }.forEach { name -> FilewayMenuItem(name, { owner = name; owners = false }, selected = owner == name) }
                 }
@@ -281,24 +282,12 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("日期", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                TextButton({ from = 0; to = 0 }, enabled = from > 0 || to > 0) { Text("清除日期") }
+                TextButton({ from = 0; to = 0 }, enabled = from > 0 || to > 0, shape = RoundedCornerShape(12.dp)) { Text("清除日期") }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.weight(1f)) { TaskFilterField("开始日期", date(from)) { dateTarget = true } }
-                Box(Modifier.weight(1f)) { TaskFilterField("结束日期", date(to)) { dateTarget = false } }
+                Box(Modifier.weight(1f)) { FilewayFilterField("开始日期", date(from), onClick = { dateTarget = true }) }
+                Box(Modifier.weight(1f)) { FilewayFilterField("结束日期", date(to), onClick = { dateTarget = false }) }
             }
             if (from > 0 && to > 0 && from > to) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
-        }
-    }
-}
-
-@Composable private fun TaskFilterField(label: String, value: String, onClick: () -> Unit) {
-    OutlinedButton(onClick, Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = MaterialTheme.shapes.small,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
-        Column(Modifier.weight(1f), horizontalAlignment = Alignment.Start) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Icon(painterResource(R.drawable.ic_expand_more), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

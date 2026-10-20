@@ -115,7 +115,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
                     .heightIn(max = (maxHeight - (if (sheet) 12.dp else 24.dp)).coerceAtLeast(0.dp))
                     .pointerInput(Unit) { detectTapGestures { /* The surface consumes taps on its empty space. */ } },
                 color = FilewayTheme.colors.surface,
-                shape = if (sheet) RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp) else RoundedCornerShape(12.dp),
+                shape = if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp),
                 tonalElevation = 0.dp,
             ) {
                 Column(Modifier.fillMaxWidth()) {

@@ -41,12 +41,9 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                 ModalDrawerSheet(Modifier.width(drawerWidth)) {
                     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
                         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(state.profile?.name?.ifBlank { "当前服务器" } ?: "Fileway", style = MaterialTheme.typography.titleMedium)
-                            Text(
-                                if (state.connected) "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${state.accountName}"
-                                else "尚未连接服务器",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            Text("Fileway", style = MaterialTheme.typography.titleMedium)
+                            if (!state.connected) Text("尚未连接服务器", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (state.connected) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                                 io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.CONNECTION, state.previewScope, Modifier.size(22.dp), play = drawer.isOpen)

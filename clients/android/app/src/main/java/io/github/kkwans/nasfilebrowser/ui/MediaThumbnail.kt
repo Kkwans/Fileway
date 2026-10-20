@@ -67,20 +67,23 @@ internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<St
         }
         val shape = RoundedCornerShape(12.dp)
         val frame = if (naturalAspect) modifier.aspectRatio(aspect.coerceIn(.2f, 5f)) else modifier
-        Box(frame.clip(shape).background(MaterialTheme.colorScheme.surfaceContainer)
+        BoxWithConstraints(frame.clip(shape).background(MaterialTheme.colorScheme.surfaceContainer)
             .border(.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f), shape).semantics {
                 contentDescription = "${file.name} 预览"
                 stateDescription = if (decoded != null) "预览已加载" else if (failed) "暂无预览" else "预览加载中"
             }, contentAlignment = Alignment.Center) {
+            val compact = minOf(maxWidth, maxHeight) < 48.dp
+            val ringSize = if (compact) 24.dp else 32.dp
+            val placeholderSize = if (showLoading) { if (compact) 12.dp else 18.dp } else { if (compact) 24.dp else 36.dp }
             if (decoded == null) Icon(painterResource(if (file.type == "video") R.drawable.ic_video else R.drawable.ic_image),
-                null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .32f))
+                null, Modifier.size(placeholderSize), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (showLoading) .22f else .32f))
             val image = decoded
-            if (image != null) Image(image.asPainter(context), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (image != null) Image(image.asPainter(context), null, Modifier.fillMaxSize(), contentScale = contentScale)
             else asset?.let { source ->
                 val request = remember(source.url) { ImageRequest.Builder(context).data(source.url).size(512, 512)
                     .memoryCacheKey(cacheKey).diskCacheKey(cacheKey)
                     .diskCachePolicy(if (cache.settings.thumbnailMB == 0L || model.isTemporaryContent(file)) CachePolicy.DISABLED else CachePolicy.ENABLED).build() }
-                AsyncImage(request, null, imageLoader = loader, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
+                AsyncImage(request, null, imageLoader = loader, modifier = Modifier.fillMaxSize(), contentScale = contentScale,
                     onSuccess = { result ->
                         val loaded = result.result.image
                         if (loaded.width > 0 && loaded.height > 0) {
@@ -90,7 +93,7 @@ internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<St
                         decoded = loaded; failed = false
                     }, onError = { failed = true })
             }
-            if (showLoading) CircularProgressIndicator(Modifier.align(Alignment.BottomEnd).padding(8.dp).size(20.dp), strokeWidth = 2.dp,
+            if (showLoading && decoded == null && !failed) CircularProgressIndicator(Modifier.align(Alignment.Center).size(ringSize), strokeWidth = 2.dp,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = .8f))
         }
     }
