@@ -23,6 +23,7 @@ type Command struct {
 	Session         string                  `json:"session"`
 	BaseURL         string                  `json:"baseUrl"`
 	Token           string                  `json:"token"`
+	ExpectedUser    int64                   `json:"expectedUser"`
 	Username        string                  `json:"username"`
 	Password        string                  `json:"password"`
 	Method          string                  `json:"method"`
@@ -258,6 +259,12 @@ func (e *Engine) execute(c Command) (any, error) {
 		return nil, b.CancelSearch(c.Session, c.Search)
 	case "command_start", "command_poll", "command_cancel":
 		return commandControl(ctx, b, c)
+	case "renew_session":
+		return b.RenewSession(ctx, c.Session)
+	case "recover_session":
+		return b.RecoverSession(ctx, c.Session, c.ExpectedUser, c.Username, c.Password)
+	case "session_state":
+		return b.SessionState(c.Session)
 	case "token":
 		return b.Token(c.Session)
 	case "cache_configure":

@@ -107,7 +107,7 @@ class UploadRuntime private constructor(private val context: Context) {
             lease = capability
             val headers = mapOf("Tus-Resumable" to "1.0.0")
             suspend fun inspect(): UploadReply {
-                val reply = send(operation, capability, "HEAD", headers = headers)
+                val reply = send(operation, api, capability, "HEAD", headers = headers)
                 // Legacy Fileway tracked only paths and could delete a later
                 // replacement. Never issue DELETE without its modern protocol
                 // acknowledgement and the original transfer-id capability.
@@ -127,7 +127,7 @@ class UploadRuntime private constructor(private val context: Context) {
             val before = inspect()
             if (before.status in setOf(404, 410)) return UploadCancellation(false, "上传已取消，原未完成片段已不存在")
             if (completed(before)) return UploadCancellation(true, "服务器已收到完整文件，已确认完成并保留")
-            val result = send(operation, capability, "DELETE", headers = headers)
+            val result = send(operation, api, capability, "DELETE", headers = headers)
             check(result.headers["Tus-Resumable"] == "1.0.0") { "服务器未确认会话清理，原文件保留，请重试核对" }
             if (result.status in setOf(204, 404, 410)) return UploadCancellation(false, "上传已取消，仅清理本次未完成片段，本机原文件保留")
             if (result.status == 409 && completed(inspect())) return UploadCancellation(true, "服务器刚完成上传，完整文件已保留")
@@ -135,7 +135,7 @@ class UploadRuntime private constructor(private val context: Context) {
             error("服务器未确认取消，请重试核对")
         } finally { withContext(NonCancellable) {
             calls.remove(operation)?.cancel()
-            runCatching { lease?.release() }; runCatching { api.close() }
+            runCatching { api.token() }; runCatching { lease?.release() }; runCatching { api.close() }
         } }
     }
     suspend fun transfer(id: String): UploadTransfer? {
@@ -144,25 +144,33 @@ class UploadRuntime private constructor(private val context: Context) {
         val bytes = stats.getLong("sentBytes"); val accepted = stats.getLong("acceptedOffset")
         return UploadTransfer(id, bytes, accepted, maxOf(accepted, (baselines[id] ?: 0) + bytes), stats.getLong("elapsedMillis"))
     }
-    private suspend fun send(id: String, lease: PreviewLease, method: String, body: RequestBody? = null,
-        headers: Map<String, String> = emptyMap()): UploadReply = suspendCancellableCoroutine { continuation ->
-        val uri = Uri.parse(lease.url)
-        require(uri.scheme == "http" && uri.host == "127.0.0.1") { "上传来源已失效" }
-        val request = Request.Builder().url(lease.url).method(method, body).apply { headers.forEach { (key, value) -> header(key, value) } }.build()
-        val call = client.newCall(request); calls[id] = call
-        continuation.invokeOnCancellation { call.cancel() }
-        call.enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                calls.remove(id, call)
-                if (continuation.isActive) continuation.resumeWithException(e)
-            }
-            override fun onResponse(call: Call, response: Response) {
-                response.use { value ->
+    private suspend fun send(id: String, api: NasSession, lease: PreviewLease, method: String, body: RequestBody? = null,
+        headers: Map<String, String> = emptyMap()): UploadReply {
+        val reply = suspendCancellableCoroutine<UploadReply> { continuation ->
+            val uri = Uri.parse(lease.url)
+            require(uri.scheme == "http" && uri.host == "127.0.0.1") { "上传来源已失效" }
+            val request = Request.Builder().url(lease.url).method(method, body).apply { headers.forEach { (key, value) -> header(key, value) } }.build()
+            val call = client.newCall(request); calls[id] = call
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
                     calls.remove(id, call)
-                    if (continuation.isActive) continuation.resume(UploadReply(value.code, value.headers))
+                    if (continuation.isActive) continuation.resumeWithException(e)
                 }
-            }
-        })
+                override fun onResponse(call: Call, response: Response) {
+                    response.use { value ->
+                        calls.remove(id, call)
+                        if (continuation.isActive) continuation.resume(UploadReply(value.code, value.headers))
+                    }
+                }
+            })
+        }
+        // Headers have arrived and core may already have renewed the token.
+        // A local persistence error must not erase a POST/PATCH acknowledgement.
+        try { api.synchronizeSession() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* The bound session exposes its own health warning. */ }
+        return reply
     }
     private fun checkReply(reply: UploadReply, statuses: Set<Int>) {
         if (reply.status in statuses) return
@@ -233,23 +241,23 @@ class UploadRuntime private constructor(private val context: Context) {
                 val owner = currentCoroutineContext()[Job]!!
                 if (record.protocol == "resources") {
                     baselines[id] = 0
-                    val reply = send(id, lease, "POST", body(source, record.expectedSize, record.mime, owner))
+                    val reply = send(id, api, lease, "POST", body(source, record.expectedSize, record.mime, owner))
                     checkReply(reply, setOf(200))
                     check(dao.progress(id, record.generation, record.expectedSize, System.currentTimeMillis()) == 1)
                 } else {
                     var offset = 0L
                     if (record.remoteCreated) {
-                        val reply = send(id, lease, "HEAD", headers = mapOf("Tus-Resumable" to "1.0.0"))
+                        val reply = send(id, api, lease, "HEAD", headers = mapOf("Tus-Resumable" to "1.0.0"))
                         checkReply(reply, setOf(200, 204))
                         offset = reply.headers["Upload-Offset"]?.toLongOrNull() ?: error("服务器未返回可靠上传位置")
                         check(reply.headers["Upload-Length"]?.toLongOrNull() == record.expectedSize && offset in 0..record.expectedSize) { "原上传的文件长度或位置已变化" }
                     } else {
-                        val reply = send(id, lease, "POST", ByteArray(0).toRequestBody(), mapOf("Upload-Length" to record.expectedSize.toString(), "Tus-Resumable" to "1.0.0"))
+                        val reply = send(id, api, lease, "POST", ByteArray(0).toRequestBody(), mapOf("Upload-Length" to record.expectedSize.toString(), "Tus-Resumable" to "1.0.0"))
                         checkReply(reply, setOf(201)); check(reply.headers["Location"] == lease.url) { "上传位置与原来源不一致，请核对" }
                         check(dao.created(id, record.generation, System.currentTimeMillis()) == 1)
                         // A duplicate creation acknowledgement can belong to
                         // an already started session; never assume offset zero.
-                        val head = send(id, lease, "HEAD", headers = mapOf("Tus-Resumable" to "1.0.0"))
+                        val head = send(id, api, lease, "HEAD", headers = mapOf("Tus-Resumable" to "1.0.0"))
                         checkReply(head, setOf(200, 204))
                         offset = head.headers["Upload-Offset"]?.toLongOrNull() ?: error("服务器未确认上传初始位置")
                         check(head.headers["Upload-Length"]?.toLongOrNull() == record.expectedSize && offset in 0..record.expectedSize) { "原上传的文件长度或位置已变化" }
@@ -267,7 +275,7 @@ class UploadRuntime private constructor(private val context: Context) {
                     while (offset < record.expectedSize) {
                         currentCoroutineContext().ensureActive(); api.token()
                         val length = minOf(2L * 1024 * 1024, record.expectedSize - offset)
-                        val reply = send(id, lease, "PATCH", body(source, length, "application/offset+octet-stream", owner),
+                        val reply = send(id, api, lease, "PATCH", body(source, length, "application/offset+octet-stream", owner),
                             mapOf("Upload-Offset" to offset.toString(), "Tus-Resumable" to "1.0.0"))
                         checkReply(reply, setOf(204))
                         val acknowledged = reply.headers["Upload-Offset"]?.toLongOrNull()
@@ -289,7 +297,7 @@ class UploadRuntime private constructor(private val context: Context) {
                 failure.message ?: "上传失败，本机原文件保留", System.currentTimeMillis()) }
         } finally {
             inputs.remove(id)?.let { runCatching { it.close() } }; calls.remove(id)?.cancel(); active.remove(id); baselines.remove(id)
-            withContext(NonCancellable) { runCatching { lease?.release() }; runCatching { api?.close() } }
+            withContext(NonCancellable) { runCatching { api?.token() }; runCatching { lease?.release() }; runCatching { api?.close() } }
         }
     }
     companion object {

@@ -109,10 +109,12 @@ func withUser(fn handleFunc) handleFunc {
 			return http.StatusUnauthorized, fmt.Errorf("未授权，请重新登录")
 		}
 
-		expiresSoon := tk.ExpiresAt != nil && time.Until(tk.ExpiresAt.Time) < time.Hour
+		// JWT timestamps have second precision. Every authenticated business call
+		// in a later second slides the full configured window, even far from expiry.
+		active := tk.IssuedAt == nil || tk.IssuedAt.Unix() < time.Now().Unix()
 		updated := tk.IssuedAt != nil && tk.IssuedAt.Unix() < d.store.Users.LastUpdate(tk.User.ID)
 
-		if expiresSoon || updated {
+		if active || updated {
 			w.Header().Add("X-Renew-Token", "true")
 		}
 

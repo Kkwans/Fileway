@@ -22,19 +22,23 @@ const maxAPIResponse = 8 << 20
 var errRenewalUnauthorized = errors.New("session expired; sign in again")
 
 type Response struct {
-	Status      int    `json:"status"`
-	Body        string `json:"body"`
-	ContentType string `json:"contentType"`
+	Status        int    `json:"status"`
+	Body          string `json:"body"`
+	ContentType   string `json:"contentType"`
+	SessionHealth string `json:"sessionHealth"`
 }
 
 type Session struct {
-	base    *url.URL
-	client  *http.Client
-	ctx     context.Context
-	cancel  context.CancelFunc
-	mu      sync.RWMutex
-	token   string
-	renewMu sync.Mutex
+	base             *url.URL
+	client           *http.Client
+	ctx              context.Context
+	cancel           context.CancelFunc
+	mu               sync.RWMutex
+	token            string
+	renewMu          sync.Mutex
+	renewing         *renewalFlight
+	health           string
+	businessRevision uint64
 }
 
 type Lease struct {
@@ -162,6 +166,9 @@ func (s *Session) do(ctx context.Context, method, endpoint string, body []byte, 
 		}
 		return nil, errors.New("cannot connect to service") // no credential or raw target in public errors
 	}
+	if endpoint != "/api/renew" && endpoint != "/api/login" {
+		s.afterHeaders(ctx, res, req.Header.Get("X-Auth"))
+	}
 	return res, nil
 }
 
@@ -174,7 +181,7 @@ func readResponse(res *http.Response) (Response, error) {
 	if len(data) > maxAPIResponse {
 		return Response{}, errors.New("service response exceeds size limit")
 	}
-	return Response{Status: res.StatusCode, Body: string(data), ContentType: res.Header.Get("Content-Type")}, nil
+	return Response{Status: res.StatusCode, Body: string(data), ContentType: res.Header.Get("Content-Type"), SessionHealth: res.Header.Get("X-Fileway-Session-Health")}, nil
 }
 
 func (b *Broker) Login(ctx context.Context, sessionID, username, password string) (Response, error) {
@@ -205,34 +212,6 @@ func (b *Broker) Login(ctx context.Context, sessionID, username, password string
 	return response, nil
 }
 
-func (s *Session) renew(ctx context.Context, previous string) error {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-	s.renewMu.Lock()
-	defer s.renewMu.Unlock()
-	if s.currentToken() != previous {
-		return nil
-	}
-	res, err := s.do(ctx, http.MethodPost, "/api/renew", nil, nil)
-	if err != nil {
-		return err
-	}
-	r, err := readResponse(res)
-	if err != nil {
-		return err
-	}
-	if r.Status == http.StatusUnauthorized {
-		return errRenewalUnauthorized
-	}
-	if r.Status != http.StatusOK || strings.Count(strings.TrimSpace(r.Body), ".") != 2 {
-		return errors.New("session expired; sign in again")
-	}
-	s.mu.Lock()
-	s.token = strings.TrimSpace(r.Body)
-	s.mu.Unlock()
-	return nil
-}
-
 func (b *Broker) Request(ctx context.Context, id, method, endpoint string, body []byte) (Response, error) {
 	return b.request(ctx, id, method, endpoint, body, nil)
 }
@@ -255,32 +234,11 @@ func (b *Broker) request(ctx context.Context, id, method, endpoint string, body 
 	}
 	ctx, done := combined(ctx, s.ctx)
 	defer done()
-	previous := s.currentToken()
 	res, err := s.do(ctx, method, endpoint, body, headers)
 	if err != nil {
 		return Response{}, err
 	}
-	needsRenew := res.Header.Get("X-Renew-Token") == "true"
-	r, err := readResponse(res)
-	if err == nil && needsRenew && previous != "" {
-		if renewErr := s.renew(ctx, previous); renewErr != nil {
-			// The write has already been acknowledged. A failed renewal must
-			// not hide that response or encourage replaying the mutation. Keep
-			// the original token; later reads can still report expired login.
-			if method != http.MethodGet && r.Status >= 200 && r.Status < 300 {
-				return r, nil
-			}
-			// A definitively rejected renewal is authentication failure, not a
-			// generic transport outage. Preserve it for readonly login recovery;
-			// never replay a request here or reinterpret a forbidden/failed read.
-			if method == http.MethodGet && errors.Is(renewErr, errRenewalUnauthorized) &&
-				(r.Status == http.StatusUnauthorized || r.Status >= 200 && r.Status < 300) {
-				return Response{Status: http.StatusUnauthorized}, nil
-			}
-			return Response{}, renewErr
-		}
-	}
-	return r, err
+	return readResponse(res)
 }
 
 func (b *Broker) Token(id string) (string, error) {
@@ -423,7 +381,6 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodHead {
 		headers.Set("Range", "bytes=0-0")
 	}
-	previous := l.session.currentToken()
 	res, err := l.session.do(ctx, http.MethodGet, l.endpoint, nil, headers)
 	if err != nil {
 		http.Error(w, "source unavailable", http.StatusBadGateway)
@@ -435,12 +392,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		res.Body = measuredBody{ReadCloser: res.Body, stats: &l.telemetry}
 		w = &measuredWriter{ResponseWriter: w, stats: &l.telemetry, request: requestID}
 	}
-	if res.Header.Get("X-Renew-Token") == "true" && previous != "" {
-		if err := l.session.renew(ctx, previous); err != nil {
-			http.Error(w, "sign in again", http.StatusUnauthorized)
-			return
-		}
-	}
+
 	if l.media && res.StatusCode == http.StatusAccepted {
 		http.Error(w, "playback permission required", http.StatusForbidden)
 		return

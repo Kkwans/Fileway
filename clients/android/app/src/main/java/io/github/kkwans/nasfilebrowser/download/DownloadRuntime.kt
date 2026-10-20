@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 internal class DownloadSource(val api: NasSession, val url: String, private val released: () -> Unit, private val asset: PreviewLease? = null) {
-    suspend fun close() { try { if (asset != null) asset.release() else NativeTransport.call(JSONObject().put("op", "revoke").put("url", url)) } finally { try { api.close() } finally { released() } } }
+    suspend fun close() { try { if (asset != null) asset.release() else NativeTransport.call(JSONObject().put("op", "revoke").put("url", url)) } finally { try { runCatching { api.token() }; api.close() } finally { released() } } }
 }
 data class DownloadTransfer(val key: String, val bytes: Long, val elapsedMillis: Long)
 
@@ -101,6 +101,11 @@ class DownloadRuntime private constructor(private val context: Context) {
             DownloadTransfer(key, stats.getLong("upstreamBytes"), stats.getLong("elapsedMillis"))
         } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
     }
+    private suspend fun synchronizeHeaders(api: NasSession) {
+        try { api.synchronizeSession() }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Preserve a valid media response; session health is separate. */ }
+    }
     private suspend fun write(id: String) {
         val record = database.withTransaction {
             if (dao.claim(id, System.currentTimeMillis()) != 1) return@withTransaction null
@@ -147,6 +152,7 @@ class DownloadRuntime private constructor(private val context: Context) {
                         input = DefaultHttpDataSource.Factory().setConnectTimeoutMs(15_000).setReadTimeoutMs(30_000).createDataSource()
                         inputs[id] = input!!
                         val length = input!!.open(DataSpec.Builder().setUri(access!!.url).setPosition(start).build())
+                        synchronizeHeaders(access!!.api)
                         if (length != C.LENGTH_UNSET.toLong()) check(start + length == record.expectedSize) { "文件长度已变化，不能追加" }
                     }
                     val buffer = ByteArray(128 * 1024); var bytes = start; var lastCheckpoint = 0L
@@ -210,6 +216,7 @@ class DownloadRuntime private constructor(private val context: Context) {
                 input = DefaultHttpDataSource.Factory().setConnectTimeoutMs(15_000).setReadTimeoutMs(30_000).createDataSource()
                 inputs[record.id] = input!!
                 input!!.open(DataSpec.Builder().setUri(access!!.url).build())
+                synchronizeHeaders(access!!.api)
                 val contentType = input!!.responseHeaders.entries.firstOrNull { it.key.equals("Content-Type", true) }?.value?.joinToString(";").orEmpty()
                 check(input!!.responseCode == 200 && contentType.contains("application/zip", true) && contentType.contains("fileway-selection=wire-v1", true)) {
                     "服务器未确认所选项目的ZIP导出协议，请更新服务器后重试"

@@ -46,6 +46,11 @@ import java.util.Locale
 @Composable fun ClientApp(model: ClientModel) {
     val state by model.state.collectAsStateWithLifecycle()
     val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+    LaunchedEffect(model) {
+        model.feedbackEvents.collect { event ->
+            android.widget.Toast.makeText(appContext, event.message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
     LaunchedEffect(state.notice, state.previewScope) {
         state.notice?.takeIf { it.isNotBlank() }?.let { message ->
             android.widget.Toast.makeText(appContext, message, android.widget.Toast.LENGTH_SHORT).show()
@@ -132,17 +137,17 @@ import java.util.Locale
                     Text(if (archiveEntry.preparing) "取消准备" else "关闭")
                 } })
     }; return }
-    if (state.tab == "account" && state.connected) { LibraryTheme {
+    if (state.tab == "account" && state.connected) { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme {
         AccountSettingsScreen(model.accountSettings, ::requestBack, model::disconnect)
-    }; return }
-    if (state.tab == "admin-users" && state.connected) { LibraryTheme {
+    } }; return }
+    if (state.tab == "admin-users" && state.connected) { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme {
         AdminUsersScreen(model.adminUsers, ::requestBack, model::disconnect)
-    }; return }
-    if (state.tab == "server-settings" && state.connected) { LibraryTheme {
+    } }; return }
+    if (state.tab == "server-settings" && state.connected) { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme {
         ServerSettingsScreen(model.serverSettings, ::requestBack, model::disconnect)
-    }; return }
-    if (shell.open && state.connected) { LibraryTheme { ShellScreen(model.shell, model::finishShellNavigation) }; return }
-    if (state.tab == "updates") { LibraryTheme { AppUpdatesScreen(model) }; return }
+    } }; return }
+    if (shell.open && state.connected) { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme { ShellScreen(model.shell, model::finishShellNavigation) } }; return }
+    if (state.tab == "updates") { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme { AppUpdatesScreen(model) } }; return }
     val rootState = state
     FilewayAppShell(model, state, ::requestBack) { mainPage ->
     val state = if (mainPage == null) rootState else rootState.copy(

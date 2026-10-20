@@ -239,6 +239,7 @@
 </template>
 
 <script setup lang="ts">
+import { useResourceActivity } from "@/utils/sessionActivity";
 import { media as mediaApi } from "@/api";
 import {
   clampMediaValue,
@@ -298,6 +299,7 @@ const mediaPath = computed(() => ({
 let unsupportedSaveNoticeShown = false;
 
 const videoPlayer = ref<HTMLVideoElement | null>(null);
+useResourceActivity(videoPlayer, () => props.source);
 const stage = ref<HTMLDivElement | null>(null);
 const player = ref<Player | null>(null);
 const posterSource = ref("");

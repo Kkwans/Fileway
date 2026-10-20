@@ -68,6 +68,7 @@
       <!-- Image -->
       <img
         v-if="item.type === 'image'"
+        ref="nativeImage"
         :key="item.path"
         :src="previewUrl"
         :alt="item.name"
@@ -78,6 +79,7 @@
       <!-- Video -->
       <video
         v-else-if="item.type === 'video'"
+        ref="nativeVideo"
         :key="item.path"
         :src="directUrl"
         controls
@@ -91,6 +93,7 @@
       <div v-else-if="item.type === 'audio'" class="quick-preview-audio-wrap">
         <AppIcon name="audio-lines" class="audio-icon" :size="64" />
         <audio
+          ref="nativeAudio"
           :key="item.path"
           :src="directUrl"
           controls
@@ -138,6 +141,8 @@
 </template>
 
 <script setup lang="ts">
+import { captureSessionActivity } from "@/utils/auth";
+import { useResourceActivity } from "@/utils/sessionActivity";
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { storeToRefs } from "pinia";
@@ -173,10 +178,16 @@ const { currentPrompt } = storeToRefs(layoutStore);
 const loading = ref(true);
 const textContent = ref("");
 const markdownBody = ref<HTMLElement | null>(null);
+const nativeImage = ref<HTMLImageElement | null>(null);
+const nativeVideo = ref<HTMLVideoElement | null>(null);
+const nativeAudio = ref<HTMLAudioElement | null>(null);
 const recordedPath = ref("");
 let contentController: AbortController | null = null;
 
 const item = computed(() => currentPrompt.value?.props?.item || {});
+useResourceActivity(nativeImage, () => item.value.path);
+useResourceActivity(nativeVideo, () => item.value.path);
+useResourceActivity(nativeAudio, () => item.value.path);
 const listingItems = computed<ResourceItem[]>(
   () => currentPrompt.value?.props?.items || fileStore.req?.items || []
 );
@@ -311,6 +322,7 @@ const loadTextContent = async () => {
   const controller = new AbortController();
   contentController = controller;
   const source = directUrl.value;
+  const activity = captureSessionActivity();
   const path = item.value.path || "";
   const wirePath = item.value.wirePath;
   try {
@@ -318,6 +330,7 @@ const loadTextContent = async () => {
       credentials: "include",
       signal: controller.signal,
     });
+    if (resp.ok) await activity.response(resp.headers.get("X-Renew-Token"));
     if (!resp.ok) throw new Error(`无法加载预览（HTTP ${resp.status}）`);
     const text = await resp.text();
     if (controller.signal.aborted) return;
@@ -339,6 +352,7 @@ const loadMarkdownContent = async () => {
   const controller = new AbortController();
   contentController = controller;
   const source = directUrl.value;
+  const activity = captureSessionActivity();
   const path = item.value.path || "";
   const wirePath = item.value.wirePath;
   try {
@@ -346,6 +360,7 @@ const loadMarkdownContent = async () => {
       credentials: "include",
       signal: controller.signal,
     });
+    if (resp.ok) await activity.response(resp.headers.get("X-Renew-Token"));
     if (!resp.ok) throw new Error(`无法加载预览（HTTP ${resp.status}）`);
     const text = await resp.text();
     if (controller.signal.aborted) return;

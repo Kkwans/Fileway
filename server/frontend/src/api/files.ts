@@ -1,3 +1,4 @@
+import { bindXHRActivity } from "@/utils/sessionActivity";
 import { useAuthStore } from "@/stores/auth";
 import { useFavoritesStore } from "@/stores/favorites";
 import { useLayoutStore } from "@/stores/layout";
@@ -441,6 +442,7 @@ async function postResources(
       true
     );
     request.setRequestHeader("X-Auth", authStore.jwt);
+    bindXHRActivity(request);
     if (content instanceof Blob) {
       request.setRequestHeader("X-Transfer-ID", uploadTransferId(url, content));
       for (const [name, value] of Object.entries(

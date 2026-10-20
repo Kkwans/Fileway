@@ -1,3 +1,4 @@
+import { captureSessionActivity } from "@/utils/auth";
 import { baseURL } from "@/utils/constants";
 import { removePrefix } from "./utils";
 
@@ -13,8 +14,23 @@ export default function command(
   url = removePrefix(url);
   url = `${protocol}//${window.location.host}${baseURL}/api/command${url}`;
 
+  const activity = captureSessionActivity();
   const conn = new window.WebSocket(url);
-  conn.onopen = () => conn.send(command);
-  conn.onmessage = onmessage;
-  conn.onclose = onclose;
+  conn.onopen = () => {
+    if (!activity.current()) {
+      conn.close();
+      return;
+    }
+    void activity.activity();
+    conn.send(command);
+  };
+  conn.onmessage = (event) => {
+    if (activity.current()) {
+      void activity.activity();
+      onmessage?.call(conn, event);
+    }
+  };
+  conn.onclose = (event) => {
+    if (activity.current()) onclose?.call(conn, event);
+  };
 }

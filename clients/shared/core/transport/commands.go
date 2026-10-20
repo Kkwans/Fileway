@@ -184,7 +184,8 @@ func (s *commandStream) read(endpoint, raw string) {
 		return
 	}
 	headers := make(http.Header)
-	if token := s.session.currentToken(); token != "" {
+	previous := s.session.currentToken()
+	if token := previous; token != "" {
 		headers.Set("X-Auth", token)
 	}
 	conn, response, err := websocket.Dial(s.ctx, target.String(), &websocket.DialOptions{HTTPClient: s.session.client, HTTPHeader: headers})
@@ -197,6 +198,9 @@ func (s *commandStream) read(endpoint, raw string) {
 		return
 	}
 	defer conn.CloseNow()
+	if response != nil {
+		s.session.afterHeaders(s.ctx, response, previous)
+	}
 	s.mu.Lock()
 	if s.ctx.Err() != nil || s.state != "running" {
 		s.mu.Unlock()

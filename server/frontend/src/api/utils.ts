@@ -1,5 +1,5 @@
 import { useAuthStore } from "@/stores/auth";
-import { renew, logout } from "@/utils/auth";
+import { captureSessionActivity, logout } from "@/utils/auth";
 import { baseURL } from "@/utils/constants";
 import { encodePath } from "@/utils/url";
 import type { ApiOpts } from "@/types/api";
@@ -30,13 +30,16 @@ export async function fetchURL(
   if (!requestHeaders.has("X-Auth"))
     requestHeaders.set("X-Auth", authStore.jwt);
   const requestToken = requestHeaders.get("X-Auth");
+  const activity = captureSessionActivity();
   const owner = () =>
     JSON.stringify(
       authStore.user ? [authStore.user.id, authStore.user.scope] : null
     );
   const requestOwner = owner();
   const currentRequest = () =>
-    authStore.jwt === requestToken && owner() === requestOwner;
+    activity.current() &&
+    authStore.jwt === requestToken &&
+    owner() === requestOwner;
   let res;
   try {
     res = await fetch(`${baseURL}${url}`, {
@@ -51,15 +54,15 @@ export async function fetchURL(
     throw new StatusError("000 No connection", 0);
   }
 
-  if (auth && res.headers.get("X-Renew-Token") === "true" && currentRequest()) {
-    try {
-      await renew(requestToken!, currentRequest);
-    } catch (error) {
-      // The server has already accepted this write. Losing its response can
-      // cause duplicate task creation or another destructive submission.
-      const acknowledgedWrite = res.ok && (rest.method ?? "GET") !== "GET";
-      if (!acknowledgedWrite) throw error;
-    }
+  if (
+    auth &&
+    res.status !== 401 &&
+    (res.ok || res.headers.get("X-Renew-Token") === "true") &&
+    currentRequest()
+  ) {
+    // fetch resolves at headers, including NDJSON/streaming bodies. Renewal
+    // uses the same coordinator as native resources, TUS and XHR.
+    await activity.response(res.headers.get("X-Renew-Token"), requestToken!);
   }
 
   if (res.status < 200 || res.status > 299) {

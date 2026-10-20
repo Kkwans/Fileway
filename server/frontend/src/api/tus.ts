@@ -1,3 +1,5 @@
+import { captureSessionActivity } from "@/utils/auth";
+import { bindXHRActivity } from "@/utils/sessionActivity";
 import * as tus from "tus-js-client";
 import { baseURL, tusEndpoint, tusSettings, origin } from "@/utils/constants";
 import { useAuthStore } from "@/stores/auth";
@@ -32,6 +34,7 @@ export async function upload(
   const resourcePath = `${tusEndpoint}${filePath}?override=${overwrite}`;
 
   const authStore = useAuthStore();
+  const activity = captureSessionActivity();
 
   // Exit early because of typescript, tus content can't be a string
   if (content === "") {
@@ -57,7 +60,29 @@ export async function upload(
       // server-side offset instead of silently starting a second upload.
       storeFingerprintForResuming: true,
       removeFingerprintOnSuccess: true,
+      onBeforeRequest: (request) => {
+        if (!activity.current()) throw new Error("上传来源已切换，未继续发送");
+        request.setHeader("X-Auth", authStore.jwt);
+        const xhr = request.getUnderlyingObject();
+        if (
+          typeof XMLHttpRequest !== "undefined" &&
+          xhr instanceof XMLHttpRequest
+        )
+          bindXHRActivity(xhr, activity, authStore.jwt);
+      },
+      onAfterResponse: (request, response) => {
+        if (
+          response.getStatus() !== 401 &&
+          ((response.getStatus() >= 200 && response.getStatus() < 300) ||
+            response.getHeader("X-Renew-Token") === "true")
+        )
+          void activity.response(
+            response.getHeader("X-Renew-Token") ?? null,
+            request.getHeader("X-Auth")
+          );
+      },
       onShouldRetry: function (err) {
+        if (!activity.current()) return false;
         const status = err.originalResponse
           ? err.originalResponse.getStatus()
           : 0;

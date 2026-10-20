@@ -320,12 +320,12 @@ func TestRenewalFailureDoesNotInventMutationSuccess(t *testing.T) {
 				t.Fatal(err)
 			}
 			response, err := b.Request(context.Background(), sid, test.method, "/api/resources/owned", nil)
-			if test.method == http.MethodGet {
-				if err != nil || response.Status != http.StatusUnauthorized {
-					t.Fatal("rejected read renewal lost its authentication status", response, err)
+			if test.incomplete {
+				if err == nil {
+					t.Fatal("incomplete response became success", response)
 				}
-			} else if err == nil {
-				t.Fatal("unconfirmed success was invented", response)
+			} else if err != nil || response.Status != test.status || response.Body != "{}" || response.SessionHealth != "renewal_failed" {
+				t.Fatal("renewal replaced the original business response", response, err)
 			}
 			if mutations.Load() != 1 {
 				t.Fatal("request replayed", mutations.Load())
@@ -339,19 +339,19 @@ func TestRenewalFailureDoesNotInventMutationSuccess(t *testing.T) {
 
 func TestReadRenewalAuthenticationStatusDoesNotBroadenRecovery(t *testing.T) {
 	for _, test := range []struct {
-		name                      string
-		readStatus, renewStatus   int
-		renewBody                 string
-		interrupted, unauthorized bool
+		name                    string
+		readStatus, renewStatus int
+		renewBody               string
+		interrupted             bool
 	}{
-		{"unauthorized-renewal", 200, 401, "", false, true},
-		{"unauthorized-read-and-renewal", 401, 401, "", false, true},
-		{"forbidden-renewal", 200, 403, "", false, false},
-		{"unavailable-renewal", 200, 503, "", false, false},
-		{"invalid-renewed-token", 200, 200, "not-a-token", false, false},
-		{"interrupted-renewal", 200, 200, "", true, false},
-		{"forbidden-read", 403, 401, "", false, false},
-		{"unavailable-read", 503, 401, "", false, false},
+		{"unauthorized-renewal", 200, 401, "", false},
+		{"unauthorized-read-and-renewal", 401, 401, "", false},
+		{"forbidden-renewal", 200, 403, "", false},
+		{"unavailable-renewal", 200, 503, "", false},
+		{"invalid-renewed-token", 200, 200, "not-a-token", false},
+		{"interrupted-renewal", 200, 200, "", true},
+		{"forbidden-read", 403, 401, "", false},
+		{"unavailable-read", 503, 401, "", false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var reads, renewals, logins atomic.Int32
@@ -388,14 +388,16 @@ func TestReadRenewalAuthenticationStatusDoesNotBroadenRecovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			response, err := b.Request(context.Background(), sid, http.MethodGet, "/api/resources/", nil)
-			if test.unauthorized {
-				if err != nil || response.Status != http.StatusUnauthorized || response.Body != "" {
-					t.Fatal("definitive authentication rejection was lost", response, err)
-				}
-			} else if err == nil {
-				t.Fatal("non-authentication failure became a recoverable response", response)
+			wantHealth := "renewal_failed"
+			wantRenewals := int32(1)
+			if test.readStatus == http.StatusUnauthorized {
+				wantHealth = "expired"
+				wantRenewals = 0
 			}
-			if reads.Load() != 1 || renewals.Load() != 1 || logins.Load() != 0 {
+			if err != nil || response.Status != test.readStatus || response.Body != "{}" || response.SessionHealth != wantHealth {
+				t.Fatal("original business status/body or separate health lost", response, err)
+			}
+			if reads.Load() != 1 || renewals.Load() != wantRenewals || logins.Load() != 0 {
 				t.Fatal("transport replayed a read or attempted password login", reads.Load(), renewals.Load(), logins.Load())
 			}
 			if token, _ := b.Token(sid); token != "old.account.token" {

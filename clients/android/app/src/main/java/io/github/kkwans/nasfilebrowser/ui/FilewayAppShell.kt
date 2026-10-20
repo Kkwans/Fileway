@@ -23,6 +23,7 @@ internal val LocalFilewayPageActive = staticCompositionLocalOf { true }
 internal val LocalSkipBottomNavigation = staticCompositionLocalOf { false }
 internal val LocalFilewayDrawer = staticCompositionLocalOf<() -> Unit> { {} }
 internal val LocalFilewayBack = staticCompositionLocalOf<(() -> Unit)?> { null }
+internal val LocalFilewaySessionModel = staticCompositionLocalOf<ClientModel?> { null }
 
 /** Drawer chrome exists only around library pages, never around a native content surface. */
 @Composable
@@ -109,7 +110,8 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                 }
             },
         ) {
-            CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack) {
+            CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack,
+                LocalFilewaySessionModel provides model) {
                 if (state.destination.main != null && !state.searchDisplayed) {
                     val destination = state.destination.main!!
                     Column(Modifier.fillMaxSize()) {
@@ -136,5 +138,9 @@ private fun FilewayDrawerItem(title: String, icon: Int, selected: Boolean = fals
 @Composable
 internal fun FilewayPageHeader(title: String, subtitle: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
     val openDrawer = LocalFilewayDrawer.current
-    FilewayTopAppBar(title, subtitle, R.drawable.ic_menu, "打开导航菜单", openDrawer, actions)
+    val model = LocalFilewaySessionModel.current
+    Column(Modifier.fillMaxWidth()) {
+        FilewayTopAppBar(title, subtitle, R.drawable.ic_menu, "打开导航菜单", openDrawer, actions)
+        model?.let { FilewaySessionNotice(it) }
+    }
 }

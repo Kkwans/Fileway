@@ -236,17 +236,12 @@ func cachedChunk(ctx context.Context, l *Lease, c *mediaCache, version string, s
 	if validator != "" {
 		headers.Set("If-Range", validator)
 	}
-	previous := l.session.currentToken()
 	res, err := l.session.do(ctx, http.MethodGet, l.endpoint, nil, headers)
 	if err != nil {
 		return nil, err
 	}
 	defer res.Body.Close()
-	if res.Header.Get("X-Renew-Token") == "true" && previous != "" {
-		if err = l.session.renew(ctx, previous); err != nil {
-			return nil, err
-		}
-	}
+
 	gotStart, gotEnd, gotTotal, ok := responseRange(res)
 	if !ok || res.StatusCode != http.StatusPartialContent || gotStart != start || gotEnd != end || gotTotal != total {
 		return nil, errors.New("source range changed or unavailable")

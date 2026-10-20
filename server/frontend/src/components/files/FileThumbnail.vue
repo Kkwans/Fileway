@@ -53,6 +53,7 @@
 </template>
 
 <script setup lang="ts">
+import { useResourceActivity } from "@/utils/sessionActivity";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { files as api } from "@/api";
 import type { ResourceItem } from "@/types/file";
@@ -83,6 +84,7 @@ const thumbnailImage = ref<HTMLImageElement | null>(null);
 const visible = ref(false);
 const status = ref<ThumbnailStatus>("idle");
 const displaySource = ref("");
+useResourceActivity(thumbnailImage, () => displaySource.value);
 let observer: IntersectionObserver | null = null;
 const normalizedRiskLevel = computed(() => props.riskLevel ?? "low");
 const resourceIconName = computed(() =>

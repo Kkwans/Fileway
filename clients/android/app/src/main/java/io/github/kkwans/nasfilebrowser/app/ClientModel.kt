@@ -23,7 +23,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
@@ -32,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.sync.Mutex
@@ -63,6 +66,7 @@ data class ClientState(
     val taskCenterSection: TaskCenterSection = TaskCenterSection.DOWNLOADS,
     val permissions: ServerPermissions = ServerPermissions(),
     val notice: String? = null,
+    val health: SessionHealth? = null, val recoveryInProgress: Boolean = false, val recoveryNeedsPassword: Boolean = false, val recoveryError: String? = null,
     val progressStatus: String? = null, val tab: String = "files", val previewScope: String = "", val fileLayout: FileLayout = FileLayout.COVER,
     val searchDisplayed: Boolean = false, val compactGridSize: CompactGridSize = CompactGridSize.MEDIUM,
 )
@@ -107,6 +111,17 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private var transferRefreshPending = false
     private var foreground = false
     private var context: SessionContext? = null
+    private var sessionSyncJob: Job? = null
+    private var sessionSyncBound: SessionContext? = null
+    private var sessionFlushJob: Job? = null
+    private var sessionRecoveryJob: Job? = null
+    private var sessionRecoveryBound: SessionContext? = null
+    private var automaticRecoveryOwner = ""
+    private var automaticRecoveryCode: SessionHealthCode? = null
+    private var automaticRecoveryRevision = Long.MIN_VALUE
+    private val feedbackMutable = MutableSharedFlow<UiFeedbackEvent>(extraBufferCapacity = 32)
+    private var feedbackSequence = 0L
+    internal val feedbackEvents = feedbackMutable.asSharedFlow()
     private var lease = ""
     private val subtitleLeases = mutableListOf<PreviewLease>()
     private var generation = 0
@@ -317,7 +332,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 recentJob = viewModelScope.launch { history.recent(account).collect { entries ->
                     if (context === bound) { recentLocalEntries = entries.distinctBy { it.resourceKey }; publishRecentPlayback() }
                 } }
-                mutable.value = mutable.value.copy(connected = true, profile = profile, accounts = accounts, serverLabel = "${profile.name} · ${account.username}", busy = true, stage = "正在读取目录", notice = null, previewScope = opened.id, accountName = account.username, fileLayout = directory?.fileLayout ?: FileLayout.COVER, permissions = opened.identity.permissions)
+                mutable.value = mutable.value.copy(connected = true, profile = profile, accounts = accounts, serverLabel = "${profile.name} · ${account.username}", busy = true, stage = "正在读取目录", notice = null,
+                    health = bound.api.sessionHealth.value, recoveryInProgress = false, recoveryNeedsPassword = false, recoveryError = null,
+                    previewScope = opened.id, accountName = account.username, fileLayout = directory?.fileLayout ?: FileLayout.COVER, permissions = opened.identity.permissions)
+                if (foreground) startSessionSync(bound)
                 if (directory == null || directory.path == "/") applyDirectory(root, "/", "/", bound)
                 else try { loadDirectory(directory.path, directory.wirePath, bound) } catch (error: Exception) {
                     if (error !is ServiceException || error.status !in setOf(403, 404)) throw error
@@ -1366,6 +1384,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private fun closeSession() {
+        sessionSyncJob?.cancel(); sessionSyncJob = null; sessionSyncBound = null
+        sessionRecoveryJob?.cancel(); sessionRecoveryJob = null; sessionRecoveryBound = null
+        sessionFlushJob?.cancel(); sessionFlushJob = null
+        automaticRecoveryOwner = ""; automaticRecoveryCode = null; automaticRecoveryRevision = Long.MIN_VALUE
         returnNavigation.clear()
         transferRefresh?.cancel(); transferRefresh = null; transferRefreshPending = false
         pendingDirectory = null
@@ -1394,7 +1416,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         endPlayback(); val old = context; context = null
         recentJob?.cancel(); recentCloudJob?.cancel(); recentCloudOwner = ""; recentCloudUnavailable = false
         recentLocalEntries = emptyList(); recentCloudEntries = null; recentMutable.value = emptyList()
-        mutable.value = mutable.value.copy(recentPlaybackError = null, recentPlaybackLoading = false)
+        mutable.value = mutable.value.copy(recentPlaybackError = null, recentPlaybackLoading = false, health = null, recoveryInProgress = false, recoveryNeedsPassword = false, recoveryError = null)
         val previous = closing; val media = mediaClosing
         if (old != null) closing = cleanup.launch { previous?.join(); media?.join(); old.api.close() }
     }
@@ -1449,17 +1471,164 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             catch (error: Exception) { if (error !is CancellationException) networkMutable.value = networkMutable.value.copy(state = "Error", error = "无法确认内嵌网络状态，请重试") }
         }
     }
+
+    private fun sessionCurrent(bound: SessionContext): Boolean = context === bound && generation == bound.generation
+
+    private fun publishSessionHealth(bound: SessionContext) {
+        if (!sessionCurrent(bound)) return
+        val health = bound.api.sessionHealth.value
+        val revision = bound.api.businessRevision
+        val revisionAdvanced = automaticRecoveryOwner == bound.owner && automaticRecoveryCode == SessionHealthCode.EXPIRED &&
+            revision > automaticRecoveryRevision
+        val needsPassword = when {
+            health?.code == SessionHealthCode.ACCOUNT_CHANGED -> true
+            health?.code != SessionHealthCode.EXPIRED -> false
+            revisionAdvanced -> false
+            else -> mutable.value.recoveryNeedsPassword
+        }
+        val current = mutable.value
+        if (current.health != health || current.recoveryNeedsPassword != needsPassword)
+            mutable.value = current.copy(health = health, recoveryNeedsPassword = needsPassword)
+        if (foreground && health?.code == SessionHealthCode.EXPIRED) maybeRecoverExpired(bound)
+    }
+
+    private fun startSessionSync(bound: SessionContext) {
+        if (!foreground || !sessionCurrent(bound)) return
+        if (sessionSyncJob?.isActive == true && sessionSyncBound === bound) return
+        sessionSyncJob?.cancel()
+        val flush = sessionFlushJob
+        sessionSyncBound = bound
+        sessionSyncJob = viewModelScope.launch {
+            flush?.join()
+            if (!foreground || !sessionCurrent(bound)) return@launch
+            while (isActive && foreground && sessionCurrent(bound)) {
+                try {
+                    bound.api.synchronizeSession()
+                    if (!sessionCurrent(bound)) return@launch
+                    publishSessionHealth(bound)
+                } catch (error: CancellationException) { throw error }
+                catch (_: Exception) {
+                    if (sessionCurrent(bound)) publishSessionHealth(bound)
+                }
+                if (!isActive || !foreground || !sessionCurrent(bound)) break
+                delay(1000)
+            }
+        }
+    }
+
+    private fun maybeRecoverExpired(bound: SessionContext) {
+        if (!foreground || !sessionCurrent(bound) || mutable.value.recoveryNeedsPassword) return
+        if (sessionRecoveryJob?.isActive == true && sessionRecoveryBound === bound) return
+        val revision = bound.api.businessRevision
+        if (automaticRecoveryOwner == bound.owner && automaticRecoveryCode == SessionHealthCode.EXPIRED && automaticRecoveryRevision == revision) return
+        automaticRecoveryOwner = bound.owner
+        automaticRecoveryCode = SessionHealthCode.EXPIRED
+        automaticRecoveryRevision = revision
+        startSessionRecovery(bound, automatic = true)
+    }
+
+    private fun startSessionRecovery(bound: SessionContext, automatic: Boolean, manualPassword: String? = null) {
+        if (!sessionCurrent(bound)) return
+        if (sessionRecoveryJob?.isActive == true && sessionRecoveryBound === bound) return
+        val code = bound.api.sessionHealth.value?.code ?: mutable.value.health?.code ?: return
+        sessionRecoveryBound = bound
+        val recovery = viewModelScope.launch {
+            var recovered = false
+            var needsPassword = false
+            try {
+                if (!sessionCurrent(bound)) return@launch
+                mutable.value = mutable.value.copy(recoveryInProgress = true, recoveryError = null)
+                when (code) {
+                    SessionHealthCode.TOKEN_STORAGE_FAILED -> bound.api.synchronizeSession()
+                    SessionHealthCode.RENEWAL_FAILED -> bound.api.refreshAuthentication()
+                    SessionHealthCode.EXPIRED -> {
+                        if (manualPassword == null) {
+                            val restored = recoverBoundSession(store, bound.profile, bound.account, bound.api)
+                            needsPassword = !restored
+                            recovered = restored
+                        } else {
+                            bound.api.recoverAuthentication(bound.account.username, manualPassword)
+                            recovered = true
+                        }
+                    }
+                    SessionHealthCode.ACCOUNT_CHANGED -> {
+                        if (manualPassword == null) needsPassword = true
+                        else {
+                            bound.api.recoverAuthentication(bound.account.username, manualPassword)
+                            recovered = true
+                        }
+                    }
+                }
+                if (!sessionCurrent(bound)) return@launch
+                if (code !in setOf(SessionHealthCode.ACCOUNT_CHANGED, SessionHealthCode.TOKEN_STORAGE_FAILED)) bound.api.synchronizeSession()
+                val health = bound.api.sessionHealth.value
+                recovered = recovered || code != SessionHealthCode.EXPIRED && health == null
+                needsPassword = needsPassword || health?.code == SessionHealthCode.ACCOUNT_CHANGED
+                mutable.value = mutable.value.copy(health = health, recoveryInProgress = false, recoveryNeedsPassword = needsPassword, recoveryError = null)
+                if (automatic && recovered && health == null) emitFeedback("登录已恢复，请重试刚才的操作")
+            } catch (error: CancellationException) { throw error }
+            catch (failure: Exception) {
+                if (sessionCurrent(bound)) {
+                    val health = bound.api.sessionHealth.value
+                    val rejectedPassword = code in setOf(SessionHealthCode.EXPIRED, SessionHealthCode.ACCOUNT_CHANGED) &&
+                        failure is ServiceException && failure.status in setOf(401, 403)
+                    val recoveryError = when {
+                        rejectedPassword -> "密码不正确或账号身份已变化，请重新输入"
+                        manualPassword != null -> "登录恢复失败，请检查密码后重试"
+                        else -> null
+                    }
+                    mutable.value = mutable.value.copy(health = health ?: mutable.value.health, recoveryInProgress = false,
+                        recoveryNeedsPassword = needsPassword || manualPassword != null || health?.code == SessionHealthCode.ACCOUNT_CHANGED || rejectedPassword,
+                        recoveryError = recoveryError)
+                }
+            } finally {
+                if (sessionRecoveryBound === bound) {
+                    sessionRecoveryBound = null
+                    sessionRecoveryJob = null
+                }
+                if (sessionCurrent(bound)) mutable.value = mutable.value.copy(recoveryInProgress = false)
+            }
+        }
+        sessionRecoveryJob = recovery
+    }
+
+    private fun emitFeedback(message: String) {
+        feedbackMutable.tryEmit(UiFeedbackEvent(++feedbackSequence, message))
+    }
+
+    fun retrySessionRecovery() {
+        val bound = context ?: return
+        if (!sessionCurrent(bound) || mutable.value.recoveryNeedsPassword) return
+        startSessionRecovery(bound, automatic = false)
+    }
+
+    fun recoverSessionWithPassword(password: String) {
+        val bound = context ?: return
+        if (!sessionCurrent(bound) || password.isEmpty() || mutable.value.recoveryInProgress) return
+        val code = bound.api.sessionHealth.value?.code ?: mutable.value.health?.code
+        if (code !in setOf(SessionHealthCode.EXPIRED, SessionHealthCode.ACCOUNT_CHANGED)) return
+        startSessionRecovery(bound, automatic = false, manualPassword = password)
+    }
+
     fun foreground(active: Boolean) {
+        val wasForeground = foreground
         foreground = active
         syncLibraryObservers()
         if (!active) {
-            context?.let { bound -> cleanup.launch {
-                try { bound.api.token() }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { if (context == bound) mutable.value = mutable.value.copy(notice = "登录状态未能保存，请检查本机存储后重试。") }
-            } }
+            sessionSyncJob?.cancel(); sessionSyncJob = null; sessionSyncBound = null
+            if (!wasForeground) { networkPollJob?.cancel(); search.cancel(); return }
+            context?.let { bound ->
+                if (sessionFlushJob?.isActive != true) sessionFlushJob = cleanup.launch {
+                    try {
+                        bound.api.synchronizeSession()
+                        withContext(Dispatchers.Main.immediate) { if (sessionCurrent(bound)) publishSessionHealth(bound) }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { /* The next foreground sync will retry local state. */ }
+                }
+            }
             networkPollJob?.cancel(); search.cancel(); return
         }
+        context?.let(::startSessionSync)
         if (networkActivated && networkJob?.isActive != true) observeNetwork()
     }
     fun stopNetwork(logout: Boolean = false) {
@@ -1468,5 +1637,5 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         if (old != null) disconnect()
         networkJob = viewModelScope.launch { try { closing?.join(); mediaClosing?.join(); old?.let { store.deactivate(it.account, it.owner) }; if (logout) embeddedNetwork.logout() else embeddedNetwork.stop(); networkMutable.value = embeddedNetwork.status(); observeNetwork() } catch (error: Exception) { if (error !is CancellationException) networkMutable.value = networkMutable.value.copy(state = "Error", error = "无法断开内嵌网络，请重试") } }
     }
-    override fun onCleared() { operation?.cancel(); networkJob?.cancel(); networkPollJob?.cancel(); closeSession(); cache.close(); player.checkpoint = null; player.release(); super.onCleared() }
+    override fun onCleared() { operation?.cancel(); networkJob?.cancel(); networkPollJob?.cancel(); sessionSyncJob?.cancel(); sessionRecoveryJob?.cancel(); sessionFlushJob?.cancel(); closeSession(); cache.close(); player.checkpoint = null; player.release(); super.onCleared() }
 }

@@ -20,6 +20,7 @@ internal suspend fun restoreSavedSession(
     try {
         val restored = NasSession.restore(profile, token, account.userId, native)
         saved = restored
+        restored.refreshAuthentication()
         return SavedSession(restored, restored.request("GET", verificationEndpoint))
     } catch (failure: Exception) {
         withContext(NonCancellable) { runCatching { saved?.close() }.onFailure(failure::addSuppressed) }
@@ -50,4 +51,16 @@ internal suspend fun restoreSavedSession(
             throw renewFailure
         }
     }
+}
+
+/** Called only for the currently bound session; preserve page/drafts/leases. */
+internal suspend fun recoverBoundSession(store: ProfileStore, profile: ServerProfile, account: AccountRecord, api: NasSession): Boolean {
+    check(profile == api.profile && account.userId == api.identity.id) { "登录来源已变化" }
+    val password = store.password(profile, account) ?: return false
+    try { api.recoverAuthentication(api.identity.username, password) }
+    catch (failure: Exception) {
+        if (failure is ServiceException && failure.status in setOf(401, 403)) store.forgetRejectedPassword(profile, account, password)
+        throw failure
+    }
+    return true
 }

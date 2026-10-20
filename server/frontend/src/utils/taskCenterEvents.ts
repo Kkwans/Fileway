@@ -1,3 +1,4 @@
+import { captureSessionActivity } from "./auth";
 import { baseURL, origin } from "@/utils/constants";
 
 export type TaskCenterEventType =
@@ -81,6 +82,7 @@ export function connectTaskCenterEvents(
     return () => {};
   }
 
+  const activity = captureSessionActivity();
   const endpoint = `${origin}${baseURL}/api/task-center/events`;
   let source: EventSource | null = null;
   let retryTimer: number | undefined;
@@ -89,6 +91,8 @@ export function connectTaskCenterEvents(
   let lastEventId = 0;
 
   const parse = (event: MessageEvent<string>, type: TaskCenterEventType) => {
+    if (!activity.current()) return;
+    void activity.activity();
     let data: unknown;
     try {
       data = event.data ? JSON.parse(event.data) : undefined;
@@ -101,17 +105,26 @@ export function connectTaskCenterEvents(
   };
 
   const connect = () => {
-    if (closed) return;
+    if (closed || !activity.current()) return;
     source?.close();
     const url = new URL(endpoint, window.location.href);
     if (lastEventId > 0)
       url.searchParams.set("lastEventId", String(lastEventId));
     source = new EventSource(url.toString(), { withCredentials: true });
     source.onopen = () => {
+      if (!activity.current()) {
+        source?.close();
+        return;
+      }
+      void activity.activity();
       retryDelay = 1000;
       onStatus?.(true);
     };
     source.onerror = () => {
+      if (!activity.current()) {
+        source?.close();
+        return;
+      }
       onStatus?.(false);
       source?.close();
       source = null;
@@ -132,6 +145,8 @@ export function connectTaskCenterEvents(
       parse(event as MessageEvent<string>, "history.created")
     );
     source.addEventListener("resync.required", (event) => {
+      if (!activity.current()) return;
+      void activity.activity();
       const message = event as MessageEvent<string>;
       const id = Number(message.lastEventId || 0);
       if (Number.isFinite(id) && id > lastEventId) lastEventId = id;

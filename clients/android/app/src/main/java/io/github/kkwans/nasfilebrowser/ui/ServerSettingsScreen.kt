@@ -92,7 +92,7 @@ private enum class GlobalSettingsGroup(val label: String) {
                     item { GlobalNumber("最小密码长度（字节）", numbers["minimum"] ?: draft.minimumPasswordLength.toString(), enabled, validNumber("minimum", numbers["minimum"] ?: draft.minimumPasswordLength.toString())) { text ->
                         controller.editNumber("minimum", text)
                     } }
-                    item { GlobalNumber("会话期限（分钟）", numbers["session"] ?: draft.sessionMinutes.toString(), enabled, validNumber("session", numbers["session"] ?: draft.sessionMinutes.toString()), "10 分钟至 30 天", true) { text ->
+                    item { FilewaySessionDurationField(state.scope, numbers["session"] ?: draft.sessionMinutes.toString(), enabled, validNumber("session", numbers["session"] ?: draft.sessionMinutes.toString())) { text ->
                         controller.editNumber("session", text)
                     } }
                 }

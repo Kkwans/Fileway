@@ -30,7 +30,7 @@ class ServerSettings private constructor(val authMethod: String, val draft: Serv
         return JSONObject(source).apply {
             put("signup", value.signup); put("createUserDir", value.createUserDir); put("hideLoginButton", value.hideLoginButton)
             put("userHomeBasePath", value.userHomeBasePath); put("minimumPasswordLength", value.minimumPasswordLength)
-            if (value.sessionMinutes != draft.sessionMinutes) put("tokenExpirationTime", "${value.sessionMinutes}m")
+            if (value.sessionMinutes != draft.sessionMinutes) put("tokenExpirationTime", sessionDurationWire(value.sessionMinutes))
             put("defaults", JSONObject(getJSONObject("defaults").toString()).apply {
                 put("scope", value.defaults.scope); put("locale", value.defaults.locale); put("viewMode", value.defaults.viewMode)
                 put("singleClick", value.defaults.singleClick); put("redirectAfterCopyMove", value.defaults.redirectAfterCopyMove)
@@ -100,4 +100,13 @@ internal fun sessionDurationMinutes(value: String): Double {
     }
     require(total.isFinite() && total in 10.0..43200.0) { "会话期限须为 10 分钟到 30 天" }
     return total
+}
+
+/** Same canonical hours/minutes wire shape as Web; do not emit unsupported "d". */
+internal fun sessionDurationWire(minutes: Double): String {
+    require(minutes.isFinite() && minutes in 10.0..43200.0)
+    val whole = minutes.toLong()
+    return if (whole.toDouble() == minutes) {
+        if (whole % 60 == 0L) "${whole / 60}h" else "${whole}m"
+    } else "${minutes}m"
 }

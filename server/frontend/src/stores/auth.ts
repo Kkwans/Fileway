@@ -10,11 +10,13 @@ export const useAuthStore = defineStore("auth", {
     jwt: string;
     instanceHostname: string;
     logoutTimer: number | null;
+    sessionHealth: "renewal_failed" | "expired" | "storage_failed" | null;
   } => ({
     user: null,
     jwt: "",
     instanceHostname: "",
     logoutTimer: null,
+    sessionHealth: null,
   }),
   getters: {
     // user and jwt getter removed, no longer needed

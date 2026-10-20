@@ -233,13 +233,11 @@ func (b *Broker) serveUpload(w http.ResponseWriter, r *http.Request, l *Lease) {
 		return
 	}
 	defer res.Body.Close()
-	if res.Header.Get("X-Renew-Token") == "true" && previous != "" {
-		// A renewal error must never erase an already accepted mutation or
-		// encourage a second POST/PATCH. Return the original acknowledgement.
-		if l.session.renew(ctx, previous) != nil {
-			w.Header().Set("X-Fileway-Session-Expired", "true")
-		}
+	l.session.afterHeaders(ctx, res, previous)
+	if res.Header.Get("X-Fileway-Session-Health") == "expired" || res.Header.Get("X-Fileway-Session-Expired") == "true" {
+		w.Header().Set("X-Fileway-Session-Expired", "true")
 	}
+
 	if u.options.Protocol == "tus" && method == http.MethodPost && res.StatusCode == http.StatusCreated {
 		next, err := uploadLocation(l.session.base, u.endpoint, res.Header.Get("Location"), u.options.TransferID)
 		if err != nil {

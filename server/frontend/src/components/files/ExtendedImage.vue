@@ -155,6 +155,7 @@
 </template>
 
 <script setup lang="ts">
+import { bindXHRActivity, useResourceActivity } from "@/utils/sessionActivity";
 import { throttle } from "lodash-es";
 import UTIF from "utif";
 import { filesize } from "@/utils";
@@ -227,6 +228,7 @@ const minScale = ref<number>(0.25);
 
 // Refs
 const imgex = ref<HTMLImageElement | null>(null);
+useResourceActivity(imgex, () => [props.src, props.directSrc]);
 const placeholderImage = ref<HTMLImageElement | null>(null);
 const container = ref<HTMLDivElement | null>(null);
 let tiffRequest: XMLHttpRequest | null = null;
@@ -412,6 +414,7 @@ const decodeUTIF = (token: number) => {
   UTIF._xhrs.push(xhr);
   UTIF._imgs.push(imgex.value);
   xhr.open("GET", props.src);
+  bindXHRActivity(xhr);
   xhr.responseType = "arraybuffer";
   xhr.onload = (event) => {
     if (token !== loadToken || tiffRequest !== xhr) return;

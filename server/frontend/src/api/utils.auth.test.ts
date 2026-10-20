@@ -1,94 +1,165 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const owned = vi.hoisted(() => ({
-  auth: { jwt: "owned-first", user: { id: 1, scope: "/owned" } },
-  renew: vi.fn(),
-  logout: vi.fn(),
+  auth: {
+    jwt: "",
+    user: { id: 1, scope: "/owned" },
+    sessionHealth: null as string | null,
+    logoutTimer: null as number | null,
+    setUser: vi.fn(),
+    setLogoutTimer: vi.fn(),
+    clearUser: vi.fn(),
+  },
+  push: vi.fn(),
 }));
 vi.mock("@/stores/auth", () => ({ useAuthStore: () => owned.auth }));
-vi.mock("@/utils/auth", () => ({ renew: owned.renew, logout: owned.logout }));
-vi.mock("@/utils/constants", () => ({ baseURL: "" }));
-
+vi.mock("@/router", () => ({ default: { push: owned.push } }));
+vi.mock("@/utils/constants", () => ({
+  baseURL: "",
+  authMethod: "json",
+  noAuth: false,
+  logoutPage: "/login",
+}));
 import { fetchURL } from "./utils";
+import { parseToken } from "@/utils/auth";
 
+function token(id = 1) {
+  return (
+    "owned." +
+    Buffer.from(
+      JSON.stringify({
+        user: { id, scope: "/owned" },
+        iat: 1,
+        exp: Math.floor(Date.now() / 1000) + 3600,
+      })
+    ).toString("base64url") +
+    ".owned"
+  );
+}
 function pendingResponse() {
   let finish!: (response: Response) => void;
-  const promise = new Promise<Response>((resolve) => {
-    finish = resolve;
-  });
   vi.stubGlobal(
     "fetch",
-    vi.fn(() => promise)
+    vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        })
+    )
   );
-  return finish;
+  return (response: Response) => finish(response);
 }
 function changeAccount() {
-  owned.auth.jwt = "owned-next";
+  owned.auth.jwt = token(2);
   owned.auth.user = { id: 2, scope: "/other" };
 }
 
 describe("request authentication and acknowledged writes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    owned.auth.jwt = "owned-first";
+    owned.auth.jwt = token();
     owned.auth.user = { id: 1, scope: "/owned" };
-    owned.renew.mockResolvedValue(undefined);
+    owned.auth.sessionHealth = null;
+    owned.auth.setUser.mockImplementation((user) => {
+      owned.auth.user = user;
+    });
+    vi.stubGlobal("window", {
+      setTimeout: vi.fn(() => 1),
+      clearTimeout: vi.fn(),
+    });
+    vi.stubGlobal("document", { cookie: "" });
+    vi.stubGlobal("localStorage", { getItem: vi.fn(), setItem: vi.fn() });
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it.each(["POST", "PUT", "PATCH", "DELETE"] as const)(
-    "keeps a successful %s response when renewal fails without replaying the write",
+  it.each(["GET", "POST", "PUT", "PATCH", "DELETE"] as const)(
+    "keeps a successful %s response when renewal fails and never replays it",
     async (method) => {
       const response = new Response('{"id":"owned-confirmed"}', {
-        status: 200,
         headers: { "X-Renew-Token": "true" },
       });
-      const send = vi.fn().mockResolvedValue(response);
+      const send = vi
+        .fn()
+        .mockResolvedValueOnce(response)
+        .mockRejectedValueOnce(new Error("renewal unavailable"));
       vi.stubGlobal("fetch", send);
-      owned.renew.mockRejectedValue(new Error("owned renewal unavailable"));
-      const actual = await fetchURL("/api/owned-write", { method });
+      const actual = await fetchURL("/api/owned", { method });
       expect(actual).toBe(response);
       expect(await actual.json()).toEqual({ id: "owned-confirmed" });
-      expect(send).toHaveBeenCalledTimes(1);
-      expect(owned.renew).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(send.mock.calls[1][0]).toBe("/api/renew");
+      expect(owned.auth.sessionHealth).toBe("renewal_failed");
     }
   );
 
-  it("retains the established read failure behavior when renewal fails", async () => {
+  it.each([403, 409, 503])(
+    "preserves original HTTP %s and body when hinted renewal fails",
+    async (status) => {
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValueOnce(
+            new Response("original business error", {
+              status,
+              headers: { "X-Renew-Token": "true" },
+            })
+          )
+          .mockResolvedValueOnce(
+            new Response("renewal denied", { status: 401 })
+          )
+      );
+      await expect(
+        fetchURL("/api/owned", { method: "POST" })
+      ).rejects.toMatchObject({ status, message: "original business error" });
+      expect(owned.auth.sessionHealth).toBe("renewal_failed");
+      expect(owned.auth.clearUser).not.toHaveBeenCalled();
+    }
+  );
+
+  it("returns streaming headers before EOF while running renewal", async () => {
+    const response = new Response(new ReadableStream({ start() {} }), {
+      headers: { "X-Renew-Token": "true" },
+    });
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response("owned", {
-          headers: { "X-Renew-Token": "true" },
-        })
-      )
+      vi
+        .fn()
+        .mockResolvedValueOnce(response)
+        .mockResolvedValueOnce(new Response(token()))
     );
-    owned.renew.mockRejectedValue(new Error("owned renewal unavailable"));
-    await expect(fetchURL("/api/owned-read", {})).rejects.toThrow(
-      "owned renewal unavailable"
-    );
+    expect(await fetchURL("/api/search", {})).toBe(response);
+    await response.body?.cancel();
   });
 
   it("does not log out a new account because an old request returned 401", async () => {
     const finish = pendingResponse();
-    const request = fetchURL("/api/old-read", {});
+    const request = fetchURL("/api/old", {});
     changeAccount();
-    finish(new Response("old account denied", { status: 401 }));
+    finish(new Response("denied", { status: 401 }));
     await expect(request).rejects.toMatchObject({ status: 401 });
-    expect(owned.logout).not.toHaveBeenCalled();
-    expect(owned.auth.jwt).toBe("owned-next");
+    expect(owned.auth.clearUser).not.toHaveBeenCalled();
   });
 
-  it("does not renew a new account because an old response requested renewal", async () => {
+  it("does not act on an old response after the same account signs in again with the same JWT", async () => {
     const finish = pendingResponse();
-    const request = fetchURL("/api/old-write", { method: "POST" });
+    const request = fetchURL("/api/old", {});
+    parseToken(owned.auth.jwt);
+    finish(new Response("denied", { status: 401 }));
+    await expect(request).rejects.toMatchObject({ status: 401 });
+    expect(owned.auth.clearUser).not.toHaveBeenCalled();
+  });
+
+  it("does not renew a new account from an old successful response", async () => {
+    const finish = pendingResponse();
+    const request = fetchURL("/api/old", { method: "POST" });
     changeAccount();
     finish(new Response("confirmed", { headers: { "X-Renew-Token": "true" } }));
     expect(await (await request).text()).toBe("confirmed");
-    expect(owned.renew).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("does not apply authentication side effects for an explicitly different request token", async () => {
+  it("ignores authentication side effects for an explicitly different request token", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(
@@ -99,20 +170,26 @@ describe("request authentication and acknowledged writes", () => {
       )
     );
     await expect(
-      fetchURL("/api/other-session", { headers: { "x-auth": "owned-other" } })
+      fetchURL("/api/other", { headers: { "x-auth": token(2) } })
     ).rejects.toMatchObject({ status: 401 });
-    expect(owned.renew).not.toHaveBeenCalled();
-    expect(owned.logout).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(owned.auth.clearUser).not.toHaveBeenCalled();
   });
 
-  it("still logs out the bound account on its own unauthorized response", async () => {
+  it("logs out only on the bound business request's actual 401 and never renews it", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(new Response("denied", { status: 401 }))
+      vi.fn().mockResolvedValue(
+        new Response("denied", {
+          status: 401,
+          headers: { "X-Renew-Token": "true" },
+        })
+      )
     );
-    await expect(fetchURL("/api/current-read", {})).rejects.toMatchObject({
+    await expect(fetchURL("/api/current", {})).rejects.toMatchObject({
       status: 401,
     });
-    expect(owned.logout).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(owned.auth.clearUser).toHaveBeenCalledTimes(1);
   });
 });

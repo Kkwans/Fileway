@@ -190,4 +190,33 @@ class NasSessionTest {
             assertTrue(runCatching { NasSession.parseIdentity("header.$encoded.signature") }.isFailure)
         }
     }
+    @Test fun acknowledgedWriteSurvivesTokenStorageFailureAndSameTokenRetries() = runBlocking {
+        var writes = 0
+        var saves = 0
+        var storageAvailable = true
+        val profile = ServerProfile(name = "Owned", address = "https://owned.example.test")
+        val original = token(7)
+        var current = original
+        val next = original.replace("signature", "renewed-signature")
+        val session = NasSession.restore(profile, original, 7) { command ->
+            when (command.getString("op")) {
+                "open" -> "owned-storage"
+                "token" -> current
+                "request" -> { writes++; current = next; JSONObject().put("status", 202).put("body", "{\"id\":\"accepted-once\"}").put("sessionHealth", "renewal_failed") }
+                else -> null
+            }
+        }
+        session.persistTokens { saves++; check(storageAvailable) }
+        storageAvailable = false
+        val result = session.action("POST", "/api/owned")
+        assertEquals("accepted-once", result.getString("id"))
+        assertEquals(1, writes)
+        assertEquals(SessionHealthCode.TOKEN_STORAGE_FAILED, session.sessionHealth.value?.code)
+        val beforeRetry = saves
+        storageAvailable = true
+        assertEquals(next, session.token())
+        assertEquals(beforeRetry + 1, saves)
+        assertEquals(SessionHealthCode.RENEWAL_FAILED, session.sessionHealth.value?.code)
+    }
+
 }

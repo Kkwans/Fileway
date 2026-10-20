@@ -220,7 +220,6 @@ func (s *searchStream) finish(state, failure string, status int, summary *Search
 
 func (s *searchStream) read(endpoint string) {
 	defer s.cancel()
-	previous := s.session.currentToken()
 	res, err := s.session.do(s.ctx, http.MethodGet, endpoint, nil, nil)
 	if err != nil {
 		s.finish("failed", "search connection interrupted", 0, nil)
@@ -236,12 +235,7 @@ func (s *searchStream) read(endpoint string) {
 		s.finish("failed", "unsupported search response", res.StatusCode, nil)
 		return
 	}
-	if res.Header.Get("X-Renew-Token") == "true" && previous != "" {
-		if err := s.session.renew(s.ctx, previous); err != nil {
-			s.finish("failed", "sign in again", http.StatusUnauthorized, nil)
-			return
-		}
-	}
+
 	lines := bufio.NewScanner(res.Body)
 	lines.Buffer(make([]byte, 4096), searchRecordLimit)
 	for lines.Scan() {

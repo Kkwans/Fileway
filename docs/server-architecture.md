@@ -59,6 +59,25 @@ Linux packaging is centralized in `deploy/linux/Dockerfile` and `compose.yml`.
 `profiles/rockchip.yml` and `profiles/ugreen.yml` add only optional hardware/vendor
 capabilities; there are no separate `custom` or RK3588 server build trees.
 
+## Sliding authenticated sessions
+
+`tokenExpirationTime` belongs to each server instance and remains a Go duration
+between 10 minutes and 30 days (`720h`). Android and Web edit the same
+`GET/PUT /api/settings` field; neither client maintains a separate expiry policy.
+Authenticated activity advertises `X-Renew-Token: true` once its JWT was issued
+before the current second. `POST /api/renew` signs from the current server time
+and configuration and returns `false` to prevent recursive renewal. Expired
+ordinary JWTs require authentication; existing proxy/noauth rules are unchanged.
+
+Clients process renewal at response headers, including Range, upload and long
+streams, and merge concurrent renewals by immutable account/generation/token.
+Resource activity adapters cover browser-native media without reloading its
+source or creating a keepalive loop. Acknowledged business results survive a
+renewal or local persistence failure. Recovery never replays a mutation, adopts
+another account's token, or changes an existing resource lease owner. Native
+clients expose local session health and may recover the same principal in place;
+page state and drafts remain intact while the user retries the failed operation.
+
 ## Resource identity across clients
 
 `path` and `name` in public responses are display text. `wirePath` encodes the

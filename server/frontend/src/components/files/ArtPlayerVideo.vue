@@ -187,6 +187,8 @@
 </template>
 
 <script setup lang="ts">
+import { captureSessionActivity } from "@/utils/auth";
+import { bindResourceActivity, bindXHRActivity } from "@/utils/sessionActivity";
 import {
   computed,
   nextTick,
@@ -2131,8 +2133,14 @@ async function attachHls(url: string) {
   const video = art.value?.video as HTMLVideoElement | undefined;
   if (!art.value || !video) return;
   if (Hls.isSupported()) {
+    const activity = captureSessionActivity();
     hlsInstance = new Hls({
       xhrSetup: (xhr: XMLHttpRequest, reqUrl: string) => {
+        if (!activity.current()) {
+          xhr.abort();
+          throw new Error("播放来源已切换");
+        }
+        bindXHRActivity(xhr, activity, authStore.jwt);
         try {
           const jwt = authStore.jwt;
           if (jwt && !/[?&]auth=/.test(reqUrl)) {
@@ -2918,6 +2926,8 @@ onMounted(async () => {
   // ArtPlayer's toggle handlers do not await play(). A user pause or source
   // switch can abort that promise normally; retain actual decoder failures.
   const videoElement = art.value.video;
+  releaseResourceActivity?.();
+  releaseResourceActivity = bindResourceActivity(videoElement);
   const nativePlay = videoElement.play.bind(videoElement);
   videoElement.play = () =>
     nativePlay().catch((error: unknown) => {
@@ -3165,7 +3175,9 @@ watch(isPortrait, () => {
   /* control bar layout is native; nothing to rebind */
 });
 
+let releaseResourceActivity: (() => void) | undefined;
 onBeforeUnmount(() => {
+  releaseResourceActivity?.();
   backgroundDetached = true;
   discardPrefetchedWindow(prefetchedWindow);
   prefetchedWindow = null;

@@ -107,6 +107,7 @@
 </template>
 
 <script setup lang="ts">
+import { useResourceActivity } from "@/utils/sessionActivity";
 import { useMediaStore } from "@/stores/media";
 import { formatMediaTime } from "@/utils/videoGestures";
 import { computed, nextTick, ref, watch } from "vue";
@@ -118,6 +119,7 @@ import { favoriteWirePath } from "@/utils/favoritePersistence";
 const mediaStore = useMediaStore();
 const router = useRouter();
 const audio = ref<HTMLAudioElement | null>(null);
+useResourceActivity(audio, () => mediaStore.currentAudio?.source);
 
 const queueLabel = computed(() => {
   const item = mediaStore.currentAudio;
