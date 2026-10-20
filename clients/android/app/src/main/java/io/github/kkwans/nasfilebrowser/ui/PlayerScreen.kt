@@ -14,6 +14,10 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +45,7 @@ import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.luminance
@@ -109,6 +114,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable internal fun PlayerScreen(model: ClientModel, file: ResourceRef) {
     val pageColors = rememberMediaColors(model, file)
+    val headerAccent = animateColorAsState(pageColors.tertiary, tween(210), label = "playerAccent")
     val state by model.player.state.collectAsStateWithLifecycle()
     val client by model.state.collectAsStateWithLifecycle()
     val downloads by model.downloads.state.collectAsStateWithLifecycle()
@@ -157,6 +163,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var gestureForeground by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     val gestureEdge = with(LocalDensity.current) { 24.dp.toPx() }
     var draggingVertical by remember(file) { mutableStateOf(false) }
+    var gestureRevision by remember(file) { mutableIntStateOf(0) }
     var dragLeft by remember(file) { mutableStateOf(false) }
     var dragStart by remember(file) { mutableFloatStateOf(0f) }
     val landscapeOrientation = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -167,6 +174,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var exploration by remember { mutableStateOf(accessibility.isTouchExplorationEnabled) }
     var visible by remember(file) { mutableStateOf(true) }
     var touchLocked by remember(file) { mutableStateOf(false) }
+    var unlockVisible by remember(file) { mutableStateOf(false) }
+    var lockInteraction by remember(file) { mutableIntStateOf(0) }
     var playerPosition by remember { mutableStateOf(Offset.Zero) }
     var touchLockPosition by remember { mutableStateOf(Offset.Zero) }
     val gestureSeek = remember(file) { SeekGestureAccumulator() }
@@ -179,6 +188,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var dragSession by remember(file, state.mediaGeneration) { mutableStateOf<SeekDragSession?>(null) }
     val seekPreview = rememberSeekPreview(model, file, state.mediaGeneration, seek != null || pictureSeek != null)
     val showControls = (!fullscreen || visible && sheet == null) && pictureSeek == null && !touchLocked
+    val controlsEnabled = !client.busy && !touchLocked
     var showRequest by remember(file) { mutableStateOf(false) }
     var showBuffering by remember(file) { mutableStateOf(false) }
     val networkStatus = client.downloadBytesPerSecond?.takeIf { it > 0 && (client.busy || state.waitingForBuffer) }?.let { speed ->
@@ -240,8 +250,18 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val blocked = state.error != null || client.error != null || client.busy || !state.playing || state.phase != "正在播放"
     val liveBlocked by rememberUpdatedState(blocked)
     fun touch() { visible = true; interaction++ }
-    fun lockTouch() { touchLocked = true; sheet = null; gestureSeek.reset() }
-    fun unlockTouch() { touchLocked = false; touch() }
+    fun cancelGesture() {
+        gestureRevision++
+        gestureSeek.reset(); seek = null; pictureSeek = null; dragSession = null; draggingVertical = false
+        gestureMessage = null; gestureMeter = null
+        if (holding) model.player.restoreRate(model.player.state.value.mediaGeneration)
+        holding = false
+    }
+    fun lockTouch() {
+        cancelGesture(); sheet = null; touchLocked = true; unlockVisible = true; lockInteraction++
+    }
+    fun unlockTouch() { touchLocked = false; unlockVisible = false; touch() }
+    fun revealUnlock() { unlockVisible = true; lockInteraction++ }
     fun changeDisplay(mode: PlayerDisplayMode) {
         touch()
         sheet = null
@@ -251,7 +271,17 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     }
     BackHandler(fullscreen && !touchLocked) { changeDisplay(PlayerDisplayMode.AUTOMATIC) }
     BackHandler(touchLocked) { unlockTouch() }
-    LaunchedEffect(exploration) { if (exploration) touchLocked = false }
+    LaunchedEffect(exploration) { if (exploration) { cancelGesture(); unlockTouch() } }
+    LaunchedEffect(touchLocked, lockInteraction, exploration) {
+        if (touchLocked && !exploration) {
+            val timeout = accessibility.getRecommendedTimeoutMillis(3000,
+                AccessibilityManager.FLAG_CONTENT_CONTROLS or AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_ICONS)
+            delay(timeout.toLong()); unlockVisible = false
+        }
+    }
+    LaunchedEffect(sheet, touchLocked, gestureForeground) {
+        if (sheet != null || touchLocked || !gestureForeground) cancelGesture()
+    }
     LaunchedEffect(gestureMessage, gestureMeter, interaction) { if (gestureMessage != null || gestureMeter != null) { delay(1_000); gestureMessage = null; gestureMeter = null } }
     DisposableEffect(accessibility) {
         val listener = AccessibilityManager.TouchExplorationStateChangeListener { exploration = it }
@@ -333,7 +363,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
                 Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
                     if (!fullscreen) Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                        .background(Brush.horizontalGradient(listOf(pageColors.tertiary.copy(alpha = .08f), Color.Transparent)))
+                        .drawBehind { drawRect(Brush.horizontalGradient(listOf(headerAccent.value.copy(alpha = .08f), Color.Transparent))) }
                         .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         PlayerIcon(R.drawable.ic_arrow_back, "返回文件", model::leavePlayer)
                         Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -410,10 +440,12 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     onLongPress = {},
                                     onPress = {
                                         if (!exploration && !touchLocked && model.state.value.selected == file && liveState.playing && !model.state.value.busy) coroutineScope {
+                                            val pressRevision = gestureRevision
                                             var temporaryEpoch: Long? = null
                                             val hold = launch {
                                                 delay(viewConfiguration.longPressTimeoutMillis)
-                                                if (model.state.value.selected == file && liveState.playing && !model.state.value.busy) {
+                                                if (pressRevision == gestureRevision && model.state.value.selected == file && liveState.playing && !model.state.value.busy &&
+                                                    !touchLocked && sheet == null && gestureForeground && !exploration) {
                                                     temporaryEpoch = model.player.beginTemporaryRate(liveHoldRate)
                                                     holding = temporaryEpoch != null
                                                 }
@@ -472,7 +504,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         .onGloballyPositioned { touchLockPosition = it.positionInRoot() })
                             }
                         }
-                        if (showControls && fullscreen) Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
+                        androidx.compose.animation.AnimatedVisibility(showControls && fullscreen,
+                            enter = fadeIn(tween(140)), exit = fadeOut(tween(if (!fullscreen || sheet != null || touchLocked) 0 else 140)),
+                            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+                        Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
                             .windowInsetsPadding(controlInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
                             Row(Modifier.fillMaxWidth()
                                 .padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -488,19 +523,23 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                 PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
                             }
                         }
-                        if (showControls) MaterialTheme(colorScheme = if (fullscreen) MaterialTheme.colorScheme else pageColors) {
+                        }
+                        androidx.compose.animation.AnimatedVisibility(!fullscreen || showControls,
+                            enter = fadeIn(tween(140)), exit = fadeOut(tween(if (sheet != null || touchLocked) 0 else 140)),
+                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                        MaterialTheme(colorScheme = if (fullscreen) MaterialTheme.colorScheme else pageColors) {
                         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
-                        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(if (fullscreen) listOf(Color.Transparent, Color(0xE6000000)) else listOf(pageColors.background, pageColors.background)))
+                        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(if (fullscreen) listOf(Color.Transparent, Color(0xE6000000)) else listOf(pageColors.background, pageColors.background)))
                             .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) else Modifier)
-                            .padding(horizontal = controlPadding)) {
+                            .padding(horizontal = controlPadding).alpha(if (!fullscreen && touchLocked) .55f else 1f)) {
                             SeekPreview(seekPreview, seek?.toLong())
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(clock((seek ?: state.positionMs.toFloat()).toLong()), color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
+                                Text(clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()), color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
                                     fontFamily = FontFamily.Monospace, maxLines = 1)
-                                PlayerSlider(seek ?: state.positionMs.toFloat().coerceIn(0f, state.durationMs.toFloat().coerceAtLeast(1f)), state.durationMs.toFloat().coerceAtLeast(1f),
-                                    "播放进度", state.seekable && state.durationMs > 0,
+                                PlayerSlider(seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat().coerceIn(0f, state.durationMs.toFloat().coerceAtLeast(1f)), state.durationMs.toFloat().coerceAtLeast(1f),
+                                    "播放进度", controlsEnabled && state.seekable && state.durationMs > 0,
                                     { gestureSeek.reset(); seek = it; touch() }, { seek?.let { model.player.seek(it.toLong()) }; seek = null; touch() },
-                                    clock((seek ?: state.positionMs.toFloat()).toLong()) + "，共 " + clock(state.durationMs),
+                                    clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()) + "，共 " + clock(state.durationMs),
                                     downloadedValue = downloadedUntil?.toFloat(), bufferedValue = state.bufferedPositionMs.toFloat(), mediaSurface = fullscreen, modifier = Modifier.weight(1f))
                                 Text(if (state.durationMs > 0) clock(state.durationMs) else "--:--", color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
                                     fontFamily = FontFamily.Monospace, maxLines = 1)
@@ -519,26 +558,26 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             }
                             BoxWithConstraints(Modifier.fillMaxWidth()) {
                                 val transport: @Composable RowScope.() -> Unit = {
-                                    PlayerIcon(if (state.playing) R.drawable.art_pause else R.drawable.art_play, if (state.playing) "暂停播放" else "开始播放", { touch(); model.togglePlayback() }, !client.busy)
-                                    PlayerIcon(R.drawable.ic_skip_next, "下一个视频", { touch(); model.nextMedia() }, queue?.hasNext == true)
+                                    PlayerIcon(if (state.playing) R.drawable.art_pause else R.drawable.art_play, if (state.playing) "暂停播放" else "开始播放", { touch(); model.togglePlayback() }, controlsEnabled)
+                                    PlayerIcon(R.drawable.ic_skip_next, "下一个视频", { touch(); model.nextMedia() }, controlsEnabled && queue?.hasNext == true)
                                 }
                                 val options: @Composable RowScope.() -> Unit = {
                                     val audioTitle = state.audio.firstOrNull { it.id == state.selectedAudio }?.title ?: "暂无音轨"
                                     val subtitleTitle = state.subtitles.firstOrNull { it.id == state.selectedSubtitle }?.title ?: "关闭"
-                                    PlayerIcon(R.drawable.ic_audio, "选择音轨", { touch(); sheet = PlayerSheet.AUDIO }, state.audio.isNotEmpty(),
+                                    PlayerIcon(R.drawable.ic_audio, "选择音轨", { touch(); sheet = PlayerSheet.AUDIO }, controlsEnabled && state.audio.isNotEmpty(),
                                         description = (if (state.pendingAudio != null) "正在切换，当前音轨：" else "当前音轨：") + audioTitle)
-                                    PlayerIcon(R.drawable.ic_subtitles, "选择字幕", { touch(); sheet = PlayerSheet.SUBTITLE }, !client.busy,
+                                    PlayerIcon(R.drawable.ic_subtitles, "选择字幕", { touch(); sheet = PlayerSheet.SUBTITLE }, controlsEnabled,
                                         description = (if (state.pendingSubtitle != null) "正在切换，当前字幕：" else "当前字幕：") + subtitleTitle)
-                                    PlayerLabel("${state.rate}×", "播放速度") { touch(); sheet = PlayerSheet.SPEED }
-                                    PlayerIcon(R.drawable.ic_playlist_play, "播放列表", { touch(); sheet = PlayerSheet.QUEUE }, queue != null,
+                                    PlayerLabel("${state.rate}×", "播放速度", controlsEnabled) { touch(); sheet = PlayerSheet.SPEED }
+                                    PlayerIcon(R.drawable.ic_playlist_play, "播放列表", { touch(); sheet = PlayerSheet.QUEUE }, controlsEnabled && queue != null,
                                         description = queue?.let { "第 ${it.index + 1} 项，共 ${it.items.size} 项" } ?: "无播放列表")
-                                    PlayerIcon(R.drawable.ic_settings, "视频解码器", { touch(); sheet = PlayerSheet.DECODER }, !client.busy && !changingDecoder)
+                                    PlayerIcon(R.drawable.ic_settings, "视频解码器", { touch(); sheet = PlayerSheet.DECODER }, controlsEnabled && !changingDecoder)
                                 }
                                 val display: @Composable RowScope.() -> Unit = {
-                                    if (!fullscreen) PlayerIcon(R.drawable.ic_portrait_fullscreen, "竖屏全屏", { changeDisplay(PlayerDisplayMode.PORTRAIT_FULLSCREEN) })
+                                    if (!fullscreen) PlayerIcon(R.drawable.ic_portrait_fullscreen, "竖屏全屏", { changeDisplay(PlayerDisplayMode.PORTRAIT_FULLSCREEN) }, !touchLocked)
                                     PlayerIcon(if (fullscreen) R.drawable.art_fullscreen_off else R.drawable.art_fullscreen_on, if (fullscreen) "退出全屏" else "横屏全屏", {
                                         changeDisplay(if (fullscreen) PlayerDisplayMode.AUTOMATIC else PlayerDisplayMode.LANDSCAPE_FULLSCREEN)
-                                    })
+                                    }, !touchLocked)
                                 }
                                 if (maxWidth >= 600.dp) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     transport()
@@ -554,6 +593,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { options() }
                                 }
                             }
+                        }
                         }
                         }
                         }
@@ -591,12 +631,16 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     // The topmost input layer covers controls as well as the picture. System Back unlocks first.
                     Box(Modifier.fillMaxSize()
                         .clearAndSetSemantics { contentDescription = "触控已锁定" }
-                        .pointerInput(Unit) { detectTapGestures(onTap = {}, onDoubleTap = {}, onLongPress = {}) })
-                    PlayerLockIcon(R.drawable.ic_lock, "解除触控锁定", "触控已锁定", true, ::unlockTouch,
+                        .pointerInput(Unit) { detectTapGestures(onPress = { revealUnlock(); tryAwaitRelease() },
+                            onTap = {}, onDoubleTap = {}, onLongPress = {}) })
+                    androidx.compose.animation.AnimatedVisibility(unlockVisible, enter = fadeIn(tween(140)), exit = fadeOut(tween(140)),
                         modifier = Modifier.align(AbsoluteAlignment.TopLeft).absoluteOffset {
                             val position = touchLockPosition - playerPosition
                             IntOffset(position.x.roundToInt(), position.y.roundToInt())
-                        })
+                        }) {
+                        PlayerLockIcon(R.drawable.ic_lock, "解除触控锁定", "触控已锁定", true, ::unlockTouch,
+                            enabled = unlockVisible)
+                    }
                 }
                 if (sheet != null) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
                     pageColors, fullscreen) { PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; PlayerSheet.DECODER -> "视频解码器"; else -> "播放信息" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {

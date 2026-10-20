@@ -77,6 +77,23 @@ class NativePlayer(context: Context) {
     private var externalJob: Job? = null
     private var externalSupCancellation: AtomicBoolean? = null
     private var externalRequest = 0L
+    private var externalCompletion: CompletableDeferred<Boolean>? = null
+    /** Called only after the renderer accepts a complete external source. Never persisted. */
+    internal var externalSubtitleReady: ((String, String, String) -> Unit)? = null
+    private val externalIdentities = mutableMapOf<Int, DecoderExternalSelection>()
+    private val externalVersions = mutableMapOf<String, String>()
+    private var confirmedPositionMs = 0L
+    private class PendingRestore(val epoch: Long, val value: DecoderRestore) {
+        var audioApplied = false
+        var audioUserChoice = false
+        var subtitleApplied = false
+        var subtitleUserChoice = false
+        var externalReady = false
+        val failures = mutableListOf<String>()
+    }
+    private var pendingRestore: PendingRestore? = null
+    private var restoreNotice: String? = null
+    private var applyingSubtitleRestore = false
     private var selectedExternal: Int? = null
     private var subtitleDisabled = false
     private var subtitleExplicitlyChosen = false
@@ -122,20 +139,34 @@ class NativePlayer(context: Context) {
     }
     fun open(url: String, positionMs: Long = 0, autoplay: Boolean = true, videoDecodePolicy: VideoDecodePolicy = VideoDecodePolicy.AUTO,
         dataSourceFactory: androidx.media3.datasource.DataSource.Factory? = null) {
+        openMedia(url, positionMs, autoplay, videoDecodePolicy, dataSourceFactory, null)
+    }
+    internal fun openRestoring(url: String, restore: DecoderRestore, autoplay: Boolean,
+        videoDecodePolicy: VideoDecodePolicy, dataSourceFactory: androidx.media3.datasource.DataSource.Factory? = null) {
+        openMedia(url, restore.positionMs, autoplay, videoDecodePolicy, dataSourceFactory, restore)
+    }
+    private fun openMedia(url: String, positionMs: Long, autoplay: Boolean, videoDecodePolicy: VideoDecodePolicy,
+        dataSourceFactory: androidx.media3.datasource.DataSource.Factory?, restore: DecoderRestore?) {
         if (released) return
         disposeMedia()
+        restore?.let { session.selectRate(it.baseRate) }
         val epoch = session.open(autoplay)
+        pendingRestore = restore?.let { PendingRestore(epoch, it) }
+        restoreNotice = null
+        confirmedPositionMs = restore?.positionMs ?: 0
         temporaryRate = null; seekTarget = null
-        choices.clear(); ids.clear(); external.clear(); selectedExternal = null
-        subtitleDisabled = false
-        subtitleExplicitlyChosen = false
+        choices.clear(); ids.clear(); external.clear(); externalIdentities.clear(); externalVersions.clear(); selectedExternal = null
+        subtitleDisabled = restore != null
+        subtitleExplicitlyChosen = restore != null && restore.subtitleMode != DecoderSubtitleMode.AUTO
         automaticSubtitleId = null
-        mutable.value = PlayerState(phase = "正在打开视频", rate = session.preferredRate, mediaGeneration = epoch, videoDecodePolicy = videoDecodePolicy)
+        mutable.value = PlayerState(phase = "正在打开视频", rate = session.preferredRate, mediaGeneration = epoch,
+            videoDecodePolicy = videoDecodePolicy, subtitleDelayMs = restore?.subtitleDelayMs ?: 0)
         trace.beginOpen(positionMs)
         val subtitles = MediaSubtitleLayer(context).also { current ->
             current.failed = { if (session.accepts(epoch)) mutable.value = mutable.value.copy(subtitleLoading = false, operationError = "字幕渲染失败，请重试或选择其他字幕") }
         }
         layer = subtitles
+        subtitles.delayMs = restore?.subtitleDelayMs ?: 0
         viewport?.subtitles(subtitles)
         val decoderKinds = java.util.concurrent.ConcurrentHashMap<String, String>()
         val decoderRequests = java.util.concurrent.ConcurrentHashMap<String, Pair<Boolean, Boolean>>()
@@ -173,6 +204,9 @@ class NativePlayer(context: Context) {
         val player = ExoPlayer.Builder(context, factory).setLoadControl(bufferControl)
             .setMediaSourceFactory(mediaSources).build()
         engine = player
+        restore?.let { player.volume = it.volume.coerceIn(0, 100) / 100f }
+        if (subtitleDisabled) player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
         trace.record(PlaybackTraceAction.ENGINE_READY); trace.record(PlaybackTraceAction.PLAYER_READY)
         fun current() = !released && engine === player && session.accepts(epoch)
         player.setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(), true)
@@ -235,7 +269,8 @@ class NativePlayer(context: Context) {
                     }
                 }
                 cancelTrackRequest(C.TRACK_TYPE_AUDIO); cancelTrackRequest(C.TRACK_TYPE_TEXT)
-                session.pause()
+                // An engine failure is not a user pause. Keep the last intent for
+                // an explicit decoder-policy reopen; actual playback remains stopped.
                 mutable.value = mutable.value.copy(playing = false, phase = "播放失败",
                     decoderRecovery = if (recoverWithSoftware.get() && !recoveryCompleted) "软件解码未能恢复，请手动重试" else mutable.value.decoderRecovery,
                     error = when (error.errorCode) {
@@ -321,6 +356,114 @@ class NativePlayer(context: Context) {
                 else -> "未知"
             },
         )
+        if (mutable.value.canSavePosition) confirmedPositionMs = mutable.value.positionMs
+        applyDecoderRestore()
+    }
+    internal fun decoderRestoreSnapshot(): DecoderRestore? {
+        if (!session.active || engine == null) return null
+        publish()
+        val value = mutable.value
+        fun identity(id: Int) = choices[id]?.let { DecoderTrackIdentity.from(it.type, it.group.getFormat(it.index)) }
+        val selected = selectedExternal?.let(externalIdentities::get)
+        val mode = when {
+            !subtitleExplicitlyChosen -> DecoderSubtitleMode.AUTO
+            subtitleDisabled && selected == null -> DecoderSubtitleMode.OFF
+            selected != null -> DecoderSubtitleMode.EXTERNAL
+            value.selectedSubtitle >= 0 -> DecoderSubtitleMode.INTERNAL
+            else -> DecoderSubtitleMode.OFF
+        }
+        return DecoderRestore(confirmedPositionMs, session.wantsPlay, session.preferredRate, value.volume,
+            identity(value.selectedAudio), engine!!.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_AUDIO),
+            mode, identity(value.selectedSubtitle), selected, externalVersions.toMap(), value.subtitleDelayMs)
+    }
+    internal fun reportDecoderRestoreError(epoch: Long, message: String) {
+        if (!session.accepts(epoch)) return
+        restoreNotice = listOfNotNull(restoreNotice, message).distinct().joinToString("；")
+        mutable.value = mutable.value.copy(operationError = restoreNotice)
+    }
+    /** Imports have completed (or failed); only this generation may select their semantic identity. */
+    internal fun finishDecoderRestore(epoch: Long, failures: List<String>) {
+        val pending = pendingRestore?.takeIf { it.epoch == epoch && session.accepts(epoch) } ?: return
+        pending.failures.addAll(failures)
+        pending.externalReady = true
+        applyDecoderRestore()
+    }
+    internal fun wantsDecoderSubtitleRestore(epoch: Long) = pendingRestore?.let {
+        it.epoch == epoch && session.accepts(epoch) && !it.subtitleUserChoice
+    } == true
+    internal fun cancelDecoderRestore(epoch: Long) {
+        val pending = pendingRestore?.takeIf { it.epoch == epoch && session.accepts(epoch) } ?: return
+        pendingRestore = null
+        if (!pending.audioUserChoice) cancelTrackRequest(C.TRACK_TYPE_AUDIO)
+        if (!pending.subtitleUserChoice) {
+            cancelTrackRequest(C.TRACK_TYPE_TEXT)
+            if (!pending.subtitleApplied) { subtitleDisabled = true; subtitleExplicitlyChosen = true }
+        }
+    }
+    private fun manualSubtitleChoice() {
+        pendingRestore?.let {
+            it.subtitleApplied = true; it.subtitleUserChoice = true; subtitleExplicitlyChosen = true
+        }
+    }
+    private fun restoreSubtitle(id: Int) {
+        applyingSubtitleRestore = true
+        try { subtitle(id) } finally { applyingSubtitleRestore = false }
+    }
+    private fun applyDecoderRestore() {
+        val pending = pendingRestore ?: return
+        val player = engine ?: return
+        if (!session.accepts(pending.epoch) || player.playbackState != Player.STATE_READY) return
+        fun matches(identity: DecoderTrackIdentity) = choices.filterValues {
+            DecoderTrackIdentity.from(it.type, it.group.getFormat(it.index)) == identity
+        }.keys.toList()
+        if (!pending.audioApplied) {
+            pending.audioApplied = true
+            when {
+                pending.value.audioOff -> selectTrack(-1, C.TRACK_TYPE_AUDIO)
+                pending.value.audio != null -> {
+                    val found = matches(pending.value.audio)
+                    if (found.size == 1) selectTrack(found.single(), C.TRACK_TYPE_AUDIO) else {
+                        selectTrack(-1, C.TRACK_TYPE_AUDIO)
+                        pending.failures.add("原音轨缺失或无法唯一匹配，已关闭音轨，请重新选择")
+                    }
+                }
+            }
+        }
+        val externalMatches = if (pending.value.subtitleMode == DecoderSubtitleMode.EXTERNAL)
+            externalIdentities.filterValues { it == pending.value.externalSubtitle }.keys.toList() else emptyList()
+        val subtitleReady = pending.value.subtitleMode != DecoderSubtitleMode.EXTERNAL ||
+            externalMatches.size == 1 || pending.externalReady
+        if (!pending.subtitleApplied && subtitleReady) {
+            pending.subtitleApplied = true
+            when (pending.value.subtitleMode) {
+                DecoderSubtitleMode.OFF -> restoreSubtitle(-1)
+                DecoderSubtitleMode.AUTO -> {
+                    subtitleDisabled = false
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build()
+                }
+                DecoderSubtitleMode.INTERNAL -> {
+                    val found = pending.value.subtitle?.let(::matches).orEmpty()
+                    if (found.size == 1) restoreSubtitle(found.single()) else {
+                        restoreSubtitle(-1)
+                        pending.failures.add("原字幕缺失或无法唯一匹配，已关闭字幕，请重新选择")
+                    }
+                }
+                DecoderSubtitleMode.EXTERNAL -> {
+                    if (externalMatches.size == 1) restoreSubtitle(externalMatches.single()) else {
+                        restoreSubtitle(-1)
+                        pending.failures.add("原外挂字幕未能恢复，已关闭字幕，请重新选择")
+                    }
+                }
+            }
+        }
+        if (pending.audioApplied && pending.subtitleApplied && pending.externalReady) {
+            pendingRestore = null
+            refreshTracks()
+            pending.failures.distinct().takeIf { it.isNotEmpty() }?.let {
+                reportDecoderRestoreError(pending.epoch, it.joinToString("；"))
+            }
+        }
     }
     private fun refreshTracks() {
         val player = engine ?: return
@@ -349,13 +492,13 @@ class NativePlayer(context: Context) {
             }
         }
         // Prefer declared Chinese/Chinese-English tracks without overriding a user's choice.
-        if (!subtitleExplicitlyChosen && selectedExternal == null) {
+        if (pendingRestore == null && !subtitleExplicitlyChosen && selectedExternal == null) {
             val preferred = text.filter { it.id >= 0 }.maxByOrNull { subtitlePreference(it) }
             if (preferred != null && subtitlePreference(preferred) > 0 && automaticSubtitleId != preferred.id) {
                 automaticSubtitleId = preferred.id
                 val epoch = session.generation
                 handler.post {
-                    if (session.accepts(epoch) && engine === player && !subtitleExplicitlyChosen &&
+                    if (session.accepts(epoch) && engine === player && pendingRestore == null && !subtitleExplicitlyChosen &&
                         preferred.id in choices) subtitle(preferred.id, automatic = true)
                 }
             }
@@ -410,7 +553,10 @@ class NativePlayer(context: Context) {
     }
     fun restoreRate(epoch: Long) { if (session.accepts(epoch)) { temporaryRate = null; applyRate(session.preferredRate) } }
     fun volume(value: Int) { engine?.volume = value.coerceIn(0, 100) / 100f; publish() }
-    fun audio(id: Int) = selectTrack(id, C.TRACK_TYPE_AUDIO)
+    fun audio(id: Int) {
+        pendingRestore?.let { it.audioApplied = true; it.audioUserChoice = true }
+        selectTrack(id, C.TRACK_TYPE_AUDIO)
+    }
     private fun subtitlePreference(track: NativeTrack): Int {
         val label = track.title.lowercase(java.util.Locale.ROOT)
         val language = track.language.lowercase(java.util.Locale.ROOT).replace('_', '-')
@@ -427,12 +573,15 @@ class NativePlayer(context: Context) {
             mutable.value = mutable.value.copy(operationError = "轨道已变化，请重新选择")
             return
         }
+        if (!automatic && !applyingSubtitleRestore) manualSubtitleChoice()
         if (!automatic) subtitleExplicitlyChosen = true
         // A later explicit selection supersedes any still-loading external file.
         // Invalidate queued native parse callbacks as well as the coroutine read.
-        externalRequest++
-        cancelExternalImport()
-        mutable.value = mutable.value.copy(subtitleLoading = false, operationError = null)
+        if (!applyingSubtitleRestore) {
+            externalRequest++
+            cancelExternalImport()
+            mutable.value = mutable.value.copy(subtitleLoading = false, operationError = restoreNotice)
+        } else mutable.value = mutable.value.copy(operationError = restoreNotice)
         // Track notifications and cue callbacks can trail the user's command.
         // An explicit off request wins immediately, even before renderer teardown.
         subtitleDisabled = id == -1
@@ -457,8 +606,8 @@ class NativePlayer(context: Context) {
         cancelTrackRequest(type)
         val epoch = session.generation
         trace.record(if (audio) PlaybackTraceAction.AUDIO_REQUEST else PlaybackTraceAction.SUBTITLE_REQUEST, id.toDouble())
-        mutable.value = if (audio) mutable.value.copy(pendingAudio = id, operationError = null)
-            else mutable.value.copy(pendingSubtitle = id, operationError = null)
+        mutable.value = if (audio) mutable.value.copy(pendingAudio = id, operationError = restoreNotice)
+            else mutable.value.copy(pendingSubtitle = id, operationError = restoreNotice)
         val command = Runnable {
             trackCommands.remove(type)
             if (!session.accepts(epoch) || engine !== player) return@Runnable
@@ -494,24 +643,63 @@ class NativePlayer(context: Context) {
     }
     fun addSubtitle(url: String, name: String): Boolean {
         if (!canAddExternalSubtitle) return false
-        val currentLayer = layer ?: return false
+        manualSubtitleChoice()
+        return startSubtitleImport(url, name, java.util.UUID.randomUUID().toString(), selectOnReady = true) != null
+    }
+
+    internal suspend fun importSubtitle(url: String, name: String, sourceKey: String, selectOnReady: Boolean,
+        expectedVersion: String? = null): Boolean {
+        if (selectOnReady && canAddExternalSubtitle) manualSubtitleChoice()
+        val completion = startSubtitleImport(url, name, sourceKey, selectOnReady, expectedVersion) ?: return false
+        try { return completion.await() }
+        catch (cancelled: CancellationException) {
+            if (externalCompletion === completion) { externalRequest++; cancelExternalImport() }
+            throw cancelled
+        }
+    }
+    private fun startSubtitleImport(url: String, name: String, sourceKey: String,
+        selectOnReady: Boolean, expectedVersion: String? = null): CompletableDeferred<Boolean>? {
+        if (!canAddExternalSubtitle) return null
+        val currentLayer = layer ?: return null
         val epoch = session.generation; val request = ++externalRequest; val id = nextId++
+        cancelExternalImport()
+        val completion = CompletableDeferred<Boolean>().also { externalCompletion = it }
+        var sourceVersion = ""
+        fun verifyVersion(digest: ByteArray) {
+            sourceVersion = digest.joinToString("") { (it.toInt() and 255).toString(16).padStart(2, '0') }
+            check(expectedVersion == null || expectedVersion == sourceVersion) { "External subtitle source changed" }
+        }
+        fun accepted(imported: Map<Int, String>) {
+            imported.forEach { (trackId, key) -> externalIdentities[trackId] = DecoderExternalSelection(sourceKey, key) }
+            externalVersions[sourceKey] = sourceVersion
+            externalSubtitleReady?.invoke(sourceKey, url, name)
+            externalCompletion = null
+            externalJob = null
+            mutable.value = mutable.value.copy(subtitleLoading = false)
+            if (selectOnReady) subtitle(id) else {
+                refreshTracks()
+                applyDecoderRestore()
+            }
+            completion.complete(true)
+        }
         fun externalFailure() {
             if (!session.accepts(epoch) || externalRequest != request) return
             externalSupCancellation?.set(true); externalSupCancellation = null
             externalJob = null
+            if (externalCompletion === completion) externalCompletion = null
             mutable.value = mutable.value.copy(subtitleLoading = false, operationError = "字幕渲染失败，请重试或选择其他字幕")
+            completion.complete(false)
         }
-        cancelExternalImport()
         val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
         val supCancellation = if (extension == "sup") AtomicBoolean(false) else null
         externalSupCancellation = supCancellation
-        mutable.value = mutable.value.copy(subtitleLoading = true, operationError = null)
+        mutable.value = mutable.value.copy(subtitleLoading = true, operationError = restoreNotice)
         externalJob = scope.launch {
             try {
                 if (supCancellation != null) {
                     var ownedFile: File? = null
                     var ownedTimeline: ExternalPgs.Timeline? = null
+                    val digest = java.security.MessageDigest.getInstance("SHA-256")
                     try {
                         withContext(Dispatchers.IO) {
                             val ioContext = currentCoroutineContext()
@@ -525,7 +713,9 @@ class NativePlayer(context: Context) {
                                 val file = File.createTempFile("external-sup-", ".sup", context.cacheDir)
                                 ownedFile = file
                                 file.outputStream().use { output ->
-                                    copyExternalSubtitle(source::read, output, EXTERNAL_SUP_BYTES_LIMIT) { ioContext.ensureActive() }
+                                    copyExternalSubtitle({ bytes, offset, length ->
+                                        source.read(bytes, offset, length).also { count -> if (count > 0) digest.update(bytes, offset, count) }
+                                    }, output, EXTERNAL_SUP_BYTES_LIMIT) { ioContext.ensureActive() }
                                 }
                                 ioContext.ensureActive()
                                 // Assign inside IO before the cancellable dispatcher
@@ -535,6 +725,7 @@ class NativePlayer(context: Context) {
                         }
                         ensureActive()
                         if (!session.accepts(epoch) || externalRequest != request || supCancellation.get()) return@launch
+                        verifyVersion(digest.digest())
                         currentLayer.externalPgsTimeline("external:$id", checkNotNull(ownedTimeline), supCancellation::get,
                             ::externalFailure) {
                             if (!session.accepts(epoch) || externalRequest != request || supCancellation.get())
@@ -542,10 +733,8 @@ class NativePlayer(context: Context) {
                             // This accepted track owns its file until media close.
                             // Off can hide/reselect it without another network read.
                             externalSupCancellation = null
-                            externalJob = null
                             external[id] = NativeTrack(id, name, MimeTypes.APPLICATION_PGS)
-                            mutable.value = mutable.value.copy(subtitleLoading = false)
-                            subtitle(id)
+                            accepted(mapOf(id to "single"))
                         }
                         // The layer consumes ownership even when already closed.
                         ownedTimeline = null; ownedFile = null
@@ -556,7 +745,7 @@ class NativePlayer(context: Context) {
                     }
                     return@launch
                 }
-                val bytes = withContext(Dispatchers.IO) {
+                val (bytes, version) = withContext(Dispatchers.IO) {
                     val source = DefaultDataSource.Factory(context).createDataSource()
                     try {
                         val size = source.open(DataSpec(Uri.parse(url)))
@@ -564,11 +753,12 @@ class NativePlayer(context: Context) {
                         val output = ByteArrayOutputStream()
                         val ioContext = currentCoroutineContext()
                         copyExternalSubtitle(source::read, output, EXTERNAL_TEXT_BYTES_LIMIT) { ioContext.ensureActive() }
-                        output.toByteArray()
+                        output.toByteArray().let { it to java.security.MessageDigest.getInstance("SHA-256").digest(it) }
                     } finally { source.close() }
                 }
                 ensureActive()
                 if (!session.accepts(epoch) || externalRequest != request) return@launch
+                verifyVersion(version)
                 if (extension in setOf("smi", "sami")) {
                     val tracks = withContext(Dispatchers.IO) { SamiSubtitles.parse(bytes).map { track ->
                         track to track.captions.map { caption ->
@@ -586,9 +776,7 @@ class NativePlayer(context: Context) {
                         tracks.forEachIndexed { index, (track, _) ->
                             external[ids[index]] = NativeTrack(ids[index], if (tracks.size == 1) name else "$name · ${track.title}", "application/x-sami", track.language)
                         }
-                        externalJob = null
-                        mutable.value = mutable.value.copy(subtitleLoading = false)
-                        subtitle(id)
+                        accepted(tracks.mapIndexed { index, (track, _) -> ids[index] to track.key }.toMap())
                     }
                     return@launch
                 }
@@ -601,10 +789,8 @@ class NativePlayer(context: Context) {
                 }
                 fun ready() {
                     if (!session.accepts(epoch) || externalRequest != request) return
-                    externalJob = null
                     external[id] = NativeTrack(id, name, mime)
-                    mutable.value = mutable.value.copy(subtitleLoading = false)
-                    subtitle(id)
+                    accepted(mapOf(id to "single"))
                 }
                 if (mime == MimeTypes.TEXT_SSA) currentLayer.externalAss("external:$id", bytes, ::externalFailure, ::ready)
                 else {
@@ -626,22 +812,33 @@ class NativePlayer(context: Context) {
                         else -> "字幕读取失败或格式暂不支持，请重试或选择其他字幕"
                     }
                     mutable.value = mutable.value.copy(subtitleLoading = false, operationError = message)
+                    if (externalCompletion === completion) externalCompletion = null
+                    completion.complete(false)
                 }
             }
         }
-        return true
+        return completion
     }
-    fun clearOperationError(expected: String) { if (mutable.value.operationError == expected) mutable.value = mutable.value.copy(operationError = null) }
+    fun clearOperationError(expected: String) {
+        if (mutable.value.operationError == expected) {
+            if (restoreNotice == expected) restoreNotice = null
+            mutable.value = mutable.value.copy(operationError = null)
+        }
+    }
     private fun cancelExternalImport() {
-        externalSupCancellation?.let { pending ->
+        val completion = externalCompletion; externalCompletion = null
+        val cancellation = externalSupCancellation; externalSupCancellation = null
+        val job = externalJob; externalJob = null
+        cancellation?.let { pending ->
             pending.set(true)
             // A not-yet-attached View must not delay reclaiming a canceled import.
             layer?.cancelPendingExternalPgs()
         }
-        externalSupCancellation = null
-        externalJob?.cancel(); externalJob = null
+        job?.cancel()
+        completion?.complete(false)
     }
     private fun disposeMedia() {
+        pendingRestore = null
         cancelTrackRequest(C.TRACK_TYPE_AUDIO); cancelTrackRequest(C.TRACK_TYPE_TEXT)
         handler.removeCallbacks(ticker)
         externalRequest++; cancelExternalImport()
@@ -652,7 +849,7 @@ class NativePlayer(context: Context) {
     }
     fun stop() {
         session.stop(); trace.record(PlaybackTraceAction.STOP_REQUEST)
-        disposeMedia(); choices.clear(); ids.clear(); external.clear(); selectedExternal = null
+        disposeMedia(); choices.clear(); ids.clear(); external.clear(); externalIdentities.clear(); externalVersions.clear(); selectedExternal = null
         mutable.value = PlayerState(rate = session.preferredRate, mediaGeneration = session.generation)
         trace.record(PlaybackTraceAction.STOP_RETURNED)
     }

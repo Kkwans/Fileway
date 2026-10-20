@@ -53,7 +53,9 @@ internal fun rememberMediaColors(model: ClientModel, file: ResourceRef): ColorSc
     }
 
     val selected = accent ?: MediaAccent(FilewayPlayerColors.tertiary, FilewayPlayerColors.tertiaryContainer)
-    return FilewayPlayerColors.copy(tertiary = selected.tertiary, tertiaryContainer = selected.tertiaryContainer)
+    return remember(selected) {
+        FilewayPlayerColors.copy(tertiary = selected.tertiary, tertiaryContainer = selected.tertiaryContainer)
+    }
 }
 
 private suspend fun loadMediaAccent(model: ClientModel, file: ResourceRef, context: android.content.Context, cacheKey: String): MediaAccent? =

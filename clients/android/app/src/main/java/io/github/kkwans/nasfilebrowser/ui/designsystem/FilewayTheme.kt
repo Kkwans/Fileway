@@ -13,6 +13,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.PlatformTextStyle
@@ -193,16 +194,17 @@ object FilewayMotion {
 
 /** Player content uses one graphite scheme; artwork remains a restrained tertiary accent. */
 @Composable fun FilewayMediaTheme(colors: ColorScheme, fullscreen: Boolean, content: @Composable () -> Unit) {
-    val playerColors = FilewayPlayerColors.copy(
+    val playerColors = remember(colors.tertiary, colors.tertiaryContainer) { FilewayPlayerColors.copy(
         tertiary = colors.tertiary,
         tertiaryContainer = colors.tertiaryContainer,
-    )
-    val status = FilewayTheme.status.copy(
+    ) }
+    val parentStatus = FilewayTheme.status
+    val status = remember(parentStatus, playerColors, fullscreen) { parentStatus.copy(
         mediaCanvas = playerColors.background,
         mediaSurface = playerColors.surface.copy(alpha = if (fullscreen) .88f else 1f),
         mediaContent = playerColors.onSurface,
         mediaSecondary = playerColors.onSurfaceVariant,
-    )
+    ) }
     CompositionLocalProvider(
         LocalFilewayColors provides playerColors,
         LocalFilewayStatus provides status,

@@ -10,6 +10,7 @@ import io.github.kkwans.nasfilebrowser.core.NativeTransport
 import io.github.kkwans.nasfilebrowser.core.EmbeddedNetwork
 import io.github.kkwans.nasfilebrowser.core.NetworkState
 import io.github.kkwans.nasfilebrowser.player.NativePlayer
+import io.github.kkwans.nasfilebrowser.player.DecoderRestore
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.download.DownloadController
 import io.github.kkwans.nasfilebrowser.download.DownloadRecord
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.isActive
@@ -73,6 +75,15 @@ data class ClientState(
 data class SessionContext(val profile: ServerProfile, val account: AccountRecord, val api: NasSession, val generation: Int, val owner: String = java.util.UUID.randomUUID().toString())
 private data class PlaybackBinding(val context: SessionContext, val file: ResourceRef, val identity: String, val writer: PlaybackWriter)
 private data class TemporaryMediaBinding(val context: SessionContext, val file: ResourceRef, val asset: PreviewLease)
+private sealed interface DecoderSubtitleSource {
+    val key: String
+    val name: String
+    data class Server(override val key: String, override val name: String, val bound: SessionContext,
+        val file: ResourceRef, val identity: String) : DecoderSubtitleSource
+    data class Local(override val key: String, override val name: String, val uri: String) : DecoderSubtitleSource
+}
+private data class DecoderReopen(val player: DecoderRestore, val remoteIdentity: String?,
+    val local: DownloadRecord?, val sources: List<DecoderSubtitleSource>)
 
 class ClientModel(application: Application) : AndroidViewModel(application) {
     private val presentationPreferences = FilePresentationPreferences(application)
@@ -124,6 +135,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     internal val feedbackEvents = feedbackMutable.asSharedFlow()
     private var lease = ""
     private val subtitleLeases = mutableListOf<PreviewLease>()
+    private val subtitleSources = mutableMapOf<String, DecoderSubtitleSource>()
     private var generation = 0
     private var mediaRequest = 0L
     private var queueSequence = 0L
@@ -185,6 +197,12 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         { bound, _ -> if (context === bound && generation == bound.generation) { transferRefreshPending = true; refreshTransferDirectoryIfVisible() } }, ::resourcesBatchRenamed)
     val storageTools = StorageToolsController(viewModelScope) { context === it && generation == it.generation }
     init {
+        player.externalSubtitleReady = { key, url, name ->
+            // Server sources are registered before import. The existing system picker
+            // calls NativePlayer directly, so register its accepted URI here.
+            if ((playback != null || localPlayback != null) && key !in subtitleSources && android.net.Uri.parse(url).scheme == "content")
+                subtitleSources[key] = DecoderSubtitleSource.Local(key, name, url)
+        }
         viewModelScope.launch { state.collect { syncLibraryObservers() } }
         viewModelScope.launch { search.state.collect { syncLibraryObservers() } }
         viewModelScope.launch { documents.state.collect { syncLibraryObservers() } }
@@ -610,21 +628,23 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     suspend fun changeVideoDecoder(value: VideoDecodePolicy) {
         val local = localPlayback
-        if (local != null) {
-            val queue = mutable.value.mediaQueue
-            val wasPlaying = player.state.value.let { it.playing || it.waitingForBuffer || it.error != null }
-            playbackPreferences.saveVideoDecodePolicy(value)
-            if (localPlayback === local) openQueued(downloadRef(local), queue, wasPlaying)
-            return
-        }
-        val binding = playback ?: return
+        val binding = playback
+        if (local == null && binding == null) return
+        val request = mediaRequest
+        val mediaGeneration = player.state.value.mediaGeneration
         val queue = mutable.value.mediaQueue
-        val wasPlaying = player.state.value.let { it.playing || it.waitingForBuffer || it.error != null }
         playbackPreferences.saveVideoDecodePolicy(value)
-        if (playback === binding && context == binding.context) openQueued(binding.file, queue, wasPlaying)
+        if (request != mediaRequest || mediaGeneration != player.state.value.mediaGeneration ||
+            localPlayback !== local || playback !== binding || binding != null && context !== binding.context) return
+        // Capture after the acknowledged preference write. Never use persisted history
+        // or an unconfirmed seek request as this intentional reopen's checkpoint.
+        val snapshot = player.decoderRestoreSnapshot() ?: return
+        val restore = DecoderReopen(snapshot, binding?.identity, local,
+            snapshot.externalSources.keys.mapNotNull(subtitleSources::get))
+        openQueued(local?.let(::downloadRef) ?: binding!!.file, queue, snapshot.wantsPlay, restore)
     }
-    private fun openQueued(file: ResourceRef, queue: MediaQueue?, autoplay: Boolean = true) {
-        if (file.downloadId.isNotEmpty()) { openLocal(file, queue, autoplay); return }
+    private fun openQueued(file: ResourceRef, queue: MediaQueue?, autoplay: Boolean = true, decoderRestore: DecoderReopen? = null) {
+        if (file.downloadId.isNotEmpty()) { openLocal(file, queue, autoplay, decoderRestore); return }
         if (isBrowsableArchive(file)) {
             val bound = context ?: return
             search.cancel(); operation?.cancel(); mediaRequest++; pendingMediaOpen = null; pendingOpenFromPlayer = false; endPlayback(); documents.close()
@@ -679,10 +699,17 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                     pendingOpenFromPlayer = false
                     lastSaved = null
                     mutable.value = mutable.value.copy(selected = file, busy = false, stage = "", progressStatus = null)
-                    player.open(url, resume, autoplay = foreground && autoplay, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                    val restore = decoderRestore?.takeIf { it.remoteIdentity == remote.identity }
+                    if (restore != null) player.openRestoring(url, restore.player, foreground && autoplay, playbackPreferences.videoDecodePolicy.value)
+                    else {
+                        player.open(url, resume, autoplay = foreground && autoplay, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                        if (decoderRestore != null) player.reportDecoderRestoreError(player.state.value.mediaGeneration,
+                            "媒体版本已变化，未应用旧的解码切换恢复状态")
+                    }
                     observeTransfer(bound, url)
                     saveTimer?.cancel()
                     saveTimer = viewModelScope.launch { while (true) { delay(10_000); if (player.state.value.playing) saveProgress() } }
+                    if (restore != null) restoreDecoderSubtitles(restore, request, player.state.value.mediaGeneration)
                 } catch (error: Exception) {
                     if (error !is CancellationException && generation == expected && mediaRequest == request) {
                         pendingMediaOpen = null
@@ -702,7 +729,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }
     }
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
-    private fun openLocal(file: ResourceRef, queue: MediaQueue?, autoplay: Boolean) {
+    private fun openLocal(file: ResourceRef, queue: MediaQueue?, autoplay: Boolean, decoderRestore: DecoderReopen? = null) {
         search.close(); operation?.cancel(); documents.close()
         val request = ++mediaRequest
         pendingOpenFromPlayer = mutable.value.selected != null
@@ -732,8 +759,23 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                         localPlayback = item; lastSaved = null
                         mutable.value = mutable.value.copy(selected = file, busy = false, stage = "", progressStatus = "续播仅保存本机", downloadBytesPerSecond = 0)
                         val uri = android.net.Uri.Builder().scheme("fileway-download").authority(item.id).appendPath(item.name).build().toString()
-                        player.open(uri, item.positionMs, foreground && autoplay, playbackPreferences.videoDecodePolicy.value, DownloadDataSource.Factory(getApplication()))
+                        val original = decoderRestore?.local
+                        val restore = decoderRestore?.takeIf { original != null && original.id == item.id &&
+                            original.accountKey == item.accountKey && original.sourceRevision == item.sourceRevision &&
+                            original.identity == item.identity && original.localUri == item.localUri &&
+                            original.expectedSize == item.expectedSize && original.modified == item.modified }
+                        if (restore != null) player.openRestoring(uri, restore.player, foreground && autoplay,
+                            playbackPreferences.videoDecodePolicy.value, DownloadDataSource.Factory(getApplication()))
+                        else {
+                            player.open(uri, item.positionMs, foreground && autoplay, playbackPreferences.videoDecodePolicy.value, DownloadDataSource.Factory(getApplication()))
+                            if (decoderRestore != null) player.reportDecoderRestoreError(player.state.value.mediaGeneration,
+                                "本机媒体来源或版本已变化，未应用旧的解码切换恢复状态")
+                        }
                         saveTimer = viewModelScope.launch { while (true) { delay(10_000); if (player.state.value.playing) saveProgress() } }
+                        // The reopen is now established; subtitle restoration must not
+                        // keep the initial-open navigation flags alive.
+                        pendingMediaOpen = null; pendingOpenFromPlayer = false
+                        if (restore != null) restoreDecoderSubtitles(restore, request, player.state.value.mediaGeneration)
                     }
                     null -> {
                         check(item.complete) { "文档下载完成后即可内置查看" }
@@ -866,14 +908,95 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         require(!file.directory && isExternalSubtitle(file.name)) { "请选择支持的字幕文件" }
         val binding = playback ?: error("视频尚未打开")
         check(player.canAddExternalSubtitle) { "视频仍在加载，请稍后重试添加字幕" }
-        val url = binding.context.api.lease(file.path, file.wirePath)
-        val asset = PreviewLease(url, binding.context.api.id) { NativeTransport.call(JSONObject().put("op", "revoke").put("url", url)); Unit }
+        val request = mediaRequest
+        val epoch = player.state.value.mediaGeneration
+        fun current() = mediaRequest == request && player.state.value.mediaGeneration == epoch &&
+            playback === binding && context === binding.context
+        val verified = subtitleVersion(binding.context, file)
+        check(current()) { "播放来源已切换" }
+        val source = DecoderSubtitleSource.Server(java.util.UUID.randomUUID().toString(), file.name,
+            binding.context, verified, "${verified.size}/${verified.modified}")
+        check(importServerSubtitle(source, selectOnReady = true, ::current)) { "播放器未能加载字幕，请确认文件格式后重试" }
+    }
+    private suspend fun subtitleVersion(bound: SessionContext, file: ResourceRef): ResourceRef {
+        check(sessionCurrent(bound)) { "字幕来源账号已切换" }
+        val wire = file.wirePath.ifEmpty { SearchResult.encodePath(file.path) }
+        val metadata = bound.api.request("GET", "/api/resources$wire")
+        check(sessionCurrent(bound)) { "字幕来源账号已切换" }
+        require(!metadata.optBoolean("isDir") && metadata.has("size") && metadata.has("modified")) { "无法确认字幕文件版本" }
+        return file.copy(size = metadata.getLong("size"), modified = metadata.getString("modified"))
+    }
+    private suspend fun importServerSubtitle(source: DecoderSubtitleSource.Server, selectOnReady: Boolean,
+        current: () -> Boolean, expectedVersion: String? = null): Boolean {
+        check(current() && sessionCurrent(source.bound)) { "字幕来源已切换" }
+        val version = subtitleVersion(source.bound, source.file)
+        check(current() && "${version.size}/${version.modified}" == source.identity) { "字幕文件版本已变化" }
+        val url = source.bound.api.lease(source.file.path, source.file.wirePath)
+        val asset = PreviewLease(url, source.bound.api.id) { NativeTransport.call(JSONObject().put("op", "revoke").put("url", url)); Unit }
+        var retained = false
         try {
             currentCoroutineContext().ensureActive()
-            check(playback === binding && context == binding.context) { "播放来源已切换" }
-            check(player.addSubtitle(url, file.name)) { "播放器未能加载字幕，请确认文件格式后重试" }
-            subtitleLeases.add(asset)
-        } catch (error: Throwable) { asset.release(); throw error }
+            check(current() && sessionCurrent(source.bound)) { "字幕来源已切换" }
+            subtitleSources[source.key] = source
+            val imported = withTimeoutOrNull(60_000) {
+                player.importSubtitle(url, source.name, source.key, selectOnReady, expectedVersion)
+            } == true
+            check(current()) { "播放来源已切换" }
+            if (imported) { subtitleLeases.add(asset); retained = true }
+            return imported
+        } finally {
+            if (!retained) {
+                if (subtitleSources[source.key] === source) subtitleSources.remove(source.key)
+                withContext(NonCancellable) { asset.release() }
+            }
+        }
+    }
+    private suspend fun restoreDecoderSubtitles(restore: DecoderReopen, request: Long, epoch: Long) {
+        try { importDecoderSubtitles(restore, request, epoch) }
+        catch (cancelled: CancellationException) {
+            player.cancelDecoderRestore(epoch)
+            throw cancelled
+        }
+    }
+    private suspend fun importDecoderSubtitles(restore: DecoderReopen, request: Long, epoch: Long) {
+        fun current() = mediaRequest == request && player.state.value.mediaGeneration == epoch
+        val failures = mutableListOf<String>()
+        if (restore.sources.size != restore.player.externalSources.size)
+            failures.add("部分外挂字幕来源已失效，请重新添加")
+        if (restore.sources.isNotEmpty()) {
+            val ready = withTimeoutOrNull(30_000) {
+                player.state.first { !current() || !player.wantsDecoderSubtitleRestore(epoch) || player.canAddExternalSubtitle || it.error != null }
+                current() && player.canAddExternalSubtitle
+            } == true
+            if (!current()) return
+            if (!player.wantsDecoderSubtitleRestore(epoch)) { player.finishDecoderRestore(epoch, emptyList()); return }
+            if (!ready) failures.add("播放器尚未就绪，未能恢复外挂字幕，请重新添加")
+            else for (source in restore.sources.sortedBy {
+                if (it.key == restore.player.externalSubtitle?.sourceKey) 0 else 1
+            }) {
+                if (!current()) return
+                if (!player.wantsDecoderSubtitleRestore(epoch)) { player.finishDecoderRestore(epoch, emptyList()); return }
+                try {
+                    val imported = when (source) {
+                        is DecoderSubtitleSource.Server -> importServerSubtitle(source, false, ::current, restore.player.externalSources[source.key])
+                        is DecoderSubtitleSource.Local -> {
+                            // Re-read only the exact URI originally granted by the system picker.
+                            // The data source checks the still-live URI permission; no new grant.
+                            val result = withTimeoutOrNull(60_000) {
+                                player.importSubtitle(source.uri, source.name, source.key, false, restore.player.externalSources[source.key])
+                            } == true
+                            if (current() && result) subtitleSources[source.key] = source
+                            result
+                        }
+                    }
+                    if (!imported && player.wantsDecoderSubtitleRestore(epoch)) failures.add("部分外挂字幕读取或导入失败，请重新添加")
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) {
+                    if (current()) failures.add("部分外挂字幕已变化、失去读取权限或导入失败，请重新添加")
+                }
+            }
+        }
+        if (current()) player.finishDecoderRestore(epoch, failures.distinct())
     }
     fun closeImage() { if (mutable.value.image?.let(::isTemporaryContent) == true) closeTemporaryContent(); mutable.value = mutable.value.copy(image = null, mediaQueue = null) }
     suspend fun hasCachedOriginal(file: ResourceRef): Boolean {
@@ -1330,7 +1453,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         playback = null; lastSaved = null
         player.pause()
         val stored = if (old != null && value != null) old.writer.submit(value) else null
-        val subtitles = subtitleLeases.toList(); subtitleLeases.clear()
+        val subtitles = subtitleLeases.toList(); subtitleLeases.clear(); subtitleSources.clear()
         val oldLease = lease; lease = ""
         val previous = mediaClosing
         if (old != null || oldLocal != null || oldLease.isNotEmpty()) mediaClosing = cleanup.launch {
