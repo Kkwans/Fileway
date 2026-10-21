@@ -36,7 +36,6 @@ import androidx.compose.ui.unit.em
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.CachePolicy
-import coil3.svg.SvgDecoder
 import com.mikepenz.markdown.compose.LocalMarkdownInlineContent
 import com.mikepenz.markdown.compose.elements.MarkdownText
 import com.mikepenz.markdown.compose.extendedspans.ExtendedSpanPainter
@@ -222,7 +221,7 @@ private fun MarkdownMathImage(result: MarkdownMathResult.Rendered, source: Strin
         ImageRequest.Builder(context)
             .data(result.svg.toByteArray(Charsets.UTF_8))
             .diskCachePolicy(CachePolicy.DISABLED)
-            .decoderFactory(SvgDecoder.Factory(useViewBoundsAsIntrinsicSize = false, renderToBitmap = false))
+            .decoderFactory(MarkdownMathSvgDecoderFactory)
             .size(ceil(result.widthPx).toInt().coerceAtLeast(1), ceil(result.heightPx).toInt().coerceAtLeast(1))
             .build()
     }
