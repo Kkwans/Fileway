@@ -66,16 +66,18 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                     modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在保存" else "保存") }
                 Box {
                     IconButton({ more = true }) { Icon(painterResource(R.drawable.ic_more_vert), "编辑操作") }
-                    DropdownMenu(more, { more = false }) {
-                        DropdownMenuItem({ Text("复制草稿") }, {
-                            more = false
-                            copied = try { clipboard.setText(AnnotatedString(state.draft)); "已复制草稿" } catch (_: Exception) { "无法复制，请选择文字后复制" }
-                        }, enabled = state.draft.length <= 131_072)
-                        DropdownMenuItem({ Text("重新读取服务器版本") }, {
-                            more = false
-                            focus.clearFocus(); keyboard?.hide()
-                            if (state.dirty) reload = true else controller.reload()
-                        }, enabled = !busy && !state.unknownWrite)
+                    FilewayMenu(more, { more = false }, items = listOf(
+                        FilewayMenuEntry("copy", "复制草稿", R.drawable.ic_copy, enabled = state.draft.length <= 131_072),
+                        FilewayMenuEntry("reload", "重新读取服务器版本", R.drawable.ic_refresh, enabled = !busy && !state.unknownWrite),
+                    )) { action ->
+                        more = false
+                        when (action.key) {
+                            "copy" -> copied = try { clipboard.setText(AnnotatedString(state.draft)); "已复制草稿" } catch (_: Exception) { "无法复制，请选择文字后复制" }
+                            "reload" -> {
+                                focus.clearFocus(); keyboard?.hide()
+                                if (state.dirty) reload = true else controller.reload()
+                            }
+                        }
                     }
                 }
             })

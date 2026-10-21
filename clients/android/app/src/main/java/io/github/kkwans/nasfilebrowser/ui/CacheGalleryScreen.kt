@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.staggeredgrid.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -123,8 +122,8 @@ Column(Modifier.fillMaxSize()) {
                 contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalItemSpacing = 6.dp) {
                 items(ordered, key = { it.key }) { image ->
                     val ratio = if (image.width > 0 && image.height > 0) (image.width.toFloat() / image.height).coerceIn(.2f, 5f) else 1f
-                    Box(Modifier.fillMaxWidth().aspectRatio(ratio).clip(RoundedCornerShape(6.dp))
-                        .then(if (image.key in selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp)) else Modifier)
+                    Box(Modifier.fillMaxWidth().aspectRatio(ratio).clip(MaterialTheme.shapes.medium)
+                        .then(if (image.key in selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium) else Modifier)
                         .combinedClickable(enabled = !busy && current(), onClick = {
                             if (selecting) selected = if (image.key in selected) selected - image.key else selected + image.key
                             else { initialPage = ordered.indexOfFirst { it.key == image.key }; viewing = ordered.toList() }
@@ -201,6 +200,14 @@ Column(Modifier.fillMaxSize()) {
         finally { owned?.close() }
     }
     val context = LocalContext.current
+    var showLoading by remember(image.key, account, viewer) { mutableStateOf(false) }
+    LaunchedEffect(lease, failed, image.key, account, viewer) {
+        showLoading = false
+        if (lease == null && !failed) {
+            delay(350)
+            showLoading = true
+        }
+    }
     val request = remember(lease?.file, image.key, viewer) { ImageRequest.Builder(context)
         .data(lease?.file).diskCachePolicy(CachePolicy.DISABLED)
         .memoryCacheKey("cache-gallery/${if (viewer) "original" else "preview"}/${image.key}")
@@ -214,7 +221,11 @@ Column(Modifier.fillMaxSize()) {
                     imageLoader = model.cache.imageLoader.value, contentScale = ContentScale.Fit)
             } else AsyncImage(request, null, imageLoader = model.cache.imageLoader.value, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
                 onError = { failed = true })
-        } else if (!failed) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else if (!failed) {
+            if (!viewer) Icon(painterResource(R.drawable.ic_image), null, Modifier.size(24.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
+            if (showLoading) CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)
+        }
         if (failed) { if (viewer) Text("缓存已不可用，请返回刷新", color = Color.White)
             else Icon(painterResource(R.drawable.ic_image), "缓存不可用", Modifier.size(20.dp)) }
     }

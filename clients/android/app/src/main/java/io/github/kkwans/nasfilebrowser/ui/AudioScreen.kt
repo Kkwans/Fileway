@@ -1,9 +1,7 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.LocalActivity
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -18,11 +16,11 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
+import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
 
@@ -43,16 +41,13 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
     val queue = client.mediaQueue
     var dragging by remember(file) { mutableStateOf<Float?>(null) }
     var menu by remember(file) { mutableStateOf<String?>(null) }
-    val activity = LocalActivity.current
+    val registerDarkCanvas = LocalFilewayDarkCanvasOwner.current
+    val canvasOwner = remember { Any() }
     val colors = MaterialTheme.colorScheme
     val media = FilewayTheme.status
-    DisposableEffect(activity) {
-        val window = activity?.window
-        val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
-        val oldStatus = controller?.isAppearanceLightStatusBars
-        val oldNavigation = controller?.isAppearanceLightNavigationBars
-        controller?.isAppearanceLightStatusBars = false; controller?.isAppearanceLightNavigationBars = false
-        onDispose { oldStatus?.let { controller?.isAppearanceLightStatusBars = it }; oldNavigation?.let { controller?.isAppearanceLightNavigationBars = it } }
+    DisposableEffect(registerDarkCanvas, canvasOwner) {
+        registerDarkCanvas(canvasOwner, true)
+        onDispose { registerDarkCanvas(canvasOwner, false) }
     }
     BackHandler(enabled = menu == null) { model.leavePlayer() }
     Column(Modifier.fillMaxSize().background(media.mediaCanvas).safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -107,9 +102,11 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
         state.operationError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.error) }
         when (menu) {
             "queue" -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
-                itemsIndexed(queue?.items.orEmpty()) { index, item -> ListItem(headlineContent = { Text(item.name, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                    leadingContent = { Text("${index + 1}") }, trailingContent = { if (index == queue?.index) Icon(painterResource(R.drawable.ic_audio), "当前音频") },
-                    modifier = Modifier.clickable { model.navigateMedia(index); menu = null }) }
+                itemsIndexed(queue?.items.orEmpty(), key = { index, item -> "${item.mediaKey}/$index" }) { index, item ->
+                    FilewaySelectionRow(item.name, selected = index == queue?.index, enabled = !client.busy) {
+                        model.navigateMedia(index); menu = null
+                    }
+                }
             }
             "speed" -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
                 listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).forEach { rate -> item(key = rate) {

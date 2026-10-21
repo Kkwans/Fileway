@@ -14,14 +14,9 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -80,34 +75,19 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
                     Text("分隔符：${delimiter.label}")
                     Text("▾", Modifier.padding(start = 4.dp).clearAndSetSemantics {})
                 }
-                DropdownMenu(delimiterMenu, { trace("dismiss-menu-delivered"); delimiterMenu = false }) {
-                    val menuView = androidx.compose.ui.platform.LocalView.current
-                    if (ownedTrace) DisposableEffect(menuView) {
-                        trace("menu-enter:view=${System.identityHashCode(menuView)} root=${System.identityHashCode(menuView.rootView)}")
-                        onDispose { trace("menu-dispose") }
-                    }
-                    val current = preview
-                    val details = if (current is CsvPreview.Reading) {
-                        val table = current.document
-                        "${document.encoding} · 只读 · ${table.delimiter.label}分隔 · ${table.rows(firstRowHeader).size} 行 · ${table.columns} 列"
-                    } else "${document.encoding} · 只读"
-                    Text(details, Modifier.widthIn(max = 320.dp).padding(horizontal = 16.dp, vertical = 8.dp)
-                        .then(if (ownedTrace) Modifier.onGloballyPositioned {
-                            val root = menuView.rootView
-                            trace("menu-geometry:bounds=${it.boundsInWindow()} attached=${root.isAttachedToWindow} shown=${root.isShown} focus=${root.hasWindowFocus()} size=${root.width}x${root.height}")
-                        } else Modifier),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    CsvDelimiter.entries.forEach { choice ->
-                        DropdownMenuItem(text = { Text(choice.label) }, onClick = {
-                            trace("item-delivered:${choice.name}")
-                            delimiter = choice; delimiterMenu = false
-                            trace("item-assigned:${choice.name}")
-                        }, modifier = Modifier.heightIn(min = 48.dp).semantics {
-                            contentDescription = "分隔符：${choice.label}"
-                            role = Role.RadioButton
-                            selected = delimiter == choice
-                        }, trailingIcon = if (delimiter == choice) ({ Text("✓", Modifier.clearAndSetSemantics {}) }) else null)
-                    }
+                FilewayMenu(
+                    delimiterMenu,
+                    { trace("dismiss-menu-delivered"); delimiterMenu = false },
+                    items = CsvDelimiter.entries.map { choice ->
+                        FilewayMenuEntry(choice.name, choice.label, selected = delimiter == choice)
+                    },
+                    selection = FilewayMenuSelection.Single,
+                ) { action ->
+                    val choice = CsvDelimiter.valueOf(action.key)
+                    trace("item-delivered:${choice.name}")
+                    delimiter = choice
+                    delimiterMenu = false
+                    trace("item-assigned:${choice.name}")
                 }
             }
             Row(Modifier.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
@@ -125,6 +105,9 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
             }
             is CsvPreview.Reading -> {
                 val table = result.document
+                Text("${table.delimiter.label}分隔 · ${table.rows(firstRowHeader).size} 行 · ${table.columns} 列",
+                    Modifier.padding(horizontal = 16.dp, vertical = 4.dp), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 val rows = remember(table, firstRowHeader) { table.rows(firstRowHeader) }
                 val headers = remember(table, firstRowHeader) { table.headers(firstRowHeader) }
                 if (table.unevenRows) Text("各行列数不齐；已保留全部单元格，缺少的位置显示为空。",

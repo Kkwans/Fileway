@@ -37,9 +37,9 @@ class ArchivePathsTest {
     }
 
     @Test fun detectsOnlyExistingSupportedRemoteArchiveFamilies() {
-        for (name in listOf("a.ZIP", "a.tar", "a.tar.gz", "a.tar.bz2", "a.tar.xz", "a.tar.zst"))
+        for (name in listOf("a.ZIP", "a.7Z", "a.RAR", "a.tar", "a.tar.gz", "a.tar.bz2", "a.tar.xz", "a.tar.zst"))
             assertTrue(isBrowsableArchive(ResourceRef("/$name", "/$name", name, false, "", 0)))
-        for (name in listOf("a.7z", "a.rar", "a.gz")) assertFalse(isBrowsableArchive(ResourceRef("/$name", "/$name", name, false, "", 0)))
+        for (name in listOf("a.iso", "a.7z.001", "a.gz")) assertFalse(isBrowsableArchive(ResourceRef("/$name", "/$name", name, false, "", 0)))
         assertFalse(isBrowsableArchive(ResourceRef("/a.zip", "/a.zip", "a.zip", true, "", 0)))
     }
 }

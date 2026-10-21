@@ -83,14 +83,21 @@ import kotlin.math.roundToInt
             FilewayTopAppBar(file.name, summary, R.drawable.ic_arrow_back, "关闭文档", ::leave, actions = {
                 Box {
                     DocumentIcon(R.drawable.ic_more_vert, "文档操作") { focus.clearFocus(); keyboard?.hide(); menu = true }
-                    DropdownMenu(menu, { menu = false }) {
-                        if (onEdit != null && state.text != null) DocumentMenuAction(R.drawable.ic_edit, "编辑文本", enabled = !state.loading) {
-                            menu = false; state.text?.let { onEdit(file, it) }
+                    FilewayMenu(menu, { menu = false }, items = buildList {
+                        if (onEdit != null && state.text != null) add(FilewayMenuEntry("edit", "编辑文本", R.drawable.ic_edit, enabled = !state.loading))
+                        add(FilewayMenuEntry("reload", "重新读取文档", R.drawable.ic_refresh, enabled = !state.loading))
+                        add(FilewayMenuEntry("download", "下载文档", R.drawable.ic_download, enabled = canDownload))
+                        add(FilewayMenuEntry("info", "文档信息", R.drawable.ic_info))
+                        if (onOpenExternal != null) add(FilewayMenuEntry("external", "使用系统应用打开已下载文件", R.drawable.ic_arrow_forward))
+                    }) { action ->
+                        menu = false
+                        when (action.key) {
+                            "edit" -> state.text?.let { onEdit?.invoke(file, it) }
+                            "reload" -> controller.retry()
+                            "download" -> onDownload(file)
+                            "info" -> info = true
+                            "external" -> onOpenExternal?.invoke(file)
                         }
-                        DocumentMenuAction(R.drawable.ic_refresh, "重新读取文档", enabled = !state.loading) { menu = false; controller.retry() }
-                        DocumentMenuAction(R.drawable.ic_download, "下载文档", enabled = canDownload) { menu = false; onDownload(file) }
-                        DocumentMenuAction(R.drawable.ic_info, "文档信息") { menu = false; info = true }
-                        if (onOpenExternal != null) DocumentMenuAction(R.drawable.ic_arrow_forward, "使用系统应用打开已下载文件") { menu = false; onOpenExternal(file) }
                     }
                 }
             })
@@ -136,16 +143,6 @@ import kotlin.math.roundToInt
             }
         }
     }
-}
-
-@Composable private fun DocumentMenuAction(icon: Int, label: String, enabled: Boolean = true, click: () -> Unit) {
-    DropdownMenuItem(text = { Text(label) }, onClick = click, enabled = enabled,
-        leadingIcon = { Icon(painterResource(icon), null, Modifier.size(22.dp)) },
-        modifier = Modifier.heightIn(min = 48.dp).clearAndSetSemantics {
-            contentDescription = label
-            role = Role.Button
-            if (enabled) onClick { click(); true } else disabled()
-        })
 }
 
 @Composable private fun DocumentIcon(icon: Int, label: String, enabled: Boolean = true, click: () -> Unit) {
