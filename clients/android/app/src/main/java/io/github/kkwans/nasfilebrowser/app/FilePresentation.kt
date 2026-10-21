@@ -3,7 +3,7 @@ package io.github.kkwans.nasfilebrowser.app
 import java.time.Instant
 import java.util.Locale
 
-/** Same extension groups as the web client's searchFilters.ts; this is filtering, not decoder capability. */
+/** Browser extension groups; preview decoding retains its separate safety boundary. */
 enum class FileCategory(val label: String, private val extensions: Set<String> = emptySet()) {
     ALL("全部"), FOLDER("文件夹"),
     IMAGE("图片", setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif")),
@@ -11,7 +11,8 @@ enum class FileCategory(val label: String, private val extensions: Set<String> =
     AUDIO("音频", setOf("mp3", "m4a", "aac", "flac", "wav", "ogg", "opus")),
     PDF("PDF", setOf("pdf")), MARKDOWN("Markdown", setOf("md", "markdown", "mdown", "mkd")),
     CONFIG("配置文件", setOf("json", "json5", "yaml", "yml", "toml", "ini", "conf", "config", "env", "xml", "properties")),
-    CODE("代码", setOf("java", "py", "go", "js", "jsx", "ts", "tsx", "vue", "rs", "c", "h", "cpp", "hpp", "cs", "php", "rb", "kt", "kts", "swift", "sh", "ps1", "sql"));
+    CODE("代码", setOf("java", "py", "go", "js", "jsx", "ts", "tsx", "vue", "rs", "c", "h", "cpp", "hpp", "cs", "php", "rb", "kt", "kts", "swift", "sh", "ps1", "sql",
+        "html", "htm", "xhtml", "css", "scss", "sass", "less", "cc", "cxx", "hh", "hxx", "m", "mm", "dart", "lua", "pl", "pm", "r", "ex", "exs", "bash", "zsh", "fish", "bat", "cmd", "gradle", "cmake", "mdx"));
 
     fun matches(name: String, directory: Boolean): Boolean = when {
         this == ALL -> true

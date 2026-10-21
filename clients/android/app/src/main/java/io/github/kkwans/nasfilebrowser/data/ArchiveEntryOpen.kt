@@ -10,9 +10,8 @@ fun archiveEntryKind(name: String): ArchiveEntryKind = when (name.substringAfter
     "mp4", "mkv", "webm", "m4v", "avi", "mov", "m2ts", "ts" -> ArchiveEntryKind.VIDEO
     "mp3", "m4a", "flac", "opus", "aac", "ogg", "wav", "wma", "aif", "aiff" -> ArchiveEntryKind.AUDIO
     "pdf" -> ArchiveEntryKind.PDF
-    "txt", "md", "json", "xml", "yaml", "yml", "log", "csv", "html", "css", "js", "kt", "go", "java", "srt", "ass", "vtt" -> ArchiveEntryKind.TEXT
     "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "rtf" -> ArchiveEntryKind.DOCUMENT
-    else -> ArchiveEntryKind.OTHER
+    else -> if (isTextDocumentName(name)) ArchiveEntryKind.TEXT else ArchiveEntryKind.OTHER
 }
 data class ArchiveEntryOpenStatus(val id: String, val state: String, val stage: String, val size: Long, val processedBytes: Long,
     val asset: String, val error: String?) {

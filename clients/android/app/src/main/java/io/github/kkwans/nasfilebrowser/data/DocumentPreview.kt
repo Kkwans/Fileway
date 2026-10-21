@@ -1,6 +1,5 @@
 package io.github.kkwans.nasfilebrowser.data
 
-import io.github.kkwans.nasfilebrowser.app.FileCategory
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -23,8 +22,7 @@ fun documentPreviewKind(file: ResourceRef): DocumentPreviewKind {
         file.type == "pdf" || extension == "pdf" -> DocumentPreviewKind.PDF
         file.type in setOf("text", "textImmutable") -> DocumentPreviewKind.TEXT
         file.type in setOf("video", "audio", "image") -> DocumentPreviewKind.OTHER
-        extension in setOf("txt", "log", "csv", "tsv") || FileCategory.MARKDOWN.matches(file.name, false) ||
-            FileCategory.CONFIG.matches(file.name, false) || FileCategory.CODE.matches(file.name, false) -> DocumentPreviewKind.TEXT
+        isTextDocumentName(file.name) -> DocumentPreviewKind.TEXT
         else -> DocumentPreviewKind.OTHER
     }
 }

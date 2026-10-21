@@ -18,7 +18,7 @@ data class ArchiveReport(val archivePath: String, val archiveWirePath: String, v
     val skippedCount: Long, val skipped: List<ArchiveBlockedEntry>, val completedAt: Long)
 
 fun isBrowsableArchive(file: ResourceRef): Boolean = !file.directory && file.downloadId.isEmpty() &&
-    listOf(".zip", ".tar", ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst").any { file.name.lowercase(Locale.ROOT).endsWith(it) }
+    listOf(".zip", ".7z", ".rar", ".tar", ".tar.gz", ".tar.bz2", ".tar.xz", ".tar.zst").any { file.name.lowercase(Locale.ROOT).endsWith(it) }
 
 /** A relative archive identity is separate from a filesystem ResourceRef. */
 fun archiveEntryWireBytes(wire: String): ByteArray {
