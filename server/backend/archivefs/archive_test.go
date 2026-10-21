@@ -216,13 +216,13 @@ func TestSafetyLimitsAndDisabledFormats(t *testing.T) {
 		name string
 		data []byte
 	}{
-		{name: "/disabled.7z", data: []byte("7z\xbc\xaf\x27\x1c")},
-		{name: "/disabled.rar", data: []byte("Rar!\x1a\x07\x00")},
+		{name: "/broken.7z", data: []byte("7z\xbc\xaf\x27\x1c")},
+		{name: "/broken.rar", data: []byte("Rar!\x1a\x07\x00")},
 	} {
 		if err := afero.WriteFile(filesystem, fixture.name, fixture.data, 0o640); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := List(context.Background(), filesystem, fixture.name, Limits{}); !errors.Is(err, ErrUnsupportedFormat) {
+		if _, err := List(context.Background(), filesystem, fixture.name, Limits{}); !errors.Is(err, ErrInvalidArchive) {
 			t.Fatalf("%s error = %v", fixture.name, err)
 		}
 	}
