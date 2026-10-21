@@ -8,6 +8,9 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.DisposableEffect
 import androidx.core.view.WindowCompat
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.data.AppTheme
 import androidx.activity.ComponentActivity
@@ -17,6 +20,7 @@ import androidx.activity.viewModels
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.ui.ClientApp
 import io.github.kkwans.nasfilebrowser.ui.ClientTheme
+import io.github.kkwans.nasfilebrowser.ui.LocalFilewayDarkCanvasOwner
 
 class MainActivity : ComponentActivity() {
     private val model: ClientModel by viewModels()
@@ -27,6 +31,16 @@ class MainActivity : ComponentActivity() {
         setContent {
             val appearance by model.appearance.state.collectAsStateWithLifecycle()
             val client by model.state.collectAsStateWithLifecycle()
+            // Local viewers need dark bars without turning their parent page dark.
+            // Owner tokens also make nested/overlapping lifetimes safe on disposal.
+            val darkCanvasOwners = remember { mutableStateMapOf<Any, Unit>() }
+            val registerDarkCanvas = remember {
+                { owner: Any, active: Boolean ->
+                    if (active) darkCanvasOwners[owner] = Unit else darkCanvasOwners.remove(owner)
+                    Unit
+                }
+            }
+            val darkCanvas = darkCanvasOwners.isNotEmpty()
             val dark = when (appearance.theme) {
                 AppTheme.SYSTEM -> isSystemInDarkTheme()
                 AppTheme.LIGHT -> false
@@ -34,7 +48,7 @@ class MainActivity : ComponentActivity() {
             }
             // Read media state during composition, not only inside an effect;
             // otherwise entering the viewer does not invalidate this scope.
-            val lightBars = !dark && client.selected == null && client.image == null
+            val lightBars = !dark && client.selected == null && client.image == null && !darkCanvas
             DisposableEffect(lightBars) {
                 val style = if (lightBars) SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
                     else SystemBarStyle.dark(Color.TRANSPARENT)
@@ -48,14 +62,16 @@ class MainActivity : ComponentActivity() {
                 onDispose { }
             }
             androidx.compose.runtime.SideEffect {
-                if (client.selected == null && client.image == null) {
+                if (client.selected == null && client.image == null && !darkCanvas) {
                     val bars = WindowCompat.getInsetsController(window, window.decorView)
                     bars.isAppearanceLightStatusBars = !dark
                     bars.isAppearanceLightNavigationBars = !dark
                 }
             }
-            ClientTheme(darkTheme = dark) {
-                androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.background) { ClientApp(model) }
+            CompositionLocalProvider(LocalFilewayDarkCanvasOwner provides registerDarkCanvas) {
+                ClientTheme(darkTheme = dark) {
+                    androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.background) { ClientApp(model) }
+                }
             }
         }
         // Theme.Material's native content parent consumes Insets via fitsSystemWindows.

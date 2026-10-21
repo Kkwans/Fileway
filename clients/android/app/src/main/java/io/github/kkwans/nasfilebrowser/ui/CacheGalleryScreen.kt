@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
@@ -145,10 +146,24 @@ Column(Modifier.fillMaxSize()) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var saving by remember { mutableStateOf(false) }
+    val registerDarkCanvas = LocalFilewayDarkCanvasOwner.current
+    val canvasOwner = remember { Any() }
+    DisposableEffect(registerDarkCanvas, canvasOwner) {
+        registerDarkCanvas(canvasOwner, true)
+        onDispose { registerDarkCanvas(canvasOwner, false) }
+    }
     BackHandler { onBack() }
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
-        Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-            FilewayTopAppBar("缓存图片", "${pager.settledPage + 1} / ${images.size}", R.drawable.ic_arrow_back, "返回缓存图库", onBack, actions = {
+    Scaffold(containerColor = Color.Black, contentColor = Color.White) { insets ->
+        Box(Modifier.fillMaxSize().background(Color.Black).padding(insets).consumeWindowInsets(insets)) {
+            HorizontalPager(pager, Modifier.fillMaxSize(),
+                key = { images[it].key }, userScrollEnabled = zoomed[images[pager.settledPage].key] != true) { page ->
+                CachedImageContent(model, images[page], account, viewer = true) { zoomed[images[page].key] = it }
+            }
+            Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .55f)),
+                verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onBack) { Icon(painterResource(R.drawable.ic_arrow_back), "返回缓存图库", tint = Color.White) }
+                Text("缓存图片", Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
                 IconButton({
                     val image = images[pager.settledPage]
                     if (model.cacheAccount() == account) {
@@ -161,11 +176,13 @@ Column(Modifier.fillMaxSize()) {
                             android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
-                }, enabled = !saving) { Icon(painterResource(R.drawable.ic_download), "保存缓存图片到相册") }
-            })
-            HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth().background(Color.Black),
-                key = { images[it].key }, userScrollEnabled = zoomed[images[pager.settledPage].key] != true) { page ->
-                CachedImageContent(model, images[page], account, viewer = true) { zoomed[images[page].key] = it }
+                }, enabled = !saving) { Icon(painterResource(R.drawable.ic_download), "保存缓存图片到相册",
+                    tint = Color.White.copy(alpha = if (saving) .38f else 1f)) }
+            }
+            Surface(Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.Black.copy(alpha = .5f),
+                contentColor = Color.White, shape = MaterialTheme.shapes.medium) {
+                Text("${pager.settledPage + 1} / ${images.size}", Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.labelMedium)
             }
         }
     }

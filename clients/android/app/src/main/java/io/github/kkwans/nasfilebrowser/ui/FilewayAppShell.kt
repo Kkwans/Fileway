@@ -24,6 +24,7 @@ internal val LocalSkipBottomNavigation = staticCompositionLocalOf { false }
 internal val LocalFilewayDrawer = staticCompositionLocalOf<() -> Unit> { {} }
 internal val LocalFilewayBack = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalFilewaySessionModel = staticCompositionLocalOf<ClientModel?> { null }
+internal val LocalFilewayDarkCanvasOwner = staticCompositionLocalOf<(Any, Boolean) -> Unit> { { _, _ -> } }
 
 /** Drawer chrome exists only around library pages, never around a native content surface. */
 @Composable
