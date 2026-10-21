@@ -67,10 +67,11 @@ import io.github.kkwans.nasfilebrowser.data.*
                                 Text("命名规则", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                                 Box {
                                     FilewayTextButton({ rules = true }, enabled = enabled) { Text(draft.options.rule.label) }
-                                    DropdownMenu(rules, { rules = false }) {
-                                        BatchRenameRule.entries.forEach { rule -> DropdownMenuItem({ Text(rule.label) }, {
-                                            rules = false; controller.batchRenameOptions(draft.options.copy(rule = rule))
-                                        }) }
+                                    FilewayMenu(rules, { rules = false }, items = BatchRenameRule.entries.map { rule ->
+                                        FilewayMenuEntry(rule.name, rule.label, selected = draft.options.rule == rule)
+                                    }, selection = FilewayMenuSelection.Single) { item ->
+                                        rules = false
+                                        controller.batchRenameOptions(draft.options.copy(rule = BatchRenameRule.valueOf(item.key)))
                                     }
                                 }
                             }

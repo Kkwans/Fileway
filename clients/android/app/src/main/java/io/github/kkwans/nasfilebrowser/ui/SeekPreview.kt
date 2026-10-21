@@ -49,7 +49,7 @@ import kotlin.math.abs
 @Composable internal fun SeekPreview(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long?) {
     if (positionMs == null) return
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xE6202023)).padding(6.dp),
+        Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xE6202023)).padding(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             SeekThumbnail(asset, positionMs)
             Text(clock(positionMs), color = Color.White, fontSize = 12.sp)
@@ -66,7 +66,7 @@ import kotlin.math.abs
         stateDescription = "${clock(targetMs)}，$change"
     }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         SeekThumbnail(asset, targetMs, 96.dp)
-        Column(Modifier.clip(RoundedCornerShape(6.dp)).background(Color(0xB3000000))
+        Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xB3000000))
             .padding(horizontal = 10.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -85,7 +85,7 @@ import kotlin.math.abs
     asset?.let { (sprite, bitmap) ->
         val image = remember(bitmap) { bitmap.asImageBitmap() }
         val (x, y) = sprite.tileAt(positionMs)
-        Canvas(Modifier.width(width).aspectRatio(sprite.width.toFloat() / sprite.height).clip(RoundedCornerShape(6.dp))
+        Canvas(Modifier.width(width).aspectRatio(sprite.width.toFloat() / sprite.height).clip(RoundedCornerShape(12.dp))
             .semantics { contentDescription = "当前拖动时间附近的视频缩略图" }) {
             drawImage(image, srcOffset = IntOffset(x, y), srcSize = IntSize(sprite.width, sprite.height),
                 dstSize = IntSize(size.width.toInt(), size.height.toInt()))

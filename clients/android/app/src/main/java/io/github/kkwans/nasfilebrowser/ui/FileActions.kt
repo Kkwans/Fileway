@@ -124,26 +124,35 @@ import kotlinx.coroutines.withTimeout
                         if (client.permissions.delete && file.path != "/") FileActionIcon(R.drawable.ic_trash, "删除", enabled && !tags.changing, caption = "删除") {
                             switch(FileOperationDestination.TRASH, "删除")
                         }
-                        if (file.path != "/" && (client.permissions.rename || client.permissions.create || client.permissions.download)) Box {
-                            FileActionIcon(R.drawable.ic_more_vert, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
-                            DropdownMenu(more, { more = false }) {
-                                if (client.permissions.download) FilewayMenuItem("打包下载为 ZIP", {
-                                    more = false; model.startZipExport(listOf(file), client.previewScope); leave()
-                                }, R.drawable.ic_download)
-                                if (client.permissions.download && !file.directory) FilewayMenuItem("校验文件", {
-                                    model.fileChecksum.open(file, client.previewScope)
-                                    if (model.fileChecksum.state.value.file?.mediaKey == file.mediaKey) switch(FileOperationDestination.CHECKSUM, "更多文件操作")
-                                }, R.drawable.ic_check)
-                                if (client.permissions.rename) Box(Modifier.semantics { contentDescription = "重命名文件" }) {
-                                    FilewayMenuItem("重命名", { switch(FileOperationDestination.RENAME, "更多文件操作") }, R.drawable.ic_edit,
-                                        enabled = !tags.changing && !favorites.changing)
+                        if (file.path != "/" && (client.permissions.rename || client.permissions.create || client.permissions.download)) {
+                            val extraActions = buildList {
+                                if (client.permissions.download) add(FilewayMenuEntry("zip", "打包下载为 ZIP", R.drawable.ic_download))
+                                if (client.permissions.download && !file.directory) add(FilewayMenuEntry("checksum", "校验文件", R.drawable.ic_check))
+                                if (client.permissions.rename) add(FilewayMenuEntry("rename", "重命名", R.drawable.ic_edit, enabled = !tags.changing && !favorites.changing, accessibilityLabel = "重命名文件"))
+                                if (client.permissions.create) add(FilewayMenuEntry("copy", "复制到…", R.drawable.ic_copy, accessibilityLabel = "复制文件"))
+                                if (client.permissions.create && client.permissions.rename) add(FilewayMenuEntry("move", "移动到…", R.drawable.ic_move, accessibilityLabel = "移动文件"))
+                            }
+                            val performExtra: (FilewayMenuEntry) -> Unit = { item ->
+                                more = false
+                                when (item.key) {
+                                    "zip" -> { model.startZipExport(listOf(file), client.previewScope); leave() }
+                                    "checksum" -> {
+                                        model.fileChecksum.open(file, client.previewScope)
+                                        if (model.fileChecksum.state.value.file?.mediaKey == file.mediaKey) switch(FileOperationDestination.CHECKSUM, "更多文件操作")
+                                    }
+                                    "rename" -> switch(FileOperationDestination.RENAME, "更多文件操作")
+                                    "copy" -> { model.startFileTransfer(listOf(file), FileTransferAction.COPY, client.previewScope); leave() }
+                                    "move" -> { model.startFileTransfer(listOf(file), FileTransferAction.MOVE, client.previewScope); leave() }
                                 }
-                                if (client.permissions.create) Box(Modifier.semantics { contentDescription = "复制文件" }) {
-                                    FilewayMenuItem("复制到…", { more = false; model.startFileTransfer(listOf(file), FileTransferAction.COPY, client.previewScope); leave() }, R.drawable.ic_copy)
+                            }
+                            if (extraActions.size <= 2) extraActions.forEach { item ->
+                                FileActionIcon(requireNotNull(item.icon), item.accessibilityLabel ?: item.label, enabled && operations.transfer == null && item.enabled,
+                                    caption = when (item.key) { "zip" -> "打包下载"; "checksum" -> "校验"; "rename" -> "重命名"; "copy" -> "复制"; else -> "移动" }) {
+                                    performExtra(item)
                                 }
-                                if (client.permissions.create && client.permissions.rename) Box(Modifier.semantics { contentDescription = "移动文件" }) {
-                                    FilewayMenuItem("移动到…", { more = false; model.startFileTransfer(listOf(file), FileTransferAction.MOVE, client.previewScope); leave() }, R.drawable.ic_move)
-                                }
+                            } else Box {
+                                FileActionIcon(R.drawable.ic_more_vert, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
+                                FilewayMenu(more, { more = false }, items = extraActions, onItemClick = performExtra)
                             }
                         }
                     }

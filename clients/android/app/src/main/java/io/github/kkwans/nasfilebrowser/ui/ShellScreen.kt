@@ -68,9 +68,9 @@ import kotlinx.coroutines.flow.collect
             Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box {
                     FilewayTextButton({ menu = true }, enabled = state.commands.isNotEmpty() && !state.running && !state.loading) { Text("选择允许的命令") }
-                    DropdownMenu(menu, { menu = false }, modifier = Modifier.heightIn(max = 360.dp)) {
-                        state.commands.take(256).forEach { command -> DropdownMenuItem({ Text(command) }, { menu = false; controller.input(command + " ") }) }
-                    }
+                    FilewayMenu(menu, { menu = false }, items = state.commands.take(256).mapIndexed { index, command ->
+                        FilewayMenuEntry(index.toString(), command)
+                    }) { item -> menu = false; controller.input(item.label + " ") }
                 }
                 Spacer(Modifier.weight(1f))
                 FilewayTextButton(controller::clearOutput, enabled = !state.running && state.output.lines.isNotEmpty()) { Text("清空显示") }

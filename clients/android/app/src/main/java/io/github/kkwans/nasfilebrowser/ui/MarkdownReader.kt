@@ -673,7 +673,7 @@ private fun ReaderCode(code: String, language: String?, style: TextStyle) {
         catch (error: Exception) { copyFailed = true; observe("copy-failed", exceptionType = error.javaClass.simpleName) }
     }
     MarkdownCodeBackground(color = codeSurface, border = BorderStroke(1.dp, codeBorder),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), shape = RoundedCornerShape(8.dp)) {
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), shape = RoundedCornerShape(12.dp)) {
         Column(Modifier.fillMaxWidth()) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(language?.takeWhile { !it.isWhitespace() }?.ifEmpty { "代码" } ?: "代码",

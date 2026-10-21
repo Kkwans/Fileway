@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.TextStyle
@@ -50,6 +51,7 @@ internal data class FilewayMenuEntry(
     val destructive: Boolean = false,
     val description: String? = null,
     val selectable: Boolean = true,
+    val accessibilityLabel: String? = null,
 )
 
 internal enum class FilewayMenuAlignment { Start, Center }
@@ -161,7 +163,10 @@ private fun FilewayMenuRow(
             .heightIn(min = 48.dp)
             .then(if (selectedSurface) Modifier.background(colors.primaryContainer.copy(alpha = enabledAlpha), MenuShape) else Modifier)
             .then(action)
-            .semantics { this.selected = item.selected }
+            .semantics {
+                this.selected = item.selected
+                item.accessibilityLabel?.let { contentDescription = it }
+            }
             .padding(horizontal = MenuHorizontalPadding, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (alignment == FilewayMenuAlignment.Center) Arrangement.Center else Arrangement.Start,

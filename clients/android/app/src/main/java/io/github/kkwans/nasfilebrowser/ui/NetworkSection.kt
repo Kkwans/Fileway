@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -57,7 +56,6 @@ import io.github.kkwans.nasfilebrowser.core.NetworkState
     openLogin: () -> Unit, copyLogin: () -> Unit, logout: () -> Unit,
 ) {
     var details by remember { mutableStateOf(false) }
-    var menu by remember { mutableStateOf(false) }
     val active = network.state in listOf("Starting", "NeedsLogin", "NeedsMachineAuth", "Running")
     val canStart = !network.connected && network.authUrl.isEmpty() && network.state != "NeedsMachineAuth"
     val colors = MaterialTheme.colorScheme
@@ -68,11 +66,8 @@ import io.github.kkwans.nasfilebrowser.core.NetworkState
             Text(network.label, style = MaterialTheme.typography.bodySmall,
                 color = if (network.connected) colors.primary else colors.onSurfaceVariant)
             if (active) FilewayTextButton(stop) { Text(if (network.connected) "断开" else "取消连接") }
-            if (network.canLogout) Box {
-                IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more_vert), "Tailscale 操作", Modifier.size(22.dp)) }
-                DropdownMenu(menu, { menu = false }) {
-                    DropdownMenuItem(text = { Text("退出 Tailscale 账号") }, onClick = { menu = false; logout() })
-                }
+            if (network.canLogout) IconButton(onClick = logout) {
+                Icon(painterResource(R.drawable.ic_logout), "退出 Tailscale 账号", Modifier.size(22.dp))
             }
         }
         when {
@@ -83,10 +78,10 @@ import io.github.kkwans.nasfilebrowser.core.NetworkState
         if (canStart || network.authUrl.isNotEmpty()) FilewayTonalButton(
             onClick = if (network.authUrl.isNotEmpty()) openLogin else start,
             enabled = network.state != "Starting",
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("network-primary-action"), shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("network-primary-action"), shape = MaterialTheme.shapes.medium,
             colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.primaryContainer, contentColor = colors.onPrimaryContainer),
         ) { Text(if (network.authUrl.isNotEmpty()) "打开登录页" else if (network.state == "Starting") "正在连接" else "连接 Tailscale") }
-        if (network.authUrl.isNotEmpty()) FilewayOutlinedButton(copyLogin, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(10.dp)) { Text("复制登录链接") }
+        if (network.authUrl.isNotEmpty()) FilewayOutlinedButton(copyLogin, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = MaterialTheme.shapes.medium) { Text("复制登录链接") }
         network.error?.let { Text(it, color = colors.error, style = MaterialTheme.typography.bodySmall) }
         message?.let { Text(it, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
         if (network.ips.isNotEmpty() || network.health.isNotEmpty() || network.acceptSubnets) {

@@ -74,7 +74,9 @@ import io.github.kkwans.nasfilebrowser.app.*
             var orders by remember { mutableStateOf(false) }
             Box {
                 FilewayTextButton({ orders = true }) { Text(when (order) { "name" -> "按名称"; "size" -> "按大小"; else -> "最新删除" }) }
-                DropdownMenu(orders, { orders = false }) { listOf("deleted" to "最新删除", "name" to "按名称", "size" to "按大小").forEach { (id, label) -> DropdownMenuItem({ Text(label) }, { order = id; orders = false }) } }
+                FilewayMenu(orders, { orders = false }, items = listOf("deleted" to "最新删除", "name" to "按名称", "size" to "按大小").map { (id, label) ->
+                    FilewayMenuEntry(id, label, selected = order == id)
+                }, selection = FilewayMenuSelection.Single) { item -> order = item.key; orders = false }
             }
             if (canDelete && selecting) FilewayTextButton({ selected = if (selected.size == displayed.size) emptySet() else displayed.filter { it.status != "restoring" }.map { it.id }.toSet() }, enabled = enabled) { Text("全选") }
             if (canDelete && selecting && selected.isNotEmpty()) FilewayTextButton({ deleting = selected.toList() }, enabled = enabled) { Text("删除 ${selected.size} 项") }

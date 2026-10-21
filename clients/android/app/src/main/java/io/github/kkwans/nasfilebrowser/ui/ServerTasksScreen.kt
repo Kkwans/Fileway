@@ -42,7 +42,6 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
     val state by model.tasks.state.collectAsStateWithLifecycle()
     var search by rememberSaveable(state.scope) { mutableStateOf(state.filter.text) }
     var advanced by remember(state.scope) { mutableStateOf(false) }
-    var bulkMenu by remember(state.scope) { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     var confirm by remember(state.scope) { mutableStateOf<TaskConfirmation?>(null) }
     var technicalDetails by remember(state.scope, state.focusId) { mutableStateOf(false) }
@@ -80,16 +79,12 @@ Column(Modifier.fillMaxSize()) {
             if (singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && (state.total > 0 || singleBulk == "archive-ended")) {
                 Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_archive),
                     if (singleBulk == "batch-unarchive") "全部移出归档" else "归档已结束任务", Modifier.size(22.dp))
-            } else if (state.filter.view != TaskView.ACTIVE) Box {
-                IconButton({ bulkMenu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_horiz), "批量任务操作") }
-                DropdownMenu(bulkMenu, { bulkMenu = false }) {
-                    when (state.filter.view) {
-                        TaskView.ARCHIVED -> DropdownMenuItem({ Text("全部移出归档") }, { bulkMenu = false; confirmAction(null, "batch-unarchive") }, enabled = state.total > 0)
-                        TaskView.ATTENTION, TaskView.COMPLETED, TaskView.CANCELED -> DropdownMenuItem({ Text("批量归档") }, { bulkMenu = false; confirmAction(null, "batch-archive") }, enabled = state.total > 0)
-                        TaskView.ALL -> DropdownMenuItem({ Text("归档我的已结束记录") }, { bulkMenu = false; confirmAction(null, "archive-ended") })
-                        else -> Unit
-                    }
-                    if (state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) DropdownMenuItem({ Text("批量重试") }, { bulkMenu = false; confirmAction(null, "batch-retry") }, enabled = state.total > 0)
+            } else if (state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) {
+                IconButton({ confirmAction(null, "batch-archive") }, enabled = enabled && state.total > 0) {
+                    Icon(painterResource(R.drawable.ic_archive), "批量归档", Modifier.size(22.dp))
+                }
+                IconButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) {
+                    Icon(painterResource(R.drawable.ic_refresh), "批量重试", Modifier.size(22.dp))
                 }
             }
         }
@@ -267,17 +262,17 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
                 FilewayFilterField("任务类型", SERVER_TASK_TYPES[type] ?: "全部", onClick = { types = true; owners = false })
-                DropdownMenu(types, { types = false }, modifier = Modifier.heightIn(max = 360.dp), shape = RoundedCornerShape(12.dp)) {
-                    FilewayMenuItem("全部类型", { type = ""; types = false }, selected = type.isEmpty())
-                    SERVER_TASK_TYPES.filterKeys { it !in setOf("file.delete.permanent", "trash.delete.permanent") }.forEach { (id, label) -> FilewayMenuItem(label, { type = id; types = false }, selected = type == id) }
-                }
+                FilewayMenu(types, { types = false }, items = listOf(FilewayMenuEntry("", "全部类型", selected = type.isEmpty())) +
+                    SERVER_TASK_TYPES.filterKeys { it !in setOf("file.delete.permanent", "trash.delete.permanent") }.map { (id, label) ->
+                        FilewayMenuEntry(id, label, selected = type == id)
+                    }, selection = FilewayMenuSelection.Single) { item -> type = item.key; types = false }
             }
             Box(Modifier.weight(1f)) {
                 FilewayFilterField("账号", owner.ifEmpty { "全部可见账号" }, onClick = { owners = true; types = false })
-                DropdownMenu(owners, { owners = false }, shape = RoundedCornerShape(12.dp)) {
-                    FilewayMenuItem("全部可见账号", { owner = ""; owners = false }, selected = owner.isEmpty())
-                    (listOf(accountName) + state.owners).distinct().filter { it.isNotEmpty() }.forEach { name -> FilewayMenuItem(name, { owner = name; owners = false }, selected = owner == name) }
-                }
+                FilewayMenu(owners, { owners = false }, items = listOf(FilewayMenuEntry("", "全部可见账号", selected = owner.isEmpty())) +
+                    (listOf(accountName) + state.owners).distinct().filter { it.isNotEmpty() }.map { name ->
+                        FilewayMenuEntry(name, name, selected = owner == name)
+                    }, selection = FilewayMenuSelection.Single) { item -> owner = item.key; owners = false }
             }
             }
             FilewayDateRangeFields(date(from), date(to), from > 0 || to > 0,

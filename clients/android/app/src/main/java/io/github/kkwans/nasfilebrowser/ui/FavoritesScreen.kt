@@ -149,11 +149,19 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                         Text(group.name, Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.titleSmall)
                         Box {
                             IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_horiz), "分组更多：${group.name}") }
-                            DropdownMenu(menu, { menu = false }) {
-                                DropdownMenuItem({ Text("编辑分组") }, { menu = false; editing = group })
-                                DropdownMenuItem({ Text("上移") }, { menu = false; model.favorites.moveGroup(group, -1) }, enabled = state.groups.firstOrNull()?.id != group.id)
-                                DropdownMenuItem({ Text("下移") }, { menu = false; model.favorites.moveGroup(group, 1) }, enabled = state.groups.lastOrNull()?.id != group.id)
-                                DropdownMenuItem({ Text("删除分组") }, { menu = false; deleting = group })
+                            FilewayMenu(menu, { menu = false }, items = listOf(
+                                FilewayMenuEntry("edit", "编辑分组", R.drawable.ic_edit),
+                                FilewayMenuEntry("up", "上移", R.drawable.ic_expand_less, enabled = state.groups.firstOrNull()?.id != group.id),
+                                FilewayMenuEntry("down", "下移", R.drawable.ic_expand_more, enabled = state.groups.lastOrNull()?.id != group.id),
+                                FilewayMenuEntry("delete", "删除分组", R.drawable.ic_trash, destructive = true),
+                            )) { item ->
+                                menu = false
+                                when (item.key) {
+                                    "edit" -> editing = group
+                                    "up" -> model.favorites.moveGroup(group, -1)
+                                    "down" -> model.favorites.moveGroup(group, 1)
+                                    "delete" -> deleting = group
+                                }
                             }
                         }
                     }
