@@ -44,7 +44,7 @@ private enum class GlobalSettingsGroup(val label: String) {
         if (draft != null) Surface {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 8.dp)) {
                 if (!numbersValid) Text("请完成有误的数值输入", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                Button(controller::requestSave, enabled = enabled && state.dirty && numbersValid,
+                FilewayButton(controller::requestSave, enabled = enabled && state.dirty && numbersValid,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(if (state.saving) "正在保存" else "保存全局设置") }
             }
         }
@@ -56,10 +56,10 @@ private enum class GlobalSettingsGroup(val label: String) {
             state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             state.notice?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
             if (state.unknown) item { Column {
-                OutlinedButton(controller::refresh, enabled = !state.loading && !state.saving, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("读取服务器核对") }
-                TextButton(controller::resetToServer, enabled = !state.loading && !state.saving, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("采用服务器设置并重新编辑") }
+                FilewayOutlinedButton(controller::refresh, enabled = !state.loading && !state.saving, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("读取服务器核对") }
+                FilewayTextButton(controller::resetToServer, enabled = !state.loading && !state.saving, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("采用服务器设置并重新编辑") }
             } }
-            if (!state.authorized && state.error != null) item { OutlinedButton(onReconnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重新连接") } }
+            if (!state.authorized && state.error != null) item { FilewayOutlinedButton(onReconnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重新连接") } }
             if (draft != null) {
                 item { SettingsGroup("服务器能力") { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("认证方式：" + when (state.settings?.authMethod) { "json" -> "账号密码"; "proxy" -> "代理认证"; "hook" -> "外部认证"; "noauth" -> "无密码认证"; else -> "尚未确认" })
@@ -77,7 +77,7 @@ private enum class GlobalSettingsGroup(val label: String) {
                         GlobalSettingsGroup.RULES -> "${draft.rules.size} 条允许或禁止规则"
                     }, R.drawable.ic_storage, enabled) { group = section } }
                 } }
-                if (state.dirty && !state.unknown) item { TextButton(controller::resetToServer, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("放弃设置草稿") } }
+                if (state.dirty && !state.unknown) item { FilewayTextButton(controller::resetToServer, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("放弃设置草稿") } }
             }
         }
     }
@@ -144,8 +144,8 @@ private enum class GlobalSettingsGroup(val label: String) {
     } }
     if (state.confirmation) AlertDialog(onDismissRequest = controller::cancelConfirmation, title = { Text("保存全局设置？") },
         text = { Text("将保存当前服务器的配置。默认用户项仅用于新账号；路径规则和事件命令可能影响所有用户。") },
-        confirmButton = { TextButton(controller::confirmSave, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("确认保存") } },
-        dismissButton = { TextButton(controller::cancelConfirmation, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") } })
+        confirmButton = { FilewayTextButton(controller::confirmSave, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("确认保存") } },
+        dismissButton = { FilewayTextButton(controller::cancelConfirmation, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") } })
 }
 
 @Composable private fun GlobalSettingsEditor(title: String, fullPage: Boolean, canDismiss: Boolean,
@@ -159,13 +159,13 @@ private enum class GlobalSettingsGroup(val label: String) {
         Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
             FilewayTopAppBar(title, "全局设置草稿", R.drawable.ic_arrow_back, "保留草稿并返回", ::back)
         }, bottomBar = {
-            Surface { TextButton(::back, enabled = canDismiss, modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().heightIn(min = 48.dp)) { Text("保留草稿并返回") } }
+            Surface { FilewayTextButton(::back, enabled = canDismiss, modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().heightIn(min = 48.dp)) { Text("保留草稿并返回") } }
         }) { insets ->
             LazyColumn(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
         }
     } else FileOperationSheet(title, onBack, canDismiss = canDismiss, footer = {
-        TextButton(onBack, enabled = canDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("保留草稿并返回") }
+        FilewayTextButton(onBack, enabled = canDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("保留草稿并返回") }
     }) {
         LazyColumn(Modifier.weight(1f, fill = false), contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
@@ -183,7 +183,7 @@ private enum class GlobalSettingsGroup(val label: String) {
 @Composable private fun GlobalChoice(label: String, value: String, choices: List<Pair<String, String>>, enabled: Boolean, onChange: (String) -> Unit) {
     var open by remember { mutableStateOf(false) }
     val options = if (choices.any { it.first == value }) choices else choices + (value to value)
-    Box { OutlinedButton({ open = true }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(label, Modifier.weight(1f)); Text(options.first { it.first == value }.second) }
+    Box { FilewayOutlinedButton({ open = true }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(label, Modifier.weight(1f)); Text(options.first { it.first == value }.second) }
         DropdownMenu(open, { open = false }) { options.forEach { (key, text) -> DropdownMenuItem({ Text(text) }, { open = false; onChange(key) }) } }
     }
 }
@@ -207,12 +207,12 @@ private enum class GlobalSettingsGroup(val label: String) {
                 if (i != index) old else if (old.regex) old.copy(expression = value) else old.copy(path = value)
             }) }
             Row {
-                TextButton({ onChange(values.toMutableList().apply { add(index - 1, removeAt(index)) }) }, enabled = enabled && index > 0, modifier = Modifier.heightIn(min = 48.dp)) { Text("上移") }
-                TextButton({ onChange(values.toMutableList().apply { add(index + 1, removeAt(index)) }) }, enabled = enabled && index < values.lastIndex, modifier = Modifier.heightIn(min = 48.dp)) { Text("下移") }
-                TextButton({ onChange(values.filterIndexed { i, _ -> i != index }) }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("移除规则") }
+                FilewayTextButton({ onChange(values.toMutableList().apply { add(index - 1, removeAt(index)) }) }, enabled = enabled && index > 0, modifier = Modifier.heightIn(min = 48.dp)) { Text("上移") }
+                FilewayTextButton({ onChange(values.toMutableList().apply { add(index + 1, removeAt(index)) }) }, enabled = enabled && index < values.lastIndex, modifier = Modifier.heightIn(min = 48.dp)) { Text("下移") }
+                FilewayTextButton({ onChange(values.filterIndexed { i, _ -> i != index }) }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("移除规则") }
             }
             HorizontalDivider()
         } }
-        OutlinedButton({ onChange(values + ManagedRule(path = "/")) }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("添加规则") }
+        FilewayOutlinedButton({ onChange(values + ManagedRule(path = "/")) }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("添加规则") }
     }
 }

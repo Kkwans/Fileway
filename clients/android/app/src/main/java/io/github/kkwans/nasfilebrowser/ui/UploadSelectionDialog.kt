@@ -59,12 +59,12 @@ import io.github.kkwans.nasfilebrowser.upload.UploadConflict
                 FilewayToast(state.notice)
             }
         }, confirmButton = {
-            TextButton({
+            FilewayTextButton({
                 model.uploads.submit()
                 if (android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                     permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }, enabled = !state.busy && state.drafts.isNotEmpty()) { Text(if (state.error == null) "开始上传" else "添加剩余上传") }
         }, dismissButton = {
-            TextButton({ model.uploads.cancelSelection() }, enabled = !state.busy) { Text("取消") }
+            FilewayTextButton({ model.uploads.cancelSelection() }, enabled = !state.busy) { Text("取消") }
         })
 }

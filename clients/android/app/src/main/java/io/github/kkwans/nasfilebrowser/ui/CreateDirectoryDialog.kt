@@ -27,8 +27,8 @@ import io.github.kkwans.nasfilebrowser.data.renameNameError
     val canCreate = editable && nameError == null
     LaunchedEffect(state.scope, draft.parent) { focus.requestFocus() }
     FileOperationDialog("新建文件夹", model.fileOperations::closeDirectoryCreation, canDismiss = !state.changing, footer = {
-        TextButton(model.fileOperations::closeDirectoryCreation, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
-        Button(model.fileOperations::createDirectory, enabled = canCreate, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.changing) "正在创建" else "创建") }
+        FilewayTextButton(model.fileOperations::closeDirectoryCreation, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+        FilewayButton(model.fileOperations::createDirectory, enabled = canCreate, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.changing) "正在创建" else "创建") }
     }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             FileOperationLocation("创建位置", draft.parent.path)
@@ -37,8 +37,8 @@ import io.github.kkwans.nasfilebrowser.data.renameNameError
                 supportingText = { Text(if (draft.name.isEmpty()) "在当前服务器目录创建" else nameError ?: "不会覆盖同名文件或文件夹") },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { if (canCreate) model.fileOperations.createDirectory() }))
             draft.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            if (draft.existing != null) TextButton(model::openExistingCreationDirectory, enabled = !state.changing) { Text("打开已有文件夹") }
-            if (draft.unknownTarget != null) TextButton(model.fileOperations::checkDirectoryCreation, enabled = !state.changing) { Text("核对创建结果") }
+            if (draft.existing != null) FilewayTextButton(model::openExistingCreationDirectory, enabled = !state.changing) { Text("打开已有文件夹") }
+            if (draft.unknownTarget != null) FilewayTextButton(model.fileOperations::checkDirectoryCreation, enabled = !state.changing) { Text("核对创建结果") }
         }
     }
 }

@@ -27,8 +27,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.*
     var copied by remember(state.result) { mutableStateOf(false) }
     val digestStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace)
     FileOperationSheet("文件校验", onDismiss, back = back, footer = {
-        TextButton(onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (back) "返回详情" else "关闭") }
-        Button(if (state.busy) controller::cancel else controller::calculate, modifier = Modifier.heightIn(min = 48.dp)) {
+        FilewayTextButton(onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (back) "返回详情" else "关闭") }
+        FilewayButton(if (state.busy) controller::cancel else controller::calculate, modifier = Modifier.heightIn(min = 48.dp)) {
             Text(if (state.busy) "取消计算" else if (state.result != null) "重新计算" else "开始计算")
         }
     }) {
@@ -60,7 +60,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.*
                     readOnly = true, textStyle = digestStyle, minLines = 2, maxLines = 4)
                 state.matches?.let { matches -> FilewayStatusBanner(if (matches) "校验值一致" else "校验值不一致",
                     if (matches) FilewayStatusKind.SUCCESS else FilewayStatusKind.ERROR) }
-                OutlinedButton({ clipboard.setText(AnnotatedString(digest)); copied = true }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                FilewayOutlinedButton({ clipboard.setText(AnnotatedString(digest)); copied = true }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                     Text(if (copied) "已复制" else "复制校验值")
                 }
             }

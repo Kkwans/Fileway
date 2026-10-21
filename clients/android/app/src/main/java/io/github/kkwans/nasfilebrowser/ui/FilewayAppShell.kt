@@ -130,6 +130,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
 private fun FilewayDrawerItem(title: String, icon: Int, selected: Boolean = false, onClick: () -> Unit) {
     NavigationDrawerItem(
         label = { Text(title, style = MaterialTheme.typography.bodyMedium) }, selected = selected, onClick = onClick,
+        shape = MaterialTheme.shapes.medium,
         icon = { Icon(painterResource(icon), null, Modifier.size(22.dp)) },
         modifier = Modifier.padding(horizontal = 8.dp).heightIn(min = 48.dp),
     )

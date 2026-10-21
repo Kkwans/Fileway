@@ -38,7 +38,10 @@ internal enum class FilewayStatusAnimation(val asset: String, val fallback: Int)
         catch (cancelled: CancellationException) { throw cancelled }
     }
     val color = FilewayTheme.colors.primary
-    val properties = rememberLottieDynamicProperties(rememberLottieDynamicProperty(LottieProperty.STROKE_COLOR, color.toArgb(), "**"))
+    val properties = rememberLottieDynamicProperties(
+        rememberLottieDynamicProperty(LottieProperty.STROKE_COLOR, color.toArgb(), "**"),
+        rememberLottieDynamicProperty(LottieProperty.COLOR, color.toArgb(), "**"),
+    )
     if (composition == null) Icon(painterResource(status.fallback), null, modifier, tint = color)
     else LottieAnimation(composition, progress = { if (!play || !allowed || consumed && !animation.isPlaying) 1f else animation.progress }, modifier = modifier, dynamicProperties = properties)
 }

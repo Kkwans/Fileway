@@ -54,7 +54,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
             if (state.loading || state.changing || client.busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
             (state.error ?: client.error)?.let { message -> Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
-                TextButton(onClick = model.favorites::refresh, enabled = enabled) { Text("刷新") }
+                FilewayTextButton(onClick = model.favorites::refresh, enabled = enabled) { Text("刷新") }
             } }
             FilewayToast(state.notice)
             if (state.loaded && items.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -64,13 +64,13 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                     else Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
                     Text(if (state.items.isEmpty()) "常用文件，随手收藏" else if (filter == "") "还没有未分组的收藏" else "这个分组还没有收藏", style = MaterialTheme.typography.titleMedium)
                     Text(if (state.items.isEmpty()) "长按文件或文件夹，在详情中加入收藏。这里与网页端同步。" else "试试其他分组，或在收藏的更多菜单中调整分组。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { model.tab("files") }) { Text("浏览文件") }
+                    FilewayTextButton(onClick = { model.tab("files") }) { Text("浏览文件") }
                 }
             } else LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端收藏列表" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.id }) { favorite ->
                     var menu by remember(favorite.id) { mutableStateOf(false) }
                     val basename = libraryBasename(favorite.path)
-                    LibraryObjectCard(favorite.name.ifEmpty { basename }, "位置 · ${libraryParent(favorite.path)}", R.drawable.ic_bookmark,
+                    LibraryObjectCard(favorite.name.ifEmpty { basename }, libraryLocation(favorite.path), R.drawable.ic_bookmark,
                         onOpen = { model.openFavorite(favorite, state.scope) }, enabled = enabled,
                         summary = if (filter == null) state.groups.firstOrNull { it.id == favorite.groupId }?.name else null,
                         trailing = {
@@ -112,13 +112,13 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                 FavoriteGroupChoice("", "未分组", group, enabled) { group = "" }
                 state.groups.forEach { folder -> FavoriteGroupChoice(folder.id, folder.name, group, enabled) { group = folder.id } }
                 Row {
-                    TextButton(onClick = { model.favorites.move(item, -1) }, enabled = enabled && state.items.firstOrNull()?.id != item.id) { Text("上移") }
-                    TextButton(onClick = { model.favorites.move(item, 1) }, enabled = enabled && state.items.lastOrNull()?.id != item.id) { Text("下移") }
-                    TextButton(onClick = { model.favorites.remove(item) { editing = null } }, enabled = enabled) { Text("取消收藏") }
+                    FilewayTextButton(onClick = { model.favorites.move(item, -1) }, enabled = enabled && state.items.firstOrNull()?.id != item.id) { Text("上移") }
+                    FilewayTextButton(onClick = { model.favorites.move(item, 1) }, enabled = enabled && state.items.lastOrNull()?.id != item.id) { Text("下移") }
+                    FilewayTextButton(onClick = { model.favorites.remove(item) { editing = null } }, enabled = enabled) { Text("取消收藏") }
                 }
             }
-        }, confirmButton = { TextButton(onClick = { model.favorites.update(item, name, group) { editing = null } }, enabled = enabled && name.isNotBlank()) { Text(if (state.changing) "正在保存" else "保存") } },
-            dismissButton = { TextButton(onClick = { editing = null }, enabled = !state.changing) { Text("取消") } })
+        }, confirmButton = { FilewayTextButton(onClick = { model.favorites.update(item, name, group) { editing = null } }, enabled = enabled && name.isNotBlank()) { Text(if (state.changing) "正在保存" else "保存") } },
+            dismissButton = { FilewayTextButton(onClick = { editing = null }, enabled = !state.changing) { Text("取消") } })
     }
     if (managing) FavoriteGroupsDialog(model) { managing = false }
 }
@@ -160,7 +160,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                 }
             }
         }
-    }, confirmButton = { TextButton({ create = true }, enabled = enabled) { Text("新建分组") } }, dismissButton = { TextButton(dismiss, enabled = !state.changing) { Text("完成") } })
+    }, confirmButton = { FilewayTextButton({ create = true }, enabled = enabled) { Text("新建分组") } }, dismissButton = { FilewayTextButton(dismiss, enabled = !state.changing) { Text("完成") } })
     if (create || editing != null) {
         val group = editing
         var name by remember(group) { mutableStateOf(group?.name.orEmpty()) }
@@ -180,11 +180,11 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                     } }
                 }
             }
-        }, confirmButton = { TextButton({ model.favorites.saveGroup(group, name, color) { create = false; editing = null } }, enabled = enabled && name.isNotBlank()) { Text(if (state.changing) "正在保存" else "保存") } },
-            dismissButton = { TextButton({ create = false; editing = null }, enabled = !state.changing) { Text("取消") } })
+        }, confirmButton = { FilewayTextButton({ model.favorites.saveGroup(group, name, color) { create = false; editing = null } }, enabled = enabled && name.isNotBlank()) { Text(if (state.changing) "正在保存" else "保存") } },
+            dismissButton = { FilewayTextButton({ create = false; editing = null }, enabled = !state.changing) { Text("取消") } })
     }
     deleting?.let { group -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text("删除分组“${group.name}”？") },
         text = { Text("组内收藏将移到“未分组”，文件保持原位。网页端也会同步此变更。") },
-        confirmButton = { TextButton({ model.favorites.removeGroup(group); deleting = null }, enabled = enabled) { Text("删除分组") } },
-        dismissButton = { TextButton({ deleting = null }) { Text("取消") } }) }
+        confirmButton = { FilewayTextButton({ model.favorites.removeGroup(group); deleting = null }, enabled = enabled) { Text("删除分组") } },
+        dismissButton = { FilewayTextButton({ deleting = null }) { Text("取消") } }) }
 }

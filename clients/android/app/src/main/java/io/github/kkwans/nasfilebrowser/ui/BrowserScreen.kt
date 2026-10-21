@@ -144,8 +144,8 @@ Column(Modifier.fillMaxSize()) {
                 if (selecting) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("已选 ${chosen.size} 项", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
-                        TextButton({ selected = if (selected == shownKeys) emptySet() else shownKeys }, enabled = !selectionBusy && !state.busy) { Text(if (selected == shownKeys) "全不选" else "全选") }
-                        TextButton({ selected = shownKeys - selected }, enabled = !selectionBusy && !state.busy) { Text("反选") }
+                        FilewayTextButton({ selected = if (selected == shownKeys) emptySet() else shownKeys }, enabled = !selectionBusy && !state.busy) { Text(if (selected == shownKeys) "全不选" else "全选") }
+                        FilewayTextButton({ selected = shownKeys - selected }, enabled = !selectionBusy && !state.busy) { Text("反选") }
                         FileActionIcon(R.drawable.ic_arrow_back, "退出多选", true) { selecting = false; selected = emptySet() }
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -184,22 +184,22 @@ Column(Modifier.fillMaxSize()) {
                 state.error?.let { message ->
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(message, modifier = Modifier.weight(1f), color = colors.error, style = MaterialTheme.typography.bodyMedium)
-                        TextButton(onClick = model::retry) { Text("重试") }
+                        FilewayTextButton(onClick = model::retry) { Text("重试") }
                     }
                 }
                 tags.items.firstOrNull { it.id == tags.filterId }?.let { tag -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("标签：${tag.name} · ${if (tags.globalFilter) "含目录关联" else "直接标记"}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                    TextButton({ model.tags.filter(null) }) { Text("清除筛选") }
+                    FilewayTextButton({ model.tags.filter(null) }) { Text("清除筛选") }
                 } }
                 if (state.busy && state.files.isEmpty()) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(Modifier.size(18.dp), color = colors.primary, strokeWidth = 2.dp)
                     Text(state.stage, Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.bodyMedium)
-                    TextButton(onClick = model::cancel) { Text("取消") }
+                    FilewayTextButton(onClick = model::cancel) { Text("取消") }
                 }
                 if (!state.busy && displayed.isEmpty() && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(if (state.files.isEmpty()) "这个目录还没有文件。" else "当前目录没有此类型的文件。", color = colors.onSurfaceVariant)
-                        if (state.fileCategory != FileCategory.ALL || state.fileCategories.isNotEmpty()) TextButton(onClick = { model.fileCategory(FileCategory.ALL) }) { Text("显示全部文件") }
+                        if (state.fileCategory != FileCategory.ALL || state.fileCategories.isNotEmpty()) FilewayTextButton(onClick = { model.fileCategory(FileCategory.ALL) }) { Text("显示全部文件") }
                     }
                 } else FileCollection(displayed, layout, Modifier.weight(1f), layout.collectionDescription(),
                     resetKey = listOf(state.previewScope, state.wirePath, state.fileCategory, state.fileCategories, state.fileOrder,
@@ -227,7 +227,7 @@ Column(Modifier.fillMaxSize()) {
                     Text("可从回收站恢复，收藏和标签会随服务端操作同步。", style = MaterialTheme.typography.bodySmall)
                     if (trashAttempted) trash.error?.let { Text(it, color = colors.error, style = MaterialTheme.typography.bodySmall) }
                 }
-            }, confirmButton = { TextButton({
+            }, confirmButton = { FilewayTextButton({
                 batchKind = "trash"; trashAttempted = true
                 model.trash.moveAll(pending, { file ->
                     selected = selected - key(file)
@@ -235,6 +235,6 @@ Column(Modifier.fillMaxSize()) {
                     pendingTrash = pendingTrash?.filterNot { key(it) == key(file) }
                 }, { pendingTrash = null })
             }, enabled = !selectionBusy && pending.isNotEmpty()) { Text(if (trash.changing) "正在移动" else "移入回收站") } },
-            dismissButton = { TextButton({ pendingTrash = null }, enabled = !trash.changing) { Text("取消") } }) }
+            dismissButton = { FilewayTextButton({ pendingTrash = null }, enabled = !trash.changing) { Text("取消") } }) }
     }
 }

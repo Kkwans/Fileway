@@ -135,17 +135,17 @@ Column(Modifier.fillMaxSize()) {
                     }
                 }
             }
-            if (state.nextCursor.isNotEmpty()) item { TextButton({ model.tasks.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text(if (state.paging) "正在加载" else "加载更多任务") } }
+            if (state.nextCursor.isNotEmpty()) item { FilewayTextButton({ model.tasks.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text(if (state.paging) "正在加载" else "加载更多任务") } }
         }
     }
 }
 
     if (advanced) TaskFilterSheet(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
     if (state.focusId != null) FileOperationSheet(title = "任务详情", onDismiss = model::closeTaskDetail,
-        footer = { TextButton(model::closeTaskDetail) { Text("关闭") } }) {
+        footer = { FilewayTextButton(model::closeTaskDetail) { Text("关闭") } }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (state.detailLoading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-            state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton({ state.focusId?.let(model.tasks::select) }) { Text("重试") } }
+            state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); FilewayTextButton({ state.focusId?.let(model.tasks::select) }) { Text("重试") } }
             state.selected?.let { task ->
                 Text(task.title.ifEmpty { task.typeLabel }, style = MaterialTheme.typography.titleMedium)
                 Text("${task.typeLabel} · ${task.statusLabel}"); TaskProgress(task)
@@ -157,10 +157,10 @@ Column(Modifier.fillMaxSize()) {
                     }
                 }
                 if (task.error.isNotEmpty()) Text(task.error, color = MaterialTheme.colorScheme.error)
-                if (task.type in setOf("analysis.storage", "analysis.duplicates")) TextButton({ model.tasks.closeDetail(); model.showAnalysis(task.id, task.type) }) { Text(if (task.status == "completed") "查看分析报告" else "查看分析进度") }
-                if (task.status == "completed" && task.outputPath.startsWith('/')) TextButton({ model.tasks.closeDetail(); model.openRemotePath(task.outputPath) }, enabled = !client.busy) { Text("打开输出文件") }
+                if (task.type in setOf("analysis.storage", "analysis.duplicates")) FilewayTextButton({ model.tasks.closeDetail(); model.showAnalysis(task.id, task.type) }) { Text(if (task.status == "completed") "查看分析报告" else "查看分析进度") }
+                if (task.status == "completed" && task.outputPath.startsWith('/')) FilewayTextButton({ model.tasks.closeDetail(); model.openRemotePath(task.outputPath) }, enabled = !client.busy) { Text("打开输出文件") }
                 TaskActions(model, task, enabled && !state.detailLoading && state.detailError == null && model.tasks.canEdit(task)) { confirmAction(task, it) }
-                TextButton({ technicalDetails = !technicalDetails }) { Text(if (technicalDetails) "收起技术信息" else "任务 ID 与完整时间") }
+                FilewayTextButton({ technicalDetails = !technicalDetails }) { Text(if (technicalDetails) "收起技术信息" else "任务 ID 与完整时间") }
                 if (technicalDetails) SelectionContainer {
                     Text("任务 ID：${task.id}\n创建：${taskTimestamp(task.createdAt)}\n开始：${taskTimestamp(task.startedAt)}\n结束：${taskTimestamp(task.finishedAt)}",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -177,12 +177,12 @@ Column(Modifier.fillMaxSize()) {
             batch -> "将对当前筛选的 ${choice.count} 个服务端任务执行此操作。数量或状态变化时会停止并要求重新确认。"
             command == "cancel" -> "${task?.title}\n已经开始的任务可能已有部分结果；取消后可查看实际状态。"
             else -> task?.title.orEmpty()
-        }) }, confirmButton = { TextButton({
+        }) }, confirmButton = { FilewayTextButton({
             if (command == "archive-ended") model.tasks.archiveEnded()
             else if (batch) model.tasks.batch(command.removePrefix("batch-"), choice.filter, choice.count)
             else task?.let { model.tasks.action(it, command) }
             confirm = null
-        }, enabled = enabled) { Text("确认") } }, dismissButton = { TextButton({ confirm = null }) { Text("取消") } })
+        }, enabled = enabled) { Text("确认") } }, dismissButton = { FilewayTextButton({ confirm = null }) { Text("取消") } })
     }
 }
 
@@ -221,10 +221,10 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
 @Composable private fun TaskActions(model: ClientModel, task: ServerTask, enabled: Boolean, confirm: (String) -> Unit) {
     if (!task.active && !task.canRetry && !task.canArchive && task.archivedAt <= 0) return
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (task.active) TextButton({ if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirm("cancel") }, enabled = enabled) { Text(if (task.pendingDeletion) "撤销删除" else "停止任务") }
-        if (task.canRetry) TextButton({ confirm("retry") }, enabled = enabled) { Text("重试") }
-        if (task.canArchive) TextButton({ confirm("archive") }, enabled = enabled) { Text("归档") }
-        if (task.archivedAt > 0) TextButton({ confirm("unarchive") }, enabled = enabled) { Text("移出归档") }
+        if (task.active) FilewayTextButton({ if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirm("cancel") }, enabled = enabled) { Text(if (task.pendingDeletion) "撤销删除" else "停止任务") }
+        if (task.canRetry) FilewayTextButton({ confirm("retry") }, enabled = enabled) { Text("重试") }
+        if (task.canArchive) FilewayTextButton({ confirm("archive") }, enabled = enabled) { Text("归档") }
+        if (task.archivedAt > 0) FilewayTextButton({ confirm("unarchive") }, enabled = enabled) { Text("移出归档") }
     }
 }
 
@@ -280,14 +280,8 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
                 }
             }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("日期", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                TextButton({ from = 0; to = 0 }, enabled = from > 0 || to > 0, shape = RoundedCornerShape(12.dp)) { Text("清除日期") }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.weight(1f)) { FilewayFilterField("开始日期", date(from), onClick = { dateTarget = true }) }
-                Box(Modifier.weight(1f)) { FilewayFilterField("结束日期", date(to), onClick = { dateTarget = false }) }
-            }
-            if (from > 0 && to > 0 && from > to) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
+            FilewayDateRangeFields(date(from), date(to), from > 0 || to > 0,
+                { dateTarget = true }, { dateTarget = false }, { from = 0; to = 0 },
+                invalidRange = from > 0 && to > 0 && from > to)
     }
 }

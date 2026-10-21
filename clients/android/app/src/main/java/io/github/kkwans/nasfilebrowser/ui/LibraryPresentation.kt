@@ -17,6 +17,13 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 internal fun libraryBasename(path: String): String = path.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
 internal fun libraryParent(path: String): String = path.trimEnd('/').substringBeforeLast('/', "").ifEmpty { "/" }
 
+/** Tail-oriented display only. Keep libraryParent/raw paths for every operation. */
+internal fun libraryLocation(path: String): String {
+    val parent = libraryParent(path)
+    val parts = parent.split('/').filter { it.isNotEmpty() }
+    return if (parts.size <= 2) parent else "…/" + parts.takeLast(2).joinToString("/")
+}
+
 @Composable internal fun LibraryObjectCard(
     name: String, location: String, icon: Int, modifier: Modifier = Modifier, summary: String? = null,
     onOpen: (() -> Unit)? = null, enabled: Boolean = true,
@@ -30,15 +37,15 @@ internal fun libraryParent(path: String): String = path.trimEnd('/').substringBe
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 leading()
                 if (artwork != null) artwork() else Icon(painterResource(icon), null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Box(Modifier.weight(1f)) { FileNameText(name, FilewayTheme.text.fileName, MaterialTheme.colorScheme.onSurface, maxLines = 2, centered = false) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    FileNameText(name, FilewayTheme.text.fileName, MaterialTheme.colorScheme.onSurface, maxLines = 2, centered = false)
+                    // Group, size and time belong to the object's information
+                    // axis, not beneath an unrelated action at the right edge.
+                    Text(listOfNotNull(summary?.takeIf { it.isNotBlank() }, location.takeIf { it.isNotBlank() }).joinToString(" · "),
+                        style = FilewayTheme.text.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 trailing()
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(location, Modifier.weight(1f), style = FilewayTheme.text.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (!summary.isNullOrBlank()) Text(summary, Modifier.widthIn(max = 160.dp), style = FilewayTheme.text.metadata,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             context()
         }

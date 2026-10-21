@@ -73,7 +73,7 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Box {
-                TextButton({ trace("open-menu-delivered"); delimiterMenu = true; trace("open-menu-assigned") }, Modifier.heightIn(min = 48.dp).semantics {
+                FilewayTextButton({ trace("open-menu-delivered"); delimiterMenu = true; trace("open-menu-assigned") }, Modifier.heightIn(min = 48.dp).semantics {
                     contentDescription = "选择表格分隔符"
                     stateDescription = "当前选择：${delimiter.label}"
                 }) {
@@ -121,7 +121,7 @@ internal fun CsvReader(document: DocumentText, fileName: String, onShowSource: (
             is CsvPreview.SourceOnly -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(result.reason, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onShowSource, Modifier.heightIn(min = 48.dp)) { Text("查看完整源码") }
+                FilewayTextButton(onShowSource, Modifier.heightIn(min = 48.dp)) { Text("查看完整源码") }
             }
             is CsvPreview.Reading -> {
                 val table = result.document

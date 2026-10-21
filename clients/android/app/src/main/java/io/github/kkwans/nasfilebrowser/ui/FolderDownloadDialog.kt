@@ -23,8 +23,8 @@ import io.github.kkwans.nasfilebrowser.app.ClientModel
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     FileOperationSheet(if (state.preparing) "读取文件夹" else "下载到本机", model.downloads::cancelFolderDownloads,
         canDismiss = !state.busy || state.preparing, footer = {
-            TextButton(model.downloads::cancelFolderDownloads, enabled = !state.busy || state.preparing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
-            if (plan != null) Button({
+            FilewayTextButton(model.downloads::cancelFolderDownloads, enabled = !state.busy || state.preparing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+            if (plan != null) FilewayButton({
                 model.downloads.confirmFolderDownloads()
                 if (android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                     permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)

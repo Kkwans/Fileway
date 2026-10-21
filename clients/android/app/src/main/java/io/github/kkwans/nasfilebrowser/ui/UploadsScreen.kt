@@ -39,7 +39,7 @@ Column(Modifier.fillMaxSize()) {
                     Icon(painterResource(R.drawable.ic_upload), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                     Text(if (state.items.isEmpty()) "把本机文件带回文件库" else "这里还没有${filter}的上传", style = MaterialTheme.typography.titleMedium)
                     Text("在服务器文件页选择上传文件或文件夹，确认目标后开始。本机原文件不会被删除。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton({ model.tab("files") }) { Text("选择服务器目录") }
+                    FilewayTextButton({ model.tab("files") }) { Text("选择服务器目录") }
                 }
             }
             items(items, key = { it.id }) { item ->
@@ -113,12 +113,12 @@ Column(Modifier.fillMaxSize()) {
             Text("目标：${draft.record.targetPath}")
             Text("确认后将清理本次未完成片段，放弃原上传进度，从零建立新任务。本机原文件和服务器已发布的完整文件保留。")
         } },
-        confirmButton = { TextButton(model.uploads::restart, enabled = !state.busy) { Text(if (state.busy) "正在处理" else "确认重新开始") } },
-        dismissButton = { TextButton(model.uploads::dismissRestart, enabled = !state.busy) { Text("保留原任务") } }) }
+        confirmButton = { FilewayTextButton(model.uploads::restart, enabled = !state.busy) { Text(if (state.busy) "正在处理" else "确认重新开始") } },
+        dismissButton = { FilewayTextButton(model.uploads::dismissRestart, enabled = !state.busy) { Text("保留原任务") } }) }
     remove?.let { item -> AlertDialog(onDismissRequest = { remove = null }, title = { Text("移除上传记录？") }, text = { Text("${item.name}\n\n本机原文件和服务器上的文件均保留。") },
-        confirmButton = { TextButton({ model.uploads.remove(item); remove = null }) { Text("移除记录") } }, dismissButton = { TextButton({ remove = null }) { Text("取消") } }) }
+        confirmButton = { FilewayTextButton({ model.uploads.remove(item); remove = null }) { Text("移除记录") } }, dismissButton = { FilewayTextButton({ remove = null }) { Text("取消") } }) }
     cancel?.let { item -> AlertDialog(onDismissRequest = { cancel = null }, title = { Text("取消这项上传？") },
         text = { Text("${item.name}\n\n将停止上传并清理原服务器上的本次未完成片段。本机原文件和服务器已经收到的完整文件保留。暂停后继续，请选择“暂停”。") },
-        confirmButton = { TextButton({ cancel = null; model.uploads.cancel(item) }) { Text("取消上传") } },
-        dismissButton = { TextButton({ cancel = null }) { Text("保留任务") } }) }
+        confirmButton = { FilewayTextButton({ cancel = null; model.uploads.cancel(item) }) { Text("取消上传") } },
+        dismissButton = { FilewayTextButton({ cancel = null }) { Text("保留任务") } }) }
 }

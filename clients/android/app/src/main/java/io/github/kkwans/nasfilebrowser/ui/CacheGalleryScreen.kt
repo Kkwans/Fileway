@@ -104,9 +104,12 @@ Column(Modifier.fillMaxSize()) {
                     } else {
                         Box {
                             IconButton({ sorting = true }) { Icon(painterResource(R.drawable.ic_sort), "缓存排序") }
-                            DropdownMenu(sorting, { sorting = false }) {
-                                CacheImageOrder.entries.forEach { value -> DropdownMenuItem({ Text(value.label) }, { order = value; sorting = false }) }
-                            }
+                            FilewayMenu(sorting, { sorting = false }, items = CacheImageOrder.entries.map {
+                                FilewayMenuEntry(it.name, it.label, selected = it == order)
+                            }, selection = FilewayMenuSelection.Single, onItemClick = { item ->
+                                CacheImageOrder.entries.firstOrNull { it.name == item.key }?.let { order = it }
+                                sorting = false
+                            })
                         }
                         IconButton({ selecting = true }, enabled = !busy && images.isNotEmpty()) { Icon(painterResource(R.drawable.ic_check), "多选缓存图片") }
                     }

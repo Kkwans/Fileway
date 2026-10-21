@@ -35,12 +35,12 @@ import io.github.kkwans.nasfilebrowser.data.*
     val previewScroll = rememberLazyListState()
     val names = remember(draft.files) { draft.files.groupingBy { it.name }.eachCount() }
     if (!confirm) FileOperationSheet("批量重命名", { controller.closeBatchRename() }, canDismiss = enabled, footer = {
-        if (draft.unknownExecution) Button({ controller.closeBatchRename(verifyUnknown = true); onVerify(draft.parent) },
+        if (draft.unknownExecution) FilewayButton({ controller.closeBatchRename(verifyUnknown = true); onVerify(draft.parent) },
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("刷新原目录核对并关闭") }
         else {
-            TextButton({ controller.closeBatchRename() }, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+            FilewayTextButton({ controller.closeBatchRename() }, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
             key(draft.reviewed, state.changing) {
-                Button({ if (draft.reviewed) confirm = true else controller.checkBatchRename() },
+                FilewayButton({ if (draft.reviewed) confirm = true else controller.checkBatchRename() },
                     enabled = enabled && rows.none { it.error != null } && changed > 0, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(if (state.changing) { if (draft.reviewed) "正在重命名" else "正在检查" }
                         else if (draft.reviewed) "确认重命名 $changed 项" else "检查变更")
@@ -66,7 +66,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text("命名规则", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                                 Box {
-                                    TextButton({ rules = true }, enabled = enabled) { Text(draft.options.rule.label) }
+                                    FilewayTextButton({ rules = true }, enabled = enabled) { Text(draft.options.rule.label) }
                                     DropdownMenu(rules, { rules = false }) {
                                         BatchRenameRule.entries.forEach { rule -> DropdownMenuItem({ Text(rule.label) }, {
                                             rules = false; controller.batchRenameOptions(draft.options.copy(rule = rule))
@@ -103,7 +103,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                                 }
                             }
                             Text("按预览中的完整新名称保存；规则即时更新，逐项输入会保留。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (draft.overrides.isNotEmpty()) TextButton(controller::resetBatchRenameNames, enabled = enabled) { Text("取消逐项调整，重新应用规则") }
+                            if (draft.overrides.isNotEmpty()) FilewayTextButton(controller::resetBatchRenameNames, enabled = enabled) { Text("取消逐项调整，重新应用规则") }
                             HorizontalDivider()
                             Text(if (draft.reviewed) "检查通过 · 请核对新名称" else "变更预览 · 尚未执行", style = MaterialTheme.typography.titleMedium)
                             Text("未修改项目会跳过；同名冲突不会覆盖。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -132,6 +132,6 @@ import io.github.kkwans.nasfilebrowser.data.*
     }
     if (confirm && draft.reviewed && !draft.unknownExecution) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("执行这 $changed 项重命名？") },
         text = { Text("将一次提交预览中的全部变更。同名冲突会停止执行，已有内容不会被覆盖。名称变更会同步到当前账号的服务端记录。") },
-        confirmButton = { TextButton({ confirm = false; controller.executeBatchRename() }, enabled = enabled) { Text("确认执行") } },
-        dismissButton = { TextButton({ confirm = false }) { Text("返回预览") } })
+        confirmButton = { FilewayTextButton({ confirm = false; controller.executeBatchRename() }, enabled = enabled) { Text("确认执行") } },
+        dismissButton = { FilewayTextButton({ confirm = false }) { Text("返回预览") } })
 }

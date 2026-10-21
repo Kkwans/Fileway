@@ -57,7 +57,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("给文件加上自己的分类", style = MaterialTheme.typography.titleMedium)
                 Text("创建标签后，在文件详情中多选标记。颜色和关联会与网页端同步。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton({ creating = true }) { Text("新建第一个标签") }
+                FilewayTextButton({ creating = true }) { Text("新建第一个标签") }
             }
         } else {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -68,7 +68,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 var scopeMenu by remember { mutableStateOf(false) }
                 Box {
-                    TextButton({ scopeMenu = true }, enabled = enabled, shape = RoundedCornerShape(12.dp)) {
+                    FilewayTextButton({ scopeMenu = true }, enabled = enabled, shape = RoundedCornerShape(12.dp)) {
                         Text(if (currentOnly) "当前目录" else "全部关联")
                         Icon(painterResource(R.drawable.ic_expand_more), null, Modifier.size(18.dp))
                     }
@@ -97,7 +97,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 if (state.paths.isEmpty() && !state.pathsLoading && state.pathsError == null) item { Text(if (currentOnly) "这个目录还没有直接标记的文件。" else "还没有关联路径。从文件详情中添加标记。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.paths, key = { it.key }) { row ->
                     val file = row.file
-                    if (file != null) LibraryObjectCard(file.name, "位置 · ${libraryParent(file.path)}", fileArtworkIcon(file.name, file.directory),
+                    if (file != null) LibraryObjectCard(file.name, libraryLocation(file.path), fileArtworkIcon(file.name, file.directory),
                         enabled = enabled, summary = if (file.directory) null else readableSize(file.size), artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
                             MediaThumbnail(model, file, Modifier.size(36.dp).clip(MaterialTheme.shapes.small), showStatusText = false)
                         } } else null, onOpen = {
@@ -110,26 +110,26 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                             Text("位置 · ${libraryParent(row.path)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(row.error.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                             Row {
-                                TextButton({ pathDetails = row.path }) { Text("完整路径") }
-                                tag?.let { value -> TextButton({ model.tags.removePath(value, row.ref, sourceScope) }, enabled = enabled && row.ref.identity != null) { Text("取消此关联") } }
+                                FilewayTextButton({ pathDetails = row.path }) { Text("完整路径") }
+                                tag?.let { value -> FilewayTextButton({ model.tags.removePath(value, row.ref, sourceScope) }, enabled = enabled && row.ref.identity != null) { Text("取消此关联") } }
                             }
                         }
                     }
                 }
-                if (state.paths.size < state.pathTotal) item { TextButton({ tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, true, if (currentOnly) client.wirePath else null) } }, enabled = !state.pathsLoading && enabled,
+                if (state.paths.size < state.pathTotal) item { FilewayTextButton({ tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, true, if (currentOnly) client.wirePath else null) } }, enabled = !state.pathsLoading && enabled,
                     modifier = Modifier.fillMaxWidth()) { Text("加载更多关联") } }
             }
         }
     }
     if (scopeDetails) AlertDialog(onDismissRequest = { scopeDetails = false }, title = { Text("当前目录范围") },
-        text = { SelectionContainer { Text(client.path) } }, confirmButton = { TextButton({ scopeDetails = false }) { Text("关闭") } })
+        text = { SelectionContainer { Text(client.path) } }, confirmButton = { FilewayTextButton({ scopeDetails = false }) { Text("关闭") } })
     pathDetails?.let { path -> AlertDialog(onDismissRequest = { pathDetails = null }, title = { Text("关联路径") },
-        text = { SelectionContainer { Text(path) } }, confirmButton = { TextButton({ pathDetails = null }) { Text("关闭") } }) }
+        text = { SelectionContainer { Text(path) } }, confirmButton = { FilewayTextButton({ pathDetails = null }) { Text("关闭") } }) }
     if (creating || editing != null) TagEditor(model, editing, dismiss = { creating = false; editing = null }, remove = { removing = editing; editing = null })
     removing?.let { value -> AlertDialog(onDismissRequest = { removing = null }, title = { Text("删除标签“${value.name}”？") },
         text = { Text("这个标签的全部关联将被取消，文件保持原位。网页端也会同步此变更。") },
-        confirmButton = { TextButton({ model.tags.remove(value); removing = null }, enabled = enabled) { Text("删除标签") } },
-        dismissButton = { TextButton({ removing = null }) { Text("取消") } }) }
+        confirmButton = { FilewayTextButton({ model.tags.remove(value); removing = null }, enabled = enabled) { Text("删除标签") } },
+        dismissButton = { FilewayTextButton({ removing = null }) { Text("取消") } }) }
     details?.let { file -> FileDetailsDialog(file, actions = { FileActions(model, file) { details = null } }, onLocation = { details = null; model.openContainingDirectory(file) }, onDismiss = { details = null }) }
 }
 
@@ -156,8 +156,8 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                     }
                 }
             }
-            remove?.let { TextButton(it, enabled = !state.changing) { Text("删除标签") } }
+            remove?.let { FilewayTextButton(it, enabled = !state.changing) { Text("删除标签") } }
         }
-    }, confirmButton = { TextButton({ model.tags.save(tag, name, color, onSaved = dismiss) }, enabled = name.isNotBlank() && colorValid && !state.changing) { Text(if (state.changing) "正在保存" else "保存") } },
-        dismissButton = { TextButton(dismiss, enabled = !state.changing) { Text("取消") } })
+    }, confirmButton = { FilewayTextButton({ model.tags.save(tag, name, color, onSaved = dismiss) }, enabled = name.isNotBlank() && colorValid && !state.changing) { Text(if (state.changing) "正在保存" else "保存") } },
+        dismissButton = { FilewayTextButton(dismiss, enabled = !state.changing) { Text("取消") } })
 }

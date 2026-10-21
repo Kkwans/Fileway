@@ -61,7 +61,7 @@ private data class CacheImageOwner(val account: String, val session: String)
         if (state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.error?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { model.cache.retry() }, enabled = enabled) { Text("重试缓存初始化") }
+            FilewayTextButton(onClick = { model.cache.retry() }, enabled = enabled) { Text("重试缓存初始化") }
         }
     }
     number?.let { kind ->
@@ -78,23 +78,23 @@ private data class CacheImageOwner(val account: String, val session: String)
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 Text(if (kind == "hours") "系统省电可能延后清理；正在播放的文件会保留。" else "0 关闭磁盘缓存。超限时自动淘汰最久未读取项。", style = MaterialTheme.typography.bodySmall)
             }
-        }, confirmButton = { TextButton(onClick = {
+        }, confirmButton = { FilewayTextButton(onClick = {
             if (valid) {
                 val parsed = requireNotNull(value)
                 model.cache.save(when (kind) { "thumbnail" -> settings.copy(thumbnailMB = parsed); "playback" -> settings.copy(playbackMB = parsed); "image" -> settings.copy(imageMB = parsed); else -> settings.copy(cleanupHours = parsed.toInt()) }); number = null
             }
-        }, enabled = valid && enabled) { Text("保存") } }, dismissButton = { TextButton(onClick = { number = null }) { Text("取消") } })
+        }, enabled = valid && enabled) { Text("保存") } }, dismissButton = { FilewayTextButton(onClick = { number = null }) { Text("取消") } })
     }
     if (quality) AlertDialog(onDismissRequest = { quality = false }, title = { Text("默认图片质量") }, text = {
         Column(Modifier.selectableGroup()) { ImageQuality.entries.forEach { option ->
             FilewaySelectionRow(option.label, selected = settings.imageQuality == option, enabled = enabled,
                 onClick = { model.cache.save(settings.copy(imageQuality = option)); quality = false })
         } }
-    }, confirmButton = { TextButton(onClick = { quality = false }) { Text("关闭") } })
+    }, confirmButton = { FilewayTextButton(onClick = { quality = false }) { Text("关闭") } })
     clear?.let { kind -> AlertDialog(onDismissRequest = { clear = null }, title = { Text("清理缓存？") },
         text = { Text(if (kind == "playback") "仅清理未在播放的本机缓存，服务器文件不受影响。" else "清理此设备的缓存，服务器文件不受影响。") },
-        confirmButton = { TextButton(onClick = {
+        confirmButton = { FilewayTextButton(onClick = {
             clear = null
             scope.launch { try { model.cache.clear(kind); feedback(if (kind == "playback" && model.cache.state.value.protected > 0) "已清理，正在播放的缓存已保留" else "缓存已清理") } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { feedback("清理失败，请重试") } }
-        }, enabled = enabled) { Text("清理") } }, dismissButton = { TextButton(onClick = { clear = null }) { Text("取消") } }) }
+        }, enabled = enabled) { Text("清理") } }, dismissButton = { FilewayTextButton(onClick = { clear = null }) { Text("取消") } }) }
 }

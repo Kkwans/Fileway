@@ -125,7 +125,7 @@ import io.github.kkwans.nasfilebrowser.data.*
             val form: @Composable () -> Unit = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(Modifier.fillMaxWidth()) {
-                        OutlinedButton(onClick = { focus.clearFocus(); profilesOpen = true }, enabled = !state.busy, shape = MaterialTheme.shapes.medium,
+                        FilewayOutlinedButton(onClick = { focus.clearFocus(); profilesOpen = true }, enabled = !state.busy, shape = MaterialTheme.shapes.medium,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = "选择服务器档案" }) {
                             Icon(painterResource(R.drawable.ic_storage), null, Modifier.size(22.dp))
                             Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.Start) {
@@ -153,7 +153,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                         }
                     }
                     ConnectionSection("服务器", actions = {
-                        TextButton(onClick = { focus.clearFocus(); optionsOpen = !optionsOpen }, enabled = !state.busy, shape = MaterialTheme.shapes.medium) {
+                        FilewayTextButton(onClick = { focus.clearFocus(); optionsOpen = !optionsOpen }, enabled = !state.busy, shape = MaterialTheme.shapes.medium) {
                             Text(if (optionsOpen) "收起连接选项" else "更多连接选项")
                         }
                     }) {
@@ -166,7 +166,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                                 FilterChip(selected = backend == BackendKind.NAS, onClick = { backend = BackendKind.NAS }, enabled = !state.busy, label = { Text("NAS") })
                                 FilterChip(selected = backend == BackendKind.WINDOWS, onClick = { backend = BackendKind.WINDOWS }, enabled = !state.busy, label = { Text("Windows") })
                             }
-                            OutlinedButton(onClick = { focus.clearFocus(); model.saveDraft(profileName, url.trim(), backend, mode) },
+                            FilewayOutlinedButton(onClick = { focus.clearFocus(); model.saveDraft(profileName, url.trim(), backend, mode) },
                                 enabled = canSave, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("仅保存服务器档案") }
                             Text("档案只保存地址与连接方式，账号在登录后保存。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -181,8 +181,8 @@ import io.github.kkwans.nasfilebrowser.data.*
                             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text("本地网络访问", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                                    TextButton(onClick = { afterPermission = null; permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK) }) { Text("允许访问") }
-                                    if (accessDenied) TextButton(onClick = {
+                                    FilewayTextButton(onClick = { afterPermission = null; permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK) }) { Text("允许访问") }
+                                    if (accessDenied) FilewayTextButton(onClick = {
                                         try { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }
                                         catch (_: Exception) { accessMessage = "无法打开设置，请在系统应用设置中允许本地网络访问。" }
                                     }) { Text("打开设置") }
@@ -196,7 +196,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                         if (savedAccounts.isNotEmpty()) {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Text("已保存的账号", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                savedAccounts.forEach { account -> TextButton(onClick = {
+                                savedAccounts.forEach { account -> FilewayTextButton(onClick = {
                                     focus.clearFocus()
                                     val action = { model.restore(account) }
                                     if (Build.VERSION.SDK_INT >= 37 && mode == "direct" && !hasLocalAccess() && !accessDenied) { afterPermission = action; permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK) } else action()
@@ -232,9 +232,9 @@ import io.github.kkwans.nasfilebrowser.data.*
                             if (state.busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                             Text(if (state.busy) state.stage.ifBlank { "正在连接" } else missing, Modifier.weight(1f),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (state.busy) TextButton(onClick = model::cancel, shape = MaterialTheme.shapes.medium) { Text("取消") }
+                            if (state.busy) FilewayTextButton(onClick = model::cancel, shape = MaterialTheme.shapes.medium) { Text("取消") }
                         }
-                        Button(onClick = connect, enabled = canConnect, shape = MaterialTheme.shapes.medium,
+                        FilewayButton(onClick = connect, enabled = canConnect, shape = MaterialTheme.shapes.medium,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                             Text(if (state.busy) "正在连接服务器" else "连接服务器")
                         }
@@ -245,7 +245,7 @@ import io.github.kkwans.nasfilebrowser.data.*
             Column(page) { form() }
         }
     }
-    remove?.let { profile -> AlertDialog(onDismissRequest = { remove = null }, title = { Text("移除 ${profile.name}？") }, text = { Text("将移除本机档案和保存的登录信息。服务器文件不会被删除。") }, confirmButton = { TextButton(onClick = { remove = null; model.removeProfile(profile) }) { Text("移除") } }, dismissButton = { TextButton(onClick = { remove = null }) { Text("取消") } }) }
+    remove?.let { profile -> AlertDialog(onDismissRequest = { remove = null }, title = { Text("移除 ${profile.name}？") }, text = { Text("将移除本机档案和保存的登录信息。服务器文件不会被删除。") }, confirmButton = { FilewayTextButton(onClick = { remove = null; model.removeProfile(profile) }) { Text("移除") } }, dismissButton = { FilewayTextButton(onClick = { remove = null }) { Text("取消") } }) }
 }
 
 @Composable private fun ConnectionSection(title: String, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {

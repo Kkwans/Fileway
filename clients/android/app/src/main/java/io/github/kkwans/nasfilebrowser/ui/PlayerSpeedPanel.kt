@@ -33,7 +33,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                         containerColor = FilewayTheme.colors.primaryContainer, contentColor = FilewayTheme.colors.primary)
                         else ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.surfaceVariant,
                             contentColor = FilewayTheme.status.mediaContent)
-                    FilledTonalButton(
+                    FilewayTonalButton(
                         onClick = { onPreset(value) }, colors = colors,
                         shape = MaterialTheme.shapes.medium,
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp).semantics { selected = rate == value },
@@ -42,13 +42,13 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                 }
             }
         }
-        OutlinedButton(onClick = { onEdit(false) }, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        FilewayOutlinedButton(onClick = { onEdit(false) }, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text("自定义播放速度")
         }
         HorizontalDivider()
         Text("长按倍速 · ${holdRate}×", style = MaterialTheme.typography.titleMedium)
         Text("松手立即恢复长按前的速度", style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
-        OutlinedButton(onClick = { onEdit(true) }, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        FilewayOutlinedButton(onClick = { onEdit(true) }, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text("调整长按倍速")
         }
     }
@@ -77,7 +77,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
             isError = error != null, enabled = !saving, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
         )
-        Button(onClick = onApply, enabled = !saving, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        FilewayButton(onClick = onApply, enabled = !saving, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
             Text(if (saving) "正在保存…" else if (hold) "保存到此设备" else "应用")
         }
     }

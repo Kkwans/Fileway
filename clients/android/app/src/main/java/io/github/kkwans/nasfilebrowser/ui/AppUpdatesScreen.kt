@@ -57,23 +57,23 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             when (state.phase) {
                 UpdatePhase.AVAILABLE -> {
-                    Button(onClick = download, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) {
+                    FilewayButton(onClick = download, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) {
                         Icon(painterResource(R.drawable.ic_download), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("下载更新 · ${readableSize(update?.asset?.size ?: 0)}")
                     }
-                    TextButton(onClick = check) { Text("重新检查更新") }
+                    FilewayTextButton(onClick = check) { Text("重新检查更新") }
                 }
                 UpdatePhase.READY -> {
-                    Button(onClick = install, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) { Text("安装更新") }
-                    TextButton(onClick = cancel) { Text("删除安装包") }
+                    FilewayButton(onClick = install, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) { Text("安装更新") }
+                    FilewayTextButton(onClick = cancel) { Text("删除安装包") }
                 }
                 UpdatePhase.FAILED -> {
                     if (update != null) {
-                        Button(onClick = download, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) { Text("重新下载") }
-                        TextButton(onClick = check) { Text("重新检查更新") }
-                    } else Button(onClick = check, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) { Text("重试检查") }
+                        FilewayButton(onClick = download, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) { Text("重新下载") }
+                        FilewayTextButton(onClick = check) { Text("重新检查更新") }
+                    } else FilewayButton(onClick = check, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) { Text("重试检查") }
                 }
-                UpdatePhase.DOWNLOADING -> TextButton(onClick = cancel, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消下载") }
-                UpdatePhase.IDLE, UpdatePhase.CURRENT -> Button(onClick = check, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) { Text("检查更新") }
+                UpdatePhase.DOWNLOADING -> FilewayTextButton(onClick = cancel, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消下载") }
+                UpdatePhase.IDLE, UpdatePhase.CURRENT -> FilewayButton(onClick = check, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) { Text("检查更新") }
                 else -> Unit
             }
         }

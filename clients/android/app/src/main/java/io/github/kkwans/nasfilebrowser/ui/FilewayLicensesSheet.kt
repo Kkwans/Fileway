@@ -46,19 +46,19 @@ import kotlinx.coroutines.withContext
             if (selected == null) {
                 item {
                     Text("Fileway 使用的开源组件与图标来源。下方许可证随本版本提供。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = {
+                    FilewayTextButton(onClick = {
                         try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://lordicon.com/")).addCategory(Intent.CATEGORY_BROWSABLE)); error = null }
                         catch (_: Exception) { error = "无法打开 Lordicon 链接" }
                     }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Animated icons by Lordicon.com") }
                 }
                 items(files, key = { it }) { file ->
-                    TextButton(onClick = { selected = file }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(file, Modifier.fillMaxWidth()) }
+                    FilewayTextButton(onClick = { selected = file }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(file, Modifier.fillMaxWidth()) }
                 }
             } else {
                 if (text == null && error == null) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 text?.let { content -> item { Text(content, style = MaterialTheme.typography.bodySmall) } }
             }
-            item { TextButton(onClick = { if (selected == null) onDismiss() else selected = null }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            item { FilewayTextButton(onClick = { if (selected == null) onDismiss() else selected = null }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                 Text(if (selected == null) "返回关于" else "返回许可证列表")
             } }
         }

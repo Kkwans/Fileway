@@ -58,7 +58,7 @@ internal fun FilewaySessionNotice(model: ClientModel) {
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            TextButton(
+            FilewayTextButton(
                 onClick = action,
                 enabled = !state.recoveryInProgress,
                 modifier = Modifier.heightIn(min = 48.dp),
@@ -98,7 +98,7 @@ internal fun FilewaySessionNotice(model: ClientModel) {
                 }
             },
             confirmButton = {
-                Button(
+                FilewayButton(
                     onClick = {
                         if (password.isEmpty()) inputError = "请输入密码"
                         else {
@@ -112,7 +112,7 @@ internal fun FilewaySessionNotice(model: ClientModel) {
                 ) { Text(if (state.recoveryInProgress) "正在恢复" else "恢复登录") }
             },
             dismissButton = {
-                TextButton(
+                FilewayTextButton(
                     onClick = {
                         recoveryDialog = false
                         password = ""

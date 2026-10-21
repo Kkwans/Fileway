@@ -48,8 +48,8 @@ import io.github.kkwans.nasfilebrowser.core.NetworkState
     }, { confirmLogout = true })
     if (confirmLogout) AlertDialog(onDismissRequest = { confirmLogout = false }, title = { Text("退出 Tailscale？") },
         text = { Text("将停止当前播放并退出内嵌节点，下次连接需要重新登录。") },
-        confirmButton = { TextButton(onClick = { confirmLogout = false; model.stopNetwork(logout = true) }) { Text("退出账号") } },
-        dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("取消") } })
+        confirmButton = { FilewayTextButton(onClick = { confirmLogout = false; model.stopNetwork(logout = true) }) { Text("退出账号") } },
+        dismissButton = { FilewayTextButton(onClick = { confirmLogout = false }) { Text("取消") } })
 }
 
 @Composable internal fun NetworkConnectionContent(
@@ -67,7 +67,7 @@ import io.github.kkwans.nasfilebrowser.core.NetworkState
             if (network.state == "Starting") CircularProgressIndicator(Modifier.padding(end = 8.dp).size(16.dp), strokeWidth = 2.dp)
             Text(network.label, style = MaterialTheme.typography.bodySmall,
                 color = if (network.connected) colors.primary else colors.onSurfaceVariant)
-            if (active) TextButton(stop) { Text(if (network.connected) "断开" else "取消连接") }
+            if (active) FilewayTextButton(stop) { Text(if (network.connected) "断开" else "取消连接") }
             if (network.canLogout) Box {
                 IconButton(onClick = { menu = true }) { Icon(painterResource(R.drawable.ic_more_vert), "Tailscale 操作", Modifier.size(22.dp)) }
                 DropdownMenu(menu, { menu = false }) {
@@ -80,17 +80,17 @@ import io.github.kkwans.nasfilebrowser.core.NetworkState
             network.authUrl.isNotEmpty() -> Text("完成 Tailscale 登录后，即可连接远程服务器。", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             !network.connected && network.state != "Starting" -> Text("先连接远程网络，再登录下方的服务器账号。", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }
-        if (canStart || network.authUrl.isNotEmpty()) FilledTonalButton(
+        if (canStart || network.authUrl.isNotEmpty()) FilewayTonalButton(
             onClick = if (network.authUrl.isNotEmpty()) openLogin else start,
             enabled = network.state != "Starting",
             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("network-primary-action"), shape = RoundedCornerShape(10.dp),
             colors = ButtonDefaults.filledTonalButtonColors(containerColor = colors.primaryContainer, contentColor = colors.onPrimaryContainer),
         ) { Text(if (network.authUrl.isNotEmpty()) "打开登录页" else if (network.state == "Starting") "正在连接" else "连接 Tailscale") }
-        if (network.authUrl.isNotEmpty()) OutlinedButton(copyLogin, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(10.dp)) { Text("复制登录链接") }
+        if (network.authUrl.isNotEmpty()) FilewayOutlinedButton(copyLogin, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(10.dp)) { Text("复制登录链接") }
         network.error?.let { Text(it, color = colors.error, style = MaterialTheme.typography.bodySmall) }
         message?.let { Text(it, color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
         if (network.ips.isNotEmpty() || network.health.isNotEmpty() || network.acceptSubnets) {
-            TextButton(onClick = { details = !details }, contentPadding = PaddingValues(0.dp)) { Text(if (details) "收起网络详情" else "网络详情") }
+            FilewayTextButton(onClick = { details = !details }, contentPadding = PaddingValues(0.dp)) { Text(if (details) "收起网络详情" else "网络详情") }
             if (details) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (network.ips.isNotEmpty()) Text(network.ips.joinToString("\n"), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 if (network.connected && network.acceptSubnets) Text("已启用子网路由", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)

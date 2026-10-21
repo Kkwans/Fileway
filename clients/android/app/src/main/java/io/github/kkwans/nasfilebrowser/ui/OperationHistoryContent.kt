@@ -43,7 +43,7 @@ import java.time.format.DateTimeFormatter
             Spacer(Modifier.height(12.dp))
             Text("连接后查看操作历史", style = MaterialTheme.typography.titleMedium)
             Text("与网页端共用当前账号的文件操作和任务记录。", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button(onConnect) { Text("连接服务器") }
+            FilewayButton(onConnect) { Text("连接服务器") }
         }
         return
     }
@@ -62,13 +62,13 @@ Column(Modifier.fillMaxSize()) {
                 state.filter.action.takeIf { it.isNotEmpty() }?.let { OPERATION_HISTORY_ACTIONS[it] ?: it }, state.filter.status?.label,
                 if (state.filter.from > 0 || state.filter.to > 0) "${historyDate(state.filter.from)} 至 ${historyDate(state.filter.to)}" else null).joinToString(" · "),
                 Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton({ search = ""; controller.filter(OperationHistoryFilter()) }, enabled = enabled) { Text("重置") }
+            FilewayTextButton({ search = ""; controller.filter(OperationHistoryFilter()) }, enabled = enabled) { Text("重置") }
         }
         if (state.loading || state.paging || state.clearing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         state.error?.let { message ->
             Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                TextButton({ controller.retry() }, enabled = enabled) { Text(if (state.retryMore) "重试加载更多" else "重新读取") }
+                FilewayTextButton({ controller.retry() }, enabled = enabled) { Text(if (state.retryMore) "重试加载更多" else "重新读取") }
             }
         }
         if (state.showingPreviousFilter) Text("筛选结果尚未更新，以下保留上次读取的记录。", Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -87,24 +87,31 @@ Column(Modifier.fillMaxSize()) {
             items(state.items, key = { it.id }) { entry ->
                 val target = operationHistoryTarget(entry.target)
                 Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp)) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text(target.name.ifEmpty { entry.actionLabel }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            IconButton({ detail = entry }) { Icon(painterResource(R.drawable.ic_info), "完整记录：${target.name.ifEmpty { entry.actionLabel }}") }
                         }
                         target.parent?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        if (entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall,
+                        // trash.move records the recycle item ID in detail (resource.go),
+                        // not a user-facing description. Preserve it in the complete record.
+                        if (entry.action != "trash.move" && entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(if (target.name.isEmpty()) entry.statusLabel else "${entry.actionLabel} · ${entry.statusLabel}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                                 color = when (entry.status) { "failed" -> MaterialTheme.colorScheme.error; "submitted" -> MaterialTheme.colorScheme.primary; else -> MaterialTheme.colorScheme.onSurfaceVariant })
                             Text(serverTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                      }
+                      IconButton({ detail = entry }, modifier = Modifier.size(48.dp)) {
+                          Icon(painterResource(R.drawable.ic_info), "完整记录：${target.name.ifEmpty { entry.actionLabel }}")
+                      }
                     }
                 }
             }
             if (state.nextCursor.isNotEmpty() && !state.showingPreviousFilter) item {
-                TextButton({ controller.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
+                FilewayTextButton({ controller.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
                     Text(if (state.paging) "正在加载更多记录" else "加载更多记录")
                 }
             }
@@ -112,7 +119,7 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
-    detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = { TextButton({ detail = null }) { Text("关闭") } }) {
+    detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = { FilewayTextButton({ detail = null }) { Text("关闭") } }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${entry.actionLabel} · ${entry.statusLabel}", style = MaterialTheme.typography.titleMedium)
             SelectionContainer {
@@ -129,8 +136,8 @@ Column(Modifier.fillMaxSize()) {
     }) { filters = false }
     if (state.clearConfirmation) AlertDialog(onDismissRequest = controller::cancelClear, title = { Text("清空当前账号的操作历史？") },
         text = { Text("将永久删除当前服务器上此账号的全部操作记录，包括筛选范围外的记录；网页端也会同步清空。文件和任务不会被删除。") },
-        confirmButton = { TextButton(controller::confirmClear, enabled = enabled) { Text("确认清空", color = MaterialTheme.colorScheme.error) } },
-        dismissButton = { TextButton(controller::cancelClear) { Text("取消") } })
+        confirmButton = { FilewayTextButton(controller::confirmClear, enabled = enabled) { Text("确认清空", color = MaterialTheme.colorScheme.error) } },
+        dismissButton = { FilewayTextButton(controller::cancelClear) { Text("取消") } })
 }
 
 private fun historyDate(value: Long): String = if (value <= 0) "不限" else Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).toLocalDate().toString()
@@ -158,43 +165,29 @@ private fun historyTime(value: Long): String = DateTimeFormatter.ofPattern("yyyy
         onApply = { apply(filter.copy(action = action, status = status, from = from, to = to)) },
         applyEnabled = from == 0L || to == 0L || from <= to,
     ) {
-        Box {
-            FilewayFilterField("动作", if (action.isEmpty()) "全部" else OPERATION_HISTORY_ACTIONS[action] ?: action,
-                { actionsOpen = true; statusesOpen = false })
-            DropdownMenu(
-                expanded = actionsOpen,
-                onDismissRequest = { actionsOpen = false },
-                modifier = Modifier.heightIn(max = 360.dp),
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                FilewayMenuItem("全部动作", { action = ""; actionsOpen = false }, selected = action.isEmpty())
-                (OPERATION_HISTORY_ACTIONS.keys + observedActions + listOf(action)).filter { it.isNotEmpty() }.distinct().forEach { id ->
-                    FilewayMenuItem(OPERATION_HISTORY_ACTIONS[id] ?: id, { action = id; actionsOpen = false }, selected = action == id)
-                }
-            }
-        }
-        Box {
-            FilewayFilterField("状态", status?.label ?: "全部", { statusesOpen = true; actionsOpen = false })
-            DropdownMenu(
-                expanded = statusesOpen,
-                onDismissRequest = { statusesOpen = false },
-                shape = RoundedCornerShape(12.dp),
-            ) {
-                FilewayMenuItem("全部状态", { status = null; statusesOpen = false }, selected = status == null)
-                OperationHistoryStatus.entries.forEach { value ->
-                    FilewayMenuItem(value.label, { status = value; statusesOpen = false }, selected = status == value)
-                }
-            }
-        }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
-                FilewayFilterField("开始日期", historyDate(from), { dateTarget = true })
+                FilewayFilterField("动作", if (action.isEmpty()) "全部" else OPERATION_HISTORY_ACTIONS[action] ?: action,
+                    { actionsOpen = true; statusesOpen = false })
+                val actionIds = (OPERATION_HISTORY_ACTIONS.keys + observedActions + listOf(action))
+                    .filter { it.isNotEmpty() }.distinct()
+                FilewayMenu(actionsOpen, { actionsOpen = false },
+                    items = listOf(FilewayMenuEntry("", "全部动作", selected = action.isEmpty())) +
+                        actionIds.map { FilewayMenuEntry(it, OPERATION_HISTORY_ACTIONS[it] ?: it, selected = action == it) },
+                    selection = FilewayMenuSelection.Single,
+                    onItemClick = { action = it.key; actionsOpen = false })
             }
             Box(Modifier.weight(1f)) {
-                FilewayFilterField("结束日期", historyDate(to), { dateTarget = false })
+                FilewayFilterField("状态", status?.label ?: "全部", { statusesOpen = true; actionsOpen = false })
+                FilewayMenu(statusesOpen, { statusesOpen = false },
+                    items = listOf(FilewayMenuEntry("", "全部状态", selected = status == null)) +
+                        OperationHistoryStatus.entries.map { FilewayMenuEntry(it.name, it.label, selected = status == it) },
+                    selection = FilewayMenuSelection.Single,
+                    onItemClick = { item -> status = OperationHistoryStatus.entries.firstOrNull { it.name == item.key }; statusesOpen = false })
             }
         }
-        TextButton({ from = 0; to = 0 }, enabled = from > 0 || to > 0, shape = RoundedCornerShape(12.dp)) { Text("不限日期") }
-        if (from > 0 && to > 0 && from > to) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error)
+        FilewayDateRangeFields(historyDate(from), historyDate(to), from > 0 || to > 0,
+            { dateTarget = true }, { dateTarget = false }, { from = 0; to = 0 },
+            invalidRange = from > 0 && to > 0 && from > to)
     }
 }

@@ -40,28 +40,28 @@ import io.github.kkwans.nasfilebrowser.data.*
     val replaces = draft.choices.values.any { it == FileConflictChoice.REPLACE }
     if (!sources) FileOperationSheet("${draft.action.label}到服务器目录", model.fileOperations::closeTransfer,
         canDismiss = !state.changing, footer = {
-            TextButton(model.fileOperations::closeTransfer, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (draft.unknownSubmission) "稍后核对" else "取消") }
-            key(draft.reviewed, state.changing) { Button({ model.fileOperations.submitTransfer(replaceConfirmed) }, enabled = !busy && !draft.unknownSubmission && entryError == null &&
+            FilewayTextButton(model.fileOperations::closeTransfer, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (draft.unknownSubmission) "稍后核对" else "取消") }
+            key(draft.reviewed, state.changing) { FilewayButton({ model.fileOperations.submitTransfer(replaceConfirmed) }, enabled = !busy && !draft.unknownSubmission && entryError == null &&
                 selected > 0 && (!replaces || replaceConfirmed), modifier = Modifier.heightIn(min = 48.dp)) {
                 Text(if (state.changing) "正在处理" else if (draft.reviewed) "${draft.action.label} $selected 项" else "检查此目录")
             } }
         }) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("${draft.files.size} 项 · ${if (draft.reviewed) "${draft.conflicts.size} 项同名" else "选择目标目录"}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                TextButton({ sources = true }) { Text("查看项目") }
+                FilewayTextButton({ sources = true }) { Text("查看项目") }
             }
             DirectoryBreadcrumbs(draft.directory.path, draft.directory.wirePath.orEmpty(), busy || draft.unknownSubmission, {
                 if (draft.directory.path != "/") directoryTrail(draft.directory.path, draft.directory.wirePath.orEmpty()).dropLast(1).lastOrNull()?.let(model.fileOperations::readTransferDirectory)
             }, model.fileOperations::readTransferDirectory)
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             (draft.error ?: entryError)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            if (draft.error != null && !draft.reviewed && !draft.unknownSubmission && !busy) TextButton({ model.fileOperations.readTransferDirectory(draft.directory) }) { Text("重新读取目录") }
+            if (draft.error != null && !draft.reviewed && !draft.unknownSubmission && !busy) FilewayTextButton({ model.fileOperations.readTransferDirectory(draft.directory) }) { Text("重新读取目录") }
             LazyColumn(Modifier.weight(1f, fill = false).heightIn(min = 72.dp).semantics { contentDescription = "复制移动目标目录" }, state = directoryScroll, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { FileOperationLocation("目标目录", draft.directory.path) }
                 if (draft.unknownSubmission) item {
                     Text("核对文件任务后，可返回这里重新检查。关闭此面板不会取消服务器可能已经创建的任务。", style = MaterialTheme.typography.bodyMedium)
-                    TextButton({ model.fileOperations.showTransfer(false); model.showFileTask() }) { Text("查看文件任务") }
-                    TextButton(model.fileOperations::acknowledgeUnknownSubmission) { Text("已核对未创建，重新检查") }
+                    FilewayTextButton({ model.fileOperations.showTransfer(false); model.showFileTask() }) { Text("查看文件任务") }
+                    FilewayTextButton(model.fileOperations::acknowledgeUnknownSubmission) { Text("已核对未创建，重新检查") }
                 }
                 else if (draft.reviewed) {
                     if (draft.conflicts.isEmpty()) item { Text("目标名称没有冲突，可以确认提交。", Modifier.padding(vertical = 12.dp), style = MaterialTheme.typography.bodyMedium) }
@@ -105,7 +105,7 @@ import io.github.kkwans.nasfilebrowser.data.*
             }
     }
     if (sources) FileOperationSheet("${draft.action.label} ${draft.files.size} 项", { sources = false }, footer = {
-        TextButton({ sources = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("返回目标选择") }
+        FilewayTextButton({ sources = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("返回目标选择") }
     }) {
         LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(draft.files, key = { it.mediaKey }) { file -> Column {
@@ -121,19 +121,19 @@ import io.github.kkwans.nasfilebrowser.data.*
     val draft = state.transfer
     if (draft != null && !draft.visible) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("文件操作等待核对", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-        TextButton({ model.fileOperations.showTransfer(true) }) { Text("继续确认") }
-        TextButton(model.fileOperations::closeTransfer) { Text("关闭确认") }
+        FilewayTextButton({ model.fileOperations.showTransfer(true) }) { Text("继续确认") }
+        FilewayTextButton(model.fileOperations::closeTransfer) { Text("关闭确认") }
     }
     val task = state.lastTask ?: return
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${task.title} · ${task.statusLabel}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                 color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton({ model.showFileTask(task.id) }) { Text("查看任务") }
-            TextButton(model.fileOperations::dismissTaskNotice) { Text("收起提示") }
+            FilewayTextButton({ model.showFileTask(task.id) }) { Text("查看任务") }
+            FilewayTextButton(model.fileOperations::dismissTaskNotice) { Text("收起提示") }
         }
         if (task.active) TaskProgress(task)
         (state.taskError ?: task.error.takeIf { it.isNotEmpty() })?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-        if (!task.active) TextButton(model::openTransferDestination) { Text("打开目标目录") }
+        if (!task.active) FilewayTextButton(model::openTransferDestination) { Text("打开目标目录") }
     }
 }

@@ -471,7 +471,7 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
                                                 if (document.navigation.headings.isEmpty()) Text("暂无标题", style = typography.text)
                                                 document.navigation.headings.forEach { heading ->
                                                     val choose = { navigate(heading) }
-                                                    TextButton(choose, Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                                                    FilewayTextButton(choose, Modifier.fillMaxWidth().heightIn(min = 48.dp)
                                                         .padding(start = ((heading.level - 1) * 12).dp)
                                                         .clearAndSetSemantics {
                                                             role = Role.Button; contentDescription = "正文目录：${heading.title}"
@@ -528,7 +528,7 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
                                         val back = lastReferences[note.startOffset] ?: note.references.firstOrNull()
                                         if (back != null) {
                                             val choose = { returnTo(back) }
-                                            TextButton(choose, Modifier.heightIn(min = 48.dp).clearAndSetSemantics {
+                                            FilewayTextButton(choose, Modifier.heightIn(min = 48.dp).clearAndSetSemantics {
                                                 role = Role.Button; contentDescription = "返回脚注 ${note.number} 的引用"
                                                 onClick { choose(); true }
                                             }) { Text("返回引用") }

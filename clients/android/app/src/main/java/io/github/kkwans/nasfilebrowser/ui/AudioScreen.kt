@@ -28,8 +28,11 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
 
 @Composable internal fun AudioScreen(model: ClientModel, file: ResourceRef) {
     FilewayTheme(darkTheme = true) {
+        io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
+            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPlayerColors, fullscreen = false) {
         Surface(Modifier.fillMaxSize(), color = FilewayTheme.status.mediaCanvas, contentColor = FilewayTheme.status.mediaContent) {
             AudioContent(model, file)
+        }
         }
     }
 }
@@ -70,7 +73,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
             Text(if (client.busy) client.stage else "正在缓冲 ${state.buffering.toInt()}%", color = media.mediaContent)
         }
         (client.error ?: state.error)?.let { message ->
-            Text(message, color = colors.error); OutlinedButton(model::retryPlayback) { Text("重试播放") }
+            Text(message, color = colors.error); FilewayOutlinedButton(model::retryPlayback) { Text("重试播放") }
         }
         Column(Modifier.fillMaxWidth()) {
             PlayerSlider(dragging ?: state.positionMs.toFloat(), state.durationMs.coerceAtLeast(1).toFloat(), "音频播放进度", !client.busy && state.seekable,
@@ -94,13 +97,13 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            TextButton({ menu = "speed" }) { Text("${state.rate}× 倍速") }
-            TextButton({ menu = "audio" }, enabled = state.audio.any { it.id >= 0 }) { Text("音轨") }
+            FilewayTextButton({ menu = "speed" }) { Text("${state.rate}× 倍速") }
+            FilewayTextButton({ menu = "audio" }, enabled = state.audio.any { it.id >= 0 }) { Text("音轨") }
         }
         Text("离开应用时暂停播放", color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
     }
     if (menu != null) FileOperationSheet(title = when (menu) { "queue" -> "播放列表 · ${queue?.items?.size ?: 0} 首"; "speed" -> "播放速度"; else -> "音轨" },
-        onDismiss = { menu = null }, footer = { TextButton({ menu = null }) { Text("关闭") } }) {
+        onDismiss = { menu = null }, footer = { FilewayTextButton({ menu = null }) { Text("关闭") } }) {
         state.operationError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.error) }
         when (menu) {
             "queue" -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {

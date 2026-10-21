@@ -51,15 +51,15 @@ import io.github.kkwans.nasfilebrowser.data.*
             FilewayTopAppBar(if (draft == null) "用户管理" else if (draft.creating) "新增用户" else "编辑用户",
                 leadingIcon = R.drawable.ic_arrow_back, leadingDescription = if (draft == null) "返回来源页面" else "返回用户列表",
                 onLeadingClick = { if (!state.saving) editorBack() }, actions = {
-                    if (draft == null) TextButton(controller::create, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("新增") }
+                    if (draft == null) FilewayTextButton(controller::create, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("新增") }
                     IconButton(controller::refresh, enabled = !state.loading && !state.saving) { Icon(painterResource(R.drawable.ic_refresh), "刷新用户列表") }
                 })
         }
     }, bottomBar = {
         if (draft != null) Surface {
             Row(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (!draft.creating) OutlinedButton(controller::requestDelete, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("删除用户", color = MaterialTheme.colorScheme.error) }
-                Button(controller::requestSave, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text(if (state.saving) "正在提交" else "保存用户") }
+                if (!draft.creating) FilewayOutlinedButton(controller::requestDelete, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("删除用户", color = MaterialTheme.colorScheme.error) }
+                FilewayButton(controller::requestSave, enabled = enabled, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text(if (state.saving) "正在提交" else "保存用户") }
             }
         }
     }) { insets ->
@@ -69,7 +69,7 @@ import io.github.kkwans.nasfilebrowser.data.*
             state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             state.notice?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
             if (state.unknown || !state.authorized && state.draft == null && state.notice != null) item {
-                OutlinedButton(onReconnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重新连接核对") }
+                FilewayOutlinedButton(onReconnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重新连接核对") }
             }
             if (draft == null) {
                 item { OutlinedTextField(state.query, controller::query, label = { Text("搜索用户名或用户目录") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
@@ -131,15 +131,15 @@ import io.github.kkwans.nasfilebrowser.data.*
                                     if (i != index) old else if (old.regex) old.copy(expression = value) else old.copy(path = value)
                                 }) } }, label = { Text(if (rule.regex) "Go 正则表达式" else "匹配路径") }, enabled = enabled, modifier = Modifier.fillMaxWidth())
                                 Row {
-                                    TextButton({ ruleKeys.add(index - 1, ruleKeys.removeAt(index)); controller.edit { it.copy(rules = it.rules.toMutableList().apply { add(index - 1, removeAt(index)) }) } }, enabled = enabled && index > 0, modifier = Modifier.heightIn(min = 48.dp)) { Text("上移") }
-                                    TextButton({ ruleKeys.add(index + 1, ruleKeys.removeAt(index)); controller.edit { it.copy(rules = it.rules.toMutableList().apply { add(index + 1, removeAt(index)) }) } }, enabled = enabled && index < draft.rules.lastIndex, modifier = Modifier.heightIn(min = 48.dp)) { Text("下移") }
-                                    TextButton({ ruleKeys.removeAt(index); controller.edit { it.copy(rules = it.rules.filterIndexed { i, _ -> i != index }) } }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("移除规则") }
+                                    FilewayTextButton({ ruleKeys.add(index - 1, ruleKeys.removeAt(index)); controller.edit { it.copy(rules = it.rules.toMutableList().apply { add(index - 1, removeAt(index)) }) } }, enabled = enabled && index > 0, modifier = Modifier.heightIn(min = 48.dp)) { Text("上移") }
+                                    FilewayTextButton({ ruleKeys.add(index + 1, ruleKeys.removeAt(index)); controller.edit { it.copy(rules = it.rules.toMutableList().apply { add(index + 1, removeAt(index)) }) } }, enabled = enabled && index < draft.rules.lastIndex, modifier = Modifier.heightIn(min = 48.dp)) { Text("下移") }
+                                    FilewayTextButton({ ruleKeys.removeAt(index); controller.edit { it.copy(rules = it.rules.filterIndexed { i, _ -> i != index }) } }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("移除规则") }
                                 }
                                 HorizontalDivider()
                             }
                             }
                         }
-                        OutlinedButton({ ruleKeys.add(java.util.UUID.randomUUID().toString()); controller.edit { it.copy(rules = it.rules + ManagedRule(path = "/")) } }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("添加规则") }
+                        FilewayOutlinedButton({ ruleKeys.add(java.util.UUID.randomUUID().toString()); controller.edit { it.copy(rules = it.rules + ManagedRule(path = "/")) } }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("添加规则") }
                     }
                 } }
             }
@@ -154,9 +154,9 @@ import io.github.kkwans.nasfilebrowser.data.*
                 label = { Text("当前管理员密码") }, singleLine = true, enabled = !state.saving && !state.unknown,
                 visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth())
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (state.unknown) TextButton(onReconnect, Modifier.heightIn(min = 48.dp)) { Text("重新连接核对") }
-        } }, confirmButton = { TextButton(controller::confirm, enabled = !state.saving && !state.unknown, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在提交" else "确认") } },
-        dismissButton = { TextButton(controller::cancelConfirmation, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.unknown) "保留草稿" else "取消") } }) }
+            if (state.unknown) FilewayTextButton(onReconnect, Modifier.heightIn(min = 48.dp)) { Text("重新连接核对") }
+        } }, confirmButton = { FilewayTextButton(controller::confirm, enabled = !state.saving && !state.unknown, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在提交" else "确认") } },
+        dismissButton = { FilewayTextButton(controller::cancelConfirmation, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.unknown) "保留草稿" else "取消") } }) }
 }
 
 @Composable internal fun AdminToggle(title: String, subtitle: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {

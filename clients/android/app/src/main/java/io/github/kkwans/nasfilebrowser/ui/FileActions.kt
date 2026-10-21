@@ -54,7 +54,7 @@ import kotlinx.coroutines.withTimeout
         if (caption == null) IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp).focusRequester(focus)) {
             Icon(painterResource(icon), label, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
                 else if (active) FilewayTheme.colors.primary else FilewayTheme.colors.onSurfaceVariant)
-        } else TextButton(onClick, enabled = enabled, modifier = Modifier.widthIn(min = 48.dp).heightIn(min = 64.dp).focusRequester(focus)
+        } else FilewayTextButton(onClick, enabled = enabled, modifier = Modifier.widthIn(min = 48.dp).heightIn(min = 64.dp).focusRequester(focus)
             .semantics { contentDescription = label }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Icon(painterResource(icon), null, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
@@ -164,10 +164,10 @@ import kotlinx.coroutines.withTimeout
             }, back = true) else LaunchedEffect(Unit) { back() }
             FileOperationDestination.RENAME -> FileRenameDialog(model, file, ::back) { back(); onMoved() }
             FileOperationDestination.TRASH -> FileOperationDialog("删除文件？", ::back, canDismiss = !trash.changing, footer = {
-                TextButton({ model.trash.permanentlyDeleteResource(file) { back(); onMoved() } },
+                FilewayTextButton({ model.trash.permanentlyDeleteResource(file) { back(); onMoved() } },
                     enabled = enabled && !trash.permanentResultUnknown, modifier = Modifier.heightIn(min = 48.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = FilewayTheme.colors.error)) { Text("永久删除") }
-                Button({ model.trash.move(file) { back(); onMoved() } }, enabled = enabled && !trash.permanentResultUnknown, modifier = Modifier.heightIn(min = 48.dp)) {
+                FilewayButton({ model.trash.move(file) { back(); onMoved() } }, enabled = enabled && !trash.permanentResultUnknown, modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(if (trash.changing) "正在移动" else "移入回收站")
                 }
             }) {
@@ -196,8 +196,8 @@ import kotlinx.coroutines.withTimeout
     fun submit() { if (canSubmit) { attempted = true; model.fileOperations.rename(file, input.text, saved) } }
     LaunchedEffect(file.mediaKey, state.scope) { focus.requestFocus() }
     FileOperationDialog("重命名", dismiss, canDismiss = !state.changing, footer = {
-        TextButton(dismiss, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
-        Button(::submit, enabled = canSubmit, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.changing) "正在重命名" else "保存名称") }
+        FilewayTextButton(dismiss, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+        FilewayButton(::submit, enabled = canSubmit, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.changing) "正在重命名" else "保存名称") }
     }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SelectionContainer { Text(file.name, style = FilewayTheme.text.fileName) }
@@ -240,8 +240,8 @@ import kotlinx.coroutines.withTimeout
     val writeError = state.error.takeIf { submitted && !state.changing }
     val editable = !loading && !state.changing && state.scope == sourceScope
     if (!creating) FileOperationSheet("文件标签", dismiss, canDismiss = !state.changing, back = true, footer = {
-        TextButton(dismiss, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
-        Button({ submitted = true; model.tags.assign(file, baseline.orEmpty(), selected, onSaved = dismiss, sourceScope = sourceScope) },
+        FilewayTextButton(dismiss, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+        FilewayButton({ submitted = true; model.tags.assign(file, baseline.orEmpty(), selected, onSaved = dismiss, sourceScope = sourceScope) },
             enabled = baseline != null && editable && error == null && writeError == null, modifier = Modifier.heightIn(min = 48.dp)) {
             Text(if (state.changing) "正在保存" else "保存标记")
         }
@@ -260,7 +260,7 @@ import kotlinx.coroutines.withTimeout
                     Checkbox(tag.id in selected, null, enabled = editable && writeError == null)
                 }
             }
-            item { TextButton({ focus.clearFocus(); keyboard?.hide(); creating = true }, enabled = editable && writeError == null, modifier = Modifier.heightIn(min = 48.dp)) { Text("新建标签") } }
+            item { FilewayTextButton({ focus.clearFocus(); keyboard?.hide(); creating = true }, enabled = editable && writeError == null, modifier = Modifier.heightIn(min = 48.dp)) { Text("新建标签") } }
         }
     }
     if (creating) TagEditor(model, null, { creating = false })

@@ -101,14 +101,14 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                                     else -> if (state.scope == SearchScope.GLOBAL) "搜索全部文件" else "搜索这个目录"
                                 }
                                 Text(label, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, color = colors.onBackground)
-                                if (active) TextButton(onClick = { model.search.cancel(); if (client.busy) model.cancel() }) { Text("取消") }
+                                if (active) FilewayTextButton(onClick = { model.search.cancel(); if (client.busy) model.cancel() }) { Text("取消") }
                             }
                             val message = client.error ?: state.message
                             if (message != null) Text(message, style = MaterialTheme.typography.bodyLarge,
                                 color = if (state.ending == SearchEnding.FAILED || client.error != null) MaterialTheme.colorScheme.error else colors.onSurfaceVariant,
                                 modifier = Modifier.padding(bottom = 8.dp))
                             if (!active && state.ending in setOf(SearchEnding.FAILED, SearchEnding.TIMEOUT, SearchEnding.LIMIT, SearchEnding.CANCELED)) {
-                                TextButton(onClick = ::submit) { Text("重新搜索") }
+                                FilewayTextButton(onClick = ::submit) { Text("重新搜索") }
                             }
                             if (!active && state.items.isEmpty() && state.message == null && client.error == null) {
                                 Text(if (state.ending == SearchEnding.COMPLETED) "没有匹配的文件。试试更短的关键词或扩大范围。" else if (state.scope == SearchScope.GLOBAL) "输入文件名，查找账号可访问的全部文件。" else "输入文件名，查找这个目录中的文件。",
@@ -116,7 +116,7 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                             }
                             if (!active && state.items.isNotEmpty() && displayed.isEmpty()) {
                                 Text("当前搜索结果中没有此类型的文件。", color = colors.onSurfaceVariant)
-                                TextButton(onClick = { model.search.category(FileCategory.ALL) }) { Text("显示全部结果") }
+                                FilewayTextButton(onClick = { model.search.category(FileCategory.ALL) }) { Text("显示全部结果") }
                             }
                         }
                         }
@@ -144,8 +144,8 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                         Text(state.resultBasePath.trimEnd('/') + "/" + result.relativePath, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                     }
                 },
-                confirmButton = { TextButton(onClick = { if (!model.state.value.busy) { details = null; model.search.openResult(result) } }, enabled = !client.busy) { Text("打开") } },
-                dismissButton = { TextButton(onClick = { details = null }) { Text("关闭") } })
+                confirmButton = { FilewayTextButton(onClick = { if (!model.state.value.busy) { details = null; model.search.openResult(result) } }, enabled = !client.busy) { Text("打开") } },
+                dismissButton = { FilewayTextButton(onClick = { details = null }) { Text("关闭") } })
         }
     }
 }

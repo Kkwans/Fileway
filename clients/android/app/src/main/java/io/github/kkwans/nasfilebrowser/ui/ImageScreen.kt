@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.memory.MemoryCache
 import coil3.BitmapImage
 import coil3.Image as CoilImage
 import coil3.compose.asPainter
@@ -115,7 +116,8 @@ import kotlin.math.abs
         }
         details?.let { FileDetailsDialog(it, actions = {
             FileActions(model, it) { details = null }
-            if (it.downloadId.isEmpty() && !model.isTemporaryContent(it)) TextButton({ originalOverrides = originalOverrides + it.mediaKey; details = null }) { Text("加载原图") }
+        }, additionalActions = {
+            if (it.downloadId.isEmpty() && !model.isTemporaryContent(it)) FilewayTextButton({ originalOverrides = originalOverrides + it.mediaKey; details = null }) { Text("加载原图") }
         }, onDismiss = { details = null }) }
     }
 }
@@ -130,16 +132,22 @@ import kotlin.math.abs
     val local = file.downloadId.isNotEmpty()
     val temporarySource = model.isTemporaryContent(file)
     val account = if (local) "local-downloads" else model.cacheAccount()
-    var originalRequested by rememberSaveable(file.mediaKey) { mutableStateOf(false) }
-    var originalCached by remember(file.mediaKey) { mutableStateOf(false) }
-    var cacheChecked by remember(file.mediaKey) { mutableStateOf(local) }
+    val memoryOriginal = remember(account, file.mediaKey, file.size, file.modified, cache.revision) {
+        val key = model.cache.key(account, file.mediaKey, "${file.size}/${file.modified}/${ImageQuality.ORIGINAL.name}")
+        model.cache.imageLoader.value.memoryCache?.get(MemoryCache.Key(key))?.image
+    }
+    var originalRequested by rememberSaveable(file.mediaKey) { mutableStateOf(memoryOriginal != null) }
+    var originalCached by remember(file.mediaKey) { mutableStateOf(memoryOriginal != null) }
+    var cacheChecked by remember(file.mediaKey) { mutableStateOf(local || memoryOriginal != null) }
     LaunchedEffect(file.mediaKey, cache.revision) {
-        try { originalCached = !local && model.hasCachedOriginal(file); if (originalCached) originalRequested = true }
+        try { originalCached = memoryOriginal != null || !local && model.hasCachedOriginal(file); if (originalCached) originalRequested = true }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { originalCached = memoryOriginal != null } // Main image read owns the recoverable error surface.
         finally { cacheChecked = true }
     }
     val quality = if (local || originalRequested || forceOriginal) ImageQuality.ORIGINAL else cache.settings.imageQuality
     val activeNow by rememberUpdatedState(active)
-    var preview by remember { mutableStateOf<CoilImage?>(null) }
+    var preview by remember { mutableStateOf<CoilImage?>(memoryOriginal) }
     var previewStatus by remember { mutableStateOf("正在读取预览") }
     val latestPreview by rememberUpdatedState(preview)
     var asset by remember { mutableStateOf<ImagePageAsset?>(null) }
@@ -212,7 +220,7 @@ import kotlin.math.abs
     LaunchedEffect(readingLease, active, fetched, canceled, failure) {
         readProgress = null
         val source = readingLease ?: return@LaunchedEffect
-        if (local) return@LaunchedEffect
+        if (local || source.url.startsWith("file:") || source.url.startsWith("content:")) return@LaunchedEffect
         if (!active || fetched || canceled || failure != null) return@LaunchedEffect
         while (true) {
             try {
@@ -302,7 +310,7 @@ import kotlin.math.abs
             color = Color.Black.copy(alpha = .65f), contentColor = Color.White, shape = MaterialTheme.shapes.medium) {
             Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(message, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                TextButton({ canceled = false; failure = null; attempt++ }) { Text("重试", color = Color.White) }
+                FilewayTextButton({ canceled = false; failure = null; attempt++ }) { Text("重试", color = Color.White) }
             }
         }
     }

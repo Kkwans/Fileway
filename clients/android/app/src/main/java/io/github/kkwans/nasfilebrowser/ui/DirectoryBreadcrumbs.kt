@@ -47,7 +47,7 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
                     }
                 }
                 if (plan.firstVisible > 0) {
-                    TextButton(onClick = { expanded = true }, enabled = !busy, modifier = Modifier.size(48.dp)
+                    FilewayTextButton(onClick = { expanded = true }, enabled = !busy, modifier = Modifier.size(48.dp)
                         .semantics { contentDescription = "展开完整路径" }, contentPadding = PaddingValues(0.dp)) {
                         Text("…", color = colors.primary)
                     }
@@ -56,7 +56,7 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
                 trail.drop(plan.firstVisible).forEachIndexed { index, crumb ->
                     if (index > 0) separator()
                     val current = crumb.path == path
-                    TextButton(onClick = { if (current) expanded = true else jump(crumb) },
+                    FilewayTextButton(onClick = { if (current) expanded = true else jump(crumb) },
                         enabled = !busy && (current || crumb.wirePath != null),
                         modifier = Modifier.width(with(density) { plan.widths[index].toDp() }).heightIn(min = 48.dp)
                             .semantics { contentDescription = if (current) "当前目录：${crumb.label}，展开完整路径" else "进入目录：${crumb.label}" },
@@ -75,7 +75,7 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
             LazyColumn(Modifier.heightIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 item(key = "full-path") { SelectionContainer { Text(path, style = MaterialTheme.typography.bodySmall) } }
                 items(trail, key = { it.path }) { crumb ->
-                    TextButton(onClick = { expanded = false; jump(crumb) }, enabled = !busy && crumb.wirePath != null && crumb.path != path,
+                    FilewayTextButton(onClick = { expanded = false; jump(crumb) }, enabled = !busy && crumb.wirePath != null && crumb.path != path,
                         modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(crumb.label, style = MaterialTheme.typography.bodyMedium)
@@ -86,5 +86,5 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
                     }
                 }
             }
-        }, confirmButton = { TextButton(onClick = { expanded = false }) { Text("关闭") } })
+        }, confirmButton = { FilewayTextButton(onClick = { expanded = false }) { Text("关闭") } })
 }

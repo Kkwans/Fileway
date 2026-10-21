@@ -100,8 +100,8 @@ import kotlin.math.roundToInt
                     Text("无法打开文档", style = MaterialTheme.typography.titleMedium)
                     Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(controller::retry, enabled = !state.loading) { Text("重试") }
-                        TextButton({ onDownload(file) }, enabled = canDownload) { Text("下载后打开") }
+                        FilewayTextButton(controller::retry, enabled = !state.loading) { Text("重试") }
+                        FilewayTextButton({ onDownload(file) }, enabled = canDownload) { Text("下载后打开") }
                     }
                 }
             }
@@ -119,12 +119,12 @@ import kotlin.math.roundToInt
                         Text(displayModified(file.modified) ?: "未提供修改时间", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     } }
                     Text("此类型暂不支持内置阅读，可下载后使用系统应用打开。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button({ onDownload(file) }, enabled = canDownload) { Text("下载文件") }
+                    FilewayButton({ onDownload(file) }, enabled = canDownload) { Text("下载文件") }
                 }
             }
         }
     }
-    if (info) FileOperationSheet("文档信息", { info = false }, footer = { TextButton({ info = false }) { Text("关闭") } }) {
+    if (info) FileOperationSheet("文档信息", { info = false }, footer = { FilewayTextButton({ info = false }) { Text("关闭") } }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -185,7 +185,7 @@ import kotlin.math.roundToInt
             if (!showSource) Text("${document.encoding} · 只读", Modifier.weight(1f),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (!showSource) TextButton(onClick = { outlineOpen = true },
+            if (!showSource) FilewayTextButton(onClick = { outlineOpen = true },
                 enabled = (preview as? MarkdownPreview.Reading)?.document?.navigation?.headings?.isNotEmpty() == true,
                 modifier = Modifier.heightIn(min = 48.dp)) { Text("目录") }
         }
@@ -261,7 +261,7 @@ import kotlin.math.roundToInt
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("${document.encoding} · 只读", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton({
+        FilewayTextButton({
             try { clipboard.setText(AnnotatedString(document.text)); copied = true; copyError = false }
             catch (_: Exception) { copied = false; copyError = true }
         }, enabled = document.text.length <= 131_072) { Text(if (copied) "已复制全文" else "复制全文") }
@@ -326,7 +326,7 @@ import kotlin.math.roundToInt
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         IconButton({ controller.selectPage(state.page - 1) }, enabled = state.page > 0, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "上一页 PDF") }
-        TextButton({ jumpOpen = true }, Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "跳转 PDF 页码" }) {
+        FilewayTextButton({ jumpOpen = true }, Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "跳转 PDF 页码" }) {
             Text("${state.page + 1} / ${state.pageCount}", maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         IconButton({ controller.selectPage(state.page + 1) }, enabled = state.page + 1 < state.pageCount, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_forward), "下一页 PDF") }
@@ -335,8 +335,8 @@ import kotlin.math.roundToInt
         IconButton({ controller.zoom(state.zoom + 25) }, enabled = state.zoom < 200, modifier = Modifier.size(48.dp).semantics { contentDescription = "放大 PDF" }) { Text("+", style = MaterialTheme.typography.titleLarge) }
     }
     if (jumpOpen) FileOperationDialog("跳转页码", { jumpOpen = false }, footer = {
-        TextButton({ jumpOpen = false }) { Text("取消") }
-        Button(::jump, enabled = validPage != null) { Text("转到") }
+        FilewayTextButton({ jumpOpen = false }) { Text("取消") }
+        FilewayButton(::jump, enabled = validPage != null) { Text("转到") }
     }) {
         OutlinedTextField(pageInput, { pageInput = it }, Modifier.fillMaxWidth(), label = { Text("页码") }, singleLine = true,
             isError = pageInput.isNotBlank() && validPage == null,
@@ -347,7 +347,7 @@ import kotlin.math.roundToInt
     if (state.rendering) LinearProgressIndicator(Modifier.fillMaxWidth())
     state.pageError?.let { message -> Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(message, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
-        TextButton(controller::retryPage) { Text("重试此页") }
+        FilewayTextButton(controller::retryPage) { Text("重试此页") }
     } }
     val density = LocalDensity.current
     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {

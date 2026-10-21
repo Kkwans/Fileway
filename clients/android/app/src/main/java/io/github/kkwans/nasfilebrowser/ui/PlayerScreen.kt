@@ -191,7 +191,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val controlsEnabled = !client.busy && !touchLocked
     var showRequest by remember(file) { mutableStateOf(false) }
     var showBuffering by remember(file) { mutableStateOf(false) }
-    val networkStatus = client.downloadBytesPerSecond?.takeIf { it > 0 && (client.busy || state.waitingForBuffer) }?.let { speed ->
+    // Transfer statistics describe actual upstream reads, including prebuffering
+    // while playback is smooth. Buffering state must not hide real activity.
+    val networkStatus = client.downloadBytesPerSecond?.takeIf { it > 0 }?.let { speed ->
         when {
             speed >= 1_000_000 -> String.format(java.util.Locale.ROOT, "%.1f MB/s", speed / 1_000_000.0)
             speed >= 1000 -> String.format(java.util.Locale.ROOT, "%.1f KB/s", speed / 1000.0)
@@ -353,6 +355,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
                 .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
                 val landscape = maxWidth > maxHeight
+                val playerAvailableHeight = maxHeight
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
                     else WindowInsets.displayCutout.union(WindowInsets.navigationBarsIgnoringVisibility).union(WindowInsets.captionBar)
                 val headerDensity = LocalDensity.current
@@ -612,7 +615,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         queue?.takeIf { it.hasNext }?.let { snapshot ->
                             Text("接下来", style = MaterialTheme.typography.titleSmall)
-                            snapshot.items.drop(snapshot.index + 1).take(2).forEachIndexed { offset, next ->
+                            val upcomingCount = ((playerAvailableHeight - portraitStageHeight - 116.dp) / 72.dp)
+                                .toInt().coerceIn(3, 5)
+                            snapshot.items.drop(snapshot.index + 1).take(upcomingCount).forEachIndexed { offset, next ->
                                 Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(RoundedCornerShape(12.dp))
                                     .background(pageColors.surface).clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
                                     model.navigateMedia(snapshot.index + offset + 1); touch()

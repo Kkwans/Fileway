@@ -63,7 +63,7 @@ internal fun FileLayoutMenu(
         )
     }
     Box {
-        TextButton(
+        FilewayTextButton(
             onClick = { expanded = true },
             enabled = enabled,
             shape = RoundedCornerShape(12.dp),
@@ -230,7 +230,7 @@ internal fun FileCategoryMenu(
         )
     }
     Box {
-        TextButton(
+        FilewayTextButton(
             onClick = { expanded = true },
             enabled = enabled,
             shape = RoundedCornerShape(12.dp),
@@ -271,7 +271,7 @@ internal fun FileOrderMenu(
         FilewayMenuEntry(key = item.name, label = item.label, selected = item == value, enabled = enabled)
     }
     Box {
-        TextButton(
+        FilewayTextButton(
             onClick = { expanded = true },
             enabled = enabled,
             shape = RoundedCornerShape(12.dp),

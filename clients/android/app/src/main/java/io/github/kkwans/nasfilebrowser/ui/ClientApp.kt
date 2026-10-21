@@ -99,7 +99,7 @@ import java.util.Locale
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
                 Text(state.stage.ifBlank { "正在打开文件库" }, style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = model::cancel) { Text("取消") }
+                FilewayTextButton(onClick = model::cancel) { Text("取消") }
             }
         }
         return
@@ -133,7 +133,7 @@ import java.util.Locale
                             if (archiveEntry.size > 0) Text("${readableSize(archiveEntry.processedBytes)} / ${readableSize(archiveEntry.size)}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                }, confirmButton = { TextButton({ if (archiveEntry.preparing) model.archiveEntry.cancel() else model.archiveEntry.dismissError() }, enabled = !archiveEntry.canceling) {
+                }, confirmButton = { FilewayTextButton({ if (archiveEntry.preparing) model.archiveEntry.cancel() else model.archiveEntry.dismissError() }, enabled = !archiveEntry.canceling) {
                     Text(if (archiveEntry.preparing) "取消准备" else "关闭")
                 } })
     }; return }
@@ -242,7 +242,7 @@ import java.util.Locale
                             if (state.busy) Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                                 Text(state.stage, Modifier.weight(1f).padding(horizontal = 12.dp))
-                                TextButton(model::cancel) { Text("取消") }
+                                FilewayTextButton(model::cancel) { Text("取消") }
                             }
                             RecentAccessContent(model.recentAccess, state.connected, model::showConnection,
                                 onLocation = { model.openRecentAccessLocation(it, sourceScope) },
@@ -252,11 +252,11 @@ import java.util.Locale
                         FilewayToast(state.recentPlaybackError)
                         state.error?.let { message ->
                             Surface(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = colors.errorContainer, shape = RoundedCornerShape(12.dp)) {
-                                Column(Modifier.fillMaxWidth().padding(12.dp)) { Text(message, color = colors.onErrorContainer); if (state.connected) TextButton(onClick = model::retry) { Text("重试") } }
+                                Column(Modifier.fillMaxWidth().padding(12.dp)) { Text(message, color = colors.onErrorContainer); if (state.connected) FilewayTextButton(onClick = model::retry) { Text("重试") } }
                             }
                         }
                         if (state.busy) {
-                            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Spacer(Modifier.width(12.dp)); Text(state.stage, modifier = Modifier.weight(1f)); TextButton(onClick = model::cancel) { Text("取消") } }
+                            Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp); Spacer(Modifier.width(12.dp)); Text(state.stage, modifier = Modifier.weight(1f)); FilewayTextButton(onClick = model::cancel) { Text("取消") } }
                         }
                         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "最近播放列表" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (recent.isEmpty() && !state.busy) item {
@@ -265,7 +265,7 @@ import java.util.Locale
                                         Icon(painterResource(R.drawable.ic_history), null, Modifier.size(24.dp), tint = colors.primary)
                                         Text("还没有播放记录", style = MaterialTheme.typography.titleMedium)
                                         Text("从文件页打开视频，观看进度会保存在这里。", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                                        TextButton(onClick = { model.tab("files") }) { Text("浏览文件") }
+                                        FilewayTextButton(onClick = { model.tab("files") }) { Text("浏览文件") }
                                     }
                                 }
                             }

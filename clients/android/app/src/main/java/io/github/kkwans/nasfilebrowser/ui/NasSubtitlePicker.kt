@@ -41,7 +41,7 @@ import kotlinx.coroutines.launch
                 if (busy) Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp); Text("正在加载")
                 }
-                error?.let { Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error); TextButton(onClick = { attempt++ }) { Text("重试") } }
+                error?.let { Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error); FilewayTextButton(onClick = { attempt++ }) { Text("重试") } }
                 if (!busy && error == null && files.isEmpty()) Text("这个目录没有支持的字幕文件", Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium)
             }
             items(files, key = { it.wirePath.ifEmpty { it.path } }) { file ->

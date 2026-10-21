@@ -81,7 +81,7 @@ private val LocalLibraryChrome = staticCompositionLocalOf<LibraryChrome?> { null
     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
     error?.let { Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(it, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
-        TextButton(refresh, enabled = !loading) { Text("重试") }
+        FilewayTextButton(refresh, enabled = !loading) { Text("重试") }
     } }
     FilewayToast(notice)
 }

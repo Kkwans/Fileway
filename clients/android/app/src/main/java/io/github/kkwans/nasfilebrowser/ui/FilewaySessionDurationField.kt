@@ -48,7 +48,7 @@ private fun durationNumber(value: Double): String =
                 shape = MaterialTheme.shapes.medium, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 modifier = Modifier.weight(1f))
             Box {
-                TextButton({ open = true }, enabled = enabled, shape = MaterialTheme.shapes.medium,
+                FilewayTextButton({ open = true }, enabled = enabled, shape = MaterialTheme.shapes.medium,
                     modifier = Modifier.heightIn(min = 48.dp)) {
                     Text(unit.label)
                     Icon(painterResource(R.drawable.ic_expand_more), null, Modifier.size(18.dp))

@@ -114,7 +114,7 @@ import kotlinx.coroutines.launch
                         }, R.drawable.ic_visibility, enabled = appearance.loaded && !appearance.saving && !appearance.loading) { themeSheet = true }
                         appearance.error?.let { message ->
                             Text(message, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            if (!appearance.loaded) TextButton(onClick = model.appearance::reload) { Text("重试读取") }
+                            if (!appearance.loaded) FilewayTextButton(onClick = model.appearance::reload) { Text("重试读取") }
                         }
                         SettingsAction("应用内 Tailscale", network.label, R.drawable.ic_network) { networkDetails = true }
                     }
@@ -157,18 +157,18 @@ import kotlinx.coroutines.launch
     }
     if (networkDetails) AlertDialog(onDismissRequest = { networkDetails = false }, title = { Text("应用内 Tailscale") }, text = {
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) { NetworkSection(model) }
-    }, confirmButton = { TextButton(onClick = { networkDetails = false }) { Text("关闭") } })
+    }, confirmButton = { FilewayTextButton(onClick = { networkDetails = false }) { Text("关闭") } })
     if (profileDetails) AlertDialog(onDismissRequest = { profileDetails = false }, title = { Text("服务器档案") }, text = {
         Column(Modifier.heightIn(max = 320.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(state.profile?.name.orEmpty()); Text(state.profile?.address.orEmpty()); Text("服务类型：${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"}"); Text("账号：${state.accountName}")
             Text(if (state.profile?.network == ConnectionMode.TAILNET) "连接方式：内嵌 Tailscale" else "连接方式：直接连接")
         }
-    }, confirmButton = { TextButton(onClick = { profileDetails = false }) { Text("关闭") } })
+    }, confirmButton = { FilewayTextButton(onClick = { profileDetails = false }) { Text("关闭") } })
     if (about) AlertDialog(onDismissRequest = ::closeAbout, title = { Text("栖卷 · Fileway") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("版本 ${BuildConfig.VERSION_NAME} · 构建 ${BuildConfig.VERSION_CODE}")
             Text("原生 Android 客户端 · GPL-3.0-or-later", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = {
+            FilewayTextButton(onClick = {
                 try {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UpdatePolicy.REPOSITORY))
                         .addCategory(Intent.CATEGORY_BROWSABLE))
@@ -179,10 +179,10 @@ import kotlinx.coroutines.launch
                 .semantics { contentDescription = "打开 GitHub 仓库" }) {
                 Text("GitHub · Kkwans/Fileway")
             }
-            TextButton(onClick = { about = false; licenses = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("鸣谢与许可证") }
+            FilewayTextButton(onClick = { about = false; licenses = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("鸣谢与许可证") }
             repositoryError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
-    }, confirmButton = { TextButton(onClick = ::closeAbout) { Text("关闭") } })
+    }, confirmButton = { FilewayTextButton(onClick = ::closeAbout) { Text("关闭") } })
     if (licenses) FilewayLicensesSheet { licenses = false; about = true }
 }
 

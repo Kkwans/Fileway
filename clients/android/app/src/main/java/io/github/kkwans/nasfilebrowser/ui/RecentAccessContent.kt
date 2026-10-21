@@ -59,7 +59,7 @@ Column(Modifier.fillMaxSize()) {
                 Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("刷新失败，当前显示上次读取的记录。$message", Modifier.weight(1f),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                    TextButton(onClick = { controller.refresh() }, enabled = !state.loading) { Text("重试") }
+                    FilewayTextButton(onClick = { controller.refresh() }, enabled = !state.loading) { Text("重试") }
                 }
             }
             key(state.scope) {
@@ -68,39 +68,39 @@ Column(Modifier.fillMaxSize()) {
                     items(entries, key = { it.id }) { entry ->
                         var menu by remember(entry.id) { mutableStateOf(false) }
                         fun valid() = controller.state.value.scope == state.scope && controller.state.value.items.any { it == entry }
-                        Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-                            Column(Modifier.fillMaxWidth().secondaryClick { if (entry.openable) menu = true }.combinedClickable(enabled = entry.openable, role = Role.Button,
-                                onClick = { if (valid()) onOpen(entry) }, onLongClick = { menu = true }, onLongClickLabel = "打开文件菜单")
-                                .padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Icon(painterResource(fileArtworkIcon(entry.name, entry.isDir)), null,
-                                        Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(entry.name, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Box {
-                                        IconButton({ menu = true }, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_more_horiz), "最近访问操作") }
-                                        FilewayMenu(menu, { menu = false }, items = buildList {
-                                            add(FilewayMenuEntry("open", "打开", R.drawable.ic_visibility, enabled = entry.openable))
-                                            if (onLocation != null) add(FilewayMenuEntry("location", "打开所在目录", R.drawable.ic_folder, enabled = entry.openable))
-                                            if (onDetails != null) add(FilewayMenuEntry("info", "文件信息", R.drawable.ic_info, enabled = entry.openable))
-                                        }, onItemClick = { item ->
-                                            menu = false
-                                            if (valid()) when (item.key) {
-                                                "open" -> onOpen(entry)
-                                                "location" -> onLocation?.invoke(entry)
-                                                "info" -> onDetails?.invoke(entry)
-                                            }
-                                        })
+                        LibraryObjectCard(
+                            name = entry.name,
+                            location = libraryLocation(entry.path),
+                            icon = fileArtworkIcon(entry.name, entry.isDir),
+                            summary = serverTime(entry.accessedAt),
+                            modifier = Modifier.secondaryClick { if (entry.openable) menu = true }
+                                .combinedClickable(enabled = entry.openable, role = Role.Button,
+                                    onClick = { if (valid()) onOpen(entry) }, onLongClick = { menu = true },
+                                    onLongClickLabel = "打开文件菜单"),
+                            trailing = {
+                                Box {
+                                    IconButton({ menu = true }, modifier = Modifier.size(48.dp)) {
+                                        Icon(painterResource(R.drawable.ic_more_horiz), "最近访问操作")
                                     }
+                                    FilewayMenu(menu, { menu = false }, items = buildList {
+                                        add(FilewayMenuEntry("open", "打开", R.drawable.ic_visibility, enabled = entry.openable))
+                                        if (onLocation != null) add(FilewayMenuEntry("location", "打开所在目录", R.drawable.ic_folder, enabled = entry.openable))
+                                        if (onDetails != null) add(FilewayMenuEntry("info", "文件信息", R.drawable.ic_info, enabled = entry.openable))
+                                    }, onItemClick = { item ->
+                                        menu = false
+                                        if (valid()) when (item.key) {
+                                            "open" -> onOpen(entry)
+                                            "location" -> onLocation?.invoke(entry)
+                                            "info" -> onDetails?.invoke(entry)
+                                        }
+                                    })
                                 }
-                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(libraryParent(entry.path), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(serverTime(entry.accessedAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                            },
+                            context = {
                                 if (!entry.openable) Text("原始路径无法确认，请从文件列表重新访问此项", style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error)
-                            }
-                        }
+                            },
+                        )
                     }
                 }
             }
@@ -116,7 +116,7 @@ Column(Modifier.fillMaxSize()) {
             Icon(painterResource(R.drawable.ic_history), null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onAction) { Text(action) }
+            FilewayTextButton(onAction) { Text(action) }
         }
     }
 }

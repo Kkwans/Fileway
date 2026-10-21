@@ -47,17 +47,17 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { message ->
                 Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                if (listing == null && !busy) TextButton(controller::refresh) { Text("重试读取") }
+                if (listing == null && !busy) FilewayTextButton(controller::refresh) { Text("重试读取") }
             }
             if (state.unknownSubmission) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onOpenTasks) { Text("去任务中心核对") }
-                TextButton(controller::acknowledgeSubmission) { Text("已核对未创建") }
+                FilewayTextButton(onOpenTasks) { Text("去任务中心核对") }
+                FilewayTextButton(controller::acknowledgeSubmission) { Text("已核对未创建") }
             }
             if (listing != null) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("${listing.format.uppercase()} · ${listing.entries.size} 项 · ${readableSize(listing.listedBytes)}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (listing.blockedCount > 0) TextButton({ blocked = true }) { Text("已阻止 ${listing.blockedCount} 项") }
+                    if (listing.blockedCount > 0) FilewayTextButton({ blocked = true }) { Text("已阻止 ${listing.blockedCount} 项") }
                 }
                 if (listing.truncated) Text("${listing.limitReason}。完整范围无法确认，不会提交解压。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 OutlinedTextField(state.query, controller::search, Modifier.fillMaxWidth(), label = { Text("搜索包内路径") }, singleLine = true, enabled = !state.submitting,
@@ -66,8 +66,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                     if (state.prefix.isNotEmpty()) IconButton(controller::up, enabled = !state.submitting) { Icon(painterResource(R.drawable.ic_arrow_back), "返回压缩包上一级") }
                     Text(if (state.query.isNotBlank()) "全部搜索结果" else if (state.prefix.isEmpty()) "压缩包根目录" else state.rows.firstOrNull()?.path?.substringBeforeLast('/', state.prefix) ?: state.prefix,
                         Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    TextButton(controller::selectDirectory, enabled = !state.submitting) { Text(if (state.prefix.isEmpty()) "全选" else "选择此目录") }
-                    TextButton(controller::clearSelection, enabled = !state.submitting && state.selected.isNotEmpty()) { Text("清空") }
+                    FilewayTextButton(controller::selectDirectory, enabled = !state.submitting) { Text(if (state.prefix.isEmpty()) "全选" else "选择此目录") }
+                    FilewayTextButton(controller::clearSelection, enabled = !state.submitting && state.selected.isNotEmpty()) { Text("清空") }
                 }
                 LazyColumn(Modifier.then(if (compactHeight) Modifier.heightIn(max = 260.dp) else Modifier.weight(1f)).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (state.rows.isEmpty()) item { Text(if (state.query.isBlank()) "这个目录没有可浏览的条目" else "没有匹配的包内路径", Modifier.padding(vertical = 24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -100,23 +100,23 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text("解压任务 · ${task.statusLabel}", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                                TextButton(onOpenTasks) { Text("任务中心") }
-                                if (task.active) TextButton({ cancel = true }, enabled = !state.canceling) { Text(if (state.canceling) "取消中…" else "取消解压") }
+                                FilewayTextButton(onOpenTasks) { Text("任务中心") }
+                                if (task.active) FilewayTextButton({ cancel = true }, enabled = !state.canceling) { Text(if (state.canceling) "取消中…" else "取消解压") }
                             }
                             val progress = task.progress
                             if (task.active) { if (progress == null) LinearProgressIndicator(Modifier.fillMaxWidth()) else LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth()) }
                             if (task.totalItems > 0) Text("${task.processedItems} / ${task.totalItems} 项", style = MaterialTheme.typography.bodySmall)
                             if (task.error.isNotEmpty()) Text(task.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                            state.taskError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error); TextButton(controller::retryTaskStatus) { Text("重试任务状态") } }
-                            state.reportError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error); TextButton(controller::retryTaskStatus) { Text("重试结果") } }
+                            state.taskError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error); FilewayTextButton(controller::retryTaskStatus) { Text("重试任务状态") } }
+                            state.reportError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error); FilewayTextButton(controller::retryTaskStatus) { Text("重试结果") } }
                             if (state.reportLoading) Text("正在读取解压结果…", style = MaterialTheme.typography.bodySmall)
                             state.report?.let { report ->
                                 Text("写入 ${report.extractedFiles} 个文件、${report.extractedDirs} 个目录 · ${readableSize(report.extractedBytes)}", style = MaterialTheme.typography.bodySmall)
                                 if (report.skippedCount > 0) {
                                     Text("${report.skippedCount} 项已存在，已跳过且未覆盖", style = MaterialTheme.typography.bodySmall)
-                                    if (report.skipped.isNotEmpty()) TextButton({ skipped = true }) { Text("查看跳过项目") }
+                                    if (report.skipped.isNotEmpty()) FilewayTextButton({ skipped = true }) { Text("查看跳过项目") }
                                 }
-                                TextButton({ onOpenDirectory(report.destination) }) { Text("打开解压目标目录") }
+                                FilewayTextButton({ onOpenDirectory(report.destination) }) { Text("打开解压目标目录") }
                             }
                             if (task.status == "canceled") Text("已成功写入的文件仍然保留。", style = MaterialTheme.typography.bodySmall)
                         }
@@ -129,12 +129,12 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                                 Text("解压到", style = MaterialTheme.typography.labelMedium)
                                 Text(state.destination.path, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
-                            TextButton(controller::pickDestination, enabled = !busy && state.task?.active != true && !state.reportLoading) { Text("选择目录") }
+                            FilewayTextButton(controller::pickDestination, enabled = !busy && state.task?.active != true && !state.reportLoading) { Text("选择目录") }
                         }
                         val entries = state.selectedEntries
                         Text("${entries.count { !it.isDir }} 个文件 · ${readableSize(entries.filterNot { it.isDir }.sumOf { it.size })} · 同名文件跳过", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (!state.canExtract) Text("当前账号可浏览，但没有创建文件权限。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Button(controller::submit, Modifier.fillMaxWidth(), enabled = state.canExtract && !busy && !listing.truncated && entries.isNotEmpty() && state.task?.active != true && !state.unknownSubmission && !state.reportLoading) {
+                        FilewayButton(controller::submit, Modifier.fillMaxWidth(), enabled = state.canExtract && !busy && !listing.truncated && entries.isNotEmpty() && state.task?.active != true && !state.unknownSubmission && !state.reportLoading) {
                             Text(if (state.submitting) "正在提交解压…" else "解压所选项目")
                         }
                     }
@@ -149,12 +149,12 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             if (report.skippedCount > report.skipped.size) item { Text("显示前 ${report.skipped.size} 个条目", style = MaterialTheme.typography.bodySmall) }
             items(report.skipped) { entry -> Column(Modifier.padding(vertical = 8.dp)) { Text(entry.path); Text(entry.reason, style = MaterialTheme.typography.bodySmall) } }
         }
-    }, confirmButton = { TextButton({ skipped = false }) { Text("关闭") } }) }
+    }, confirmButton = { FilewayTextButton({ skipped = false }) { Text("关闭") } }) }
     if (blocked && listing != null) AlertDialog(onDismissRequest = { blocked = false }, title = { Text("已阻止 ${listing.blockedCount} 个条目") }, text = {
         LazyColumn(Modifier.heightIn(max = 360.dp)) { items(listing.blocked) { entry -> Column(Modifier.padding(vertical = 8.dp)) { Text(entry.path); Text(entry.reason, style = MaterialTheme.typography.bodySmall) } } }
-    }, confirmButton = { TextButton({ blocked = false }) { Text("知道了") } })
+    }, confirmButton = { FilewayTextButton({ blocked = false }) { Text("知道了") } })
     if (cancel) AlertDialog(onDismissRequest = { cancel = false }, title = { Text("取消解压？") }, text = { Text("已完成的文件会保留，服务器会停止后续条目。最终状态可在任务中心核对。") },
-        confirmButton = { TextButton({ cancel = false; controller.cancel() }) { Text("确认取消") } }, dismissButton = { TextButton({ cancel = false }) { Text("继续解压") } })
+        confirmButton = { FilewayTextButton({ cancel = false; controller.cancel() }) { Text("确认取消") } }, dismissButton = { FilewayTextButton({ cancel = false }) { Text("继续解压") } })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -162,15 +162,15 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     val state by controller.state.collectAsStateWithLifecycle()
     val directory = state.destinationDraft ?: return
     FileOperationSheet("选择解压目标目录", controller::closeDestination, footer = {
-        TextButton(controller::closeDestination) { Text("取消") }
-        Button(controller::confirmDestination, enabled = !state.directoryLoading && state.directoryError == null && directory.wirePath != null) { Text("使用此目录") }
+        FilewayTextButton(controller::closeDestination) { Text("取消") }
+        FilewayButton(controller::confirmDestination, enabled = !state.directoryLoading && state.directoryError == null && directory.wirePath != null) { Text("使用此目录") }
     }) {
         Column(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             DirectoryBreadcrumbs(directory.path, directory.wirePath.orEmpty(), state.directoryLoading, {
                 directoryTrail(directory.path, directory.wirePath.orEmpty()).dropLast(1).lastOrNull()?.let(controller::browseDestination)
             }, controller::browseDestination)
             if (state.directoryLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-            state.directoryError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error); TextButton({ controller.browseDestination(directory) }) { Text("重试目录") } }
+            state.directoryError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error); FilewayTextButton({ controller.browseDestination(directory) }) { Text("重试目录") } }
             LazyColumn(Modifier.weight(1f, fill = false).heightIn(min = 72.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 item { FileOperationLocation("当前解压目标", directory.path) }
                 if (state.directories.isEmpty() && !state.directoryLoading && state.directoryError == null) item { Text("没有子目录，可使用当前目录", Modifier.padding(vertical = 20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }

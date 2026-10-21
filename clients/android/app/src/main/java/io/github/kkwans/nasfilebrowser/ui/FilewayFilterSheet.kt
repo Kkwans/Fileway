@@ -16,6 +16,27 @@ import io.github.kkwans.nasfilebrowser.R
 
 private val filewayFilterShape = RoundedCornerShape(12.dp)
 
+/** The callers retain calendar conversion and draft ownership. */
+@Composable
+internal fun FilewayDateRangeFields(
+    start: String, end: String, canClear: Boolean,
+    onStart: () -> Unit, onEnd: () -> Unit, onClear: () -> Unit,
+    invalidRange: Boolean,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            FilewayFilterField("开始日期", start, onStart, Modifier.weight(1f))
+            FilewayFilterField("结束日期", end, onEnd, Modifier.weight(1f))
+            if (canClear) IconButton(onClear, modifier = Modifier.size(48.dp)) {
+                Icon(painterResource(R.drawable.ic_close), "清除日期", Modifier.size(22.dp))
+            }
+        }
+        if (invalidRange) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall)
+    }
+}
+
 @Composable
 internal fun FilewayFilterSheet(
     title: String,
@@ -26,9 +47,9 @@ internal fun FilewayFilterSheet(
     content: @Composable ColumnScope.() -> Unit,
 ) {
     FileOperationSheet(title = title, onDismiss = onDismiss, footer = {
-        TextButton(onClick = onReset, shape = filewayFilterShape) { Text("重置条件") }
+        FilewayTextButton(onClick = onReset, shape = filewayFilterShape) { Text("重置条件") }
         Spacer(Modifier.weight(1f))
-        Button(onClick = onApply, enabled = applyEnabled, shape = filewayFilterShape) { Text("应用") }
+        FilewayButton(onClick = onApply, enabled = applyEnabled, shape = filewayFilterShape) { Text("应用") }
     }) {
         Column(
             Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
@@ -46,7 +67,7 @@ internal fun FilewayFilterField(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
 ) {
-    OutlinedButton(
+    FilewayOutlinedButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.fillMaxWidth().heightIn(min = 56.dp),

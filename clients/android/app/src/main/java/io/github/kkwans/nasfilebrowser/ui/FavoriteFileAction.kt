@@ -54,8 +54,8 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     }
     if (choosing || foreground?.destination == FileOperationDestination.FAVORITE) FileOperationSheet("加入收藏", ::dismiss,
         canDismiss = !state.changing, back = foreground != null, footer = {
-            TextButton(::dismiss, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
-            Button({ model.favorites.add(file, chosenGroup, ::dismiss) }, enabled = enabled && !state.changing && state.loaded,
+            FilewayTextButton(::dismiss, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+            FilewayButton({ model.favorites.add(file, chosenGroup, ::dismiss) }, enabled = enabled && !state.changing && state.loaded,
                 modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.changing) "正在保存" else "保存收藏") }
         }) {
             Text(file.name, style = FilewayTheme.text.fileName)

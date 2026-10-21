@@ -78,7 +78,7 @@ Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
             Spacer(Modifier.weight(1f))
-            TextButton({ settings = true }) { Text("目录") }
+            FilewayTextButton({ settings = true }) { Text("目录") }
         }
         state.error?.let { message -> Text(message, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = MaterialTheme.colorScheme.error) }
         FilewayToast(state.notice)
@@ -88,7 +88,7 @@ Column(Modifier.fillMaxSize()) {
                     Icon(painterResource(R.drawable.ic_download), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                     Text(if (state.items.isEmpty()) "把文件带在身边" else "这里还没有${filter}的文件", style = MaterialTheme.typography.titleMedium)
                     Text("从文件详情中下载。下载中的视频可边下边播，完成的图片和视频可离线打开。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton({ model.tab("files") }) { Text("浏览服务器文件") }
+                    FilewayTextButton({ model.tab("files") }) { Text("浏览服务器文件") }
                 }
             }
             items(records, key = { it.id }) { item ->
@@ -172,7 +172,7 @@ Column(Modifier.fillMaxSize()) {
 }
 
     state.items.firstOrNull { it.id == detailsId }?.let { item ->
-        FileOperationSheet("下载任务信息", { detailsId = null }, footer = { TextButton({ detailsId = null }) { Text("关闭") } }) {
+        FileOperationSheet("下载任务信息", { detailsId = null }, footer = { FilewayTextButton({ detailsId = null }) { Text("关闭") } }) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -197,13 +197,13 @@ Column(Modifier.fillMaxSize()) {
                 OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("ZIP文件名") }, singleLine = true,
                     enabled = !state.busy, isError = error != null, supportingText = { Text(error ?: "保留 .zip 扩展名") })
                 Text("保存到：${downloadDirectoryLabel(state.tree)}", style = MaterialTheme.typography.bodySmall)
-                TextButton({ try { folder.launch(model.downloads.target.directoryUri(state.tree)) } catch (_: Exception) { model.downloads.reportError("无法打开下载目录选择器") } }, enabled = !state.busy) { Text("更改下载目录") }
+                FilewayTextButton({ try { folder.launch(model.downloads.target.directoryUri(state.tree)) } catch (_: Exception) { model.downloads.reportError("无法打开下载目录选择器") } }, enabled = !state.busy) { Text("更改下载目录") }
                 Text("即时生成ZIP；暂停、断网或进程恢复后会从零重新打包，不支持断点追加。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 state.error?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
             }
-        }, confirmButton = { TextButton({ model.downloads.confirmZipExport(name) }, enabled = !state.busy && error == null) { Text("开始打包下载") } },
-            dismissButton = { TextButton(model.downloads::cancelZipExport, enabled = !state.busy) { Text("取消") } })
+        }, confirmButton = { FilewayTextButton({ model.downloads.confirmZipExport(name) }, enabled = !state.busy && error == null) { Text("开始打包下载") } },
+            dismissButton = { FilewayTextButton(model.downloads::cancelZipExport, enabled = !state.busy) { Text("取消") } })
     }
     if (settings) ModalBottomSheet(onDismissRequest = { settings = false }) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -213,15 +213,15 @@ Column(Modifier.fillMaxSize()) {
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             FilewayToast(state.notice)
             Text("更改目录只影响新下载。现有文件留在原目录，不会自动移动或删除。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Button({ try { folder.launch(model.downloads.target.directoryUri(state.tree)) } catch (_: Exception) { model.downloads.reportError("无法打开目录选择器") } }, Modifier.fillMaxWidth(), enabled = !state.busy) { Text("选择下载目录") }
-            OutlinedButton({ openFolder(state.tree) }, Modifier.fillMaxWidth()) { Text("打开下载目录") }
-            if (state.tree.isNotEmpty()) TextButton({ model.downloads.selectDirectory(null) }, Modifier.fillMaxWidth(), enabled = !state.busy) { Text("恢复默认 · Download/fileway") }
+            FilewayButton({ try { folder.launch(model.downloads.target.directoryUri(state.tree)) } catch (_: Exception) { model.downloads.reportError("无法打开目录选择器") } }, Modifier.fillMaxWidth(), enabled = !state.busy) { Text("选择下载目录") }
+            FilewayOutlinedButton({ openFolder(state.tree) }, Modifier.fillMaxWidth()) { Text("打开下载目录") }
+            if (state.tree.isNotEmpty()) FilewayTextButton({ model.downloads.selectDirectory(null) }, Modifier.fillMaxWidth(), enabled = !state.busy) { Text("恢复默认 · Download/fileway") }
         }
     }
     remove?.let { item -> AlertDialog(onDismissRequest = { remove = null }, title = { Text(if (deleteFile) "删除本机文件？" else "移除下载记录？") },
         text = { Text(item.name + "\n\n" + if (deleteFile) "本机文件与下载记录将删除。服务器上的原文件保持不变。" else if (item.complete) "仅移除记录，本机文件仍保留，可通过系统文件管理器查看。" else "仅移除记录会留下未完成文件，且无法继续下载。建议选择删除文件与记录。") },
-        confirmButton = { TextButton({ model.downloads.remove(item, deleteFile); remove = null }) { Text(if (deleteFile) "删除" else "移除记录") } },
-        dismissButton = { TextButton({ remove = null }) { Text("取消") } }) }
+        confirmButton = { FilewayTextButton({ model.downloads.remove(item, deleteFile); remove = null }) { Text(if (deleteFile) "删除" else "移除记录") } },
+        dismissButton = { FilewayTextButton({ remove = null }) { Text("取消") } }) }
 }
 
 internal fun downloadDirectoryLabel(tree: String): String = if (tree.isEmpty()) "Download/fileway" else runCatching {

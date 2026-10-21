@@ -28,8 +28,8 @@ import io.github.kkwans.nasfilebrowser.data.renameNameError
     fun dismiss() { if (!busy && !state.unknownWrite) { controller.closeCreation(); onClose() } }
     FileOperationSheet("新建文件", ::dismiss, canDismiss = !busy && !state.unknownWrite, footer = {
         if (!state.unknownWrite) {
-            TextButton(::dismiss, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
-            Button(controller::create, enabled = !busy && nameError == null && target != null, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在创建" else "创建文件") }
+            FilewayTextButton(::dismiss, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") }
+            FilewayButton(controller::create, enabled = !busy && nameError == null && target != null, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在创建" else "创建文件") }
         }
     }) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -41,8 +41,8 @@ import io.github.kkwans.nasfilebrowser.data.renameNameError
                     SelectionContainer { Text("${if (state.acknowledged) "已确认创建" else "待核对文件"}：${draft.target?.path ?: draft.name}", style = MaterialTheme.typography.bodyMedium) }
                     Text(if (state.acknowledged) "服务器已确认创建，后续核对或本地刷新尚未完成。面板保留本次名称和内容，不会重复创建。"
                         else "请先核对结果，面板保留本次名称和内容，不会重复提交。", style = MaterialTheme.typography.bodyMedium)
-                    TextButton(controller::verifyCreation, enabled = !busy) { Text(if (state.acknowledged) "核对并恢复刷新" else "核对创建结果") }
-                    TextButton({ controller.closeCreation(verifyUnknown = true); onVerifyDirectory(draft.parent); onClose() }, enabled = !busy) { Text(if (state.acknowledged) "返回原目录查看" else "返回原目录核对") }
+                    FilewayTextButton(controller::verifyCreation, enabled = !busy) { Text(if (state.acknowledged) "核对并恢复刷新" else "核对创建结果") }
+                    FilewayTextButton({ controller.closeCreation(verifyUnknown = true); onVerifyDirectory(draft.parent); onClose() }, enabled = !busy) { Text(if (state.acknowledged) "返回原目录查看" else "返回原目录核对") }
                 } else {
                     OutlinedTextField(draft.name, controller::createName, modifier = Modifier.fillMaxWidth(), label = { Text("文件名") }, singleLine = true,
                         enabled = !busy, isError = draft.name.isNotEmpty() && nameError != null,
