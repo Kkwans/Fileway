@@ -99,7 +99,7 @@ import kotlinx.coroutines.launch
                             }
                         }
                         SettingsAction("切换登录", "切换服务器或账号", R.drawable.ic_server, action = model::disconnect)
-                        SettingsAction("退出登录", "清除当前登录凭据，保留服务器档案", R.drawable.ic_logout, action = model::signOut)
+                        SettingsAction("退出登录", "清除当前登录凭据，保留服务器档案", R.drawable.ic_logout, navigation = false, action = model::signOut)
                         SettingsAction("账户安全", "当前账号与密码", R.drawable.ic_lock) { model.tab("account") }
                         SettingsAction("服务器档案", "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
                     }
@@ -141,16 +141,12 @@ import kotlinx.coroutines.launch
             }
         }
     }
-    if (themeSheet) ModalBottomSheet(onDismissRequest = { themeSheet = false },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = MaterialTheme.colorScheme.background) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 24.dp).selectableGroup()) {
-            Text("选择主题", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 12.dp))
+    if (themeSheet) FileOperationSheet("选择主题", { themeSheet = false }, canDismiss = !appearance.saving) {
+        Column(Modifier.fillMaxWidth().selectableGroup()) {
             AppTheme.entries.forEach { mode ->
-                Row(Modifier.fillMaxWidth().selectable(selected = appearance.theme == mode, role = Role.RadioButton,
-                    enabled = !appearance.saving, onClick = { model.appearance.save(mode); themeSheet = false }).heightIn(min = 56.dp).padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    RadioButton(selected = appearance.theme == mode, onClick = null)
-                    Text(mode.label(), style = MaterialTheme.typography.bodyLarge)
+                io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow(mode.label(),
+                    selected = appearance.theme == mode, enabled = !appearance.saving) {
+                    model.appearance.save(mode); themeSheet = false
                 }
             }
         }
@@ -198,15 +194,15 @@ import kotlinx.coroutines.launch
     }
 }
 
-@Composable internal fun SettingsAction(title: String, subtitle: String, icon: Int, enabled: Boolean = true, action: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClick = action).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
+@Composable internal fun SettingsAction(title: String, subtitle: String, icon: Int, enabled: Boolean = true, navigation: Boolean = true, action: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.Button, onClick = action).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(painterResource(icon), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.bodyLarge)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (navigation) Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

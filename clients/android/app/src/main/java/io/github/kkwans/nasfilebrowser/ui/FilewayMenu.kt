@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,6 +48,8 @@ internal data class FilewayMenuEntry(
     val selected: Boolean = false,
     val enabled: Boolean = true,
     val destructive: Boolean = false,
+    val description: String? = null,
+    val selectable: Boolean = true,
 )
 
 internal enum class FilewayMenuAlignment { Start, Center }
@@ -81,11 +84,13 @@ internal fun FilewayMenu(
     val textMeasurer = rememberTextMeasurer()
     val normalStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Normal)
     val selectedStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
-    val measuredLabelWidth = remember(items, normalStyle, selectedStyle, density) {
+    val descriptionStyle = MaterialTheme.typography.bodySmall
+    val measuredLabelWidth = remember(items, normalStyle, selectedStyle, descriptionStyle, density) {
         val widthPx = items.maxOfOrNull { item ->
             maxOf(
                 textMeasurer.measure(item.label, style = normalStyle).size.width,
                 textMeasurer.measure(item.label, style = selectedStyle).size.width,
+                item.description?.let { textMeasurer.measure(it, style = descriptionStyle).size.width } ?: 0,
             )
         } ?: 0
         with(density) { widthPx.toDp() }
@@ -141,7 +146,7 @@ private fun FilewayMenuRow(
     val labelColor = (if (item.selected) selectedColor else baseColor).copy(alpha = enabledAlpha)
     val iconColor = (if (item.selected) selectedColor else colors.onSurfaceVariant).copy(alpha = enabledAlpha)
     val selectedSurface = alignment == FilewayMenuAlignment.Center && item.selected
-    val role = when (selection) {
+    val role = if (!item.selectable) null else when (selection) {
         FilewayMenuSelection.Single -> Role.RadioButton
         FilewayMenuSelection.Multiple -> Role.Checkbox
         FilewayMenuSelection.None -> null
@@ -169,15 +174,18 @@ private fun FilewayMenuRow(
             }
             Spacer(Modifier.width(MenuSlotGap))
         }
-        Text(
-            text = item.label,
-            modifier = Modifier.weight(1f, fill = alignment == FilewayMenuAlignment.Start),
-            style = if (item.selected) selectedStyle else normalStyle,
-            color = labelColor,
-            textAlign = if (alignment == FilewayMenuAlignment.Center) TextAlign.Center else TextAlign.Start,
-            softWrap = true,
-            overflow = TextOverflow.Clip,
-        )
+        Column(Modifier.weight(1f, fill = alignment == FilewayMenuAlignment.Start),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalAlignment = if (alignment == FilewayMenuAlignment.Center) Alignment.CenterHorizontally else Alignment.Start) {
+            val textAlign = if (alignment == FilewayMenuAlignment.Center) TextAlign.Center else TextAlign.Start
+            Text(item.label, style = if (item.selected) selectedStyle else normalStyle,
+                color = labelColor, textAlign = textAlign, softWrap = true, overflow = TextOverflow.Clip)
+            item.description?.takeIf { it.isNotBlank() }?.let { description ->
+                Text(description, style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant.copy(alpha = enabledAlpha), textAlign = textAlign,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
         if (hasChecks) {
             Spacer(Modifier.width(MenuSlotGap))
             Box(Modifier.size(MenuCheckSlot), contentAlignment = Alignment.Center) {

@@ -42,7 +42,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
 import io.github.kkwans.nasfilebrowser.R
@@ -136,19 +135,20 @@ import io.github.kkwans.nasfilebrowser.data.*
                             }
                             Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp))
                         }
-                        DropdownMenu(expanded = profilesOpen, onDismissRequest = { profilesOpen = false }, modifier = Modifier.widthIn(min = 280.dp, max = 360.dp)) {
-                            FilewayMenuItem("新建服务器", { profilesOpen = false; model.selectProfile(null) }, R.drawable.ic_add)
-                            if (profiles.isNotEmpty()) HorizontalDivider()
-                            profiles.forEach { profile -> DropdownMenuItem(text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(profile.name, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    Text("${if (profile.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${serverAddressSummary(profile.address)} · ${if (profile.network == ConnectionMode.TAILNET) "Tailscale" else "直连"}",
-                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                }
-                            }, onClick = { profilesOpen = false; model.selectProfile(profile) }) }
-                            state.profile?.let { profile ->
-                                HorizontalDivider()
-                                FilewayMenuItem("移除当前档案", { profilesOpen = false; remove = profile }, R.drawable.ic_trash)
+                        FilewayMenu(profilesOpen, { profilesOpen = false }, items = buildList {
+                            add(FilewayMenuEntry("new", "新建服务器", R.drawable.ic_add, selected = state.profile == null))
+                            profiles.forEach { profile ->
+                                add(FilewayMenuEntry("profile/${profile.id}", profile.name, R.drawable.ic_storage,
+                                    selected = profile.id == state.profile?.id,
+                                    description = "${if (profile.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${serverAddressSummary(profile.address)} · ${if (profile.network == ConnectionMode.TAILNET) "Tailscale" else "直连"}"))
+                            }
+                            if (state.profile != null) add(FilewayMenuEntry("remove", "移除当前档案", R.drawable.ic_trash, destructive = true, selectable = false))
+                        }, selection = FilewayMenuSelection.Single) { item ->
+                            profilesOpen = false
+                            when (item.key) {
+                                "new" -> model.selectProfile(null)
+                                "remove" -> remove = state.profile
+                                else -> profiles.firstOrNull { "profile/${it.id}" == item.key }?.let(model::selectProfile)
                             }
                         }
                     }

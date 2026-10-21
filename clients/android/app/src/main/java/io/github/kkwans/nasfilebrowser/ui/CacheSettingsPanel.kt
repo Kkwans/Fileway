@@ -43,12 +43,12 @@ private data class CacheImageOwner(val account: String, val session: String)
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SettingsGroup("本机缓存 · 缩略图") {
             SettingsAction("容量上限", "已用 ${readableSize(state.thumbnails)} / ${settings.thumbnailMB} MB", R.drawable.ic_storage, enabled) { edit("thumbnail", settings.thumbnailMB) }
-            SettingsAction("清理缩略图缓存", "超限自动淘汰最久未读取项", R.drawable.ic_refresh, enabled) { clear = "thumbnail" }
+            SettingsAction("清理缩略图缓存", "移除此设备已缓存的文件预览", R.drawable.ic_refresh, enabled, navigation = false) { clear = "thumbnail" }
         }
         SettingsGroup("视频播放缓存") {
             SettingsAction("容量上限", "已用 ${readableSize(state.playback)} / ${settings.playbackMB} MB${if (settings.playbackMB == 0L) " · 已关闭" else ""}", R.drawable.ic_storage, enabled) { edit("playback", settings.playbackMB) }
             SettingsAction("自动清理周期", "${settings.cleanupHours} 小时 · 保留正在播放的文件", R.drawable.ic_history, enabled) { edit("hours", settings.cleanupHours.toLong()) }
-            SettingsAction("清理播放缓存", "保留正在播放的缓存", R.drawable.ic_refresh, enabled) { clear = "playback" }
+            SettingsAction("清理播放缓存", "保留正在播放的缓存", R.drawable.ic_refresh, enabled, navigation = false) { clear = "playback" }
         }
         SettingsGroup("图片缓存与查看") {
             SettingsAction("默认图片质量", settings.imageQuality.label, R.drawable.ic_visibility, enabled) { quality = true }
@@ -56,7 +56,7 @@ private data class CacheImageOwner(val account: String, val session: String)
             SettingsAction("缓存图片管理", if (owner == null) "连接服务器后查看当前账号的图片" else "仅查看和移除当前账号的本机图片", R.drawable.ic_folder, enabled && owner != null) {
                 model.tab("cache-images")
             }
-            SettingsAction("清理图片缓存", "清理本机所有图片缓存，服务器文件保留", R.drawable.ic_refresh, enabled) { clear = "image" }
+            SettingsAction("清理图片缓存", "清理本机所有图片缓存，服务器文件保留", R.drawable.ic_refresh, enabled, navigation = false) { clear = "image" }
         }
         if (state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.error?.let {

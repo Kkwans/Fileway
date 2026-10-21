@@ -34,10 +34,6 @@ import io.github.kkwans.nasfilebrowser.app.AccountSettingsController
     }) { insets ->
         LazyColumn(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).semantics { contentDescription = "账户设置内容" },
             contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item { Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(state.profile?.username ?: "当前账号", style = MaterialTheme.typography.titleLarge)
-                Text("管理当前服务器账号的登录安全。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } }
             if (state.loading || state.saving) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
             state.error?.let { message -> item { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(message, color = MaterialTheme.colorScheme.error)
@@ -61,12 +57,17 @@ import io.github.kkwans.nasfilebrowser.app.AccountSettingsController
         }
     }
     val passwordError = state.capabilities?.let { state.password.validationError(it) }
-    if (passwordOpen) ModalBottomSheet(onDismissRequest = {
-        if (!state.saving) { passwordOpen = false; if (!state.passwordUnknown) controller.clearPasswordDraft() }
-    }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        LazyColumn(Modifier.fillMaxWidth().imePadding().semantics { contentDescription = "密码修改内容" }, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+    if (passwordOpen) FileOperationSheet("修改密码", onDismiss = {
+        passwordOpen = false
+        if (!state.passwordUnknown) controller.clearPasswordDraft()
+    }, canDismiss = !state.saving, footer = {
+        FilewayButton(controller::savePassword, Modifier.fillMaxWidth().heightIn(min = 48.dp),
+            enabled = state.canChangePassword && state.capabilities != null && passwordError == null && !state.loading && !state.saving && !state.passwordUnknown) {
+            Text(if (state.saving) "正在修改" else "确认修改密码")
+        }
+    }) {
+        LazyColumn(Modifier.weight(1f, fill = false).fillMaxWidth().semantics { contentDescription = "密码修改内容" },
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text("修改密码", style = MaterialTheme.typography.titleLarge) }
             item { Text("${state.capabilities?.minimumPasswordLength ?: "—"}–72 字节；密码只用于本次提交。", style = MaterialTheme.typography.bodySmall) }
             if (state.capabilities?.currentPasswordRequired == true) item {
                 AccountPasswordField("当前密码", state.password.current, !state.saving && !state.passwordUnknown) { value -> controller.editPassword { it.copy(current = value) } }
@@ -76,7 +77,6 @@ import io.github.kkwans.nasfilebrowser.app.AccountSettingsController
             passwordError?.takeIf { state.password.replacement.isNotEmpty() || state.password.confirmation.isNotEmpty() }?.let { item { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) } }
             state.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             state.notice?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
-            item { FilewayButton(controller::savePassword, Modifier.fillMaxWidth().heightIn(min = 48.dp), enabled = state.canChangePassword && state.capabilities != null && passwordError == null && !state.loading && !state.saving && !state.passwordUnknown) { Text(if (state.saving) "正在修改" else "确认修改密码") } }
             if (state.passwordUnknown) item {
                 FilewayOutlinedButton(onReconnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重新连接核对") }
                 FilewayTextButton(controller::clearPasswordDraft, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("清除密码草稿") }

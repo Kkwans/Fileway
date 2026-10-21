@@ -72,14 +72,17 @@ import io.github.kkwans.nasfilebrowser.data.*
                 FilewayOutlinedButton(onReconnect, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重新连接核对") }
             }
             if (draft == null) {
-                item { OutlinedTextField(state.query, controller::query, label = { Text("搜索用户名或用户目录") }, singleLine = true, modifier = Modifier.fillMaxWidth()) }
+                item { FilewaySearchField(state.query, controller::query, "搜索用户名或用户目录", Modifier.fillMaxWidth(), enabled = !state.loading && !state.saving) { focus.clearFocus(); keyboard?.hide() } }
                 val rows = state.users.filter { state.query.isBlank() || it.username.contains(state.query, true) || it.scope.contains(state.query, true) }
                 if (rows.isEmpty() && !state.loading) item { Text(if (state.query.isBlank()) "暂无可显示的用户" else "没有匹配的用户", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(rows, key = { it.id }) { user ->
-                    Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.background) {
-                        Column(Modifier.fillMaxWidth().clickable(enabled = enabled) { controller.select(user.id) }.heightIn(min = 72.dp).padding(16.dp)) {
-                            Text(user.username, style = MaterialTheme.typography.titleMedium)
-                            Text(if (user.permissions.admin) "管理员" else "普通用户", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+                        Column(Modifier.fillMaxWidth().clickable(enabled = enabled) { controller.select(user.id) }.heightIn(min = 72.dp).padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(user.username, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                                Text(if (user.permissions.admin) "管理员" else "普通用户", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            }
                             Text("用户目录：${user.scope.ifEmpty { "/" }}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }

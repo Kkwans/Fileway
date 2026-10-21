@@ -184,7 +184,9 @@ private enum class GlobalSettingsGroup(val label: String) {
     var open by remember { mutableStateOf(false) }
     val options = if (choices.any { it.first == value }) choices else choices + (value to value)
     Box { FilewayOutlinedButton({ open = true }, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(label, Modifier.weight(1f)); Text(options.first { it.first == value }.second) }
-        DropdownMenu(open, { open = false }) { options.forEach { (key, text) -> DropdownMenuItem({ Text(text) }, { open = false; onChange(key) }) } }
+        FilewayMenu(open, { open = false }, items = options.map { (key, text) ->
+            FilewayMenuEntry(key, text, selected = key == value)
+        }, selection = FilewayMenuSelection.Single) { item -> open = false; onChange(item.key) }
     }
 }
 @Composable private fun GlobalPermissions(value: ManagedPermissions, enabled: Boolean, onChange: (ManagedPermissions) -> Unit) {

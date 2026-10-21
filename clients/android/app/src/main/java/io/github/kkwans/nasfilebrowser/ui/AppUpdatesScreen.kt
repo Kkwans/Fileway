@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -121,14 +120,11 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 if (update != null) {
                     if (state.phase == UpdatePhase.AVAILABLE && state.choices.size > 1) Column(Modifier.selectableGroup()) {
                         state.choices.forEachIndexed { index, choice ->
-                            Row(Modifier.fillMaxWidth().selectable(selected = update.asset.id == choice.asset.id, role = Role.RadioButton,
-                                onClick = { select(choice.asset.id) }).heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                RadioButton(selected = update.asset.id == choice.asset.id, onClick = null)
-                                Text(choice.release.displayVersion, style = MaterialTheme.typography.bodyLarge)
-                                ReleaseLabel(choice.release.preview)
-                                if (index == 0) Text("推荐", style = MaterialTheme.typography.labelMedium, color = colors.primary)
-                            }
+                            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow(
+                                choice.release.displayVersion,
+                                subtitle = "${if (choice.release.preview) "预览版" else "正式版"} · ${readableSize(choice.asset.size)}${if (index == 0) " · 推荐" else ""}",
+                                selected = update.asset.id == choice.asset.id,
+                            ) { select(choice.asset.id) }
                         }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -146,7 +142,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 }
 
 @Composable private fun ReleaseLabel(preview: Boolean) {
-    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primaryContainer,
+    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primaryContainer,
         contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
         Text(if (preview) "预览版" else "正式版", style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
