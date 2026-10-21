@@ -30,7 +30,10 @@
     output: {
       font: 'mathjax-newcm',
       fontPath: '[fonts]/%%FONT%%-font',
-      displayOverflow: 'overflow'
+      displayOverflow: 'overflow',
+      // Native inline content consumes one image; browser-based splitting
+      // otherwise returns several sibling SVGs and silently loses later pieces.
+      linebreaks: {inline: false}
     },
     svg: {fontCache: 'local', useXlink: true},
     options: {
@@ -63,7 +66,10 @@
         containerWidth: metrics.containerWidthPx, scale: 1,
         family: 'sans-serif'
       }).then(container => {
-        const svg = container.querySelector('svg');
+        const svgs = Array.from(container.children).filter(element =>
+          element.namespaceURI === ns && element.localName === 'svg');
+        if (svgs.length !== 1) throw Error('invalid');
+        const svg = svgs[0];
         if (!svg || svg.querySelector('[data-mml-node="merror"]') || !svg.hasAttribute('viewBox')) throw Error('invalid');
         const widthPx = ex(svg.getAttribute('width')) * metrics.exPx;
         const heightPx = ex(svg.getAttribute('height')) * metrics.exPx;

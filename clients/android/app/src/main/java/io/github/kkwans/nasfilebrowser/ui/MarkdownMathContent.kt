@@ -1,13 +1,20 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.MaterialTheme
@@ -17,11 +24,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
@@ -30,12 +41,17 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.dp
 import coil3.compose.rememberAsyncImagePainter
 import coil3.request.ImageRequest
 import coil3.request.CachePolicy
+import coil3.svg.SvgDecoder
 import com.mikepenz.markdown.compose.LocalMarkdownInlineContent
 import com.mikepenz.markdown.compose.elements.MarkdownText
 import com.mikepenz.markdown.compose.extendedspans.ExtendedSpanPainter
@@ -221,7 +237,7 @@ private fun MarkdownMathImage(result: MarkdownMathResult.Rendered, source: Strin
         ImageRequest.Builder(context)
             .data(result.svg.toByteArray(Charsets.UTF_8))
             .diskCachePolicy(CachePolicy.DISABLED)
-            .decoderFactory(MarkdownMathSvgDecoderFactory)
+            .decoderFactory(SvgDecoder.Factory(useViewBoundsAsIntrinsicSize = false, renderToBitmap = false))
             .size(ceil(result.widthPx).toInt().coerceAtLeast(1), ceil(result.heightPx).toInt().coerceAtLeast(1))
             .build()
     }
@@ -234,15 +250,45 @@ private fun MarkdownMathImage(result: MarkdownMathResult.Rendered, source: Strin
             contentScale = ContentScale.FillBounds)
 }
 
-/** Standalone display slots stay native and retain a selectable TeX source.
- * Inline/block math occurring inside a paragraph should use MarkdownMathText,
- * whose alternateText is already the exact original source. */
+/** Display math is its own image, not a placeholder spanning source newlines.
+ * Exact TeX remains selectable/copyable in the on-demand source panel and in
+ * the document source. Inline paragraph selection keeps its original binding.
+ */
 @Composable
 internal fun MarkdownMathBlock(formula: MarkdownMathFormula, result: MarkdownMathResult?, modifier: Modifier = Modifier) {
     when (result) {
-        is MarkdownMathResult.Rendered -> MarkdownMathText(
-            buildAnnotatedString { appendMarkdownMath(formula, result) }, mapOf(formula.key to result),
-            modifier.horizontalScroll(rememberScrollState()), MaterialTheme.typography.bodyLarge)
+        is MarkdownMathResult.Rendered -> {
+            var sourceOpen by remember(formula.key, formula.source) { mutableStateOf(false) }
+            var copyFailed by remember(formula.source) { mutableStateOf(false) }
+            val clipboard = LocalClipboardManager.current
+            val context = LocalContext.current
+            DisableSelection {
+                Box(modifier.horizontalScroll(rememberScrollState()).heightIn(min = 48.dp).combinedClickable(
+                    role = Role.Button, onClickLabel = "查看公式源码", onClick = { sourceOpen = true },
+                    onLongClickLabel = "查看公式源码", onLongClick = { sourceOpen = true },
+                ).semantics { contentDescription = formula.source }, contentAlignment = Alignment.CenterStart) {
+                    MarkdownMathImage(result, formula.source)
+                }
+            }
+            if (sourceOpen) FileOperationSheet("公式源码", { sourceOpen = false }, footer = {
+                FilewayTextButton({ sourceOpen = false }) { Text("关闭") }
+                FilewayButton({
+                    try {
+                        clipboard.setText(AnnotatedString(formula.source))
+                        copyFailed = false
+                        android.widget.Toast.makeText(context, "已复制公式源码", android.widget.Toast.LENGTH_SHORT).show()
+                    } catch (_: Exception) { copyFailed = true }
+                }) { Text("复制源码") }
+            }) {
+                Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                    SelectionContainer {
+                        Text(formula.source, style = MaterialTheme.typography.bodyMedium, fontFamily = FontFamily.Monospace)
+                    }
+                    if (copyFailed) Text("无法复制，请长按选择源码。", color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         is MarkdownMathResult.Failed -> Text("${formula.source}（${result.reason}）", modifier, color = MaterialTheme.colorScheme.error)
         null -> Text(formula.source, modifier)
     }
