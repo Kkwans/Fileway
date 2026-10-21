@@ -435,7 +435,7 @@ func openArchive(ctx context.Context, filesystem afero.Fs, archivePath string) (
 func supportedFormatName(format archives.Format) (string, bool) {
 	name := strings.TrimPrefix(strings.ToLower(format.Extension()), ".")
 	switch name {
-	case "zip", "tar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst":
+	case "zip", "7z", "rar", "tar", "tar.gz", "tar.bz2", "tar.xz", "tar.zst":
 		return name, true
 	default:
 		return name, false

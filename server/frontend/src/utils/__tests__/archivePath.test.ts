@@ -14,10 +14,12 @@ describe("archive routes", () => {
       "/a.tar.bz2",
       "/a.tar.xz",
       "/a.tar.zst",
+      "/a.7Z",
+      "/a.RAR",
     ]) {
       expect(isBrowsableArchivePath(path)).toBe(true);
     }
-    for (const path of ["/a.rar", "/a.7z", "/a.gz", "/a.tar.lz4"]) {
+    for (const path of ["/a.iso", "/a.7z.001", "/a.gz", "/a.tar.lz4"]) {
       expect(isBrowsableArchivePath(path)).toBe(false);
     }
   });

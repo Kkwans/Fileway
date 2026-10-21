@@ -8,6 +8,8 @@ const BROWSABLE_ARCHIVE_SUFFIXES = [
   ".tar.zst",
   ".tar",
   ".zip",
+  ".7z",
+  ".rar",
 ] as const;
 
 export function isBrowsableArchivePath(value: string) {

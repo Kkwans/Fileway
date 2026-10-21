@@ -164,10 +164,10 @@ func TestArchiveHTTPRequiresPermissionsAndSupportedSafePaths(t *testing.T) {
 		t.Fatalf("direct hidden archive status = %d body=%s", response.Code, response.Body.String())
 	}
 
-	if err := afero.WriteFile(h.fs[hidden.ID], "/unsupported.rar", []byte("Rar!\x1a\x07\x00"), 0o640); err != nil {
+	if err := afero.WriteFile(h.fs[hidden.ID], "/unsupported.iso", []byte("not-a-supported-archive"), 0o640); err != nil {
 		t.Fatal(err)
 	}
-	response = h.request(t, hidden.ID, archiveEntriesHandler, http.MethodGet, "/archives/entries?path=/unsupported.rar", nil, nil)
+	response = h.request(t, hidden.ID, archiveEntriesHandler, http.MethodGet, "/archives/entries?path=/unsupported.iso", nil, nil)
 	if response.Code != http.StatusUnsupportedMediaType {
 		t.Fatalf("unsupported archive status = %d body=%s", response.Code, response.Body.String())
 	}
