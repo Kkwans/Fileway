@@ -25,6 +25,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
@@ -249,7 +250,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             model.retryProgress()
         }
     }
-    val blocked = state.error != null || client.error != null || client.busy || !state.playing || state.phase != "正在播放"
+    val blocked = state.error != null || client.error != null || client.busy
     val liveBlocked by rememberUpdatedState(blocked)
     fun touch() { visible = true; interaction++ }
     fun cancelGesture() {
@@ -295,9 +296,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(visible, interaction, sheet, seek != null, pictureSeek != null, blocked, exploration, draggingVertical) {
+    LaunchedEffect(visible, interaction, sheet, seek != null, pictureSeek != null, blocked, state.playing, exploration, draggingVertical) {
         if (blocked || exploration || sheet != null || seek != null || pictureSeek != null || draggingVertical) visible = true
-        else if (visible) {
+        else if (visible && state.playing) {
             val timeout = accessibility.getRecommendedTimeoutMillis(3000,
                 AccessibilityManager.FLAG_CONTENT_CONTROLS or AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_ICONS)
             delay(timeout.toLong())
@@ -362,7 +363,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
                 val landscape = maxWidth > maxHeight
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
-                    else WindowInsets.displayCutout.union(WindowInsets.navigationBarsIgnoringVisibility).union(WindowInsets.captionBar)
+                    else WindowInsets.displayCutout.union(WindowInsets.captionBar)
                 val headerDensity = LocalDensity.current
                 val controlPadding = if (landscape) 20.dp else 12.dp
                 val downloadCoverageHeight = with(headerDensity) { 16.sp.toDp() }
@@ -607,17 +608,19 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         }
                     }
                     }
-                    if (!fullscreen) Column(Modifier.weight(1f).semantics { contentDescription = "播放详情" }
-                        .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
+                    if (!fullscreen) LazyColumn(Modifier.weight(1f).semantics { contentDescription = "播放详情" }
+                        .padding(horizontal = 16.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         queue?.takeIf { it.hasNext }?.let { snapshot ->
-                            val upcoming = snapshot.items.drop(snapshot.index + 1).take(10)
-                            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                            val upcoming = snapshot.items.drop(snapshot.index + 1)
+                            item(key = "upcoming-header") { Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text("接下来", style = MaterialTheme.typography.titleSmall)
                                 Text("${upcoming.size} 项", style = FilewayTheme.text.metadata, color = pageColors.onSurfaceVariant)
                             }
-                            upcoming.forEachIndexed { offset, next ->
+                            }
+                            itemsIndexed(upcoming, key = { _, next -> next.mediaKey }) { offset, next ->
                                 Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(RoundedCornerShape(12.dp))
                                     .background(pageColors.surface).clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
                                     model.navigateMedia(snapshot.index + offset + 1); touch()
@@ -669,7 +672,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                 selected = if (audio) state.selectedAudio else state.selectedSubtitle,
                                 pending = if (audio) state.pendingAudio else state.pendingSubtitle,
                                 subtitle = !audio,
-                                footer = if (audio) null else { {
+                                header = if (audio) null else { {
                                     PlayerSubtitleHomeActions(
                                         downloadLocal = file.downloadId.isNotEmpty(),
                                         loading = state.subtitleLoading,

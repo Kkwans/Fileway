@@ -1381,6 +1381,23 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         if (snapshot.accountKey != bound.account.key) return
         val file = ResourceRef(snapshot.path, snapshot.wirePath, snapshot.name, false, if (mediaKind(snapshot.name) == MediaKind.AUDIO) "audio" else "video", 0)
         openFrom(file, listOf(file), MediaQueueSource.SINGLE)
+        val request = mediaRequest
+        val queueId = mutable.value.mediaQueue?.snapshotId ?: return
+        val wire = file.wirePath.ifEmpty { SearchResult.encodePath(file.path) }.substringBeforeLast('/').ifEmpty { "/" }
+        viewModelScope.launch {
+            try {
+                val files = directoryFiles(bound.api.request("GET", "/api/resources$wire?dimensions=1"))
+                if (context !== bound || generation != bound.generation || mediaRequest != request ||
+                    mutable.value.mediaQueue?.snapshotId != queueId) return@launch
+                val candidates = presentFiles(files, FileCategory.ALL, mutable.value.fileOrder)
+                val queue = MediaQueue.snapshot(queueId, bound.account.key, file, candidates, MediaQueueSource.DIRECTORY)
+                mutable.value = mutable.value.copy(mediaQueue = queue)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (context === bound && mediaRequest == request && mutable.value.mediaQueue?.snapshotId == queueId)
+                    mutable.value = mutable.value.copy(notice = "同目录播放列表读取失败，可重新打开重试；当前播放不受影响")
+            }
+        }
     }
     fun togglePlayback() {
         if (player.state.value.playing) { pausePlayback(); return }
