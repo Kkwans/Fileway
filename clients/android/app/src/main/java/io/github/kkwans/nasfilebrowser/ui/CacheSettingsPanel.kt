@@ -1,6 +1,8 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectableGroup
@@ -45,9 +47,6 @@ import kotlinx.coroutines.launch
         SettingsGroup("图片缓存与查看") {
             SettingsAction("默认图片质量", settings.imageQuality.label, R.drawable.ic_visibility, enabled) { quality = true }
             SettingsAction("图片缓存容量", "已用 ${readableSize(state.images)} / ${settings.imageMB} MB${if (settings.imageMB == 0L) " · 已关闭" else ""}", R.drawable.ic_storage, enabled) { edit("image", settings.imageMB) }
-            SettingsAction("缓存图片管理", "查看本机全部图片缓存，可离线管理", R.drawable.ic_folder, enabled) {
-                model.tab("cache-images")
-            }
             SettingsAction("清理图片缓存", "清理本机所有图片缓存，服务器文件保留", R.drawable.ic_refresh, enabled, navigation = false) { clear = "image" }
         }
         if (state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -62,31 +61,44 @@ import kotlinx.coroutines.launch
         val minimum = if (kind == "hours") 1L else 0L
         val value = input.toLongOrNull()
         val valid = value != null && value in minimum..maximum
-        AlertDialog(onDismissRequest = { number = null }, title = { Text(title) }, text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        FileOperationSheet(title, { number = null }, footer = {
+            FilewayTextButton({ number = null }) { Text("取消") }
+            FilewayButton({
+                if (valid) {
+                    val parsed = requireNotNull(value)
+                    model.cache.save(when (kind) { "thumbnail" -> settings.copy(thumbnailMB = parsed); "playback" -> settings.copy(playbackMB = parsed); "image" -> settings.copy(imageMB = parsed); else -> settings.copy(cleanupHours = parsed.toInt()) })
+                    number = null
+                }
+            }, enabled = valid && enabled) { Text("保存") }
+        }) {
+            Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(input, { input = it }, Modifier.fillMaxWidth(), singleLine = true,
                     label = { Text(if (kind == "hours") "小时" else "MB") }, isError = !valid,
                     supportingText = { Text(if (valid) "$minimum–$maximum${if (kind == "hours") " 小时" else " MB"}" else "请输入 $minimum–$maximum 的整数") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), textStyle = MaterialTheme.typography.bodyMedium)
                 Text(if (kind == "hours") "系统省电可能延后清理；正在播放的文件会保留。" else "0 关闭磁盘缓存。超限时自动淘汰最久未读取项。", style = MaterialTheme.typography.bodySmall)
             }
-        }, confirmButton = { FilewayTextButton(onClick = {
-            if (valid) {
-                val parsed = requireNotNull(value)
-                model.cache.save(when (kind) { "thumbnail" -> settings.copy(thumbnailMB = parsed); "playback" -> settings.copy(playbackMB = parsed); "image" -> settings.copy(imageMB = parsed); else -> settings.copy(cleanupHours = parsed.toInt()) }); number = null
-            }
-        }, enabled = valid && enabled) { Text("保存") } }, dismissButton = { FilewayTextButton(onClick = { number = null }) { Text("取消") } })
+        }
     }
-    if (quality) AlertDialog(onDismissRequest = { quality = false }, title = { Text("默认图片质量") }, text = {
-        Column(Modifier.selectableGroup()) { ImageQuality.entries.forEach { option ->
-            FilewaySelectionRow(option.label, selected = settings.imageQuality == option, enabled = enabled,
-                onClick = { model.cache.save(settings.copy(imageQuality = option)); quality = false })
+    if (quality) FileOperationSheet("默认图片质量", { quality = false }) {
+        Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(rememberScrollState()).selectableGroup()) { ImageQuality.entries.forEach { option ->
+            FilewaySelectionRow(option.label, selected = settings.imageQuality == option, enabled = enabled) {
+                model.cache.save(settings.copy(imageQuality = option)); quality = false
+            }
         } }
-    }, confirmButton = { FilewayTextButton(onClick = { quality = false }) { Text("关闭") } })
-    clear?.let { kind -> AlertDialog(onDismissRequest = { clear = null }, title = { Text("清理缓存？") },
-        text = { Text(if (kind == "playback") "仅清理未在播放的本机缓存，服务器文件不受影响。" else "清理此设备的缓存，服务器文件不受影响。") },
-        confirmButton = { FilewayTextButton(onClick = {
+    }
+    clear?.let { kind -> FileOperationSheet("清理缓存？", { clear = null }, footer = {
+        FilewayTextButton({ clear = null }) { Text("取消") }
+        FilewayButton({
             clear = null
-            scope.launch { try { model.cache.clear(kind); feedback(if (kind == "playback" && model.cache.state.value.protected > 0) "已清理，正在播放的缓存已保留" else "缓存已清理") } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { feedback("清理失败，请重试") } }
-        }, enabled = enabled) { Text("清理") } }, dismissButton = { FilewayTextButton(onClick = { clear = null }) { Text("取消") } }) }
+            scope.launch {
+                try { model.cache.clear(kind); feedback(if (kind == "playback" && model.cache.state.value.protected > 0) "已清理，正在播放的缓存已保留" else "缓存已清理") }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { feedback("清理失败，请重试") }
+            }
+        }, enabled = enabled) { Text("清理") }
+    }) {
+        Text(if (kind == "playback") "仅清理未在播放的本机缓存，服务器文件不受影响。" else "清理此设备的缓存，服务器文件不受影响。",
+            style = MaterialTheme.typography.bodyMedium)
+    } }
 }

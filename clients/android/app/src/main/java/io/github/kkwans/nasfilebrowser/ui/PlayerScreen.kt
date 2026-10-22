@@ -496,7 +496,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
                                     }
-                                    if (client.busy) IconButton(model::cancel, Modifier.align(Alignment.CenterEnd).size(48.dp)) {
+                                    if (client.busy) IconButton(model::cancel, Modifier.align(Alignment.CenterEnd).size(48.dp).background(Color.Black.copy(alpha = .35f), CircleShape)) {
                                         Icon(painterResource(R.drawable.ic_close), "取消播放请求", Modifier.size(20.dp), tint = FilewayTheme.status.mediaContent)
                                     }
                                 }

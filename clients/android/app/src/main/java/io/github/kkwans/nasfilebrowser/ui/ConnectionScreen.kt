@@ -23,6 +23,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
@@ -193,15 +194,30 @@ import io.github.kkwans.nasfilebrowser.data.*
                         }
                     }
                     ConnectionSection("服务账号") {
-                        if (savedAccounts.isNotEmpty()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("已保存的账号", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                savedAccounts.forEach { account -> FilewayTextButton(onClick = {
-                                    focus.clearFocus()
-                                    val action = { model.restore(account) }
-                                    if (Build.VERSION.SDK_INT >= 37 && mode == "direct" && !hasLocalAccess() && !accessDenied) { afterPermission = action; permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK) } else action()
-                                }, enabled = !state.busy && unchanged && (mode == "direct" || network.connected)) { Text(account.username) } }
-                            }
+                        if (savedAccounts.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            savedAccounts.forEach { account -> key(account.key) {
+                                val canRestore = !state.busy && unchanged && (mode == "direct" || network.connected)
+                                Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+                                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                                        .clickable(enabled = canRestore, role = Role.Button) {
+                                            focus.clearFocus()
+                                            val action = { model.restore(account) }
+                                            if (Build.VERSION.SDK_INT >= 37 && mode == "direct" && !hasLocalAccess() && !accessDenied) {
+                                                afterPermission = action; permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)
+                                            } else action()
+                                        }.semantics { contentDescription = "使用已保存账号${account.username}连接" }
+                                        .alpha(if (canRestore) 1f else .38f).padding(end = 12.dp, top = 4.dp, bottom = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                                            Icon(painterResource(R.drawable.ic_person), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                        Text(account.username, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Text("已保存", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            } }
                         }
                         ConnectionField(username, { username = it }, "账号", R.drawable.ic_person, enabled = !state.busy)
                         ConnectionField(password, { password = it }, "密码", R.drawable.ic_lock, enabled = !state.busy,
@@ -245,11 +261,14 @@ import io.github.kkwans.nasfilebrowser.data.*
             Column(page) { form() }
         }
     }
-    remove?.let { profile -> AlertDialog(onDismissRequest = { remove = null }, title = { Text("移除 ${profile.name}？") }, text = { Text("将移除本机档案和保存的登录信息。服务器文件不会被删除。") }, confirmButton = { FilewayTextButton(onClick = { remove = null; model.removeProfile(profile) }) { Text("移除") } }, dismissButton = { FilewayTextButton(onClick = { remove = null }) { Text("取消") } }) }
+    remove?.let { profile -> FileOperationSheet("移除 ${profile.name}？", { remove = null }, footer = {
+        FilewayTextButton({ remove = null }) { Text("取消") }
+        FilewayTextButton({ remove = null; model.removeProfile(profile) }) { Text("移除", color = MaterialTheme.colorScheme.error) }
+    }) { Text("将移除本机档案和保存的登录信息。服务器文件不会被删除。", style = MaterialTheme.typography.bodyMedium) } }
 }
 
 @Composable private fun ConnectionSection(title: String, actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             actions()

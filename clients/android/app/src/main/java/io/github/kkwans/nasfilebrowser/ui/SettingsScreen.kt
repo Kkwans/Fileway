@@ -106,6 +106,11 @@ import kotlinx.coroutines.launch
                     }
                 }
                 item {
+                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+                        SettingsAction("缓存图片管理", "本机全部图片缓存 · 可离线管理", R.drawable.ic_image) { model.tab("cache-images") }
+                    }
+                }
+                item {
                     SettingsGroup("本机设置") {
                         SettingsAction("主题", when {
                             appearance.loading -> "正在读取"
@@ -152,17 +157,17 @@ import kotlinx.coroutines.launch
             }
         }
     }
-    if (networkDetails) AlertDialog(onDismissRequest = { networkDetails = false }, title = { Text("应用内 Tailscale") }, text = {
-        Column(Modifier.heightIn(max = 420.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) { NetworkSection(model) }
-    }, confirmButton = { FilewayTextButton(onClick = { networkDetails = false }) { Text("关闭") } })
-    if (profileDetails) AlertDialog(onDismissRequest = { profileDetails = false }, title = { Text("服务器档案") }, text = {
-        Column(Modifier.heightIn(max = 320.dp).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    if (networkDetails) FileOperationSheet("应用内 Tailscale", { networkDetails = false }) {
+        Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState())) { NetworkSection(model) }
+    }
+    if (profileDetails) FileOperationSheet("服务器档案", { profileDetails = false }) {
+        Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(state.profile?.name.orEmpty()); Text(state.profile?.address.orEmpty()); Text("服务类型：${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"}"); Text("账号：${state.accountName}")
             Text(if (state.profile?.network == ConnectionMode.TAILNET) "连接方式：内嵌 Tailscale" else "连接方式：直接连接")
         }
-    }, confirmButton = { FilewayTextButton(onClick = { profileDetails = false }) { Text("关闭") } })
-    if (about) AlertDialog(onDismissRequest = ::closeAbout, title = { Text("栖卷 · Fileway") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    }
+    if (about) FileOperationSheet("关于 Fileway", ::closeAbout) {
+        Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("版本 ${BuildConfig.VERSION_NAME} · 构建 ${BuildConfig.VERSION_CODE}")
             Text("原生 Android 客户端 · GPL-3.0-or-later", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FilewayTextButton(onClick = {
@@ -179,7 +184,7 @@ import kotlinx.coroutines.launch
             FilewayTextButton(onClick = { about = false; licenses = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("鸣谢与许可证") }
             repositoryError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
-    }, confirmButton = { FilewayTextButton(onClick = ::closeAbout) { Text("关闭") } })
+    }
     if (licenses) FilewayLicensesSheet { licenses = false; about = true }
 }
 
@@ -200,7 +205,7 @@ import kotlinx.coroutines.launch
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Icon(painterResource(icon), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (navigation) Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -4,6 +4,12 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.graphics.Color
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -41,72 +47,96 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
             gesturesEnabled = gestures,
             drawerContent = {
                 ModalDrawerSheet(Modifier.width(drawerWidth)) {
-                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Fileway", style = MaterialTheme.typography.titleMedium)
-                            if (!state.connected) Text("尚未连接服务器", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (state.connected) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
-                                io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.CONNECTION, state.previewScope, Modifier.size(22.dp), play = drawer.isOpen)
-                            Text(
-                                "已连接 · ${if (state.profile?.network == ConnectionMode.TAILNET) "Tailscale" else "本地网络"}",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-                            )
-                            }
-                        }
-                        fun navigate(action: () -> Unit) { scope.launch { drawer.close() }; action() }
-                        FilewayDrawerItem(if (state.connected) "切换服务器或账号" else "连接服务器", R.drawable.ic_server) {
-                            navigate { if (state.connected) model.disconnect() else model.showConnection() }
-                        }
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        ClientMainDestination.entries.forEach { destination ->
-                            val icon = when (destination) {
-                                ClientMainDestination.FILES -> R.drawable.ic_nav_files_077
-                                ClientMainDestination.RECENT -> R.drawable.ic_nav_history_077
-                                ClientMainDestination.LIBRARY -> R.drawable.ic_library
-                                ClientMainDestination.TASKS -> R.drawable.ic_tasks
-                                ClientMainDestination.MY -> R.drawable.ic_person
-                            }
-                            FilewayDrawerItem(destination.label, icon, state.destination.main == destination) {
-                                navigate { model.navigateMain(destination) }
-                            }
-                        }
-                        if (state.connected) {
-                            HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                            listOf(Triple(LibrarySection.FAVORITES, "收藏", R.drawable.ic_bookmark),
-                                Triple(LibrarySection.TAGS, "标签", R.drawable.ic_tag),
-                                Triple(LibrarySection.TRASH, "回收站", R.drawable.ic_trash),
-                                Triple(LibrarySection.TOOLS, "存储工具", R.drawable.ic_storage)).forEach { (section, title, icon) ->
-                                FilewayDrawerItem(title, icon, state.tab == "library" && state.librarySection == section) {
-                                    navigate { model.navigateMain(ClientMainDestination.LIBRARY); model.librarySection(section) }
+                    var navigating by remember { mutableStateOf(false) }
+                    fun navigate(action: () -> Unit) {
+                        if (navigating) return
+                        navigating = true
+                        scope.launch { try { drawer.close(); action() } finally { navigating = false } }
+                    }
+                    Column(Modifier.fillMaxSize()) {
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("Fileway", style = MaterialTheme.typography.titleMedium)
+                                if (!state.connected) Text("尚未连接服务器", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
+                                        io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.CONNECTION, state.previewScope, Modifier.size(22.dp), play = drawer.isOpen)
+                                    Text("已连接 · ${if (state.profile?.network == ConnectionMode.TAILNET) "Tailscale" else "本地网络"}",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                 }
                             }
+                            FilewayDrawerItem(if (state.connected) "切换服务器或账号" else "连接服务器", R.drawable.ic_server) {
+                                navigate { if (state.connected) model.disconnect() else model.showConnection() }
+                            }
+                            if (state.connected) {
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                RecentSection.entries.forEach { section ->
+                                    FilewayDrawerItem(section.label, if (section == RecentSection.PLAYBACK) R.drawable.ic_playlist_play else R.drawable.ic_nav_history_077,
+                                        state.tab == "recent" && state.recentSection == section) {
+                                        navigate { model.navigateMain(ClientMainDestination.RECENT); model.recentSection(section) }
+                                    }
+                                }
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                listOf(Triple(LibrarySection.FAVORITES, "收藏", R.drawable.ic_bookmark),
+                                    Triple(LibrarySection.TAGS, "标签", R.drawable.ic_tag),
+                                    Triple(LibrarySection.TRASH, "回收站", R.drawable.ic_trash),
+                                    Triple(LibrarySection.TOOLS, "存储工具", R.drawable.ic_storage)).forEach { (section, title, icon) ->
+                                    FilewayDrawerItem(title, icon, state.tab == "library" && state.librarySection == section) {
+                                        navigate { model.navigateMain(ClientMainDestination.LIBRARY); model.librarySection(section) }
+                                    }
+                                }
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                TaskCenterSection.entries.forEach { section ->
+                                    val icon = when (section) {
+                                        TaskCenterSection.DOWNLOADS -> R.drawable.ic_download
+                                        TaskCenterSection.UPLOADS -> R.drawable.ic_upload
+                                        TaskCenterSection.BACKGROUND -> R.drawable.ic_tasks
+                                        TaskCenterSection.HISTORY -> R.drawable.ic_history
+                                    }
+                                    FilewayDrawerItem(section.label, icon, state.destination.main == ClientMainDestination.TASKS && state.taskCenterSection == section) {
+                                        navigate { model.navigateMain(ClientMainDestination.TASKS); model.taskCenterSection(section) }
+                                    }
+                                }
+                            } else {
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                FilewayDrawerItem("下载文件", R.drawable.ic_download) { navigate(model::openDownloads) }
+                            }
+                            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                            FilewayDrawerItem("缓存图片管理", R.drawable.ic_image, state.tab == "cache-images") { navigate { model.tab("cache-images") } }
+                            if (!state.connected) FilewayDrawerItem("本机缓存设置", R.drawable.ic_settings) { navigate { model.tab("settings") } }
+                            if (state.connected) {
+                                HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                                FilewayDrawerItem("账户设置", R.drawable.ic_person) { navigate { model.tab("account") } }
+                                if (state.permissions.admin) {
+                                    FilewayDrawerItem("用户管理", R.drawable.ic_person) { navigate { model.tab("admin-users") } }
+                                    FilewayDrawerItem("全局设置", R.drawable.ic_settings) { navigate { model.tab("server-settings") } }
+                                }
+                                if (state.permissions.execute) FilewayDrawerItem("命令", R.drawable.ic_terminal) { navigate(model::openShell) }
+                            }
+                            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                            FilewayDrawerItem("更新", R.drawable.ic_update) { navigate(model::openUpdates) }
+                            FilewayDrawerItem("关于 Fileway", R.drawable.ic_info) { navigate { model.tab("about") } }
                         }
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                        Text("主题", Modifier.padding(horizontal = 24.dp), style = MaterialTheme.typography.labelLarge)
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HorizontalDivider()
+                        // ModalDrawerSheet already owns the system-bar insets.
+                        Row(Modifier.fillMaxWidth().padding(12.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             AppTheme.entries.forEach { mode ->
-                                val label = when (mode) { AppTheme.SYSTEM -> "跟随系统"; AppTheme.LIGHT -> "浅色"; AppTheme.DARK -> "深色" }
+                                val label = when (mode) { AppTheme.SYSTEM -> "系统"; AppTheme.LIGHT -> "浅色"; AppTheme.DARK -> "深色" }
                                 val icon = when (mode) { AppTheme.SYSTEM -> R.drawable.ic_theme_system; AppTheme.LIGHT -> R.drawable.ic_theme_light; AppTheme.DARK -> R.drawable.ic_theme_dark }
-                                Surface(Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
-                                    color = if (appearance.theme == mode) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
-                                    IconButton({ model.appearance.save(mode) }, enabled = appearance.loaded && !appearance.saving, modifier = Modifier.fillMaxWidth()) {
-                                        Icon(painterResource(icon), label, tint = if (appearance.theme == mode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                val chosen = appearance.theme == mode
+                                Surface(Modifier.weight(1f).heightIn(min = 56.dp)
+                                    .selectable(chosen, enabled = appearance.loaded && !appearance.saving, role = Role.RadioButton) { model.appearance.save(mode) }
+                                    .semantics { contentDescription = if (mode == AppTheme.SYSTEM) "跟随系统主题" else "${label}主题" },
+                                    shape = MaterialTheme.shapes.medium,
+                                    color = if (chosen) MaterialTheme.colorScheme.primaryContainer else Color.Transparent) {
+                                    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
+                                        Icon(painterResource(icon), null, Modifier.size(22.dp), tint = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(label, style = MaterialTheme.typography.labelSmall, color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                             }
                         }
-                        if (state.connected) {
-                            FilewayDrawerItem("账户设置", R.drawable.ic_person) { navigate { model.tab("account") } }
-                            if (state.permissions.admin) {
-                                FilewayDrawerItem("用户管理", R.drawable.ic_person) { navigate { model.tab("admin-users") } }
-                                FilewayDrawerItem("全局设置", R.drawable.ic_settings) { navigate { model.tab("server-settings") } }
-                            }
-                            if (state.permissions.execute) FilewayDrawerItem("命令", R.drawable.ic_terminal) { navigate(model::openShell) }
-                        }
-                        FilewayDrawerItem("更新", R.drawable.ic_update) { navigate(model::openUpdates) }
-                        FilewayDrawerItem("关于 Fileway", R.drawable.ic_info) { navigate { model.tab("about") } }
                     }
                 }
             },

@@ -6,6 +6,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -148,23 +149,32 @@ import io.github.kkwans.nasfilebrowser.data.*
             }
         }
     }
-    state.confirmation?.let { action -> AlertDialog(onDismissRequest = { if (!state.unknown) controller.cancelConfirmation() },
-        title = { Text(if (action == "delete") "删除这个用户？" else if (draft?.creating == true) "创建用户？" else "保存用户更改？") },
-        text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    state.confirmation?.let { action -> FileOperationSheet(
+        if (action == "delete") "删除这个用户？" else if (draft?.creating == true) "创建用户？" else "保存用户更改？",
+        onDismiss = controller::cancelConfirmation, canDismiss = !state.saving && !state.unknown,
+        footer = {
+            FilewayTextButton(controller::cancelConfirmation, enabled = !state.saving) { Text(if (state.unknown) "保留草稿" else "取消") }
+            FilewayButton(controller::confirm, enabled = !state.saving && !state.unknown,
+                colors = if (action == "delete") ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error, contentColor = MaterialTheme.colorScheme.onError) else ButtonDefaults.buttonColors()) {
+                Text(if (state.saving) "正在提交" else if (action == "delete") "删除用户" else if (draft?.creating == true) "创建用户" else "保存更改")
+            }
+        }) {
+        Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val originalName = state.users.firstOrNull { it.id == draft?.id }?.username ?: draft?.username.orEmpty()
-            Text(if (action == "delete") "将删除账号 $originalName。用户文件不会因此自动删除。" else "请确认用户目录、权限和命令白名单。修改当前账号后需要重新连接。")
+            Text(if (action == "delete") "将删除账号 $originalName。用户文件不会因此自动删除。" else "请确认用户目录、权限和命令白名单。修改当前账号后需要重新连接。", style = MaterialTheme.typography.bodyMedium)
             if (state.capabilities?.currentPasswordRequired == true) OutlinedTextField(state.currentPassword, controller::currentPassword,
                 label = { Text("当前管理员密码") }, singleLine = true, enabled = !state.saving && !state.unknown,
                 visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), modifier = Modifier.fillMaxWidth())
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (state.unknown) FilewayTextButton(onReconnect, Modifier.heightIn(min = 48.dp)) { Text("重新连接核对") }
-        } }, confirmButton = { FilewayTextButton(controller::confirm, enabled = !state.saving && !state.unknown, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在提交" else "确认") } },
-        dismissButton = { FilewayTextButton(controller::cancelConfirmation, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.unknown) "保留草稿" else "取消") } }) }
+        }
+    } }
+
 }
 
 @Composable internal fun AdminToggle(title: String, subtitle: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().toggleable(checked, enabled = enabled, role = Role.Switch, onValueChange = onChange).heightIn(min = 64.dp).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.bodyLarge); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.bodyMedium); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
         Switch(checked, onCheckedChange = null, enabled = enabled)
     }
 }

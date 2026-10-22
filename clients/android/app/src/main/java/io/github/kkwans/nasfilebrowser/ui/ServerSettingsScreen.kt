@@ -37,6 +37,7 @@ private enum class GlobalSettingsGroup(val label: String) {
     val enabled = state.authorized && !state.loading && !state.saving && !state.unknown
     fun validNumber(key: String, value: String) = serverSettingNumberValid(key, value)
     val numbersValid = numbers.all { (key, value) -> validNumber(key, value) }
+    ProvideTextStyle(MaterialTheme.typography.bodyMedium) {
     if (!fullPage) Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
         Box(Modifier.statusBarsPadding()) {
         FilewayTopAppBar("全局设置", null, R.drawable.ic_arrow_back, "返回设置", { if (!state.saving) onBack() },
@@ -144,10 +145,12 @@ private enum class GlobalSettingsGroup(val label: String) {
                 GlobalSettingsGroup.RULES -> item { GlobalRules(draft.rules, enabled) { value -> controller.edit { it.copy(rules = value) } } }
             }
     } }
-    if (state.confirmation) AlertDialog(onDismissRequest = controller::cancelConfirmation, title = { Text("保存全局设置？") },
-        text = { Text("将保存当前服务器的配置。默认用户项仅用于新账号；路径规则和事件命令可能影响所有用户。") },
-        confirmButton = { FilewayTextButton(controller::confirmSave, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("确认保存") } },
-        dismissButton = { FilewayTextButton(controller::cancelConfirmation, enabled = !state.saving, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") } })
+    if (state.confirmation) FileOperationSheet("保存全局设置？", controller::cancelConfirmation, canDismiss = !state.saving, footer = {
+        FilewayTextButton(controller::cancelConfirmation, enabled = !state.saving) { Text("取消") }
+        FilewayButton(controller::confirmSave, enabled = !state.saving && !state.unknown) { Text("确认保存") }
+    }) { Text("将保存当前服务器的配置。默认用户项仅用于新账号；路径规则和事件命令可能影响所有用户。", style = MaterialTheme.typography.bodyMedium) }
+
+    }
 }
 
 @Composable private fun GlobalSettingsEditor(title: String, fullPage: Boolean, canDismiss: Boolean,
@@ -159,7 +162,7 @@ private enum class GlobalSettingsGroup(val label: String) {
     if (fullPage) {
         BackHandler { back() }
         Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
-            FilewayTopAppBar(title, "全局设置草稿", R.drawable.ic_arrow_back, "保留草稿并返回", ::back)
+            Box(Modifier.statusBarsPadding()) { FilewayTopAppBar(title, "全局设置草稿", R.drawable.ic_arrow_back, "保留草稿并返回", ::back) }
         }, bottomBar = {
             Surface { FilewayTextButton(::back, enabled = canDismiss, modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().heightIn(min = 48.dp)) { Text("保留草稿并返回") } }
         }) { insets ->
