@@ -21,6 +21,9 @@ internal data class UpdateState(val phase: UpdatePhase = UpdatePhase.RESTORING, 
     val busy get() = phase in setOf(UpdatePhase.RESTORING, UpdatePhase.CHECKING, UpdatePhase.DOWNLOADING, UpdatePhase.VERIFYING)
 }
 
+internal data class ReleaseHistoryState(val targetTag: String = "", val releases: List<AppRelease> = emptyList(),
+    val loading: Boolean = false, val incomplete: Boolean = false, val message: String? = null)
+
 internal data class InstalledApp(val packageName: String, val versionCode: Long, val certificates: Set<String>)
 internal class UpdatePackages(private val context: Context) {
     @Suppress("DEPRECATION") private fun installedInfo() = context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
@@ -100,6 +103,43 @@ internal class AppUpdates(private val context: Context, private val scope: Corou
     private var downloadId = -1L
     private var owned: AppUpdate? = null
     private var choices = emptyList<AppUpdate>()
+    private val historyMutable = MutableStateFlow(ReleaseHistoryState())
+    val history = historyMutable.asStateFlow()
+    private var catalog: ReleaseCatalog? = null
+    private var historyTask: Job? = null
+    private var historyRevision = 0L
+
+    private fun historyFor(snapshot: ReleaseCatalog, target: AppRelease): ReleaseHistoryState =
+        runCatching { ReleaseHistoryState(target.tag, UpdatePolicy.history(snapshot.releases + target, installedVersion, target),
+            incomplete = !snapshot.complete, message = snapshot.warning) }.getOrElse {
+            ReleaseHistoryState(target.tag, listOf(target), incomplete = true, message = "无法解析历史版本范围")
+        }
+
+    /** Public release metadata has its own lifetime; it never clears or replaces a download. */
+    fun loadHistory(force: Boolean = false) {
+        val target = mutable.value.update?.release ?: return
+        if (historyTask?.isActive == true && historyMutable.value.targetTag == target.tag) return
+        historyTask?.cancel()
+        val revision = ++historyRevision
+        val cached = catalog
+        if (!force && cached != null) { historyMutable.value = historyFor(cached, target); return }
+        val previous = historyMutable.value.takeIf { it.targetTag == target.tag }
+            ?: ReleaseHistoryState(target.tag, listOf(target), incomplete = true)
+        historyMutable.value = previous.copy(loading = true, message = null)
+        historyTask = scope.launch {
+            try {
+                val result = ReleaseClient().catalog()
+                if (revision == historyRevision && mutable.value.update?.release?.tag == target.tag) {
+                    catalog = result; historyMutable.value = historyFor(result, target)
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (revision == historyRevision && mutable.value.update?.release?.tag == target.tag)
+                    historyMutable.value = previous.copy(loading = false, incomplete = true, message = "历史说明读取未完成，已保留现有内容")
+            }
+        }
+    }
+
     init { task = scope.launch {
         try {
             withContext(Dispatchers.IO) {
@@ -123,13 +163,19 @@ internal class AppUpdates(private val context: Context, private val scope: Corou
     fun check() {
         if (task?.isActive == true || mutable.value.phase == UpdatePhase.READY) return
         task = scope.launch {
+            historyTask?.cancel(); historyRevision++; historyMutable.value = ReleaseHistoryState()
             mutable.value = UpdateState(UpdatePhase.CHECKING)
             try {
                 withContext(Dispatchers.IO) { if (owned != null) clearDownload() }
-                val releases = ReleaseClient().releases()
-                check(releases.any { UpdatePolicy.compatible(it, Build.SUPPORTED_ABIS.toList()) != null }) { "暂未找到适合此设备的 Android 安装包，请稍后重试" }
+                val snapshot = ReleaseClient().catalog()
+                catalog = snapshot
+                val releases = snapshot.releases
+                check(releases.any { UpdatePolicy.compatible(it, Build.SUPPORTED_ABIS.toList()) != null }) {
+                    if (!snapshot.complete) "更新信息尚未完整读取，请稍后重试" else "暂未找到适合此设备的 Android 安装包，请稍后重试"
+                }
                 choices = UpdatePolicy.updates(releases, installedVersion, Build.SUPPORTED_ABIS.toList())
                 val update = choices.firstOrNull()
+                check(snapshot.complete || update != null) { "更新信息未完整读取，暂不能确认是否为最新版" }
                 mutable.value = UpdateState(if (update == null) UpdatePhase.CURRENT else UpdatePhase.AVAILABLE, update, choices = choices)
             } catch (error: Exception) { if (error is CancellationException) throw error; failure(error) }
         }

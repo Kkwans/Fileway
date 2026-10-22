@@ -465,6 +465,9 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
                                 } }
                                 itemsIndexed(state.node.children, key = { _, node -> node.startOffset }) { index, node ->
                                     ReaderBlock("main/$index", blockRequesters) {
+                                        // Masked metadata keeps its offsets and newline roots. Keep
+                                        // list indices stable without laying out empty text blocks.
+                                        if (node.type == MarkdownTokenTypes.EOL || node.type == MarkdownTokenTypes.WHITE_SPACE) return@ReaderBlock
                                         if (node.startOffset in document.extensions.tocOffsets) {
                                             Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                                                 Text("目录", style = MaterialTheme.typography.titleSmall)
@@ -519,6 +522,7 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
                                                     success = { noteState, noteComponents, noteModifier ->
                                                         Column(noteModifier) { noteState.node.children.forEachIndexed { index, child ->
                                                             ReaderBlock("${note.startOffset}/$index", blockRequesters) {
+                                                                if (child.type == MarkdownTokenTypes.EOL || child.type == MarkdownTokenTypes.WHITE_SPACE) return@ReaderBlock
                                                                 MarkdownElement(child, noteComponents, noteState.content)
                                                             }
                                                         } }
@@ -627,7 +631,7 @@ private fun taskLabelSemantics(content: String, node: ASTNode): Modifier {
 
 /** Upstream owns fence parsing/background; this adapter supplies 48 dp copy and wrapping controls. */
 @Composable
-private fun ReaderCode(code: String, language: String?, style: TextStyle) {
+internal fun ReaderCode(code: String, language: String?, style: TextStyle) {
     val clipboard = LocalClipboardManager.current
     val dark = MaterialTheme.colorScheme.background.luminance() < .5f
     // This exact opaque surface is the integration input for the highlighter;
@@ -706,7 +710,7 @@ private fun ReaderCode(code: String, language: String?, style: TextStyle) {
 
 /** Reuse upstream table/container/inline text; adapt its one-line cells for full text and alignment. */
 @Composable
-private fun ReaderTableRow(content: String, row: ASTNode, width: Dp, style: TextStyle,
+internal fun ReaderTableRow(content: String, row: ASTNode, width: Dp, style: TextStyle,
     alignments: List<MarkdownAlignment>, header: Boolean) {
     Row(Modifier.widthIn(min = width).fillMaxWidth().height(IntrinsicSize.Min)) {
         row.children.filter { it.type == GFMTokenTypes.CELL }.forEachIndexed { index, cell ->

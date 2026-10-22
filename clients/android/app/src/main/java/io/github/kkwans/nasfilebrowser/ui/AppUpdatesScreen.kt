@@ -6,6 +6,8 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -31,6 +33,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     val context = LocalContext.current
     val updates = model.updates
     val state by updates.state.collectAsStateWithLifecycle()
+    val history by updates.history.collectAsStateWithLifecycle()
+    LaunchedEffect(state.update?.release?.tag) { updates.loadHistory() }
     val installer = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
     fun install() = updates.install { installer.launch(it) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -41,12 +45,12 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             if (context.packageManager.canRequestPackageInstalls()) install()
             else try { permission.launch(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))) }
             catch (_: Exception) { updates.installPermissionDenied() }
-        }, select = updates::select)
+        }, select = updates::select, history = history, retryHistory = { updates.loadHistory(force = true) })
 }
 
 /** Inherits the native settings palette and hierarchy; release notes stay readable. */
 @Composable internal fun AppUpdateContent(state: UpdateState, back: () -> Unit, check: () -> Unit, download: () -> Unit,
-    cancel: () -> Unit, install: () -> Unit, select: (Long) -> Unit = {}) {
+    cancel: () -> Unit, install: () -> Unit, select: (Long) -> Unit = {}, history: ReleaseHistoryState = ReleaseHistoryState(), retryHistory: () -> Unit = {}) {
     val colors = MaterialTheme.colorScheme
     val update = state.update
     Scaffold(containerColor = colors.background, topBar = {
@@ -78,8 +82,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
         }
     }) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
-            Column(Modifier.widthIn(max = 720.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)
-                .semantics { contentDescription = "应用更新内容" }, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(Modifier.widthIn(max = 720.dp).fillMaxSize().semantics { contentDescription = "应用更新内容" },
+                contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                item(key = "summary") { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Fileway · 当前版本 ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 Text(when (state.phase) {
                     UpdatePhase.IDLE -> "获取最新 Android 版本"
@@ -131,11 +136,30 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                         ReleaseLabel(update.release.preview)
                         Text(readableSize(update.asset.size), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
                     }
-                    Text("更新说明", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
-                    Text(update.release.notes.ifBlank { "此版本未提供更新说明。" }.replace("**", ""), style = MaterialTheme.typography.bodyMedium)
                 }
-                Text("更新来源：Fileway 官方 GitHub Releases", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 16.dp))
+                } }
+                if (update != null) {
+                    val details = if (history.targetTag == update.release.tag) history else ReleaseHistoryState(update.release.tag, listOf(update.release))
+                    item(key = "history-title") {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text("更新说明", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                            var showLoading by remember(details.targetTag) { mutableStateOf(false) }
+                            LaunchedEffect(details.loading) { showLoading = false; if (details.loading) { kotlinx.coroutines.delay(350); showLoading = true } }
+                            if (showLoading && details.loading) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        }
+                    }
+                    if (details.incomplete || details.message != null) item(key = "history-status") {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(details.message ?: "历史说明尚未全部读取，当前显示已获取内容。", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                            FilewayTextButton(retryHistory, enabled = !details.loading) { Text("重试读取说明") }
+                        }
+                    }
+                    items(details.releases, key = { "release/${it.tag}" }) { release -> ReleaseNotesCard(release) }
+                }
+                item(key = "source") {
+                    Text("更新来源：Fileway 官方 GitHub Releases", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp))
+                }
             }
         }
     }

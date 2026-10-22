@@ -69,6 +69,9 @@ import kotlin.math.roundToInt
     val focus = LocalFocusManager.current
     var menu by remember(state.scope, file.wirePath) { mutableStateOf(false) }
     var info by remember(state.scope, file.wirePath) { mutableStateOf(false) }
+    var findRequested by rememberSaveable(state.scope, file.wirePath) { mutableStateOf(false) }
+    val clipboard = LocalClipboardManager.current
+    val context = LocalContext.current
     var inputFocused by remember(state.scope, file.wirePath) { mutableStateOf(false) }
     fun leave() {
         if (inputFocused || ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true) {
@@ -79,12 +82,17 @@ import kotlin.math.roundToInt
     BackHandler { leave() }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
-            val summary = if (state.loading) "读取中" else if (state.kind == DocumentPreviewKind.TEXT) null else "${fileTypeLabel(file)} · 只读"
+            val summary = if (state.loading) "读取中" else null
             FilewayTopAppBar(file.name, summary, R.drawable.ic_arrow_back, "关闭文档", ::leave, actions = {
                 Box {
                     DocumentIcon(R.drawable.ic_more_vert, "文档操作") { focus.clearFocus(); keyboard?.hide(); menu = true }
                     FilewayMenu(menu, { menu = false }, items = buildList {
                         if (onEdit != null && state.text != null) add(FilewayMenuEntry("edit", "编辑文本", R.drawable.ic_edit, enabled = !state.loading))
+                        if (state.text != null) {
+                            add(FilewayMenuEntry("find", "查找文档文字", R.drawable.ic_search, enabled = !state.loading))
+                            add(FilewayMenuEntry("copy", "复制全文", R.drawable.ic_copy, enabled = !state.loading && state.text!!.text.length <= 131_072,
+                                description = if (state.text!!.text.length > 131_072) "全文较长，请在正文中选择需要的文字复制" else null))
+                        }
                         add(FilewayMenuEntry("reload", "重新读取文档", R.drawable.ic_refresh, enabled = !state.loading))
                         add(FilewayMenuEntry("download", "下载文档", R.drawable.ic_download, enabled = canDownload))
                         add(FilewayMenuEntry("info", "文档信息", R.drawable.ic_info))
@@ -93,6 +101,13 @@ import kotlin.math.roundToInt
                         menu = false
                         when (action.key) {
                             "edit" -> state.text?.let { onEdit?.invoke(file, it) }
+                            "find" -> findRequested = true
+                            "copy" -> state.text?.let { document ->
+                                if (document.text.length <= 131_072) {
+                                    val message = try { clipboard.setText(AnnotatedString(document.text)); "已复制全文" } catch (_: Exception) { "无法复制，请选择正文后复制" }
+                                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }
                             "reload" -> controller.retry()
                             "download" -> onDownload(file)
                             "info" -> info = true
@@ -115,7 +130,7 @@ import kotlin.math.roundToInt
             if (state.loading && state.text == null && state.pageCount == 0) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(if (state.kind == DocumentPreviewKind.PDF) "正在准备 PDF…" else "正在读取文档…", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else when (state.kind) {
-                DocumentPreviewKind.TEXT -> if (state.text != null) DocumentTextContent(controller, state, imageCache) { inputFocused = it }
+                DocumentPreviewKind.TEXT -> if (state.text != null) DocumentTextContent(controller, state, imageCache, findRequested, { findRequested = false }) { inputFocused = it }
                 DocumentPreviewKind.PDF -> if (state.pageCount > 0) DocumentPdfContent(controller, state)
                 DocumentPreviewKind.OTHER -> Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text("文件详情", style = MaterialTheme.typography.titleMedium)
@@ -139,6 +154,11 @@ import kotlin.math.roundToInt
                     Text(file.path, style = MaterialTheme.typography.bodyMedium)
                     Text("${fileTypeLabel(file)} · ${readableSize(file.size)}", style = MaterialTheme.typography.bodySmall)
                     Text(displayModified(file.modified) ?: "未提供修改时间", style = MaterialTheme.typography.bodySmall)
+                    state.text?.let { document ->
+                        Text("编码：${document.encoding}${if (document.bom) " · BOM" else ""}", style = MaterialTheme.typography.bodySmall)
+                        Text("换行：${documentLineEnding(document.text).label}", style = MaterialTheme.typography.bodySmall)
+                        Text("读取方式：只读预览", style = MaterialTheme.typography.bodySmall)
+                    }
                 }
             }
         }
@@ -153,15 +173,15 @@ import kotlin.math.roundToInt
     }) { Icon(painterResource(icon), null) }
 }
 
-@Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState, imageCache: CacheController?, onInputFocus: (Boolean) -> Unit) {
+@Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState, imageCache: CacheController?, findRequested: Boolean, onFindConsumed: () -> Unit, onInputFocus: (Boolean) -> Unit) {
     val document = state.text ?: return
     val file = state.file ?: return
     if (isCsvDocument(file)) {
-        DocumentCsvContent(controller, state, onInputFocus)
+        DocumentCsvContent(controller, state, findRequested, onFindConsumed, onInputFocus)
         return
     }
     if (!isMarkdownDocument(file)) {
-        DocumentSourceContent(controller, state, onInputFocus)
+        DocumentSourceContent(controller, state, findRequested, onFindConsumed, onInputFocus)
         return
     }
     // Re-key the entire reading tree so no old account/file result is displayed
@@ -169,6 +189,7 @@ import kotlin.math.roundToInt
     key(state.scope, file.mediaKey, document) {
         var sourceMode by rememberSaveable { mutableStateOf(false) }
         var outlineOpen by rememberSaveable { mutableStateOf(false) }
+        LaunchedEffect(findRequested) { if (findRequested) { outlineOpen = false; sourceMode = true } }
         val modeState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
         val preview by produceState<MarkdownPreview?>(null) {
             value = withContext(Dispatchers.Default) { markdownPreview(document) }
@@ -179,16 +200,14 @@ import kotlin.math.roundToInt
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !showSource, onClick = { sourceMode = false }, enabled = fallback == null, label = { Text("阅读") })
             FilterChip(selected = showSource, onClick = { outlineOpen = false; sourceMode = true }, label = { Text("源码") })
-            if (!showSource) Text("${document.encoding} · 只读", Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.weight(1f))
             if (!showSource) FilewayTextButton(onClick = { outlineOpen = true },
                 enabled = (preview as? MarkdownPreview.Reading)?.document?.navigation?.headings?.isNotEmpty() == true,
                 modifier = Modifier.heightIn(min = 48.dp)) { Text("目录") }
         }
         fallback?.let { Text(it.reason, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-        if (showSource) modeState.SaveableStateProvider("markdown-source") { DocumentSourceContent(controller, state, onInputFocus) }
+        if (showSource) modeState.SaveableStateProvider("markdown-source") { DocumentSourceContent(controller, state, findRequested, onFindConsumed, onInputFocus) }
         else modeState.SaveableStateProvider("markdown-reading") {
             val reading = preview as? MarkdownPreview.Reading
             if (reading == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -210,37 +229,42 @@ import kotlin.math.roundToInt
     }
 }
 
-@Composable private fun ColumnScope.DocumentCsvContent(controller: DocumentPreviewController, state: DocumentPreviewState, onInputFocus: (Boolean) -> Unit) {
+@Composable private fun ColumnScope.DocumentCsvContent(controller: DocumentPreviewController, state: DocumentPreviewState, findRequested: Boolean, onFindConsumed: () -> Unit, onInputFocus: (Boolean) -> Unit) {
     val document = state.text ?: return
     val file = state.file ?: return
     key(state.scope, file.mediaKey, document) {
         var sourceMode by rememberSaveable { mutableStateOf(false) }
+        LaunchedEffect(findRequested) { if (findRequested) sourceMode = true }
         val tableState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             FilterChip(selected = !sourceMode, onClick = { sourceMode = false }, label = { Text("表格") }, modifier = Modifier.heightIn(min = 48.dp))
             FilterChip(selected = sourceMode, onClick = { sourceMode = true }, label = { Text("源码") }, modifier = Modifier.heightIn(min = 48.dp))
-            if (!sourceMode) Text("${document.encoding} · 只读", Modifier.weight(1f),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        if (sourceMode) tableState.SaveableStateProvider("csv-source") { DocumentSourceContent(controller, state, onInputFocus) }
+        if (sourceMode) tableState.SaveableStateProvider("csv-source") { DocumentSourceContent(controller, state, findRequested, onFindConsumed, onInputFocus) }
         else tableState.SaveableStateProvider("csv-table") {
             CsvReader(document, file.name, { sourceMode = true }, Modifier.weight(1f).fillMaxWidth())
         }
     }
 }
 
-@Composable private fun ColumnScope.DocumentSourceContent(controller: DocumentPreviewController, state: DocumentPreviewState, onInputFocus: (Boolean) -> Unit) {
+@Composable private fun ColumnScope.DocumentSourceContent(controller: DocumentPreviewController, state: DocumentPreviewState, findRequested: Boolean, onFindConsumed: () -> Unit, onInputFocus: (Boolean) -> Unit) {
     val document = state.text ?: return
-    val clipboard = LocalClipboardManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     val focus = LocalFocusManager.current
     val findFocus = remember { FocusRequester() }
     DisposableEffect(Unit) { onDispose { onInputFocus(false) } }
     var findOpen by rememberSaveable(state.scope, state.file?.wirePath) { mutableStateOf(false) }
-    var copied by remember(document) { mutableStateOf(false) }
-    var copyError by remember(document) { mutableStateOf(false) }
+    var focusRequest by remember { mutableIntStateOf(0) }
+    val view = LocalView.current
+    fun closeFind() { findOpen = false; focus.clearFocus(); keyboard?.hide() }
+    LaunchedEffect(findRequested) {
+        if (findRequested) { findOpen = true; focusRequest++; onFindConsumed() }
+    }
+    BackHandler(findOpen) {
+        if (ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true) { focus.clearFocus(); keyboard?.hide() }
+        else closeFind()
+    }
     val list = key(state.scope, state.file?.wirePath) { rememberLazyListState() }
     val active = state.search.matches.getOrNull(state.matchIndex)
     var matchOffset by remember(active, document) { mutableStateOf<Int?>(null) }
@@ -256,30 +280,19 @@ import kotlin.math.roundToInt
             if (index >= 0) list.scrollToItem(index, matchOffset!!)
         }
     }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("${document.encoding} · 只读", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        FilewayTextButton({
-            try { clipboard.setText(AnnotatedString(document.text)); copied = true; copyError = false }
-            catch (_: Exception) { copied = false; copyError = true }
-        }, enabled = document.text.length <= 131_072) { Text(if (copied) "已复制全文" else "复制全文") }
-        DocumentIcon(if (findOpen) R.drawable.ic_close else R.drawable.ic_search,
-            if (findOpen) "关闭文档查找" else "查找文档文字") {
-            findOpen = !findOpen
-            if (!findOpen) { focus.clearFocus(); keyboard?.hide() }
-        }
-    }
-    if (copyError) Text("无法复制全文，请长按选择需要的文字。", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-    if (document.text.length > 131_072) Text("全文较长，请长按选择需要的文字后复制。", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (findOpen) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        LaunchedEffect(Unit) { findFocus.requestFocus(); keyboard?.show() }
-        OutlinedTextField(state.query, controller::search, Modifier.weight(1f).focusRequester(findFocus).onFocusChanged { onInputFocus(it.isFocused) }, label = { Text("查找文档文字") }, singleLine = true,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { controller.nextMatch(1) }))
-        IconButton({ controller.nextMatch(-1) }, enabled = state.search.matches.isNotEmpty(), modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "上一个匹配") }
-        IconButton({ controller.nextMatch(1) }, enabled = state.search.matches.isNotEmpty(), modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_forward), "下一个匹配") }
+        LaunchedEffect(focusRequest) { findFocus.requestFocus(); keyboard?.show() }
+        val count = if (state.query.isEmpty()) null else if (state.searching) "查找中" else if (state.search.matches.isEmpty()) "0处"
+            else "${state.matchIndex + 1}/${state.search.matches.size}${if (state.search.truncated) "+" else ""}"
+        FilewaySearchField(state.query, controller::search, "查找文档文字",
+            Modifier.weight(1f).focusRequester(findFocus).onFocusChanged { onInputFocus(it.isFocused) }, status = count) { controller.nextMatch(1) }
+        val canNavigate = !state.searching && state.searchError == null && state.search.matches.isNotEmpty()
+        IconButton({ controller.nextMatch(-1) }, enabled = canNavigate, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_expand_less), "上一个匹配") }
+        IconButton({ controller.nextMatch(1) }, enabled = canNavigate, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_expand_more), "下一个匹配") }
+        IconButton(::closeFind, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_close), "关闭文档查找") }
     }
-    if (findOpen && state.query.isNotEmpty()) Text(state.searchError ?: if (state.searching) "正在查找…" else if (state.search.matches.isEmpty()) "没有匹配文字"
-        else "${state.matchIndex + 1} / ${state.search.matches.size}${if (state.search.truncated) "+" else ""} 处匹配",
-        Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    if (findOpen) state.searchError?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
     val highlight = MaterialTheme.colorScheme.primaryContainer
     val selected = MaterialTheme.colorScheme.tertiaryContainer
     val file = state.file

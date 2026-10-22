@@ -34,7 +34,7 @@ internal data class AppVersion(val major: Int, val minor: Int, val patch: Int, v
 
 internal data class UpdateAsset(val id: Long, val name: String, val url: String, val size: Long)
 internal data class AppRelease(val tag: String, val version: String, val notes: String, val preview: Boolean,
-    val assets: List<UpdateAsset>, val previewRevision: Int? = null) {
+    val assets: List<UpdateAsset>, val previewRevision: Int? = null, val notesTruncated: Boolean = false) {
     // Keep version as the original core-version field. Revision identity comes
     // from the immutable tag, including when restoring the old persisted JSON.
     val displayVersion: String get() = if (preview && previewRevision != null) "$version-preview-r$previewRevision" else version
@@ -109,4 +109,16 @@ internal object UpdatePolicy {
                 releaseVersion(it.release)!! }.thenBy { it.asset.id }) }
             .sortedWith(compareByDescending<AppUpdate> { releaseVersion(it.release)!! }.thenBy { it.release.preview })
     }
+    /** Changelog history is not the list of installable channel candidates. */
+    fun history(releases: List<AppRelease>, installed: String, target: AppRelease): List<AppRelease> {
+        val current = AppVersion.parse(installed) ?: error("当前版本信息无法识别")
+        val upper = releaseVersion(target) ?: return emptyList()
+        return releases.distinctBy { it.tag }.filter { release ->
+            releaseVersion(release)?.let { it > current && it <= upper } == true
+        }.groupBy { releaseVersion(it)!! }.values.map { versions ->
+            versions.firstOrNull { it.tag == target.tag }
+                ?: versions.maxBy { it.assets.maxOfOrNull { asset -> asset.id } ?: 0L }
+        }.sortedByDescending { releaseVersion(it)!! }
+    }
+
 }

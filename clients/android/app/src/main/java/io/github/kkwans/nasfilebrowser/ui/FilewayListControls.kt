@@ -38,12 +38,15 @@ import kotlinx.coroutines.delay
     }, modifier = modifier, content = content)
 }
 
-@Composable internal fun FilewaySearchField(value: String, change: (String) -> Unit, hint: String, modifier: Modifier = Modifier, enabled: Boolean = true, submit: () -> Unit) {
+@Composable internal fun FilewaySearchField(value: String, change: (String) -> Unit, hint: String, modifier: Modifier = Modifier, enabled: Boolean = true, status: String? = null, submit: () -> Unit) {
     BasicTextField(value, change, modifier.heightIn(min = 48.dp).background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.medium),
         enabled = enabled, singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }),
         decorationBox = { inner -> Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { if (value.isEmpty()) Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant); inner() }
+            if (status != null) Text(status, Modifier.padding(start = 8.dp).widthIn(max = 72.dp), maxLines = 1,
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             IconButton(submit, enabled = enabled) { Icon(painterResource(R.drawable.ic_search), hint, Modifier.size(22.dp)) }
         } })
 }
