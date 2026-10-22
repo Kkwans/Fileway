@@ -38,16 +38,19 @@ import kotlinx.coroutines.delay
     }, modifier = modifier, content = content)
 }
 
-@Composable internal fun FilewaySearchField(value: String, change: (String) -> Unit, hint: String, modifier: Modifier = Modifier, enabled: Boolean = true, status: String? = null, submit: () -> Unit) {
+@Composable internal fun FilewaySearchField(value: String, change: (String) -> Unit, hint: String, modifier: Modifier = Modifier, enabled: Boolean = true, status: String? = null,
+    actionIcon: Int = R.drawable.ic_search, actionLabel: String = hint, submitEnabled: Boolean = enabled,
+    keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), monospace: Boolean = false, submit: () -> Unit) {
     BasicTextField(value, change, modifier.heightIn(min = 48.dp).background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.medium),
-        enabled = enabled, singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }),
+        enabled = enabled, singleLine = true, cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary), textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface,
+            fontFamily = if (monospace) androidx.compose.ui.text.font.FontFamily.Monospace else MaterialTheme.typography.bodyMedium.fontFamily),
+        keyboardOptions = keyboardOptions, keyboardActions = KeyboardActions(onSearch = { if (submitEnabled) submit() }, onGo = { if (submitEnabled) submit() }),
         decorationBox = { inner -> Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { if (value.isEmpty()) Text(hint, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant); inner() }
             if (status != null) Text(status, Modifier.padding(start = 8.dp).widthIn(max = 72.dp), maxLines = 1,
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            IconButton(submit, enabled = enabled) { Icon(painterResource(R.drawable.ic_search), hint, Modifier.size(22.dp)) }
+            IconButton(submit, enabled = enabled && submitEnabled) { Icon(painterResource(actionIcon), actionLabel, Modifier.size(22.dp)) }
         } })
 }
 

@@ -100,7 +100,7 @@ internal fun PlayerTrackList(
         }
         if (choices.none { it.id != -1 }) item(key = "empty") {
             Text(if (subtitle) "没有可用字幕，可添加外挂字幕。" else "没有可用音轨。",
-                Modifier.padding(horizontal = 16.dp, vertical = 12.dp), color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
+                Modifier.padding(horizontal = 16.dp, vertical = 12.dp), color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp, lineHeight = 18.sp)
         }
         if (footer != null) item(key = "actions-footer") { footer() }
     }
@@ -127,13 +127,13 @@ private fun PlayerTrackRow(title: String, detail: String, selected: Boolean, pen
         }.heightIn(min = 56.dp).padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, color = if (selected) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent, fontSize = 15.sp,
+            Text(title, color = if (selected) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent, fontSize = 15.sp, lineHeight = 22.sp,
                 fontFamily = fontFamily, fontWeight = if (fontFamily == null && selected) FontWeight.Medium else FontWeight.Normal,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (sample != null) Text(sample, fontFamily = fontFamily, fontSize = 16.sp, lineHeight = 24.sp, color = FilewayTheme.status.mediaContent)
-            if (detail.isNotBlank()) Text(detail, color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp,
+            if (detail.isNotBlank()) Text(detail, color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp, lineHeight = 18.sp,
                 maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (pending) Text("正在切换", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
+            if (pending) Text("正在切换", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp, lineHeight = 18.sp)
         }
         if (pending) CircularProgressIndicator(Modifier.size(16.dp), color = FilewayTheme.status.mediaSecondary, strokeWidth = 2.dp)
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
@@ -171,7 +171,7 @@ internal fun PlayerSubtitleHomeActions(
                 .heightIn(min = 64.dp).padding(horizontal = 4.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
                 Icon(painterResource(icon), null, Modifier.size(22.dp), tint = FilewayTheme.status.mediaContent.copy(alpha = if (enabled) 1f else .38f))
-                Text(title, color = FilewayTheme.status.mediaContent.copy(alpha = if (enabled) 1f else .38f), fontSize = 12.sp)
+                Text(title, color = FilewayTheme.status.mediaContent.copy(alpha = if (enabled) 1f else .38f), fontSize = 12.sp, lineHeight = 18.sp)
             }
         }
         action(R.drawable.ic_edit, "字幕调整", true, onAdjust)
@@ -202,41 +202,41 @@ internal fun PlayerSubtitleAdjustments(
     Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text("字幕时间", Modifier.weight(1f), color = FilewayTheme.status.mediaContent, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Text("字幕时间", Modifier.weight(1f), color = FilewayTheme.status.mediaContent, fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
         Text(when {
             delayMs > 0 -> "延后 ${delayMs / 1000.0} 秒"
             delayMs < 0 -> "提前 ${-(delayMs / 1000.0)} 秒"
             else -> "无偏移"
-        }, color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
+        }, color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp, lineHeight = 18.sp)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             @Composable fun step(icon: Int, label: String, click: () -> Unit) {
-                IconButton(click, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.surfaceContainerHigh)) {
+                IconButton(click, Modifier.weight(1f).height(48.dp).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.surfaceContainerHigh)) {
                     Icon(painterResource(icon), label, Modifier.size(22.dp), tint = FilewayTheme.colors.primary)
                 }
             }
             step(R.drawable.ic_arrow_back, "字幕提前0.5秒") { onDelay(delayMs - 500) }
-            step(R.drawable.ic_restore, "字幕时间归零") { onDelay(0); onOffsetText("") }
+            step(R.drawable.ic_refresh, "字幕时间归零") { onDelay(0); onOffsetText("") }
             step(R.drawable.ic_arrow_forward, "字幕延后0.5秒") { onDelay(delayMs + 500) }
-            Text("每步0.5秒", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             BasicTextField(offsetText, onOffsetText, Modifier.weight(1f).heightIn(min = 48.dp)
                 .clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.surfaceContainerHigh)
                 .semantics { contentDescription = "字幕偏移秒数，正数延后，范围正负600秒" }, singleLine = true,
-                textStyle = TextStyle(color = FilewayTheme.status.mediaContent, fontSize = 15.sp),
+                textStyle = TextStyle(color = FilewayTheme.status.mediaContent, fontSize = 15.sp, lineHeight = 22.sp),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(FilewayTheme.colors.primary),
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                 decorationBox = { inner -> Box(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
-                    if (offsetText.isEmpty()) Text("偏移秒数，±600", color = FilewayTheme.status.mediaSecondary, fontSize = 14.sp)
+                    if (offsetText.isEmpty()) Text("偏移秒数，±600", color = FilewayTheme.status.mediaSecondary, fontSize = 14.sp, lineHeight = 20.sp)
                     inner()
                 } })
             IconButton(onApplyOffset, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.primary.copy(alpha = .12f))) {
                 Icon(painterResource(R.drawable.ic_check), "应用字幕偏移", Modifier.size(22.dp), tint = FilewayTheme.colors.primary)
             }
         }
-        if (offsetError != null) Text(offsetError, color = androidx.compose.material3.MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        if (offsetError != null) Text(offsetError, color = androidx.compose.material3.MaterialTheme.colorScheme.error, fontSize = 12.sp, lineHeight = 18.sp)
         HorizontalDivider(color = FilewayTheme.status.mediaSecondary.copy(alpha = .16f))
-        Text("字幕外观", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        Text("字幕外观", color = Color.White, fontSize = 15.sp, lineHeight = 22.sp, fontWeight = FontWeight.Medium)
         when {
             authorStyled -> Text("ASS / SSA 使用作者字体、位置与动画，保留原始样式。时间偏移仍可调整。",
                 color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp, lineHeight = 20.sp)
@@ -246,15 +246,18 @@ internal fun PlayerSubtitleAdjustments(
                 val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
                 val font = fonts.resolve(appearance.fontKey)
                 LaunchedEffect(Unit) { SubtitleFontCatalog.request() }
-                Text("文本字号 ${(appearance.scale * 100).roundToInt()}%", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
+                Column(Modifier.fillMaxWidth()) {
+                Text("文本字号 ${(appearance.scale * 100).roundToInt()}%", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp, lineHeight = 18.sp)
                 PlayerSlider(appearance.scale, 2f, "文本字幕字号", true,
                     { onAppearance(appearance.copy(scale = it)) }, minimum = .5f,
                     description = "${(appearance.scale * 100).roundToInt()}%")
-                Text("底边距 ${(appearance.bottomPadding * 100).roundToInt()}%", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
+                }
+                Column(Modifier.fillMaxWidth()) {
+                Text("底边距 ${(appearance.bottomPadding * 100).roundToInt()}%", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp, lineHeight = 18.sp)
                 PlayerSlider(appearance.bottomPadding, .4f, "文本字幕底边距", true,
                     { onAppearance(appearance.copy(bottomPadding = it)) },
                     description = "${(appearance.bottomPadding * 100).roundToInt()}%")
-                Text("外观预览", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
+                }
                 Box(Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.surfaceContainerHigh)
                     .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.BottomCenter) {
                     Text("字幕外观预览", Modifier.padding(bottom = 72.dp * appearance.bottomPadding)
@@ -262,31 +265,38 @@ internal fun PlayerSubtitleAdjustments(
                         color = Color.White, fontSize = (18 * appearance.scale).sp, lineHeight = (26 * appearance.scale).sp,
                         fontFamily = FontFamily(font.typeface ?: android.graphics.Typeface.DEFAULT))
                 }
-                Text("字幕显示区域", color = Color.White, fontSize = 14.sp)
+                Text("字幕显示区域", color = Color.White, fontSize = 14.sp, lineHeight = 20.sp)
                 PlayerTrackRow("画面内", "", appearance.area == TextSubtitleArea.PICTURE, false) {
                     onAppearance(appearance.copy(area = TextSubtitleArea.PICTURE))
                 }
                 PlayerTrackRow("整个播放区域（含黑边）", "不改变视频大小；没有黑边时仍在画面内显示", appearance.area == TextSubtitleArea.STAGE, false) {
                     onAppearance(appearance.copy(area = TextSubtitleArea.STAGE))
                 }
+                Column(Modifier.fillMaxWidth()) {
                 Text("背景不透明度 ${(appearance.backgroundOpacity * 100).roundToInt()}%" +
-                    if (appearance.backgroundOpacity == 0f) " · 无背景" else " · 黑色", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp)
+                    if (appearance.backgroundOpacity == 0f) " · 无背景" else " · 黑色", color = FilewayTheme.status.mediaSecondary, fontSize = 13.sp, lineHeight = 18.sp)
                 PlayerSlider(appearance.backgroundOpacity, 1f, "字幕背景不透明度", true,
                     { onAppearance(appearance.copy(backgroundOpacity = it)) },
                     description = "${(appearance.backgroundOpacity * 100).roundToInt()}%")
+                }
                 FilewayTextButton({ onAppearance(appearance.copy(backgroundOpacity = if (appearance.backgroundOpacity == 0f) .5f else 0f)) },
                     Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors) {
                     Text(if (appearance.backgroundOpacity == 0f) "使用半透明黑背景" else "无背景")
                 }
-                Text("字幕字体", color = Color.White, fontSize = 14.sp)
-                FilewayTextButton(onChooseFont, Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                    .semantics { contentDescription = "选择字幕字体"; stateDescription = font.label }, shape = RoundedCornerShape(12.dp), colors = buttonColors) {
-                    Text(font.label, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.surfaceContainerHigh)
+                    .clickable(role = Role.Button, onClick = onChooseFont).heightIn(min = 56.dp).padding(12.dp)
+                    .semantics { contentDescription = "选择字幕字体"; stateDescription = font.label },
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("字幕字体", color = FilewayTheme.status.mediaContent, fontSize = 14.sp, lineHeight = 20.sp)
+                        Text(font.label, color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp, lineHeight = 18.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(20.dp), tint = FilewayTheme.status.mediaSecondary)
                 }
-                if (fonts.loading) Text("正在读取系统可用字体…", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
-                if (fonts.failed) Text("系统字体暂时不可用，可使用字幕默认或跟随系统。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
-                if (fonts.missing(appearance.fontKey)) Text("所选字体已不可用，当前使用字幕默认；可重新选择。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
-                Text("即时预览，保存仅用于本设备", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp)
+                if (fonts.loading) Text("正在读取系统可用字体…", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+                if (fonts.failed) Text("系统字体暂时不可用，可使用字幕默认或跟随系统。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+                if (fonts.missing(appearance.fontKey)) Text("所选字体已不可用，当前使用字幕默认；可重新选择。", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp, lineHeight = 18.sp)
+                Text("即时预览，保存仅用于本设备", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp, lineHeight = 18.sp)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilewayTextButton(onClick = { onAppearance(TextSubtitleAppearance()) }, modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors) { Text("重置预览") }
                     FilewayTextButton(onClick = onSaveAppearance, modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = buttonColors) { Text("保存到此设备") }

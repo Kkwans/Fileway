@@ -140,7 +140,7 @@ import kotlinx.coroutines.launch
                 item {
                     SettingsGroup("关于应用") {
                         SettingsAction("检查更新", "当前版本 ${BuildConfig.VERSION_NAME}", R.drawable.ic_download, action = model::openUpdates)
-                        SettingsAction("关于 Fileway", "版本、来源、鸣谢与许可证", R.drawable.ic_info) { repositoryError = null; about = true }
+                        SettingsAction("关于栖卷 · Fileway", "版本、来源、鸣谢与许可证", R.drawable.ic_info) { repositoryError = null; about = true }
                     }
                 }
                 state.error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
@@ -166,26 +166,8 @@ import kotlinx.coroutines.launch
             Text(if (state.profile?.network == ConnectionMode.TAILNET) "连接方式：内嵌 Tailscale" else "连接方式：直接连接")
         }
     }
-    if (about) FileOperationSheet("关于 Fileway", ::closeAbout) {
-        Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("版本 ${BuildConfig.VERSION_NAME} · 构建 ${BuildConfig.VERSION_CODE}")
-            Text("原生 Android 客户端 · GPL-3.0-or-later", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            FilewayTextButton(onClick = {
-                try {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UpdatePolicy.REPOSITORY))
-                        .addCategory(Intent.CATEGORY_BROWSABLE))
-                    repositoryError = null
-                } catch (_: ActivityNotFoundException) { repositoryError = "没有可打开链接的浏览器" }
-                catch (_: SecurityException) { repositoryError = "系统未允许打开浏览器，请稍后重试" }
-            }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                .semantics { contentDescription = "打开 GitHub 仓库" }) {
-                Text("GitHub · Kkwans/Fileway")
-            }
-            FilewayTextButton(onClick = { about = false; licenses = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("鸣谢与许可证") }
-            repositoryError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        }
-    }
-    if (licenses) FilewayLicensesSheet { licenses = false; about = true }
+    if (about) FilewayAboutDialog(::closeAbout)
+
 }
 
 /** One category per card; its actions remain full-width selectable rows. */
@@ -216,4 +198,32 @@ internal fun AppTheme.label() = when (this) {
     AppTheme.SYSTEM -> "跟随系统"
     AppTheme.LIGHT -> "明色"
     AppTheme.DARK -> "暗色"
+}
+
+@Composable internal fun FilewayAboutDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    var repositoryError by remember { mutableStateOf<String?>(null) }
+    var licenses by remember { mutableStateOf(false) }
+    if (licenses) { FilewayLicensesSheet { licenses = false }; return }
+    FileOperationDialog("关于栖卷 · Fileway", onDismiss, footer = {
+        FilewayTextButton(onDismiss) { Text("关闭") }
+    }) {
+        Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("版本 ${BuildConfig.VERSION_NAME} · 构建 ${BuildConfig.VERSION_CODE}")
+            Text("原生 Android 客户端 · GPL-3.0-or-later", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            FilewayTextButton(onClick = {
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(UpdatePolicy.REPOSITORY))
+                        .addCategory(Intent.CATEGORY_BROWSABLE))
+                    repositoryError = null
+                } catch (_: ActivityNotFoundException) { repositoryError = "没有可打开链接的浏览器" }
+                catch (_: SecurityException) { repositoryError = "系统未允许打开浏览器，请稍后重试" }
+            }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .semantics { contentDescription = "打开 GitHub 仓库" }) {
+                Text("GitHub · Kkwans/Fileway")
+            }
+            FilewayTextButton(onClick = { licenses = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("鸣谢与许可证") }
+            repositoryError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+        }
+    }
 }

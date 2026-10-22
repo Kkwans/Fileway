@@ -1,6 +1,7 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -39,7 +40,9 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val gestures = state.destination.main != null && !state.searchDisplayed
-    BackHandler(drawer.isOpen) { scope.launch { drawer.close() } }
+    var about by remember { mutableStateOf(false) }
+    if (about) FilewayAboutDialog { about = false }
+    BackHandler(drawer.isOpen && !about) { scope.launch { drawer.close() } }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val drawerWidth = minOf(320.dp, (maxWidth - 56.dp).coerceAtLeast(0.dp))
         ModalNavigationDrawer(
@@ -55,18 +58,27 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                     }
                     Column(Modifier.fillMaxSize()) {
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text("Fileway", style = MaterialTheme.typography.titleMedium)
-                                if (!state.connected) Text("尚未连接服务器", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
-                                        io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.CONNECTION, state.previewScope, Modifier.size(22.dp), play = drawer.isOpen)
-                                    Text("已连接 · ${if (state.profile?.network == ConnectionMode.TAILNET) "Tailscale" else "本地网络"}",
-                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                        io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.CONNECTION, state.previewScope,
+                                        Modifier.size(24.dp), play = drawer.isOpen && state.connected)
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text("栖卷 · Fileway", style = MaterialTheme.typography.titleMedium)
+                                        Text(if (!state.connected) "尚未连接" else "已连接 · ${if (state.profile?.network == ConnectionMode.TAILNET) "Tailscale" else "本地网络"}",
+                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
-                            }
-                            FilewayDrawerItem(if (state.connected) "切换服务器或账号" else "连接服务器", R.drawable.ic_server) {
-                                navigate { if (state.connected) model.disconnect() else model.showConnection() }
+                                Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) {
+                                    Row(Modifier.fillMaxWidth().clickable { navigate { if (state.connected) model.disconnect() else model.showConnection() } }
+                                        .heightIn(min = 48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Icon(painterResource(R.drawable.ic_server), null, Modifier.size(22.dp))
+                                        Text(if (state.connected) "切换服务器或账号" else "连接服务器", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                        Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp))
+                                    }
+                                }
                             }
                             if (state.connected) {
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -115,7 +127,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                             }
                             HorizontalDivider(Modifier.padding(vertical = 8.dp))
                             FilewayDrawerItem("更新", R.drawable.ic_update) { navigate(model::openUpdates) }
-                            FilewayDrawerItem("关于 Fileway", R.drawable.ic_info) { navigate { model.tab("about") } }
+                            FilewayDrawerItem("关于栖卷 · Fileway", R.drawable.ic_info) { about = true }
                         }
                         HorizontalDivider()
                         // ModalDrawerSheet already owns the system-bar insets.

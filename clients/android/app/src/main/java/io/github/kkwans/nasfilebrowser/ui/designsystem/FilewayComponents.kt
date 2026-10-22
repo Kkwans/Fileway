@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -130,6 +131,7 @@ fun FilewaySelectionRow(
     val emphasis = if (enabled) 1f else .38f
     Row(
         Modifier.fillMaxWidth().heightIn(min = FilewaySpace.target)
+            .clip(MaterialTheme.shapes.medium)
             .background(if (selected) colors.primaryContainer else colors.surface)
             .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small),

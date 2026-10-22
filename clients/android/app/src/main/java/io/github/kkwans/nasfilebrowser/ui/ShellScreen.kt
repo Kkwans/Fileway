@@ -75,11 +75,12 @@ import kotlinx.coroutines.flow.collect
                 Spacer(Modifier.weight(1f))
                 FilewayTextButton(controller::clearOutput, enabled = !state.running && state.output.lines.isNotEmpty()) { Text("清空显示") }
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(state.input, controller::input, Modifier.weight(1f), label = { Text("命令及参数") }, singleLine = true, enabled = !state.running && !state.loading,
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
-                FilewayButton(controller::run, enabled = !state.running && !state.loading && state.enabled && state.execute && state.commands.isNotEmpty() && state.input.isNotBlank(), modifier = Modifier.heightIn(min = 48.dp)) { Text("运行") }
-            }
+            FilewaySearchField(state.input, controller::input, "命令及参数", Modifier.fillMaxWidth().padding(horizontal = 12.dp).semantics { contentDescription = "命令及参数" },
+                enabled = !state.running && !state.loading, actionIcon = R.drawable.art_play, actionLabel = "运行命令",
+                submitEnabled = state.enabled && state.execute && state.commands.isNotEmpty() && state.input.isNotBlank(),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false,
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Go), monospace = true, submit = controller::run)
+
             state.configurationMessage?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             (state.error?.takeUnless { it == state.configurationMessage } ?: state.message)?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodySmall,
                 color = if (state.error == null || state.error == state.configurationMessage) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error) }

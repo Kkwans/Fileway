@@ -62,11 +62,16 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     content: @Composable ColumnScope.() -> Unit,
 ) = FileOperationSurface(title, onDismiss, canDismiss, back = false, sheet = false, footer, content)
 
+/** Detail panel anchored below the status bar; shares body/footer and dismissal rules. */
+@Composable internal fun FileOperationTopSheet(title: String, onDismiss: () -> Unit,
+    footer: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit,
+) = FileOperationSurface(title, onDismiss, canDismiss = true, back = false, sheet = false, footer, content, top = true)
+
 /** Only operation windows consume system/IME insets. The body owns its one scroll container. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun FileOperationSurface(
     title: String, onDismiss: () -> Unit, canDismiss: Boolean, back: Boolean, sheet: Boolean,
-    footer: @Composable RowScope.() -> Unit, content: @Composable ColumnScope.() -> Unit,
+    footer: @Composable RowScope.() -> Unit, content: @Composable ColumnScope.() -> Unit, top: Boolean = false,
 ) {
     Dialog(onDismissRequest = { if (canDismiss) onDismiss() }, properties = DialogProperties(
         usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnBackPress = false,
@@ -106,7 +111,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
                 (if (sheet) WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal) else WindowInsets.safeDrawing)
                     .union(WindowInsets.ime))
                 .pointerInput(canDismiss) { detectTapGestures { leave() } },
-            contentAlignment = if (sheet) Alignment.BottomCenter else Alignment.Center,
+            contentAlignment = if (top) Alignment.TopCenter else if (sheet) Alignment.BottomCenter else Alignment.Center,
         ) {
             Surface(
                 Modifier.padding(start = if (sheet) 0.dp else 24.dp, end = if (sheet) 0.dp else 24.dp,

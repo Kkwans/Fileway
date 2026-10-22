@@ -131,13 +131,19 @@ import io.github.kkwans.nasfilebrowser.app.*
             FilewayTextButton({ model.trash.restore(item, "skip") }, enabled = enabled && canRestore) { Text("跳过恢复") }
         }
     }, confirmButton = { FilewayTextButton(model.trash::closeConflict) { Text("取消") } }) }
-    details?.let { item -> AlertDialog(onDismissRequest = { details = null }, title = { Text("回收站详情") }, text = {
-        SelectionContainer { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(item.name, style = MaterialTheme.typography.titleMedium); Text("原位置：${item.path}")
-            Text("${if (item.directory) "文件夹" else "文件"} · ${trashSize(item)}"); Text("删除时间：${serverTime(item.deletedAt)}")
-            if (item.error.isNotEmpty()) Text(item.error, color = MaterialTheme.colorScheme.error)
-        } }
-    }, confirmButton = { FilewayTextButton({ details = null }) { Text("关闭") } }) }
+    details?.let { item -> FileOperationTopSheet("回收站详情", { details = null }, footer = {
+        FilewayTextButton({ details = null }) { Text("关闭") }
+    }) {
+        SelectionContainer(Modifier.weight(1f, fill = false)) {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(item.name, style = MaterialTheme.typography.titleMedium)
+                FileOperationLocation("原位置", item.path)
+                Text("${if (item.directory) "文件夹" else "文件"} · ${trashSize(item)}", style = MaterialTheme.typography.bodyMedium)
+                Text("删除时间：${serverTime(item.deletedAt)}", style = MaterialTheme.typography.bodyMedium)
+                if (item.error.isNotEmpty()) Text(item.error, color = MaterialTheme.colorScheme.error)
+            }
+        }
+    } }
 }
 
 private fun trashSize(item: TrashItem): String = when (item.sizeState) {
