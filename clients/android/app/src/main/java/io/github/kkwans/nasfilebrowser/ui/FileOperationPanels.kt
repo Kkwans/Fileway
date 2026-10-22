@@ -50,7 +50,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     onDismiss: () -> Unit,
     canDismiss: Boolean = true,
     back: Boolean = false,
-    footer: @Composable RowScope.() -> Unit = {},
+    footer: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) = FileOperationSurface(title, onDismiss, canDismiss, back, sheet = true, footer, content)
 
@@ -64,14 +64,14 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
 
 /** Detail panel anchored below the status bar; shares body/footer and dismissal rules. */
 @Composable internal fun FileOperationTopSheet(title: String, onDismiss: () -> Unit,
-    footer: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit,
+    footer: (@Composable RowScope.() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit,
 ) = FileOperationSurface(title, onDismiss, canDismiss = true, back = false, sheet = false, footer, content, top = true)
 
 /** Only operation windows consume system/IME insets. The body owns its one scroll container. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun FileOperationSurface(
     title: String, onDismiss: () -> Unit, canDismiss: Boolean, back: Boolean, sheet: Boolean,
-    footer: @Composable RowScope.() -> Unit, content: @Composable ColumnScope.() -> Unit, top: Boolean = false,
+    footer: (@Composable RowScope.() -> Unit)?, content: @Composable ColumnScope.() -> Unit, top: Boolean = false,
 ) {
     Dialog(onDismissRequest = { if (canDismiss) onDismiss() }, properties = DialogProperties(
         usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnBackPress = false,
@@ -135,12 +135,17 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
                     }
                     Column(Modifier.weight(1f, fill = false).fillMaxWidth().padding(horizontal = 20.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+                    if (footer != null) {
                     HorizontalDivider(Modifier.padding(top = 12.dp), color = FilewayTheme.colors.outlineVariant)
                     Row(Modifier.fillMaxWidth()
                         .then(if (sheet) Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically,
                         content = footer)
+                    } else {
+                        Spacer(Modifier.height(12.dp))
+                        if (sheet) Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+                    }
                 }
             }
         }
