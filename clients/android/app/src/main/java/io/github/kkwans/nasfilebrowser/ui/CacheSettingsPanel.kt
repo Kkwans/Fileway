@@ -21,18 +21,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** Both identities are immutable: the same account may be reconnected in a new session. */
-private data class CacheImageOwner(val account: String, val session: String)
-
 @Composable internal fun CacheSettingsPanel(model: ClientModel, feedback: (String) -> Unit) {
     val state by model.cache.state.collectAsStateWithLifecycle()
-    val client by model.state.collectAsStateWithLifecycle()
     val settings = state.settings
     val scope = rememberCoroutineScope()
-    val account = model.cacheAccount()
-    val owner = remember(account, client.previewScope, client.connected) {
-        CacheImageOwner(account, client.previewScope).takeIf { client.connected && account.isNotEmpty() && client.previewScope.isNotEmpty() }
-    }
     var number by remember { mutableStateOf<String?>(null) }
     var input by remember { mutableStateOf("") }
     var quality by remember { mutableStateOf(false) }
@@ -53,7 +45,7 @@ private data class CacheImageOwner(val account: String, val session: String)
         SettingsGroup("图片缓存与查看") {
             SettingsAction("默认图片质量", settings.imageQuality.label, R.drawable.ic_visibility, enabled) { quality = true }
             SettingsAction("图片缓存容量", "已用 ${readableSize(state.images)} / ${settings.imageMB} MB${if (settings.imageMB == 0L) " · 已关闭" else ""}", R.drawable.ic_storage, enabled) { edit("image", settings.imageMB) }
-            SettingsAction("缓存图片管理", if (owner == null) "连接服务器后查看当前账号的图片" else "仅查看和移除当前账号的本机图片", R.drawable.ic_folder, enabled && owner != null) {
+            SettingsAction("缓存图片管理", "查看本机全部图片缓存，可离线管理", R.drawable.ic_folder, enabled) {
                 model.tab("cache-images")
             }
             SettingsAction("清理图片缓存", "清理本机所有图片缓存，服务器文件保留", R.drawable.ic_refresh, enabled, navigation = false) { clear = "image" }

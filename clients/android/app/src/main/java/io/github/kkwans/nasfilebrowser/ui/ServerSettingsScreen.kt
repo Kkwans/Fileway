@@ -38,8 +38,10 @@ private enum class GlobalSettingsGroup(val label: String) {
     fun validNumber(key: String, value: String) = serverSettingNumberValid(key, value)
     val numbersValid = numbers.all { (key, value) -> validNumber(key, value) }
     if (!fullPage) Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+        Box(Modifier.statusBarsPadding()) {
         FilewayTopAppBar("全局设置", null, R.drawable.ic_arrow_back, "返回设置", { if (!state.saving) onBack() },
             actions = { IconButton(controller::refresh, enabled = !state.loading && !state.saving) { Icon(painterResource(R.drawable.ic_refresh), "刷新全局设置") } })
+        }
     }, bottomBar = {
         if (draft != null) Surface {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 8.dp)) {

@@ -82,7 +82,8 @@ import kotlinx.coroutines.launch
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         bottomBar = { ClientNavigation(model, "settings") },
         topBar = { Column(Modifier.statusBarsPadding()) {
-            FilewayPageHeader("我的")
+            if (state.connected) FilewayPageHeader("我的")
+            else FilewayTopAppBar("本机设置", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回连接页面", onLeadingClick = onBack)
         } }) { insets ->
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
             LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize().semantics { contentDescription = "设置内容" },

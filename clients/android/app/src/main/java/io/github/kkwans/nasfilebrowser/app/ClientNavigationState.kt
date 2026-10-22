@@ -23,7 +23,7 @@ val ClientState.destination: ClientDestination
     get() = if (searchDisplayed) ClientDestination.SEARCH else ClientDestination.forRoute(tab, taskCenterSection) ?: ClientDestination.FILES
 
 internal fun ClientDestination.allowed(connected: Boolean, admin: Boolean, execute: Boolean): Boolean = when (this) {
-    ClientDestination.ACCOUNT, ClientDestination.LIBRARY, ClientDestination.SEARCH, ClientDestination.CACHE_IMAGES -> connected
+    ClientDestination.ACCOUNT, ClientDestination.LIBRARY, ClientDestination.SEARCH -> connected
     ClientDestination.ADMIN_USERS, ClientDestination.SERVER_SETTINGS -> connected && admin
     ClientDestination.SHELL -> connected && execute
     else -> true

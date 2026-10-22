@@ -351,7 +351,13 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
             // Fullscreen media ignores changing system-bar visibility. Insets
             // protect only the overlay controls, never resize the video Surface.
+            val chromeDensity = LocalDensity.current
+            val chromeHeight = with(chromeDensity) { 52.dp.toPx() } + WindowInsets.safeDrawing.getTop(chromeDensity)
             BoxWithConstraints(Modifier.fillMaxSize().background(if (fullscreen) FilewayTheme.status.mediaCanvas else pageColors.background)
+                .drawBehind {
+                    if (!fullscreen) drawRect(Brush.horizontalGradient(listOf(headerAccent.value.copy(alpha = .08f), Color.Transparent)),
+                        size = androidx.compose.ui.geometry.Size(size.width, minOf(size.height, chromeHeight)))
+                }
                 .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
                 .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
                 val landscape = maxWidth > maxHeight
@@ -366,7 +372,6 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
                 Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
                     if (!fullscreen) Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                        .drawBehind { drawRect(Brush.horizontalGradient(listOf(headerAccent.value.copy(alpha = .08f), Color.Transparent))) }
                         .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         PlayerIcon(R.drawable.ic_arrow_back, "返回文件", model::leavePlayer)
                         Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,

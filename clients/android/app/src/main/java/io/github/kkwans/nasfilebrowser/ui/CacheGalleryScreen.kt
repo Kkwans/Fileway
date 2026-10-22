@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -17,10 +18,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import coil3.compose.asPainter
+import coil3.memory.MemoryCache
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import io.github.kkwans.nasfilebrowser.R
@@ -38,10 +45,7 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
 
 /** Local cache only. A pinned Coil snapshot stays alive for each displayed image. */
 @Composable internal fun CacheGalleryScreen(model: ClientModel) {
-    val client by model.state.collectAsStateWithLifecycle()
     val cache by model.cache.state.collectAsStateWithLifecycle()
-    val account = remember { model.cacheAccount() }
-    val session = remember { client.previewScope }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var images by remember { mutableStateOf(emptyList<CachedImage>()) }
@@ -54,17 +58,15 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
     var refresh by remember { mutableIntStateOf(0) }
     var viewing by remember { mutableStateOf<List<CachedImage>?>(null) }
     var initialPage by remember { mutableIntStateOf(0) }
-    fun current() = model.state.value.connected && model.state.value.previewScope == session && model.cacheAccount() == account
     fun toast(message: String) { android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show() }
-    LaunchedEffect(client.previewScope, client.connected) { if (!current()) model.back() }
-    LaunchedEffect(account, session, refresh, cache.revision) {
+    LaunchedEffect(refresh, cache.revision) {
         busy = true; error = null
         try {
             model.cache.awaitReady()
-            val loaded = model.cache.cachedImages(account)
-            if (current()) { images = loaded; selected = selected.intersect(loaded.map { it.key }.toSet()) }
+            val loaded = model.cache.cachedImages()
+            images = loaded; selected = selected.intersect(loaded.map { it.key }.toSet())
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { if (current()) error = "无法读取本机缓存，请刷新" }
+        catch (_: Exception) { error = "无法读取本机缓存，请刷新" }
         finally { busy = false }
     }
     val ordered = remember(images, order) { when (order) {
@@ -74,12 +76,12 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
     } }
     val snapshot = viewing
     if (snapshot != null) {
-        CachedImageViewer(model, snapshot, account, initialPage) { viewing = null }
+        CachedImageViewer(model, snapshot, initialPage) { viewing = null }
         return
     }
     BackHandler(selecting) { selecting = false; selected = emptySet() }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
-        FilewayRefresh(busy, { if (!busy && current()) refresh++ }, Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+        FilewayRefresh(busy, { if (!busy) refresh++ }, Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
 Column(Modifier.fillMaxSize()) {
             FilewayTopAppBar(if (selecting) "已选 ${selected.size} 张" else "图片缓存", leadingIcon = R.drawable.ic_arrow_back,
                 leadingDescription = "返回我的", onLeadingClick = { model.back() }, actions = {
@@ -88,15 +90,15 @@ Column(Modifier.fillMaxSize()) {
                             Icon(painterResource(R.drawable.ic_check), "全选或取消全选", Modifier.size(22.dp))
                         }
                         IconButton({
-                            val targets = selected.toSet()
-                            if (current() && targets.isNotEmpty()) {
+                            val targets = images.filter { it.key in selected }
+                            if (targets.isNotEmpty()) {
                                 busy = true
                                 scope.launch {
                                     try {
-                                        model.cache.removeImages(targets, account)
-                                        if (current()) { selected = emptySet(); selecting = false; refresh++; toast("已删除 ${targets.size} 张缓存图片") }
+                                        model.cache.removeImages(targets)
+                                        selected = emptySet(); selecting = false; refresh++; toast("已删除 ${targets.size} 张缓存图片")
                                     } catch (cancelled: CancellationException) { throw cancelled }
-                                    catch (_: Exception) { if (current()) { error = "删除未完成，请刷新后核对"; busy = false } }
+                                    catch (_: Exception) { error = "删除未完成，请刷新后核对"; busy = false }
                                 }
                             }
                         }, enabled = !busy && selected.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "删除选中缓存", tint = MaterialTheme.colorScheme.error) }
@@ -117,19 +119,20 @@ Column(Modifier.fillMaxSize()) {
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
             if (ordered.isEmpty() && !busy) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("当前账号还没有图片缓存", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("本机还没有图片缓存", color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else LazyVerticalStaggeredGrid(StaggeredGridCells.Fixed(3), Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalItemSpacing = 6.dp) {
                 items(ordered, key = { it.key }) { image ->
+                    val isSelected = image.key in selected
                     val ratio = if (image.width > 0 && image.height > 0) (image.width.toFloat() / image.height).coerceIn(.2f, 5f) else 1f
                     Box(Modifier.fillMaxWidth().aspectRatio(ratio).clip(MaterialTheme.shapes.medium)
                         .then(if (image.key in selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium) else Modifier)
-                        .combinedClickable(enabled = !busy && current(), onClick = {
+                        .semantics { this.selected = isSelected; contentDescription = image.name }
+                        .combinedClickable(enabled = !busy, role = if (selecting) Role.Checkbox else Role.Button, onClick = {
                             if (selecting) selected = if (image.key in selected) selected - image.key else selected + image.key
                             else { initialPage = ordered.indexOfFirst { it.key == image.key }; viewing = ordered.toList() }
-                        }, onLongClick = { if (current()) { selecting = true; selected = selected + image.key } })) {
-                        CachedImageContent(model, image, account, viewer = false)
-                        if (selecting) Checkbox(image.key in selected, null, Modifier.align(Alignment.TopEnd))
+                        }, onLongClick = { selecting = true; selected = selected + image.key })) {
+                        CachedImageContent(model, image, image.account, viewer = false)
                     }
                 }
             }
@@ -139,7 +142,7 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
-@Composable private fun CachedImageViewer(model: ClientModel, images: List<CachedImage>, account: String, initial: Int, onBack: () -> Unit) {
+@Composable private fun CachedImageViewer(model: ClientModel, images: List<CachedImage>, initial: Int, onBack: () -> Unit) {
     val pager = rememberPagerState(initialPage = initial.coerceIn(images.indices), pageCount = { images.size })
     val zoomed = remember { mutableStateMapOf<String, Boolean>() }
     val scope = rememberCoroutineScope()
@@ -156,7 +159,7 @@ Column(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().background(Color.Black).padding(insets).consumeWindowInsets(insets)) {
             HorizontalPager(pager, Modifier.fillMaxSize(),
                 key = { images[it].key }, userScrollEnabled = zoomed[images[pager.settledPage].key] != true) { page ->
-                CachedImageContent(model, images[page], account, viewer = true) { zoomed[images[page].key] = it }
+                CachedImageContent(model, images[page], images[page].account, viewer = true) { zoomed[images[page].key] = it }
             }
             Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .55f)),
                 verticalAlignment = Alignment.CenterVertically) {
@@ -165,7 +168,7 @@ Column(Modifier.fillMaxSize()) {
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 IconButton({
                     val image = images[pager.settledPage]
-                    if (model.cacheAccount() == account) {
+                    if (!saving) {
                         saving = true
                         scope.launch {
                             val message = try { model.cache.saveCachedImageToAlbum(image); "已保存到相册" }
@@ -190,14 +193,13 @@ Column(Modifier.fillMaxSize()) {
 @Composable private fun CachedImageContent(model: ClientModel, image: CachedImage, account: String, viewer: Boolean, onZoom: (Boolean) -> Unit = {}) {
     var failed by remember(image.key, account) { mutableStateOf(false) }
     val lease by produceState<CachedImageLease?>(null, image.key, account) {
-        var owned: CachedImageLease? = null
         try {
-            withContext(NonCancellable) { owned = model.cache.openCachedImage(image.key, account) }
-            currentCoroutineContext().ensureActive(); value = owned
-            awaitCancellation()
+            model.cache.withCachedImage(image.key, account) { owned ->
+                value = owned
+                awaitCancellation()
+            }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { failed = true }
-        finally { owned?.close() }
     }
     val context = LocalContext.current
     var showLoading by remember(image.key, account, viewer) { mutableStateOf(false) }
@@ -212,7 +214,14 @@ Column(Modifier.fillMaxSize()) {
         .data(lease?.file).diskCachePolicy(CachePolicy.DISABLED)
         .memoryCacheKey("cache-gallery/${if (viewer) "original" else "preview"}/${image.key}")
         .apply { if (!viewer) size(512, 1024) }.build() }
+    val memoryKey = "cache-gallery/${if (viewer) "original" else "preview"}/${image.key}"
+    val cached = remember(image.key, account, viewer, model.cache.imageLoader.value) {
+        val memory = model.cache.imageLoader.value.memoryCache
+        memory?.get(MemoryCache.Key(memoryKey))?.image
+            ?: if (viewer) memory?.get(MemoryCache.Key(image.key))?.image else null
+    }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (cached != null) Image(cached.asPainter(context), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
         if (lease != null) {
             if (viewer) {
                 val state = rememberZoomableImageState(rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 8f)))
@@ -221,7 +230,7 @@ Column(Modifier.fillMaxSize()) {
                     imageLoader = model.cache.imageLoader.value, contentScale = ContentScale.Fit)
             } else AsyncImage(request, null, imageLoader = model.cache.imageLoader.value, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
                 onError = { failed = true })
-        } else if (!failed) {
+        } else if (!failed && cached == null) {
             if (!viewer) Icon(painterResource(R.drawable.ic_image), null, Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
             if (showLoading) CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)

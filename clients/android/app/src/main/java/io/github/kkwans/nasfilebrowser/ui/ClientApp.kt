@@ -148,6 +148,20 @@ import java.util.Locale
     } }; return }
     if (shell.open && state.connected) { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme { ShellScreen(model.shell, model::finishShellNavigation) } }; return }
     if (state.tab == "updates") { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme { AppUpdatesScreen(model) } }; return }
+    if (state.tab == "cache-images") { CacheGalleryScreen(model); return }
+    if (!state.connected && state.tab == "downloads") {
+        Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+            Box(Modifier.statusBarsPadding()) {
+                io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar("下载文件", leadingIcon = R.drawable.ic_arrow_back,
+                    leadingDescription = "返回连接页面", onLeadingClick = ::requestBack)
+            }
+        }) { insets ->
+            Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
+                CompositionLocalProvider(LocalSkipBottomNavigation provides true) { DownloadsScreen(model) }
+            }
+        }
+        return
+    }
     val rootState = state
     FilewayAppShell(model, state, ::requestBack) { mainPage ->
     val state = if (mainPage == null) rootState else rootState.copy(
@@ -174,7 +188,20 @@ import java.util.Locale
     } else if (!state.connected && state.tab !in setOf("recent", "settings", "about")) {
         Column(Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)) {
             FilewayPageHeader("连接服务器")
-            Box(Modifier.weight(1f)) { ConnectionScreen(model, state) }
+            Box(Modifier.weight(1f).consumeWindowInsets(WindowInsets.navigationBars)) { ConnectionScreen(model, state) }
+            if (!imeVisible) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf(Triple("cache-images", "图片缓存", R.drawable.ic_image),
+                    Triple("downloads", "下载文件", R.drawable.ic_download),
+                    Triple("settings", "缓存设置", R.drawable.ic_settings)).forEach { (route, label, icon) ->
+                    FilewayTextButton({ model.tab(route) }, Modifier.weight(1f).heightIn(min = 48.dp)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(painterResource(icon), null, Modifier.size(22.dp))
+                            Text(label, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
         }
     } else {
     val searchShown = state.searchDisplayed && search.open

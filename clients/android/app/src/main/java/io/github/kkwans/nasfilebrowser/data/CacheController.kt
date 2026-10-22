@@ -59,6 +59,8 @@ class CacheController(private val context: Context, private val scope: Coroutine
     private val mutable = MutableStateFlow(CacheState())
     val state = mutable.asStateFlow()
     private val lock = Mutex()
+    // The index is owned by this controller and all access is under lock.
+    private var imageIndex: List<CachedImage>? = null
     private var ready = CompletableDeferred<Unit>()
     private var thumbnailDisk: DiskCache? = null
     private var imageDisk: DiskCache? = null
@@ -162,17 +164,19 @@ class CacheController(private val context: Context, private val scope: Coroutine
     fun key(account: String, path: String, identity: String): String = MessageDigest.getInstance("SHA-256")
         .digest("$account\u0000$path\u0000$identity".toByteArray()).joinToString("") { "%02x".format(it.toInt() and 255) }
     private fun readIndex(): MutableList<CachedImage> {
-        if (!index.exists()) return mutableListOf()
+        if (!index.exists()) { imageIndex = emptyList(); return mutableListOf() }
+        imageIndex?.let { return it.toMutableList() }
         val a = JSONArray(index.readText())
         return (0 until a.length()).map { i -> a.getJSONObject(i).let { CachedImage(it.getString("key"), it.getString("account"), it.getString("name"),
             it.getString("path"), it.getString("wirePath"), it.getString("modified"), it.getLong("size"), it.optLong("bytes"),
-            it.optLong("cachedAt"), it.optInt("width"), it.optInt("height"), it.optString("mimeType")) } }.toMutableList()
+            it.optLong("cachedAt"), it.optInt("width"), it.optInt("height"), it.optString("mimeType")) } }.also { imageIndex = it }.toMutableList()
     }
     private fun writeIndex(items: List<CachedImage>) {
         val a = JSONArray(); items.forEach { a.put(JSONObject().put("key", it.key).put("account", it.account).put("name", it.name).put("path", it.path)
             .put("wirePath", it.wirePath).put("modified", it.modified).put("size", it.size).put("bytes", it.bytes)
             .put("cachedAt", it.cachedAt).put("width", it.width).put("height", it.height).put("mimeType", it.mimeType)) }
         val temp = File(index.parentFile, "image-cache-index.tmp"); temp.writeText(a.toString()); check(temp.renameTo(index))
+        imageIndex = items.toList()
     }
     suspend fun recordImage(image: CachedImage) = lock.withLock { withContext(Dispatchers.IO) {
         val snapshot = imageDisk?.openSnapshot(image.key) ?: return@withContext
@@ -194,16 +198,16 @@ class CacheController(private val context: Context, private val scope: Coroutine
         return image.copy(bytes = file.length(), cachedAt = image.cachedAt.takeIf { it > 0 } ?: file.lastModified(),
             width = width, height = height, mimeType = bounds.outMimeType.orEmpty())
     }
-    suspend fun cachedImages(account: String): List<CachedImage> = lock.withLock { withContext(Dispatchers.IO) {
+    suspend fun cachedImages(account: String? = null): List<CachedImage> = lock.withLock { withContext(Dispatchers.IO) {
         val original = readIndex()
         val updated = original.map { image ->
-            if (image.account != account || image.cachedAt > 0 && image.width > 0 && image.height > 0) image
+            if (account != null && image.account != account || image.cachedAt > 0 && image.width > 0 && image.height > 0) image
             else imageDisk?.openSnapshot(image.key)?.let { snapshot ->
                 try { imageMetadata(image, snapshot.data.toFile()) } finally { snapshot.close() }
             } ?: image
         }
         if (updated != original) writeIndex(updated)
-        updated.filter { it.account == account && exists(it.key) }
+        updated.filter { (account == null || it.account == account) && exists(it.key) }
     } }
     suspend fun cacheImageFile(image: CachedImage, source: File): Boolean = lock.withLock { withContext(Dispatchers.IO) {
         val disk = imageDisk ?: return@withContext false
@@ -235,14 +239,40 @@ class CacheController(private val context: Context, private val scope: Coroutine
         val snapshot = imageDisk?.openSnapshot(key) ?: error("图片缓存已被清理")
         CachedImageLease(snapshot.data.toFile(), snapshot)
     } }
+    /** Cancellation while waiting does not enqueue obsolete offscreen work.
+     * Acquisition and disposal share the IO context, so cancellation cannot lose a lease. */
+    suspend fun withCachedImage(key: String, account: String, use: suspend (CachedImageLease) -> Unit) = withContext(Dispatchers.IO) {
+        val lease = lock.withLock {
+            check(readIndex().any { it.key == key && it.account == account }) { "缓存来源已变化，请刷新" }
+            val snapshot = imageDisk?.openSnapshot(key) ?: error("图片缓存已被清理")
+            CachedImageLease(snapshot.data.toFile(), snapshot)
+        }
+        try { use(lease) } finally { lease.close() }
+    }
+    /** Local gallery may select records from multiple original accounts. */
+    suspend fun removeImages(images: List<CachedImage>) = lock.withLock { withContext(Dispatchers.IO) {
+        val items = readIndex()
+        check(images.isNotEmpty() && images.all { selected -> items.any { it.key == selected.key && it.account == selected.account } }) { "缓存列表已变化，请刷新" }
+        removeImagesLocked(images.map { it.key }.toSet(), items)
+    } }
     suspend fun removeImage(key: String, account: String) = removeImages(setOf(key), account)
     suspend fun removeImages(keys: Set<String>, account: String) = lock.withLock { withContext(Dispatchers.IO) {
         val items = readIndex()
         check(keys.isNotEmpty() && keys.all { key -> items.any { it.key == key && it.account == account } }) { "缓存列表已变化，请刷新" }
-        keys.forEach { imageDisk?.remove(it) }
-        imageLoader.value.memoryCache?.clear(); writeIndex(items.filter { it.key !in keys })
-        mutable.value = mutable.value.copy(images = imageDisk?.size ?: 0)
+        removeImagesLocked(keys, items)
     } }
+    private fun removeImagesLocked(keys: Set<String>, items: List<CachedImage>) {
+        keys.forEach { key ->
+            imageDisk?.remove(key)
+            imageLoader.value.memoryCache?.let { memory ->
+                memory.remove(MemoryCache.Key(key))
+                memory.remove(MemoryCache.Key("cache-gallery/preview/$key"))
+                memory.remove(MemoryCache.Key("cache-gallery/original/$key"))
+            }
+        }
+        writeIndex(items.filter { it.key !in keys })
+        mutable.value = mutable.value.copy(images = imageDisk?.size ?: 0)
+    }
     suspend fun saveCachedImageToAlbum(image: CachedImage) = withContext(Dispatchers.IO) {
         var owned: CachedImageLease? = null
         var target: android.net.Uri? = null

@@ -113,7 +113,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
         ) {
             CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack,
                 LocalFilewaySessionModel provides model) {
-                if (state.destination.main != null && !state.searchDisplayed) {
+                if (state.connected && state.destination.main != null && !state.searchDisplayed) {
                     val destination = state.destination.main!!
                     Column(Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f).fillMaxWidth().consumeWindowInsets(WindowInsets.navigationBars)) {
@@ -121,7 +121,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                         }
                         ClientNavigation(model, destination.route, activeOverride = destination)
                     }
-                } else content(null)
+                } else CompositionLocalProvider(LocalSkipBottomNavigation provides !state.connected) { content(null) }
             }
         }
     }
