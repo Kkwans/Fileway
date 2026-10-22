@@ -167,7 +167,7 @@ import java.util.Locale
     val state = if (mainPage == null) rootState else rootState.copy(
         tab = if (mainPage == ClientMainDestination.TASKS) rootState.taskCenterSection.route else mainPage.route)
     val taskGroup = TaskCenterSection.forRoute(state.tab)
-    if (taskGroup != null) {
+    if (taskGroup != null && state.connected) {
         LibraryTheme {
             TaskCenterScaffold(model, taskGroup) { pageGroup ->
                 val holder = if (pageGroup == TaskCenterSection.DOWNLOADS || pageGroup == TaskCenterSection.UPLOADS) localTaskState else pageState

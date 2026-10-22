@@ -361,7 +361,6 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
                 .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
                 val landscape = maxWidth > maxHeight
-                val playerAvailableHeight = maxHeight
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
                     else WindowInsets.displayCutout.union(WindowInsets.navigationBarsIgnoringVisibility).union(WindowInsets.captionBar)
                 val headerDensity = LocalDensity.current
@@ -480,25 +479,26 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             val failure = if (client.busy) null else client.error ?: state.error
                             if (failure != null) {
                                 Column(Modifier.align(Alignment.Center).widthIn(max = 360.dp).padding(20.dp)
-                                    .clip(RoundedCornerShape(12.dp)).background(FilewayTheme.status.mediaSurface).padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text(failure, style = MaterialTheme.typography.bodyMedium, color = FilewayTheme.colors.error)
+                                    .clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .68f)).padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(failure, style = MaterialTheme.typography.bodyMedium, color = FilewayTheme.status.mediaContent)
                                     if (fullscreen) FilewaySessionNotice(model)
-                                    PlayerLabel("重试", "重试播放") {
-                                        model.retryPlayback()
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                        PlayerLabel("重试", "重试播放") { model.retryPlayback() }
                                     }
                                 }
-                            } else if (client.busy && showRequest) {
-                                Row(Modifier.align(Alignment.Center).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.status.mediaSurface).padding(start = 16.dp),
-                                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    CircularProgressIndicator(Modifier.size(18.dp), color = FilewayTheme.colors.primary, strokeWidth = 2.dp)
-                                    Text("正在加载", fontSize = 13.sp)
-                                    PlayerLabel("取消", "取消播放请求") { model.cancel() }
-                                }
-                            } else if (!client.busy && state.waitingForBuffer && showBuffering) {
-                                Box(Modifier.align(Alignment.Center).size(52.dp).background(Color.Black.copy(alpha = .48f), CircleShape)
-                                    .semantics { contentDescription = "正在缓冲" }, contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
+                            } else if (client.busy && showRequest || !client.busy && state.waitingForBuffer && showBuffering) {
+                                // The ring stays at the picture's centre across request/buffer phases.
+                                // Cancellation is a separate target and never offsets that centre.
+                                Box(Modifier.align(Alignment.Center).size(width = 144.dp, height = 56.dp), contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(48.dp).background(Color.Black.copy(alpha = .35f), CircleShape)
+                                        .semantics { contentDescription = if (client.busy) "正在加载视频" else "正在缓冲" },
+                                        contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
+                                    }
+                                    if (client.busy) IconButton(model::cancel, Modifier.align(Alignment.CenterEnd).size(48.dp)) {
+                                        Icon(painterResource(R.drawable.ic_close), "取消播放请求", Modifier.size(20.dp), tint = FilewayTheme.status.mediaContent)
+                                    }
                                 }
                             }
                             if (showControls || touchLocked) Box(Modifier.align(AbsoluteAlignment.CenterLeft)
@@ -610,19 +610,14 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     if (!fullscreen) Column(Modifier.weight(1f).semantics { contentDescription = "播放详情" }
                         .verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        val specifications = listOfNotNull(
-                            if (state.width > 0 && state.height > 0) "${state.width} × ${state.height}" else null,
-                            state.sourceVideoCodec.takeIf { it.isNotBlank() && it != "未知" },
-                            state.sourceDynamicRange.takeIf { it.isNotBlank() && it != "未知" },
-                        )
-                        if (specifications.isNotEmpty()) Text(specifications.joinToString(" · "),
-                            style = FilewayTheme.text.metadata, color = pageColors.onSurfaceVariant,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
                         queue?.takeIf { it.hasNext }?.let { snapshot ->
-                            Text("接下来", style = MaterialTheme.typography.titleSmall)
-                            val upcomingCount = ((playerAvailableHeight - portraitStageHeight - 116.dp) / 72.dp)
-                                .toInt().coerceIn(3, 5)
-                            snapshot.items.drop(snapshot.index + 1).take(upcomingCount).forEachIndexed { offset, next ->
+                            val upcoming = snapshot.items.drop(snapshot.index + 1).take(10)
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("接下来", style = MaterialTheme.typography.titleSmall)
+                                Text("${upcoming.size} 项", style = FilewayTheme.text.metadata, color = pageColors.onSurfaceVariant)
+                            }
+                            upcoming.forEachIndexed { offset, next ->
                                 Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(RoundedCornerShape(12.dp))
                                     .background(pageColors.surface).clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
                                     model.navigateMedia(snapshot.index + offset + 1); touch()

@@ -191,7 +191,8 @@ Column(Modifier.fillMaxSize()) {
 }
 
 @Composable private fun CachedImageContent(model: ClientModel, image: CachedImage, account: String, viewer: Boolean, onZoom: (Boolean) -> Unit = {}) {
-    var failed by remember(image.key, account) { mutableStateOf(false) }
+    var failed by remember(image.key, account, viewer) { mutableStateOf(false) }
+    var decoded by remember(image.key, account, viewer) { mutableStateOf(false) }
     val lease by produceState<CachedImageLease?>(null, image.key, account) {
         try {
             model.cache.withCachedImage(image.key, account) { owned ->
@@ -202,10 +203,16 @@ Column(Modifier.fillMaxSize()) {
         catch (_: Exception) { failed = true }
     }
     val context = LocalContext.current
+    val memoryKey = "cache-gallery/${if (viewer) "original" else "preview"}/${image.key}"
+    val cached = remember(image.key, account, viewer, model.cache.imageLoader.value) {
+        val memory = model.cache.imageLoader.value.memoryCache
+        memory?.get(MemoryCache.Key(memoryKey))?.image
+            ?: if (viewer) memory?.get(MemoryCache.Key(image.key))?.image else null
+    }
     var showLoading by remember(image.key, account, viewer) { mutableStateOf(false) }
-    LaunchedEffect(lease, failed, image.key, account, viewer) {
+    LaunchedEffect(lease, failed, decoded, cached, image.key, account, viewer) {
         showLoading = false
-        if (lease == null && !failed) {
+        if (!decoded && cached == null && !failed) {
             delay(350)
             showLoading = true
         }
@@ -213,28 +220,24 @@ Column(Modifier.fillMaxSize()) {
     val request = remember(lease?.file, image.key, viewer) { ImageRequest.Builder(context)
         .data(lease?.file).diskCachePolicy(CachePolicy.DISABLED)
         .memoryCacheKey("cache-gallery/${if (viewer) "original" else "preview"}/${image.key}")
-        .apply { if (!viewer) size(512, 1024) }.build() }
-    val memoryKey = "cache-gallery/${if (viewer) "original" else "preview"}/${image.key}"
-    val cached = remember(image.key, account, viewer, model.cache.imageLoader.value) {
-        val memory = model.cache.imageLoader.value.memoryCache
-        memory?.get(MemoryCache.Key(memoryKey))?.image
-            ?: if (viewer) memory?.get(MemoryCache.Key(image.key))?.image else null
-    }
+        .apply { if (!viewer) size(512, 1024) }
+        .listener(onError = { _, _ -> failed = true; decoded = false }).build() }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (cached != null) Image(cached.asPainter(context), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+        else if (!failed && !decoded && !viewer) Icon(painterResource(R.drawable.ic_image), null, Modifier.size(24.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
         if (lease != null) {
             if (viewer) {
                 val state = rememberZoomableImageState(rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 8f)))
                 LaunchedEffect(state.zoomableState) { snapshotFlow { (state.zoomableState.zoomFraction ?: 0f) > .001f }.collect(onZoom) }
+                LaunchedEffect(state) { snapshotFlow { state.isImageDisplayed }.collect { decoded = it } }
                 ZoomableAsyncImage(request, "缓存图片", Modifier.fillMaxSize(), state = state,
                     imageLoader = model.cache.imageLoader.value, contentScale = ContentScale.Fit)
             } else AsyncImage(request, null, imageLoader = model.cache.imageLoader.value, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
-                onError = { failed = true })
-        } else if (!failed && cached == null) {
-            if (!viewer) Icon(painterResource(R.drawable.ic_image), null, Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
-            if (showLoading) CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)
+                onSuccess = { decoded = true; failed = false }, onError = { failed = true; decoded = false })
         }
+        if (showLoading && !decoded && cached == null && !failed)
+            CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)
         if (failed) { if (viewer) Text("缓存已不可用，请返回刷新", color = Color.White)
             else Icon(painterResource(R.drawable.ic_image), "缓存不可用", Modifier.size(20.dp)) }
     }
