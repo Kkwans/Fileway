@@ -273,7 +273,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         cancelGesture(); sheet = null; touchLocked = true; unlockVisible = true; lockInteraction++
     }
     fun unlockTouch() { touchLocked = false; unlockVisible = false; touch() }
-    fun revealUnlock() { unlockVisible = true; lockInteraction++ }
+    fun toggleUnlock() { unlockVisible = !unlockVisible; lockInteraction++ }
     fun changeDisplay(mode: PlayerDisplayMode) {
         touch()
         sheet = null
@@ -284,8 +284,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     BackHandler(fullscreen && !touchLocked) { changeDisplay(PlayerDisplayMode.AUTOMATIC) }
     BackHandler(touchLocked) { unlockTouch() }
     LaunchedEffect(exploration) { if (exploration) { cancelGesture(); unlockTouch() } }
-    LaunchedEffect(touchLocked, lockInteraction, exploration) {
-        if (touchLocked && !exploration) {
+    LaunchedEffect(touchLocked, unlockVisible, lockInteraction, exploration) {
+        if (touchLocked && unlockVisible && !exploration) {
             val timeout = accessibility.getRecommendedTimeoutMillis(3000,
                 AccessibilityManager.FLAG_CONTENT_CONTROLS or AccessibilityManager.FLAG_CONTENT_TEXT or AccessibilityManager.FLAG_CONTENT_ICONS)
             delay(timeout.toLong()); unlockVisible = false
@@ -513,7 +513,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             }
                             if (showControls || touchLocked) Box(Modifier.align(AbsoluteAlignment.CenterLeft)
                                 .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Left)) else Modifier)
-                                .absolutePadding(left = 8.dp)) {
+                                .absolutePadding(left = if (fullscreen) 4.dp else 8.dp)) {
                                 // Retain this anchor while locked, including after a real
                                 // window rotation. The topmost unlock uses these same bounds.
                                 PlayerLockIcon(R.drawable.ic_lock_open, "锁定触控", "触控未锁定", false, ::lockTouch,
@@ -549,18 +549,22 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
                         Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(if (fullscreen) listOf(Color.Transparent, Color(0xE6000000)) else listOf(pageColors.background, pageColors.background)))
                             .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) else Modifier)
-                            .padding(horizontal = controlPadding).alpha(if (!fullscreen && touchLocked) .55f else 1f)) {
+                            .padding(start = controlPadding, end = controlPadding, bottom = if (fullscreen) 8.dp else 0.dp)
+                            .alpha(if (!fullscreen && touchLocked) .55f else 1f)) {
                             SeekPreview(seekPreview, seek?.toLong())
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()), color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
-                                    fontFamily = FontFamily.Monospace, maxLines = 1)
+                                    fontFamily = FontFamily.Monospace, maxLines = 1,
+                                    modifier = Modifier.offset(y = if (fullscreen) 4.dp else 0.dp))
                                 PlayerSlider(seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat().coerceIn(0f, state.durationMs.toFloat().coerceAtLeast(1f)), state.durationMs.toFloat().coerceAtLeast(1f),
                                     "播放进度", controlsEnabled && state.seekable && state.durationMs > 0,
                                     { gestureSeek.reset(); seek = it; touch() }, { seek?.let { model.player.seek(it.toLong()) }; seek = null; touch() },
                                     clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()) + "，共 " + clock(state.durationMs),
-                                    downloadedValue = downloadedUntil?.toFloat(), bufferedValue = state.bufferedPositionMs.toFloat(), mediaSurface = fullscreen, modifier = Modifier.weight(1f))
+                                    downloadedValue = downloadedUntil?.toFloat(), bufferedValue = state.bufferedPositionMs.toFloat(), mediaSurface = fullscreen,
+                                    visualTrackOffset = if (fullscreen) 4.dp else 0.dp, modifier = Modifier.weight(1f))
                                 Text(if (state.durationMs > 0) clock(state.durationMs) else "--:--", color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
-                                    fontFamily = FontFamily.Monospace, maxLines = 1)
+                                    fontFamily = FontFamily.Monospace, maxLines = 1,
+                                    modifier = Modifier.offset(y = if (fullscreen) 4.dp else 0.dp))
                             }
                             download?.let { item ->
                                 val percent = if (item.expectedSize > 0) (downloadedBytes.toDouble() * 100 / item.expectedSize).toInt().coerceIn(0, 100) else 0
@@ -647,9 +651,11 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 if (touchLocked) {
                     // The topmost input layer covers controls as well as the picture. System Back unlocks first.
                     Box(Modifier.fillMaxSize()
-                        .clearAndSetSemantics { contentDescription = "触控已锁定" }
-                        .pointerInput(Unit) { detectTapGestures(onPress = { revealUnlock(); tryAwaitRelease() },
-                            onTap = {}, onDoubleTap = {}, onLongPress = {}) })
+                        .clearAndSetSemantics {
+                            contentDescription = "触控已锁定"
+                            onClick("显示或隐藏解锁按钮") { toggleUnlock(); true }
+                        }
+                        .pointerInput(Unit) { detectTapGestures(onTap = { toggleUnlock() }) })
                     androidx.compose.animation.AnimatedVisibility(unlockVisible, enter = fadeIn(tween(140)), exit = fadeOut(tween(140)),
                         modifier = Modifier.align(AbsoluteAlignment.TopLeft).absoluteOffset {
                             val position = touchLockPosition - playerPosition
@@ -917,7 +923,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun PlayerSlider(value: Float, maximum: Float, label: String, enabled: Boolean, change: (Float) -> Unit, finish: () -> Unit = {}, description: String = "${value.toInt()}%", downloadedValue: Float? = null, modifier: Modifier = Modifier, bufferedValue: Float? = null, mediaSurface: Boolean = true, minimum: Float = 0f) {
+@Composable internal fun PlayerSlider(value: Float, maximum: Float, label: String, enabled: Boolean, change: (Float) -> Unit, finish: () -> Unit = {}, description: String = "${value.toInt()}%", downloadedValue: Float? = null, modifier: Modifier = Modifier, bufferedValue: Float? = null, mediaSurface: Boolean = true, minimum: Float = 0f, visualTrackOffset: Dp = 0.dp) {
     // Preserve Material's drag and keyboard handling. Export one named range
     // with meaningful time/volume state, rather than split label/range nodes
     // and the default raw millisecond number. Accessibility uses the same
@@ -941,10 +947,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         // Equal slot heights give track and thumb the same vertical origin;
         // the visible 3dp line and 10dp circle are drawn around that centre.
         thumb = { Canvas(Modifier.width(10.dp).height(48.dp)) {
-            drawCircle(if (enabled) accent else secondary, radius = 5.dp.toPx(), center = center)
+            drawCircle(if (enabled) accent else secondary, radius = 5.dp.toPx(), center = center + Offset(0f, visualTrackOffset.toPx()))
         } },
         track = { Canvas(Modifier.fillMaxWidth().height(48.dp)) {
-            val y = size.height / 2
+            val y = size.height / 2 + visualTrackOffset.toPx()
             drawLine(contentColor.copy(alpha = 0.24f), Offset(0f, y), Offset(size.width, y), 3.dp.toPx(), StrokeCap.Round)
             downloadedValue?.let { available ->
                 drawLine(accent.copy(alpha = .35f), Offset(0f, y), Offset(size.width * ((available - minimum) / span).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
