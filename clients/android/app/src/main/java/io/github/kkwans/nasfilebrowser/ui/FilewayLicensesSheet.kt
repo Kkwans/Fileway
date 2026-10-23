@@ -37,11 +37,13 @@ import kotlinx.coroutines.withContext
         }
     }
     BackHandler(selected != null) { selected = null }
-    ModalBottomSheet(onDismissRequest = { if (selected != null) selected = null else onDismiss() },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+    FileOperationSheet(
+        title = if (selected == null) "鸣谢与许可证" else selected.orEmpty(),
+        onDismiss = { if (selected != null) selected = null else onDismiss() },
+        back = selected != null,
+    ) {
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp), contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { Text(if (selected == null) "鸣谢与许可证" else selected.orEmpty(), style = MaterialTheme.typography.titleLarge) }
             error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
             if (selected == null) {
                 item {

@@ -1,7 +1,8 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import android.view.Gravity
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -10,10 +11,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -62,24 +66,63 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     content: @Composable ColumnScope.() -> Unit,
 ) = FileOperationSurface(title, onDismiss, canDismiss, back = false, sheet = false, footer, content)
 
-/** Only operation windows consume system/IME insets. The body owns its one scroll container. */
+/** Operation windows are bounded native floating dialogs. The body owns its one scroll container. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun FileOperationSurface(
     title: String, onDismiss: () -> Unit, canDismiss: Boolean, back: Boolean, sheet: Boolean,
     footer: (@Composable RowScope.() -> Unit)?, content: @Composable ColumnScope.() -> Unit,
 ) {
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val configuration = LocalConfiguration.current
+    val hostSize = LocalWindowInfo.current.containerSize
+    val safeDrawing = WindowInsets.safeDrawing
+    val safeLeft = safeDrawing.getLeft(density, layoutDirection)
+    val safeRight = safeDrawing.getRight(density, layoutDirection)
+    val safeTop = safeDrawing.getTop(density)
+    val safeBottom = safeDrawing.getBottom(density)
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    val hostWidth = hostSize.width.takeIf { it > 0 } ?: with(density) { configuration.screenWidthDp.dp.roundToPx() }
+    val hostHeight = hostSize.height.takeIf { it > 0 } ?: with(density) { configuration.screenHeightDp.dp.roundToPx() }
+    val horizontalMargin = with(density) { if (sheet) 0.dp.roundToPx() else 24.dp.roundToPx() }
+    val maxWidth = with(density) { (if (sheet) 640.dp else 440.dp).roundToPx() }
+    val surfaceWidth = (hostWidth - safeLeft - safeRight - horizontalMargin * 2)
+        .coerceAtLeast(1)
+        .coerceAtMost(maxWidth)
+    val surfaceHeight = (hostHeight - safeTop - maxOf(safeBottom, imeBottom)).coerceAtLeast(1)
+    val surfaceWidthDp = with(density) { surfaceWidth.toDp() }
+    val surfaceHeightDp = with(density) { surfaceHeight.toDp() }
     Dialog(onDismissRequest = { if (canDismiss) onDismiss() }, properties = DialogProperties(
-        usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnBackPress = false,
+        usePlatformDefaultWidth = false, decorFitsSystemWindows = true, dismissOnBackPress = false,
         dismissOnClickOutside = canDismiss,
     )) {
         val focus = LocalFocusManager.current
         val keyboard = LocalSoftwareKeyboardController.current
         val view = LocalView.current
-        val lightNavigation = sheet && FilewayTheme.colors.surface.luminance() > .5f
+        val dialogWindow = (view.parent as? DialogWindowProvider)?.window
+        var blurred by remember { mutableStateOf(false) }
+        FilewayDialogGlass { blurred = it }
+        val glassColor = filewayGlassColor(blurred)
+        val lightNavigation = sheet && glassColor.luminance() > .5f
+        SideEffect {
+            dialogWindow?.let { window ->
+                val attributes = window.attributes
+                attributes.gravity = if (sheet) Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL else Gravity.CENTER
+                attributes.x = 0
+                // The parent frame is already inset by the IME. Adding imeBottom
+                // here would move a floating window twice.
+                attributes.y = 0
+                attributes.width = surfaceWidth
+                attributes.height = WindowManager.LayoutParams.WRAP_CONTENT
+                attributes.flags = attributes.flags and
+                    (WindowManager.LayoutParams.FLAG_BLUR_BEHIND or WindowManager.LayoutParams.FLAG_DIM_BEHIND).inv()
+                attributes.dimAmount = 0f
+                window.attributes = attributes
+            }
+        }
         DisposableEffect(view, lightNavigation) {
             // Dialog owns a separate Window; Activity edge-to-edge flags do not apply here.
-            val window = (view.parent as? DialogWindowProvider)?.window
-            window?.let {
+            dialogWindow?.let {
                 @Suppress("DEPRECATION")
                 it.navigationBarColor = android.graphics.Color.TRANSPARENT
                 it.isNavigationBarContrastEnforced = false
@@ -101,46 +144,34 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
             } else leave()
         }
         BackHandler { requestBack() }
-        BoxWithConstraints(
-            Modifier.fillMaxSize().windowInsetsPadding(
-                (if (sheet) WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal) else WindowInsets.safeDrawing)
-                    .union(WindowInsets.ime))
-                .pointerInput(canDismiss) { detectTapGestures { leave() } },
-            contentAlignment = if (sheet) Alignment.BottomCenter else Alignment.Center,
+        Surface(
+            Modifier.requiredWidth(surfaceWidthDp).heightIn(max = surfaceHeightDp),
+            color = glassColor,
+            shape = if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp),
+            tonalElevation = 0.dp,
         ) {
-            Surface(
-                Modifier.padding(start = if (sheet) 0.dp else 24.dp, end = if (sheet) 0.dp else 24.dp,
-                    top = 12.dp, bottom = if (sheet) 0.dp else 12.dp)
-                    .widthIn(max = if (sheet) 640.dp else 440.dp).fillMaxWidth()
-                    .heightIn(max = (maxHeight - (if (sheet) 12.dp else 24.dp)).coerceAtLeast(0.dp))
-                    .pointerInput(Unit) { detectTapGestures { /* The surface consumes taps on its empty space. */ } },
-                color = FilewayTheme.colors.surface,
-                shape = if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp),
-                tonalElevation = 0.dp,
-            ) {
-                Column(Modifier.fillMaxWidth()) {
-                    Row(Modifier.fillMaxWidth().padding(start = if (back) 4.dp else 20.dp, end = 4.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (back) IconButton(::requestBack, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
-                            Icon(painterResource(R.drawable.ic_arrow_back), "返回文件详情", Modifier.size(22.dp))
-                        }
-                        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                        if (!back) IconButton(::leave, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
-                            Icon(painterResource(R.drawable.ic_close), "关闭$title", Modifier.size(22.dp))
-                        }
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().padding(start = if (back) 4.dp else 20.dp, end = 4.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (back) IconButton(::requestBack, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
+                        Icon(painterResource(R.drawable.ic_arrow_back), "返回文件详情", Modifier.size(22.dp))
                     }
-                    Column(Modifier.weight(1f, fill = false).fillMaxWidth().padding(horizontal = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
-                    if (footer != null) {
+                    Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                    if (!back) IconButton(::leave, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
+                        Icon(painterResource(R.drawable.ic_close), "关闭$title", Modifier.size(22.dp))
+                    }
+                }
+                Column(Modifier.weight(1f, fill = false).fillMaxWidth().padding(horizontal = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+                if (footer != null) {
                     HorizontalDivider(Modifier.padding(top = 12.dp), color = FilewayTheme.colors.outlineVariant)
                     Row(Modifier.fillMaxWidth()
                         .then(if (sheet) Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)
                         .padding(horizontal = 16.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically,
                         content = footer)
-                    } else {
-                        Spacer(Modifier.height(12.dp))
-                        if (sheet) Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
-                    }
+                } else {
+                    Spacer(Modifier.height(12.dp))
+                    if (sheet) Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
                 }
             }
         }

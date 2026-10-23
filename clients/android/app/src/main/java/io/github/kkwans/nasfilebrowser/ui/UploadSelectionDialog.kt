@@ -22,7 +22,7 @@ import io.github.kkwans.nasfilebrowser.upload.UploadConflict
     val context = LocalContext.current
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     val files = state.drafts.filter { it.existingIdentity == null || it.choice != UploadConflict.SKIP }
-    AlertDialog(onDismissRequest = { if (!state.busy) model.uploads.cancelSelection() },
+    FilewayAlertDialog(onDismissRequest = { if (!state.busy) model.uploads.cancelSelection() },
         title = { Text(if (state.busy && state.drafts.isEmpty()) "读取本机文件" else "上传到服务器") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

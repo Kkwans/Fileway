@@ -251,27 +251,18 @@ internal fun MarkdownBody(document: MarkdownDocument, onOpenLink: (String) -> Un
     }
     BackHandler(enabled = returnHistory.isNotEmpty() && !outlineOpen) { returnHistory.lastOrNull()?.let(::returnTo) }
     BackHandler(enabled = outlineOpen, onBack = onDismissOutline)
-    if (outlineOpen) ModalBottomSheet(onDismissRequest = onDismissOutline,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 560.dp).navigationBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("目录", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                IconButton(onDismissOutline, Modifier.size(48.dp)) {
-                    Icon(painterResource(R.drawable.art_close), "关闭目录")
-                }
-            }
-            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
-                itemsIndexed(document.navigation.headings, key = { _, heading -> heading.startOffset }) { index, heading ->
-                    val choose = { onDismissOutline(); navigate(heading) }
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = choose)
-                        .clearAndSetSemantics {
-                            role = Role.Button
-                            contentDescription = "目录项 ${index + 1}，${heading.title}，${heading.level}级标题"
-                            onClick { choose(); true }
-                        }.padding(start = (20 + (heading.level - 1) * 14).dp, end = 20.dp, top = 12.dp, bottom = 12.dp)) {
-                        Text(heading.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.bodyLarge)
-                    }
+    if (outlineOpen) FileOperationSheet("目录", onDismissOutline) {
+        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp)) {
+            itemsIndexed(document.navigation.headings, key = { _, heading -> heading.startOffset }) { index, heading ->
+                val choose = { onDismissOutline(); navigate(heading) }
+                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = choose)
+                    .clearAndSetSemantics {
+                        role = Role.Button
+                        contentDescription = "目录项 ${index + 1}，${heading.title}，${heading.level}级标题"
+                        onClick { choose(); true }
+                    }.padding(start = (20 + (heading.level - 1) * 14).dp, end = 20.dp, top = 12.dp, bottom = 12.dp)) {
+                    Text(heading.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyLarge)
                 }
             }
         }

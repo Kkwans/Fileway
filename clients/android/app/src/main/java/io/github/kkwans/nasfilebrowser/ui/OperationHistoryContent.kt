@@ -134,7 +134,7 @@ Column(Modifier.fillMaxSize()) {
     if (filters) OperationHistoryFilterSheet(state.filter, state.items.map { it.action }.distinct(), {
         controller.filter(it); search = it.text; filters = false
     }) { filters = false }
-    if (state.clearConfirmation) AlertDialog(onDismissRequest = controller::cancelClear, title = { Text("清空当前账号的操作历史？") },
+    if (state.clearConfirmation) FilewayAlertDialog(onDismissRequest = controller::cancelClear, title = { Text("清空当前账号的操作历史？") },
         text = { Text("将永久删除当前服务器上此账号的全部操作记录，包括筛选范围外的记录；网页端也会同步清空。文件和任务不会被删除。") },
         confirmButton = { FilewayTextButton(controller::confirmClear, enabled = enabled) { Text("确认清空", color = MaterialTheme.colorScheme.error) } },
         dismissButton = { FilewayTextButton(controller::cancelClear) { Text("取消") } })

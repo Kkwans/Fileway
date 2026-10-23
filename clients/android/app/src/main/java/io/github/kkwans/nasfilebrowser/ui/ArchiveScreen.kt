@@ -144,16 +144,16 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
         }
     }
     if (state.pickingDestination) ArchiveDestinationPicker(controller)
-    if (skipped) state.report?.let { report -> AlertDialog(onDismissRequest = { skipped = false }, title = { Text("跳过 ${report.skippedCount} 个条目") }, text = {
+    if (skipped) state.report?.let { report -> FilewayAlertDialog(onDismissRequest = { skipped = false }, title = { Text("跳过 ${report.skippedCount} 个条目") }, text = {
         LazyColumn(Modifier.heightIn(max = 360.dp)) {
             if (report.skippedCount > report.skipped.size) item { Text("显示前 ${report.skipped.size} 个条目", style = MaterialTheme.typography.bodySmall) }
             items(report.skipped) { entry -> Column(Modifier.padding(vertical = 8.dp)) { Text(entry.path); Text(entry.reason, style = MaterialTheme.typography.bodySmall) } }
         }
     }, confirmButton = { FilewayTextButton({ skipped = false }) { Text("关闭") } }) }
-    if (blocked && listing != null) AlertDialog(onDismissRequest = { blocked = false }, title = { Text("已阻止 ${listing.blockedCount} 个条目") }, text = {
+    if (blocked && listing != null) FilewayAlertDialog(onDismissRequest = { blocked = false }, title = { Text("已阻止 ${listing.blockedCount} 个条目") }, text = {
         LazyColumn(Modifier.heightIn(max = 360.dp)) { items(listing.blocked) { entry -> Column(Modifier.padding(vertical = 8.dp)) { Text(entry.path); Text(entry.reason, style = MaterialTheme.typography.bodySmall) } } }
     }, confirmButton = { FilewayTextButton({ blocked = false }) { Text("知道了") } })
-    if (cancel) AlertDialog(onDismissRequest = { cancel = false }, title = { Text("取消解压？") }, text = { Text("已完成的文件会保留，服务器会停止后续条目。最终状态可在任务中心核对。") },
+    if (cancel) FilewayAlertDialog(onDismissRequest = { cancel = false }, title = { Text("取消解压？") }, text = { Text("已完成的文件会保留，服务器会停止后续条目。最终状态可在任务中心核对。") },
         confirmButton = { FilewayTextButton({ cancel = false; controller.cancel() }) { Text("确认取消") } }, dismissButton = { FilewayTextButton({ cancel = false }) { Text("继续解压") } })
 }
 

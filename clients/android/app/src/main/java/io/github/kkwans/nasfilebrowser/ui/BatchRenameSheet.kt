@@ -131,7 +131,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                 }
             }
     }
-    if (confirm && draft.reviewed && !draft.unknownExecution) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("执行这 $changed 项重命名？") },
+    if (confirm && draft.reviewed && !draft.unknownExecution) FilewayAlertDialog(onDismissRequest = { confirm = false }, title = { Text("执行这 $changed 项重命名？") },
         text = { Text("将一次提交预览中的全部变更。同名冲突会停止执行，已有内容不会被覆盖。名称变更会同步到当前账号的服务端记录。") },
         confirmButton = { FilewayTextButton({ confirm = false; controller.executeBatchRename() }, enabled = enabled) { Text("确认执行") } },
         dismissButton = { FilewayTextButton({ confirm = false }) { Text("返回预览") } })

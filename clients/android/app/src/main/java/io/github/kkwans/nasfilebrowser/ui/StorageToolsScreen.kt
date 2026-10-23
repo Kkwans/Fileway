@@ -178,7 +178,7 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
     if (scan) {
         var input by remember { mutableStateOf(client.path) }
         val targets = input.lines().filter { it.isNotBlank() }.distinct()
-        AlertDialog(onDismissRequest = { scan = false }, title = { Text(if (state.tool == "storage") "分析存储占用" else "查找重复文件") }, text = {
+        FilewayAlertDialog(onDismissRequest = { scan = false }, title = { Text(if (state.tool == "storage") "分析存储占用" else "查找重复文件") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("选择有权访问的服务器路径。扫描只在你提交后开始。", style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(input, { input = it }, label = { Text("扫描路径，每行一个") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 5)
@@ -194,7 +194,7 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
         val report = state.report ?: return@let
         var keep by remember(group) { mutableStateOf(keepers[group.getString("sha256")].orEmpty()) }
         val safe = cleanable(report, group)
-        AlertDialog(onDismissRequest = { selecting = null }, title = { Text("选择要保留的文件") }, text = {
+        FilewayAlertDialog(onDismissRequest = { selecting = null }, title = { Text("选择要保留的文件") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 group.optString("suggestedKeepPath").takeIf { it.isNotEmpty() }?.let { Text("服务端建议：$it", style = MaterialTheme.typography.bodySmall) }
                 jsonRows(group, "files").forEach { file ->
@@ -211,7 +211,7 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
         }, confirmButton = { FilewayTextButton({ keepers = keepers + (group.getString("sha256") to keep); selecting = null }, enabled = safe && keep.isNotEmpty() && state.cleanup == null) { Text("保留此文件") } },
             dismissButton = { FilewayTextButton({ selecting = null }) { Text("取消") } })
     }
-    if (confirmCleanup) AlertDialog(onDismissRequest = { confirmCleanup = false }, title = { Text("将重复副本移入回收站？") },
+    if (confirmCleanup) FilewayAlertDialog(onDismissRequest = { confirmCleanup = false }, title = { Text("将重复副本移入回收站？") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val groups = state.report?.let { jsonRows(it, "groups") }.orEmpty()
             val copies = groups.filter { it.optString("sha256") in keepers }.sumOf { (it.optInt("totalFiles") - 1).coerceAtLeast(0) }

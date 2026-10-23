@@ -122,7 +122,7 @@ import java.util.Locale
             { directory -> model.archives.close(); model.verifyDocumentDirectory(directory) },
             onOpenEntry = { entry -> model.openArchiveEntry(entry, state.previewScope) })
         if (archiveEntry.archive?.mediaKey == archive.file?.mediaKey && (archiveEntry.preparing || archiveEntry.canceling || archiveEntry.error != null))
-            AlertDialog(onDismissRequest = { if (archiveEntry.preparing) model.archiveEntry.cancel() else model.archiveEntry.dismissError() },
+            FilewayAlertDialog(onDismissRequest = { if (archiveEntry.preparing) model.archiveEntry.cancel() else model.archiveEntry.dismissError() },
                 title = { Text(if (archiveEntry.error != null) "包内文件未能打开" else "正在准备包内文件") }, text = {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(archiveEntry.error ?: archiveEntry.stage)

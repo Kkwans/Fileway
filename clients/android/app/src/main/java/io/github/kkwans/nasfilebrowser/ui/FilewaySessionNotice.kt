@@ -68,7 +68,7 @@ internal fun FilewaySessionNotice(model: ClientModel) {
     }
     if (recoveryDialog) {
         val dialogError = inputError ?: state.recoveryError.takeIf { submitted }
-        AlertDialog(
+        FilewayAlertDialog(
             onDismissRequest = {
                 if (!state.recoveryInProgress) {
                     recoveryDialog = false

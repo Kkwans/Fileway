@@ -102,7 +102,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     editing?.let { item ->
         var name by remember(item.id) { mutableStateOf(item.name) }
         var group by remember(item.id) { mutableStateOf(item.groupId) }
-        AlertDialog(onDismissRequest = { if (!state.changing) editing = null }, title = { Text("编辑收藏") }, text = {
+        FilewayAlertDialog(onDismissRequest = { if (!state.changing) editing = null }, title = { Text("编辑收藏") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (state.changing) LinearProgressIndicator(Modifier.fillMaxWidth())
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -136,7 +136,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     var editing by remember { mutableStateOf<FavoriteGroup?>(null) }
     var deleting by remember { mutableStateOf<FavoriteGroup?>(null) }
     val enabled = !state.changing && !state.loading
-    AlertDialog(onDismissRequest = { if (!state.changing) dismiss() }, title = { Text("收藏分组") }, text = {
+    FilewayAlertDialog(onDismissRequest = { if (!state.changing) dismiss() }, title = { Text("收藏分组") }, text = {
         Column {
             if (state.changing) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -174,7 +174,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
         var name by remember(group) { mutableStateOf(group?.name.orEmpty()) }
         var color by remember(group) { mutableStateOf(group?.color ?: "#3F72D8") }
         val palette = listOf("#E5484D", "#D95876", "#F06A5B", "#F28C28", "#DDAA1D", "#D6BE21", "#86B83E", "#35A867", "#2AA889", "#28AFC0", "#3A9BD9", "#3F72D8", "#5B62D9", "#7656C9", "#9B4DB5", "#C34F90", "#758195")
-        AlertDialog(onDismissRequest = { if (!state.changing) { create = false; editing = null } }, title = { Text(if (group == null) "新建分组" else "编辑分组") }, text = {
+        FilewayAlertDialog(onDismissRequest = { if (!state.changing) { create = false; editing = null } }, title = { Text(if (group == null) "新建分组" else "编辑分组") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (state.changing) LinearProgressIndicator(Modifier.fillMaxWidth())
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -191,7 +191,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
         }, confirmButton = { FilewayTextButton({ model.favorites.saveGroup(group, name, color) { create = false; editing = null } }, enabled = enabled && name.isNotBlank()) { Text(if (state.changing) "正在保存" else "保存") } },
             dismissButton = { FilewayTextButton({ create = false; editing = null }, enabled = !state.changing) { Text("取消") } })
     }
-    deleting?.let { group -> AlertDialog(onDismissRequest = { deleting = null }, title = { Text("删除分组“${group.name}”？") },
+    deleting?.let { group -> FilewayAlertDialog(onDismissRequest = { deleting = null }, title = { Text("删除分组“${group.name}”？") },
         text = { Text("组内收藏将移到“未分组”，文件保持原位。网页端也会同步此变更。") },
         confirmButton = { FilewayTextButton({ model.favorites.removeGroup(group); deleting = null }, enabled = enabled) { Text("删除分组") } },
         dismissButton = { FilewayTextButton({ deleting = null }) { Text("取消") } }) }

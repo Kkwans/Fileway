@@ -136,7 +136,7 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                 actions = { FileActions(model, resource) { details = null } },
                 onLocation = { details = null; model.openContainingDirectory(resource) },
                 onOpen = { if (!model.state.value.busy) { details = null; model.search.openResult(result) } }, onDismiss = { details = null })
-            else AlertDialog(onDismissRequest = { details = null }, shape = RoundedCornerShape(12.dp), containerColor = colors.background,
+            else FilewayAlertDialog(onDismissRequest = { details = null }, shape = RoundedCornerShape(12.dp), containerColor = colors.background,
                 title = { Text("文件详情", style = MaterialTheme.typography.titleLarge) },
                 text = {
                     Column(Modifier.verticalScroll(rememberScrollState()).semantics { contentDescription = "文件详情内容" }, verticalArrangement = Arrangement.spacedBy(16.dp)) {

@@ -191,7 +191,7 @@ Column(Modifier.fillMaxSize()) {
     state.zipPlan?.let { plan ->
         var name by remember(plan) { mutableStateOf(plan.suggestedName) }
         val error = zipExportNameError(name)
-        AlertDialog(onDismissRequest = model.downloads::cancelZipExport, title = { Text("ZIP打包下载") }, text = {
+        FilewayAlertDialog(onDismissRequest = model.downloads::cancelZipExport, title = { Text("ZIP打包下载") }, text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("${plan.files.size} 个所选项目 · ${plan.parentPath}", style = MaterialTheme.typography.bodyMedium)
                 OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("ZIP文件名") }, singleLine = true,
@@ -205,9 +205,8 @@ Column(Modifier.fillMaxSize()) {
         }, confirmButton = { FilewayTextButton({ model.downloads.confirmZipExport(name) }, enabled = !state.busy && error == null) { Text("开始打包下载") } },
             dismissButton = { FilewayTextButton(model.downloads::cancelZipExport, enabled = !state.busy) { Text("取消") } })
     }
-    if (settings) ModalBottomSheet(onDismissRequest = { settings = false }) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("下载目录", style = MaterialTheme.typography.titleLarge)
+    if (settings) FileOperationSheet("下载目录", { settings = false }) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(downloadDirectoryLabel(state.tree), style = MaterialTheme.typography.bodyLarge)
             if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
@@ -218,7 +217,7 @@ Column(Modifier.fillMaxSize()) {
             if (state.tree.isNotEmpty()) FilewayTextButton({ model.downloads.selectDirectory(null) }, Modifier.fillMaxWidth(), enabled = !state.busy) { Text("恢复默认 · Download/fileway") }
         }
     }
-    remove?.let { item -> AlertDialog(onDismissRequest = { remove = null }, title = { Text(if (deleteFile) "删除本机文件？" else "移除下载记录？") },
+    remove?.let { item -> FilewayAlertDialog(onDismissRequest = { remove = null }, title = { Text(if (deleteFile) "删除本机文件？" else "移除下载记录？") },
         text = { Text(item.name + "\n\n" + if (deleteFile) "本机文件与下载记录将删除。服务器上的原文件保持不变。" else if (item.complete) "仅移除记录，本机文件仍保留，可通过系统文件管理器查看。" else "仅移除记录会留下未完成文件，且无法继续下载。建议选择删除文件与记录。") },
         confirmButton = { FilewayTextButton({ model.downloads.remove(item, deleteFile); remove = null }) { Text(if (deleteFile) "删除" else "移除记录") } },
         dismissButton = { FilewayTextButton({ remove = null }) { Text("取消") } }) }

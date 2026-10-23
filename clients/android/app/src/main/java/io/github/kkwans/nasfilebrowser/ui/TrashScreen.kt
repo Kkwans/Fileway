@@ -118,11 +118,11 @@ import io.github.kkwans.nasfilebrowser.app.*
             }
         }
     }
-    if (clearing || deleting != null) AlertDialog(onDismissRequest = { clearing = false; deleting = null }, title = { Text(if (clearing) "清空回收站？" else "永久删除所选 ${deleting!!.size} 项？") },
+    if (clearing || deleting != null) FilewayAlertDialog(onDismissRequest = { clearing = false; deleting = null }, title = { Text(if (clearing) "清空回收站？" else "永久删除所选 ${deleting!!.size} 项？") },
         text = { Text(if (clearing) "将删除当前账号可见回收站的所有项目。任务开始后无法恢复；提交后会先提供服务端撤销窗口。" else "所选内容将无法恢复。提交后会先提供服务端撤销窗口，可在任务开始前取消。") },
         confirmButton = { FilewayTextButton({ model.trash.permanentlyDelete(deleting.orEmpty(), clearing); clearing = false; deleting = null; selected = emptySet() }, enabled = enabled && canDelete) { Text("提交删除") } },
         dismissButton = { FilewayTextButton({ clearing = false; deleting = null }) { Text("取消") } })
-    state.conflict?.let { item -> AlertDialog(onDismissRequest = model.trash::closeConflict, title = { Text("恢复遇到冲突") }, text = {
+    state.conflict?.let { item -> FilewayAlertDialog(onDismissRequest = model.trash::closeConflict, title = { Text("恢复遇到冲突") }, text = {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(item.path)
             Text("原位置已有同名目标。保留两者会由服务器另起名称；替换将覆盖原位置现有目标；跳过会保留此回收记录。", style = MaterialTheme.typography.bodySmall)

@@ -68,7 +68,7 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
             }
         }
     }
-    if (expanded) AlertDialog(onDismissRequest = { expanded = false }, shape = RoundedCornerShape(12.dp),
+    if (expanded) FilewayAlertDialog(onDismissRequest = { expanded = false }, shape = RoundedCornerShape(12.dp),
         containerColor = colors.surface,
         title = { Text("目录路径", style = MaterialTheme.typography.titleLarge) },
         text = {

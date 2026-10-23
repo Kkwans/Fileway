@@ -121,12 +121,12 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
             }
         }
     }
-    if (scopeDetails) AlertDialog(onDismissRequest = { scopeDetails = false }, title = { Text("当前目录范围") },
+    if (scopeDetails) FilewayAlertDialog(onDismissRequest = { scopeDetails = false }, title = { Text("当前目录范围") },
         text = { SelectionContainer { Text(client.path) } }, confirmButton = { FilewayTextButton({ scopeDetails = false }) { Text("关闭") } })
-    pathDetails?.let { path -> AlertDialog(onDismissRequest = { pathDetails = null }, title = { Text("关联路径") },
+    pathDetails?.let { path -> FilewayAlertDialog(onDismissRequest = { pathDetails = null }, title = { Text("关联路径") },
         text = { SelectionContainer { Text(path) } }, confirmButton = { FilewayTextButton({ pathDetails = null }) { Text("关闭") } }) }
     if (creating || editing != null) TagEditor(model, editing, dismiss = { creating = false; editing = null }, remove = { removing = editing; editing = null })
-    removing?.let { value -> AlertDialog(onDismissRequest = { removing = null }, title = { Text("删除标签“${value.name}”？") },
+    removing?.let { value -> FilewayAlertDialog(onDismissRequest = { removing = null }, title = { Text("删除标签“${value.name}”？") },
         text = { Text("这个标签的全部关联将被取消，文件保持原位。网页端也会同步此变更。") },
         confirmButton = { FilewayTextButton({ model.tags.remove(value); removing = null }, enabled = enabled) { Text("删除标签") } },
         dismissButton = { FilewayTextButton({ removing = null }) { Text("取消") } }) }
@@ -139,7 +139,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
     var name by remember(tag?.id) { mutableStateOf(tag?.name.orEmpty()) }
     var color by remember(tag?.id) { mutableStateOf(tag?.color ?: TAG_COLORS.firstOrNull { model.tags.colorAvailable(it) } ?: "") }
     val colorValid = color.equals(tag?.color, true) || model.tags.colorAvailable(color, tag?.id)
-    AlertDialog(onDismissRequest = { if (!state.changing) dismiss() }, title = { Text(if (tag == null) "新建标签" else "编辑标签") }, text = {
+    FilewayAlertDialog(onDismissRequest = { if (!state.changing) dismiss() }, title = { Text(if (tag == null) "新建标签" else "编辑标签") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (state.changing) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }

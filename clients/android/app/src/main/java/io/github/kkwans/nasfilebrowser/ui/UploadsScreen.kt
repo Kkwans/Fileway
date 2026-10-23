@@ -107,7 +107,7 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
-    state.restart?.let { draft -> AlertDialog(onDismissRequest = { model.uploads.dismissRestart() }, title = { Text("从零重新开始上传？") },
+    state.restart?.let { draft -> FilewayAlertDialog(onDismissRequest = { model.uploads.dismissRestart() }, title = { Text("从零重新开始上传？") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("本机文件：${draft.source.name} · ${readableSize(draft.source.size)}")
             Text("目标：${draft.record.targetPath}")
@@ -115,9 +115,9 @@ Column(Modifier.fillMaxSize()) {
         } },
         confirmButton = { FilewayTextButton(model.uploads::restart, enabled = !state.busy) { Text(if (state.busy) "正在处理" else "确认重新开始") } },
         dismissButton = { FilewayTextButton(model.uploads::dismissRestart, enabled = !state.busy) { Text("保留原任务") } }) }
-    remove?.let { item -> AlertDialog(onDismissRequest = { remove = null }, title = { Text("移除上传记录？") }, text = { Text("${item.name}\n\n本机原文件和服务器上的文件均保留。") },
+    remove?.let { item -> FilewayAlertDialog(onDismissRequest = { remove = null }, title = { Text("移除上传记录？") }, text = { Text("${item.name}\n\n本机原文件和服务器上的文件均保留。") },
         confirmButton = { FilewayTextButton({ model.uploads.remove(item); remove = null }) { Text("移除记录") } }, dismissButton = { FilewayTextButton({ remove = null }) { Text("取消") } }) }
-    cancel?.let { item -> AlertDialog(onDismissRequest = { cancel = null }, title = { Text("取消这项上传？") },
+    cancel?.let { item -> FilewayAlertDialog(onDismissRequest = { cancel = null }, title = { Text("取消这项上传？") },
         text = { Text("${item.name}\n\n将停止上传并清理原服务器上的本次未完成片段。本机原文件和服务器已经收到的完整文件保留。暂停后继续，请选择“暂停”。") },
         confirmButton = { FilewayTextButton({ cancel = null; model.uploads.cancel(item) }) { Text("取消上传") } },
         dismissButton = { FilewayTextButton({ cancel = null }) { Text("保留任务") } }) }

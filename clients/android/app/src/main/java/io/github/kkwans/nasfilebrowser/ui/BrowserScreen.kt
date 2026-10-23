@@ -218,7 +218,7 @@ Column(Modifier.fillMaxSize()) {
             selected = emptySet(); selecting = false
             model.openContainingDirectory(rename.files.first())
         } }
-        pendingTrash?.let { pending -> AlertDialog(onDismissRequest = { if (!trash.changing) pendingTrash = null },
+        pendingTrash?.let { pending -> FilewayAlertDialog(onDismissRequest = { if (!trash.changing) pendingTrash = null },
             title = { Text("将 ${pending.size} 项移入回收站？") }, text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.heightIn(max = 200.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {

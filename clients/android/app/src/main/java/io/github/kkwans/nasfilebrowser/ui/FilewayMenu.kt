@@ -1,5 +1,11 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import android.app.Activity
+import android.content.ContextWrapper
+import android.os.Build
+import android.view.Gravity
+import android.view.ViewTreeObserver
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,18 +18,23 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Immutable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -36,6 +47,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.roundToIntRect
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
 import androidx.compose.material3.Text
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
@@ -66,8 +86,8 @@ private val MenuWindowInset = 16.dp
 private val MenuShape = RoundedCornerShape(12.dp)
 
 /**
- * Shared popup shell. DropdownMenu owns popup placement, dismissal, Back and focus;
- * rows are rendered here so their width and minimum touch target remain explicit.
+ * Content-sized native window: public background blur also works over video.
+ * Keep Material's anchor capture and placement candidates, row sizing and focus.
  */
 @Composable
 internal fun FilewayMenu(
@@ -80,9 +100,33 @@ internal fun FilewayMenu(
     itemExtras: (@Composable (FilewayMenuEntry) -> Unit)? = null,
     onItemClick: (FilewayMenuEntry) -> Unit,
 ) {
-    val colors = FilewayTheme.colors
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
+    val host = LocalView.current
+    val direction = LocalLayoutDirection.current
+    val activity = remember(host) {
+        var context = host.context
+        while (context is ContextWrapper && context !is Activity) {
+            val base = context.baseContext
+            if (base === context) break
+            context = base
+        }
+        context as? Activity
+    }
+    val root = activity?.window?.decorView ?: host.rootView
+    var anchor by remember(expanded) { mutableStateOf(IntRect.Zero) }
+    // Same zero-sized anchor layout used by Compose Popup. Account for menus
+    // opened inside another dialog by converting to the activity's coordinates.
+    if (expanded) Layout(content = {}, modifier = Modifier.onGloballyPositioned { coordinates ->
+        val parent = coordinates.parentLayoutCoordinates ?: return@onGloballyPositioned
+        val screen = IntArray(2); val inWindow = IntArray(2); val origin = IntArray(2)
+        host.getLocationOnScreen(screen); host.getLocationInWindow(inWindow); root.getLocationOnScreen(origin)
+        val offset = androidx.compose.ui.geometry.Offset(
+            (screen[0] - inWindow[0] - origin[0]).toFloat(),
+            (screen[1] - inWindow[1] - origin[1]).toFloat())
+        anchor = parent.boundsInWindow().translate(offset).roundToIntRect()
+    }) { _, _ -> layout(0, 0) {} }
+    val scroll = rememberScrollState()
     val textMeasurer = rememberTextMeasurer()
     val normalStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Normal)
     val selectedStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
@@ -107,13 +151,61 @@ internal fun FilewayMenu(
     val menuWidth = maxOf(requiredWidth, extraContentWidth).coerceAtLeast(1.dp)
         .coerceAtMost(windowMaxWidth)
 
-    DropdownMenu(
-        expanded = expanded,
-        onDismissRequest = onDismissRequest,
-        modifier = Modifier.width(menuWidth),
-        shape = MenuShape,
-        containerColor = colors.surface,
-    ) {
+    if (!expanded || anchor == IntRect.Zero) return
+    val margin = with(density) { MenuWindowInset.roundToPx() }
+    fun availableBounds(): IntRect {
+        val insets = ViewCompat.getRootWindowInsets(root)
+        val safe = insets?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+        val ime = insets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        val w = root.width.takeIf { it > 0 } ?: with(density) { configuration.screenWidthDp.dp.roundToPx() }
+        val h = root.height.takeIf { it > 0 } ?: with(density) { configuration.screenHeightDp.dp.roundToPx() }
+        val left = maxOf(margin, safe?.left ?: 0)
+        val top = maxOf(margin, safe?.top ?: 0)
+        return IntRect(left, top, (w - maxOf(margin, safe?.right ?: 0)).coerceAtLeast(left + 1),
+            (h - maxOf(margin, safe?.bottom ?: 0, ime)).coerceAtLeast(top + 1))
+    }
+    val bounds = availableBounds()
+    val widthPx = with(density) { menuWidth.roundToPx() }.coerceAtMost(bounds.width)
+    Dialog(onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
+        val view = LocalView.current
+        val window = (view.parent as? DialogWindowProvider)?.window
+        var blurred by remember { mutableStateOf(false) }
+        FilewayDialogGlass { blurred = it }
+        val latestAnchor by rememberUpdatedState(anchor)
+        val latestDirection by rememberUpdatedState(direction)
+        SideEffect {
+            window?.let {
+                WindowCompat.setDecorFitsSystemWindows(it, false)
+                val attributes = it.attributes
+                attributes.gravity = Gravity.TOP or Gravity.LEFT
+                attributes.width = widthPx
+                attributes.height = WindowManager.LayoutParams.WRAP_CONTENT
+                if (Build.VERSION.SDK_INT >= 30) attributes.setFitInsetsTypes(0)
+                it.attributes = attributes
+            }
+        }
+        DisposableEffect(window, root) {
+            val decor = window?.decorView
+            val observer = decor?.viewTreeObserver
+            val listener = ViewTreeObserver.OnPreDrawListener {
+                if (window == null || decor == null || decor.height <= 0) true else {
+                    val position = filewayMenuPosition(latestAnchor, availableBounds(),
+                        IntSize(decor.width, decor.height), latestDirection)
+                    val attributes = window.attributes
+                    if (attributes.x == position.x && attributes.y == position.y) true else {
+                        attributes.x = position.x; attributes.y = position.y
+                        window.attributes = attributes
+                        decor.requestLayout()
+                        false // Position before the first drawn frame, without a visible jump.
+                    }
+                }
+            }
+            observer?.addOnPreDrawListener(listener)
+            onDispose { decor?.viewTreeObserver?.takeIf { it.isAlive }?.removeOnPreDrawListener(listener) }
+        }
+        Surface(Modifier.width(with(density) { widthPx.toDp() }).heightIn(max = with(density) { bounds.height.toDp() }),
+            color = filewayGlassColor(blurred), shape = MenuShape, tonalElevation = 0.dp) {
+        Column(Modifier.verticalScroll(scroll).padding(vertical = 8.dp)) {
         items.forEach { item ->
             FilewayMenuRow(
                 item = item,
@@ -126,6 +218,8 @@ internal fun FilewayMenu(
                 onClick = { onItemClick(item) },
             )
             itemExtras?.invoke(item)
+        }
+        }
         }
     }
 }

@@ -37,14 +37,14 @@ import java.time.ZoneOffset
 @Composable internal fun TaskCenterDatePicker(value: Long, onDay: (LocalDate) -> Unit, onDismiss: () -> Unit) {
     val day = if (value > 0) Instant.ofEpochMilli(value).atZone(ZoneId.systemDefault()).toLocalDate() else LocalDate.now()
     val state = rememberDatePickerState(initialSelectedDateMillis = day.atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli())
-    DatePickerDialog(onDismissRequest = onDismiss, shape = MaterialTheme.shapes.medium,
+    FilewayDatePickerDialog(onDismissRequest = onDismiss, shape = MaterialTheme.shapes.medium,
         colors = DatePickerDefaults.colors(containerColor = MaterialTheme.colorScheme.surface), confirmButton = {
         FilewayTextButton({
             state.selectedDateMillis?.let { onDay(Instant.ofEpochMilli(it).atZone(ZoneOffset.UTC).toLocalDate()) }
             onDismiss()
         }, enabled = state.selectedDateMillis != null) { Text("确定") }
     }, dismissButton = { FilewayTextButton(onDismiss) { Text("取消") } }) {
-        DatePicker(state = state, colors = DatePickerDefaults.colors(containerColor = MaterialTheme.colorScheme.surface))
+        DatePicker(state = state, colors = DatePickerDefaults.colors(containerColor = androidx.compose.ui.graphics.Color.Transparent))
     }
 }
 

@@ -167,7 +167,7 @@ Column(Modifier.fillMaxSize()) {
         val task = choice.task; val command = choice.command
         val batch = command.startsWith("batch-")
         val title = when (command) { "cancel" -> if (task?.pendingDeletion == true) "撤销删除任务？" else "停止这个任务？"; "retry", "batch-retry" -> "创建重试任务？"; "batch-unarchive", "unarchive" -> "移出归档？"; else -> "归档任务记录？" }
-        AlertDialog(onDismissRequest = { confirm = null }, title = { Text(title) }, text = { Text(when {
+        FilewayAlertDialog(onDismissRequest = { confirm = null }, title = { Text(title) }, text = { Text(when {
             command == "archive-ended" -> "归档当前分类中我的所有已结束记录。文件不会被删除，之后可从“已归档”查看。"
             batch -> "将对当前筛选的 ${choice.count} 个服务端任务执行此操作。数量或状态变化时会停止并要求重新确认。"
             command == "cancel" -> "${task?.title}\n已经开始的任务可能已有部分结果；取消后可查看实际状态。"

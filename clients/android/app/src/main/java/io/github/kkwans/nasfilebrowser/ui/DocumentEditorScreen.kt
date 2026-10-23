@@ -96,13 +96,13 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
         }
     }
-    if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text(
+    if (discard) FilewayAlertDialog(onDismissRequest = { discard = false }, title = { Text(
         if (state.unknownWrite && state.acknowledged) "退出已确认保存的文档？" else if (state.unknownWrite) "退出待核对的保存？" else "放弃未保存的更改？") },
         text = { Text(if (state.unknownWrite && state.acknowledged) "服务器已确认保存，后续内容核对或本地刷新尚未完成。当前草稿会丢弃，请重新打开服务器文件核对。"
             else if (state.unknownWrite) "服务器可能已经保存。返回后请重新读取核对，当前草稿会丢弃。" else "当前草稿会丢弃，服务器文件不会改变。") },
         confirmButton = { FilewayTextButton({ discard = false; controller.close(discard = true); onClose() }) { Text("丢弃草稿并返回") } },
         dismissButton = { FilewayTextButton({ discard = false }) { Text(if (state.unknownWrite) "保留草稿" else "继续编辑") } })
-    if (reload) AlertDialog(onDismissRequest = { reload = false }, title = { Text("丢弃草稿并重新读取？") },
+    if (reload) FilewayAlertDialog(onDismissRequest = { reload = false }, title = { Text("丢弃草稿并重新读取？") },
         text = { Text("将读取服务器当前版本并替换编辑器中的草稿。需要保留的内容请先复制。") },
         confirmButton = { FilewayTextButton({ reload = false; controller.reload() }) { Text("丢弃草稿并读取") } },
         dismissButton = { FilewayTextButton({ reload = false }) { Text("取消") } })
