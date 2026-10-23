@@ -3,6 +3,7 @@ package io.github.kkwans.nasfilebrowser.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -23,8 +24,10 @@ import io.github.kkwans.nasfilebrowser.app.serverSettingNumberValid
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.nasfilebrowser.data.*
 
-private enum class GlobalSettingsGroup(val label: String) {
-    ACCOUNTS("注册与账户"), DEFAULTS("默认用户"), BRANDING("品牌与外观"), UPLOADS("上传"), COMMANDS("命令与事件"), RULES("全局路径规则")
+private enum class GlobalSettingsGroup(val label: String, val icon: Int) {
+    ACCOUNTS("注册与账户", R.drawable.ic_lock), DEFAULTS("默认用户", R.drawable.ic_person),
+    BRANDING("品牌与外观", R.drawable.ic_theme_system), UPLOADS("上传", R.drawable.ic_upload),
+    COMMANDS("命令与事件", R.drawable.ic_code), RULES("全局路径规则", R.drawable.ic_folder)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,6 +35,7 @@ private enum class GlobalSettingsGroup(val label: String) {
     val state by controller.state.collectAsStateWithLifecycle()
     val draft = state.draft
     var group by remember(state.scope) { mutableStateOf<GlobalSettingsGroup?>(null) }
+    val overviewList = rememberLazyListState()
     val numbers = state.numberDrafts
     val fullPage = group in setOf(GlobalSettingsGroup.DEFAULTS, GlobalSettingsGroup.COMMANDS, GlobalSettingsGroup.RULES)
     val enabled = state.authorized && !state.loading && !state.saving && !state.unknown
@@ -52,7 +56,7 @@ private enum class GlobalSettingsGroup(val label: String) {
             }
         }
     }) { insets ->
-        LazyColumn(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).semantics { contentDescription = "全局设置内容" },
+        LazyColumn(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).semantics { contentDescription = "全局设置内容" }, state = overviewList,
             contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { Text("设置影响当前服务器。默认用户项仅用于之后创建的账号。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
             if (state.loading || state.saving) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
@@ -70,15 +74,16 @@ private enum class GlobalSettingsGroup(val label: String) {
                     Text("命令执行：" + when (state.capabilities?.enableExec) { true -> "已启用"; false -> "未启用"; null -> "尚未确认" })
                     Text("由服务器启动配置控制，此处仅管理 Shell 参数与事件命令。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 } } }
-                GlobalSettingsGroup.entries.forEach { section -> item {
-                    SettingsGroup(section.label) { SettingsAction("编辑${section.label}", when (section) {
+                GlobalSettingsGroup.entries.forEach { section -> item(key = section.name) {
+                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+                    SettingsAction(section.label, when (section) {
                         GlobalSettingsGroup.ACCOUNTS -> "注册、用户目录、密码要求与会话期限"
                         GlobalSettingsGroup.DEFAULTS -> "新账号的目录、权限、列表和交互偏好"
                         GlobalSettingsGroup.BRANDING -> "实例名称、主题、颜色与品牌资源"
                         GlobalSettingsGroup.UPLOADS -> "TUS 分块大小与重试次数"
                         GlobalSettingsGroup.COMMANDS -> "Shell 参数与 ${draft.hooks.size} 类事件命令"
                         GlobalSettingsGroup.RULES -> "${draft.rules.size} 条允许或禁止规则"
-                    }, R.drawable.ic_storage, enabled) { group = section } }
+                    }, section.icon, enabled) { group = section } }
                 } }
                 if (state.dirty && !state.unknown) item { FilewayTextButton(controller::resetToServer, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("放弃设置草稿") } }
             }
@@ -164,13 +169,22 @@ private enum class GlobalSettingsGroup(val label: String) {
         Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
             Box(Modifier.statusBarsPadding()) { FilewayTopAppBar(title, "全局设置草稿", R.drawable.ic_arrow_back, "保留草稿并返回", ::back) }
         }, bottomBar = {
-            Surface { FilewayTextButton(::back, enabled = canDismiss, modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().heightIn(min = 48.dp)) { Text("保留草稿并返回") } }
+            Surface {
+                FilewayOutlinedButton(::back, enabled = canDismiss, modifier = Modifier.fillMaxWidth()
+                    .navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 48.dp)) {
+                    Icon(painterResource(R.drawable.ic_arrow_back), null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp)); Text("保留草稿并返回")
+                }
+            }
         }) { insets ->
             LazyColumn(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
         }
     } else FileOperationSheet(title, onBack, canDismiss = canDismiss, footer = {
-        FilewayTextButton(onBack, enabled = canDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("保留草稿并返回") }
+        FilewayOutlinedButton(onBack, enabled = canDismiss, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Icon(painterResource(R.drawable.ic_arrow_back), null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp)); Text("保留草稿并返回")
+        }
     }) {
         LazyColumn(Modifier.weight(1f, fill = false), contentPadding = PaddingValues(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp), content = content)

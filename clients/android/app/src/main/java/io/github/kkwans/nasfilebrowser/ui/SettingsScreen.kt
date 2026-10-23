@@ -205,9 +205,7 @@ internal fun AppTheme.label() = when (this) {
     var repositoryError by remember { mutableStateOf<String?>(null) }
     var licenses by remember { mutableStateOf(false) }
     if (licenses) { FilewayLicensesSheet { licenses = false }; return }
-    FileOperationDialog("关于栖卷 · Fileway", onDismiss, footer = {
-        FilewayTextButton(onDismiss) { Text("关闭") }
-    }) {
+    FileOperationDialog("关于栖卷 · Fileway", onDismiss) {
         Column(Modifier.weight(1f, fill = false).fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("版本 ${BuildConfig.VERSION_NAME} · 构建 ${BuildConfig.VERSION_CODE}")
             Text("原生 Android 客户端 · GPL-3.0-or-later", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
