@@ -991,6 +991,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             else (back ?: dismiss)()
         }
         val panelWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
+        val panelBlurred = rememberPlayerPanelBlur(panelWindow)
         PlayerWindowBars(panelWindow, immersive, FilewayTheme.status.mediaSurface.luminance() < .5f)
         SideEffect {
             @Suppress("DEPRECATION")
@@ -1008,9 +1009,11 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 else Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = if (imeVisible || back != null) maxHeight else maxHeight * 0.85f)
             val panelShape = if (landscape) RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)
                 else RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
+            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPlayerPanelTheme(panelBlurred) {
             CompositionLocalProvider(LocalContentColor provides FilewayTheme.status.mediaContent) {
             Column(panel.clip(panelShape).background(FilewayTheme.status.mediaSurface)
-                .border(1.dp, Color.White.copy(alpha = .06f), panelShape).pointerInput(Unit) { detectTapGestures(onTap = {}) }
+                .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .18f), Color.White.copy(alpha = .04f))), panelShape)
+                .pointerInput(Unit) { detectTapGestures(onTap = {}) }
                 .windowInsetsPadding(panelInsets.only(WindowInsetsSides.Bottom)), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth().padding(start = if (back != null) 4.dp else 24.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (back != null) PlayerIcon(R.drawable.ic_arrow_back, backLabel, back)
@@ -1021,6 +1024,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 }
                 HorizontalDivider(Modifier.padding(horizontal = 24.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .45f))
                 Box(Modifier.weight(1f, fill = false).fillMaxWidth()) { content() }
+            }
             }
             }
             // The active dialog owns feedback while open; keep the same state

@@ -213,3 +213,24 @@ object FilewayMotion {
         MaterialTheme(colorScheme = playerColors, typography = FilewayTypography, shapes = FilewayShapes, content = content)
     }
 }
+
+/** Translucent controls over the system compositor's live video blur. */
+@Composable internal fun FilewayPlayerPanelTheme(blurred: Boolean, content: @Composable () -> Unit) {
+    val colors = remember(blurred) {
+        if (blurred) FilewayPlayerColors.copy(
+            surface = Color(0xFF171A20).copy(alpha = .56f),
+            surfaceContainerLow = Color.White.copy(alpha = .04f),
+            surfaceContainer = Color.White.copy(alpha = .05f),
+            surfaceContainerHigh = Color.White.copy(alpha = .08f),
+            surfaceContainerHighest = Color.White.copy(alpha = .11f),
+            surfaceVariant = Color.White.copy(alpha = .07f),
+            primaryContainer = FilewayPlayerColors.primary.copy(alpha = .18f),
+        ) else FilewayPlayerColors.copy(surface = FilewayPlayerColors.surface.copy(alpha = .96f))
+    }
+    val parent = FilewayTheme.status
+    val status = remember(parent, colors) { parent.copy(mediaSurface = colors.surface,
+        mediaContent = colors.onSurface, mediaSecondary = colors.onSurfaceVariant) }
+    CompositionLocalProvider(LocalFilewayColors provides colors, LocalFilewayStatus provides status) {
+        MaterialTheme(colorScheme = colors, typography = FilewayTypography, shapes = FilewayShapes, content = content)
+    }
+}
