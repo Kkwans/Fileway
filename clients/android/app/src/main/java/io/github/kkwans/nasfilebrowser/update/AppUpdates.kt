@@ -157,7 +157,7 @@ internal class AppUpdates(private val context: Context, private val scope: Corou
             if (update == null) mutable.value = UpdateState(UpdatePhase.IDLE)
             else if (downloadId >= 0) monitor(update)
             else mutable.value = UpdateState(UpdatePhase.FAILED, update, error = "上次下载未能开始，请重试下载")
-        } catch (error: Exception) { if (error is CancellationException) throw error; failure(error) }
+        } catch (error: Exception) { if (error is CancellationException) throw error; failure(error, owned) }
     } }
 
     fun check() {

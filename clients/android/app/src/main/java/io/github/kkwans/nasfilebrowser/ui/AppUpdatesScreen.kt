@@ -21,6 +21,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.BuildConfig
@@ -85,24 +86,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             LazyColumn(Modifier.widthIn(max = 720.dp).fillMaxSize().semantics { contentDescription = "应用更新内容" },
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 item(key = "summary") { Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Fileway · 当前版本 ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
-                Text(when (state.phase) {
-                    UpdatePhase.IDLE -> "获取最新 Android 版本"
-                    UpdatePhase.RESTORING -> "正在读取更新任务"
-                    UpdatePhase.CHECKING -> "正在检查更新"
-                    UpdatePhase.CURRENT -> "已是最新版本"
-                    UpdatePhase.AVAILABLE -> "发现新版本 ${update?.release?.displayVersion.orEmpty()}"
-                    UpdatePhase.DOWNLOADING -> "正在下载 ${update?.release?.displayVersion.orEmpty()}"
-                    UpdatePhase.VERIFYING -> "正在核对安装包"
-                    UpdatePhase.READY -> "更新已下载，等待安装"
-                    UpdatePhase.FAILED -> "更新未完成"
-                }, style = MaterialTheme.typography.titleLarge)
+                UpdateVersionSummary(state)
                 when (state.phase) {
-                    UpdatePhase.CHECKING, UpdatePhase.RESTORING, UpdatePhase.VERIFYING -> Row(verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        Text(if (state.phase == UpdatePhase.VERIFYING) "核对版本、包名和签名" else state.status.ifEmpty { "请稍候" }, style = MaterialTheme.typography.bodyMedium)
-                    }
+                    UpdatePhase.VERIFYING -> Text("正在核对版本、包名和签名", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                     UpdatePhase.DOWNLOADING -> {
                         val fraction = if (state.total > 0) (state.bytes.toDouble() / state.total).toFloat().coerceIn(0f, 1f) else 0f
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -119,7 +105,6 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 }
                 state.error?.let { Text(it, color = colors.error, style = MaterialTheme.typography.bodyMedium) }
                 if (state.phase == UpdatePhase.IDLE || state.phase == UpdatePhase.CURRENT) {
-                    Text("检查正式版与预览版，自动选择适合此设备的安装包。", style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
                     if (state.status.isNotEmpty()) Text(state.status, style = MaterialTheme.typography.bodyMedium)
                 }
                 if (update != null) {
@@ -132,10 +117,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                             ) { select(choice.asset.id) }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        ReleaseLabel(update.release.preview)
-                        Text(readableSize(update.asset.size), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
-                    }
+
                 }
                 } }
                 if (update != null) {
@@ -165,10 +147,44 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     }
 }
 
-@Composable private fun ReleaseLabel(preview: Boolean) {
-    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer) {
-        Text(if (preview) "预览版" else "正式版", style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+/** One balanced comparison replaces the loose title/version/channel stack. */
+@Composable private fun UpdateVersionSummary(state: UpdateState) {
+    val colors = MaterialTheme.colorScheme
+    val update = state.update
+    val pending = state.phase in setOf(UpdatePhase.RESTORING, UpdatePhase.CHECKING, UpdatePhase.VERIFYING)
+    var showPending by remember { mutableStateOf(false) }
+    LaunchedEffect(pending) { showPending = false; if (pending) { kotlinx.coroutines.delay(350); showPending = true } }
+    val label = when (state.phase) {
+        UpdatePhase.IDLE -> "等待检查"
+        UpdatePhase.RESTORING -> "恢复更新"
+        UpdatePhase.CHECKING -> "检查更新"
+        UpdatePhase.CURRENT -> "已是最新版本"
+        UpdatePhase.AVAILABLE -> "发现新版本"
+        UpdatePhase.DOWNLOADING -> "正在下载"
+        UpdatePhase.VERIFYING -> "正在核对"
+        UpdatePhase.READY -> "等待安装"
+        UpdatePhase.FAILED -> "更新未完成"
+    }
+    Surface(Modifier.fillMaxWidth(), color = colors.surface, shape = MaterialTheme.shapes.medium) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("当前版本", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                Text(BuildConfig.VERSION_NAME.substringBefore('-'), style = MaterialTheme.typography.titleLarge)
+                Text(if (BuildConfig.VERSION_NAME.contains("preview")) "预览版" else "正式版", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+            }
+            Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                if (showPending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                else Icon(painterResource(if (state.phase == UpdatePhase.CURRENT) R.drawable.ic_check else R.drawable.ic_arrow_forward), null,
+                    Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+            }
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(label, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, textAlign = TextAlign.End)
+                Text(update?.release?.displayVersion ?: if (state.phase == UpdatePhase.CURRENT) BuildConfig.VERSION_NAME.substringBefore('-') else "—",
+                    style = MaterialTheme.typography.titleLarge, color = if (update != null) colors.primary else colors.onSurface, textAlign = TextAlign.End)
+                if (update != null) Text("${if (update.release.preview) "预览版" else "正式版"} · ${readableSize(update.asset.size)}",
+                    style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, textAlign = TextAlign.End)
+            }
+        }
     }
 }

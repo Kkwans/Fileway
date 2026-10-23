@@ -32,12 +32,12 @@ internal class AppUpdateUiTest : LibraryUiHarness() {
         try {
             main { model.cancel(); model.disconnect() }
             focused()
-            text("检查更新").click(); text("应用更新"); text("当前版本 ${BuildConfig.VERSION_NAME}")
+            text("检查更新").click(); text("应用更新"); text("当前版本"); text(BuildConfig.VERSION_NAME.substringBefore('-'))
             withTimeout(10_000) { model.updates.state.first { it.phase != UpdatePhase.RESTORING } }
-            text("获取最新 Android 版本"); capture("app-update-idle")
+            text("等待检查"); capture("app-update-idle")
             activity.scenario.recreate()
             focused()
-            text("应用更新"); text("获取最新 Android 版本")
+            text("应用更新"); text("等待检查")
             action("返回").click(); text("连接服务器")
         } finally { withContext(NonCancellable) {
             previous?.let { if (database.profiles().account(it.accountKey) != null) database.profiles().saveActiveSession(it) }
@@ -45,6 +45,15 @@ internal class AppUpdateUiTest : LibraryUiHarness() {
     }
 
     @Test fun updatePageShowsNotesActualPercentageCancelAndRetryActions() {
+        fun chooseVersion(version: String) {
+            val candidates = device.findObjects(androidx.test.uiautomator.By.text(version))
+            for (candidate in candidates) {
+                var row: androidx.test.uiautomator.UiObject2? = candidate
+                while (row != null && !row.isClickable) row = row.parent
+                if (row != null) { row.click(); return }
+            }
+            error("Missing selectable version $version")
+        }
         fun touchTarget(label: String) {
             var button = text(label)
             while (!button.isClickable) button = button.parent ?: error("Missing clickable parent for $label")
@@ -62,10 +71,10 @@ internal class AppUpdateUiTest : LibraryUiHarness() {
             }, cancel = { state.value = UpdateState(UpdatePhase.FAILED, update, error = "测试数据：网络中断，请重试") }, install = {},
                 select = { id -> state.value = UpdateState(UpdatePhase.AVAILABLE, choices.single { it.asset.id == id }, choices = choices) }) } }
         } }
-        text("发现新版本 0.7.0"); text("更新说明"); capture("app-update-available-owned")
+        text("发现新版本"); text("0.7.0"); text("更新说明"); capture("app-update-available-owned")
         touchTarget("重新检查更新")
-        text("0.6.9").click(); text("发现新版本 0.6.9"); text("测试数据：正式版本说明。")
-        text("0.7.0").click(); text("发现新版本 0.7.0")
+        chooseVersion("0.6.9"); text("发现新版本"); text("0.6.9"); text("测试数据：正式版本说明。")
+        chooseVersion("0.7.0"); text("发现新版本"); text("0.7.0")
         text("下载更新 · 8.0 MB").click(); text("25%"); text("2.0 MB / 8.0 MB"); capture("app-update-progress-owned")
         text("取消下载").click(); text("更新未完成"); text("重新下载"); text("重新检查更新")
         touchTarget("重新下载"); touchTarget("重新检查更新")
@@ -73,7 +82,7 @@ internal class AppUpdateUiTest : LibraryUiHarness() {
         text("安装更新"); touchTarget("删除安装包")
         val revised = update.copy(release = update.release.copy(version = "0.7.5", previewRevision = 2))
         instrumentation.runOnMainSync { state.value = UpdateState(UpdatePhase.AVAILABLE, revised, choices = listOf(revised)) }
-        text("发现新版本 0.7.5-preview-r2")
+        text("发现新版本"); text("0.7.5-preview-r2")
     }
 
     @Test fun settingsEntryReturnsToSettingsInsteadOfLosingItsLocation(): Unit = runBlocking {
