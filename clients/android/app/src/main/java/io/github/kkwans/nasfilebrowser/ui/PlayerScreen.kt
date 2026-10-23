@@ -123,7 +123,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val liveState by rememberUpdatedState(state)
     val holdRate by model.playbackPreferences.holdRate.collectAsStateWithLifecycle()
     val savedSubtitleAppearance by model.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
-    var subtitlePreview by remember(savedSubtitleAppearance) { mutableStateOf(savedSubtitleAppearance) }
+    // A save acknowledgement must not replace edits made while the write was in flight.
+    var subtitlePreview by remember { mutableStateOf(savedSubtitleAppearance) }
+    var savingSubtitle by remember { mutableStateOf(false) }
     LaunchedEffect(subtitlePreview) { model.player.textSubtitleAppearance(subtitlePreview) }
     val liveHoldRate by rememberUpdatedState(holdRate)
     var holding by remember(file) { mutableStateOf(false) }
@@ -710,12 +712,19 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             appearance = subtitlePreview,
                             onAppearance = { subtitlePreview = it },
                             onChooseFont = { sheet = PlayerSheet.SUBTITLE_FONT; touch() },
+                            canSave = subtitlePreview != savedSubtitleAppearance,
+                            saving = savingSubtitle,
                             onSaveAppearance = {
-                                val value = subtitlePreview
-                                uiScope.launch {
-                                    try { model.playbackPreferences.saveTextSubtitleAppearance(value) }
-                                    catch (cancelled: CancellationException) { throw cancelled }
-                                    catch (_: Exception) { feedback.showSnackbar("字幕外观保存失败，请重试") }
+                                if (!savingSubtitle) {
+                                    savingSubtitle = true
+                                    val value = subtitlePreview
+                                    uiScope.launch {
+                                        val success = try { model.playbackPreferences.saveTextSubtitleAppearance(value); true }
+                                            catch (cancelled: CancellationException) { throw cancelled }
+                                            catch (_: Exception) { false }
+                                            finally { savingSubtitle = false }
+                                        feedback.showSnackbar(if (success) "字幕外观已保存到本机" else "字幕外观保存失败，请重试")
+                                    }
                                 }
                             },
                         )

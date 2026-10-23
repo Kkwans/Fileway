@@ -32,8 +32,10 @@ class PlaybackPreferences(context: Context) {
     private val decoderMutable = MutableStateFlow(VideoDecodePolicy.entries.firstOrNull { it.name == prefs.getString("video_decoder", "AUTO") } ?: VideoDecodePolicy.AUTO)
     val videoDecodePolicy = decoderMutable.asStateFlow()
     suspend fun saveVideoDecodePolicy(value: VideoDecodePolicy) = decoderWrites.withLock {
-        withContext(Dispatchers.IO) { check(prefs.edit().putString("video_decoder", value.name).commit()) { "无法保存解码策略" } }
-        decoderMutable.value = value
+        withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+            check(prefs.edit().putString("video_decoder", value.name).commit()) { "无法保存解码策略" }
+            decoderMutable.value = value
+        }
     }
     private val subtitleWrites = Mutex()
     private val subtitleMutable = MutableStateFlow(TextSubtitleAppearance(
@@ -45,17 +47,21 @@ class PlaybackPreferences(context: Context) {
     ))
     val textSubtitleAppearance = subtitleMutable.asStateFlow()
     suspend fun saveTextSubtitleAppearance(value: TextSubtitleAppearance) = subtitleWrites.withLock {
-        withContext(Dispatchers.IO) {
+        withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
             check(prefs.edit().putFloat("subtitle_scale", value.scale).putFloat("subtitle_bottom", value.bottomPadding)
                 .putString("subtitle_area", value.area.name).putFloat("subtitle_background", value.backgroundOpacity)
                 .putString("subtitle_font", value.fontKey).commit()) { "无法保存字幕外观" }
+            // Publish the acknowledged value even if the UI owner leaves during commit.
+            subtitleMutable.value = value
         }
-        subtitleMutable.value = value
     }
-    suspend fun saveHoldRate(value: Float) {
+    private val holdWrites = Mutex()
+    suspend fun saveHoldRate(value: Float) = holdWrites.withLock {
         require(value.isFinite() && value in .1f..5f)
-        withContext(Dispatchers.IO) { check(prefs.edit().putFloat("hold_rate", value).commit()) { "无法保存长按倍速" } }
-        mutable.value = value
+        withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+            check(prefs.edit().putFloat("hold_rate", value).commit()) { "无法保存长按倍速" }
+            mutable.value = value
+        }
     }
 }
 
