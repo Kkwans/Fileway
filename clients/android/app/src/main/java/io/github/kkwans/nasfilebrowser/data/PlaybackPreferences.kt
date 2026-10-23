@@ -77,3 +77,11 @@ class HeldPlaybackRate(private val read: () -> Float, private val apply: (Float)
 }
 
 fun parsePlaybackRate(text: String): Float? = text.trim().replace(',', '.').toFloatOrNull()?.takeIf { it.isFinite() && it in .1f..5f }
+
+/** Accept signed seconds from IMEs that emit full-width punctuation. */
+fun parseSubtitleDelayMillis(text: String): Long? {
+    val normalized = java.text.Normalizer.normalize(text, java.text.Normalizer.Form.NFKC)
+        .replace('\u2212', '-').replace('\u3002', '.').trim()
+    val seconds = normalized.toDoubleOrNull()?.takeIf { it.isFinite() && it in -600.0..600.0 } ?: return null
+    return (seconds * 1000).toLong()
+}

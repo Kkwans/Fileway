@@ -77,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -204,6 +205,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         }
     }
     val feedback = remember { SnackbarHostState() }
+    var subtitleFooterHeight by remember { mutableIntStateOf(0) }
     var documentGeneration by rememberSaveable { mutableStateOf<Long?>(null) }
     var readingDocument by remember(file) { mutableStateOf(false) }
     val subtitleDocument = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -660,7 +662,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 } else if (sheet == PlayerSheet.SPEED_EDIT) {
                     { sheet = PlayerSheet.SPEED; speedError = null; touch() }
                 } else null, feedback = feedback, backLabel = when (sheet) { PlayerSheet.SPEED_EDIT -> "返回播放速度"; PlayerSheet.SUBTITLE_FONT -> "返回字幕调整"; else -> "返回字幕轨道" },
-                    headerDetail = if (sheet == PlayerSheet.QUEUE) queue?.let { "${it.index + 1} / ${it.items.size}" } else null) {
+                    headerDetail = if (sheet == PlayerSheet.QUEUE) queue?.let { "${it.index + 1} / ${it.items.size}" } else null,
+                    feedbackBottomInset = if (sheet == PlayerSheet.SUBTITLE_ADJUST) with(LocalDensity.current) { subtitleFooterHeight.toDp() } else 0.dp) {
                     when (sheet) {
                         PlayerSheet.QUEUE -> queue?.let { snapshot ->
                             PlayerQueuePanel(model, snapshot, state.playing, state.durationMs, choose = { index ->
@@ -705,15 +708,16 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             offsetError = subtitleOffsetError,
                             onDelay = model.player::subtitleDelay,
                             onApplyOffset = {
-                                val seconds = subtitleOffset.trim().toDoubleOrNull()
-                                if (seconds == null || !seconds.isFinite() || seconds !in -600.0..600.0) subtitleOffsetError = "请输入 -600 到 600 秒"
-                                else { model.player.subtitleDelay((seconds * 1000).toLong()); subtitleOffsetError = null }
+                                val delay = io.github.kkwans.nasfilebrowser.data.parseSubtitleDelayMillis(subtitleOffset)
+                                if (delay == null) subtitleOffsetError = "请输入 -600 到 600 秒"
+                                else { model.player.subtitleDelay(delay); subtitleOffsetError = null }
                             },
                             appearance = subtitlePreview,
                             onAppearance = { subtitlePreview = it },
                             onChooseFont = { sheet = PlayerSheet.SUBTITLE_FONT; touch() },
                             canSave = subtitlePreview != savedSubtitleAppearance,
                             saving = savingSubtitle,
+                            onFooterHeight = { subtitleFooterHeight = it },
                             onSaveAppearance = {
                                 if (!savingSubtitle) {
                                     savingSubtitle = true
@@ -917,7 +921,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         color = FilewayTheme.status.mediaSecondary, maxLines = 1)
 }
 @OptIn(ExperimentalLayoutApi::class)
-@Composable private fun PlayerPanel(landscape: Boolean, immersive: Boolean, title: String, dismiss: () -> Unit, back: (() -> Unit)? = null, feedback: SnackbarHostState, backLabel: String = "返回字幕轨道", headerDetail: String? = null, content: @Composable () -> Unit) {
+@Composable private fun PlayerPanel(landscape: Boolean, immersive: Boolean, title: String, dismiss: () -> Unit, back: (() -> Unit)? = null, feedback: SnackbarHostState, backLabel: String = "返回字幕轨道", headerDetail: String? = null, feedbackBottomInset: Dp = 0.dp, content: @Composable () -> Unit) {
     Dialog(onDismissRequest = dismiss, properties = DialogProperties(dismissOnBackPress = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         val keyboard = LocalSoftwareKeyboardController.current
         val imeVisible = WindowInsets.isImeVisible
@@ -969,7 +973,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             Column(panel.clip(panelShape).background(FilewayTheme.status.mediaSurface)
                 .border(1.dp, Color.White.copy(alpha = .06f), panelShape).pointerInput(Unit) { detectTapGestures(onTap = {}) }
                 .windowInsetsPadding(panelInsets.only(WindowInsetsSides.Bottom)), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(start = if (back != null) 4.dp else 24.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (back != null) PlayerIcon(R.drawable.ic_arrow_back, backLabel, back)
                     Text(title, style = FilewayTheme.text.appBar, modifier = Modifier.weight(1f))
                     headerDetail?.let { Text(it, Modifier.padding(horizontal = 8.dp), style = FilewayTheme.text.metadata,
@@ -982,7 +986,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             }
             // The active dialog owns feedback while open; keep the same state
             // so failed track requests remain visible and accessible above it.
-            SnackbarHost(feedback, Modifier.align(Alignment.BottomCenter).windowInsetsPadding(panelInsets.only(WindowInsetsSides.Bottom)).padding(16.dp))
+            SnackbarHost(feedback, Modifier.align(if (landscape) Alignment.BottomEnd else Alignment.BottomCenter)
+                .then(if (landscape) Modifier.width(maxWidth.coerceAtMost(360.dp)) else Modifier.fillMaxWidth())
+                .windowInsetsPadding(panelInsets.only(WindowInsetsSides.Bottom))
+                .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = feedbackBottomInset + 16.dp))
         }
     }
 }

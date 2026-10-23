@@ -43,6 +43,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -200,6 +201,7 @@ internal fun PlayerSubtitleAdjustments(
     modifier: Modifier = Modifier,
     canSave: Boolean = true,
     saving: Boolean = false,
+    onFooterHeight: (Int) -> Unit = {},
 ) {
     val format = codec.lowercase(Locale.ROOT)
     val authorStyled = format.contains("ssa") || format == "ass" || format.endsWith("/ass") || format.endsWith("/x-ass")
@@ -207,7 +209,9 @@ internal fun PlayerSubtitleAdjustments(
     val textAppearance = !authorStyled && !bitmap
     val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
     val font = fonts.resolve(appearance.fontKey)
-    LaunchedEffect(textAppearance) { if (textAppearance) SubtitleFontCatalog.request() }
+    LaunchedEffect(textAppearance) {
+        if (textAppearance) SubtitleFontCatalog.request() else onFooterHeight(0)
+    }
     val content = FilewayTheme.status.mediaContent
     val secondary = FilewayTheme.status.mediaSecondary
     val container = FilewayTheme.colors.surfaceContainerHigh
@@ -264,7 +268,7 @@ internal fun PlayerSubtitleAdjustments(
                 authorStyled -> Text("ASS / SSA 保留作者字体、位置与动画。时间偏移仍可调整。", style = MaterialTheme.typography.bodyMedium, color = secondary)
                 bitmap -> Text("位图字幕使用片源图像，不应用文字外观。时间偏移仍可调整。", style = MaterialTheme.typography.bodyMedium, color = secondary)
                 else -> {
-                    Box(Modifier.fillMaxWidth().height(80.dp).clip(RoundedCornerShape(12.dp)).background(container)
+                    Box(Modifier.fillMaxWidth().heightIn(min = 80.dp).clip(RoundedCornerShape(12.dp)).background(container)
                         .padding(12.dp), contentAlignment = Alignment.BottomCenter) {
                         Text("栖卷 · 字幕预览 Aa", Modifier.padding(bottom = 48.dp * appearance.bottomPadding)
                             .background(Color.Black.copy(alpha = appearance.backgroundOpacity)),
@@ -312,7 +316,7 @@ internal fun PlayerSubtitleAdjustments(
         }
         if (textAppearance) {
             HorizontalDivider(color = secondary.copy(alpha = .16f))
-            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().onSizeChanged { onFooterHeight(it.height) }.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilewayOutlinedButton({ onAppearance(TextSubtitleAppearance()) }, Modifier.weight(1f).heightIn(min = 48.dp),
                     enabled = appearance != TextSubtitleAppearance(), contentPadding = PaddingValues(horizontal = 12.dp)) {
                     Icon(painterResource(R.drawable.ic_refresh), null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("恢复默认")

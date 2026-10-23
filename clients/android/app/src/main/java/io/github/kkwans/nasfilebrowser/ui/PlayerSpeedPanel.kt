@@ -21,12 +21,13 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     onPreset: (Float) -> Unit,
     onEdit: (Boolean) -> Unit,
 ) {
+    val presets = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f)
     Column(
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("当前 ${rate}×", style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
-        listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f).chunked(3).forEach { row ->
+        if (rate !in presets) Text("当前 ${rate}×", style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
+        presets.chunked(3).forEach { row ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 row.forEach { value ->
                     val colors = if (rate == value) ButtonDefaults.filledTonalButtonColors(
