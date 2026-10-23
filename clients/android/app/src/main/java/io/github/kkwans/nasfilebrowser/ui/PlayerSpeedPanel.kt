@@ -1,5 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -7,12 +8,17 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error as inputError
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 @Composable internal fun PlayerSpeedHome(
@@ -69,17 +75,21 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
         Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        OutlinedTextField(
-            value = value, onValueChange = onValue,
-            shape = MaterialTheme.shapes.medium,
-            modifier = Modifier.fillMaxWidth().focusRequester(focus),
-            label = { Text(if (hold) "长按倍速" else "自定义倍速") },
-            supportingText = { Text(error ?: "支持 0.1–5 倍速") },
-            isError = error != null, enabled = !saving, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        FilewaySearchField(
+            value, onValue, "输入倍速",
+            Modifier.fillMaxWidth().focusRequester(focus)
+                .border(1.dp, if (error == null) Color.Transparent else MaterialTheme.colorScheme.error, MaterialTheme.shapes.medium)
+                .semantics {
+                    contentDescription = if (hold) "长按倍速" else "自定义倍速"
+                    if (error != null) inputError(error)
+                },
+            enabled = !saving, status = "×", actionIcon = R.drawable.ic_check,
+            actionLabel = if (hold) "保存长按倍速" else "应用播放倍速",
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Go),
+            containerColor = FilewayTheme.colors.surfaceContainerHigh, submit = onApply,
         )
-        FilewayButton(onClick = onApply, enabled = !saving, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(if (saving) "正在保存…" else if (hold) "保存到此设备" else "应用")
-        }
+        Text(error ?: if (saving) "正在保存…" else if (hold) "支持 0.1–5 倍速 · 保存到本机" else "支持 0.1–5 倍速",
+            style = FilewayTheme.text.metadata,
+            color = if (error != null) MaterialTheme.colorScheme.error else FilewayTheme.status.mediaSecondary)
     }
 }

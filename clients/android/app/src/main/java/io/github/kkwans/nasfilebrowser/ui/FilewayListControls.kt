@@ -13,6 +13,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -40,8 +41,9 @@ import kotlinx.coroutines.delay
 
 @Composable internal fun FilewaySearchField(value: String, change: (String) -> Unit, hint: String, modifier: Modifier = Modifier, enabled: Boolean = true, status: String? = null,
     actionIcon: Int = R.drawable.ic_search, actionLabel: String = hint, submitEnabled: Boolean = enabled,
-    keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), monospace: Boolean = false, submit: () -> Unit) {
-    BasicTextField(value, change, modifier.heightIn(min = 48.dp).background(MaterialTheme.colorScheme.surface, MaterialTheme.shapes.medium),
+    keyboardOptions: KeyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), monospace: Boolean = false,
+    containerColor: Color = MaterialTheme.colorScheme.surface, submit: () -> Unit) {
+    BasicTextField(value, change, modifier.heightIn(min = 48.dp).background(containerColor, MaterialTheme.shapes.medium),
         enabled = enabled, singleLine = true, cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary), textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface,
             fontFamily = if (monospace) androidx.compose.ui.text.font.FontFamily.Monospace else MaterialTheme.typography.bodyMedium.fontFamily),
         keyboardOptions = keyboardOptions, keyboardActions = KeyboardActions(onSearch = { if (submitEnabled) submit() }, onGo = { if (submitEnabled) submit() }),

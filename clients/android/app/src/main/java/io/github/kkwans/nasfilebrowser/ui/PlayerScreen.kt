@@ -776,14 +776,24 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         )
                         PlayerSheet.DECODER -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SourceField("实际解码方式", state.videoDecoderKind)
-                                SourceField("实际解码器", state.videoDecoder)
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("当前解码器", style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
+                                    SelectionContainer {
+                                        Text(state.videoDecoder.ifBlank { "引擎尚未报告" }, style = MaterialTheme.typography.bodyMedium,
+                                            fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                                if (state.videoDecoderKind.isNotBlank()) Text(state.videoDecoderKind,
+                                    Modifier.clip(MaterialTheme.shapes.medium).background(FilewayTheme.colors.surfaceContainerHigh)
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaContent)
                             }
                             VideoDecodePolicy.entries.forEach { policy ->
                                 Choice(policy.label, when (policy) {
-                                    VideoDecodePolicy.AUTO -> "优先硬件，故障时尝试可用的软件解码"
-                                    VideoDecodePolicy.HARDWARE -> "只使用硬件视频解码器"
+                                    VideoDecodePolicy.AUTO -> "解码故障时尝试可用的软件解码器"
+                                    VideoDecodePolicy.HARDWARE -> "不自动回退到软件解码"
                                     VideoDecodePolicy.SOFTWARE -> "使用设备提供的软件视频解码器"
                                 }, state.videoDecodePolicy == policy, enabled = !changingDecoder && !client.busy) {
                                     if (state.videoDecodePolicy != policy) {
@@ -997,15 +1007,17 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     Row(Modifier.padding(horizontal = 12.dp, vertical = 4.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(if (selected) FilewayTheme.colors.primary.copy(alpha = 0.10f) else Color.Transparent)
         .selectable(selected, enabled = enabled, role = Role.RadioButton, onClick = choose).alpha(if (enabled) 1f else .38f).heightIn(min = 56.dp).padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(title, fontSize = 15.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, color = if (selected) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent)
-            if (detail.isNotBlank()) Text(detail, fontSize = 12.sp, color = FilewayTheme.status.mediaSecondary)
+            Text(title, style = MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal, color = if (selected) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent)
+            if (detail.isNotBlank()) Text(detail, style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
         }
-        if (selected) Icon(painterResource(R.drawable.art_check), null, Modifier.size(20.dp), tint = FilewayTheme.colors.primary)
+        Box(Modifier.size(20.dp)) {
+            if (selected) Icon(painterResource(R.drawable.art_check), null, Modifier.size(20.dp), tint = FilewayTheme.colors.primary)
+        }
     }
 }
 @Composable private fun SourceField(label: String, value: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, fontSize = 12.sp, color = FilewayTheme.status.mediaSecondary)
-        SelectionContainer { Text(value, fontSize = 15.sp, lineHeight = 22.sp) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(label, style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
+        SelectionContainer { Text(value.ifBlank { "尚未提供" }, fontSize = 15.sp, lineHeight = 22.sp) }
     }
 }
