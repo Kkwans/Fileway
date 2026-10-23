@@ -58,12 +58,12 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                     }
                     Column(Modifier.fillMaxSize()) {
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
+                            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                     io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                                         io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.CONNECTION, state.previewScope,
-                                        Modifier.size(24.dp), play = drawer.isOpen && state.connected)
+                                        Modifier.size(22.dp), play = drawer.isOpen && state.connected)
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                         Text("栖卷 · Fileway", style = MaterialTheme.typography.titleMedium)
                                         Text(if (!state.connected) "尚未连接" else "已连接 · ${if (state.profile?.network == ConnectionMode.TAILNET) "Tailscale" else "本地网络"}",
@@ -72,7 +72,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                 }
                                 Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) {
                                     Row(Modifier.fillMaxWidth().clickable { navigate { if (state.connected) model.disconnect() else model.showConnection() } }
-                                        .heightIn(min = 48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
+                                        .heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Icon(painterResource(R.drawable.ic_server), null, Modifier.size(22.dp))
                                         Text(if (state.connected) "切换服务器或账号" else "连接服务器", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
