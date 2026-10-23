@@ -2,5 +2,12 @@
     <style name="Theme.NfbClient" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:fontFamily">sans</item>
+        <item name="android:dialogTheme">@style/Theme.NfbClient.Dialog</item>
+    </style>
+    <!-- Compose 1.12.1's dialog overlay does not declare translucency. Android's
+         window background blur requires it; this leaves the activity opaque.
+         See https://source.android.com/docs/core/display/window-blurs -->
+    <style name="Theme.NfbClient.Dialog" parent="android:style/Theme.Material.Dialog">
+        <item name="android:windowIsTranslucent">true</item>
     </style>
 </resources>

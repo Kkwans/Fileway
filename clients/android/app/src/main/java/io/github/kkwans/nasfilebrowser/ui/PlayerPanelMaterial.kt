@@ -22,7 +22,7 @@ import java.util.function.Consumer
  * The player's Surface remains untouched.
  */
 @Composable internal fun rememberPlayerPanelBlur(
-    window: Window?, landscape: Boolean, width: Int, height: Int, right: Int, top: Int, imeBottom: Int,
+    window: Window?, landscape: Boolean, width: Int, height: Int, right: Int, top: Int,
 ): Boolean {
     val manager = remember(window) { window?.context?.getSystemService(WindowManager::class.java) }
     var enabled by remember(window) {
@@ -40,7 +40,9 @@ import java.util.function.Consumer
             val attributes = it.attributes
             attributes.gravity = if (landscape) Gravity.TOP or Gravity.END else Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             attributes.x = if (landscape) right else 0
-            attributes.y = if (landscape) top else imeBottom
+            // Floating windows' parent frame already excludes the IME. Adding
+            // its height here would move the editor upward a second time.
+            attributes.y = if (landscape) top else 0
             attributes.width = width
             attributes.height = if (landscape) height else WindowManager.LayoutParams.WRAP_CONTENT
             attributes.flags = attributes.flags and (WindowManager.LayoutParams.FLAG_BLUR_BEHIND or WindowManager.LayoutParams.FLAG_DIM_BEHIND).inv()

@@ -1016,7 +1016,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             else (back ?: dismiss)()
         }
         val panelWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-        val panelBlurred = rememberPlayerPanelBlur(panelWindow, landscape, panelWidth, panelHeight, right, top, imeBottom)
+        val panelBlurred = rememberPlayerPanelBlur(panelWindow, landscape, panelWidth, panelHeight, right, top)
         PlayerWindowBars(panelWindow, immersive, FilewayTheme.status.mediaSurface.luminance() < .5f)
         SideEffect {
             @Suppress("DEPRECATION")
