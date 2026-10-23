@@ -28,6 +28,16 @@ class PlaybackPreferences(context: Context) {
     private val prefs = context.getSharedPreferences("playback_preferences", Context.MODE_PRIVATE)
     private val mutable = MutableStateFlow(prefs.getFloat("hold_rate", 3f).takeIf { it.isFinite() && it in .1f..5f } ?: 3f)
     val holdRate = mutable.asStateFlow()
+    private val presetWrites = Mutex()
+    private val presetMutable = MutableStateFlow(readPlaybackRatePresets(prefs.getString("rate_presets", null)))
+    val ratePresets = presetMutable.asStateFlow()
+    suspend fun saveRatePresets(values: List<Float>) = presetWrites.withLock {
+        val normalized = normalizePlaybackRatePresets(values)
+        withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+            check(prefs.edit().putString("rate_presets", normalized.joinToString(",")).commit()) { "无法保存倍速预设" }
+            presetMutable.value = normalized
+        }
+    }
     private val decoderWrites = Mutex()
     private val decoderMutable = MutableStateFlow(VideoDecodePolicy.entries.firstOrNull { it.name == prefs.getString("video_decoder", "AUTO") } ?: VideoDecodePolicy.AUTO)
     val videoDecodePolicy = decoderMutable.asStateFlow()
@@ -77,6 +87,20 @@ class HeldPlaybackRate(private val read: () -> Float, private val apply: (Float)
 }
 
 fun parsePlaybackRate(text: String): Float? = text.trim().replace(',', '.').toFloatOrNull()?.takeIf { it.isFinite() && it in .1f..5f }
+
+val DefaultPlaybackRatePresets: List<Float> = listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f, 3f, 4f, 5f)
+
+internal fun normalizePlaybackRatePresets(values: List<Float>): List<Float> {
+    require(values.isNotEmpty() && values.all { it.isFinite() && it in .1f..5f })
+    return values.distinct().sorted()
+}
+
+internal fun readPlaybackRatePresets(saved: String?): List<Float> {
+    if (saved == null) return DefaultPlaybackRatePresets
+    val values = saved.split(',').map { it.toFloatOrNull() ?: return DefaultPlaybackRatePresets }
+    return if (values.isNotEmpty() && values.all { it.isFinite() && it in .1f..5f })
+        normalizePlaybackRatePresets(values) else DefaultPlaybackRatePresets
+}
 
 /** Accept signed seconds from IMEs that emit full-width punctuation. */
 fun parseSubtitleDelayMillis(text: String): Long? {

@@ -105,7 +105,7 @@ import io.github.kkwans.nasfilebrowser.download.DownloadIndex
 import io.github.kkwans.nasfilebrowser.download.DownloadRuntime
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
-private enum class PlayerSheet { AUDIO, SUBTITLE, SUBTITLE_ADJUST, SUBTITLE_FONT, SPEED, SPEED_EDIT, SOURCE, DECODER, EXTERNAL, QUEUE }
+private enum class PlayerSheet { AUDIO, SUBTITLE, SUBTITLE_ADJUST, SUBTITLE_FONT, SPEED, SPEED_EDIT, SPEED_PRESETS, SOURCE, DECODER, EXTERNAL, QUEUE }
 private enum class PlayerDisplayMode { AUTOMATIC, PORTRAIT_FULLSCREEN, LANDSCAPE_FULLSCREEN }
 private tailrec fun Context.activity(): Activity? = when (this) {
     is Activity -> this
@@ -123,6 +123,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val queue = client.mediaQueue
     val liveState by rememberUpdatedState(state)
     val holdRate by model.playbackPreferences.holdRate.collectAsStateWithLifecycle()
+    val ratePresets by model.playbackPreferences.ratePresets.collectAsStateWithLifecycle()
     val savedSubtitleAppearance by model.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
     // A save acknowledgement must not replace edits made while the write was in flight.
     var subtitlePreview by remember { mutableStateOf(savedSubtitleAppearance) }
@@ -135,6 +136,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var editingHoldRate by remember { mutableStateOf(false) }
     var savingHoldRate by remember { mutableStateOf(false) }
     var speedEditRevision by remember { mutableIntStateOf(0) }
+    var savingPresets by remember { mutableStateOf(false) }
+    var presetError by remember { mutableStateOf<String?>(null) }
     var speedError by remember { mutableStateOf<String?>(null) }
     var changingDecoder by remember { mutableStateOf(false) }
     var subtitleOffset by remember(file) { mutableStateOf("") }
@@ -655,13 +658,13 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     }
                 }
                 if (sheet != null) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
-                    pageColors, fullscreen) { PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; PlayerSheet.DECODER -> "视频解码器"; else -> "播放信息" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
+                    pageColors, fullscreen) { PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_PRESETS -> "倍速预设"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; PlayerSheet.DECODER -> "视频解码器"; else -> "播放信息" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
                     { sheet = PlayerSheet.SUBTITLE; touch() }
                 } else if (sheet == PlayerSheet.SUBTITLE_FONT) {
                     { sheet = PlayerSheet.SUBTITLE_ADJUST; touch() }
-                } else if (sheet == PlayerSheet.SPEED_EDIT) {
+                } else if (sheet == PlayerSheet.SPEED_EDIT || sheet == PlayerSheet.SPEED_PRESETS) {
                     { sheet = PlayerSheet.SPEED; speedError = null; touch() }
-                } else null, feedback = feedback, backLabel = when (sheet) { PlayerSheet.SPEED_EDIT -> "返回播放速度"; PlayerSheet.SUBTITLE_FONT -> "返回字幕调整"; else -> "返回字幕轨道" },
+                } else null, feedback = feedback, backLabel = when (sheet) { PlayerSheet.SPEED_EDIT, PlayerSheet.SPEED_PRESETS -> "返回播放速度"; PlayerSheet.SUBTITLE_FONT -> "返回字幕调整"; else -> "返回字幕轨道" },
                     headerDetail = if (sheet == PlayerSheet.QUEUE) queue?.let { "${it.index + 1} / ${it.items.size}" } else null,
                     feedbackBottomInset = if (sheet == PlayerSheet.SUBTITLE_ADJUST) with(LocalDensity.current) { subtitleFooterHeight.toDp() } else 0.dp) {
                     when (sheet) {
@@ -737,8 +740,14 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         }
                         PlayerSheet.EXTERNAL -> NasSubtitlePicker(model, file, chosen = { sheet = PlayerSheet.SUBTITLE; touch() })
                         PlayerSheet.SPEED -> PlayerSpeedHome(
-                            rate = state.rate, holdRate = holdRate,
+                            rate = state.rate, holdRate = holdRate, presets = ratePresets,
                             onPreset = { model.player.rate(it); sheet = null; touch() },
+                            onEditPresets = {
+                                speedEditRevision += 1
+                                presetError = null
+                                sheet = PlayerSheet.SPEED_PRESETS
+                                touch()
+                            },
                             onEdit = { hold ->
                                 speedEditRevision += 1
                                 editingHoldRate = hold
@@ -746,6 +755,26 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                 speedError = null
                                 sheet = PlayerSheet.SPEED_EDIT
                                 touch()
+                            },
+                        )
+                        PlayerSheet.SPEED_PRESETS -> PlayerSpeedPresetsEditor(
+                            presets = ratePresets, saving = savingPresets, saveError = presetError,
+                            onSave = { values ->
+                                if (!savingPresets) {
+                                    savingPresets = true
+                                    presetError = null
+                                    val editRevision = speedEditRevision
+                                    uiScope.launch {
+                                        try {
+                                            model.playbackPreferences.saveRatePresets(values)
+                                            if (sheet == PlayerSheet.SPEED_PRESETS && speedEditRevision == editRevision) sheet = PlayerSheet.SPEED
+                                        } catch (cancelled: CancellationException) { throw cancelled }
+                                        catch (_: Exception) {
+                                            if (sheet == PlayerSheet.SPEED_PRESETS && speedEditRevision == editRevision) presetError = "倍速预设未能保存，请重试"
+                                            else feedback.showSnackbar("倍速预设未能保存，请重试")
+                                        } finally { savingPresets = false }
+                                    }
+                                }
                             },
                         )
                         PlayerSheet.SPEED_EDIT -> PlayerSpeedEditor(
