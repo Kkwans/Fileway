@@ -11,14 +11,13 @@
 
 ## Model routing and verification economy
 
-- The main Agent model is controlled by the user. The main Agent must remain on the
-  user's selected GPT-5.6 Luna Max and must never switch or route the main model on
-  its own. This rule describes subagent routing only.
-- Subagents are opt-in by scenario. Use the Luna worker for bounded routine software
-  engineering. Use a GPT-6.1 Sol subagent for visual work, difficult problems, or a
-  Luna attempt that cannot solve the issue or produces inadequate quality or speed.
-  Visual acceptance and ordinary visual checks use Sol at low reasoning intensity;
-  use high intensity only for difficult visual diagnosis or consequential decisions.
+- The main Agent model is controlled by the user; never switch or route it automatically.
+- Do not use Luna Max, gpt-5.6-luna or luna_worker subagents. When subagents are
+  authorized, use GPT-6.1 Sol with medium reasoning by default; low is allowed for
+  simple bounded work, and high for difficult diagnosis or consequential decisions.
+- The current 2026-10-24 user instruction is main-agent-only execution. Keep existing
+  subagents stopped and preserve their edits; do not spawn or resume any until the
+  user explicitly authorizes delegation again.
 - Do not spawn agents merely to parallelize routine work, and stop an agent when its
   result no longer justifies its token cost. Product quality takes precedence over
   token savings.
