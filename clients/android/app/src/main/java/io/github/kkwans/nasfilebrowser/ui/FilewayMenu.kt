@@ -187,13 +187,23 @@ internal fun FilewayMenu(
         DisposableEffect(window, root) {
             val decor = window?.decorView
             val observer = decor?.viewTreeObserver
+            val decorOrigin = IntArray(2)
+            val activityOrigin = IntArray(2)
             val listener = ViewTreeObserver.OnPreDrawListener {
                 if (window == null || decor == null || decor.height <= 0) true else {
                     val position = filewayMenuPosition(latestAnchor, availableBounds(),
                         IntSize(decor.width, decor.height), latestDirection)
                     val attributes = window.attributes
-                    if (attributes.x == position.x && attributes.y == position.y) true else {
-                        attributes.x = position.x; attributes.y = position.y
+                    decor.getLocationOnScreen(decorOrigin)
+                    root.getLocationOnScreen(activityOrigin)
+                    // WindowManager offsets a floating window from its parent
+                    // frame, which may already exclude status bars or cutouts.
+                    // The anchor is activity-local: translate using the actual
+                    // native origin instead of adding the safe inset twice.
+                    val x = position.x + activityOrigin[0] - (decorOrigin[0] - attributes.x)
+                    val y = position.y + activityOrigin[1] - (decorOrigin[1] - attributes.y)
+                    if (attributes.x == x && attributes.y == y) true else {
+                        attributes.x = x; attributes.y = y
                         window.attributes = attributes
                         decor.requestLayout()
                         false // Position before the first drawn frame, without a visible jump.
