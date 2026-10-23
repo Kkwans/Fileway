@@ -209,7 +209,10 @@ import kotlin.math.abs
             awaitCancellation()
         } catch (error: Exception) {
             if (error is CancellationException) throw error
-            if (requestToken == token && activeNow) failure = imageFailure(error)
+            // A prefetched neighbour can become active without restarting this
+            // effect. Keep its error so that page exposes retry instead of an
+            // endless spinner; only the active page renders the error surface.
+            if (requestToken == token) failure = imageFailure(error)
         } finally {
             if (readingLease === owned) readingLease = null
             if (asset?.lease === owned) asset = null
