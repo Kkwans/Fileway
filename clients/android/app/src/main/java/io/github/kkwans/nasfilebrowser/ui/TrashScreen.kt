@@ -27,7 +27,7 @@ import io.github.kkwans.nasfilebrowser.app.*
     val state by model.trash.state.collectAsStateWithLifecycle()
     var selecting by remember(state.scope) { mutableStateOf(false) }
     var selected by remember(state.scope) { mutableStateOf<Set<String>>(emptySet()) }
-    BackHandler(selecting) { selecting = false; selected = emptySet() }
+    BackHandler(selecting && LocalFilewayPageActive.current) { selecting = false; selected = emptySet() }
     var status by rememberSaveable(state.scope) { mutableStateOf("all") }
     var order by rememberSaveable(state.scope) { mutableStateOf("deleted") }
     var clearing by remember(state.scope) { mutableStateOf(false) }
@@ -44,7 +44,7 @@ import io.github.kkwans.nasfilebrowser.app.*
         if (canDelete || canRestore) IconButton({ selecting = !selecting; selected = emptySet() }, enabled = enabled) {
             Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple), if (selecting) "退出回收站多选" else "多选回收项目")
         }
-        IconButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) {
+        if (!selecting) IconButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) {
             Icon(painterResource(R.drawable.ic_trash), "清空回收站", tint = MaterialTheme.colorScheme.error)
         }
     }) {
