@@ -83,6 +83,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             _controls.RemoteSubtitleRequested += Controls_RemoteSubtitleRequested;
             _controls.EpisodeRequested += Controls_EpisodeRequested;
             _controls.QualitySelected += Controls_QualitySelected;
+            _controls.MiniWindowRequested += Controls_MiniWindowRequested;
             _controls.MinimizeRequested += Controls_MinimizeRequested;
             _controls.MaximizeRequested += Controls_MaximizeRequested;
             _controls.KeyDown += Controls_KeyDown;
@@ -123,6 +124,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     internal event EventHandler? RemoteSubtitleRequested;
     internal event EventHandler? EpisodeRequested;
     internal event EventHandler<string>? QualitySelected;
+    internal event EventHandler? MiniWindowRequested;
     internal bool SupportsRemoteSubtitles
     {
         get => _controls.SupportsRemoteSubtitles;
@@ -266,6 +268,11 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void Controls_QualitySelected(object? sender, string quality)
     {
         if (!_disposed) QualitySelected?.Invoke(this, quality);
+    }
+
+    private void Controls_MiniWindowRequested(object? sender, EventArgs args)
+    {
+        if (!_disposed) MiniWindowRequested?.Invoke(this, EventArgs.Empty);
     }
 
     private void Controls_AddSubtitleRequested(object? sender, EventArgs args)
@@ -645,6 +652,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         _controls.RemoteSubtitleRequested -= Controls_RemoteSubtitleRequested;
         _controls.EpisodeRequested -= Controls_EpisodeRequested;
         _controls.QualitySelected -= Controls_QualitySelected;
+        _controls.MiniWindowRequested -= Controls_MiniWindowRequested;
         _controls.MinimizeRequested -= Controls_MinimizeRequested;
         _controls.MaximizeRequested -= Controls_MaximizeRequested;
         _controls.KeyDown -= Controls_KeyDown;

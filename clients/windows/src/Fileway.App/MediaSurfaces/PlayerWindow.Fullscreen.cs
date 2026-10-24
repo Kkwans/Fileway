@@ -33,6 +33,7 @@ internal sealed partial class PlayerWindow
                 if (_wasMaximized && AppWindow.Presenter is OverlappedPresenter presenter) presenter.Maximize();
                 else AppWindow.MoveAndResize(_windowedBounds);
                 ApplyFramelessChrome();
+                if (_miniMode && AppWindow.Presenter is OverlappedPresenter restored) restored.IsResizable = false;
             }
             _overlay.SetFullscreen(DesiredFullscreen);
             UpdateBoundsCore();

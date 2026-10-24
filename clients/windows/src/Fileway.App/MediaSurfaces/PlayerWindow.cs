@@ -25,6 +25,8 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private Fileway.Core.Contracts.RemoteResourceRef? _compatibilityMedia;
     private string? _compatibilityTaskId;
     private SystemMediaController? _systemMedia;
+    private bool _miniMode;
+    private bool _miniWasTopmost;
     private IReadOnlyList<Fileway.Core.Contracts.RemoteMediaOption>? _episodeCache;
     private Fileway.Core.Contracts.RemoteResourceRef? _episodeCacheOrigin;
     private string? _advanceAttemptedWire;
@@ -137,6 +139,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _overlay.SupportsEpisodes = _remoteEpisodes is not null && session.Snapshot.Origin is not null;
         _overlay.SupportsCompatibilityPlayback = compatibility is not null && session.Snapshot.Origin is not null;
         _overlay.QualitySelected += Overlay_QualitySelected;
+        _overlay.MiniWindowRequested += Overlay_MiniWindowRequested;
         _overlay.MinimizeRequested += (_, _) => MinimizeWindow();
         _overlay.MaximizeRequested += (_, _) => ToggleWindowMaximized();
         _overlay.VideoPointerPressed += point => HandleVideoGesture(true, point, PlaybackVideoInputSurface.Hud);
@@ -750,6 +753,41 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private void Overlay_RemoteSubtitleRequested(object? sender, EventArgs args) => _ = AddRemoteSubtitleAsync();
 
     private void Overlay_QualitySelected(object? sender, string quality) => _ = SwitchCompatibilityQualityAsync(quality);
+
+    private void Overlay_MiniWindowRequested(object? sender, EventArgs args) => ToggleMiniWindow();
+
+    /// <summary>
+    /// Compact always-on-top window in the work-area corner; playback, HUD and system media
+    /// keys keep working. Fullscreen is unaffected: it takes over and restores the mini state.
+    /// </summary>
+    private void ToggleMiniWindow()
+    {
+        if (_disposed || _detached || _closing || FullscreenGeometry) return;
+        if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
+        _miniMode = !_miniMode;
+        var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
+        if (_miniMode)
+        {
+            SaveWindowSize();
+            _miniWasTopmost = presenter.IsAlwaysOnTop;
+            presenter.IsAlwaysOnTop = true;
+            presenter.IsResizable = false;
+            AppWindow.MoveAndResize(new RectInt32(
+                work.X + Math.Max(0, work.Width - 384 - 24), work.Y + Math.Max(0, work.Height - 216 - 24), 384, 216));
+        }
+        else
+        {
+            presenter.IsAlwaysOnTop = _miniWasTopmost;
+            presenter.IsResizable = true;
+            double scale = NativeVideoWindow.GetDpiForWindow(_window) / 96d;
+            if (scale <= 0 || !double.IsFinite(scale)) scale = 1;
+            var saved = PresentationPreferences.PlayerSize ?? (1120, 630);
+            int width = Math.Clamp((int)(saved.Width * scale), 320, work.Width);
+            int height = Math.Clamp((int)(saved.Height * scale), 180, work.Height);
+            AppWindow.MoveAndResize(new RectInt32(
+                work.X + Math.Max(0, (work.Width - width) / 2), work.Y + Math.Max(0, (work.Height - height) / 2), width, height));
+        }
+    }
 
     private async Task SwitchCompatibilityQualityAsync(string quality)
     {

@@ -120,6 +120,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public event EventHandler? RemoteSubtitleRequested;
     public event EventHandler? EpisodeRequested;
     public event EventHandler<string>? QualitySelected;
+    public event EventHandler? MiniWindowRequested;
     internal bool SupportsRemoteSubtitles { get; set; }
     internal bool SupportsEpisodes { get; set; }
     internal bool SupportsCompatibilityPlayback { get; set; }
@@ -585,6 +586,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (_snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio)) Add("音轨", "MusicNote2", () => ShowTracks(MoreButton, MediaTrackKind.Audio));
         Add("字幕", "ClosedCaption", () => ShowTracks(MoreButton, MediaTrackKind.Subtitle));
         if (SupportsEpisodes) Add("选集…", "ListVideo", () => EpisodeRequested?.Invoke(this, EventArgs.Empty));
+        Add("小窗模式", "PictureInPicture", () => MiniWindowRequested?.Invoke(this, EventArgs.Empty));
         if (SupportsCompatibilityPlayback)
         {
             var qualities = new MenuFlyoutSubItem { Text = "兼容画质" };
