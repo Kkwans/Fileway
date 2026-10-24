@@ -11,7 +11,8 @@ public sealed class RemoteSubtitleCatalog(IFileRepository files) : IRemoteSubtit
 {
     private const int Maximum = 50;
     private static readonly string[] Extensions = [".srt", ".ass", ".ssa", ".vtt", ".sub", ".idx"];
-    private static readonly string[] MediaExtensions = [".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".ts", ".m2ts", ".wmv", ".mpg", ".mpeg", ".flv"];
+    private static readonly string[] MediaExtensions = [".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".ts", ".m2ts", ".wmv", ".mpg", ".mpeg", ".flv",
+        ".mp3", ".flac", ".wav", ".aac", ".ogg", ".opus", ".m4a", ".wma", ".ape", ".mka", ".aiff"];
 
     public async Task<IReadOnlyList<RemoteSubtitleOption>> ListAsync(RemoteResourceRef media,
         CancellationToken cancellationToken)

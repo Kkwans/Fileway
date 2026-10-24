@@ -521,13 +521,13 @@ public sealed partial class MainPage : Page, IDisposable
                 window.SetTheme(Shell.RequestedTheme);
                 window.Closed += (_, _) => _imageWindows.Remove(window); window.Activate();
             }
-            else if (row.IsVideo && _playback is not null)
+            else if (row.IsMedia && _playback is not null)
             {
-                SetNotice("正在打开视频", row.Name, InfoBarSeverity.Informational);
+                SetNotice(row.IsAudio ? "正在打开音频" : "正在打开视频", row.Name, InfoBarSeverity.Informational);
                 await _playback.OpenAsync(new PlaybackOpenRequest(new RemotePlaybackInput(row.File.Resource)), _lifetime.Token);
                 if (CurrentOpen()) Notice.IsOpen = false;
             }
-            else SetNotice("暂不支持打开此文件", "本次原生预览支持图片与视频。你仍可浏览其他文件的名称、大小和修改时间。", InfoBarSeverity.Informational);
+            else SetNotice("暂不支持打开此文件", "本次原生预览支持图片、视频与音频。你仍可浏览其他文件的名称、大小和修改时间。", InfoBarSeverity.Informational);
         }
         catch (OperationCanceledException) { if (CurrentOpen()) SetNotice("打开已取消", "可以重新选择文件。", InfoBarSeverity.Informational); }
         catch (Exception exception) { if (CurrentOpen()) SetNotice("无法打开文件", ErrorMessage(exception), InfoBarSeverity.Error); }
@@ -836,13 +836,16 @@ public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = n
     private readonly BrowserPreferences _presentation = preferences ?? new();
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".heic", ".avif" };
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".ts", ".m2ts", ".wmv" };
+    internal static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp3", ".flac", ".wav", ".aac", ".ogg", ".opus", ".m4a", ".wma", ".ape", ".mka", ".aiff" };
     public RemoteFile File { get; } = file;
     public string Name => File.Resource.DisplayName;
     public bool IsImage => !File.IsDirectory && (File.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true || ImageExtensions.Contains(Path.GetExtension(Name)));
     public bool IsVideo => !File.IsDirectory && (File.MediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true || VideoExtensions.Contains(Path.GetExtension(Name)));
+    public bool IsAudio => !File.IsDirectory && (File.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true || AudioExtensions.Contains(Path.GetExtension(Name)));
+    public bool IsMedia => IsVideo || IsAudio;
     public string Glyph => File.IsDirectory ? "\uE8B7" : IsImage ? "\uEB9F" : IsVideo ? "\uE714" : "\uE8A5";
     public string IconName => File.IsDirectory ? "folder" : IsImage ? "image" : IsVideo ? "film-strip" : File.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true ? "headphones" : Path.GetExtension(Name).ToLowerInvariant() switch { ".srt" or ".ass" or ".txt" or ".md" => "article", ".cs" or ".py" or ".go" or ".json" => "file-code", _ => "file" };
-    public string Kind => File.IsDirectory ? "文件夹" : IsImage ? "图片" : IsVideo ? "视频" : string.IsNullOrEmpty(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant() + " 文件";
+    public string Kind => File.IsDirectory ? "文件夹" : IsImage ? "图片" : IsVideo ? "视频" : IsAudio ? "音频" : string.IsNullOrEmpty(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant() + " 文件";
     public string Size => File.IsDirectory ? "—" : FormatSize(File.Size);
     public string Summary => File.IsDirectory ? Kind : $"{Kind} · {Size}";
     public string Metadata => $"{Kind} · {Size} · {Modified}";

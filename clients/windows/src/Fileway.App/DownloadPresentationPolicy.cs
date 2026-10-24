@@ -61,7 +61,8 @@ internal static class DownloadPresentationPolicy
             (DownloadStatus.Verifying, TransferPhase.Verifying) or
             (DownloadStatus.Completed, TransferPhase.Completed) && item.Snapshot.LocalPublished) &&
         (Path.GetExtension(item.Source.DisplayName).ToLowerInvariant() is ".mp4" or ".mkv" or ".mov" or ".webm" or
-            ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv");
+            ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv" or
+            ".mp3" or ".flac" or ".wav" or ".aac" or ".ogg" or ".opus" or ".m4a" or ".wma" or ".ape" or ".mka" or ".aiff");
     internal static string PrimaryLabel(DownloadItem item) => !CanReconcile(item) ? ""
         : item.Snapshot.Intent == TransferIntent.Cancel ? "核实取消结果" : "核实本地结果";
 
