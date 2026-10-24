@@ -6,6 +6,8 @@ namespace Fileway.Infrastructure.Persistence;
 public interface ITransferTaskStore
 {
     bool IsPersistent { get; }
+    /// <summary>Under the caller's exact task OS lock, atomically claims and settles cancellation of a never-started download. No network/file work or active-run budget.</summary>
+    Task<TransferTaskRecord> CancelUnstartedDownloadAsync(TransferTaskRef task, long expectedRevision, Guid cancellationRunId, CancellationToken cancellationToken) => Task.FromException<TransferTaskRecord>(new NotSupportedException());
     Task RemoveTransferAsync(TransferTaskRef task, long expectedRevision, CancellationToken cancellationToken) => Task.FromException(new NotSupportedException());
     Task<TransferTaskRecord> CreateTransferAsync(TransferPlan plan, CancellationToken cancellationToken);
     Task<TransferTaskRecord?> GetTransferAsync(TransferTaskRef task, CancellationToken cancellationToken);

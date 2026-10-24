@@ -33,7 +33,7 @@ public interface IDownloadDestinationProvider
 public sealed record DownloadTaskProgress(TransferRunToken Run, long ReceivedBytes, long? ConfirmedOffset,
     long TotalBytes, TimeSpan Elapsed);
 
-/// <summary>Explicit, one-at-a-time fresh execution. Reconcile is local-only; there is no pause or resume operation.</summary>
+/// <summary>One fresh writer at a time. Reconcile is local-only; optional pause control does not imply restart/Range resume.</summary>
 public interface IFileDownloadRunner : IAsyncDisposable
 {
     event EventHandler<DownloadTaskProgress>? ProgressChanged;

@@ -23,11 +23,17 @@ public sealed partial class UploadApplicationService
         internal Binding Binding { get; } = binding;
         internal TransferTaskRef Task { get; } = task;
         internal CancellationTokenSource Stop { get; } = CancellationTokenSource.CreateLinkedTokenSource(caller);
+        internal CancellationTokenRegistration StopRegistration { get; set; }
         internal Task? StopRequested { get; set; }
-        internal TaskCompletionSource Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal TaskCompletionSource<DownloadCompletion> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal LinkedListNode<DownloadWork>? Node { get; set; }
+        internal bool Started { get; set; }
+        internal bool Canceling { get; set; }
         internal DownloadTaskProgress? PendingProgress { get; set; }
         internal bool ReadingProgress { get; set; }
     }
+
+    private sealed record DownloadCompletion(TransferTaskRecord? Record, FilewayException? Failure);
 
     private readonly Dictionary<TransferTaskRef, DownloadWork> _downloadExecutions = [];
     private readonly Dictionary<TransferTaskRef, DownloadItem> _downloadUpdates = [];
@@ -153,7 +159,7 @@ public sealed partial class UploadApplicationService
             lock (_gate)
             {
                 RequireCurrent(binding);
-                if (binding.DownloadDraining || _downloadExecutions.Count != 0) throw DownloadSafe(ErrorCode.Busy);
+                RequireDownloadQueueCapacityLocked(binding);
             }
             // Recheck the effective setting, never its pending restart value or a UI-supplied path.
             var settings = await StorageAsync(token => _downloads!.StorageSettings.ReadAsync(token), cancellationToken).ConfigureAwait(false);
@@ -164,27 +170,18 @@ public sealed partial class UploadApplicationService
             RequireCurrent(binding);
             _ = ObserveDownload(binding, created, publish: false);
             DownloadWork work;
-            Task<TransferTaskRecord> pending;
             lock (_gate)
             {
                 RequireCurrent(binding);
                 RequireDownloadPermission(binding);
-                if (binding.DownloadDraining || _downloadExecutions.Count != 0) throw DownloadSafe(ErrorCode.Busy);
+                RequireDownloadQueueCapacityLocked(binding);
                 work = new(binding, created.Plan.Reference, cancellationToken);
                 binding.DownloadItems[work.Task].Scheduled = true;
                 _downloadExecutions.Add(work.Task, work);
-                // Starting this exact authority and synchronous fencing share the same short gate. Never await here.
-                try { pending = _downloads!.Runner.RunAsync(work.Task, work.Stop.Token); }
-                catch
-                {
-                    _downloadExecutions.Remove(work.Task);
-                    binding.DownloadItems[work.Task].Scheduled = false;
-                    work.Stop.Dispose();
-                    work.Completion.TrySetResult();
-                    throw;
-                }
+                work.Node = _downloadQueue.AddLast(work);
+                RegisterDownloadStopLocked(work);
             }
-            _ = CompleteDownloadAsync(work, pending);
+            DispatchDownloads();
             lock (_gate)
             {
                 RequireCurrent(binding);
@@ -228,6 +225,7 @@ public sealed partial class UploadApplicationService
         await EnterAsync(cancellationToken).ConfigureAwait(false);
         Binding? binding = null;
         Task readers = Task.CompletedTask;
+        bool controlOperation = false;
         try
         {
             binding = RequireDownloadContext(context, task);
@@ -235,7 +233,8 @@ public sealed partial class UploadApplicationService
             RequireCurrent(binding);
             if (record.Plan.Reference != task || record.Plan.Direction != TransferDirection.Download) throw DownloadSafe(ErrorCode.InvalidRequest);
             _ = ObserveDownload(binding, record, publish: false);
-            Task<TransferTaskRecord> pending;
+            Task<TransferTaskRecord>? pending = null;
+            DownloadWork? queued = null;
             lock (_gate)
             {
                 RequireCurrent(binding);
@@ -245,13 +244,34 @@ public sealed partial class UploadApplicationService
                 item.Control = reconcile ? DownloadStatus.Reconciling : DownloadStatus.Canceling;
                 QueueDownloadUpdateLocked(ProjectDownload(binding, item));
                 readers = reconcile ? Task.CompletedTask : RevokePlaybackReadersLocked(binding, task);
-                pending = reconcile ? _downloads!.Runner.ReconcileAsync(task, cancellationToken)
-                    : _downloads!.Runner.CancelAsync(task, cancellationToken);
+                if (!reconcile && _downloadExecutions.TryGetValue(task, out var work) && !work.Started)
+                {
+                    // Detach a waiting item before invoking local cancellation. It must neither
+                    // enter the writer nor wait for an unrelated, potentially large download.
+                    queued = work;
+                    CancelQueuedDownloadLocked(work);
+                }
+                else
+                {
+                    _downloadControlOperations++;
+                    controlOperation = true;
+                    pending = reconcile ? _downloads!.Runner.ReconcileAsync(task, cancellationToken)
+                        : _downloads!.Runner.CancelAsync(task, cancellationToken);
+                }
             }
             // A retained native reader is allowed to outlive this command. Only its canceled
             // actual local/network operations and remote capability releases must settle here.
             TransferTaskRecord result;
-            try { result = await pending.ConfigureAwait(false); }
+            try
+            {
+                if (queued is not null)
+                {
+                    var completed = await queued.Completion.Task.ConfigureAwait(false);
+                    if (completed.Failure is { } failure) throw failure;
+                    result = completed.Record ?? throw DownloadSafe(ErrorCode.OutcomeUnknown);
+                }
+                else result = await pending!.ConfigureAwait(false);
+            }
             finally { await readers.ConfigureAwait(false); }
             RequireCurrent(binding);
             lock (_gate) binding.DownloadItems[task].Control = null;
@@ -278,7 +298,15 @@ public sealed partial class UploadApplicationService
         {
             // A synchronously throwing runner cannot abandon already-revoked network operations.
             try { await readers.ConfigureAwait(false); }
-            finally { _commands.Release(); }
+            finally
+            {
+                lock (_gate)
+                {
+                    if (controlOperation) _downloadControlOperations--;
+                    QueueDownloadDispatchLocked();
+                }
+                _commands.Release();
+            }
         }
     }
 
@@ -304,7 +332,7 @@ public sealed partial class UploadApplicationService
             ErrorCode.NetworkUnavailable or ErrorCode.Timeout => "下载连接已中断；此切片不续传，请核实并清理原任务后再明确下载。",
             ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable => "登录状态不可用，请重新连接后查看原下载任务。",
             ErrorCode.OutcomeUnknown => "本地下载发布结果尚未确认，请核实原任务，不要重复下载。",
-            ErrorCode.Busy => "传输仍在执行或等待释放，请稍后查看原任务。",
+            ErrorCode.Busy => "下载队列已满，或任务正在核实或等待释放，请稍后重试。",
             ErrorCode.HostExited => "连接服务已退出，请重新连接。",
             ErrorCode.CapabilityMissing or ErrorCode.ProtocolMismatch => "此下载能力或服务端响应暂不受支持。",
             _ => "下载操作未能完成，请查看原任务的本地状态。",

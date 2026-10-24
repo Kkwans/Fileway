@@ -6,6 +6,16 @@ namespace Fileway.Infrastructure.Persistence;
 
 public sealed partial class SqliteProfileStore
 {
+    public Task<TransferTaskRecord> CancelUnstartedDownloadAsync(TransferTaskRef task, long expectedRevision, Guid cancellationRunId, CancellationToken cancellationToken) => RunAsync(connection =>
+    {
+        TransferTaskValidation.Reference(task); TransferTaskValidation.ExpectedRevision(expectedRevision);
+        using var transaction = connection.BeginTransaction(deferred: false);
+        var stored = ReadTransfer(connection, transaction, task) ?? throw TransferTaskValidation.Conflict();
+        var next = TransferTaskValidation.CancelUnstartedDownload(stored.Record, expectedRevision, cancellationRunId, stored.LastRunId);
+        UpdateTransferRow(connection, transaction, stored.Record, next, cancellationRunId);
+        cancellationToken.ThrowIfCancellationRequested(); transaction.Commit(); return next;
+    }, cancellationToken);
+
     public Task RemoveTransferAsync(TransferTaskRef task, long expectedRevision, CancellationToken cancellationToken) => RunAsync(connection =>
     {
         using var transaction = connection.BeginTransaction(deferred: false);

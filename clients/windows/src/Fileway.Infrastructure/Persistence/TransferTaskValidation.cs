@@ -101,6 +101,19 @@ internal static class TransferTaskValidation
         return current with { Intent = intent, Revision = checked(current.Revision + 1), UpdatedAt = Now(current) };
     }
 
+    internal static bool IsUnstartedDownload(TransferTaskRecord record) => record.Plan.Direction == TransferDirection.Download &&
+        record.Generation == 0 && record.Run is null && record.Checkpoint == new TransferCheckpoint(TransferPhase.Queued);
+
+    internal static TransferTaskRecord CancelUnstartedDownload(TransferTaskRecord current, long expectedRevision, Guid cancellationRunId, Guid? lastRunId)
+    {
+        Revision(current, expectedRevision);
+        if (!IsUnstartedDownload(current) || current.Intent != TransferIntent.Cancel || lastRunId is not null) throw Conflict();
+        // A real, task-locked local cancellation owns this control generation. Neither
+        // the transient claim nor its budget reservation is published as an active writer.
+        var claimed = Claim(current, expectedRevision, cancellationRunId, lastRunId, recovery: true);
+        return Progress(claimed, claimed.Run!.Value, claimed.Revision, new(TransferPhase.Canceled), releaseRun: true);
+    }
+
     internal static TransferTaskRecord Claim(TransferTaskRecord current, long expectedRevision, Guid runId,
         Guid? lastRunId, bool recovery)
     {

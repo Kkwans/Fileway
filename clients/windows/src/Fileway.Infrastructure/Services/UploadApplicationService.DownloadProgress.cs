@@ -1,5 +1,6 @@
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
+using Fileway.Infrastructure.Persistence;
 
 namespace Fileway.Infrastructure.Services;
 
@@ -10,15 +11,18 @@ public sealed partial class UploadApplicationService
     private long _downloadPresentationRevision;
     private async Task CompleteDownloadAsync(DownloadWork work, Task<TransferTaskRecord> pending)
     {
+        TransferTaskRecord? record = null;
+        FilewayException? failure = null;
         try
         {
-            TransferTaskRecord record;
-            FilewayException? failure = null;
             try { record = await pending.ConfigureAwait(false); }
             catch (Exception error)
             {
                 failure = NormalizeDownload(error);
                 record = await ReadAsync(work.Task, CancellationToken.None).ConfigureAwait(false);
+                if (work.Started && work.Stop.IsCancellationRequested && TransferTaskValidation.IsUnstartedDownload(record))
+                    record = await _downloads!.Runner.CancelAsync(work.Task, CancellationToken.None).ConfigureAwait(false);
+                if (record.Checkpoint.Phase == TransferPhase.Canceled) failure = null;
             }
             lock (_gate)
             {
@@ -32,22 +36,20 @@ public sealed partial class UploadApplicationService
                 }
             }
         }
-        catch (Exception error) { RecordDownloadFailure(work.Binding, work.Task, error); }
+        catch (Exception error) { failure = NormalizeDownload(error); RecordDownloadFailure(work.Binding, work.Task, failure); }
         finally
         {
+            if (work.StopRequested is { } stopping)
+                try { await stopping.ConfigureAwait(false); } catch (Exception error) { failure ??= NormalizeDownload(error); }
+            work.StopRegistration.Dispose(); work.Stop.Dispose();
             lock (_gate)
             {
-                if (_downloadExecutions.TryGetValue(work.Task, out var current) && ReferenceEquals(current, work))
-                    _downloadExecutions.Remove(work.Task);
+                if (_downloadExecutions.TryGetValue(work.Task, out var current) && ReferenceEquals(current, work)) _downloadExecutions.Remove(work.Task);
+                if (ReferenceEquals(_activeDownloadWork, work)) _activeDownloadWork = null;
                 work.PendingProgress = null;
+                work.Completion.TrySetResult(new DownloadCompletion(record, failure));
+                QueueDownloadDispatchLocked();
             }
-            if (work.StopRequested is { } stopping)
-            {
-                try { await stopping.ConfigureAwait(false); }
-                catch (Exception) { /* Drain reports runner release; callback failure cannot retain this registration. */ }
-            }
-            work.Stop.Dispose();
-            work.Completion.TrySetResult();
         }
     }
 
@@ -58,24 +60,28 @@ public sealed partial class UploadApplicationService
         Task readers;
         lock (_gate)
         {
+            CancelDownloadWorkLocked(binding);
             pending = _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)).ToArray();
             readers = RevokePlaybackReadersLocked(binding);
         }
         FilewayException? failure = null;
         try { await Task.WhenAll(_downloads.Runner.StopAndDrainAsync(CancellationToken.None), readers).ConfigureAwait(false); }
         catch (Exception error) { failure = NormalizeDownload(error); }
-        // Runner release precedes application retirement. Completion callbacks retain their original binding even on failure.
-        if (pending.Length != 0) await Task.WhenAll(pending.Select(work => work.Completion.Task)).ConfigureAwait(false);
+        if (pending.Length != 0)
+        {
+            var results = await Task.WhenAll(pending.Select(work => work.Completion.Task)).ConfigureAwait(false);
+            failure ??= results.Select(result => result.Failure).FirstOrDefault(error => error is not null);
+        }
         if (failure is not null) throw failure;
     }
 
-    // Caller holds _gate. CancelAsync marks tokens synchronously but never executes callbacks on this stack.
     private void CancelDownloadWorkLocked(Binding binding)
     {
         _ = RevokePlaybackReadersLocked(binding);
-        foreach (var work in _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)))
+        foreach (var work in _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)).ToArray())
         {
             work.StopRequested ??= work.Stop.CancelAsync();
+            if (!work.Started) CancelQueuedDownloadLocked(work);
             if (ReferenceEquals(_current, binding) && binding.DownloadItems.TryGetValue(work.Task, out var item))
             {
                 item.Control = DownloadStatus.Canceling;
@@ -83,7 +89,6 @@ public sealed partial class UploadApplicationService
             }
         }
     }
-
     private async Task DrainDownloadPermissionAsync(Binding binding)
     {
         try { await DrainDownloadsAsync(binding).ConfigureAwait(false); }

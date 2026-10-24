@@ -4,6 +4,19 @@ namespace Fileway.Infrastructure.Persistence;
 
 public sealed partial class InMemoryProfileStore
 {
+    public Task<TransferTaskRecord> CancelUnstartedDownloadAsync(TransferTaskRef task, long expectedRevision, Guid cancellationRunId, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested(); TransferTaskValidation.Reference(task);
+        lock (_gate)
+        {
+            var current = _transfers.GetValueOrDefault(task) ?? throw TransferTaskValidation.Conflict();
+            var next = TransferTaskValidation.CancelUnstartedDownload(current, expectedRevision, cancellationRunId,
+                _transferRunIds.TryGetValue(task, out var previous) ? previous : null);
+            _ = TransferTaskValidation.Encode(next); cancellationToken.ThrowIfCancellationRequested();
+            _transfers[task] = next; _transferRunIds[task] = cancellationRunId; return Task.FromResult(next);
+        }
+    }
+
     public Task RemoveTransferAsync(TransferTaskRef task, long expectedRevision, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();

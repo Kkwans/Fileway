@@ -70,7 +70,13 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
 
     public async Task<TransferTaskRecord> CancelAsync(TransferTaskRef task, CancellationToken cancellationToken)
     {
-        long epoch = AdmissionEpoch();
+        var admission = RegisterCancellation();
+        try { return await CancelCoreAsync(task, cancellationToken).ConfigureAwait(false); }
+        finally { lock (_gate) { _cancellations.Remove(admission); admission.TrySetResult(); } }
+    }
+
+    private async Task<TransferTaskRecord> CancelCoreAsync(TransferTaskRef task, CancellationToken cancellationToken)
+    {
         var record = await SetCancelAsync(task, cancellationToken).ConfigureAwait(false);
         Execution? active;
         lock (_gate) active = _active?.Task == task ? _active : null;
@@ -83,6 +89,8 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             return completed;
         }
         if (IsTerminal(record)) return record;
+        if (TransferTaskValidation.IsUnstartedDownload(record) && await CancelUnstartedAsync(task).ConfigureAwait(false) is { } canceled) return canceled;
+        long epoch = AdmissionEpoch();
         return await StartExecution(task, ExecutionMode.Reconcile, epoch, CancellationToken.None).ConfigureAwait(false);
     }
 
@@ -413,14 +421,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         {
             try { await DrainRetainedReadersAsync(recheckReaders).ConfigureAwait(false); }
             catch (Exception error) { failure ??= Normalize(error); }
-            lock (_gate)
-            {
-                // Reopen admission and settle this exact single flight atomically. Otherwise a new
-                // worker could register while BeginDrain still returned the old, incomplete drain task.
-                _draining = false;
-                if (failure is null) completion.TrySetResult();
-                else completion.TrySetException(failure);
-            }
+            await FinishDrainCancellationsAsync(completion, failure).ConfigureAwait(false);
         }
     }
 
