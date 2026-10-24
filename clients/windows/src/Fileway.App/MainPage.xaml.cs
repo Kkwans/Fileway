@@ -24,6 +24,8 @@ public sealed partial class MainPage : Page, IDisposable
     private IImageContentService? _images;
     private ITextContentService? _texts;
     private IArchiveBrowseService? _archiveBrowse;
+    private IFileBytesService? _fileBytes;
+    private IStorageAnalysisService? _storageAnalysis;
     private IThumbnailContentService? _thumbnails;
     private readonly BrowserThumbnailController _thumbnailController;
     private IPlaybackService? _playback;
@@ -49,6 +51,10 @@ public sealed partial class MainPage : Page, IDisposable
     private readonly HashSet<ArchiveWindow> _archiveWindows = [];
     private readonly HashSet<PdfWindow> _pdfWindows = [];
     private const long ArchiveBrowseBudget = 64L * 1024 * 1024;
+    private static bool IsPdf(FileRow row) => !row.File.IsDirectory && row.File.Size <= PdfWindow.MaximumPdfBytes &&
+        (row.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ||
+         row.File.MediaType?.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) == true);
+
     private static bool IsZipArchive(FileRow row) => !row.File.IsDirectory &&
         row.File.Size <= ArchiveBrowseBudget &&
         (row.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
@@ -169,9 +175,10 @@ public sealed partial class MainPage : Page, IDisposable
     }
     public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images,
         IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null,
-        ITextContentService? texts = null, IArchiveBrowseService? archiveBrowse = null)
+        ITextContentService? texts = null, IArchiveBrowseService? archiveBrowse = null, IFileBytesService? fileBytes = null,
+        IStorageAnalysisService? storageAnalysis = null)
     {
-        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts; _archiveBrowse = archiveBrowse;
+        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts; _archiveBrowse = archiveBrowse; _fileBytes = fileBytes; _storageAnalysis = storageAnalysis;
         UpdateThumbnailContext();
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
@@ -544,6 +551,12 @@ public sealed partial class MainPage : Page, IDisposable
                 SetNotice(row.IsAudio ? "正在打开音频" : "正在打开视频", row.Name, InfoBarSeverity.Informational);
                 await _playback.OpenAsync(new PlaybackOpenRequest(new RemotePlaybackInput(row.File.Resource)), _lifetime.Token);
                 if (CurrentOpen()) Notice.IsOpen = false;
+            }
+            else if (IsPdf(row) && _fileBytes is { } pdfBytes)
+            {
+                var window = new PdfWindow(pdfBytes, row.File.Resource); _pdfWindows.Add(window);
+                window.SetTheme(Shell.RequestedTheme);
+                window.Closed += (_, _) => _pdfWindows.Remove(window); window.Activate();
             }
             else if (IsZipArchive(row) && _archiveBrowse is { } archives)
             {

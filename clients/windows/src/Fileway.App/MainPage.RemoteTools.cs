@@ -18,6 +18,8 @@ public sealed partial class MainPage
         SearchPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
         NasTasksPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
         TrashPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
+        StorageAnalysisPane.Attach(_storageAnalysis
+            ?? throw new InvalidOperationException("存储分析服务不可用。"));
         UpdateRemoteToolsContext();
     }
 
@@ -48,6 +50,7 @@ public sealed partial class MainPage
         if (SearchPane is not null) { SearchPane.Visibility = Visibility.Collapsed; SearchPane.SuspendView(); }
         if (NasTasksPane is not null) { NasTasksPane.Visibility = Visibility.Collapsed; NasTasksPane.SuspendView(); }
         if (TrashPane is not null) { TrashPane.Visibility = Visibility.Collapsed; TrashPane.SuspendView(); }
+        if (StorageAnalysisPane is not null) { StorageAnalysisPane.Visibility = Visibility.Collapsed; StorageAnalysisPane.SuspendView(); }
     }
 
     private async Task ShowSearchAsync(string? query = null)
@@ -71,6 +74,18 @@ public sealed partial class MainPage
         // Explicit submission starts NAS search; typing alone remains a local list filter.
         // AutoSuggestBox suppresses submission while the input method is composing text.
         if (!string.IsNullOrWhiteSpace(args.QueryText)) await ShowSearchAsync(args.QueryText);
+    }
+
+    private async void StorageTools_Click(object sender, RoutedEventArgs args)
+    {
+        if (!CanShowRemoteTools || _storageAnalysis is null) return;
+        CloseSidebarOverlay(); HideCollections(); UpdateRemoteToolsContext();
+        Workspace.Visibility = Visibility.Collapsed;
+        StorageAnalysisPane.Visibility = Visibility.Visible;
+        _thumbnailController.SetContext(null, null);
+        UpdateSelection();
+        StorageAnalysisPane.SetContext(_directory ?? _root);
+        await Task.CompletedTask;
     }
 
     private async void NasTasks_Click(object sender, RoutedEventArgs args)

@@ -127,7 +127,7 @@ public partial class App : Application, IAsyncDisposable
             _window.SetStorageSettings(storageSettings);
             _window.SetUploadService(_uploads);
             _window.SetDownloadService(_uploads);
-            await _window.SetServicesAsync(_uploads, _services, _services, _playback, _uploads, _services, _services, _services);
+            await _window.SetServicesAsync(_uploads, _services, _services, _playback, _uploads, _services, _services, _services, _services, _services);
             try { await storageSettings.InitializeCacheAsync(_lifetime.Token); }
             catch (OperationCanceledException) when (_closing) { }
             catch (FilewayException)

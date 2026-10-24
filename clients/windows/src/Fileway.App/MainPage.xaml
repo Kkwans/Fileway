@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<Page x:Class="Fileway.App.MainPage" xmlns:ui="using:Fileway.App.Controls" Background="Transparent" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App" xmlns:collections="using:Fileway.App.Controls.Collections" xmlns:browser="using:Fileway.App.Controls.Browser" xmlns:transfers="using:Fileway.App.Controls.Transfers" xmlns:recent="using:Fileway.App.Controls.Recent" xmlns:search="using:Fileway.App.Controls.Search" xmlns:nasTasks="using:Fileway.App.Controls.NasTasks" xmlns:trash="using:Fileway.App.Controls.Trash">
+<Page x:Class="Fileway.App.MainPage" xmlns:ui="using:Fileway.App.Controls" Background="Transparent" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App" xmlns:collections="using:Fileway.App.Controls.Collections" xmlns:browser="using:Fileway.App.Controls.Browser" xmlns:transfers="using:Fileway.App.Controls.Transfers" xmlns:recent="using:Fileway.App.Controls.Recent" xmlns:search="using:Fileway.App.Controls.Search" xmlns:nasTasks="using:Fileway.App.Controls.NasTasks" xmlns:trash="using:Fileway.App.Controls.Trash" xmlns:storageTools="using:Fileway.App.Controls.StorageTools">
  <Page.Resources>
   <ResourceDictionary>
    <ResourceDictionary.ThemeDictionaries>
@@ -129,6 +129,7 @@
      <Button x:Name="RecentAccessButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="RecentAccess_Click" IsEnabled="False" AutomationProperties.Name="最近访问" ToolTipService.ToolTip="最近访问"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="clock" Width="16" Height="16"/><TextBlock x:Name="RecentAccessLabel" Text="最近访问"/></StackPanel></Button>
      <Button x:Name="TransferCenterButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="TransferCenter_Click" IsEnabled="False" AutomationProperties.Name="传输中心" ToolTipService.ToolTip="传输中心"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/><TextBlock x:Name="TransferCenterLabel" Text="传输中心"/></StackPanel></Button>
      <Button x:Name="NasTasksButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="NasTasks_Click" IsEnabled="False" AutomationProperties.Name="文件任务" ToolTipService.ToolTip="文件任务"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="file-code" Width="16" Height="16"/><TextBlock x:Name="NasTasksLabel" Text="文件任务"/></StackPanel></Button>
+     <Button x:Name="StorageToolsButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="StorageTools_Click" IsEnabled="False" AutomationProperties.Name="存储工具" ToolTipService.ToolTip="存储工具"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="database" Width="16" Height="16"/><TextBlock Text="存储工具"/></StackPanel></Button>
      <Button x:Name="TrashPageButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="TrashPage_Click" IsEnabled="False" AutomationProperties.Name="回收站" ToolTipService.ToolTip="回收站"><StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE74D;" FontSize="16"/><TextBlock x:Name="TrashPageLabel" Text="回收站"/></StackPanel></Button>
     </StackPanel>
     <browser:SidebarCollectionsControl x:Name="SidebarCollections" IsEnabled="False"/>
@@ -226,6 +227,7 @@
   <nasTasks:NasTasksControl x:Name="NasTasksPane" Visibility="Collapsed"/>
   <trash:TrashControl x:Name="TrashPane" Visibility="Collapsed"/>
   <transfers:TransferCenterControl x:Name="TransfersPanel" Visibility="Collapsed"/>
+  <storageTools:StorageAnalysisControl x:Name="StorageAnalysisPane" Visibility="Collapsed"/>
   <collections:ResourceCollectionsControl x:Name="CollectionsPanel" Visibility="Collapsed"/>
   <Grid x:Name="ConnectionPanel" Background="Transparent">
    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
