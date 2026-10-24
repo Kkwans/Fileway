@@ -92,10 +92,8 @@ Column(Modifier.fillMaxSize()) {
                     onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids,
                     icon = { Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     meta = {
-                        Text(serverTime(item.createdAt), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                        Text(if (item.complete) readableSize(item.expectedSize) else (speed ?: ""),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        TransferListMeta(item.createdAt, item.activeMillis, item.timingComplete,
+                            item.status in setOf("running", "paused"), item.expectedSize)
                     },
                     actions = {
                         if (!selection.active) FilewayTaskActionStrip(cardActions, alwaysMenu = true, onAction = { action ->
@@ -111,14 +109,12 @@ Column(Modifier.fillMaxSize()) {
                         }, moreLabel = "上传操作：${item.name}")
                     },
                 ) {
-                    if (!item.complete && item.canResume) TransferProgressRow(progress, fraction, null, false,
+                    if (!item.complete && item.canResume) TransferProgressRow(progress, fraction, speed, false,
                         !state.busy && !selection.active, item.active, if (item.active) "暂停上传" else "继续上传") {
                         if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
                     }
                     if (item.status !in setOf("running", "paused", "completed")) Text(status, style = MaterialTheme.typography.bodySmall,
                         color = if (item.status in setOf("failed", "expired")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.timingComplete || item.activeMillis > 0) Text(transferSummary(item.uploaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }

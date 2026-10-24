@@ -63,10 +63,11 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
             }
             if (!selection.active && singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && (state.total > 0 || singleBulk == "archive-ended")) {
                 Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_trash),
-                    if (singleBulk == "batch-unarchive") "恢复全部记录" else "删除全部已结束任务记录", Modifier.size(22.dp))
+                    if (singleBulk == "batch-unarchive") "恢复全部记录" else "删除全部已结束任务记录", Modifier.size(22.dp),
+                    tint = if (singleBulk == "batch-unarchive") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
             } else if (!selection.active && state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) {
                 IconButton({ confirmAction(null, "batch-archive") }, enabled = enabled && state.total > 0) {
-                    Icon(painterResource(R.drawable.ic_trash), "删除全部已结束记录", Modifier.size(22.dp))
+                    Icon(painterResource(R.drawable.ic_trash), "删除全部已结束记录", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.error)
                 }
                 IconButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) {
                     Icon(painterResource(R.drawable.ic_refresh), "批量重试", Modifier.size(22.dp))

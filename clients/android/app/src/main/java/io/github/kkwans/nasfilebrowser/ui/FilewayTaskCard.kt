@@ -46,17 +46,13 @@ internal fun FilewayTaskCard(
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { icon() }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        titleSupporting?.invoke()
-                    }
-                    actions()
-                }
+                Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                titleSupporting?.invoke()
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) { meta() }
                 body()
             }
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { actions() }
         }
     }
     val click = onClick ?: titleAction
@@ -115,7 +111,7 @@ internal fun transferRuntime(millis: Long, completeHistory: Boolean): String {
         seconds >= 60 -> "${seconds / 60}分${seconds % 60}秒"
         else -> "$seconds 秒"
     }
-    return (if (completeHistory) "运行 " else "已记录 ") + value
+    return (if (completeHistory) "用时 " else "升级后用时 ") + value
 }
 
 @Composable internal fun TransferProgressRow(progress: String, fraction: Float, speed: String?, indeterminate: Boolean,
@@ -135,3 +131,19 @@ internal fun transferSummary(bytes: Long, millis: Long, completeHistory: Boolean
     if (!completeHistory && millis <= 0) "运行耗时未记录" else transferRuntime(millis, completeHistory) +
         (io.github.kkwans.nasfilebrowser.data.transferAverageBytesPerSecond(bytes, millis, completeHistory)
             ?.let { " · 平均 ${readableSize(it)}/s" } ?: "")
+
+/** Creation time stays at end; active elapsed replaces completed-file size at start. */
+@Composable internal fun RowScope.TransferListMeta(createdAt: Long, millis: Long,
+    completeHistory: Boolean, showElapsed: Boolean, expectedSize: Long) {
+    val elapsed = if (!showElapsed) null else when {
+        millis <= 0 -> "用时 —"
+        millis < 1000 -> if (completeHistory) "用时不足 1 秒" else "用时 —"
+        completeHistory -> transferRuntime(millis, true)
+        else -> transferRuntime(millis, true).replace("用时 ", "用时 ≥ ")
+    }
+    Text(elapsed ?: if (expectedSize >= 0) readableSize(expectedSize) else "大小待确认",
+        Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 1, overflow = TextOverflow.Ellipsis)
+    Text(serverTime(createdAt), style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+}
