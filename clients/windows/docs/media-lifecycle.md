@@ -161,20 +161,23 @@ Runtime packages require pinned hashes, actual configuration/nonfree checks, com
 
 ## Native shutdown investigation boundary
 
-The application shutdown crash remains unresolved. Native smoke run `39091009837`
+The application shutdown crash has been attributed to an externally-owned ANSI
+Windows hook procedure called from a freed region; see
+[player-exit-cfg-analysis.md](player-exit-cfg-analysis.md) for the full
+evidence chain and the remaining follow-up. Native smoke run `39091009837`
 completed moving-frame, three settings cycles, pause/resume, button/F11 fullscreen
 cycles and player-surface close, then failed application shutdown with
 `0xC0000409`, fast-fail subcode 10. Completing those interactions does not grant a
 full smoke pass. The main close call did not return after its Closed markers.
 
-The same run's bounded dispatch evidence identifies `USER32!DispatchHookA`
+The bounded dispatch evidence identifies `USER32!DispatchHookA`
 (`shutdown-dispatch-frame`, frame index 3, symbol ID 5). The candidate target is
-in a `MEM_FREE` region. This supports investigating an invalid Windows hook
-callback, but does not identify the registering library or prove that libmpv
-owns it. Existing debugger attachment occurs after player closure and therefore
-cannot establish the hook registration/unregistration lifetime. Attribution
-requires matching the callback to its registration and corresponding unhook;
-changing CFG policy or retaining a DLL without ownership evidence is not a fix.
+in a `MEM_FREE` region. All shipped Fileway binaries and dependencies import no
+hook APIs, and in-process `SetWindowsHookExA/W` breakpoints never fired during a
+complete local run, so the registration happened outside this process's
+user32 imports. Attribution to a named external owner still requires a live
+bounded capture, which is a harness change pending re-authorization; changing
+CFG policy or retaining a DLL without ownership evidence is not a fix.
 
 Shutdown preparation and native close interception are shared window code.
 Only owners subscribing to `CloseRequested` intercept `WM_CLOSE`; image viewers
