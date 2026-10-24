@@ -6,6 +6,38 @@ import (
 	"testing"
 )
 
+func TestDeleteSelectedPreservesOtherUsersAndUnselectedEntries(t *testing.T) {
+	storage := NewStorage(newMemoryBackend())
+	first, err := storage.Record(1, "file.rename", "/first", "", StatusSuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, err := storage.Record(1, "file.rename", "/keep", "", StatusSuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := storage.Record(2, "file.rename", "/other", "", StatusSuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := storage.DeleteSelected(1, []string{first.ID, first.ID, other.ID, "missing"})
+	if err != nil || deleted != 1 {
+		t.Fatalf("deleted=%d error=%v", deleted, err)
+	}
+	rows, err := storage.List(1, 0)
+	if err != nil || len(rows) != 1 || rows[0].ID != keep.ID {
+		t.Fatalf("own rows=%v error=%v", rows, err)
+	}
+	rows, err = storage.List(2, 0)
+	if err != nil || len(rows) != 1 || rows[0].ID != other.ID {
+		t.Fatalf("other rows=%v error=%v", rows, err)
+	}
+	deleted, err = storage.DeleteSelected(1, nil)
+	if err != nil || deleted != 0 {
+		t.Fatalf("empty selection deleted=%d error=%v", deleted, err)
+	}
+}
+
 func TestHistoryIsPrivateBoundedAndHidesOwner(t *testing.T) {
 	backend := newMemoryBackend()
 	storage := NewStorage(backend)

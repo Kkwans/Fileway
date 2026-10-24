@@ -146,6 +146,7 @@ func NewHandler(
 	api.Handle("/archives/extractions/{id}", monkey(archiveExtractResultHandler, "")).Methods("GET")
 	api.Handle("/history", monkey(historyListHandler, "")).Methods("GET")
 	api.Handle("/history", monkey(historyDeleteAllHandler, "")).Methods("DELETE")
+	api.Handle("/history/delete", monkey(historyDeleteSelectedHandler, "")).Methods("POST")
 	api.Handle("/recent", monkey(recentListHandler, "")).Methods("GET")
 	api.Handle("/recent", monkey(recentRecordHandler, "")).Methods("POST")
 	api.Handle("/media/playback", monkey(playbackGetHandler, "")).Methods("GET")

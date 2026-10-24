@@ -12,6 +12,47 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/users"
 )
 
+func TestHistorySelectedDeleteIsScopedAndRejectsEmpty(t *testing.T) {
+	h := newTrashHTTPHarness(t, users.User{Username: "admin", Perm: users.Permissions{Admin: true}}, users.User{Username: "member"})
+	admin := trashHTTPUserByName(t, h, "admin")
+	member := trashHTTPUserByName(t, h, "member")
+	one, err := h.storage.History.Record(admin.ID, "file.rename", "/one", "", history.StatusSuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keep, err := h.storage.History.Record(admin.ID, "file.rename", "/keep", "", history.StatusSuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := h.storage.History.Record(member.ID, "file.rename", "/other", "", history.StatusSuccess)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.NewReader(fmt.Sprintf(`{"ids":[%q,%q,%q]}`, one.ID, one.ID, other.ID))
+	response := h.request(t, admin.ID, historyDeleteSelectedHandler, http.MethodPost, "/history/delete", body, nil)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var result historyDeleteAllResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || result.Deleted != 1 {
+		t.Fatalf("result=%+v error=%v", result, err)
+	}
+	for _, bad := range []string{`{"ids":[]}`, `{"ids":[""]}`, `{"ids":["missing"],"all":true}`, `{"ids":["missing"]} {}`} {
+		response = h.request(t, admin.ID, historyDeleteSelectedHandler, http.MethodPost, "/history/delete", strings.NewReader(bad), nil)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("invalid request status=%d body=%s", response.Code, response.Body.String())
+		}
+	}
+	rows, err := h.storage.History.List(admin.ID, 0)
+	if err != nil || len(rows) != 1 || rows[0].ID != keep.ID {
+		t.Fatalf("unselected own rows changed: %v %v", rows, err)
+	}
+	rows, err = h.storage.History.List(member.ID, 0)
+	if err != nil || len(rows) != 1 || rows[0].ID != other.ID {
+		t.Fatalf("other user changed: %v %v", rows, err)
+	}
+}
+
 func TestHistoryHTTPIsPrivateEvenForAdmin(t *testing.T) {
 	h := newTrashHTTPHarness(t,
 		users.User{Username: "admin", Perm: users.Permissions{Admin: true}},

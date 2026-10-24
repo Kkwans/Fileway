@@ -123,6 +123,32 @@ func (storage *Storage) DeleteAll(userID uint) (int, error) {
 	return deleted, nil
 }
 
+// DeleteSelected is scoped in storage as well as HTTP: IDs belonging to other
+// users are never looked up or removed, even when the caller is an admin.
+func (storage *Storage) DeleteSelected(userID uint, ids []string) (int, error) {
+	storage.mu.Lock()
+	defer storage.mu.Unlock()
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	entries, err := storage.back.GetByUser(userID)
+	if err != nil {
+		return 0, err
+	}
+	deleted := 0
+	for _, entry := range entries {
+		if _, ok := wanted[entry.ID]; !ok {
+			continue
+		}
+		if err := storage.back.Delete(entry.ID); err != nil {
+			return deleted, err
+		}
+		deleted++
+	}
+	return deleted, nil
+}
+
 func (storage *Storage) prune(userID uint) error {
 	entries, err := storage.back.GetByUser(userID)
 	if err != nil {

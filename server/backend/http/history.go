@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -87,6 +88,37 @@ var historyDeleteAllHandler = withUser(func(w http.ResponseWriter, r *http.Reque
 		return http.StatusServiceUnavailable, fmt.Errorf("操作历史服务不可用")
 	}
 	deleted, err := d.store.History.DeleteAll(d.user.ID)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return renderJSON(w, r, historyDeleteAllResponse{Deleted: deleted})
+})
+
+var historyDeleteSelectedHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	if d.store.History == nil {
+		return http.StatusServiceUnavailable, fmt.Errorf("操作历史服务不可用")
+	}
+	var request struct {
+		IDs []string `json:"ids"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		return http.StatusBadRequest, fmt.Errorf("删除条目无效: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return http.StatusBadRequest, fmt.Errorf("删除请求只能包含一个对象")
+	}
+	if len(request.IDs) == 0 || len(request.IDs) > history.MaxEntriesPerUser {
+		return http.StatusBadRequest, fmt.Errorf("请选择 1 到 %d 条操作记录", history.MaxEntriesPerUser)
+	}
+	for _, id := range request.IDs {
+		if strings.TrimSpace(id) == "" || len(id) > 200 {
+			return http.StatusBadRequest, fmt.Errorf("记录标识无效")
+		}
+	}
+	deleted, err := d.store.History.DeleteSelected(d.user.ID, request.IDs)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
