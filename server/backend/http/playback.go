@@ -173,3 +173,40 @@ func playbackFile(d *data, value string) (*files.FileInfo, string, int, error) {
 func finiteNonNegative(value float64) bool {
 	return value >= 0 && !math.IsNaN(value) && !math.IsInf(value, 0)
 }
+
+var playbackSelectedDeleteHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	var request struct {
+		Items []struct {
+			WirePath  string `json:"wirePath"`
+			Identity  string `json:"identity"`
+			UpdatedAt int64  `json:"updatedAt"`
+		} `json:"items"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&request); err != nil || len(request.Items) < 1 || len(request.Items) > 100 {
+		return http.StatusBadRequest, fmt.Errorf("请选择1到100条播放记录")
+	}
+	refs := make([]playback.DeleteRef, 0, len(request.Items))
+	for _, item := range request.Items {
+		value, err := decodeResourceWirePath(item.WirePath)
+		if err != nil || item.Identity == "" || item.UpdatedAt <= 0 {
+			return http.StatusBadRequest, fmt.Errorf("播放记录标识无效")
+		}
+		refs = append(refs, playback.DeleteRef{Path: value, Identity: item.Identity, UpdatedAt: item.UpdatedAt})
+	}
+	deleted, err := d.store.Playback.DeleteSelected(d.user.ID, refs)
+	if errors.Is(err, playback.ErrRevisionChanged) {
+		return http.StatusConflict, fmt.Errorf("播放记录已变化，请刷新后重新选择")
+	}
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return renderJSON(w, r, map[string]int{"deleted": deleted, "acknowledged": len(request.Items)})
+})
+
+var playbackClearHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	deleted, err := d.store.Playback.DeleteSelected(d.user.ID, nil)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return renderJSON(w, r, map[string]int{"deleted": deleted})
+})

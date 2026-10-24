@@ -159,3 +159,37 @@ func TestPlaybackHTTPAudioIdentityIsReadOnlyWithoutBodyReadsAndTextRemainsReject
 		t.Fatalf("audio/text identity checks opened file bodies %d times", counting.openCalls)
 	}
 }
+
+func TestPlaybackSelectedDeleteProtectsRevisionAndOwner(t *testing.T) {
+	h := newTrashHTTPHarness(t, users.User{Username: "owner"}, users.User{Username: "other"})
+	owner := trashHTTPUserByName(t, h, "owner")
+	other := trashHTTPUserByName(t, h, "other")
+	first, err := h.storage.Playback.Save(owner.ID, "/gone.mp4", "first", 1, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.storage.Playback.Save(other.ID, "/gone.mp4", "first", 2, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(identity string, stamp int64) []byte {
+		b, _ := json.Marshal(map[string]interface{}{"items": []map[string]interface{}{{"wirePath": "/gone.mp4", "identity": identity, "updatedAt": stamp}}})
+		return b
+	}
+	response := h.request(t, owner.ID, playbackSelectedDeleteHandler, http.MethodPost, "/media/playback/delete", bytes.NewReader(request("stale", first.UpdatedAt)), nil)
+	if response.Code != http.StatusConflict {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	response = h.request(t, owner.ID, playbackSelectedDeleteHandler, http.MethodPost, "/media/playback/delete", bytes.NewReader(request(first.Identity, first.UpdatedAt)), nil)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"deleted":1`) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	// Deleting metadata still works after its media has gone; no filesystem permission bypass is involved.
+	response = h.request(t, owner.ID, playbackClearHandler, http.MethodDelete, "/media/playback/recent", nil, nil)
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	if _, err := h.storage.Playback.Get(other.ID, "/gone.mp4", "first"); err != nil {
+		t.Fatal(err)
+	}
+}

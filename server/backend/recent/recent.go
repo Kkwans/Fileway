@@ -184,6 +184,35 @@ func (storage *Storage) Remove(userID uint, id string) error {
 	return ErrNotExist
 }
 
+// DeleteSelected deletes only acknowledged IDs owned by this user; nil means clear all.
+// Mutations share the same lock as recording/path rewrites and restore on failure.
+func (storage *Storage) DeleteSelected(userID uint, ids []string) (int, error) {
+	storage.mu.Lock()
+	defer storage.mu.Unlock()
+	all, err := storage.back.GetAll()
+	if err != nil {
+		return 0, err
+	}
+	chosen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		chosen[id] = true
+	}
+	deleted := make([]*Entry, 0)
+	for _, entry := range all {
+		if entry.UserID != userID || ids != nil && !chosen[entry.ID] {
+			continue
+		}
+		if err := storage.back.Delete(entry.ID); err != nil {
+			for _, old := range deleted {
+				err = errors.Join(err, storage.back.Save(old))
+			}
+			return 0, err
+		}
+		deleted = append(deleted, entry.Clone())
+	}
+	return len(deleted), nil
+}
+
 func (storage *Storage) RewritePathPrefix(from, to string, mapper ...pathmeta.Mapper) (*PathMutation, error) {
 	storage.mu.Lock()
 	defer storage.mu.Unlock()

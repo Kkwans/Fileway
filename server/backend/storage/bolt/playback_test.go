@@ -1,6 +1,7 @@
 package bolt
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -42,5 +43,29 @@ func TestPlaybackBackendUpdatesZeroPositionAndDurationInOneRecord(t *testing.T) 
 	}
 	if loaded.Identity != entry.Identity || loaded.Position != 0 || loaded.Duration != 0 || loaded.UpdatedAt != 2 {
 		t.Fatalf("updated playback = %#v", loaded)
+	}
+}
+
+func TestPlaybackClearIncludesMoreThanRecentPageAndKeepsOtherOwner(t *testing.T) {
+	db, err := storm.Open(filepath.Join(t.TempDir(), "playback-clear.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	storage := playback.NewStorage(playbackBackend{db: db})
+	for i := 0; i < 105; i++ {
+		if _, err := storage.Save(7, fmt.Sprintf("/%d.mp4", i), "identity", 0, 1); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := storage.Save(8, "/private.mp4", "identity", 0, 1); err != nil {
+		t.Fatal(err)
+	}
+	count, err := storage.DeleteSelected(7, nil)
+	if err != nil || count != 105 {
+		t.Fatal(count, err)
+	}
+	if _, err := storage.Get(8, "/private.mp4", "identity"); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -11,6 +11,7 @@ import (
 )
 
 var ErrNotExist = errors.New("playback position not found")
+var ErrRevisionChanged = errors.New("playback history revision changed")
 
 // Entry stores one user's last position for one normalized video path. The
 // file identity prevents a replacement file at the same path from inheriting
@@ -153,4 +154,61 @@ func (storage *Storage) Delete(userID uint, value string) error {
 func entryID(userID uint, value string) string {
 	digest := sha256.Sum256([]byte(pathmeta.Clean(value)))
 	return fmt.Sprintf("%d:%x", userID, digest[:])
+}
+
+// DeleteRef identifies the exact progress revision shown to the user.
+type DeleteRef struct {
+	Path, Identity string
+	UpdatedAt      int64
+}
+
+func (storage *Storage) DeleteSelected(userID uint, refs []DeleteRef) (int, error) {
+	storage.mu.Lock()
+	defer storage.mu.Unlock()
+	var entries []*Entry
+	if refs == nil {
+		lister, ok := storage.back.(interface{ All(uint) ([]*Entry, error) })
+		if !ok {
+			return 0, fmt.Errorf("playback history clearing unavailable")
+		}
+		var err error
+		entries, err = lister.All(userID)
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		seen := map[string]bool{}
+		for _, ref := range refs {
+			id := entryID(userID, ref.Path)
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			entry, err := storage.back.GetByID(id)
+			if errors.Is(err, ErrNotExist) {
+				continue
+			}
+			if err != nil {
+				return 0, err
+			}
+			if entry.UserID != userID || pathmeta.Clean(entry.Path) != pathmeta.Clean(ref.Path) || entry.Identity != ref.Identity || entry.UpdatedAt != ref.UpdatedAt {
+				return 0, ErrRevisionChanged
+			}
+			entries = append(entries, entry)
+		}
+	}
+	deleted := make([]*Entry, 0)
+	for _, entry := range entries {
+		if entry.UserID != userID {
+			continue
+		}
+		if err := storage.back.Delete(entry.ID); err != nil && !errors.Is(err, ErrNotExist) {
+			for _, old := range deleted {
+				err = errors.Join(err, storage.back.Save(old))
+			}
+			return 0, err
+		}
+		deleted = append(deleted, entry.Clone())
+	}
+	return len(deleted), nil
 }

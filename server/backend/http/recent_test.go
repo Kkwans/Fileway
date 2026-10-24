@@ -250,3 +250,42 @@ func TestRecentPathsFollowRenameAndDisappearInTrash(t *testing.T) {
 		t.Fatalf("recent after trash = %#v", entries)
 	}
 }
+
+func TestRecentSelectedAndClearDeleteStayPrivate(t *testing.T) {
+	h := newTrashHTTPHarness(t, users.User{Username: "owner"}, users.User{Username: "other"})
+	owner := trashHTTPUserByName(t, h, "owner")
+	other := trashHTTPUserByName(t, h, "other")
+	first, err := h.storage.Recent.Record(owner.ID, "/one", "one", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := h.storage.Recent.Record(owner.ID, "/two", "two", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := h.storage.Recent.Record(other.ID, "/private", "private", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := h.request(t, owner.ID, recentDeleteHandler, http.MethodPost, "/recent/delete", bytes.NewBufferString(`{"ids":[]}`), nil)
+	if response.Code != http.StatusBadRequest {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	body, _ := json.Marshal(map[string]interface{}{"ids": []string{first.ID, first.ID, foreign.ID}})
+	response = h.request(t, owner.ID, recentDeleteHandler, http.MethodPost, "/recent/delete", bytes.NewReader(body), nil)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"deleted":1`) {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	rows, err := h.storage.Recent.List(owner.ID, 100)
+	if err != nil || len(rows) != 1 || rows[0].ID != second.ID {
+		t.Fatal(rows, err)
+	}
+	response = h.request(t, owner.ID, recentClearHandler, http.MethodDelete, "/recent", nil, nil)
+	if response.Code != http.StatusOK {
+		t.Fatal(response.Code, response.Body.String())
+	}
+	rows, err = h.storage.Recent.List(other.ID, 100)
+	if err != nil || len(rows) != 1 || rows[0].ID != foreign.ID {
+		t.Fatal(rows, err)
+	}
+}

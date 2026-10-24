@@ -98,3 +98,16 @@ func (record *playbackRecord) entry() *playback.Entry {
 		Duration: record.Duration, UpdatedAt: record.UpdatedAt,
 	}
 }
+
+func (backend playbackBackend) All(userID uint) ([]*playback.Entry, error) {
+	var records []playbackRecord
+	err := backend.db.Select(q.Eq("UserID", userID)).Find(&records)
+	if err != nil && !errors.Is(err, storm.ErrNotFound) {
+		return nil, err
+	}
+	result := make([]*playback.Entry, 0, len(records))
+	for _, record := range records {
+		result = append(result, record.entry())
+	}
+	return result, nil
+}

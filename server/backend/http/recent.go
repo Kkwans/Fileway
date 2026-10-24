@@ -96,3 +96,30 @@ func recentResourcePath(request recentRecordRequest) (string, error) {
 	}
 	return resourcePath, nil
 }
+
+var recentDeleteHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	var request struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 32768)).Decode(&request); err != nil || len(request.IDs) < 1 || len(request.IDs) > 100 {
+		return http.StatusBadRequest, fmt.Errorf("请选择1到100条最近访问记录")
+	}
+	for _, id := range request.IDs {
+		if strings.TrimSpace(id) == "" || len(id) > 128 {
+			return http.StatusBadRequest, fmt.Errorf("最近访问记录标识无效")
+		}
+	}
+	deleted, err := d.store.Recent.DeleteSelected(d.user.ID, request.IDs)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return renderJSON(w, r, map[string]int{"deleted": deleted})
+})
+
+var recentClearHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	deleted, err := d.store.Recent.DeleteSelected(d.user.ID, nil)
+	if err != nil {
+		return http.StatusInternalServerError, err
+	}
+	return renderJSON(w, r, map[string]int{"deleted": deleted})
+})
