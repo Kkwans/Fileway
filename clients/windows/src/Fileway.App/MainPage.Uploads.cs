@@ -149,11 +149,35 @@ public sealed partial class MainPage
             var folder = await picker.PickSingleFolderAsync().AsTask(_lifetime.Token);
             if (folder is null || !CurrentDestination()) return;
             var (files, failures, truncated) = EnumerateLocalUploadTree(folder.Path, MaximumUploadTreeFiles);
+            await SubmitUploadTreeAsync(service, context, session, parent, generation, viewGeneration,
+                Path.GetFileName(folder.Path.TrimEnd('\\')), files, failures, truncated);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error)
+        {
+            if (CurrentDestination()) ShowUploadError("文件夹上传未完成", error);
+        }
+        finally
+        {
+            _uploadPickerOpen = false; _uploadCommandBusy = false;
+            if (!_disposed) UpdateUploadContext();
+        }
+    }
+
+    /// <summary>Shared confirm-and-submit flow for one enumerated local folder tree (picker or drop).</summary>
+    private async Task SubmitUploadTreeAsync(IUploadService service, UploadContext context, ConnectionSession session,
+        RemoteResourceRef parent, long generation, long viewGeneration, string folderLabel,
+        List<(string Path, string Relative)> files, List<string> failures, bool truncated)
+    {
+        bool CurrentDestination() => viewGeneration == _uploadViewGeneration && IsCurrentUploadContext(context)
+            && SameBrowser(session, parent, generation) && _session?.Permissions.Create == true && !HasUnresolvedWrite;
+        try
+        {
             long total = 0;
             foreach (var (path, _) in files)
                 try { total = checked(total + new FileInfo(path).Length); } catch (IOException) { }
             var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
-            content.Children.Add(new TextBlock { Text = Path.GetFileName(folder.Path.TrimEnd('\\')), FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            content.Children.Add(new TextBlock { Text = folderLabel, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
             content.Children.Add(new TextBlock { Text = $"上传到：{parent.DisplayPath}\n共 {files.Count} 个文件 · {DownloadPresentationPolicy.FormatBytes(total)}", TextWrapping = TextWrapping.Wrap });
             content.Children.Add(new TextBlock { Text = "保留文件夹相对结构逐个上传；同名项目停止并报告冲突，不覆盖现有文件。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
             if (truncated) content.Children.Add(new TextBlock { Text = $"枚举达到上限（{MaximumUploadTreeFiles} 个文件），超出部分未包含。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
@@ -257,6 +281,115 @@ public sealed partial class MainPage
             { failures.Add(relative.Length == 0 ? "(文件夹根目录)" : relative); }
         }
         return (files, failures, truncated);
+    }
+
+    private void FilesArea_DragOver(object sender, DragEventArgs args)
+    {
+        if (!CanSubmitUpload || args.DataView is null ||
+            !args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+        {
+            args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+            DropOverlay.Visibility = Visibility.Collapsed;
+            return;
+        }
+        args.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+        string target = _directory?.DisplayName is { Length: > 0 } name ? name : "当前目录";
+        if (args.DragUIOverride is { } appearance)
+        {
+            appearance.Caption = "上传到 " + target;
+            appearance.IsCaptionVisible = true;
+            appearance.IsContentVisible = false;
+        }
+        DropOverlayText.Text = "松开以上传到 " + target;
+        DropOverlay.Visibility = Visibility.Visible;
+    }
+
+    private void FilesArea_DragLeave(object sender, DragEventArgs args) => DropOverlay.Visibility = Visibility.Collapsed;
+
+    private async void FilesArea_Drop(object sender, DragEventArgs args)
+    {
+        DropOverlay.Visibility = Visibility.Collapsed;
+        if (!CanSubmitUpload || _uploads is not { } service || _session is not { } session ||
+            _directory is not { } parent || ActiveUploadContext is not { } context || args.DataView is null ||
+            !args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems)) return;
+        var generation = _generation;
+        var viewGeneration = _uploadViewGeneration;
+        var deferral = args.GetDeferral();
+        try
+        {
+            var items = await args.DataView.GetStorageItemsAsync();
+            var files = new List<string>();
+            var folders = new List<string>();
+            foreach (var item in items)
+            {
+                if (string.IsNullOrEmpty(item.Path)) continue;
+                if (item is Windows.Storage.StorageFolder) folders.Add(item.Path);
+                else files.Add(item.Path);
+            }
+            if (files.Count != 0)
+                await SubmitDroppedFilesAsync(service, context, session, parent, generation, viewGeneration, files);
+            foreach (var folderPath in folders)
+            {
+                if (viewGeneration != _uploadViewGeneration || !IsCurrentUploadContext(context) ||
+                    _session?.Permissions.Create != true) break;
+                var (tree, failures, truncated) = EnumerateLocalUploadTree(folderPath, MaximumUploadTreeFiles);
+                await SubmitUploadTreeAsync(service, context, session, parent, generation, viewGeneration,
+                    Path.GetFileName(folderPath.TrimEnd('\\')), tree, failures, truncated);
+            }
+        }
+        catch (Exception) { /* 拖放是非权威入口；单项失败由任务自身状态在传输中心呈现。 */ }
+        finally { deferral.Complete(); }
+    }
+
+    private async Task SubmitDroppedFilesAsync(IUploadService service, UploadContext context, ConnectionSession session,
+        RemoteResourceRef parent, long generation, long viewGeneration, List<string> files)
+    {
+        bool CurrentDestination() => viewGeneration == _uploadViewGeneration && IsCurrentUploadContext(context)
+            && SameBrowser(session, parent, generation) && _session?.Permissions.Create == true && !HasUnresolvedWrite;
+        if (files.Count > MaximumUploadTreeFiles) files = files[..MaximumUploadTreeFiles];
+        long total = 0;
+        foreach (var path in files)
+            try { total = checked(total + new FileInfo(path).Length); } catch (IOException) { }
+        var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
+        content.Children.Add(new TextBlock { Text = $"上传 {files.Count} 个文件 · {DownloadPresentationPolicy.FormatBytes(total)}", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+        content.Children.Add(new TextBlock { Text = $"上传到：{parent.DisplayPath}\n同名项目停止并报告冲突，不覆盖现有文件。", TextWrapping = TextWrapping.Wrap });
+        foreach (var path in files.Take(12))
+        {
+            long bytes = 0;
+            try { bytes = new FileInfo(path).Length; } catch (IOException) { }
+            content.Children.Add(new TextBlock { Text = Path.GetFileName(path) + " · " + DownloadPresentationPolicy.FormatBytes(bytes), TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+        }
+        if (files.Count > 12) content.Children.Add(new TextBlock { Text = $"其余 {files.Count - 12} 个文件略。", FontSize = 12 });
+        var confirm = new ContentDialog { Title = "确认上传拖入的文件", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close,
+            IsPrimaryButtonEnabled = files.Count > 0 };
+        _uploadDialog = confirm;
+        ContentDialogResult confirmed;
+        try { confirmed = await ShowBrowserDialogAsync(confirm); }
+        finally { if (ReferenceEquals(_uploadDialog, confirm)) _uploadDialog = null; }
+        if (confirmed != ContentDialogResult.Primary || !CurrentDestination() || files.Count == 0) return;
+        _uploadErrorTitle = _uploadErrorMessage = null;
+        _uploadCommandBusy = true; UpdateUploadContext();
+        var batchId = Guid.NewGuid();
+        int added = 0, unconfirmed = 0;
+        foreach (var path in files)
+        {
+            if (!CurrentDestination()) break;
+            try
+            {
+                var item = await service.SubmitAsync(new UploadSubmission(Guid.NewGuid(), context, parent, path, batchId, added), _lifetime.Token);
+                if (IsCurrentUploadContext(context))
+                {
+                    _uploadOrigins[item.Snapshot.Task] = new UploadOrigin(session, parent, generation);
+                    AcceptUploadItem(item);
+                }
+                added++;
+            }
+            catch (Exception) { unconfirmed++; }
+        }
+        if (IsCurrentUploadContext(context))
+            SetNotice("拖入上传", $"已提交 {added} 个文件。" + (unconfirmed > 0 ? $"{unconfirmed} 个文件未确认提交，请到传输中心核实，勿重复提交。" : ""), unconfirmed > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+        _uploadCommandBusy = false;
+        if (!_disposed) UpdateUploadContext();
     }
 
     private void Upload_TaskChanged(object? sender, UploadItem item) => DispatcherQueue.TryEnqueue(() =>

@@ -48,7 +48,7 @@
 | 字幕 | 本地外挂文件上限 500 MB；系统字体列表、字体/字号/缩放/位置/延迟即时调节；黑边坐标策略；ASS 作者样式与覆盖分开；位图字幕限制提示 | 任意 PGS 画布/ASS 显式坐标不保证可完整移入黑边；远端/同目录外挂字幕检索与队列仍需补齐 | `MediaSurfaces/LocalSubtitlePolicy.cs`、播放器控件与 mpv 属性适配 |
 | 雪碧图/分辨率 | 服务端媒体雪碧图状态与悬停 tile 预览已接；工具栏常用清晰度名，精确尺寸在媒体信息 | 源分辨率标签不是 HLS 多画质；选集、画质切换、后台转码未完成 | `ScreenboxPlayerControls.Sprites.cs`、`Services/` 的 VideoSprites 实现 |
 | 缓存/预加载 | 视频磁盘缓存与预读、真实引擎时间区间和上游速率；缩略图/原图共池；默认总额 5 GB、自定义缓存/下载目录、清理 | 缓存不是完整离线下载；目录变更不静默迁移旧数据；活跃缓存与账号隔离仍需后续候选集中验收 | `Services/LocalStorageSettingsService*.cs`、`src/Fileway.Playback/PlaybackCacheState.cs`、共享 `transport/cache.go` |
-| 上传 | 普通单文件 TUS、持久任务、确认偏移、显式上传队列、暂停/取消/手动恢复、切账号/退出排空 | 不等于目录上传/拖入文件夹/重启自动恢复完整旅程；不得用已发送字节冒充远端接受 | `MainPage.Uploads.cs`、`Services/UploadApplicationService.Uploads.cs`、`docs/upload-execution.md` |
+| 上传 | 普通单文件 TUS、持久任务、确认偏移、显式上传队列、暂停/取消/手动恢复、切账号/退出排空；0.3.6 文件夹上传批次（本地有界枚举≤1000、跳过 reparse、逐级创建远端目录、冲突即停不覆盖、BatchId 批次身份）与拖入上传（文件区拖放高亮/标题、松散文件合并确认、文件夹复用树流程） | 重启自动恢复完整旅程未完成；不得用已发送字节冒充远端接受 | `MainPage.Uploads.cs`、`Services/UploadApplicationService.Uploads.cs`、`docs/upload-execution.md` |
 | 下载 | 普通文件从头下载、另存为本地名、实际路径确认、不覆盖目标、句柄归属、flush/checkpoint、内部 SHA-256、发布与未知结果核实；0.3.4 多文件队列；0.3.5 版本绑定 fresh 与 Range 续传/重启恢复、挂起保留 partial、人工/自动恢复偏好（schema 7，默认手动）；0.3.6-a 目录下载批次：有界递归枚举（≤1000 文件/≤5000 队列）、Windows 非法名/保留名映射与去重、确认后创建目标子目录树、BatchId+Ordinal 批次身份复用同一 FIFO 队列 | 仅固定本地卷；UNC/映射盘/reparse 安全能力未支持；旧服务端（无 conditionalDownloadV1）保持 fresh-only 不续传；续传执行期间不提供该 partial 的边下边播准入；另存为不修改远端名 | `MainPage.Downloads.cs`、`MainPage.BatchDownloads.cs`、`Transfers/FileDownloadRunner*.cs`、`WindowsDownloadFileAccess.cs` |
 | 传输中心 | 下载在前、上传在后，当前账号分页记录，实时速度/ETA/耗时、暂停继续/取消/删除；删除完成本地文件需额外勾选，默认保留 | 删除不能操作 NAS 源文件或陌生同名文件；历史记录不自动启动；目录/归档/重启恢复未完成 | `src/Fileway.App/Controls/` 传输控件、`Services/UploadApplicationService.Download*.cs` |
 | 边下边播 | 活动视频下载读取同一持有文件的连续前缀；缺失部分可用认证 Range；取消/撤权唤醒并排空；播放器单独显示下载字节/写盘证据 | 非完整任意容器/索引支持；非已完成历史任务重开；Y4M `vo=null` 旧证据不代表可见 UI 或 MP4/MKV 全通过 | `Services/UploadApplicationService.DownloadPlayback.cs`、`Transfers/FileDownloadRunner.Readers.cs`、`Native/MpvDownloadStreamBridge.cs` |
@@ -98,7 +98,7 @@ UI 质量不是后期才处理：每个功能切片同时完成对齐、可读�
 | --- | --- | --- |
 | 0.3.4 | 当前普通文件批量预检与 FIFO、排队取消、紧凑分组和图标状态 | 已构建本地预览；当前用户人工测试，保留全部开放问题 |
 | 0.3.5 | 可靠下载 Range 恢复/重启恢复，明确人工恢复与自动恢复偏好；优先处理已确认阻断缺陷 | 代码与构建已完成并出本地未签名预览（见 `release-0.3.5.md`）；源版本与原生文件身份已按契约实现，旧端缺能力保持安全 fresh；真实 NAS 旅程由用户人工验收 |
-| 0.3.6 | 文件夹/批次传输、拖入上传、逐项冲突/名称映射、ZIP/TAR 等服务端支持的归档下载 | 目录下载批次与文件夹上传批次已接入；剩余：拖入上传交互与归档下载；复用 0.3.4/0.3.5 队列与续传，不建第二套调度 |
+| 0.3.6 | 文件夹/批次传输、拖入上传、逐项冲突/名称映射、ZIP/TAR 等服务端支持的归档下载 | 目录下载批次、文件夹上传批次与拖入上传已接入；剩余：服务端归档下载；复用 0.3.4/0.3.5 队列与续传，不建第二套调度 |
 | 0.3.7 | 完整边下边播与已完成历史下载重开、下载/播放连续生命周期 | 已有 Range 模块继续复用；普通/尾置 MP4、MKV、大跨度跳转与原生退出分别有证据，不扩大“前缀验证”结论 |
 | 0.4 | 完整影音：选集/播放队列、远端外挂字幕、HLS 画质/转码、音频、图片扩展、小窗/媒体键与偏好 | 对标 Web ArtPlayer 与 Android 用户任务；来源/缓冲/保存进度分别展示；不生成假的画质列表 |
 | 0.5 | 原首版完整性：系统/PAC/手动代理、内嵌 tsnet、证书、外置播放器/PotPlayer、休眠换网、真实 HDR/多屏/DPI、手动更新/诊断 | 标准用户与严格路由；显示器能力运行时查询；真实输出证明，未验证就未知，不按 GPU/品牌推断 |
