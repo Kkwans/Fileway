@@ -20,7 +20,8 @@ public sealed partial class MainPage
             SelectedRows().Select(row => (row.File.Resource, row.File.IsDirectory)).SequenceEqual(selection);
         var previews = new List<DownloadPreview>(); var failures = new List<string>();
         var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        _downloadPreparing = _downloadOperationBusy = true; UpdateDownloadContext();
+        // A slow metadata preflight must not disable pause/cancel for existing tasks.
+        _downloadPreparing = true; UpdateDownloadContext();
         try
         {
             long total = 0;
@@ -57,7 +58,6 @@ public sealed partial class MainPage
             try { choice = await ShowBrowserDialogAsync(confirm); }
             finally { if (ReferenceEquals(_downloadDialog, confirm)) _downloadDialog = null; }
             if (choice != ContentDialogResult.Primary || !Current()) return;
-            _downloadPreparing = false;
             int added = 0, unconfirmed = 0;
             foreach (var preview in previews)
             {
@@ -77,6 +77,6 @@ public sealed partial class MainPage
                     (added + unconfirmed < previews.Count ? "其余文件未继续添加。" : ""), unconfirmed > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
         }
         catch (Exception error) { if (IsCurrentDownloadContext(context)) ShowDownloadError("批量下载未完成", error); }
-        finally { _downloadPreparing = _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
+        finally { if (view == _downloadViewGeneration) _downloadPreparing = false; if (!_disposed) UpdateDownloadContext(); }
     }
 }

@@ -42,7 +42,7 @@ public sealed partial class MainPage
             if (_disposed || _downloads is null) return false;
             var selected = SelectedRows();
             return _session?.Permissions.Download == true && ActiveDownloadContext is not null && BrowserReady &&
-                !LoadingRing.IsActive && !_downloadOperationBusy && selected.Length > 0;
+                !LoadingRing.IsActive && !_downloadOperationBusy && !_downloadPreparing && selected.Length > 0;
         }
     }
     private bool CanDownloadSaveAsSelection => CanDownloadSelection && SelectedRows() is [var row] && !row.File.IsDirectory;
