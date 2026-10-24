@@ -118,9 +118,25 @@ public sealed record PlaybackSnapshot(
     // Engine-confirmed pause is independent of transient buffering/seeking; null means not observed yet.
     bool? IsPaused = null,
     PlaybackDownloadState? Download = null,
-    double? BufferingPercent = null)
+    double? BufferingPercent = null,
+    RemoteResourceRef? Origin = null)
 {
     public override string ToString() => "PlaybackSnapshot (private media details redacted)";
+}
+
+/// <summary>One same-directory subtitle candidate for the playing remote media.</summary>
+public sealed record RemoteSubtitleOption(RemoteResourceRef Resource, long Size)
+{
+    public override string ToString() => "RemoteSubtitleOption (private locations redacted)";
+}
+
+/// <summary>
+/// Lists same-directory external subtitle candidates for a remote media resource. Listing never
+/// opens a lease; the player separately acquires one when a candidate is explicitly chosen.
+/// </summary>
+public interface IRemoteSubtitleSource
+{
+    Task<IReadOnlyList<RemoteSubtitleOption>> ListAsync(RemoteResourceRef media, CancellationToken cancellationToken);
 }
 
 public interface IPlaybackSession : IAsyncDisposable

@@ -80,6 +80,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             _controls.CloseRequested += Controls_CloseRequested;
             _controls.ToggleFullscreenRequested += Controls_ToggleFullscreenRequested;
             _controls.AddSubtitleRequested += Controls_AddSubtitleRequested;
+            _controls.RemoteSubtitleRequested += Controls_RemoteSubtitleRequested;
             _controls.MinimizeRequested += Controls_MinimizeRequested;
             _controls.MaximizeRequested += Controls_MaximizeRequested;
             _controls.KeyDown += Controls_KeyDown;
@@ -117,6 +118,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     internal event EventHandler? ToggleFullscreenRequested;
     internal event EventHandler? ExitFullscreenRequested;
     internal event EventHandler? AddSubtitleRequested;
+    internal event EventHandler? RemoteSubtitleRequested;
+    internal bool SupportsRemoteSubtitles
+    {
+        get => _controls.SupportsRemoteSubtitles;
+        set => _controls.SupportsRemoteSubtitles = value;
+    }
     internal event EventHandler? MinimizeRequested;
     internal event EventHandler? MaximizeRequested;
     internal event Action<NativeVideoWindow.NativePoint>? VideoPointerPressed;
@@ -232,6 +239,11 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
     private void Controls_CloseRequested(object? sender, EventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Controls_ToggleFullscreenRequested(object? sender, EventArgs args) => ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty);
+    private void Controls_RemoteSubtitleRequested(object? sender, EventArgs args)
+    {
+        if (!_disposed) RemoteSubtitleRequested?.Invoke(this, EventArgs.Empty);
+    }
+
     private void Controls_AddSubtitleRequested(object? sender, EventArgs args)
     {
         if (!_disposed) AddSubtitleRequested?.Invoke(this, EventArgs.Empty);
@@ -606,6 +618,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         _controls.CloseRequested -= Controls_CloseRequested;
         _controls.ToggleFullscreenRequested -= Controls_ToggleFullscreenRequested;
         _controls.AddSubtitleRequested -= Controls_AddSubtitleRequested;
+        _controls.RemoteSubtitleRequested -= Controls_RemoteSubtitleRequested;
         _controls.MinimizeRequested -= Controls_MinimizeRequested;
         _controls.MaximizeRequested -= Controls_MaximizeRequested;
         _controls.KeyDown -= Controls_KeyDown;

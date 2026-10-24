@@ -19,6 +19,7 @@ namespace Fileway.App.MediaSurfaces;
 internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowControl
 {
     private readonly IPlaybackSession _session;
+    private readonly Fileway.Core.Contracts.IRemoteSubtitleSource? _remoteSubtitles;
     private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private readonly PlaybackSnapshotDispatcher _snapshotDispatcher;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _videoGestureTimer;
@@ -54,9 +55,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private bool _videoVisible;
     private RectInt32? _videoBounds;
 
-    public PlayerWindow(IPlaybackSession session, IVideoSpriteService? sprites = null)
+    public PlayerWindow(IPlaybackSession session, IVideoSpriteService? sprites = null,
+        Fileway.Core.Contracts.IRemoteSubtitleSource? remoteSubtitles = null)
     {
         _session = session;
+        _remoteSubtitles = remoteSubtitles;
         _bufferingTimer = DispatcherQueue.CreateTimer(); _bufferingTimer.IsRepeating = false; _bufferingTimer.Interval = TimeSpan.FromMilliseconds(500);
         _bufferingTimer.Tick += (_, _) => { if (!_closing && !_disposed && _hasFrame && _session.Snapshot.Status is PlaybackStatus.Seeking or PlaybackStatus.Buffering) _overlay?.ApplySnapshot(_session.Snapshot, transientLoading: true); };
         _boundsTimer = DispatcherQueue.CreateTimer(); _boundsTimer.IsRepeating = false; _boundsTimer.Interval = TimeSpan.FromMilliseconds(16);
@@ -111,6 +114,8 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _overlay.ToggleFullscreenRequested += (_, _) => _ = RunCommandAsync(() => SetFullscreenAsync(!DesiredFullscreen, _watchCancellation.Token).AsTask());
         _overlay.ExitFullscreenRequested += (_, _) => _ = RunCommandAsync(() => SetFullscreenAsync(false, _watchCancellation.Token).AsTask());
         _overlay.AddSubtitleRequested += Overlay_AddSubtitleRequested;
+        _overlay.RemoteSubtitleRequested += Overlay_RemoteSubtitleRequested;
+        _overlay.SupportsRemoteSubtitles = remoteSubtitles is not null;
         _overlay.MinimizeRequested += (_, _) => MinimizeWindow();
         _overlay.MaximizeRequested += (_, _) => ToggleWindowMaximized();
         _overlay.VideoPointerPressed += point => HandleVideoGesture(true, point, PlaybackVideoInputSurface.Hud);
@@ -697,6 +702,55 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         !_disposed && !_detached && !_closing
         && LocalSubtitlePolicy.IsCurrentRequest(generation, Interlocked.Read(ref _subtitlePickerGeneration),
             origin, _session.Snapshot, _watchCancellation.IsCancellationRequested);
+
+    private void Overlay_RemoteSubtitleRequested(object? sender, EventArgs args) => _ = AddRemoteSubtitleAsync();
+
+    private async Task AddRemoteSubtitleAsync()
+    {
+        if (_disposed || _detached || _closing || _remoteSubtitles is null || _subtitlePickerOpen ||
+            _watchCancellation.IsCancellationRequested) return;
+        var origin = _session.Snapshot.Origin;
+        if (origin is null)
+        {
+            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("当前媒体不是服务器资源，无法检索同目录字幕。"); });
+            return;
+        }
+        _subtitlePickerOpen = true;
+        var cancellation = _watchCancellation.Token;
+        try
+        {
+            var options = await _remoteSubtitles.ListAsync(origin, cancellation);
+            if (_disposed || _detached || _closing || cancellation.IsCancellationRequested) return;
+            if (options.Count == 0)
+            {
+                await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("同目录没有可用的字幕文件。"); });
+                return;
+            }
+            var panel = new StackPanel { Spacing = 8, MinWidth = 320, MaxWidth = 460 };
+            panel.Children.Add(new TextBlock { Text = "选择要加载的外挂字幕（与媒体同目录）", TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.8 });
+            var list = new ListView { SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch, MaxHeight = 320, IsItemClickEnabled = false };
+            foreach (var option in options)
+                list.Items.Add(new TextBlock { Text = option.Resource.DisplayName + "\n" + DownloadPresentationPolicy.FormatBytes(option.Size), TextWrapping = TextWrapping.Wrap, FontSize = 13, Tag = option });
+            panel.Children.Add(list);
+            var dialog = new ContentDialog { Title = "从服务器加载字幕", Content = panel, PrimaryButtonText = "加载字幕", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = false };
+            list.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = list.SelectedItem is not null;
+            var choice = await dialog.ShowAsync().AsTask(cancellation);
+            if (choice != ContentDialogResult.Primary || list.SelectedItem is not TextBlock { Tag: RemoteSubtitleOption selected } ||
+                _disposed || _detached || _closing || cancellation.IsCancellationRequested) return;
+            var loading = _session.AddSubtitleAsync(new RemotePlaybackInput(selected.Resource), cancellation);
+            await loading;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("远端字幕未能加载，请检查连接后重试。"); });
+        }
+        finally
+        {
+            if (DispatcherQueue.HasThreadAccess) _subtitlePickerOpen = false;
+            else DispatcherQueue.TryEnqueue(() => _subtitlePickerOpen = false);
+        }
+    }
 
     private async Task AddLocalSubtitleAsync()
     {

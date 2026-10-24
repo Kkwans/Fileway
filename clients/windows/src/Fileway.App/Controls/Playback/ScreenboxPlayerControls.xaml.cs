@@ -117,6 +117,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public event EventHandler? MaximizeRequested;
     public event EventHandler? ToggleFullscreenRequested;
     public event EventHandler? AddSubtitleRequested;
+    public event EventHandler? RemoteSubtitleRequested;
+    internal bool SupportsRemoteSubtitles { get; set; }
     public event EventHandler? ControlsVisibilityChanged;
     public event EventHandler? MaterialBoundsChanged;
     public bool ControlsVisible { get; private set; } = true;
@@ -578,6 +580,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         }
         if (_snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio)) Add("音轨", "MusicNote2", () => ShowTracks(MoreButton, MediaTrackKind.Audio));
         Add("字幕", "ClosedCaption", () => ShowTracks(MoreButton, MediaTrackKind.Subtitle));
+        if (SupportsRemoteSubtitles) Add("从服务器加载字幕…", "CloudDownload", () => RemoteSubtitleRequested?.Invoke(this, EventArgs.Empty));
         if (SubtitleStyleButton.Visibility == Visibility.Visible) Add("字幕样式", "TextFontSize", () => SubtitleStyle_Click(MoreButton, args));
         Add("播放速度 · " + FormatRate(_snapshot.PlaybackRate), "TopSpeed", () => Speed_Click(MoreButton, args));
         if (_snapshot.Chapters is { Count: > 0 }) Add("章节", "BookOpen", () => Chapter_Click(MoreButton, args));

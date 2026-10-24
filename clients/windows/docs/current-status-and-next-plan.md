@@ -45,7 +45,7 @@
 | 图片 | 真正解码、Enter/双击打开、前后张、缩放，原图缓存、成功记录最近访问 | 旋转、更多格式与完整图像工具后续完善；旧原生通过记录不覆盖当前所有 UI 变化 | `src/Fileway.App/MediaSurfaces/`、`Services/` 图片入口 |
 | 视频基础 | libmpv、Screenbox 风格界面、暂停/seek、音量/静音、章节、音轨/内挂字幕、倍速、续播、真实 FullScreen Presenter、单击播放暂停/双击全屏、窗口拖动缩放 | 代码接入不等于所有硬件/容器/窗口模式通过；退出 CFG 故障已定责外部钩子（P-01），最终退出证据仍开放；不改成 WebView 主界面 | `MediaSurfaces/PlayerWindow*.cs`、`Controls/Playback/ScreenboxPlayerControls*`、`src/Fileway.Playback/` |
 | 播放反馈 | seek 保留待确认目标，避免圆点回跳；加载超过 500ms 再显示，保留旧帧；引擎有真实缓冲百分比才展示；默认 5 秒隐藏控件、时长可调 | 真实大文件跳转、缩放、全屏和错误帧体验由用户验收，不宣称已全通过 | 同上及 `docs/ui-motion.md` |
-| 字幕 | 本地外挂文件上限 500 MB；系统字体列表、字体/字号/缩放/位置/延迟即时调节；黑边坐标策略；ASS 作者样式与覆盖分开；位图字幕限制提示 | 任意 PGS 画布/ASS 显式坐标不保证可完整移入黑边；远端/同目录外挂字幕检索与队列仍需补齐 | `MediaSurfaces/LocalSubtitlePolicy.cs`、播放器控件与 mpv 属性适配 |
+| 字幕 | 本地外挂文件上限 500 MB；系统字体列表、字体/字号/缩放/位置/延迟即时调节；黑边坐标策略；ASS 作者样式与覆盖分开；位图字幕限制提示；0.4 远端同目录外挂字幕：播放器“从服务器加载字幕”列出同目录候选（同名优先、≤50），选定后经认证租约流式 sub-add | 检索为同目录一层不递归；任意 PGS 画布/ASS 显式坐标不保证可完整移入黑边；真实字幕旅程待用户验收 | `MediaSurfaces/LocalSubtitlePolicy.cs`、播放器控件与 mpv 属性适配 |
 | 雪碧图/分辨率 | 服务端媒体雪碧图状态与悬停 tile 预览已接；工具栏常用清晰度名，精确尺寸在媒体信息 | 源分辨率标签不是 HLS 多画质；选集、画质切换、后台转码未完成 | `ScreenboxPlayerControls.Sprites.cs`、`Services/` 的 VideoSprites 实现 |
 | 缓存/预加载 | 视频磁盘缓存与预读、真实引擎时间区间和上游速率；缩略图/原图共池；默认总额 5 GB、自定义缓存/下载目录、清理 | 缓存不是完整离线下载；目录变更不静默迁移旧数据；活跃缓存与账号隔离仍需后续候选集中验收 | `Services/LocalStorageSettingsService*.cs`、`src/Fileway.Playback/PlaybackCacheState.cs`、共享 `transport/cache.go` |
 | 上传 | 普通单文件 TUS、持久任务、确认偏移、显式上传队列、暂停/取消/手动恢复、切账号/退出排空；0.3.6 文件夹上传批次（本地有界枚举≤1000、跳过 reparse、逐级创建远端目录、冲突即停不覆盖、BatchId 批次身份）与拖入上传（文件区拖放高亮/标题、松散文件合并确认、文件夹复用树流程） | 重启自动恢复完整旅程未完成；不得用已发送字节冒充远端接受 | `MainPage.Uploads.cs`、`Services/UploadApplicationService.Uploads.cs`、`docs/upload-execution.md` |

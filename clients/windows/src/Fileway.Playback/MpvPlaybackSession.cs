@@ -70,7 +70,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
         string displayName = request.Input switch { RemotePlaybackInput remote => remote.Resource.DisplayName, DownloadPlaybackInput when download is not null => download.Item.Source.DisplayName, LocalPlaybackInput local => local.DisplayName, _ => "媒体" };
         _snapshot = new PlaybackSnapshot(Id, generation, displayName, PlaybackStatus.Preparing, TimeSpan.Zero, null, null, false,
             Array.Empty<MediaTrack>(), new SubtitleCapabilities(true, true, true, true, true), new PlaybackDiagnostics(),
-            Download: downloadObservation?.Snapshot);
+            Download: downloadObservation?.Snapshot, Origin: _originalResource);
         // Keep the exact admitted reader; never reopen a partial path or acquire a
         // remote HTTP lease for a download playback input.
         if (download is not null) _downloadBridge = new MpvDownloadStreamBridge(download.Reader);
