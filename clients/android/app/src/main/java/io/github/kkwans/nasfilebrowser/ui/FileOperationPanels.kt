@@ -167,7 +167,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
                     HorizontalDivider(Modifier.padding(top = 12.dp), color = FilewayTheme.colors.outlineVariant)
                     Row(Modifier.fillMaxWidth()
                         .then(if (sheet) Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                        .padding(horizontal = 20.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically,
                         content = footer)
                 } else {

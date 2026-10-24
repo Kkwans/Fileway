@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.DialogWindowProvider
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import java.util.function.Consumer
@@ -20,12 +21,12 @@ import java.util.function.Consumer
  * Includes SurfaceView; no frame capture or rendering-surface replacement.
  * https://source.android.com/docs/core/display/window-blurs
  */
-@Composable internal fun rememberFilewayWindowBlur(window: Window?): Boolean {
+@Composable internal fun rememberFilewayWindowBlur(window: Window?, blurRadius: Dp = 24.dp): Boolean {
     val manager = remember(window) { window?.context?.getSystemService(WindowManager::class.java) }
     var enabled by remember(window) {
         mutableStateOf(Build.VERSION.SDK_INT >= 31 && manager?.isCrossWindowBlurEnabled == true)
     }
-    val radius = with(LocalDensity.current) { 24.dp.roundToPx().coerceAtMost(120) }
+    val radius = with(LocalDensity.current) { blurRadius.roundToPx().coerceAtMost(120) }
     val corner = with(LocalDensity.current) { 12.dp.toPx() }
     val background = remember(window, corner) {
         GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = corner }
@@ -63,12 +64,13 @@ import java.util.function.Consumer
 /** Compose once inside a Dialog, including inside Material's button slot. */
 @Composable internal fun FilewayDialogGlass(onBlurEnabled: (Boolean) -> Unit) {
     val view = LocalView.current
-    val enabled = rememberFilewayWindowBlur((view.parent as? DialogWindowProvider)?.window)
+    val light = FilewayTheme.colors.surface.luminance() > .5f
+    val enabled = rememberFilewayWindowBlur((view.parent as? DialogWindowProvider)?.window, if (light) 32.dp else 24.dp)
     val notify by rememberUpdatedState(onBlurEnabled)
     SideEffect { notify(enabled) }
 }
 
 @Composable internal fun filewayGlassColor(blurred: Boolean): ComposeColor {
     val surface = FilewayTheme.colors.surface
-    return surface.copy(alpha = if (!blurred) 1f else if (surface.luminance() > .5f) .60f else .64f)
+    return surface.copy(alpha = if (!blurred) 1f else if (surface.luminance() > .5f) .78f else .64f)
 }
