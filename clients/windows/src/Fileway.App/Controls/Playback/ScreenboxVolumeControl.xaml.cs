@@ -29,7 +29,7 @@ public sealed partial class ScreenboxVolumeControl : UserControl
         VolumeSlider.PreviewKeyDown += (_, args) => { if (IsRangeKey(args.Key)) _editing = true; };
         VolumeSlider.KeyUp += (_, args) => { if (IsRangeKey(args.Key)) { _editing = false; ApplyConfirmed(_confirmedVolume, _confirmedMuted, _commandPending); } };
         VolumeSlider.LostFocus += (_, _) => { _editing = false; ApplyConfirmed(_confirmedVolume, _confirmedMuted, _commandPending); };
-        _updating = true; VolumeSlider.Value = Math.Clamp(volume, 0, 100); _updating = false;
+        _updating = true; VolumeSlider.Value = Math.Clamp(volume, 0, 200); _updating = false;
         ApplyConfirmed(volume, muted);
     }
 
@@ -37,9 +37,13 @@ public sealed partial class ScreenboxVolumeControl : UserControl
     {
         _confirmedVolume = volume; _confirmedMuted = muted;
         _commandPending = commandPending;
-        if (!commandPending && !_editing) { _updating = true; VolumeSlider.Value = Math.Clamp(volume, 0, 100); _updating = false; }
+        if (!commandPending && !_editing) { _updating = true; VolumeSlider.Value = Math.Clamp(volume, 0, 200); _updating = false; }
         MuteToggle.IsChecked = muted;
         VolumeGlyph.IconName = muted ? "SpeakerMute" : volume < 34 ? "Speaker0" : volume < 67 ? "Speaker1" : "Speaker2";
+        // Above 100% the engine amplifies on top of the system mixer; make that visible.
+        VolumeValue.Foreground = volume > 100
+            ? (Microsoft.UI.Xaml.Application.Current.Resources["AccentFillColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush)
+            : null;
         AutomationProperties.SetName(MuteToggle, muted ? "取消静音" : "静音");
         VolumeValue.Text = $"{volume:0}%";
         ToolTipService.SetToolTip(VolumeSlider, $"音量 {volume:0}%");

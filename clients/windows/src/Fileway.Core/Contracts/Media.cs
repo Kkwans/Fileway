@@ -161,7 +161,7 @@ public interface IPlaybackSession : IAsyncDisposable
     IAsyncEnumerable<PlaybackSnapshot> WatchAsync(CancellationToken cancellationToken);
     Task SetPausedAsync(bool paused, CancellationToken cancellationToken);
     Task SeekAsync(TimeSpan position, CancellationToken cancellationToken);
-    /// <summary>Sets volume as a percentage from 0 to 100.</summary>
+    /// <summary>Sets volume as a percentage from 0 to 200; 100 is the system mixer level and above it is engine-side amplification.</summary>
     Task SetVolumeAsync(double volume, CancellationToken cancellationToken);
     Task SetMutedAsync(bool muted, CancellationToken cancellationToken);
     /// <summary>Sets the playback multiplier; the snapshot reports the engine-confirmed value.</summary>

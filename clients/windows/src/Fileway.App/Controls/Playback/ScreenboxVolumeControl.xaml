@@ -9,7 +9,7 @@
         <ToggleButton x:Name="MuteToggle" Padding="0" Width="40" Height="40" Background="Transparent" BorderThickness="0" Click="Mute_Click" ToolTipService.ToolTip="静音" AutomationProperties.Name="静音">
             <local:ScreenboxVectorIcon x:Name="VolumeGlyph" IconName="Speaker2" Width="20" Height="20"/>
         </ToggleButton>
-        <Slider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="100" SmallChange="5" StepFrequency="1" VerticalAlignment="Center" IsThumbToolTipEnabled="False" ValueChanged="Volume_ValueChanged" AutomationProperties.Name="音量百分比"/>
+        <Slider x:Name="VolumeSlider" Grid.Column="1" Minimum="0" Maximum="200" SmallChange="5" StepFrequency="1" VerticalAlignment="Center" IsThumbToolTipEnabled="False" ValueChanged="Volume_ValueChanged" AutomationProperties.Name="音量百分比"/>
         <TextBlock x:Name="VolumeValue" Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right" Typography.NumeralAlignment="Tabular" AutomationProperties.AccessibilityView="Raw"/>
     </Grid>
 </UserControl>
