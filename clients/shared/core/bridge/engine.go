@@ -36,6 +36,8 @@ type Command struct {
 	Path            string                  `json:"path"`
 	WirePath        string                  `json:"wirePath"`
 	SourceVersion   string                  `json:"sourceVersion,omitempty"`
+	ArchiveFiles    []string                `json:"archiveFiles,omitempty"`
+	ArchiveFormat   string                  `json:"archiveFormat,omitempty"`
 	URL             string                  `json:"url"`
 	Network         string                  `json:"network"`
 	StateDir        string                  `json:"stateDir"`
@@ -291,6 +293,31 @@ func (e *Engine) execute(c Command) (any, error) {
 			}
 			query := parsed.Query()
 			query.Set("sourceVersion", c.SourceVersion)
+			parsed.RawQuery = query.Encode()
+			endpoint = parsed.RequestURI()
+		}
+		if len(c.ArchiveFiles) != 0 {
+			// A server-side archive export streams one synthetic file; it is never resumed,
+			// so a source version must not be attached to it.
+			if c.SourceVersion != "" {
+				return nil, errors.New("archive export cannot be version-conditioned")
+			}
+			parsed, parseErr := url.Parse(endpoint)
+			if parseErr != nil {
+				return nil, errors.New("invalid archive endpoint")
+			}
+			format := c.ArchiveFormat
+			if format == "" {
+				format = "zip"
+			}
+			if format != "zip" || len(c.ArchiveFiles) > 1000 {
+				return nil, errors.New("archive export supports zip with at most 1000 entries")
+			}
+			query := parsed.Query()
+			query.Set("algo", format)
+			for _, file := range c.ArchiveFiles {
+				query.Add("fileWirePath", file)
+			}
 			parsed.RawQuery = query.Encode()
 			endpoint = parsed.RequestURI()
 		}

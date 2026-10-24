@@ -227,7 +227,7 @@ var operations = map[string]operation{
 	"login":               {parameters: "username password", session: true},
 	"request":             {parameters: "method endpoint body", session: true},
 	"token":               {session: true},
-	"lease":               {parameters: "path wirePath cacheKey cacheOwner", session: true},
+	"lease":               {parameters: "path wirePath sourceVersion cacheKey cacheOwner archiveFiles archiveFormat", session: true},
 	"asset":               {parameters: "endpoint", session: true},
 	"preview":             {parameters: "path wirePath scope cacheKey cacheOwner", session: true},
 	"revoke":              {parameters: "url"},

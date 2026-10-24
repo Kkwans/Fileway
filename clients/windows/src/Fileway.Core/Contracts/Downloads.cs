@@ -54,6 +54,23 @@ public interface IDownloadControlService
 
 public sealed record DownloadPage(IReadOnlyList<DownloadItem> Items, string? NextCursor);
 
+/// <summary>One explicitly confirmed server-side ZIP export; ItemWirePaths are opaque entries under Directory.</summary>
+public sealed record ArchiveDownloadRequest(DownloadContext Context, RemoteResourceRef Directory,
+    IReadOnlyList<string> ItemWirePaths, string SuggestedName)
+{
+    public override string ToString() => "ArchiveDownloadRequest (private locations redacted)";
+}
+
+/// <summary>
+/// One-shot archive export streamed to the effective download directory. It creates no durable task,
+/// offers no resume, and is canceled/drained with the owning account like every download.
+/// </summary>
+public interface IArchiveDownloadService
+{
+    /// <summary>Returns the published local file identity of the saved archive.</summary>
+    Task<string> DownloadArchiveAsync(ArchiveDownloadRequest request, IProgress<long>? progress, CancellationToken cancellationToken);
+}
+
 /// <summary>One enumerated file of a bounded directory tree; RelativePath is from the selected root
 /// and MappedRelativePath is its Windows-safe rendering (illegal/reserved segments sanitized).</summary>
 public sealed record DownloadTreeEntry(RemoteResourceRef Resource, string RelativePath, string MappedRelativePath)

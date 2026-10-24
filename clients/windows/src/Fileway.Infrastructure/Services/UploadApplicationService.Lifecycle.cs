@@ -150,7 +150,8 @@ public sealed partial class UploadApplicationService
 
     private Task DrainBindingAsync(Binding binding) => Task.WhenAll(
         Task.Run(() => _coordinator.StopAndDrainAsync(binding.Activation, CancellationToken.None)),
-        Task.Run(() => DrainDownloadsAsync(binding)));
+        Task.Run(() => DrainDownloadsAsync(binding)),
+        Task.Run(() => DrainArchiveWorkAsync(binding)));
 
     private async Task AwaitDrainsAsync()
     {
@@ -225,6 +226,8 @@ public sealed partial class UploadApplicationService
                 try { await _downloads.Runner.DisposeAsync().ConfigureAwait(false); }
                 catch (Exception error) { failure ??= Normalize(error); }
             }
+            try { if (_archiveJob is not null) await _archiveJob.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception error) { failure ??= Normalize(error); }
         }
         finally { _commands.Release(); }
         if (failure is not null) completion.TrySetException(failure);

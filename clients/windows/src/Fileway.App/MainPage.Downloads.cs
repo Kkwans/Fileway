@@ -81,6 +81,65 @@ public sealed partial class MainPage
         catch (Exception) { /* 自动继续是便利功能；单项失败由任务自身状态呈现。 */ }
     }
 
+    private async Task DownloadSelectionAsArchiveAsync()
+    {
+        if (!CanDownloadSelection || _downloads is not IArchiveDownloadService archives || _session is not { } session ||
+            _directory is not { } parent || ActiveDownloadContext is not { } context) return;
+        var selection = SelectedRows().Select(row => row.File.Resource).ToArray();
+        if (selection.Length == 0 || selection.Length > 1000 || selection.Any(resource => resource.Account != context.Account)) return;
+        string suggested = (selection.Length == 1 ? selection[0].DisplayName : "_" + parent.DisplayName) + ".zip";
+        var generation = _generation;
+        bool Current() => IsCurrentDownloadContext(context) && SameBrowser(session, parent, generation) && _session?.Permissions.Download == true;
+        var name = DownloadPresentationPolicy.IsSafeLocalName(suggested) ? suggested : "fileway-export.zip";
+        var panel = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
+        panel.Children.Add(new TextBlock { Text = $"将 {selection.Length} 个项目打包为：{name}", TextWrapping = TextWrapping.Wrap, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        panel.Children.Add(new TextBlock { Text = "由服务器实时生成 ZIP 并流式保存到已生效的默认下载目录。\n打包内容动态生成：不支持断点续传，也不会显示总大小；同名本地文件会直接失败。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+        var confirm = new ContentDialog { Title = "下载为 ZIP", Content = panel, PrimaryButtonText = "开始下载", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
+        _downloadDialog = confirm;
+        ContentDialogResult choice;
+        try { choice = await ShowBrowserDialogAsync(confirm); }
+        finally { if (ReferenceEquals(_downloadDialog, confirm)) _downloadDialog = null; }
+        if (choice != ContentDialogResult.Primary || !Current()) return;
+        var progressText = new TextBlock { Text = "正在打包下载…", TextWrapping = TextWrapping.Wrap };
+        var progressPanel = new StackPanel { Spacing = 12, MinWidth = 320 } ;
+        progressPanel.Children.Add(new ProgressBar { IsIndeterminate = true });
+        progressPanel.Children.Add(progressText);
+        var progress = new ContentDialog { Title = "下载为 ZIP", Content = progressPanel, CloseButtonText = "取消" };
+        _downloadDialog = progress;
+        var reporter = new Progress<long>(bytes =>
+        {
+            if (!_disposed) progressText.Text = "已接收 " + DownloadPresentationPolicy.FormatBytes(bytes);
+        });
+        _downloadOperationBusy = true; UpdateDownloadContext();
+        try
+        {
+            var running = archives.DownloadArchiveAsync(new(context, parent, selection.Select(resource => resource.WirePath).ToArray(), name), reporter, _lifetime.Token);
+            var hidden = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            progress.CloseButtonClick += (_, _) => hidden.TrySetResult();
+            var finished = await Task.WhenAny(running, hidden.Task).ConfigureAwait(true);
+            if (ReferenceEquals(finished, hidden.Task))
+            {
+                progress.Hide();
+                if (ReferenceEquals(_downloadDialog, progress)) _downloadDialog = null;
+                SetNotice("ZIP 下载已取消", "正在停止服务器打包流；未完成的临时文件会被清理。", InfoBarSeverity.Informational);
+                try { await running.ConfigureAwait(true); }
+                catch (Exception) { /* 取消后的清理结果由服务端与本地删除路径负责。 */ }
+                return;
+            }
+            await running.ConfigureAwait(true);
+            if (ReferenceEquals(_downloadDialog, progress)) _downloadDialog = null;
+            progress.Hide();
+            if (Current()) SetNotice("ZIP 已保存", name + " 已保存到已生效的下载目录。", InfoBarSeverity.Success);
+        }
+        catch (Exception error)
+        {
+            if (ReferenceEquals(_downloadDialog, progress)) _downloadDialog = null;
+            try { progress.Hide(); } catch (Exception) { }
+            if (Current()) ShowDownloadError("ZIP 下载未完成", error);
+        }
+        finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
+    }
+
     private void ClearDownloadPresentation()
     {
         ++_downloadViewGeneration;

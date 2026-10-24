@@ -77,6 +77,7 @@ public sealed partial class UploadApplicationService
 
     private void CancelDownloadWorkLocked(Binding binding)
     {
+        CancelArchiveWorkLocked(binding);
         _ = RevokePlaybackReadersLocked(binding);
         foreach (var work in _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)).ToArray())
         {

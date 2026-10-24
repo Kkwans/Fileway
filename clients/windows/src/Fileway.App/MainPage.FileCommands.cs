@@ -48,6 +48,8 @@ public sealed partial class MainPage
             Add("下载到默认目录…", () => DownloadFile_Click(this, new RoutedEventArgs()), CanDownloadSelection);
             if (rows.Length == 1) Add("下载另存为…", () => DownloadSaveAs_Click(this, new RoutedEventArgs()), CanDownloadSaveAsSelection);
         }
+        if (rows.Length > 1 || rows.Length == 1 && rows[0].File.IsDirectory)
+            Add("下载为 ZIP…", async () => await DownloadSelectionAsArchiveAsync(), CanDownloadSelection);
         if (selected)
         {
             Add("复制", () => CaptureClipboard(FileTransferAction.Copy), CanCaptureClipboard(FileTransferAction.Copy));

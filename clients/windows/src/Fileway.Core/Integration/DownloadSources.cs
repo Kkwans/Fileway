@@ -31,6 +31,13 @@ public interface IDownloadSourceProvider
     Task<FileChecksumResult> CalculateDownloadChecksumAsync(DownloadLeaseRequest request, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Acquires a one-shot ZIP export lease for explicitly selected entries under one directory.
+    /// The consumer must still validate the response shape; no durable checkpoint authority exists.
+    /// </summary>
+    Task<IDownloadLease> AcquireArchiveLeaseAsync(ArchiveDownloadLeaseRequest request,
+        CancellationToken cancellationToken) => Task.FromException<IDownloadLease>(Missing());
+
+    /// <summary>
     /// Bounded breadth-first enumeration of one directory through the authenticated listing path.
     /// It reports per-directory failures and truncation instead of guessing; it never starts a transfer.
     /// </summary>
@@ -39,6 +46,15 @@ public interface IDownloadSourceProvider
 
     private static FilewayException Missing() => new(new(ErrorCode.CapabilityMissing,
         "当前仅支持全新单文件下载，此版本能力尚不受支持。"));
+}
+
+/// <summary>
+/// A server-side archive export streams one synthetic file; its length is unknown upfront and it
+/// is never resumed or checksummed against a pinned source observation.
+/// </summary>
+public sealed record ArchiveDownloadLeaseRequest(RemoteResourceRef Directory, IReadOnlyList<string> ItemWirePaths)
+{
+    public override string ToString() => "ArchiveDownloadLeaseRequest (private locations redacted)";
 }
 
 /// <summary>

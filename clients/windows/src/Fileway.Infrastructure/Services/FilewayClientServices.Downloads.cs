@@ -395,6 +395,72 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider, ICo
         return candidate;
     }
 
+    public async Task<IDownloadLease> AcquireArchiveLeaseAsync(ArchiveDownloadLeaseRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateConditionalDownloadSource(request.Directory);
+        if (request.ItemWirePaths is null || request.ItemWirePaths.Count is 0 or > 1000 ||
+            request.ItemWirePaths.Any(wire => string.IsNullOrEmpty(wire)))
+            throw Safe(ErrorCode.InvalidRequest, Message(ErrorCode.InvalidRequest));
+        foreach (var wire in request.ItemWirePaths) _ = FileOperationWireIdentity(wire, allowRoot: false);
+        var state = GetResourceState(request.Directory);
+        RequireDownload(state);
+        FreshDownloadLease? captured = null;
+        bool attempted = false;
+        try
+        {
+            _ = await SessionRequestAsync(state, new
+            {
+                wirePath = request.Directory.WirePath,
+                archiveFiles = request.ItemWirePaths,
+                archiveFormat = "zip",
+            }, requireDownload: true, HostCallSafety.Control, cancellationToken, operation: "lease",
+            beforeSend: async token =>
+            {
+                // Fail fast when the owning directory moved; entry-level permission and
+                // existence are enforced by the server while it streams the archive.
+                var observed = await GetAsync(request.Directory, token).ConfigureAwait(false);
+                if (!observed.IsDirectory || observed.Resource.WirePath != request.Directory.WirePath)
+                    throw Safe(ErrorCode.SourceChanged, "归档来源已变化，请刷新后重试。", 412);
+            },
+            authorizeSend: () => { RequireDownload(state); attempted = true; },
+            confirmResponse: response =>
+            {
+                // Length is unknown for a synthetic archive; the streaming consumer must not
+                // treat it as a pinned observation or a resumable checkpoint.
+                var inner = new ResourceLease(this, state, request.Directory, UploadAddress(response));
+                captured = new FreshDownloadLease(this, inner, 0);
+                lock (_gate)
+                {
+                    EnsureActive(state);
+                    state.Leases.Add(inner);
+                }
+            }).ConfigureAwait(false);
+            lock (_gate)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                RequireDownload(state);
+                return captured ?? throw InvalidResponse();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            var failure = SessionCanceled(state, cancellationToken);
+            if (captured is not null) await captured.DisposeAsync().ConfigureAwait(false);
+            else if (attempted) await RetireDownloadOwnerAsync(state, failure.Error).ConfigureAwait(false);
+            throw failure;
+        }
+        catch (FilewayException error)
+        {
+            if (captured is not null) await captured.DisposeAsync().ConfigureAwait(false);
+            else if (attempted && error.Error.Code is ErrorCode.Canceled or ErrorCode.Timeout or ErrorCode.ProtocolMismatch or
+                ErrorCode.NetworkUnavailable or ErrorCode.HostExited or ErrorCode.OutcomeUnknown or ErrorCode.ResponseTooLarge)
+                await RetireDownloadOwnerAsync(state, error.Error).ConfigureAwait(false);
+            throw;
+        }
+    }
+
     private async Task<RemoteFile> ReadFreshDownloadMetadataAsync(SessionState state, RemoteResourceRef resource,
         CancellationToken cancellationToken, bool operationGateOwned = false)
     {
