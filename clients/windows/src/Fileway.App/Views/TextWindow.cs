@@ -38,11 +38,20 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private readonly TextBlock _summary = new() { FontSize = 12, Opacity = 0.7 };
     private readonly ScrollViewer _renderScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(4, 0, 8, 0) };
     private readonly StackPanel _renderHost = new() { Spacing = 2 };
+    private readonly ScrollViewer _tableScroll = new()
+    {
+        VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+        Visibility = Visibility.Collapsed,
+    };
     private readonly Grid _editor = new() { MinHeight = 200 };
     private AppBarToggleButton? _renderToggle;
+    private AppBarToggleButton? _tableToggle;
     private bool _isMarkdown;
+    private bool _isTable;
+    private CsvGridParser.Grid? _grid;
     private string _rawText = "";
     private bool _showRendered = true;
+    private bool _showTable = true;
     private bool _closed;
     private bool _started;
     private bool _wrapped;
@@ -76,7 +85,16 @@ public sealed class TextWindow : Window, IAsyncDisposable
             }
             catch (Exception) { _notice.Severity = InfoBarSeverity.Warning; _notice.Message = "复制未能完成，请重试。"; _notice.IsOpen = true; }
         };
+        var tableToggle = new AppBarToggleButton { Label = "表格视图" };
+        tableToggle.Click += (_, _) =>
+        {
+            _showTable = tableToggle.IsChecked == true;
+            ApplyViewMode();
+        };
+        tableToggle.Visibility = Visibility.Collapsed;
+        _tableToggle = tableToggle;
         commands.PrimaryCommands.Add(renderToggle);
+        commands.PrimaryCommands.Add(tableToggle);
         commands.PrimaryCommands.Add(wrap);
         commands.PrimaryCommands.Add(copy);
         renderToggle.Click += (_, _) =>
@@ -101,6 +119,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _editor.Children.Add(_text);
         _renderScroll.Content = _renderHost;
         _editor.Children.Add(_renderScroll);
+        _editor.Children.Add(_tableScroll);
         root.Children.Add(_editor);
 
         var windowRoot = new Grid();
@@ -136,10 +155,19 @@ public sealed class TextWindow : Window, IAsyncDisposable
     /// <summary>Renders the bounded markdown subset natively; plain text stays one click away.</summary>
     private void ApplyViewMode()
     {
+        if (_isTable && _showTable && _grid is { } grid)
+        {
+            _text.Visibility = Visibility.Collapsed;
+            _renderScroll.Visibility = Visibility.Collapsed;
+            _tableScroll.Visibility = Visibility.Visible;
+            BuildTable(grid);
+            return;
+        }
         if (!_isMarkdown || !_showRendered)
         {
             _text.Visibility = Visibility.Visible;
             _renderScroll.Visibility = Visibility.Collapsed;
+            _tableScroll.Visibility = Visibility.Collapsed;
             return;
         }
         _text.Visibility = Visibility.Collapsed;
@@ -155,8 +183,52 @@ public sealed class TextWindow : Window, IAsyncDisposable
             // Rendering is a presentation aid; any fault falls back to the plain text.
             _text.Visibility = Visibility.Visible;
             _renderScroll.Visibility = Visibility.Collapsed;
+            _tableScroll.Visibility = Visibility.Collapsed;
             if (_renderToggle is { } toggle) toggle.IsChecked = false;
         }
+    }
+
+    private void BuildTable(CsvGridParser.Grid grid)
+    {
+        if (_tableScroll.Content is Grid built) { _tableScroll.Content = null; built.Children.Clear(); }
+        var layout = new Grid { ColumnSpacing = 0 };
+        for (int column = 0; column < grid.TotalColumns; column++)
+            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        var header = new StackPanel { Orientation = Orientation.Horizontal };
+        for (int column = 0; column < grid.TotalColumns; column++)
+        {
+            header.Children.Add(new TextBlock
+            {
+                Text = column < grid.Rows[0].Length ? grid.Rows[0][column] : "",
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
+                Width = 200, Padding = new Thickness(8, 6, 8, 6),
+            });
+        }
+        var rows = new List<string[]>();
+        for (int index = 1; index < grid.Rows.Count; index++) rows.Add(grid.Rows[index]);
+        // WinUI 3 has no per-container hook; a generated DataTemplate binds each column by index
+        // and ListView virtualization keeps bounded rows cheap.
+        var cells = new System.Text.StringBuilder();
+        for (int column = 0; column < grid.TotalColumns; column++)
+            cells.Append("<TextBlock Text=\"{Binding [").Append(column).Append("]}\" Width=\"200\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Padding=\"8,4\"/>");
+        string templateXaml = "<DataTemplate" +
+            " xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">" +
+            "<StackPanel Orientation=\"Horizontal\">" + cells + "</StackPanel></DataTemplate>";
+        var list = new ListView { ItemsSource = rows, ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(templateXaml) };
+        var table = new StackPanel { Spacing = 0 };
+        table.Children.Add(new Border
+        {
+            Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["LayerFillColorDefaultBrush"],
+            Child = header,
+        });
+        table.Children.Add(list);
+        string note = (grid.RowsTruncated ? $"已截取前 {grid.Rows.Count} 行；" : "") +
+            (grid.TotalColumns >= CsvGridParser.MaximumColumns ? $"仅显示前 {grid.TotalColumns} 列；" : "") +
+            $"共 {grid.TotalRows} 行 × 至少 {grid.TotalColumns} 列";
+        table.Children.Add(new TextBlock { Text = note, FontSize = 12, Opacity = 0.7, Margin = new Thickness(8, 6, 0, 6) });
+        layout.Children.Add(table);
+        _tableScroll.Content = layout;
     }
 
     private async Task LoadAsync()
@@ -169,7 +241,15 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _rawText = content.Text;
             _isMarkdown = _resource.DisplayName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ||
                 _resource.DisplayName.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase);
+            _isTable = !_isMarkdown && (_resource.DisplayName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ||
+                _resource.DisplayName.EndsWith(".tsv", StringComparison.OrdinalIgnoreCase));
+            if (_isTable)
+            {
+                char delimiter = CsvGridParser.DetectDelimiter(content.Text, _resource.DisplayName);
+                _grid = CsvGridParser.Parse(content.Text, delimiter);
+            }
             if (_renderToggle is { } toggle) toggle.Visibility = _isMarkdown ? Visibility.Visible : Visibility.Collapsed;
+            if (_tableToggle is { } tableButton) tableButton.Visibility = _grid is not null ? Visibility.Visible : Visibility.Collapsed;
             _summary.Text = $"{content.EncodingName} · {DownloadPresentationPolicy.FormatBytes(content.DeclaredLength)} · 只读预览";
             _notice.IsOpen = false;
             ApplyViewMode();
