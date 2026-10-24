@@ -47,6 +47,7 @@ public sealed partial class MainPage : Page, IDisposable
     private readonly HashSet<ImageWindow> _imageWindows = [];
     private readonly HashSet<TextWindow> _textWindows = [];
     private readonly HashSet<ArchiveWindow> _archiveWindows = [];
+    private readonly HashSet<PdfWindow> _pdfWindows = [];
     private const long ArchiveBrowseBudget = 64L * 1024 * 1024;
     private static bool IsZipArchive(FileRow row) => !row.File.IsDirectory &&
         row.File.Size <= ArchiveBrowseBudget &&
@@ -211,6 +212,8 @@ public sealed partial class MainPage : Page, IDisposable
         }
         foreach (var window in _imageWindows.ToArray()) window.Close();
         foreach (var window in _textWindows.ToArray()) window.Close();
+        foreach (var window in _archiveWindows.ToArray()) window.Close();
+        foreach (var window in _pdfWindows.ToArray()) window.Close();
         _connectionCancellation?.Dispose(); _loadCancellation?.Dispose(); _lifetime.Dispose();
     }
 
@@ -255,6 +258,8 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 foreach (var window in _imageWindows.ToArray()) window.Close();
                 foreach (var window in _textWindows.ToArray()) window.Close();
+                foreach (var window in _archiveWindows.ToArray()) window.Close();
+                foreach (var window in _pdfWindows.ToArray()) window.Close();
                 if (_playback is not null) await _playback.CloseAccountAsync(_session.Account, token);
                 await _connection.DisconnectAsync(_session.Account, token);
                 ClearActiveWorkspace();
