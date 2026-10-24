@@ -104,11 +104,168 @@ public sealed partial class UploadApplicationService
         }
     }
 
+    private readonly HashSet<CompletedPlaybackReadLease> _completedPlaybackReaders = [];
+
+    /// <summary>
+    /// Read-only reopen for one durably completed download. Only the terminal record, its final
+    /// publication evidence and the positively identified final file grant reads; no live execution,
+    /// remote capability, write or delete authority is involved.
+    /// </summary>
+    async Task<DownloadPlaybackSource> IDownloadPlaybackSourceProvider.ReopenCompletedPlaybackAsync(
+        DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken)
+    {
+        Binding binding;
+        lock (_gate)
+        {
+            binding = RequireDownloadContext(context, task);
+            RequireDownloadPermission(binding);
+            if (binding.DownloadDraining ||
+                _downloadPlaybackReaders.Count + _completedPlaybackReaders.Count >= MaximumPlaybackReaders)
+                throw DownloadSafe(ErrorCode.Busy);
+        }
+        var original = await ReadAsync(task, cancellationToken).ConfigureAwait(false);
+        lock (_gate)
+        {
+            RequireDownloadContext(context, task);
+            RequireDownloadPermission(binding);
+        }
+        var checkpoint = original.Checkpoint;
+        if (original.Plan.Reference != task || original.Plan.Direction != TransferDirection.Download ||
+            original.Generation <= 0 || checkpoint.Phase != TransferPhase.Completed ||
+            checkpoint.Uncertainty != TransferUncertainty.None || checkpoint.Error is not null ||
+            checkpoint.Files is not { PublishedFileIdentity: not null } files ||
+            checkpoint.Source is not { Length: > 0 } source ||
+            string.IsNullOrEmpty(checkpoint.LocalSha256) || checkpoint.LocalSha256 != checkpoint.ServerSha256 ||
+            checkpoint.ConfirmedOffset != source.Length)
+            throw DownloadSafe(ErrorCode.InvalidRequest);
+        var destination = await Task.Run(() => Fileway.Infrastructure.Transfers.WindowsDownloadFileAccess
+            .OpenPublishedReadAsync(original.Plan.LocalPath, files, source.Length, cancellationToken), cancellationToken).ConfigureAwait(false);
+        IDownloadReadLease? acquired = null;
+        CompletedPlaybackReadLease? reader = null;
+        try
+        {
+            lock (_gate)
+            {
+                RequireDownloadContext(context, task);
+                RequireDownloadPermission(binding);
+            }
+            if (destination.Files.PartialPath != files.PartialPath ||
+                destination.Files.PartialIdentity != files.PartialIdentity ||
+                destination.Files.PublishedFileIdentity != files.PublishedFileIdentity)
+                throw DownloadSafe(ErrorCode.SourceChanged);
+            // A fresh admission identity scoped to this reopen; generation matches the durable
+            // terminal record so presentation checks remain consistent.
+            var admission = new TransferRunToken(task, Guid.NewGuid(), original.Generation);
+            var readable = destination as IReadableDownloadDestination ?? throw DownloadSafe(ErrorCode.ProtocolMismatch);
+            acquired = await readable.AcquireReadLeaseAsync(admission, source.Length, cancellationToken).ConfigureAwait(false);
+            var current = await ReadAsync(task, cancellationToken).ConfigureAwait(false);
+            lock (_gate)
+            {
+                RequireDownloadContext(context, task);
+                RequireDownloadPermission(binding);
+                if (current.Plan != original.Plan || current.Generation != original.Generation ||
+                    current.Checkpoint != original.Checkpoint) throw DownloadSafe(ErrorCode.SourceChanged);
+                reader = new CompletedPlaybackReadLease(this, binding, readable, acquired, admission, source.Length);
+                _completedPlaybackReaders.Add(reader);
+                var item = ObserveDownload(binding, current);
+                acquired = null;
+                return new DownloadPlaybackSource(item, reader);
+            }
+        }
+        finally
+        {
+            if (acquired is not null) await acquired.DisposeAsync().ConfigureAwait(false);
+            if (reader is null) await destination.DisposeAsync().ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>Read-only lease over one completed task's final file; disposal closes the final object.</summary>
+    private sealed class CompletedPlaybackReadLease : IDownloadReadLease
+    {
+        private readonly UploadApplicationService _service;
+        private readonly IReadableDownloadDestination _destination;
+        private readonly IAsyncDisposable _disposalTarget;
+        private readonly IDownloadReadLease _inner;
+        private readonly object _disposeGate = new();
+        private TaskCompletionSource? _disposal, _revocation;
+
+        internal CompletedPlaybackReadLease(UploadApplicationService service, Binding binding,
+            IReadableDownloadDestination destination, IDownloadReadLease inner, TransferRunToken run, long total)
+        {
+            _service = service;
+            Binding = binding;
+            _destination = destination;
+            _disposalTarget = (IAsyncDisposable)destination;
+            _inner = inner;
+            Run = run;
+            TotalBytes = total;
+        }
+
+        internal Binding Binding { get; }
+        internal TransferTaskRef LeaseTask => Run.Task;
+        public TransferRunToken Run { get; }
+        public long TotalBytes { get; }
+        public long ReadablePrefixBytes
+        {
+            get
+            {
+                lock (_disposeGate)
+                {
+                    if (_disposal is not null || _revocation is not null) throw DownloadSafe(ErrorCode.SourceChanged);
+                    return _inner.ReadablePrefixBytes == TotalBytes ? TotalBytes : 0;
+                }
+            }
+        }
+
+        public async ValueTask<int> ReadAsync(long offset, Memory<byte> buffer, CancellationToken cancellationToken)
+        {
+            lock (_disposeGate)
+                if (_disposal is not null || _revocation is not null) throw DownloadSafe(ErrorCode.SourceChanged);
+            if (offset < 0 || offset > TotalBytes) throw DownloadSafe(ErrorCode.InvalidRequest);
+            return await _inner.ReadAsync(offset, buffer, cancellationToken).ConfigureAwait(false);
+        }
+
+        internal Task RequestRevocation()
+        {
+            lock (_disposeGate)
+            {
+                if (_disposal is not null) return Task.CompletedTask;
+                _revocation ??= new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+            return _destination.RevokeReadersAsync(CancellationToken.None);
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            TaskCompletionSource completion;
+            lock (_disposeGate)
+            {
+                if (_disposal is not null) return new(_disposal.Task);
+                _disposal = completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            }
+            return new(DisposeCoreAsync(completion));
+        }
+
+        private async Task DisposeCoreAsync(TaskCompletionSource completion)
+        {
+            lock (_service._gate) _service._completedPlaybackReaders.Remove(this);
+            try
+            {
+                await _inner.DisposeAsync().ConfigureAwait(false);
+                await _disposalTarget.DisposeAsync().ConfigureAwait(false);
+                completion.TrySetResult();
+            }
+            catch (Exception error) { completion.TrySetException(NormalizeDownload(error)); }
+        }
+    }
+
     // Caller holds only the application gate. Cancellation marks the fence immediately and runs
     // token callbacks elsewhere; no network operation, native callback or final reader disposal waits here.
     private Task RevokePlaybackReadersLocked(Binding binding, TransferTaskRef? task = null) => Task.WhenAll(
         _downloadPlaybackReaders.Where(reader => ReferenceEquals(reader.Binding, binding) &&
-            (task is null || reader.Run.Task == task)).Select(reader => reader.RequestRevocation()).ToArray());
+            (task is null || reader.Run.Task == task)).Select(reader => reader.RequestRevocation())
+        .Concat(_completedPlaybackReaders.Where(reader => ReferenceEquals(reader.Binding, binding) &&
+            (task is null || reader.LeaseTask == task)).Select(reader => reader.RequestRevocation())).ToArray());
 
     // Existing readers may outlive the successfully published writer, but never their account,
     // permission or exact execution. This check uses accepted in-memory evidence only.

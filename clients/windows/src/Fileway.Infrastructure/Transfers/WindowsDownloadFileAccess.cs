@@ -235,6 +235,10 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
     }
 
     public Task<IDownloadDestination> OpenOwnedAsync(string finalPath, TransferWorkFiles files, CancellationToken cancellationToken)
+        => OpenOwnedCoreAsync(finalPath, files, publishedReadAdmission: false, cancellationToken);
+
+    private static Task<IDownloadDestination> OpenOwnedCoreAsync(string finalPath, TransferWorkFiles files,
+        bool publishedReadAdmission, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         DirectoryGuard? directories = null;
@@ -275,11 +279,14 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 if (ambiguous is not null) throw Unknown();
                 files = files with { PublishedFileIdentity = identity };
                 published = true;
+                // Read-only reopen of a completed task: the same positively identified final object
+                // may admit readers, but never writers or deletion authority. The admission flag is
+                // consumed below; a published file never opens with writer authority.
             }
             directories.Revalidate(AccessContext.Owned);
             cancellationToken.ThrowIfCancellationRequested();
             IDownloadDestination destination = new DownloadDestination(final, partial, identity, handle, directories,
-                files, information.Length, published, readerAdmission: false);
+                files, information.Length, published, readerAdmission: published && publishedReadAdmission);
             handle = null;
             directories = null;
             return Task.FromResult(destination);
@@ -291,6 +298,24 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
             handle?.Dispose();
             directories?.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Read-only reopen of one completed download's final file. The persisted evidence must name the
+    /// exact published identity and expected length; the opened object grants reads only.
+    /// </summary>
+    public static async Task<IDownloadDestination> OpenPublishedReadAsync(string finalPath, TransferWorkFiles files,
+        long expectedLength, CancellationToken cancellationToken)
+    {
+        var destination = await OpenOwnedCoreAsync(finalPath, files, publishedReadAdmission: true, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (!destination.IsPublished || destination.Length != expectedLength ||
+                destination.Files.PublishedFileIdentity != files.PublishedFileIdentity)
+                throw Unknown();
+            return destination;
+        }
+        catch { await destination.DisposeAsync().ConfigureAwait(false); throw; }
     }
 
     public override string ToString() => "WindowsDownloadFileAccess (private destinations redacted)";
@@ -692,7 +717,9 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
             {
                 RequireActive();
                 RequireCompleteWrites();
-                if (!readerAdmission || _published) throw Unknown();
+                // A published destination admits readers only through the explicit read-only
+                // reopen path; an in-flight writer destination never does.
+                if (!readerAdmission || _published && !_publicationVerified) throw Unknown();
                 try { Verify(compareLength: true); }
                 catch { FaultReaders(); throw; }
                 cancellationToken.ThrowIfCancellationRequested();

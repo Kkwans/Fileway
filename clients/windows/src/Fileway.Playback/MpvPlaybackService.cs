@@ -107,7 +107,16 @@ public sealed class MpvPlaybackService : IPlaybackService
             {
                 if (_downloads is null) throw MpvNative.Error(ErrorCode.CapabilityMissing, "当前下载不支持播放读取。");
                 observation = new DownloadPlaybackObservation(_downloads, input);
-                download = await _downloads.AcquirePlaybackAsync(input.Context, input.Task, cancellationToken).ConfigureAwait(false);
+                try
+                {
+                    download = await _downloads.AcquirePlaybackAsync(input.Context, input.Task, cancellationToken).ConfigureAwait(false);
+                }
+                catch (FilewayException error) when (error.Error.Code == ErrorCode.SourceChanged)
+                {
+                    // No live execution: a durably completed task reopens read-only over its
+                    // verified final file instead of acquiring an active writer's reader.
+                    download = await _downloads.ReopenCompletedPlaybackAsync(input.Context, input.Task, cancellationToken).ConfigureAwait(false);
+                }
                 cancellationToken.ThrowIfCancellationRequested();
                 observation.Admit(download);
             }

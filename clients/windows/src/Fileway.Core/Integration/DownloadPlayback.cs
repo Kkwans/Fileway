@@ -20,4 +20,13 @@ public interface IDownloadPlaybackSourceProvider : IDownloadService
     /// </summary>
     Task<DownloadPlaybackSource> AcquirePlaybackAsync(DownloadContext context, TransferTaskRef task,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Read-only reopen of one durably completed download: terminal completion evidence, the final
+    /// publication identity and the positively identified final file are verified before a reader over
+    /// the exact final object is granted. No write/delete authority and no remote capability exists.
+    /// </summary>
+    Task<DownloadPlaybackSource> ReopenCompletedPlaybackAsync(DownloadContext context, TransferTaskRef task,
+        CancellationToken cancellationToken) => Task.FromException<DownloadPlaybackSource>(new FilewayException(
+            new(ErrorCode.CapabilityMissing, "当前下载不支持重新播放。")));
 }

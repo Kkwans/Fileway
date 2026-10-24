@@ -58,7 +58,8 @@ internal static class DownloadPresentationPolicy
         item.Snapshot.Intent == TransferIntent.Run && item.Snapshot.Uncertainty == TransferUncertainty.None &&
         item.Snapshot.Error is null && item.Snapshot.TotalBytes is > 0 &&
         ((item.Status, item.Snapshot.Phase) is (DownloadStatus.Downloading, TransferPhase.Running) or
-            (DownloadStatus.Verifying, TransferPhase.Verifying)) &&
+            (DownloadStatus.Verifying, TransferPhase.Verifying) or
+            (DownloadStatus.Completed, TransferPhase.Completed) && item.Snapshot.LocalPublished) &&
         (Path.GetExtension(item.Source.DisplayName).ToLowerInvariant() is ".mp4" or ".mkv" or ".mov" or ".webm" or
             ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv");
     internal static string PrimaryLabel(DownloadItem item) => !CanReconcile(item) ? ""
