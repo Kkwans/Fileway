@@ -98,7 +98,8 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 items(state.paths, key = { it.key }) { row ->
                     val file = row.file
                     if (file != null) LibraryObjectCard(file.name, libraryLocation(file.path), fileArtworkIcon(file.name, file.directory),
-                        enabled = enabled, summary = if (file.directory) null else readableSize(file.size), artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
+                        enabled = enabled, onLongClick = { details = file }, longClickLabel = "查看文件详情",
+                        summary = if (file.directory) null else readableSize(file.size), artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
                             MediaThumbnail(model, file, Modifier.size(36.dp).clip(MaterialTheme.shapes.small), showStatusText = false)
                         } } else null, onOpen = {
                             if (file.directory) model.tags.filter(tag?.id, true)

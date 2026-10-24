@@ -76,7 +76,7 @@ private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun FileActions(model: ClientModel, file: ResourceRef, onMoved: () -> Unit = {}) {
+@Composable internal fun FileActions(model: ClientModel, file: ResourceRef, showFavorite: Boolean = true, onMoved: () -> Unit = {}) {
     if (model.isTemporaryContent(file)) {
         Text("包内文件 · 解压后可收藏、打标签或修改", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
         return
@@ -119,13 +119,13 @@ private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val hasMore = file.path != "/" && (client.permissions.rename || client.permissions.create || client.permissions.download)
-                    val count = 2 + (if (client.permissions.download) 1 else 0) +
+                    val count = (if (showFavorite) 2 else 1) + (if (client.permissions.download) 1 else 0) +
                         (if (client.permissions.delete && file.path != "/") 1 else 0) + (if (hasMore) 1 else 0)
                     val width = maxOf(48.dp, (maxWidth - 8.dp * (count - 1)) / count)
                     CompositionLocalProvider(LocalFileActionWidth provides width) {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        FavoriteFileAction(model, file, enabled)
+                        if (showFavorite) FavoriteFileAction(model, file, enabled)
                         FileActionIcon(R.drawable.ic_tag, "设置文件标签", enabled && !tags.changing, model.tags.assigned(file).isNotEmpty(), caption = "标签") {
                             switch(FileOperationDestination.TAGS, "设置文件标签")
                         }
@@ -174,7 +174,7 @@ private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
                 operations.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR) }
             }
         } else {
-            Box(Modifier.size(0.dp)) { FavoriteFileAction(model, file, enabled) }
+            Box(Modifier.size(0.dp)) { if (showFavorite) FavoriteFileAction(model, file, enabled) }
         }
         when (foreground.destination) {
             FileOperationDestination.TAGS -> FileTagPicker(model, file, ::back)

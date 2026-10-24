@@ -32,7 +32,7 @@ internal fun libraryLocation(path: String): String {
 @Composable internal fun LibraryObjectCard(
     name: String, location: String, icon: Int, modifier: Modifier = Modifier, summary: String? = null,
     onOpen: (() -> Unit)? = null, enabled: Boolean = true,
-    onLongClick: (() -> Unit)? = null, selected: Boolean = false, selectionMode: Boolean = false,
+    onLongClick: (() -> Unit)? = null, longClickLabel: String = "多选", selected: Boolean = false, selectionMode: Boolean = false,
     leading: @Composable RowScope.() -> Unit = {}, trailing: @Composable RowScope.() -> Unit = {},
     artwork: (@Composable () -> Unit)? = null,
     context: @Composable ColumnScope.() -> Unit = {},
@@ -41,7 +41,7 @@ internal fun libraryLocation(path: String): String {
     Surface(Modifier.clip(shape).then(modifier).fillMaxWidth()
         .then(if (onOpen != null) Modifier.combinedClickable(enabled = enabled,
             role = if (selectionMode) Role.Checkbox else Role.Button, onClick = onOpen, onLongClick = onLongClick,
-            onLongClickLabel = if (onLongClick != null) "多选" else null) else Modifier)
+            onLongClickLabel = if (onLongClick != null) longClickLabel else null) else Modifier)
         .then(if (selectionMode) Modifier.semantics { this.selected = selected } else Modifier), shape = shape,
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {

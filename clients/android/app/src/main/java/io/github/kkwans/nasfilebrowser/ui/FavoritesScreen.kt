@@ -34,6 +34,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     val state by model.favorites.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable(state.scope) { mutableStateOf<String?>(null) }
     var editing by remember(state.scope) { mutableStateOf<Favorite?>(null) }
+    var details by remember(state.scope) { mutableStateOf<Favorite?>(null) }
     var managing by rememberSaveable(state.scope) { mutableStateOf(false) }
     val enabled = !state.loading && !state.changing && !client.busy
     LaunchedEffect(state.scope) { model.favorites.refresh() }
@@ -72,11 +73,13 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                     val basename = libraryBasename(favorite.path)
                     LibraryObjectCard(favorite.name.ifEmpty { basename }, libraryLocation(favorite.path), R.drawable.ic_bookmark,
                         onOpen = { model.openFavorite(favorite, state.scope) }, enabled = enabled,
+                        onLongClick = { details = favorite }, longClickLabel = "查看文件详情",
                         summary = if (filter == null) state.groups.firstOrNull { it.id == favorite.groupId }?.name else null,
                         trailing = {
                             Box {
                                 IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_actions), "收藏更多：${favorite.name.ifEmpty { basename }}") }
                                 FilewayMenu(menu, { menu = false }, items = listOf(
+                                    FilewayMenuEntry("detail", "文件详情", R.drawable.ic_info),
                                     FilewayMenuEntry("edit", "编辑收藏", R.drawable.ic_edit),
                                     FilewayMenuEntry("up", "上移", R.drawable.ic_expand_less, enabled = state.items.firstOrNull()?.id != favorite.id),
                                     FilewayMenuEntry("down", "下移", R.drawable.ic_expand_more, enabled = state.items.lastOrNull()?.id != favorite.id),
@@ -84,6 +87,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                                 ), onItemClick = { item ->
                                     menu = false
                                     when (item.key) {
+                                        "detail" -> details = favorite
                                         "edit" -> editing = favorite
                                         "up" -> model.favorites.move(favorite, -1)
                                         "down" -> model.favorites.move(favorite, 1)
@@ -99,6 +103,8 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                 }
             }
     }
+    details?.let { favorite -> FavoriteDetailsSheet(model, favorite, state, enabled,
+        onEdit = { details = null; editing = it }, onDismiss = { details = null }) }
     editing?.let { item ->
         var name by remember(item.id) { mutableStateOf(item.name) }
         var group by remember(item.id) { mutableStateOf(item.groupId) }
@@ -121,6 +127,56 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
             dismissButton = { FilewayTextButton(onClick = { editing = null }, enabled = !state.changing) { Text("取消") } })
     }
     if (managing) FavoriteGroupsDialog(model) { managing = false }
+}
+
+/** Resolve collection records before offering file operations: a favourite does not store type or size. */
+@Composable private fun FavoriteDetailsSheet(model: ClientModel, favorite: Favorite, state: FavoritesState,
+    enabled: Boolean, onEdit: (Favorite) -> Unit, onDismiss: () -> Unit) {
+    val sourceScope = remember(favorite.id) { state.scope }
+    var resource by remember(favorite.id, sourceScope) { mutableStateOf<ResourceRef?>(null) }
+    var error by remember(favorite.id, sourceScope) { mutableStateOf<String?>(null) }
+    var attempt by remember(favorite.id, sourceScope) { mutableIntStateOf(0) }
+    var loading by remember(favorite.id, sourceScope) { mutableStateOf(true) }
+    LaunchedEffect(favorite.id, sourceScope, attempt) {
+        loading = true; error = null
+        try {
+            check(favorite.openable) { "收藏的原始路径无法确认，请先刷新收藏" }
+            check(model.favorites.state.value.scope == sourceScope) { "收藏来源已切换" }
+            val result = model.resourceMetadata(ResourceRef(favorite.path, favorite.wirePath, libraryBasename(favorite.path), false, "", 0))
+            check(model.favorites.state.value.scope == sourceScope) { "收藏来源已切换" }
+            resource = result
+        } catch (failure: Exception) {
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            error = failure.message ?: "文件信息暂时无法读取"
+        } finally { loading = false }
+    }
+    LaunchedEffect(state.scope, state.items) {
+        if (state.scope != sourceScope || state.loaded && state.items.none { it.id == favorite.id && it.path == favorite.path && it.wirePath == favorite.wirePath }) onDismiss()
+    }
+    val actions = listOf(
+        FilewayMenuEntry("edit", "编辑收藏", R.drawable.ic_edit, enabled = enabled),
+        FilewayMenuEntry("remove", "取消收藏", R.drawable.ic_bookmark, enabled = enabled),
+        FilewayMenuEntry("location", "所在目录", R.drawable.ic_folder, enabled = enabled && resource != null, accessibilityLabel = "打开所在目录"),
+    )
+    fun perform(action: String) {
+        val current = state.items.firstOrNull { it.id == favorite.id } ?: return
+        if (!enabled || state.scope != sourceScope || current.path != favorite.path || current.wirePath != favorite.wirePath) return
+        when (action) {
+            "edit" -> onEdit(current)
+            "remove" -> model.favorites.remove(current, onDismiss)
+            "location" -> resource?.let { onDismiss(); model.openContainingDirectory(it) }
+        }
+    }
+    val footer: @Composable RowScope.() -> Unit = { FilewaySheetActions(actions, ::perform) }
+    val file = resource
+    if (file == null) FileOperationSheet("收藏详情", onDismiss, footer = footer) {
+        Text(favorite.name.ifEmpty { libraryBasename(favorite.path) }, style = MaterialTheme.typography.titleMedium)
+        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error); FilewayOutlinedButton({ attempt++ }) { Text("重新读取") } }
+        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    } else FileDetailsDialog(file, model = model, readMetadata = false, openEnabled = enabled, footerActions = footer,
+        actions = { FileActions(model, file, showFavorite = false, onMoved = onDismiss) },
+        additionalActions = { state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) } }, onDismiss = onDismiss)
 }
 
 @Composable private fun FavoriteGroupChoice(id: String, name: String, selected: String, enabled: Boolean = true, choose: () -> Unit) {
