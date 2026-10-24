@@ -23,7 +23,10 @@ func BaseURL(value string) (*url.URL, error) {
 // encoding opaque legacy wirePath bytes again. It never changes the origin.
 func Endpoint(base *url.URL, relative string) (*url.URL, error) {
 	r, err := url.Parse(relative)
-	if err != nil || r.IsAbs() || r.Host != "" || r.Fragment != "" || (!strings.HasPrefix(r.Path, "/api/") && r.Path != "/health") {
+	// /media/hls/ is the server's compatibility-playback family; playlists and
+	// segments are leased like other media and must never bypass their session.
+	if err != nil || r.IsAbs() || r.Host != "" || r.Fragment != "" ||
+		(!strings.HasPrefix(r.Path, "/api/") && !strings.HasPrefix(r.Path, "/media/hls/") && r.Path != "/health") {
 		return nil, errors.New("invalid service endpoint")
 	}
 	for _, segment := range strings.Split(r.Path, "/") {

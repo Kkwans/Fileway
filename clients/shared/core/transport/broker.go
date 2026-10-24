@@ -425,6 +425,36 @@ func (b *Broker) Close() error {
 	return b.server.Close()
 }
 
+// leaseSubpath resolves one relative sibling reference against a leased endpoint's
+// directory. Traversal, queries and escapes outside that directory are rejected; the
+// result stays inside the two leased endpoint families.
+func leaseSubpath(endpoint, rest string) (string, error) {
+	if rest == "" || strings.ContainsAny(rest, "?#\\") {
+		return "", errors.New("invalid stream subpath")
+	}
+	for _, segment := range strings.Split(rest, "/") {
+		if segment == "" {
+			return "", errors.New("invalid stream subpath")
+		}
+		decoded, err := url.PathUnescape(segment)
+		if err != nil || decoded == "." || decoded == ".." {
+			return "", errors.New("invalid stream subpath")
+		}
+	}
+	if strings.ContainsAny(endpoint, "?#") {
+		return "", errors.New("invalid stream subpath base")
+	}
+	cut := strings.LastIndexByte(endpoint, '/')
+	if cut < 0 {
+		return "", errors.New("invalid stream subpath base")
+	}
+	candidate := endpoint[:cut+1] + rest
+	if !strings.HasPrefix(candidate, "/api/") && !strings.HasPrefix(candidate, "/media/hls/") {
+		return "", errors.New("invalid stream subpath")
+	}
+	return candidate, nil
+}
+
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.URL.Path, "/stream/") || r.URL.RawQuery != "" || r.Header.Get("Origin") != "" {
 		http.Error(w, "unknown stream", http.StatusNotFound)
@@ -434,8 +464,12 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid host", http.StatusBadRequest)
 		return
 	}
+	// EscapedPath keeps percent-encoded bytes stable; a sub-path is appended to the
+	// leased endpoint's parent without re-encoding either side.
+	trimmed := strings.TrimPrefix(r.URL.EscapedPath(), "/stream/")
+	key, rest, hasRest := strings.Cut(trimmed, "/")
 	b.mu.RLock()
-	l := b.leases[strings.TrimPrefix(r.URL.Path, "/stream/")]
+	l := b.leases[key]
 	b.mu.RUnlock()
 	if l == nil || l.ctx.Err() != nil {
 		http.Error(w, "stream closed", http.StatusGone)
@@ -444,6 +478,18 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if l.upload != nil {
 		b.serveUpload(w, r, l)
 		return
+	}
+	endpoint := l.endpoint
+	if hasRest {
+		// Sub-paths exist for streaming families whose entry document references
+		// relative siblings (HLS playlists/segments). The lease key remains the
+		// only capability; the sibling must stay inside that same directory.
+		resolved, err := leaseSubpath(l.endpoint, rest)
+		if err != nil {
+			http.Error(w, "unknown stream", http.StatusNotFound)
+			return
+		}
+		endpoint = resolved
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
@@ -467,7 +513,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		headers.Set("Range", "bytes=0-0")
 	}
 	previous := l.session.currentToken()
-	res, err := l.session.do(ctx, http.MethodGet, l.endpoint, nil, headers)
+	res, err := l.session.do(ctx, http.MethodGet, endpoint, nil, headers)
 	if err != nil {
 		http.Error(w, "source unavailable", http.StatusBadGateway)
 		return
