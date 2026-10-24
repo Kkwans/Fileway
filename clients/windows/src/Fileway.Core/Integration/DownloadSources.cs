@@ -29,6 +29,16 @@ public interface IDownloadSourceProvider
 
     /// <summary>SHA-256 for the pinned source, conditioned on SourceVersion when available; no task/journal mutation.</summary>
     Task<FileChecksumResult> CalculateDownloadChecksumAsync(DownloadLeaseRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Bounded breadth-first enumeration of one directory through the authenticated listing path.
+    /// It reports per-directory failures and truncation instead of guessing; it never starts a transfer.
+    /// </summary>
+    Task<DownloadTreeEnumeration> EnumerateDownloadTreeAsync(RemoteResourceRef directory, int maximumEntries,
+        CancellationToken cancellationToken) => Task.FromException<DownloadTreeEnumeration>(Missing());
+
+    private static FilewayException Missing() => new(new(ErrorCode.CapabilityMissing,
+        "当前仅支持全新单文件下载，此版本能力尚不受支持。"));
 }
 
 /// <summary>

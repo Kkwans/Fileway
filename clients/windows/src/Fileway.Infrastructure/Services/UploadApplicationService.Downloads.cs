@@ -173,6 +173,19 @@ public sealed partial class UploadApplicationService
             RequireCurrent(binding);
             if (DownloadDestination(settings.Active.DownloadDirectory, preview.Name) != draft.Plan.LocalPath)
                 throw DownloadSafe(ErrorCode.SourceChanged);
+            if (draft.Plan.BatchId is not null)
+            {
+                // Tree batches create their target subdirectories only after explicit confirmation;
+                // existing levels are verified, never replaced, and creation is idempotent per retry.
+                try
+                {
+                    await Task.Run(() => Fileway.Infrastructure.Transfers.WindowsDownloadFileAccess
+                        .EnsureDirectoryTreeAsync(draft.Plan.LocalPath, settings.Active.DownloadDirectory, cancellationToken), cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception error) when (error is FilewayException or IOException or UnauthorizedAccessException or InvalidOperationException)
+                { throw NormalizeDownload(error); }
+                RequireCurrent(binding);
+            }
             var created = await StorageAsync(token => _tasks.CreateTransferAsync(draft.Plan, token), cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
             _ = ObserveDownload(binding, created, publish: false);
@@ -340,6 +353,64 @@ public sealed partial class UploadApplicationService
                 return enqueued.Where(task => binding.DownloadItems.TryGetValue(task, out _))
                     .Select(task => ProjectDownload(binding, binding.DownloadItems[task])).ToArray();
             }
+        }
+        catch (Exception error) { throw NormalizeDownload(error); }
+        finally { _commands.Release(); }
+    }
+
+    async Task<DownloadTreeEnumeration> IDownloadService.EnumerateTreeAsync(DownloadContext context, RemoteResourceRef directory, CancellationToken cancellationToken)
+    {
+        await EnterAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var binding = RequireDownloadContext(context);
+            RequireDownloadPermission(binding);
+            if (directory is null || directory.Account != context.Account || directory.SourceVersion is not null)
+                throw DownloadSafe(ErrorCode.InvalidRequest);
+            var enumeration = await _downloads!.Sources.EnumerateDownloadTreeAsync(directory, 1000, cancellationToken).ConfigureAwait(false);
+            RequireCurrent(binding);
+            return enumeration;
+        }
+        catch (Exception error) { throw NormalizeDownload(error); }
+        finally { _commands.Release(); }
+    }
+
+    async Task<DownloadPreview> IDownloadService.PrepareTreeAsync(DownloadContext context, RemoteResourceRef root, DownloadTreeEntry entry,
+        Guid batchId, int ordinal, CancellationToken cancellationToken)
+    {
+        await EnterAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var binding = RequireDownloadContext(context);
+            RequireDownloadPermission(binding);
+            if (root is null || entry is null || root.Account != context.Account || root.SourceVersion is not null ||
+                entry.Resource.Account != context.Account || entry.Resource.SourceVersion is not null ||
+                batchId == Guid.Empty || ordinal < 0) throw DownloadSafe(ErrorCode.InvalidRequest);
+            var settings = await StorageAsync(token => _downloads!.StorageSettings.ReadAsync(token), cancellationToken).ConfigureAwait(false);
+            RequireCurrent(binding);
+            string relative = TransferTaskValidation.LocalFilePath(settings.Active.DownloadDirectory.TrimEnd('\\') + "\\" +
+                FilewayClientServices.MapWindowsLeafName(root.DisplayName) + "\\" + entry.MappedRelativePath);
+            var sources = _downloads!.Sources;
+            var metadata = await (sources is IConditionalDownloadSourceProvider conditional && conditional.CanUseConditionalDownload(entry.Resource)
+                ? conditional.PrepareConditionalDownloadAsync(entry.Resource, cancellationToken)
+                : sources.PrepareDownloadAsync(entry.Resource, cancellationToken)).ConfigureAwait(false);
+            RequireCurrent(binding);
+            if (metadata.IsDirectory || metadata.Size < 0 || metadata.Resource.Account != context.Account ||
+                metadata.Resource.WirePath != entry.Resource.WirePath) throw DownloadSafe(ErrorCode.InvalidRequest);
+            var preparedSource = entry.Resource with { DisplayName = metadata.Resource.DisplayName, DisplayPath = metadata.Resource.DisplayPath };
+            var draft = new DownloadDraftRef(Guid.NewGuid());
+            var plan = TransferTaskValidation.Plan(new(new(context.Account, draft.Id), TransferDirection.Download,
+                preparedSource, relative, FileConflictPolicy.Fail, AutomaticResume: false, BatchId: batchId, Ordinal: ordinal));
+            var preview = new DownloadPreview(context, draft, preparedSource,
+                relative[(relative.LastIndexOf('\\') + 1)..], relative, metadata.Size);
+            lock (_gate)
+            {
+                RequireCurrent(binding);
+                RequireDownloadPermission(binding);
+                if (binding.DownloadDrafts.Count >= 128) binding.DownloadDrafts.Remove(binding.DownloadDrafts.First().Key);
+                binding.DownloadDrafts.Add(draft, new(preview, plan));
+            }
+            return preview;
         }
         catch (Exception error) { throw NormalizeDownload(error); }
         finally { _commands.Release(); }

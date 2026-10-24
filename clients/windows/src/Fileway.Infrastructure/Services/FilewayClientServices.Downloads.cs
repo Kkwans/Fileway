@@ -288,6 +288,113 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider, ICo
             throw Safe(ErrorCode.Conflict, "文件在计算期间已变化，请刷新后重试。", 409);
     }
 
+    private const int MaximumTreeEnumerationEntries = 1000, MaximumTreeEnumerationQueue = 5000;
+
+    public async Task<Core.Contracts.DownloadTreeEnumeration> EnumerateDownloadTreeAsync(RemoteResourceRef directory,
+        int maximumEntries, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+        ValidateConditionalDownloadSource(directory);
+        if (maximumEntries is < 1 or > MaximumTreeEnumerationEntries)
+            throw Safe(ErrorCode.InvalidRequest, Message(ErrorCode.InvalidRequest));
+        var state = GetResourceState(directory);
+        var files = new List<Core.Contracts.DownloadTreeEntry>();
+        var failures = new List<string>();
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var pending = new Queue<(RemoteResourceRef Resource, string RelativePath)>();
+        pending.Enqueue((directory, ""));
+        bool truncated = false;
+        while (pending.Count != 0 && !truncated)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var (parent, relative) = pending.Dequeue();
+            string? cursor = null;
+            try
+            {
+                do
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var page = await ListAsync(parent, new DirectoryQuery(FileSortField.Name, Descending: false,
+                        Cursor: cursor), cancellationToken).ConfigureAwait(false);
+                    foreach (var item in page.Items)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        string childRelative = relative.Length == 0 ? item.Resource.DisplayName : relative + "/" + item.Resource.DisplayName;
+                        if (item.IsDirectory)
+                        {
+                            // An unbounded empty-directory tree must not grow the queue without limit.
+                            if (files.Count >= maximumEntries || pending.Count >= MaximumTreeEnumerationQueue) { truncated = true; break; }
+                            pending.Enqueue((item.Resource, childRelative));
+                        }
+                        else
+                        {
+                            if (files.Count >= maximumEntries) { truncated = true; break; }
+                            files.Add(new(item.Resource, childRelative, MapTreeRelativePath(childRelative, used)));
+                        }
+                    }
+                    cursor = page.NextCursor;
+                } while (cursor is not null && !truncated);
+            }
+            catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
+            // Session-wide failures fail the whole enumeration; only per-directory errors are
+            // collected so sibling subtrees can still be previewed.
+            catch (FilewayException error) when (error.Error.Code is ErrorCode.AuthenticationExpired or
+                ErrorCode.CredentialsUnavailable or ErrorCode.PermissionDenied or ErrorCode.Canceled)
+            { throw; }
+            catch (FilewayException) { failures.Add(relative.Length == 0 ? "/" : relative); }
+            catch (Exception error) when (error is IOException or InvalidOperationException or JsonException or FormatException or KeyNotFoundException)
+            { failures.Add(relative.Length == 0 ? "/" : relative); }
+        }
+        return new(files, failures, truncated);
+    }
+
+    /// <summary>Maps one remote path segment to a Windows-safe leaf, mirroring TransferTaskValidation.LocalFilePath.</summary>
+    internal static string MapWindowsLeafName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "_";
+        System.Text.StringBuilder? mapped = null;
+        for (int index = 0; index < name.Length; index++)
+        {
+            char value = name[index];
+            bool illegal = value is '<' or '>' or ':' or '"' or '|' or '?' or '*' or '/' or '\\' || char.IsControl(value);
+            if (illegal && mapped is null) mapped = new(name, 0, index, name.Length);
+            if (illegal) mapped!.Append('_');
+            else mapped?.Append(value);
+        }
+        string leaf = mapped?.ToString() ?? name;
+        if (leaf.Length == 0) leaf = "_";
+        leaf = leaf.TrimEnd(' ', '.');
+        if (leaf.Length == 0) leaf = "_";
+        if (ReservedWindowsLeafName(leaf.Split('.')[0])) leaf += "_";
+        if (leaf.Length > 255) leaf = leaf[..255].TrimEnd(' ', '.');
+        return leaf.Length == 0 ? "_" : leaf;
+    }
+
+    private static bool ReservedWindowsLeafName(string stem) =>
+        stem.Equals("CON", StringComparison.OrdinalIgnoreCase) || stem.Equals("PRN", StringComparison.OrdinalIgnoreCase) ||
+        stem.Equals("AUX", StringComparison.OrdinalIgnoreCase) || stem.Equals("NUL", StringComparison.OrdinalIgnoreCase) ||
+        stem.Equals("CONIN$", StringComparison.OrdinalIgnoreCase) || stem.Equals("CONOUT$", StringComparison.OrdinalIgnoreCase) ||
+        stem.Length == 4 && (stem.StartsWith("COM", StringComparison.OrdinalIgnoreCase) || stem.StartsWith("LPT", StringComparison.OrdinalIgnoreCase)) &&
+            stem[3] is >= '1' and <= '9' or '¹' or '²' or '³';
+
+    private static string MapTreeRelativePath(string relative, HashSet<string> used)
+    {
+        string[] segments = relative.Split('/');
+        var mapped = new string[segments.Length];
+        for (int index = 0; index < segments.Length; index++) mapped[index] = MapWindowsLeafName(segments[index]);
+        string joined = string.Join('\\', mapped);
+        string candidate = joined;
+        int suffix = 2;
+        // Two distinct remote names may sanitize to the same Windows path; keep every target unique
+        // instead of silently merging two different files into one destination.
+        while (!used.Add(candidate))
+        {
+            if (suffix > 999) throw Safe(ErrorCode.InvalidRequest, "目录中可映射的唯一名字已用尽。");
+            candidate = joined + " (" + suffix++ + ")";
+        }
+        return candidate;
+    }
+
     private async Task<RemoteFile> ReadFreshDownloadMetadataAsync(SessionState state, RemoteResourceRef resource,
         CancellationToken cancellationToken, bool operationGateOwned = false)
     {

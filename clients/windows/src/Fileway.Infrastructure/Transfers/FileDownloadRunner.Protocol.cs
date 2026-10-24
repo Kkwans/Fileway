@@ -21,8 +21,10 @@ public sealed partial class FileDownloadRunner
         if (record.Plan.Remote.SourceVersion is not null)
             throw Safe(ErrorCode.CapabilityMissing);
         _ = TransferTaskValidation.Plan(record.Plan);
+        // Batch items are ordinary single-file executions; the batch identity only groups durable
+        // submissions (unique (batch, ordinal) slot) and never changes execution semantics.
         if (record.Plan.Direction != TransferDirection.Download || record.Plan.Conflict != FileConflictPolicy.Fail ||
-            record.Plan.AutomaticResume || record.Plan.BatchId is not null) throw Safe(ErrorCode.InvalidRequest);
+            record.Plan.AutomaticResume) throw Safe(ErrorCode.InvalidRequest);
     }
 
     private static void RequireFresh(TransferTaskRecord record)

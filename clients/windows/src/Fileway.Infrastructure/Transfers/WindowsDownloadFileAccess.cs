@@ -19,6 +19,136 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
         await owned.DeleteOwnedPublishedAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Creates the missing ancestor directories of a tree-download target under a verified existing
+    /// local root. Existing levels are only opened and verified, never replaced; each created level is
+    /// reopened with the same guard semantics as a fresh partial acquisition. Idempotent.
+    /// </summary>
+    public static Task EnsureDirectoryTreeAsync(string finalPath, string rootPath, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        string final = TransferTaskValidation.LocalFilePath(finalPath);
+        string root = TransferTaskValidation.LocalFilePath(rootPath);
+        RequireLocalPath(root, AccessContext.Fresh);
+        string parent = Path.GetDirectoryName(final)!;
+        string rootPrefix = root.TrimEnd('\\') + "\\";
+        if (!parent.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase) ||
+            parent.Length <= rootPrefix.Length) throw Invalid();
+        // Bounded by construction: every component was already validated by LocalFilePath.
+        SafeFileHandle? current = null;
+        try
+        {
+            current = OpenGuardedDirectory(root);
+            string accumulated = root.TrimEnd('\\');
+            foreach (string component in parent[rootPrefix.Length..].Split('\\', StringSplitOptions.RemoveEmptyEntries))
+            {
+                accumulated = Path.Combine(accumulated, component);
+                SafeFileHandle? next = TryOpenGuardedDirectory(accumulated);
+                if (next is null)
+                {
+                    CreateDirectoryRelative(current, component);
+                    next = OpenGuardedDirectory(accumulated);
+                }
+                current.Dispose();
+                current = next;
+            }
+        }
+        catch (FilewayException) { throw; }
+        catch (Exception error) { throw ManagedFailure(error, AccessContext.Fresh); }
+        finally { current?.Dispose(); }
+        return Task.CompletedTask;
+    }
+
+    private static SafeFileHandle OpenGuardedDirectory(string path)
+    {
+        var handle = UploadFileNative.CreateFileW(NativePath(path), UploadFileNative.GenericRead,
+            UploadFileNative.ShareRead | UploadFileNative.ShareWrite, 0, UploadFileNative.OpenExisting,
+            UploadFileNative.OpenReparsePoint | UploadFileNative.BackupSemantics | UploadFileNative.OpenNoRecall, 0);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastPInvokeError();
+            handle.Dispose();
+            throw NativeFailure(error, AccessContext.Fresh);
+        }
+        try
+        {
+            var observation = Observe(handle, directory: true, AccessContext.Fresh);
+            RequireCanonicalPath(handle, path, AccessContext.Fresh);
+            if (observation.Identity is null) throw Unknown();
+            return handle;
+        }
+        catch { handle.Dispose(); throw; }
+    }
+
+    private static SafeFileHandle? TryOpenGuardedDirectory(string path)
+    {
+        var handle = UploadFileNative.CreateFileW(NativePath(path), UploadFileNative.GenericRead,
+            UploadFileNative.ShareRead | UploadFileNative.ShareWrite, 0, UploadFileNative.OpenExisting,
+            UploadFileNative.OpenReparsePoint | UploadFileNative.BackupSemantics | UploadFileNative.OpenNoRecall, 0);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastPInvokeError();
+            handle.Dispose();
+            if (error is 2 or 3) return null;
+            throw NativeFailure(error, AccessContext.Fresh);
+        }
+        try
+        {
+            var observation = Observe(handle, directory: true, AccessContext.Fresh);
+            RequireCanonicalPath(handle, path, AccessContext.Fresh);
+            if (observation.Identity is null) throw Unknown();
+            return handle;
+        }
+        catch { handle.Dispose(); throw; }
+    }
+
+    private static void CreateDirectoryRelative(SafeFileHandle parent, string name)
+    {
+        nint nameBuffer = 0, namePointer = 0;
+        bool parentReferenced = false;
+        try
+        {
+            nameBuffer = Marshal.StringToHGlobalUni(name);
+            ushort nameBytes = checked((ushort)(name.Length * sizeof(char)));
+            var nativeName = new UploadFileNative.UnicodeString
+            {
+                Length = nameBytes, MaximumLength = checked((ushort)(nameBytes + sizeof(char))), Buffer = nameBuffer,
+            };
+            namePointer = Marshal.AllocHGlobal(Marshal.SizeOf<UploadFileNative.UnicodeString>());
+            Marshal.StructureToPtr(nativeName, namePointer, fDeleteOld: false);
+            parent.DangerousAddRef(ref parentReferenced);
+            var attributes = new UploadFileNative.ObjectAttributes
+            {
+                Length = checked((uint)Marshal.SizeOf<UploadFileNative.ObjectAttributes>()),
+                RootDirectory = parent.DangerousGetHandle(), ObjectName = namePointer,
+                Attributes = UploadFileNative.ObjectCaseInsensitive | UploadFileNative.ObjectDontReparse,
+            };
+            // FILE_DIRECTORY_FILE|FILE_CREATE creates exactly this level; an existing entry collides
+            // (STATUS_OBJECT_NAME_COLLISION) and is handled by the caller reopening it.
+            const uint directoryFile = 0x00000001;
+            int status = UploadFileNative.NtCreateFile(out var created, DownloadFileNative.MetadataAccess,
+                in attributes, out var completion, allocationSize: 0, UploadFileNative.NormalAttributes,
+                share: UploadFileNative.ShareRead | UploadFileNative.ShareWrite,
+                DownloadFileNative.NtCreate, UploadFileNative.SynchronousNonAlert | directoryFile | UploadFileNative.OpenReparsePoint,
+                eaBuffer: 0, eaLength: 0);
+            if (status < 0)
+            {
+                created.Dispose();
+                int code = unchecked((int)UploadFileNative.RtlNtStatusToDosError(status));
+                if (code is 80 or 183) throw Conflict();
+                throw NativeFailure(code, AccessContext.Fresh);
+            }
+            created.Dispose();
+            if (!CompletionSucceeded(completion) || completion.Information != UploadFileNative.FileCreated) throw Unknown();
+        }
+        finally
+        {
+            if (parentReferenced) parent.DangerousRelease();
+            if (namePointer != 0) Marshal.FreeHGlobal(namePointer);
+            if (nameBuffer != 0) Marshal.FreeHGlobal(nameBuffer);
+        }
+    }
+
     private const string PartialPrefix = "fileway-download-v1-", PartialSuffix = ".partial";
     private const int CreationAttempts = 16;
     private static readonly SearchValues<char> PartialHex = SearchValues.Create("0123456789abcdef");

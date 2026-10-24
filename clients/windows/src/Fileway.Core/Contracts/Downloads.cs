@@ -54,6 +54,20 @@ public interface IDownloadControlService
 
 public sealed record DownloadPage(IReadOnlyList<DownloadItem> Items, string? NextCursor);
 
+/// <summary>One enumerated file of a bounded directory tree; RelativePath is from the selected root
+/// and MappedRelativePath is its Windows-safe rendering (illegal/reserved segments sanitized).</summary>
+public sealed record DownloadTreeEntry(RemoteResourceRef Resource, string RelativePath, string MappedRelativePath)
+{
+    public override string ToString() => "DownloadTreeEntry (private locations redacted)";
+}
+
+/// <summary>Bounded enumeration evidence for a batch preview; enumeration never starts transfers.</summary>
+public sealed record DownloadTreeEnumeration(IReadOnlyList<DownloadTreeEntry> Files,
+    IReadOnlyList<string> FailedDirectories, bool Truncated)
+{
+    public override string ToString() => "DownloadTreeEnumeration (private locations redacted)";
+}
+
 /// <summary>Explicit fresh downloads. Preparing, listing and connecting never start stored work; there is no resume.</summary>
 public interface IDownloadService
 {
@@ -73,4 +87,12 @@ public interface IDownloadService
     /// FIFO admission; listing itself never starts work, and ineligible tasks are simply not returned.
     /// </summary>
     Task<IReadOnlyList<DownloadItem>> ResumeEligibleAsync(DownloadContext context, CancellationToken cancellationToken);
+    /// <summary>Bounded recursive enumeration of one directory for a batch preview; never starts transfers.</summary>
+    Task<DownloadTreeEnumeration> EnumerateTreeAsync(DownloadContext context, RemoteResourceRef directory, CancellationToken cancellationToken);
+    /// <summary>
+    /// Prepares one enumerated tree entry under the effective download directory, preserving the mapped
+    /// relative structure. The fixed batch identity deduplicates submissions; the preview stays a draft.
+    /// </summary>
+    Task<DownloadPreview> PrepareTreeAsync(DownloadContext context, RemoteResourceRef root, DownloadTreeEntry entry,
+        Guid batchId, int ordinal, CancellationToken cancellationToken);
 }
