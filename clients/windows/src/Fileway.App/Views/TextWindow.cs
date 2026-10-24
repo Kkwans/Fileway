@@ -36,6 +36,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
     };
     private readonly InfoBar _notice = new() { IsOpen = true, IsClosable = false, Message = "正在加载文本…" };
     private readonly TextBlock _summary = new() { FontSize = 12, Opacity = 0.7 };
+    private readonly ScrollViewer _renderScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(4, 0, 8, 0) };
+    private readonly StackPanel _renderHost = new() { Spacing = 2 };
+    private readonly Grid _editor = new() { MinHeight = 200 };
+    private AppBarToggleButton? _renderToggle;
+    private bool _isMarkdown;
+    private string _rawText = "";
+    private bool _showRendered = true;
     private bool _closed;
     private bool _started;
     private bool _wrapped;
@@ -50,6 +57,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 760));
 
         var commands = new CommandBar { DefaultLabelPosition = CommandBarDefaultLabelPosition.Right, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        var renderToggle = new AppBarToggleButton { Label = "渲染视图" };
         var wrap = new AppBarButton { Label = "自动换行", Icon = new FontIcon { Glyph = "" } };
         var copy = new AppBarButton { Label = "复制全文", Icon = new SymbolIcon(Symbol.Copy) };
         wrap.Click += (_, _) =>
@@ -68,8 +76,16 @@ public sealed class TextWindow : Window, IAsyncDisposable
             }
             catch (Exception) { _notice.Severity = InfoBarSeverity.Warning; _notice.Message = "复制未能完成，请重试。"; _notice.IsOpen = true; }
         };
+        commands.PrimaryCommands.Add(renderToggle);
         commands.PrimaryCommands.Add(wrap);
         commands.PrimaryCommands.Add(copy);
+        renderToggle.Click += (_, _) =>
+        {
+            _showRendered = renderToggle.IsChecked == true;
+            ApplyViewMode();
+        };
+        renderToggle.Visibility = Visibility.Collapsed;
+        _renderToggle = renderToggle;
 
         var root = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), Padding = new Thickness(16, 12, 16, 16), RowSpacing = 10 };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -81,10 +97,11 @@ public sealed class TextWindow : Window, IAsyncDisposable
         root.Children.Add(_notice);
         Grid.SetRow(_summary, 2);
         root.Children.Add(_summary);
-        var editor = new Grid { MinHeight = 200 };
-        Grid.SetRow(editor, 3);
-        editor.Children.Add(_text);
-        root.Children.Add(editor);
+        Grid.SetRow(_editor, 3);
+        _editor.Children.Add(_text);
+        _renderScroll.Content = _renderHost;
+        _editor.Children.Add(_renderScroll);
+        root.Children.Add(_editor);
 
         var windowRoot = new Grid();
         windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -116,6 +133,32 @@ public sealed class TextWindow : Window, IAsyncDisposable
         if (!_closed && Content is FrameworkElement root) root.RequestedTheme = theme;
     }
 
+    /// <summary>Renders the bounded markdown subset natively; plain text stays one click away.</summary>
+    private void ApplyViewMode()
+    {
+        if (!_isMarkdown || !_showRendered)
+        {
+            _text.Visibility = Visibility.Visible;
+            _renderScroll.Visibility = Visibility.Collapsed;
+            return;
+        }
+        _text.Visibility = Visibility.Collapsed;
+        _renderScroll.Visibility = Visibility.Visible;
+        _renderHost.Children.Clear();
+        try
+        {
+            foreach (var block in MarkdownBlockRenderer.Render(_rawText))
+                _renderHost.Children.Add(block);
+        }
+        catch (Exception)
+        {
+            // Rendering is a presentation aid; any fault falls back to the plain text.
+            _text.Visibility = Visibility.Visible;
+            _renderScroll.Visibility = Visibility.Collapsed;
+            if (_renderToggle is { } toggle) toggle.IsChecked = false;
+        }
+    }
+
     private async Task LoadAsync()
     {
         try
@@ -123,8 +166,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
             var content = await _service.OpenAsync(_resource, _lifetime.Token);
             if (_closed) return;
             _text.Text = content.Text;
-            _summary.Text = $"{content.EncodingName} · {DownloadPresentationPolicy.FormatBytes(content.DeclaredLength)} · 只读预览（Markdown 暂以纯文本显示）";
+            _rawText = content.Text;
+            _isMarkdown = _resource.DisplayName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ||
+                _resource.DisplayName.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase);
+            if (_renderToggle is { } toggle) toggle.Visibility = _isMarkdown ? Visibility.Visible : Visibility.Collapsed;
+            _summary.Text = $"{content.EncodingName} · {DownloadPresentationPolicy.FormatBytes(content.DeclaredLength)} · 只读预览";
             _notice.IsOpen = false;
+            ApplyViewMode();
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
