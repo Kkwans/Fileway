@@ -145,7 +145,8 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
         }
         BackHandler { requestBack() }
         Surface(
-            Modifier.requiredWidth(surfaceWidthDp).heightIn(max = surfaceHeightDp),
+            Modifier.requiredWidth(surfaceWidthDp).heightIn(max = surfaceHeightDp)
+                .filewayGlassFrame(if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp)),
             color = glassColor,
             shape = if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp),
             tonalElevation = 0.dp,
@@ -180,7 +181,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
 
 /** Full last component first; the selectable full path never loses its target to ellipsis. */
 @Composable internal fun FileOperationLocation(label: String, path: String, showBasename: Boolean = true) {
-    Surface(color = FilewayTheme.colors.surfaceContainerLow, shape = MaterialTheme.shapes.small) {
+    FilewayGlassSection(Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
             SelectionContainer {

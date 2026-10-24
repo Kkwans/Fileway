@@ -42,7 +42,7 @@ internal fun FilewayAlertDialog(
     var blurred by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismissRequest,
-        modifier = modifier,
+        modifier = modifier.filewayGlassFrame(),
         dismissButton = dismissButton,
         icon = icon,
         title = title,
@@ -79,7 +79,7 @@ internal fun FilewayDatePickerDialog(
     var blurred by remember { mutableStateOf(false) }
     DatePickerDialog(
         onDismissRequest = onDismissRequest,
-        modifier = modifier,
+        modifier = modifier.filewayGlassFrame(),
         dismissButton = dismissButton,
         shape = RoundedCornerShape(12.dp),
         colors = colors.copy(containerColor = filewayGlassColor(blurred)),

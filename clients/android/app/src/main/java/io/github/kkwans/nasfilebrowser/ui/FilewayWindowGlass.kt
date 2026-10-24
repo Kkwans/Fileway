@@ -70,5 +70,5 @@ import java.util.function.Consumer
 
 @Composable internal fun filewayGlassColor(blurred: Boolean): ComposeColor {
     val surface = FilewayTheme.colors.surface
-    return surface.copy(alpha = if (!blurred) 1f else if (surface.luminance() > .5f) .78f else .64f)
+    return surface.copy(alpha = if (!blurred) 1f else if (surface.luminance() > .5f) .60f else .64f)
 }

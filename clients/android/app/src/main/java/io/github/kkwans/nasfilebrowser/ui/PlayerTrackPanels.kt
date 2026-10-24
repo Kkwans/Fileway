@@ -171,7 +171,7 @@ internal fun PlayerSubtitleHomeActions(
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         @Composable fun action(icon: Int, title: String, enabled: Boolean, click: () -> Unit) {
             Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
-                .background(FilewayTheme.colors.surfaceContainerHigh)
+                .background(filewayGlassLayerColor()).then(Modifier.filewayGlassFrame())
                 .clickable(enabled = enabled, role = Role.Button, onClick = click)
                 .heightIn(min = 64.dp).padding(horizontal = 4.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
@@ -180,8 +180,8 @@ internal fun PlayerSubtitleHomeActions(
             }
         }
         action(R.drawable.ic_edit, "字幕调整", true, onAdjust)
-        if (!downloadLocal) action(R.drawable.ic_folder, "服务器外挂", !loading && !readingDocument, onServerSubtitle)
-        action(R.drawable.ic_subtitles, "本地字幕", !loading && !readingDocument, onLocalSubtitle)
+        if (!downloadLocal) action(R.drawable.ic_server, "服务器字幕", !loading && !readingDocument, onServerSubtitle)
+        action(R.drawable.ic_phone, "本机字幕", !loading && !readingDocument, onLocalSubtitle)
     }
 }
 

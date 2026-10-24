@@ -1,6 +1,14 @@
 import groovy.json.JsonSlurper
 import java.io.File
 import java.security.MessageDigest
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
 
 plugins {
     id("com.android.application")
@@ -24,6 +32,23 @@ val realMediaOption = providers.gradleProperty("filewayRealMediaProbe").orElse("
 require(realMediaOption in listOf("true", "false")) { "filewayRealMediaProbe must be true or false" }
 val realMediaProbe = realMediaOption == "true"
 require(!(realMediaProbe && audioCaptureProbe)) { "Use separate real-media and audio-capture diagnostics" }
+abstract class PrepareFilewayNotices : DefaultTask() {
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val notices: ConfigurableFileCollection
+    @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
+    @TaskAction fun copyNotices() {
+        val destination = outputDirectory.get().dir("licenses").asFile
+        check(destination.isDirectory || destination.mkdirs())
+        notices.files.forEach { it.copyTo(destination.resolve(it.name), overwrite = true) }
+    }
+}
+val prepareFilewayNotices = tasks.register<PrepareFilewayNotices>("prepareFilewayNotices") {
+    notices.from(rootProject.files("licenses/haze-Apache-2.0.txt", "licenses/material-icons.md"))
+    outputDirectory.set(layout.buildDirectory.dir("generated/fileway-notices"))
+}
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(prepareFilewayNotices) { it.outputDirectory }
+}
 android {
     namespace = "io.github.kkwans.nasfilebrowser"
     compileSdk = 37
@@ -95,6 +120,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.palette:palette:1.0.0")
+    implementation("dev.chrisbanes.haze:haze-blur:2.0.0")
     implementation("com.airbnb.android:lottie-compose:6.7.1")
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")
     implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")

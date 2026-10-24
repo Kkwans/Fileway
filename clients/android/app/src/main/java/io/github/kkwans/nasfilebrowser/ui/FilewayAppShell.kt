@@ -25,6 +25,12 @@ import io.github.kkwans.nasfilebrowser.data.BackendKind
 import io.github.kkwans.nasfilebrowser.data.ConnectionMode
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.launch
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.hazeSource
+import dev.chrisbanes.haze.rememberHazeState
+import dev.chrisbanes.haze.blur.hazeBlur
 
 internal val LocalFilewayPageActive = staticCompositionLocalOf { true }
 internal val LocalSkipBottomNavigation = staticCompositionLocalOf { false }
@@ -39,6 +45,9 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
     val appearance by model.appearance.state.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val glass = rememberHazeState()
+    val glassActive = drawer.isOpen || drawer.targetValue == DrawerValue.Open
+    val glassStyle = filewayDrawerGlassStyle()
     val gestures = state.destination.main != null && !state.searchDisplayed
     var about by remember { mutableStateOf(false) }
     if (about) FilewayAboutDialog { about = false }
@@ -49,7 +58,11 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
             drawerState = drawer,
             gesturesEnabled = gestures,
             drawerContent = {
-                ModalDrawerSheet(Modifier.width(drawerWidth)) {
+                val drawerShape = RoundedCornerShape(topEnd = 12.dp, bottomEnd = 12.dp)
+                ModalDrawerSheet(Modifier.width(drawerWidth).clip(drawerShape)
+                    .then(if (glassActive) Modifier.hazeBlur(HazeInput.Sources(glass), glassStyle) else Modifier)
+                    .filewayGlassFrame(drawerShape), drawerShape = drawerShape,
+                    drawerContainerColor = Color.Transparent, drawerTonalElevation = 0.dp) {
                     var navigating by remember { mutableStateOf(false) }
                     fun navigate(action: () -> Unit) {
                         if (navigating) return
@@ -70,7 +83,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
-                                Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium) {
+                                FilewayGlassSection(Modifier.fillMaxWidth()) {
                                     Row(Modifier.fillMaxWidth().clickable { navigate { if (state.connected) model.disconnect() else model.showConnection() } }
                                         .heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -153,6 +166,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                 }
             },
         ) {
+            Box(Modifier.fillMaxSize().then(if (glassActive) Modifier.hazeSource(glass) else Modifier)) {
             CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack,
                 LocalFilewaySessionModel provides model) {
                 if (state.connected && state.destination.main != null && !state.searchDisplayed) {
@@ -164,6 +178,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                         ClientNavigation(model, destination.route, activeOverride = destination)
                     }
                 } else CompositionLocalProvider(LocalSkipBottomNavigation provides !state.connected) { content(null) }
+            }
             }
         }
     }

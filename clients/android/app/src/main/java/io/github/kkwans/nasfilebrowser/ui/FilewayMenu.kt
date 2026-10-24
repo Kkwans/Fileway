@@ -213,7 +213,7 @@ internal fun FilewayMenu(
             observer?.addOnPreDrawListener(listener)
             onDispose { decor?.viewTreeObserver?.takeIf { it.isAlive }?.removeOnPreDrawListener(listener) }
         }
-        Surface(Modifier.width(with(density) { widthPx.toDp() }).heightIn(max = with(density) { bounds.height.toDp() }),
+        Surface(Modifier.width(with(density) { widthPx.toDp() }).heightIn(max = with(density) { bounds.height.toDp() }).filewayGlassFrame(MenuShape),
             color = filewayGlassColor(blurred), shape = MenuShape, tonalElevation = 0.dp) {
         Column(Modifier.verticalScroll(scroll).padding(vertical = 8.dp)) {
         items.forEach { item ->

@@ -43,3 +43,11 @@ Pinned commit `737e3324305806514d7909874fa1818ae1808232`, Outlined 24px Android 
 - `ic_image.xml`: [image](https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/symbols/android/image/materialsymbolsoutlined/image_24px.xml), source SHA256 `17313b4cd878f62bd13e21e2c96cc6d1023f23295349a3d33d94e67ecb862254`.
 
 - `ic_lock_open.xml`: [lock_open](https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/symbols/android/lock_open/materialsymbolsoutlined/lock_open_24px.xml), source SHA256 `fa5fbc5e02a485a5b62fc869a0fc50b0616d5481e807aef1ee1f87de5a1ccd55`.
+
+## Action panel, multiple selection and phone source
+
+Google Material Icons Rounded, Apache-2.0. Geometry converted to Android vectors; theme tint is supplied by Compose.
+
+- `ic_actions.xml`: [communication/list_alt](https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/src/communication/list_alt/materialiconsround/24px.svg), SVG SHA256 `31c0cc86763c2c1a77f7e9f1ef9110f71f2b9bc86844b5c26922406f2abfc3c2`.
+- `ic_select_multiple.xml`: [content/select_all](https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/src/content/select_all/materialiconsround/24px.svg), SVG SHA256 `968f484743902b94449ecd142fb8891c0f5fd258b4f6d4d1dbc12f6aeb8c5e7f`.
+- `ic_phone.xml`: [hardware/smartphone](https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/src/hardware/smartphone/materialiconsround/24px.svg), SVG SHA256 `796756539914ede00ba9cccbf9acddc9fb7a6dcc08f93c7f2d5f62cab11eb61c`.
