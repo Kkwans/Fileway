@@ -48,7 +48,7 @@ data class ServerTask(val id: String, val userId: Long, val owner: String, val t
 }
 enum class TaskView(val label: String, val statuses: List<String>) {
     ALL("全部", emptyList()), ACTIVE("进行中", listOf("queued", "running")), ATTENTION("待处理", listOf("failed", "interrupted")),
-    COMPLETED("已完成", listOf("completed")), CANCELED("已取消", listOf("canceled")), ARCHIVED("已归档", emptyList())
+    COMPLETED("已完成", listOf("completed")), CANCELED("已取消", listOf("canceled")), ARCHIVED("已删除", emptyList())
 }
 data class TaskFilter(val category: String = "background", val view: TaskView = TaskView.ALL, val text: String = "", val owner: String = "", val type: String = "",
     val from: Long = 0, val to: Long = 0) {

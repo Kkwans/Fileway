@@ -73,9 +73,19 @@ import kotlinx.coroutines.withContext
         }
     }
     val records = state.items.filter { when (filter) { "已完成" -> it.complete; "未完成" -> !it.complete; else -> true } }
+    val selection = rememberFilewayTaskSelection(filter, records.map { it.id })
+    val chosen = records.filter { it.id in selection.ids }
+    var clearSelected by remember(filter) { mutableStateOf(false) }
     FilewayRefresh(false, model.downloads::refresh) {
 Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (selection.active) FilewayTaskSelectionBar(selection, !state.busy, {
+            selection.select(if (selection.ids.size == records.size) emptyList() else records.map { it.id })
+        }) {
+            IconButton({ model.downloads.batch(chosen.filter { it.active }, "pause") }, enabled = !state.busy && chosen.any { it.active }) { Icon(painterResource(R.drawable.art_pause), "暂停所选运行中下载") }
+            IconButton({ model.downloads.batch(chosen.filter { !it.active && !it.complete }, "resume") }, enabled = !state.busy && chosen.any { !it.active && !it.complete }) { Icon(painterResource(R.drawable.art_play), "继续所选未完成下载") }
+            IconButton({ if (chosen.size == records.size) clearSelected = true else model.downloads.batch(chosen, "remove") }, enabled = !state.busy && chosen.isNotEmpty() && chosen.all { it.complete }) { Icon(painterResource(R.drawable.ic_trash), "移除所选完成记录，保留文件") }
+        } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton({ selection.start() }, enabled = !state.busy && records.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选下载") }
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
             Spacer(Modifier.weight(1f))
             FilewayTextButton({ settings = true }) { Text("目录") }
@@ -128,6 +138,8 @@ Column(Modifier.fillMaxSize()) {
                     title = item.name,
                     icon = { Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     titleAction = if (canOpen) ({ openDownloaded(context, model, item, kind) }) else null,
+                    onClick = { if (selection.active) selection.toggle(item.id) else if (canOpen) openDownloaded(context, model, item, kind) else detailsId = item.id },
+                    onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids,
                     meta = {
                         Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
                             color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -141,7 +153,7 @@ Column(Modifier.fillMaxSize()) {
                             if (item.complete && completionObserved) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                                 io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(22.dp),
                                 play = completionObserved && LocalFilewayPageActive.current)
-                            FilewayTaskActionStrip(cardActions, onAction = { action ->
+                        if (!selection.active) FilewayTaskActionStrip(cardActions, alwaysMenu = true, onAction = { action ->
                                 when (action) {
                                     "detail" -> detailsId = item.id
                                     "open" -> openDownloaded(context, model, item, kind)
@@ -217,6 +229,10 @@ Column(Modifier.fillMaxSize()) {
             if (state.tree.isNotEmpty()) FilewayTextButton({ model.downloads.selectDirectory(null) }, Modifier.fillMaxWidth(), enabled = !state.busy) { Text("恢复默认 · Download/fileway") }
         }
     }
+    if (clearSelected) FilewayAlertDialog(onDismissRequest = { clearSelected = false }, title = { Text("移除当前列表的全部完成记录？") },
+        text = { Text("将移除所选 ${chosen.size} 条下载记录，本机文件和服务器原文件均保留。") },
+        confirmButton = { FilewayButton({ model.downloads.batch(chosen, "remove"); clearSelected = false }, enabled = !state.busy) { Text("移除记录") } },
+        dismissButton = { FilewayOutlinedButton({ clearSelected = false }) { Text("取消") } })
     remove?.let { item -> FilewayAlertDialog(onDismissRequest = { remove = null }, title = { Text(if (deleteFile) "删除本机文件？" else "移除下载记录？") },
         text = { Text(item.name + "\n\n" + if (deleteFile) "本机文件与下载记录将删除。服务器上的原文件保持不变。" else if (item.complete) "仅移除记录，本机文件仍保留，可通过系统文件管理器查看。" else "仅移除记录会留下未完成文件，且无法继续下载。建议选择删除文件与记录。") },
         confirmButton = { FilewayTextButton({ model.downloads.remove(item, deleteFile); remove = null }) { Text(if (deleteFile) "删除" else "移除记录") } },

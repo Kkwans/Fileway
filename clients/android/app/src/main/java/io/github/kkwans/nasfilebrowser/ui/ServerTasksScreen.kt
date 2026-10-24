@@ -48,14 +48,27 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
     fun confirmAction(task: ServerTask?, command: String) { confirm = TaskConfirmation(task, command, state.filter, state.total) }
     val list = rememberLazyListState()
     val enabled = !state.loading && !state.changing && !state.paging
+    val selection = rememberFilewayTaskSelection(state.scope to state.filter, state.items.map { it.id })
+    val chosen = state.items.filter { it.id in selection.ids }
+    var deleteSelection by remember(state.scope, state.filter) { mutableStateOf(false) }
     LaunchedEffect(list, state.scope) { snapshotFlow { list.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }.collect(model.tasks::watch) }
     FilewayRefresh(state.loading, { model.tasks.refresh() }) {
 Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
+            if (selection.ids.size == state.total) selection.select(emptyList()) else model.tasks.selectAll { selection.select(it) }
+        }) {
+            if (state.filter.view == TaskView.ARCHIVED) IconButton({ model.tasks.actionSelected(selection.ids, "unarchive") }, enabled = enabled && chosen.isNotEmpty() && chosen.all { model.tasks.canEdit(it) && it.archivedAt > 0 }) {
+                Icon(painterResource(R.drawable.ic_restore), "恢复所选任务记录")
+            } else IconButton({ if (chosen.size == state.total) deleteSelection = true else model.tasks.actionSelected(selection.ids, "archive") },
+                enabled = enabled && chosen.isNotEmpty() && chosen.all { it.canArchive && model.tasks.canEdit(it) }) {
+                Icon(painterResource(R.drawable.ic_trash), "删除所选已结束任务记录")
+            }
+        } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilewaySearchField(search, { search = it }, "查找任务", Modifier.weight(1f), enabled) {
                 model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
             }
             IconButton({ advanced = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选任务") }
+            IconButton({ selection.start() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选后台任务") }
 
         }
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.tasks.refresh() }
@@ -76,12 +89,12 @@ Column(Modifier.fillMaxSize()) {
                 TaskView.ATTENTION -> if (state.filter.type.isEmpty()) "batch-archive" else null
                 else -> null
             }
-            if (singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && (state.total > 0 || singleBulk == "archive-ended")) {
-                Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_archive),
-                    if (singleBulk == "batch-unarchive") "全部移出归档" else "归档已结束任务", Modifier.size(22.dp))
-            } else if (state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) {
+            if (!selection.active && singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && (state.total > 0 || singleBulk == "archive-ended")) {
+                Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_trash),
+                    if (singleBulk == "batch-unarchive") "恢复全部记录" else "删除全部已结束任务记录", Modifier.size(22.dp))
+            } else if (!selection.active && state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) {
                 IconButton({ confirmAction(null, "batch-archive") }, enabled = enabled && state.total > 0) {
-                    Icon(painterResource(R.drawable.ic_archive), "批量归档", Modifier.size(22.dp))
+                    Icon(painterResource(R.drawable.ic_trash), "删除全部已结束记录", Modifier.size(22.dp))
                 }
                 IconButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) {
                     Icon(painterResource(R.drawable.ic_refresh), "批量重试", Modifier.size(22.dp))
@@ -96,12 +109,11 @@ Column(Modifier.fillMaxSize()) {
         }
             items(state.items, key = { it.id }) { task ->
                 val cardActions = buildList {
-                    add(FilewayTaskAction("detail", "查看详情", R.drawable.ic_info))
                     if (task.active) add(FilewayTaskAction(if (task.pendingDeletion) "unarchive" else "cancel",
                         if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, enabled = enabled && model.tasks.canEdit(task), primary = true))
-                    if (task.canRetry) add(FilewayTaskAction("retry", "重试", R.drawable.ic_refresh, enabled = enabled && model.tasks.canEdit(task), primary = true))
-                    if (task.canArchive) add(FilewayTaskAction("archive", "归档", R.drawable.ic_archive, enabled = enabled && model.tasks.canEdit(task), primary = true))
-                    if (task.archivedAt > 0) add(FilewayTaskAction("unarchive", "移出归档", R.drawable.ic_restore, enabled = enabled && model.tasks.canEdit(task), primary = true))
+                    if (task.canRetry && !task.canArchive) add(FilewayTaskAction("retry", "重试", R.drawable.ic_refresh, enabled = enabled && model.tasks.canEdit(task), primary = true))
+                    if (task.canArchive) add(FilewayTaskAction("archive", "删除记录", R.drawable.ic_trash, enabled = enabled && model.tasks.canEdit(task), primary = true))
+                    if (task.archivedAt > 0) add(FilewayTaskAction("unarchive", "恢复记录", R.drawable.ic_restore, enabled = enabled && model.tasks.canEdit(task), primary = true))
                 }
                 FilewayTaskCard(
                     title = task.title.ifEmpty { task.typeLabel },
@@ -114,15 +126,17 @@ Column(Modifier.fillMaxSize()) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     },
                     actions = {
-                        FilewayTaskActionStrip(cardActions, onAction = { command ->
+                        if (!selection.active) FilewayTaskActionStrip(cardActions, onAction = { command ->
                             when {
                                 command == "detail" -> model.tasks.select(task.id)
                                 command == "unarchive" && task.pendingDeletion -> model.tasks.action(task, "cancel")
+                                command == "archive" || command == "unarchive" -> model.tasks.action(task, command)
                                 else -> confirmAction(task, command)
                             }
                         }, moreLabel = "任务操作：${task.title.ifEmpty { task.typeLabel }}")
                     },
-                    onClick = { model.tasks.select(task.id) },
+                    onClick = { if (selection.active) selection.toggle(task.id) else model.tasks.select(task.id) },
+                    onLongClick = { if (enabled) selection.start(task.id) }, selected = task.id in selection.ids,
                 ) {
                     if (task.active || task.status != "completed" && (task.processedItems > 0 || task.processedBytes > 0 || task.processedSeconds > 0)) TaskProgress(task)
                     task.error.takeIf { it.isNotEmpty() && !(task.status == "canceled" && it in setOf("任务已取消", "task canceled", "context canceled")) }?.let {
@@ -135,9 +149,12 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
+    if (deleteSelection) FilewayAlertDialog(onDismissRequest = { deleteSelection = false }, title = { Text("删除当前列表的全部已结束记录？") },
+        text = { Text("将删除 ${chosen.size} 条任务记录，文件和运行结果保留。记录可从“已删除”中恢复。") },
+        confirmButton = { FilewayButton({ model.tasks.actionSelected(selection.ids, "archive"); deleteSelection = false }, enabled = enabled) { Text("删除记录") } },
+        dismissButton = { FilewayOutlinedButton({ deleteSelection = false }) { Text("取消") } })
     if (advanced) TaskFilterSheet(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
-    if (state.focusId != null) FileOperationSheet(title = "任务详情", onDismiss = model::closeTaskDetail,
-        footer = { FilewayTextButton(model::closeTaskDetail) { Text("关闭") } }) {
+    if (state.focusId != null) FileOperationSheet(title = "任务详情", onDismiss = model::closeTaskDetail) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (state.detailLoading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
             state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); FilewayTextButton({ state.focusId?.let(model.tasks::select) }) { Text("重试") } }
@@ -154,7 +171,9 @@ Column(Modifier.fillMaxSize()) {
                 if (task.error.isNotEmpty()) Text(task.error, color = MaterialTheme.colorScheme.error)
                 if (task.type in setOf("analysis.storage", "analysis.duplicates")) FilewayTextButton({ model.tasks.closeDetail(); model.showAnalysis(task.id, task.type) }) { Text(if (task.status == "completed") "查看分析报告" else "查看分析进度") }
                 if (task.status == "completed" && task.outputPath.startsWith('/')) FilewayTextButton({ model.tasks.closeDetail(); model.openRemotePath(task.outputPath) }, enabled = !client.busy) { Text("打开输出文件") }
-                TaskActions(model, task, enabled && !state.detailLoading && state.detailError == null && model.tasks.canEdit(task)) { confirmAction(task, it) }
+                TaskActions(model, task, enabled && !state.detailLoading && state.detailError == null && model.tasks.canEdit(task)) {
+                    if (it == "archive" || it == "unarchive") model.tasks.action(task, it) else confirmAction(task, it)
+                }
                 FilewayTextButton({ technicalDetails = !technicalDetails }) { Text(if (technicalDetails) "收起技术信息" else "任务 ID 与完整时间") }
                 if (technicalDetails) SelectionContainer {
                     Text("任务 ID：${task.id}\n创建：${taskTimestamp(task.createdAt)}\n开始：${taskTimestamp(task.startedAt)}\n结束：${taskTimestamp(task.finishedAt)}",
@@ -166,9 +185,9 @@ Column(Modifier.fillMaxSize()) {
     confirm?.let { choice ->
         val task = choice.task; val command = choice.command
         val batch = command.startsWith("batch-")
-        val title = when (command) { "cancel" -> if (task?.pendingDeletion == true) "撤销删除任务？" else "停止这个任务？"; "retry", "batch-retry" -> "创建重试任务？"; "batch-unarchive", "unarchive" -> "移出归档？"; else -> "归档任务记录？" }
+        val title = when (command) { "cancel" -> if (task?.pendingDeletion == true) "撤销删除任务？" else "停止这个任务？"; "retry", "batch-retry" -> "创建重试任务？"; "batch-unarchive", "unarchive" -> "恢复记录？"; else -> "删除全部已结束任务记录？" }
         FilewayAlertDialog(onDismissRequest = { confirm = null }, title = { Text(title) }, text = { Text(when {
-            command == "archive-ended" -> "归档当前分类中我的所有已结束记录。文件不会被删除，之后可从“已归档”查看。"
+            command == "archive-ended" -> "删除当前分类中我的所有已结束记录。文件保留，记录可从“已删除”恢复。"
             batch -> "将对当前筛选的 ${choice.count} 个服务端任务执行此操作。数量或状态变化时会停止并要求重新确认。"
             command == "cancel" -> "${task?.title}\n已经开始的任务可能已有部分结果；取消后可查看实际状态。"
             else -> task?.title.orEmpty()
@@ -218,8 +237,8 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
     FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         if (task.active) FilewayTextButton({ if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirm("cancel") }, enabled = enabled) { Text(if (task.pendingDeletion) "撤销删除" else "停止任务") }
         if (task.canRetry) FilewayTextButton({ confirm("retry") }, enabled = enabled) { Text("重试") }
-        if (task.canArchive) FilewayTextButton({ confirm("archive") }, enabled = enabled) { Text("归档") }
-        if (task.archivedAt > 0) FilewayTextButton({ confirm("unarchive") }, enabled = enabled) { Text("移出归档") }
+        if (task.canArchive) FilewayOutlinedButton({ confirm("archive") }, enabled = enabled) { Text("删除记录") }
+        if (task.archivedAt > 0) FilewayOutlinedButton({ confirm("unarchive") }, enabled = enabled) { Text("恢复记录") }
     }
 }
 

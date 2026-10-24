@@ -51,6 +51,35 @@ class ServerTasksController(private val scope: CoroutineScope, private val isCur
         refresh()
     }
     fun watch(ids: Set<String>) { watched = ids }
+    fun selectAll(onSelected: (Set<String>) -> Unit) {
+        val context = bound ?: return
+        val before = mutable.value
+        if (!current(context) || before.changing || before.loading || before.paging) return
+        reads?.cancel(); val epoch = ++revision
+        mutable.value = before.copy(loading = true, error = null)
+        reads = scope.launch {
+            try {
+                val rows = linkedMapOf<String, ServerTask>()
+                val cursors = mutableSetOf<String>()
+                var cursor = ""
+                do {
+                    check(current(context) && revision == epoch) { "任务来源已切换" }
+                    val page = context.api.request("GET", before.filter.query(cursor))
+                    val entries = page.getJSONArray("items")
+                    for (i in 0 until entries.length()) ServerTask.from(entries.getJSONObject(i)).let { rows[it.id] = it }
+                    cursor = page.optString("nextCursor")
+                    check(cursor.isEmpty() || cursors.add(cursor)) { "服务器返回重复分页，未执行全选" }
+                } while (cursor.isNotEmpty())
+                if (current(context) && revision == epoch) {
+                    mutable.value = mutable.value.copy(items = rows.values.toList(), total = rows.size, loaded = true, loading = false, nextCursor = "")
+                    onSelected(rows.keys.toSet())
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (current(context) && revision == epoch) mutable.value = mutable.value.copy(loading = false, error = error.message ?: "全选读取失败")
+            }
+        }
+    }
     fun refresh(silent: Boolean = false, more: Boolean = false) {
         val context = bound ?: return
         val before = mutable.value
@@ -142,15 +171,34 @@ class ServerTasksController(private val scope: CoroutineScope, private val isCur
         check(when (value) { "cancel" -> task.active; "retry" -> task.canRetry; "archive" -> task.canArchive; "unarchive" -> task.archivedAt > 0; else -> false }) { "这个任务当前不支持所选操作" }
         val updated = ServerTask.from(context.api.action("POST", "/api/tasks/${android.net.Uri.encode(task.id)}/$value"))
         if (current(context) && mutable.value.focusId == task.id) { detailEpoch++; mutable.value = mutable.value.copy(selected = updated, focusId = updated.id) }
-        when (value) { "cancel" -> "已请求取消任务"; "retry" -> "已创建重试任务"; "archive" -> "任务已归档"; else -> "任务已移出归档" }
+        when (value) { "cancel" -> "已请求取消任务"; "retry" -> "已创建重试任务"; "archive" -> "任务记录已删除，可从已删除中恢复"; else -> "任务记录已恢复" }
     }
     fun batch(value: String, filter: TaskFilter, expectedCount: Int) = change { context ->
         val response = context.api.action("POST", "/api/tasks/batch", JSONObject().put("action", value).put("filters", filter.json()).put("expectedCount", expectedCount))
         val failed = response.optJSONArray("failures")?.length() ?: 0
         "已处理 ${response.optInt("succeeded")} / ${response.optInt("matched")} 项" + if (failed > 0) "，$failed 项失败，请刷新后查看" else ""
     }
+    fun actionSelected(ids: Set<String>, value: String) = change { context ->
+        val selected = mutable.value.items.filter { it.id in ids }
+        require(ids.isNotEmpty() && selected.size == ids.size && value in setOf("archive", "unarchive"))
+        check(selected.all { canEdit(it) && if (value == "archive") it.canArchive else it.archivedAt > 0 }) { "所选任务状态或权限已变化，请刷新核对" }
+        var completed = 0
+        for (task in selected) {
+            check(current(context)) { "任务来源已切换" }
+            try {
+                ServerTask.from(context.api.action("POST", "/api/tasks/${android.net.Uri.encode(task.id)}/$value"))
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                throw IllegalStateException("已处理 $completed / ${selected.size} 项；后续结果未确认，请刷新核对：${error.message.orEmpty()}", error)
+            }
+            if (!current(context)) return@change "任务来源已切换"
+            completed++
+            mutable.value = mutable.value.copy(items = mutable.value.items.filterNot { it.id == task.id }, total = (mutable.value.total - 1).coerceAtLeast(0))
+        }
+        "已${if (value == "archive") "删除" else "恢复"} $completed 条任务记录，文件保留"
+    }
     fun archiveEnded() = change { context ->
         val count = context.api.action("DELETE", "/api/tasks?category=${mutable.value.filter.category}").optInt("deleted")
-        "已归档我的 $count 条已结束任务"
+        "已删除我的 $count 条已结束任务记录，文件保留"
     }
 }

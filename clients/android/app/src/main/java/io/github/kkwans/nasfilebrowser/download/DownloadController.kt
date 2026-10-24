@@ -209,7 +209,8 @@ class DownloadController(private val context: Context, private val scope: Corout
         catch (failure: Exception) { dao.command(record.id, "failed", now); throw failure }
         finally { created() }
     }
-    fun resume(record: DownloadRecord) = perform {
+    fun resume(record: DownloadRecord) = perform { resumeOne(record) }
+    private suspend fun resumeOne(record: DownloadRecord): String {
         val current = dao.get(record.id) ?: error("下载记录不存在")
         check(!current.complete && !current.active) { "下载已经开始或完成" }
         check(withContext(Dispatchers.IO) { target.hasAccess(current.treeUri) }) { "原下载目录授权已失效，请先在更多菜单中重新授权目录" }
@@ -217,10 +218,11 @@ class DownloadController(private val context: Context, private val scope: Corout
         check(dao.command(record.id, "queued", System.currentTimeMillis()) == 1)
         try { DownloadScheduler.start(context, dao.get(record.id) ?: error("下载记录不存在")) }
         catch (failure: Exception) { dao.command(record.id, "failed", System.currentTimeMillis()); throw failure }
-        if (current.zipExport) "ZIP正在从零重新打包；不完整的本机输出将被截断" else "正在继续下载"
+        return if (current.zipExport) "ZIP正在从零重新打包；不完整的本机输出将被截断" else "正在继续下载"
     }
     fun pause(record: DownloadRecord) = perform { DownloadScheduler.pause(context, record.id); if (record.zipExport) "ZIP已暂停，恢复时会从零重新打包" else "下载已暂停，已保存的部分保留" }
-    fun remove(record: DownloadRecord, file: Boolean) = perform {
+    fun remove(record: DownloadRecord, file: Boolean) = perform { removeOne(record, file) }
+    private suspend fun removeOne(record: DownloadRecord, file: Boolean): String {
         val current = dao.get(record.id) ?: error("下载记录不存在")
         check(!current.active) { "请先暂停下载" }
         check(file || current.complete) { "未完成文件请使用删除文件与记录，避免留下无法恢复的片段" }
@@ -228,7 +230,28 @@ class DownloadController(private val context: Context, private val scope: Corout
         if (file && current.localUri.isNotEmpty()) check(target.delete(current)) { "无法删除本机文件，请检查目录授权" }
         check(dao.removeRecord(record.id) == 1)
         withContext(Dispatchers.IO) { DownloadIndex.get(context).remove(record) }
-        if (file) "文件与记录已删除" else "记录已移除，本机文件保留"
+        return if (file) "文件与记录已删除" else "记录已移除，本机文件保留"
+    }
+    fun batch(records: List<DownloadRecord>, command: String) = perform {
+        require(command in setOf("pause", "resume", "remove"))
+        val snapshot = records.distinctBy { it.id }
+        var succeeded = 0
+        val failures = mutableListOf<String>()
+        for (record in snapshot) try {
+            currentCoroutineContext().ensureActive()
+            when (command) {
+                "pause" -> DownloadScheduler.pause(context, record.id)
+                "resume" -> resumeOne(record)
+                else -> removeOne(record, false)
+            }
+            succeeded++
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            failures.add("${record.name}：${error.message.orEmpty()}")
+        }
+        val summary = "已处理 $succeeded / ${snapshot.size} 项"
+        check(failures.isEmpty()) { "$summary；${failures.take(3).joinToString("；")}。请核对列表后再处理。" }
+        summary
     }
     private fun perform(action: suspend () -> String) {
         if (mutable.value.busy) return

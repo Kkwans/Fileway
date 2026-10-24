@@ -37,6 +37,8 @@ import java.time.format.DateTimeFormatter
     var detail by remember(state.scope) { mutableStateOf<OperationHistoryEntry?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
     val enabled = connected && !state.loading && !state.paging && !state.clearing
+    val selection = rememberFilewayTaskSelection(state.scope to state.filter, state.items.map { it.id })
+    var deleteSelection by remember(state.scope, state.filter) { mutableStateOf(false) }
     if (!connected) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(painterResource(R.drawable.ic_history), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -49,11 +51,17 @@ import java.time.format.DateTimeFormatter
     }
     FilewayRefresh(state.loading, { controller.refresh() }) {
 Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
+            if (selection.ids.size == state.total) selection.select(emptyList()) else controller.selectAll { selection.select(it) }
+        }) {
+            IconButton({ if (selection.ids.size == state.total) deleteSelection = true else controller.deleteSelected(selection.ids) },
+                enabled = enabled && !state.showingPreviousFilter && selection.ids.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "删除所选操作记录") }
+        } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilewaySearchField(search, { search = it }, "查找操作、文件或详情", Modifier.weight(1f), enabled) {
                 controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
             }
             IconButton({ filters = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选操作历史") }
+            IconButton({ selection.start() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选操作记录") }
             IconButton({ controller.requestClear() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), "清空操作历史", tint = MaterialTheme.colorScheme.error) }
 
         }
@@ -86,28 +94,20 @@ Column(Modifier.fillMaxSize()) {
             }
             items(state.items, key = { it.id }) { entry ->
                 val target = operationHistoryTarget(entry.target)
-                Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp)) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                      Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(target.name.ifEmpty { entry.actionLabel }, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                        target.parent?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                        // trash.move records the recycle item ID in detail (resource.go),
-                        // not a user-facing description. Preserve it in the complete record.
-                        if (entry.action != "trash.move" && entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilewayTaskCard(title = target.name.ifEmpty { entry.actionLabel },
+                    icon = { Icon(painterResource(R.drawable.ic_history), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
+                    meta = {
                             Text(if (target.name.isEmpty()) entry.statusLabel else "${entry.actionLabel} · ${entry.statusLabel}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                                 color = when (entry.status) { "failed" -> MaterialTheme.colorScheme.error; "submitted" -> MaterialTheme.colorScheme.primary; else -> MaterialTheme.colorScheme.onSurfaceVariant })
                             Text(serverTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                      }
-                      IconButton({ detail = entry }, modifier = Modifier.size(48.dp)) {
-                          Icon(painterResource(R.drawable.ic_info), "完整记录：${target.name.ifEmpty { entry.actionLabel }}")
-                      }
-                    }
+                    }, onClick = { if (selection.active) selection.toggle(entry.id) else detail = entry },
+                    onLongClick = { if (enabled) selection.start(entry.id) }, selected = entry.id in selection.ids,
+                    actions = { if (!selection.active) IconButton({ controller.deleteSelected(setOf(entry.id)) }, enabled = enabled && !state.showingPreviousFilter) {
+                        Icon(painterResource(R.drawable.ic_trash), "删除记录：${target.name.ifEmpty { entry.actionLabel }}")
+                    } }) {
+                    target.parent?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                    if (entry.action != "trash.move" && entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             if (state.nextCursor.isNotEmpty() && !state.showingPreviousFilter) item {
@@ -119,7 +119,13 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
-    detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = { FilewayTextButton({ detail = null }) { Text("关闭") } }) {
+    if (deleteSelection) FilewayAlertDialog(onDismissRequest = { deleteSelection = false }, title = { Text("删除当前筛选的全部记录？") },
+        text = { Text("将删除所选 ${selection.ids.size} 条操作记录。文件和任务保留。") },
+        confirmButton = { FilewayButton({ controller.deleteSelected(selection.ids); deleteSelection = false }, enabled = enabled) { Text("删除记录") } },
+        dismissButton = { FilewayOutlinedButton({ deleteSelection = false }) { Text("取消") } })
+    detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = {
+        FilewayOutlinedButton({ controller.deleteSelected(setOf(entry.id)); detail = null }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("删除记录") }
+    }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${entry.actionLabel} · ${entry.statusLabel}", style = MaterialTheme.typography.titleMedium)
             SelectionContainer {

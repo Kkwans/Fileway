@@ -7,6 +7,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
+import org.json.JSONObject
 
 data class OperationHistoryState(val scope: String = "", val filter: OperationHistoryFilter = OperationHistoryFilter(),
     val itemsFilter: OperationHistoryFilter = OperationHistoryFilter(), val items: List<OperationHistoryEntry> = emptyList(),
@@ -71,6 +73,58 @@ class OperationHistoryController(private val scope: CoroutineScope, private val 
         }
     }
     fun retry() = refresh(more = mutable.value.retryMore)
+    fun selectAll(onSelected: (Set<String>) -> Unit) {
+        val context = bound ?: return
+        val before = mutable.value
+        if (!isCurrent(context) || before.loading || before.paging || before.clearing) return
+        read?.cancel(); val epoch = ++revision
+        mutable.value = before.copy(loading = true, error = null, retryMore = false)
+        read = scope.launch {
+            try {
+                val rows = linkedMapOf<String, OperationHistoryEntry>()
+                val cursors = mutableSetOf<String>()
+                var cursor = ""
+                do {
+                    check(current(context, epoch)) { "操作记录来源已切换" }
+                    val page = OperationHistoryPage.from(context.api.request("GET", before.filter.query(cursor)))
+                    page.items.forEach { rows[it.id] = it }
+                    cursor = page.nextCursor
+                    check(cursor.isEmpty() || cursors.add(cursor)) { "服务器返回重复分页，未执行全选" }
+                } while (cursor.isNotEmpty())
+                if (current(context, epoch)) {
+                    mutable.value = mutable.value.copy(items = rows.values.toList(), itemsFilter = before.filter, total = rows.size, loaded = true, loading = false, nextCursor = "")
+                    onSelected(rows.keys.toSet())
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (current(context, epoch)) mutable.value = mutable.value.copy(loading = false, error = error.message ?: "全选读取失败")
+            }
+        }
+    }
+    fun deleteSelected(ids: Set<String>) {
+        val context = bound ?: return
+        val before = mutable.value
+        if (!isCurrent(context) || before.loading || before.paging || before.clearing || ids.isEmpty()) return
+        read?.cancel(); val epoch = ++revision
+        mutable.value = before.copy(clearing = true, error = null, notice = null, retryMore = false)
+        change = scope.launch {
+            try {
+                // A separate route is essential: older servers ignore query
+                // parameters on DELETE /history and would clear all records.
+                val deleted = context.api.action("POST", "/api/history/delete", JSONObject().put("ids", JSONArray(ids.toList()))).getInt("deleted")
+                check(deleted in 0..ids.size) { "服务器未确认删除结果" }
+                if (current(context, epoch)) {
+                    mutable.value = mutable.value.copy(clearing = false, notice = "已删除 $deleted 条操作记录，文件保留")
+                    refresh()
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (current(context, epoch)) mutable.value = mutable.value.copy(clearing = false,
+                    error = if (error is ServiceException && error.status == 404) "此服务器尚不支持按条目删除，请升级服务端；未执行清空操作"
+                        else "删除结果未获确认，请刷新核对：${error.message.orEmpty()}")
+            }
+        }
+    }
     fun requestClear() {
         val context = bound ?: return
         val before = mutable.value

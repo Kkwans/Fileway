@@ -1,6 +1,7 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
@@ -26,9 +27,21 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
     val client by model.state.collectAsStateWithLifecycle()
     val account = model.cacheAccount()
     val items = state.items.filter { it.accountKey == account && client.connected }.filter { when (filter) { "已完成" -> it.complete; "未完成" -> !it.complete; else -> true } }
+    val selection = rememberFilewayTaskSelection(account to filter, items.map { it.id })
+    val chosen = items.filter { it.id in selection.ids }
+    var clearSelected by remember(account, filter) { mutableStateOf(false) }
+    var info by remember(account) { mutableStateOf<UploadRecord?>(null) }
     FilewayRefresh(false, model.uploads::refresh) {
 Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (selection.active) FilewayTaskSelectionBar(selection, !state.busy, {
+            selection.select(if (selection.ids.size == items.size) emptyList() else items.map { it.id })
+        }) {
+            IconButton({ model.uploads.batch(chosen.filter { it.active }, "pause") }, enabled = !state.busy && chosen.any { it.active }) { Icon(painterResource(R.drawable.art_pause), "暂停所选运行中上传") }
+            IconButton({ model.uploads.batch(chosen.filter { it.canResume && !it.active }, "resume") }, enabled = !state.busy && chosen.any { it.canResume && !it.active }) { Icon(painterResource(R.drawable.art_play), "继续所选可恢复上传") }
+            IconButton({ if (chosen.size == items.size) clearSelected = true else model.uploads.batch(chosen, "remove") },
+                enabled = !state.busy && chosen.isNotEmpty() && chosen.all { it.complete || it.status in setOf("canceled", "restarted") }) { Icon(painterResource(R.drawable.ic_trash), "移除所选已结束记录") }
+        } else Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton({ selection.start() }, enabled = !state.busy && items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选上传") }
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
         }
         state.error?.let { Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
@@ -73,6 +86,8 @@ Column(Modifier.fillMaxSize()) {
                 }
                 FilewayTaskCard(
                     title = item.name,
+                    onClick = { if (selection.active) selection.toggle(item.id) else info = item },
+                    onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids,
                     icon = { Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     meta = {
                         Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
@@ -83,7 +98,7 @@ Column(Modifier.fillMaxSize()) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     },
                     actions = {
-                        FilewayTaskActionStrip(cardActions, onAction = { action ->
+                        if (!selection.active) FilewayTaskActionStrip(cardActions, onAction = { action ->
                             when (action) {
                                 "toggle" -> if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
                                 "cleanup" -> model.uploads.cancel(item)
@@ -107,6 +122,18 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
+    info?.let { row -> FileOperationSheet("上传详情", { info = null }) {
+        Column(Modifier.weight(1f, fill = false).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(row.name, style = MaterialTheme.typography.titleMedium)
+            FileOperationLocation("目标位置", row.targetPath, showBasename = false)
+            Text("${readableSize(row.uploaded)} / ${readableSize(row.expectedSize)}", style = MaterialTheme.typography.bodyMedium)
+            if (row.error.isNotEmpty()) Text(row.error, color = MaterialTheme.colorScheme.error)
+        }
+    } }
+    if (clearSelected) FilewayAlertDialog(onDismissRequest = { clearSelected = false }, title = { Text("移除当前列表的全部已结束记录？") },
+        text = { Text("所选 ${chosen.size} 条上传记录将移除，本机原文件和服务器文件保留。") },
+        confirmButton = { FilewayButton({ model.uploads.batch(chosen, "remove"); clearSelected = false }, enabled = !state.busy) { Text("移除记录") } },
+        dismissButton = { FilewayOutlinedButton({ clearSelected = false }) { Text("取消") } })
     state.restart?.let { draft -> FilewayAlertDialog(onDismissRequest = { model.uploads.dismissRestart() }, title = { Text("从零重新开始上传？") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("本机文件：${draft.source.name} · ${readableSize(draft.source.size)}")

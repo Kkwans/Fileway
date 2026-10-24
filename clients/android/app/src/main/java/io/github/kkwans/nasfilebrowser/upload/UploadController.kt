@@ -217,20 +217,44 @@ class UploadController(private val context: Context, private val scope: Coroutin
         }
     }
     fun pause(row: UploadRecord) = change { UploadScheduler.pause(context, row.id); "上传已暂停，本机原文件保留" }
-    fun resume(row: UploadRecord) = change {
+    fun resume(row: UploadRecord) = change { resumeOne(row) }
+    private suspend fun resumeOne(row: UploadRecord): String {
         val item = dao.get(row.id) ?: error("上传记录不存在")
         check(item.canResume && !item.active) { "上传正在进行、已经结束或正在清理" }
         withTimeout(30_000) { UploadRuntime.get(context).awaitStopped(item.id) }
         check(dao.command(item.id, "queued", System.currentTimeMillis()) == 1)
         try { UploadScheduler.start(context, dao.get(item.id)!!) }
         catch (failure: Exception) { dao.command(item.id, "failed", System.currentTimeMillis()); throw failure }
-        "正在核对服务器进度并继续上传"
+        return "正在核对服务器进度并继续上传"
     }
-    fun remove(row: UploadRecord) = change {
+    fun remove(row: UploadRecord) = change { removeOne(row) }
+    private suspend fun removeOne(row: UploadRecord): String {
         val item = dao.get(row.id) ?: error("上传记录不存在")
         check(!item.active && (item.complete || item.status in setOf("canceled", "restarted"))) { "未完成清理请先保留记录并核对服务器片段" }
         check(dao.removeRecord(item.id) == 1)
-        "上传记录已移除，本机原文件和服务器文件保留"
+        return "上传记录已移除，本机原文件和服务器文件保留"
+    }
+    fun batch(rows: List<UploadRecord>, command: String) = change {
+        require(command in setOf("pause", "resume", "remove"))
+        val snapshot = rows.distinctBy { it.id }
+        require(snapshot.map { it.accountKey }.distinct().size <= 1) { "不能混合不同账号的上传任务" }
+        var succeeded = 0
+        val failures = mutableListOf<String>()
+        for (row in snapshot) try {
+            currentCoroutineContext().ensureActive()
+            when (command) {
+                "pause" -> UploadScheduler.pause(context, row.id)
+                "resume" -> resumeOne(row)
+                else -> removeOne(row)
+            }
+            succeeded++
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
+            failures.add("${row.name}：${error.message.orEmpty()}")
+        }
+        val summary = "已处理 $succeeded / ${snapshot.size} 项"
+        check(failures.isEmpty()) { "$summary；${failures.take(3).joinToString("；")}。本机原文件保留，请核对列表。" }
+        summary
     }
     fun cancel(row: UploadRecord) = change { UploadRuntime.get(context).cancelTask(row.id) }
     fun reselectSource(id: String, generation: Long, uri: Uri) = change {
