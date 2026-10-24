@@ -83,7 +83,8 @@ import java.util.Locale
                 style = if (layout == FileLayout.COMPACT) FilewayTheme.text.compactName else FilewayTheme.text.fileName,
                 color = colors.onSurface,
                 maxLines = when (layout) { FileLayout.COVER -> 1; FileLayout.COMPACT -> compactGridSize.nameLines; FileLayout.UNBOUNDED -> Int.MAX_VALUE; else -> 2 },
-                centered = centered, modifier = Modifier.fillMaxWidth())
+                centered = centered, modifier = Modifier.fillMaxWidth(),
+                minLines = when (layout) { FileLayout.COMPACT -> compactGridSize.nameLines; FileLayout.DETAIL, FileLayout.LIST -> 2; else -> 1 })
             // Compact is deliberately image + name only, including custom metadata supplied by callers.
             if (layout != FileLayout.COMPACT) {
                 if (metadata != null) metadata() else {
@@ -138,7 +139,7 @@ import java.util.Locale
                     caption(Modifier.weight(1f))
                     if (selected == null) IconButton(onClick = details, enabled = enabled,
                         modifier = Modifier.size(48.dp).semantics { contentDescription = "文件操作：${file.name}" }) {
-                        Icon(painterResource(R.drawable.ic_more_vert), null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                        Icon(painterResource(R.drawable.ic_more_actions), null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                     } else Spacer(Modifier.width(12.dp))
                 }
             }

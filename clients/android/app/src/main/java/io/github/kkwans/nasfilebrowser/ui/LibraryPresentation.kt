@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -36,14 +37,16 @@ internal fun libraryLocation(path: String): String {
     artwork: (@Composable () -> Unit)? = null,
     context: @Composable ColumnScope.() -> Unit = {},
 ) {
-    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+    val shape = RoundedCornerShape(12.dp)
+    Surface(Modifier.clip(shape).then(modifier).fillMaxWidth()
+        .then(if (onOpen != null) Modifier.combinedClickable(enabled = enabled,
+            role = if (selectionMode) Role.Checkbox else Role.Button, onClick = onOpen, onLongClick = onLongClick,
+            onLongClickLabel = if (onLongClick != null) "多选" else null) else Modifier)
+        .then(if (selectionMode) Modifier.semantics { this.selected = selected } else Modifier), shape = shape,
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (onOpen != null) Modifier.combinedClickable(enabled = enabled,
-                role = if (selectionMode) Role.Checkbox else Role.Button, onClick = onOpen, onLongClick = onLongClick,
-                onLongClickLabel = if (onLongClick != null) "多选" else null) else Modifier)
-                .then(if (selectionMode) Modifier.semantics { this.selected = selected } else Modifier),
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 leading()
                 if (artwork != null) artwork() else Icon(painterResource(icon), null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)

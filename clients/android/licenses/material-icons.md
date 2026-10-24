@@ -51,3 +51,7 @@ Google Material Icons Rounded, Apache-2.0. Geometry converted to Android vectors
 - `ic_actions.xml`: [communication/list_alt](https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/src/communication/list_alt/materialiconsround/24px.svg), SVG SHA256 `31c0cc86763c2c1a77f7e9f1ef9110f71f2b9bc86844b5c26922406f2abfc3c2`.
 - `ic_select_multiple.xml`: [content/select_all](https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/src/content/select_all/materialiconsround/24px.svg), SVG SHA256 `968f484743902b94449ecd142fb8891c0f5fd258b4f6d4d1dbc12f6aeb8c5e7f`.
 - `ic_phone.xml`: [hardware/smartphone](https://raw.githubusercontent.com/google/material-design-icons/10ecc14790612ca8fd164e3f4ffe9c16fc50d5b7/src/hardware/smartphone/materialiconsround/24px.svg), SVG SHA256 `796756539914ede00ba9cccbf9acddc9fb7a6dcc08f93c7f2d5f62cab11eb61c`.
+
+## Unified overflow actions
+
+- `ic_more_actions.xml`: Google Material Symbols Rounded [grid_view](https://raw.githubusercontent.com/google/material-design-icons/737e3324305806514d7909874fa1818ae1808232/symbols/android/grid_view/materialsymbolsrounded/grid_view_24px.xml), Apache-2.0, source SHA256 `e4354f043d3797bc1c6d7df186f9c457ed418e38bfecb58d715d9841c75a385d`. Official vector geometry is unchanged; the user selected the four-square glyph for overflow actions.

@@ -39,10 +39,11 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 }
 
 @Composable internal fun filewayDrawerGlassStyle(): HazeBlurStyle {
-    val tint = filewayGlassColor(true)
+    val tint = FilewayTheme.colors.surface.copy(alpha =
+        if (FilewayTheme.colors.surface.luminance() > .5f) .76f else .74f)
     val fallback = FilewayTheme.colors.surface
     return HazeBlurStyle {
-        blurRadius(24.dp)
+        blurRadius(32.dp)
         noiseFactor(.025f)
         backgroundColor(fallback)
         colorEffects(listOf(HazeColorEffect.tint(tint)))

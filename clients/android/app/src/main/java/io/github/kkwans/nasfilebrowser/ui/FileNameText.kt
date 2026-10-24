@@ -19,7 +19,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 
 @Composable internal fun FileNameText(name: String, style: TextStyle, color: Color,
-    maxLines: Int, centered: Boolean, modifier: Modifier = Modifier) {
+    maxLines: Int, centered: Boolean, modifier: Modifier = Modifier, minLines: Int = 1) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val nameStyle = style.copy(lineBreak = LineBreak.Paragraph)
@@ -34,7 +34,7 @@ import androidx.compose.ui.unit.Constraints
         } else null
         val alignment = if (centered) TextAlign.Center else TextAlign.Start
         if (split == null) Text(name, Modifier.fillMaxWidth(), style = nameStyle, color = color,
-            maxLines = maxLines, overflow = TextOverflow.Ellipsis, textAlign = alignment)
+            maxLines = maxLines, minLines = minLines, overflow = TextOverflow.Ellipsis, textAlign = alignment)
         else Column(Modifier.fillMaxWidth().clearAndSetSemantics { text = AnnotatedString(name) }) {
             Text(name.substring(0, split), Modifier.fillMaxWidth(), style = nameStyle, color = color,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = alignment)

@@ -73,14 +73,14 @@ Column(Modifier.fillMaxSize()) {
                             location = libraryLocation(entry.path),
                             icon = fileArtworkIcon(entry.name, entry.isDir),
                             summary = serverTime(entry.accessedAt),
-                            modifier = Modifier.secondaryClick { if (entry.openable) menu = true }
-                                .combinedClickable(enabled = entry.openable, role = Role.Button,
-                                    onClick = { if (valid()) onOpen(entry) }, onLongClick = { menu = true },
-                                    onLongClickLabel = "打开文件菜单"),
+                            modifier = Modifier.secondaryClick { if (entry.openable) menu = true },
+                            enabled = entry.openable,
+                            onOpen = { if (valid()) onOpen(entry) },
+                            onLongClick = { menu = true },
                             trailing = {
                                 Box {
                                     IconButton({ menu = true }, modifier = Modifier.size(48.dp)) {
-                                        Icon(painterResource(R.drawable.ic_more_horiz), "最近访问操作")
+                                        Icon(painterResource(R.drawable.ic_more_actions), "最近访问操作")
                                     }
                                     FilewayMenu(menu, { menu = false }, items = buildList {
                                         add(FilewayMenuEntry("open", "打开", R.drawable.ic_visibility, enabled = entry.openable))

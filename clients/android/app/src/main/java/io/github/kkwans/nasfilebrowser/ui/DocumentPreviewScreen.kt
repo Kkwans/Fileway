@@ -85,7 +85,7 @@ import kotlin.math.roundToInt
             val summary = if (state.loading) "读取中" else null
             FilewayTopAppBar(file.name, summary, R.drawable.ic_arrow_back, "关闭文档", ::leave, actions = {
                 Box {
-                    DocumentIcon(R.drawable.ic_more_vert, "文档操作") { focus.clearFocus(); keyboard?.hide(); menu = true }
+                    DocumentIcon(R.drawable.ic_more_actions, "文档操作") { focus.clearFocus(); keyboard?.hide(); menu = true }
                     FilewayMenu(menu, { menu = false }, items = buildList {
                         if (onEdit != null && state.text != null) add(FilewayMenuEntry("edit", "编辑文本", R.drawable.ic_edit, enabled = !state.loading))
                         if (state.text != null) {

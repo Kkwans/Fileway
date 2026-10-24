@@ -149,11 +149,11 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                 val label = when (mode) { AppTheme.SYSTEM -> "系统"; AppTheme.LIGHT -> "浅色"; AppTheme.DARK -> "深色" }
                                 val icon = when (mode) { AppTheme.SYSTEM -> R.drawable.ic_theme_system; AppTheme.LIGHT -> R.drawable.ic_theme_light; AppTheme.DARK -> R.drawable.ic_theme_dark }
                                 val chosen = appearance.theme == mode
-                                Surface(Modifier.weight(1f).heightIn(min = 56.dp)
+                                Surface(Modifier.weight(1f).heightIn(min = 56.dp).clip(MaterialTheme.shapes.medium)
                                     .selectable(chosen, enabled = appearance.loaded && !appearance.saving, role = Role.RadioButton) { model.appearance.save(mode) }
                                     .semantics { contentDescription = if (mode == AppTheme.SYSTEM) "跟随系统主题" else "${label}主题" },
                                     shape = MaterialTheme.shapes.medium,
-                                    color = if (chosen) MaterialTheme.colorScheme.primaryContainer else Color.Transparent) {
+                                    color = if (chosen) MaterialTheme.colorScheme.primary.copy(alpha = .12f) else Color.Transparent) {
                                     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
                                         Icon(painterResource(icon), null, Modifier.size(22.dp), tint = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -187,6 +187,8 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
 @Composable
 private fun FilewayDrawerItem(title: String, icon: Int, selected: Boolean = false, onClick: () -> Unit) {
     NavigationDrawerItem(
+        colors = NavigationDrawerItemDefaults.colors(selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .10f),
+            unselectedContainerColor = Color.Transparent, selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary),
         label = { Text(title, style = MaterialTheme.typography.bodyMedium) }, selected = selected, onClick = onClick,
         shape = MaterialTheme.shapes.medium,
         icon = { Icon(painterResource(icon), null, Modifier.size(22.dp)) },

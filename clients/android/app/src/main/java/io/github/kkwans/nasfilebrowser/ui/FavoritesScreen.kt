@@ -75,11 +75,11 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                         summary = if (filter == null) state.groups.firstOrNull { it.id == favorite.groupId }?.name else null,
                         trailing = {
                             Box {
-                                IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_horiz), "收藏更多：${favorite.name.ifEmpty { basename }}") }
+                                IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_actions), "收藏更多：${favorite.name.ifEmpty { basename }}") }
                                 FilewayMenu(menu, { menu = false }, items = listOf(
                                     FilewayMenuEntry("edit", "编辑收藏", R.drawable.ic_edit),
-                                    FilewayMenuEntry("up", "上移", enabled = state.items.firstOrNull()?.id != favorite.id),
-                                    FilewayMenuEntry("down", "下移", enabled = state.items.lastOrNull()?.id != favorite.id),
+                                    FilewayMenuEntry("up", "上移", R.drawable.ic_expand_less, enabled = state.items.firstOrNull()?.id != favorite.id),
+                                    FilewayMenuEntry("down", "下移", R.drawable.ic_expand_more, enabled = state.items.lastOrNull()?.id != favorite.id),
                                     FilewayMenuEntry("remove", "取消收藏", R.drawable.ic_bookmark),
                                 ), onItemClick = { item ->
                                     menu = false
@@ -148,7 +148,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                         Box(Modifier.size(12.dp).background(favoriteColor(group.color, MaterialTheme.colorScheme.primary), CircleShape))
                         Text(group.name, Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.titleSmall)
                         Box {
-                            IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_horiz), "分组更多：${group.name}") }
+                            IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_actions), "分组更多：${group.name}") }
                             FilewayMenu(menu, { menu = false }, items = listOf(
                                 FilewayMenuEntry("edit", "编辑分组", R.drawable.ic_edit),
                                 FilewayMenuEntry("up", "上移", R.drawable.ic_expand_less, enabled = state.groups.firstOrNull()?.id != group.id),
