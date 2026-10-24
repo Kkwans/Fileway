@@ -53,7 +53,7 @@ import kotlinx.coroutines.launch
                         catch (e: Exception) { if (e is CancellationException) throw e; error = e.message ?: "字幕加载失败，请重试" }
                         finally { busy = false }
                     }
-                }, { details = file })
+                }, { details = file }, singleTapOpen = true)
             }
         }
     }

@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,7 +32,7 @@ internal fun libraryLocation(path: String): String {
 
 @Composable internal fun LibraryObjectCard(
     name: String, location: String, icon: Int, modifier: Modifier = Modifier, summary: String? = null,
-    onOpen: (() -> Unit)? = null, enabled: Boolean = true,
+    onOpen: (() -> Unit)? = null, enabled: Boolean = true, onDoubleClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null, longClickLabel: String = "多选", selected: Boolean = false, selectionMode: Boolean = false,
     leading: @Composable RowScope.() -> Unit = {}, trailing: @Composable RowScope.() -> Unit = {},
     artwork: (@Composable () -> Unit)? = null,
@@ -41,7 +42,9 @@ internal fun libraryLocation(path: String): String {
     Surface(Modifier.clip(shape).then(modifier).fillMaxWidth()
         .then(if (onOpen != null) Modifier.combinedClickable(enabled = enabled,
             role = if (selectionMode) Role.Checkbox else Role.Button, onClick = onOpen, onLongClick = onLongClick,
+            onDoubleClick = if (selectionMode) null else onDoubleClick,
             onLongClickLabel = if (onLongClick != null) longClickLabel else null) else Modifier)
+        .semantics { if (!selectionMode && onDoubleClick != null) customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("打开") { onDoubleClick(); true }) }
         .then(if (selectionMode) Modifier.semantics { this.selected = selected } else Modifier), shape = shape,
         color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {

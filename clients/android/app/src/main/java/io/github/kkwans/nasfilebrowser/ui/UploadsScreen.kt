@@ -107,12 +107,13 @@ Column(Modifier.fillMaxSize()) {
                 FilewayTaskCard(
                     title = item.name,
                     onClick = { if (selection.active) selection.toggle(item.id) else infoId = item.id },
+                    onDoubleClick = if (!selection.active && item.complete) ({ perform(item, "open") }) else null,
                     onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids,
                     icon = {
                         if (!item.complete && item.canResume && !selection.active) TransferPrimaryControl(item.active,
                             if (item.active) "暂停上传" else "继续上传", !state.busy) {
                             if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
-                        } else Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+                        } else Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
                     },
                     meta = {
                         TransferListMeta(item.createdAt, item.activeMillis, item.timingComplete,

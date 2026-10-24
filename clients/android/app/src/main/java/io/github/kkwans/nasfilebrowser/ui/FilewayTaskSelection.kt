@@ -22,10 +22,10 @@ import io.github.kkwans.nasfilebrowser.R
     fun close() { active = false; ids = emptySet() }
 }
 
-@Composable internal fun rememberFilewayTaskSelection(key: Any?, ids: List<String>): FilewayTaskSelection {
+@Composable internal fun rememberFilewayTaskSelection(key: Any?, ids: List<String>, pageActive: Boolean = LocalFilewayPageActive.current): FilewayTaskSelection {
     val selection = remember(key) { FilewayTaskSelection() }
     LaunchedEffect(ids) { selection.retain(ids.toSet()) }
-    BackHandler(selection.active && LocalFilewayPageActive.current) { selection.close() }
+    BackHandler(selection.active && pageActive) { selection.close() }
     return selection
 }
 

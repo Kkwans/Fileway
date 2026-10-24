@@ -133,6 +133,7 @@ Column(Modifier.fillMaxSize()) {
                             }
                         }, moreLabel = "任务操作：${task.title.ifEmpty { task.typeLabel }}")
                     },
+                    onDoubleClick = if (!selection.active && task.status == "completed" && task.outputPath.startsWith('/')) ({ model.openRemotePath(task.outputPath) }) else null,
                     onClick = { if (selection.active) selection.toggle(task.id) else model.tasks.select(task.id) },
                     onLongClick = { if (enabled) selection.start(task.id) }, selected = task.id in selection.ids,
                 ) {
@@ -153,30 +154,54 @@ Column(Modifier.fillMaxSize()) {
         confirmButton = { FilewayButton({ model.tasks.actionSelected(selection.ids, "archive"); deleteSelection = false }, enabled = enabled) { Text("删除记录") } },
         dismissButton = { FilewayOutlinedButton({ deleteSelection = false }) { Text("取消") } })
     if (advanced) TaskFilterSheet(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
-    if (state.focusId != null) FileOperationSheet(title = "任务详情", onDismiss = model::closeTaskDetail) {
-        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (state.detailLoading) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-            state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); FilewayTextButton({ state.focusId?.let(model.tasks::select) }) { Text("重试") } }
-            state.selected?.let { task ->
-                Text(task.title.ifEmpty { task.typeLabel }, style = MaterialTheme.typography.titleMedium)
-                Text("${task.typeLabel} · ${task.statusLabel}"); TaskProgress(task)
-                Text("创建于 ${serverTime(task.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                SelectionContainer {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (task.sourcePath.isNotEmpty()) FileOperationLocation("来源", task.sourcePath)
-                        if (task.outputPath.isNotEmpty()) FileOperationLocation("输出", task.outputPath)
+    var detailReady by remember(state.scope, state.focusId) { mutableStateOf(false) }
+    LaunchedEffect(state.detailLoading, state.focusId) { if (state.focusId != null && !state.detailLoading) detailReady = true }
+    if (state.focusId != null && !detailReady) FilewayDetailsLoading(model::closeTaskDetail)
+    if (state.focusId != null && detailReady && LocalFilewayPageActive.current) {
+        val task = state.selected
+        val detailEnabled = enabled && !state.detailLoading && state.detailError == null
+        val buttons = buildList {
+            if (task != null) {
+                if (task.type in setOf("analysis.storage", "analysis.duplicates")) add(FilewayMenuEntry("report", if (task.status == "completed") "分析报告" else "分析进度", R.drawable.ic_storage, enabled = !client.busy))
+                if (task.status == "completed" && task.outputPath.startsWith('/')) add(FilewayMenuEntry("output", "打开输出", R.drawable.ic_visibility, enabled = !client.busy))
+                if (task.active) add(FilewayMenuEntry("cancel", if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, enabled = detailEnabled && model.tasks.canEdit(task)))
+                if (task.canRetry) add(FilewayMenuEntry("retry", "重试", R.drawable.ic_refresh, enabled = detailEnabled && model.tasks.canEdit(task)))
+                if (task.canArchive) add(FilewayMenuEntry("archive", "删除记录", R.drawable.ic_trash, enabled = detailEnabled && model.tasks.canEdit(task), destructive = true))
+                if (task.archivedAt > 0) add(FilewayMenuEntry("unarchive", "恢复记录", R.drawable.ic_restore, enabled = detailEnabled && model.tasks.canEdit(task)))
+            }
+        }
+        FileOperationSheet("任务详情", model::closeTaskDetail, footer = if (buttons.isEmpty()) null else {{
+            FilewaySheetActions(buttons) { action -> if (task != null) when (action) {
+                "report" -> { model.tasks.closeDetail(); model.showAnalysis(task.id, task.type) }
+                "output" -> { model.tasks.closeDetail(); model.openRemotePath(task.outputPath) }
+                "archive", "unarchive" -> { model.tasks.action(task, action); model.tasks.closeDetail() }
+                "cancel" -> if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirmAction(task, action)
+                else -> confirmAction(task, action)
+            } }
+        }}) {
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); FilewayOutlinedButton({ state.focusId?.let(model.tasks::select) }) { Text("重新读取") } }
+                task?.let {
+                    Text(task.title.ifEmpty { task.typeLabel }, style = MaterialTheme.typography.titleMedium)
+                    Text("${task.typeLabel} · ${task.statusLabel}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (task.active) TaskProgress(task)
+                    if (task.sourcePath.isNotEmpty()) FileOperationLocation("来源", task.sourcePath, showBasename = false)
+                    if (task.outputPath.isNotEmpty()) FileOperationLocation("输出", task.outputPath, showBasename = false)
+                    if (task.error.isNotEmpty()) Text(task.error, color = MaterialTheme.colorScheme.error)
+                    HorizontalDivider()
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        DetailMetadata("创建时间", taskTimestamp(task.createdAt), Modifier.weight(1f))
+                        DetailMetadata(if (task.finishedAt > 0) "结束时间" else "开始时间", taskTimestamp(if (task.finishedAt > 0) task.finishedAt else task.startedAt), Modifier.weight(1f))
                     }
-                }
-                if (task.error.isNotEmpty()) Text(task.error, color = MaterialTheme.colorScheme.error)
-                if (task.type in setOf("analysis.storage", "analysis.duplicates")) FilewayTextButton({ model.tasks.closeDetail(); model.showAnalysis(task.id, task.type) }) { Text(if (task.status == "completed") "查看分析报告" else "查看分析进度") }
-                if (task.status == "completed" && task.outputPath.startsWith('/')) FilewayTextButton({ model.tasks.closeDetail(); model.openRemotePath(task.outputPath) }, enabled = !client.busy) { Text("打开输出文件") }
-                TaskActions(model, task, enabled && !state.detailLoading && state.detailError == null && model.tasks.canEdit(task)) {
-                    if (it == "archive" || it == "unarchive") model.tasks.action(task, it) else confirmAction(task, it)
-                }
-                FilewayTextButton({ technicalDetails = !technicalDetails }) { Text(if (technicalDetails) "收起技术信息" else "任务 ID 与完整时间") }
-                if (technicalDetails) SelectionContainer {
-                    Text("任务 ID：${task.id}\n创建：${taskTimestamp(task.createdAt)}\n开始：${taskTimestamp(task.startedAt)}\n结束：${taskTimestamp(task.finishedAt)}",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (task.totalBytes > 0 || task.totalItems > 0) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        if (task.totalBytes > 0) DetailMetadata("处理大小", "${readableSize(task.processedBytes)} / ${readableSize(task.totalBytes)}", Modifier.weight(1f))
+                        if (task.totalItems > 0) DetailMetadata("处理项目", "${task.processedItems} / ${task.totalItems}", Modifier.weight(1f))
+                    }
+                    if (!task.active && task.duration > 0) DetailMetadata("处理时长", "${clock((task.processedSeconds * 1000).toLong())} / ${clock((task.duration * 1000).toLong())}")
+                    FilewayOutlinedButton({ technicalDetails = !technicalDetails }, Modifier.fillMaxWidth()) {
+                        Icon(painterResource(R.drawable.ic_info), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(if (technicalDetails) "收起任务标识" else "查看任务标识")
+                    }
+                    if (technicalDetails) SelectionContainer { Text("任务 ID：${task.id}\n创建：${taskTimestamp(task.createdAt)}\n开始：${taskTimestamp(task.startedAt)}\n结束：${taskTimestamp(task.finishedAt)}", style = MaterialTheme.typography.bodySmall) }
                 }
             }
         }
@@ -230,16 +255,6 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
             (if (task.speed.isFinite() && task.speed > 0) " · ${String.format(java.util.Locale.ROOT, "%.1f×", task.speed)}" else "")
     Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     if (task.pendingDeletion) Text("删除尚未开始，可撤销", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-}
-
-@Composable private fun TaskActions(model: ClientModel, task: ServerTask, enabled: Boolean, confirm: (String) -> Unit) {
-    if (!task.active && !task.canRetry && !task.canArchive && task.archivedAt <= 0) return
-    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (task.active) FilewayTextButton({ if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirm("cancel") }, enabled = enabled) { Text(if (task.pendingDeletion) "撤销删除" else "停止任务") }
-        if (task.canRetry) FilewayTextButton({ confirm("retry") }, enabled = enabled) { Text("重试") }
-        if (task.canArchive) FilewayOutlinedButton({ confirm("archive") }, enabled = enabled) { Text("删除记录") }
-        if (task.archivedAt > 0) FilewayOutlinedButton({ confirm("unarchive") }, enabled = enabled) { Text("恢复记录") }
-    }
 }
 
 @Composable private fun TaskFilterSheet(state: ServerTasksState, accountName: String, apply: (TaskFilter) -> Unit, dismiss: () -> Unit) {

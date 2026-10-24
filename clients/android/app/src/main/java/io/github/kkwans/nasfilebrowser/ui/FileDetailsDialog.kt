@@ -31,6 +31,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
     additionalActions: (@Composable () -> Unit)? = null, model: ClientModel? = null,
     onUnassign: (() -> Unit)? = null, readMetadata: Boolean = true,
     footerActions: (@Composable RowScope.() -> Unit)? = null, onDismiss: () -> Unit) {
+    if (!LocalFilewayPageActive.current) return
+    val needsMetadata = readMetadata && model != null && file.downloadId.isEmpty() && !model.isTemporaryContent(file)
+    var ready by remember(file.mediaKey) { mutableStateOf(!needsMetadata) }
     var metadata by remember(file.mediaKey) { mutableStateOf(file) }
     var metadataError by remember(file.mediaKey) { mutableStateOf<String?>(null) }
     var retry by remember(file.mediaKey) { mutableIntStateOf(0) }
@@ -44,8 +47,10 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
         if (readMetadata && model != null && file.downloadId.isEmpty() && !model.isTemporaryContent(file)) {
             try { metadata = model.resourceMetadata(file); metadataError = null }
             catch (failure: Exception) { if (failure is CancellationException) throw failure; metadataError = failure.message ?: "元数据暂时无法读取" }
+            finally { ready = true }
         }
     }
+    if (!ready) { FilewayDetailsLoading(onDismiss); return }
     val foreground = remember(file.mediaKey) { FileOperationForeground() }
     // Dialog has its own composition. Moving movableContent between that owner
     // and the screen corrupts Compose's slot groups when opening child actions.
@@ -117,5 +122,17 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
             // underlying buttons paint outside this zero-sized host.
             Box(Modifier.size(0.dp).clipToBounds().clearAndSetSemantics {}) { actions?.invoke() }
         }
+    }
+}
+
+/** Keep the eventual sheet out of the window until its first content is known. */
+@Composable internal fun FilewayDetailsLoading(onDismiss: () -> Unit) {
+    if (!LocalFilewayPageActive.current) return
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { kotlinx.coroutines.delay(180); visible = true }
+    androidx.activity.compose.BackHandler(onBack = onDismiss)
+    if (visible) androidx.compose.ui.window.Popup(alignment = androidx.compose.ui.Alignment.Center,
+        onDismissRequest = onDismiss, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
+        CircularProgressIndicator(Modifier.size(24.dp).semantics { contentDescription = "正在读取详情" }, strokeWidth = 2.dp)
     }
 }

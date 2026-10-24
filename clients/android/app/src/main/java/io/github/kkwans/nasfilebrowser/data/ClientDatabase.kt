@@ -71,6 +71,8 @@ data class PlaybackSnapshot(
     @Insert(onConflict = OnConflictStrategy.IGNORE) suspend fun guard(snapshot: PlaybackSnapshot): Long
     @Query("UPDATE playback_snapshots SET sync = :sync WHERE accountKey = :account AND resourceKey = :resource AND identity = :identity AND updatedAt = :updated AND positionMs = :position AND durationMs = :duration")
     suspend fun markSync(account: String, resource: String, identity: String, updated: Long, position: Long, duration: Long, sync: ProgressSync): Int
+    @Query("DELETE FROM playback_snapshots WHERE accountKey = :account AND resourceKey = :resource AND identity = :identity AND updatedAt <= :updated")
+    suspend fun remove(account: String, resource: String, identity: String, updated: Long)
     @Query("DELETE FROM playback_snapshots WHERE accountKey = :account") suspend fun clear(account: String)
 }
 

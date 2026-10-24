@@ -35,7 +35,7 @@ import kotlinx.coroutines.launch
     LaunchedEffect(Unit) { model.cache.refresh() }
     fun edit(key: String, value: Long) { number = key; input = value.toString() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsGroup("图片") {
+        SettingsGroup("图片缓存") {
             SettingsAction("缓存图片管理", "查看与管理全部缓存图片", R.drawable.ic_image) { model.tab("cache-images") }
             SettingsAction("默认图片质量", settings.imageQuality.label, R.drawable.ic_visibility, enabled) { quality = true }
             SettingsAction("图片缓存容量", "已用 ${readableSize(state.images)} / ${settings.imageMB} MB${if (settings.imageMB == 0L) " · 已关闭" else ""}", R.drawable.ic_storage, enabled) { edit("image", settings.imageMB) }

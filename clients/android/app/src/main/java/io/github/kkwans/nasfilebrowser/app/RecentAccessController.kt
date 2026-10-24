@@ -10,7 +10,7 @@ import org.json.JSONObject
 
 data class RecentAccessState(
     val scope: String = "", val items: List<RecentAccessEntry> = emptyList(),
-    val loading: Boolean = false, val loaded: Boolean = false,
+    val loading: Boolean = false, val changing: Boolean = false, val loaded: Boolean = false,
     val error: String? = null, val recordWarning: String? = null,
 )
 
@@ -50,7 +50,7 @@ class RecentAccessController(private val scope: CoroutineScope, private val isCu
         if (more) return
         val context = bound ?: return
         val ownerScope = sessionScope ?: return
-        if (!current(context)) return
+        if (!current(context) || mutable.value.changing) return
         reads?.cancel()
         val expected = ++revision
         mutable.value = mutable.value.copy(loading = true, error = null)
@@ -63,6 +63,34 @@ class RecentAccessController(private val scope: CoroutineScope, private val isCu
                 if (error is CancellationException) throw error
                 if (current(context) && expected == revision)
                     mutable.value = mutable.value.copy(loading = false, error = recentAccessFailure(error, false))
+            }
+        }
+    }
+
+    fun deleteSelected(ids: Set<String>, clear: Boolean = false, onSaved: () -> Unit = {}) {
+        val context = bound ?: return
+        val ownerScope = sessionScope ?: return
+        if (!current(context) || mutable.value.changing || !clear && ids.isEmpty()) return
+        reads?.cancel(); revision++
+        mutable.value = mutable.value.copy(changing = true, loading = false, error = null)
+        ownerScope.launch {
+            writes.withLock {
+                var applied = false
+                try {
+                    check(current(context))
+                    if (clear) context.api.action("DELETE", "/api/recent")
+                    else context.api.action("POST", "/api/recent/delete", JSONObject().put("ids", org.json.JSONArray(ids.toList())))
+                    applied = true
+                    if (current(context)) {
+                        mutable.value = mutable.value.copy(items = if (clear) emptyList() else mutable.value.items.filterNot { it.id in ids })
+                        onSaved()
+                    }
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    if (current(context)) mutable.value = mutable.value.copy(error = error.message ?: "最近访问删除失败，请重试")
+                } finally {
+                    if (current(context)) { mutable.value = mutable.value.copy(changing = false); if (applied) refresh() }
+                }
             }
         }
     }

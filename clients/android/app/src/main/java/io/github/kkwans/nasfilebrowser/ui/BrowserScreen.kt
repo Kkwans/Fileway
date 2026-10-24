@@ -209,7 +209,8 @@ Column(Modifier.fillMaxSize()) {
                     FileEntry(model, file, layout, !state.busy && (!selecting || !selectionBusy), {
                         if (selecting) selected = if (key(file) in selected) selected - key(file) else selected + key(file)
                         else model.open(file)
-                    }, { details = file }, selected = if (selecting) key(file) in selected else null, compactGridSize = state.compactGridSize)
+                    }, { details = file }, selected = if (selecting) key(file) in selected else null, compactGridSize = state.compactGridSize,
+                        onSelect = { if (!selectionBusy) { selecting = true; selected = selected + key(file) } })
                 }
             }
 }

@@ -1,5 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -48,10 +49,21 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
     LaunchedEffect(state.scope) { model.tags.refresh() }
     LaunchedEffect(state.items) { if (state.items.none { it.id == chosen }) chosen = state.items.firstOrNull()?.id }
     LaunchedEffect(tag, currentOnly, client.path, client.wirePath) { tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, parentWire = if (currentOnly) client.wirePath else null) } }
+    val selectableRefs = remember(state.items, state.pathTag, state.pathParent, state.pathParentWire) { model.tags.selectionPaths() }
+    val selection = rememberFilewayTaskSelection(listOf(state.scope, chosen, currentOnly), selectableRefs.mapNotNull { it.identity })
     LibraryScaffold(model, LibrarySection.TAGS, actions = {
+        if (!selection.active) IconButton({ selection.start() }, enabled = enabled && state.paths.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选标签关联") }
         if (currentOnly) IconButton({ scopeDetails = true }) { Icon(painterResource(R.drawable.ic_info), "查看当前目录范围") }
         IconButton({ creating = true }, enabled = enabled && state.loaded) { Icon(painterResource(R.drawable.ic_add), "新建标签") }
     }) {
+        if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
+            selection.select(if (selection.ids.size == selectableRefs.size) emptyList() else selectableRefs.mapNotNull { it.identity })
+        }) {
+            IconButton({ tag?.let { model.tags.removePaths(it, selectableRefs.filter { it.identity in selection.ids }, state.scope, selection::close) } },
+                enabled = enabled && selection.ids.isNotEmpty() && selectableRefs.any { it.identity in selection.ids }) {
+                Icon(painterResource(R.drawable.ic_tag), "取消所选路径的标签")
+            }
+        }
         LibraryMessage(state.error ?: client.error, state.notice, state.loading || state.changing, model.tags::refresh)
         if (state.loaded && state.items.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -98,14 +110,20 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 items(state.paths, key = { it.key }) { row ->
                     val file = row.file
                     if (file != null) LibraryObjectCard(file.name, libraryLocation(file.path), fileArtworkIcon(file.name, file.directory),
-                        enabled = enabled, onLongClick = { details = file }, longClickLabel = "查看文件详情",
+                        enabled = enabled, onLongClick = { selection.start(row.key) },
+                        selected = row.key in selection.ids, selectionMode = selection.active,
                         summary = if (file.directory) null else readableSize(file.size), artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
                             MediaThumbnail(model, file, Modifier.size(36.dp).clip(MaterialTheme.shapes.small), showStatusText = false)
-                        } } else null, onOpen = {
+                        } } else null, onOpen = { if (selection.active) selection.toggle(row.key) else details = file },
+                        onDoubleClick = {
                             if (file.directory) model.tags.filter(tag?.id, true)
                             model.openTagged(file, candidates, sourceScope)
-                        }, trailing = { IconButton({ details = file }, enabled = enabled) { Icon(painterResource(R.drawable.ic_info), "标签文件操作：${file.name}") } })
-                    else Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+                        }, trailing = { if (!selection.active) IconButton({ details = file }, enabled = enabled) { Icon(painterResource(R.drawable.ic_info), "标签文件操作：${file.name}") } })
+                    else Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(
+                        onClick = { if (selection.active && row.ref.openable) selection.toggle(row.key) else pathDetails = row.path },
+                        onLongClick = if (row.ref.openable) ({ selection.start(row.key) }) else null),
+                        shape = RoundedCornerShape(12.dp), color = if (row.key in selection.ids) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,
+                        border = if (row.key in selection.ids) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(libraryBasename(row.path), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("位置 · ${libraryParent(row.path)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)

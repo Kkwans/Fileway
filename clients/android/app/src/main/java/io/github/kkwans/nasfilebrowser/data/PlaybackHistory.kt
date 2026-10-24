@@ -47,6 +47,10 @@ class PlaybackHistory(private val database: ClientDatabase) {
         }
         return mark(snapshot, ProgressSync.SYNCED)
     }
+    suspend fun deleteLocal(account: AccountRecord, snapshots: List<PlaybackSnapshot>, clear: Boolean) {
+        if (clear) dao.clear(account.key)
+        else snapshots.forEach { require(it.accountKey == account.key); dao.remove(account.key, it.resourceKey, it.identity, it.updatedAt) }
+    }
     private suspend fun mark(snapshot: PlaybackSnapshot, sync: ProgressSync): PlaybackSnapshot {
         dao.markSync(snapshot.accountKey, snapshot.resourceKey, snapshot.identity, snapshot.updatedAt, snapshot.positionMs, snapshot.durationMs, sync)
         return snapshot.copy(sync = sync)

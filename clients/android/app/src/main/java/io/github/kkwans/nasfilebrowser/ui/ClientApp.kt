@@ -236,6 +236,10 @@ import java.util.Locale
     var details by remember(state.previewScope) { mutableStateOf<ResourceRef?>(null) }
     var detailsActionsEnabled by remember(state.previewScope) { mutableStateOf(true) }
     val pageActive = LocalFilewayPageActive.current
+    val headers = remember { FilewayPageActionRegistry() }
+    val selection = rememberFilewayTaskSelection(state.previewScope, recent.map { it.resourceKey }, pageActive && state.recentSection == RecentSection.PLAYBACK)
+    var playbackDeletion by remember(state.previewScope) { mutableStateOf<Set<String>?>(null) }
+    val recentEnabled = state.connected && !state.busy && !state.recentPlaybackDeleting && !state.recentPlaybackLoading
     LaunchedEffect(state.previewScope, state.connected, state.recentSection, pageActive) {
         if (pageActive && state.connected && state.recentSection == RecentSection.PLAYBACK) while (isActive) {
             model.refreshRecentPlayback(); delay(15_000)
@@ -247,10 +251,12 @@ import java.util.Locale
     MaterialTheme(colorScheme = colors) {
         Scaffold(containerColor = colors.background, bottomBar = { ClientNavigation(model, "recent") }) { insets ->
             Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-                FilewayPageHeader("最近")
+                FilewayPageHeader("最近", actions = { headers.actions[RecentSection.entries[pager.currentPage]]?.invoke(this) })
                 FilewayPagerTabs(pager, RecentSection.entries.map { it.label })
                 val recentState = rememberSaveableStateHolder()
                 androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), beyondViewportPageCount = 1) { page ->
+                CompositionLocalProvider(LocalTaskHeaders provides headers, LocalTaskHeaderSection provides RecentSection.entries[page],
+                    LocalFilewayPageActive provides (pageActive && pager.currentPage == page)) {
                 recentState.SaveableStateProvider(RecentSection.entries[page].name) {
                     if (RecentSection.entries[page] == RecentSection.ACCESS) {
                         val access by model.recentAccess.state.collectAsStateWithLifecycle()
@@ -269,6 +275,20 @@ import java.util.Locale
                                 onDetails = { detailsActionsEnabled = false; details = it.resource() }) { model.openRecentAccess(it, sourceScope) }
                         }
                     } else FilewayRefresh(state.recentPlaybackLoading, { model.refreshRecentPlayback(force = true) }) { Column(Modifier.fillMaxSize()) {
+                        FilewayPageHeaderActions {
+                            if (!selection.active) {
+                                IconButton({ selection.start() }, enabled = recentEnabled && recent.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选播放记录") }
+                                IconButton({ playbackDeletion = emptySet() }, enabled = recentEnabled && recent.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空最近播放", Modifier.size(24.dp), tint = colors.error) }
+                            }
+                        }
+                        if (selection.active) FilewayTaskSelectionBar(selection, recentEnabled, {
+                            selection.select(if (selection.ids.size == recent.size) emptyList() else recent.map { it.resourceKey })
+                        }) {
+                            IconButton({ if (selection.ids.size == recent.size) playbackDeletion = selection.ids.toSet() else model.deleteRecentPlayback(selection.ids, onSaved = selection::close) }, enabled = recentEnabled && selection.ids.isNotEmpty()) {
+                                Icon(painterResource(R.drawable.ic_trash), "删除所选播放记录", tint = colors.error)
+                            }
+                        }
+
                         FilewayToast(state.recentPlaybackError)
                         state.error?.let { message ->
                             Surface(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = colors.errorContainer, shape = RoundedCornerShape(12.dp)) {
@@ -291,15 +311,23 @@ import java.util.Locale
                             }
                             items(recent, key = { it.resourceKey }) { snapshot ->
                                 val file = ResourceRef(snapshot.path, snapshot.wirePath, snapshot.name, false, if (mediaKind(snapshot.name) == MediaKind.AUDIO) "audio" else "video", 0)
-                                FileEntry(model, file, FileLayout.DETAIL, enabled = !state.busy,
-                                    open = { model.openRecent(snapshot) }, details = { detailsActionsEnabled = true; details = file }, metadata = { RecentProgress(snapshot) })
+                                FileEntry(model, file, FileLayout.DETAIL, enabled = recentEnabled,
+                                    open = { if (selection.active) selection.toggle(snapshot.resourceKey) else model.openRecent(snapshot) },
+                                    details = { detailsActionsEnabled = true; details = file }, metadata = { RecentProgress(snapshot) },
+                                    selected = if (selection.active) snapshot.resourceKey in selection.ids else null,
+                                    onSelect = { selection.start(snapshot.resourceKey) })
                             }
                         }
                     }
                     }
                 }
+                }
             }
             }
+            playbackDeletion?.let { ids -> FilewayAlertDialog(onDismissRequest = { playbackDeletion = null }, title = { Text(if (ids.isEmpty()) "清空最近播放？" else "删除所选播放记录？") },
+                text = { Text("将删除" + (if (ids.isEmpty()) "全部播放记录和续播位置" else "所选 ${ids.size} 条播放记录和续播位置") + "，文件保留。") },
+                confirmButton = { FilewayButton({ model.deleteRecentPlayback(ids, clear = ids.isEmpty(), onSaved = selection::close); playbackDeletion = null }, enabled = recentEnabled) { Text("删除记录") } },
+                dismissButton = { FilewayOutlinedButton({ playbackDeletion = null }) { Text("取消") } }) }
             details?.let { file -> FileDetailsDialog(file, model = model, openEnabled = !state.busy,
                 actions = if (detailsActionsEnabled) { { FileActions(model, file) { details = null } } } else null,
                 onLocation = { details = null; model.openContainingDirectory(file) }, onDismiss = { details = null }) }

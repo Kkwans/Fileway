@@ -40,9 +40,18 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     LaunchedEffect(state.scope) { model.favorites.refresh() }
     LaunchedEffect(state.groups) { if (!filter.isNullOrEmpty() && state.groups.none { it.id == filter }) filter = null }
     val items = state.items.filter { filter == null || it.groupId == filter }
+    val selection = rememberFilewayTaskSelection(state.scope to filter, items.map { it.id })
     LibraryScaffold(model, LibrarySection.FAVORITES, actions = {
+        if (!selection.active) IconButton({ selection.start() }, enabled = enabled && items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选收藏") }
         IconButton({ managing = true }, enabled = enabled && state.loaded) { Icon(painterResource(R.drawable.ic_settings), "管理收藏分组") }
     }) {
+            if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
+                selection.select(if (selection.ids.size == items.size) emptyList() else items.map { it.id })
+            }) {
+                IconButton({ model.favorites.removeSelected(selection.ids, state.scope, selection::close) }, enabled = enabled && selection.ids.isNotEmpty()) {
+                    Icon(painterResource(R.drawable.ic_bookmark), "取消所选收藏")
+                }
+            }
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val chipColors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .10f),
                     selectedLabelColor = MaterialTheme.colorScheme.primary, selectedLeadingIconColor = MaterialTheme.colorScheme.primary)
@@ -72,11 +81,13 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                     var menu by remember(favorite.id) { mutableStateOf(false) }
                     val basename = libraryBasename(favorite.path)
                     LibraryObjectCard(favorite.name.ifEmpty { basename }, libraryLocation(favorite.path), R.drawable.ic_bookmark,
-                        onOpen = { model.openFavorite(favorite, state.scope) }, enabled = enabled,
-                        onLongClick = { details = favorite }, longClickLabel = "查看文件详情",
+                        onOpen = { if (selection.active) selection.toggle(favorite.id) else details = favorite }, enabled = enabled,
+                        onDoubleClick = if (favorite.openable) ({ model.openFavorite(favorite, state.scope) }) else null,
+                        selected = favorite.id in selection.ids, selectionMode = selection.active,
+                        onLongClick = { selection.start(favorite.id) },
                         summary = if (filter == null) state.groups.firstOrNull { it.id == favorite.groupId }?.name else null,
                         trailing = {
-                            Box {
+                            if (!selection.active) Box {
                                 IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_actions), "收藏更多：${favorite.name.ifEmpty { basename }}") }
                                 FilewayMenu(menu, { menu = false }, items = listOf(
                                     FilewayMenuEntry("detail", "文件详情", R.drawable.ic_info),
@@ -132,6 +143,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
 /** Resolve collection records before offering file operations: a favourite does not store type or size. */
 @Composable private fun FavoriteDetailsSheet(model: ClientModel, favorite: Favorite, state: FavoritesState,
     enabled: Boolean, onEdit: (Favorite) -> Unit, onDismiss: () -> Unit) {
+    if (!LocalFilewayPageActive.current) return
     val sourceScope = remember(favorite.id) { state.scope }
     var resource by remember(favorite.id, sourceScope) { mutableStateOf<ResourceRef?>(null) }
     var error by remember(favorite.id, sourceScope) { mutableStateOf<String?>(null) }
@@ -169,6 +181,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     }
     val footer: @Composable RowScope.() -> Unit = { FilewaySheetActions(actions, ::perform) }
     val file = resource
+    if (file == null && loading) { FilewayDetailsLoading(onDismiss); return }
     if (file == null) FileOperationSheet("收藏详情", onDismiss, footer = footer) {
         Text(favorite.name.ifEmpty { libraryBasename(favorite.path) }, style = MaterialTheme.typography.titleMedium)
         if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())

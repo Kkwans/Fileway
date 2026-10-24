@@ -19,6 +19,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -40,13 +41,16 @@ import java.util.Locale
 @OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun FileEntry(model: ClientModel, file: ResourceRef, layout: FileLayout, enabled: Boolean,
     open: () -> Unit, details: () -> Unit, location: String? = null, metadata: @Composable (() -> Unit)? = null,
-    selected: Boolean? = null, compactGridSize: CompactGridSize = CompactGridSize.MEDIUM) {
+    selected: Boolean? = null, compactGridSize: CompactGridSize = CompactGridSize.MEDIUM,
+    onSelect: (() -> Unit)? = null, singleTapOpen: Boolean = false) {
     val colors = FilewayTheme.colors
     val tags by model.tags.state.collectAsStateWithLifecycle()
     val associated = if (file.downloadId.isNotEmpty()) emptyList() else tags.items.filter { collectionPath(file.path) in it.paths }
     val action = if (selected != null) Modifier.toggleable(selected, enabled = enabled, role = Role.Checkbox) { open() }
-        else Modifier.combinedClickable(enabled = enabled, role = Role.Button, onClick = open,
-            onLongClick = details, onLongClickLabel = "查看完整名称与路径")
+        else Modifier.combinedClickable(enabled = enabled, role = Role.Button, onClick = if (singleTapOpen) open else details,
+            onDoubleClick = if (singleTapOpen) null else open,
+            onLongClick = onSelect, onLongClickLabel = if (onSelect != null) "多选文件" else null)
+            .semantics { if (!singleTapOpen) customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("打开") { open(); true }) }
     val centered = layout == FileLayout.COVER || layout == FileLayout.COMPACT
     @Composable fun artwork(modifier: Modifier) {
         if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) {
@@ -84,7 +88,7 @@ import java.util.Locale
                 color = colors.onSurface,
                 maxLines = when (layout) { FileLayout.COVER -> 1; FileLayout.COMPACT -> compactGridSize.nameLines; FileLayout.UNBOUNDED -> Int.MAX_VALUE; else -> 2 },
                 centered = centered, modifier = Modifier.fillMaxWidth(),
-                minLines = when (layout) { FileLayout.COMPACT -> compactGridSize.nameLines; FileLayout.DETAIL, FileLayout.LIST -> 2; else -> 1 })
+                minLines = when (layout) { FileLayout.COMPACT -> compactGridSize.nameLines; else -> 1 })
             // Compact is deliberately image + name only, including custom metadata supplied by callers.
             if (layout != FileLayout.COMPACT) {
                 if (metadata != null) metadata() else {

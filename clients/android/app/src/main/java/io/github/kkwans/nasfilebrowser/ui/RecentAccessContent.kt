@@ -30,13 +30,30 @@ import io.github.kkwans.nasfilebrowser.data.RecentAccessEntry
 ) {
     val state by controller.state.collectAsStateWithLifecycle()
     val entries = remember(state.items) { state.items.filter { it.isDir || mediaKind(it.name, false, "") != MediaKind.VIDEO } }
+    val selection = rememberFilewayTaskSelection(state.scope, entries.map { it.id })
+    var deletion by remember(state.scope) { mutableStateOf<Set<String>?>(null) }
+    var unverified by remember(state.scope) { mutableStateOf<RecentAccessEntry?>(null) }
+    val enabled = connected && !state.changing
+    FilewayPageHeaderActions {
+        if (!selection.active && connected) {
+            IconButton({ selection.start() }, enabled = enabled && entries.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选访问记录") }
+            IconButton({ deletion = emptySet() }, enabled = enabled && entries.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空最近访问", Modifier.size(24.dp), tint = MaterialTheme.colorScheme.error) }
+        }
+    }
     FilewayRefresh(state.loading, { controller.refresh() }) {
 Column(Modifier.fillMaxSize()) {
         if (!connected || state.scope.isEmpty()) {
             RecentAccessMessage("连接后查看最近访问", "成功进入目录或打开文件后，与同一账号的网页端同步。", "连接服务器", onConnect)
             return@Column
         }
-        if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
+            selection.select(if (selection.ids.size == entries.size) emptyList() else entries.map { it.id })
+        }) {
+            IconButton({ if (selection.ids.size == entries.size) deletion = selection.ids.toSet() else controller.deleteSelected(selection.ids, onSaved = selection::close) }, enabled = enabled && selection.ids.isNotEmpty()) {
+                Icon(painterResource(R.drawable.ic_trash), "删除所选访问记录", tint = MaterialTheme.colorScheme.error)
+            }
+        }
+        if (state.loading || state.changing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         state.recordWarning?.let { message ->
             Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp)) {
@@ -74,24 +91,28 @@ Column(Modifier.fillMaxSize()) {
                             icon = fileArtworkIcon(entry.name, entry.isDir),
                             summary = serverTime(entry.accessedAt),
                             modifier = Modifier.secondaryClick { if (entry.openable) menu = true },
-                            enabled = entry.openable,
-                            onOpen = { if (valid()) onOpen(entry) },
-                            onLongClick = { menu = true },
+                            enabled = enabled,
+                            selected = entry.id in selection.ids, selectionMode = selection.active,
+                            onOpen = { if (valid()) { if (selection.active) selection.toggle(entry.id) else if (entry.openable) onDetails?.invoke(entry) else unverified = entry } },
+                            onDoubleClick = if (entry.openable) ({ if (valid()) onOpen(entry) }) else null,
+                            onLongClick = { selection.start(entry.id) },
                             trailing = {
-                                Box {
+                                if (!selection.active) Box {
                                     IconButton({ menu = true }, modifier = Modifier.size(48.dp)) {
                                         Icon(painterResource(R.drawable.ic_more_actions), "最近访问操作")
                                     }
                                     FilewayMenu(menu, { menu = false }, items = buildList {
                                         add(FilewayMenuEntry("open", "打开", R.drawable.ic_visibility, enabled = entry.openable))
                                         if (onLocation != null) add(FilewayMenuEntry("location", "打开所在目录", R.drawable.ic_folder, enabled = entry.openable))
-                                        if (onDetails != null) add(FilewayMenuEntry("info", "文件信息", R.drawable.ic_info, enabled = entry.openable))
+                                        if (onDetails != null) add(FilewayMenuEntry("info", "文件详情", R.drawable.ic_info))
+                                        add(FilewayMenuEntry("delete", "删除记录", R.drawable.ic_trash, enabled = enabled, destructive = true))
                                     }, onItemClick = { item ->
                                         menu = false
                                         if (valid()) when (item.key) {
                                             "open" -> onOpen(entry)
                                             "location" -> onLocation?.invoke(entry)
-                                            "info" -> onDetails?.invoke(entry)
+                                            "info" -> if (entry.openable) onDetails?.invoke(entry) else unverified = entry
+                                            "delete" -> controller.deleteSelected(setOf(entry.id))
                                         }
                                     })
                                 }
@@ -107,7 +128,17 @@ Column(Modifier.fillMaxSize()) {
         }
     }
 }
-
+    deletion?.let { ids -> FilewayAlertDialog(onDismissRequest = { deletion = null }, title = { Text(if (ids.isEmpty()) "清空最近访问？" else "删除所选访问记录？") },
+        text = { Text("仅删除" + (if (ids.isEmpty()) "当前账号的全部访问记录" else "所选 ${ids.size} 条访问记录") + "，服务器文件和播放记录保留。") },
+        confirmButton = { FilewayButton({ controller.deleteSelected(ids, clear = ids.isEmpty(), onSaved = selection::close); deletion = null }, enabled = enabled) { Text("删除记录") } },
+        dismissButton = { FilewayOutlinedButton({ deletion = null }) { Text("取消") } }) }
+    unverified?.let { entry -> FileOperationSheet("访问记录详情", { unverified = null }, footer = {
+        FilewaySheetActions(listOf(FilewayMenuEntry("delete", "删除记录", R.drawable.ic_trash, enabled = enabled, destructive = true))) { controller.deleteSelected(setOf(entry.id), onSaved = { unverified = null }) }
+    }) {
+        Text(entry.name, style = MaterialTheme.typography.titleMedium)
+        FileOperationLocation("位置", entry.path, showBasename = false)
+        Text("原始路径无法确认，暂不可打开文件；可以删除此条访问记录。", color = MaterialTheme.colorScheme.error)
+    } }
 }
 
 @Composable private fun ColumnScope.RecentAccessMessage(title: String, message: String, action: String, onAction: () -> Unit) {

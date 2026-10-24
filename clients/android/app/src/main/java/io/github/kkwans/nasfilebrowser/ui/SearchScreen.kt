@@ -33,6 +33,7 @@ import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.FileLayout
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ClientState
+import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.app.FileCategory
 import io.github.kkwans.nasfilebrowser.data.SearchEnding
 import io.github.kkwans.nasfilebrowser.data.SearchResult
@@ -43,6 +44,10 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 @Composable internal fun SearchScreen(model: ClientModel, client: ClientState) {
     val state by model.search.state.collectAsStateWithLifecycle()
     val displayed = remember(state.items, state.category, state.categories) { state.visibleItems }
+    val selection = rememberFilewayTaskSelection(listOf(client.previewScope, state.resultBaseWirePath, state.query, state.scope), displayed.map { it.relativePath })
+    val chosen = displayed.filter { it.relativePath in selection.ids }.mapNotNull { it.resource(state.resultBasePath, state.resultBaseWirePath) }
+    val trash by model.trash.state.collectAsStateWithLifecycle()
+    var pendingTrash by remember(client.previewScope) { mutableStateOf<List<io.github.kkwans.nasfilebrowser.app.ResourceRef>?>(null) }
     val colors = FilewayTheme.colors
     val focus = LocalFocusManager.current
     val onBack = LocalFilewayBack.current ?: { model.back(); Unit }
@@ -59,6 +64,19 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                         }
                         FilewaySearchField(state.query, { if (!model.state.value.busy) model.search.query(it) },
                             "搜索文件名", Modifier.weight(1f), enabled = !client.busy, submit = ::submit)
+                        if (!selection.active) IconButton({ selection.start() }, enabled = !client.busy && displayed.isNotEmpty()) {
+                            Icon(painterResource(R.drawable.ic_select_multiple), "多选搜索结果")
+                        }
+                    }
+                    if (selection.active) FilewayTaskSelectionBar(selection, !client.busy && !trash.changing, {
+                        selection.select(if (selection.ids.size == displayed.size) emptyList() else displayed.map { it.relativePath })
+                    }) {
+                        if (client.permissions.download) IconButton({ model.downloadFiles(chosen) }, enabled = !client.busy && chosen.isNotEmpty() && chosen.size == selection.ids.size) {
+                            Icon(painterResource(R.drawable.ic_download), "下载所选文件")
+                        }
+                        if (client.permissions.delete) IconButton({ pendingTrash = chosen }, enabled = !client.busy && !trash.changing && chosen.isNotEmpty() && chosen.size == selection.ids.size) {
+                            Icon(painterResource(R.drawable.ic_trash), "将所选文件移入回收站")
+                        }
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         FileCategoryMenu(state.categories.ifEmpty { if (state.category == FileCategory.ALL) emptySet() else setOf(state.category) }, !client.busy, model.search::categories)
@@ -123,13 +141,22 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                     }) { result ->
                         SearchResultRow(model, result, state.resultBasePath, state.resultBaseWirePath, client.fileLayout,
                             state.scope, state.openingPath == result.relativePath, enabled = !client.busy, compactGridSize = client.compactGridSize,
-                            open = { if (!model.state.value.busy) { focus.clearFocus(); model.search.openResult(result) } }, details = { details = result })
+                            open = { if (selection.active) selection.toggle(result.relativePath) else if (!model.state.value.busy) { focus.clearFocus(); model.search.openResult(result) } }, details = { details = result },
+                            selected = if (selection.active) result.relativePath in selection.ids else null,
+                            onSelect = { selection.start(result.relativePath) })
                     }
                 }
 }
 
             }
         }
+        pendingTrash?.let { files -> FilewayAlertDialog(onDismissRequest = { if (!trash.changing) pendingTrash = null }, title = { Text("将 ${files.size} 项移入回收站？") },
+            text = { Column { Text("可从回收站恢复，收藏和标签会同步更新。"); trash.error?.let { Text(it, color = colors.error) } } },
+            confirmButton = { FilewayButton({ model.trash.moveAll(files, { file ->
+                val removed = displayed.filter { it.resource(state.resultBasePath, state.resultBaseWirePath)?.mediaKey == file.mediaKey }.map { it.relativePath }.toSet()
+                selection.select(selection.ids - removed)
+            }, { pendingTrash = null; selection.close(); model.search.refresh() }) }, enabled = !trash.changing) { Text("移入回收站") } },
+            dismissButton = { FilewayOutlinedButton({ pendingTrash = null }, enabled = !trash.changing) { Text("取消") } }) }
         details?.let { result ->
             val resource = result.resource(state.resultBasePath, state.resultBaseWirePath)
             if (resource != null) FileDetailsDialog(resource, model = model, openEnabled = !client.busy,
@@ -151,7 +178,7 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
 }
 
 @Composable private fun SearchResultRow(model: ClientModel, result: SearchResult, basePath: String, baseWirePath: String,
-    layout: FileLayout, scope: SearchScope, opening: Boolean, enabled: Boolean, compactGridSize: CompactGridSize, open: () -> Unit, details: () -> Unit) {
+    layout: FileLayout, scope: SearchScope, opening: Boolean, enabled: Boolean, compactGridSize: CompactGridSize, open: () -> Unit, details: () -> Unit, selected: Boolean?, onSelect: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val resource = remember(result, basePath, baseWirePath) { result.resource(basePath, baseWirePath) }
     Column(Modifier.fillMaxWidth()) {
@@ -160,9 +187,9 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                 SearchScope.CURRENT -> null
                 SearchScope.RECURSIVE -> result.relativePath.substringBeforeLast('/', "").ifBlank { null }
                 SearchScope.GLOBAL -> resource.path.substringBeforeLast('/', "").ifEmpty { "/" }
-            }, compactGridSize = compactGridSize)
-        else Column(Modifier.fillMaxWidth().combinedClickable(onClick = open, onLongClick = details,
-            onLongClickLabel = "查看完整名称和位置", role = Role.Button, enabled = enabled).padding(vertical = 12.dp)) {
+            }, compactGridSize = compactGridSize, selected = selected, onSelect = onSelect)
+        else Column(Modifier.fillMaxWidth().combinedClickable(onClick = if (selected != null) open else details, onDoubleClick = if (selected == null) open else null, onLongClick = onSelect,
+            onLongClickLabel = "多选文件", role = Role.Button, enabled = enabled).padding(vertical = 12.dp)) {
             Text(result.name, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text("文件名编码无法确认", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
         }

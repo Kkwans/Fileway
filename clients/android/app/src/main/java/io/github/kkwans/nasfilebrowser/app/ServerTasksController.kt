@@ -139,7 +139,7 @@ class ServerTasksController(private val scope: CoroutineScope, private val isCur
     fun select(id: String) {
         val context = bound ?: return
         detail?.cancel(); val epoch = ++detailEpoch
-        mutable.value = mutable.value.copy(selected = mutable.value.items.firstOrNull { it.id == id }, detailLoading = true, detailError = null, focusId = id)
+        mutable.value = mutable.value.copy(selected = mutable.value.selected?.takeIf { it.id == id } ?: mutable.value.items.firstOrNull { it.id == id }, detailLoading = true, detailError = null, focusId = id)
         detail = scope.launch {
             try {
                 val task = ServerTask.from(context.api.request("GET", "/api/tasks/${android.net.Uri.encode(id)}"))

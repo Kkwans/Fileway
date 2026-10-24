@@ -127,15 +127,15 @@ Column(Modifier.fillMaxSize()) {
         confirmButton = { FilewayButton({ controller.deleteSelected(selection.ids); deleteSelection = false }, enabled = enabled) { Text("删除记录") } },
         dismissButton = { FilewayOutlinedButton({ deleteSelection = false }) { Text("取消") } })
     detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = {
-        FilewayOutlinedButton({ controller.deleteSelected(setOf(entry.id)); detail = null }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("删除记录") }
+        FilewaySheetActions(listOf(FilewayMenuEntry("delete", "删除记录", R.drawable.ic_trash, enabled = enabled, destructive = true))) { controller.deleteSelected(setOf(entry.id)); detail = null }
     }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${entry.actionLabel} · ${entry.statusLabel}", style = MaterialTheme.typography.titleMedium)
             SelectionContainer {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(entry.target, style = MaterialTheme.typography.bodyMedium)
+                    if (entry.target.isNotBlank()) FileOperationLocation("位置", entry.target, showBasename = false)
                     if (entry.detail.isNotEmpty() && entry.detail != entry.target) Text(entry.detail, style = MaterialTheme.typography.bodySmall)
-                    Text(historyTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    DetailMetadata("操作时间", historyTime(entry.createdAt))
                 }
             }
         }

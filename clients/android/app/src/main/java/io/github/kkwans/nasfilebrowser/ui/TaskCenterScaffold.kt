@@ -17,14 +17,16 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 
-private class TaskHeaderRegistry {
-    val actions = mutableStateMapOf<TaskCenterSection, @Composable RowScope.() -> Unit>()
+internal class FilewayPageActionRegistry {
+    val actions = mutableStateMapOf<Any, @Composable RowScope.() -> Unit>()
 }
-private val LocalTaskHeaders = staticCompositionLocalOf<TaskHeaderRegistry?> { null }
-private val LocalTaskHeaderSection = staticCompositionLocalOf { TaskCenterSection.DOWNLOADS }
+internal val LocalTaskHeaders = staticCompositionLocalOf<FilewayPageActionRegistry?> { null }
+internal val LocalTaskHeaderSection = staticCompositionLocalOf<Any> { TaskCenterSection.DOWNLOADS }
 
 /** The pager keeps neighbouring pages composed; only the visible page owns header actions. */
-@Composable internal fun TaskCenterHeaderActions(content: @Composable RowScope.() -> Unit) {
+@Composable internal fun TaskCenterHeaderActions(content: @Composable RowScope.() -> Unit) = FilewayPageHeaderActions(content)
+
+@Composable internal fun FilewayPageHeaderActions(content: @Composable RowScope.() -> Unit) {
     val registry = LocalTaskHeaders.current
     val section = LocalTaskHeaderSection.current
     val current by rememberUpdatedState(content)
@@ -42,7 +44,7 @@ private val LocalTaskHeaderSection = staticCompositionLocalOf { TaskCenterSectio
 @Composable internal fun TaskCenterScaffold(model: ClientModel, section: TaskCenterSection, content: @Composable ColumnScope.(TaskCenterSection) -> Unit) {
     Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "taskcenter") }) { insets ->
         val pager = rememberFilewayPager(section.ordinal, TaskCenterSection.entries.size) { model.taskCenterSection(TaskCenterSection.entries[it]) }
-        val headers = remember { TaskHeaderRegistry() }
+        val headers = remember { FilewayPageActionRegistry() }
         val parentActive = LocalFilewayPageActive.current
         CompositionLocalProvider(LocalTaskHeaders provides headers) {
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
@@ -61,7 +63,7 @@ private val LocalTaskHeaderSection = staticCompositionLocalOf { TaskCenterSectio
 
 /** Offline downloads reuse the same header action ownership as the connected task pager. */
 @Composable internal fun LocalDownloadsScaffold(onBack: () -> Unit, content: @Composable () -> Unit) {
-    val headers = remember { TaskHeaderRegistry() }
+    val headers = remember { FilewayPageActionRegistry() }
     CompositionLocalProvider(LocalTaskHeaders provides headers, LocalTaskHeaderSection provides TaskCenterSection.DOWNLOADS) {
         Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
             Box(Modifier.statusBarsPadding()) {

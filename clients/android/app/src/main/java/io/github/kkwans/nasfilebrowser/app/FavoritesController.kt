@@ -112,6 +112,17 @@ class FavoritesController(private val scope: CoroutineScope, private val isCurre
             }
         })
     fun remove(item: Favorite, onSaved: () -> Unit = {}) = mutate("DELETE", "/api/favorites/${id(item.id)}", notice = "已取消收藏", onSaved = onSaved)
+    fun removeSelected(ids: Set<String>, sourceScope: String, onSaved: () -> Unit = {}) {
+        if (sourceScope != mutable.value.scope || ids.isEmpty()) return
+        val targets = mutable.value.items.filter { it.id in ids }
+        mutate("DELETE", "/api/favorites", notice = "已取消所选收藏", onSaved = onSaved, write = { context ->
+            for (item in targets) {
+                currentCoroutineContext().ensureActive(); check(bound === context && isCurrent(context))
+                context.api.action("DELETE", "/api/favorites/${id(item.id)}")
+                if (bound === context) mutable.value = mutable.value.copy(items = mutable.value.items.filterNot { it.id == item.id })
+            }
+        })
+    }
     fun update(item: Favorite, name: String, group: String, onSaved: () -> Unit = {}) = mutate("PUT", "/api/favorites/${id(item.id)}",
         JSONObject().put("name", name.trim()).put("groupId", group), "收藏已更新", onSaved)
     fun saveGroup(group: FavoriteGroup?, name: String, color: String, onSaved: () -> Unit = {}) = mutate(if (group == null) "POST" else "PUT",

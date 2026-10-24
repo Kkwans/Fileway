@@ -3,6 +3,7 @@ package io.github.kkwans.nasfilebrowser.ui
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.foundation.layout.*
@@ -40,12 +41,13 @@ internal fun FilewayTaskCard(
     actions: @Composable () -> Unit = {},
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    onDoubleClick: (() -> Unit)? = null,
     selected: Boolean = false,
     body: @Composable ColumnScope.() -> Unit = {},
 ) {
     val shape = RoundedCornerShape(12.dp)
     val content: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { icon() }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -60,8 +62,10 @@ internal fun FilewayTaskCard(
     }
     val click = onClick ?: titleAction
     Surface(modifier = modifier.fillMaxWidth().clip(shape).then(if (click != null || onLongClick != null)
-        Modifier.combinedClickable(onClick = { click?.invoke() }, onLongClick = onLongClick,
-            onLongClickLabel = if (onLongClick != null) "多选任务" else null) else Modifier).semantics { this.selected = selected },
+        Modifier.combinedClickable(onClick = { click?.invoke() }, onLongClick = onLongClick, onDoubleClick = onDoubleClick,
+            onLongClickLabel = if (onLongClick != null) "多选任务" else null) else Modifier).semantics { this.selected = selected
+            if (onDoubleClick != null) customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("打开") { onDoubleClick(); true })
+        },
         shape = shape, color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,
         border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) { content() }
 }

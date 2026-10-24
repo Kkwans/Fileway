@@ -116,6 +116,15 @@ class TagsController(private val scope: CoroutineScope, private val isCurrent: (
             writeAssociation(it, tag.id, ResourceRef(ref.path, ref.wirePath, "tag", false, "", 0), false)
         }
     }
+    fun removePaths(tag: ServerTag, refs: List<TagPathRef>, sourceScope: String, onSaved: () -> Unit = {}) {
+        if (bound?.owner != sourceScope || refs.isEmpty() || refs.any { !it.openable }) return
+        change("已取消所选路径的标签", onSaved) { context ->
+            for (ref in refs) {
+                currentCoroutineContext().ensureActive(); check(current(context))
+                writeAssociation(context, tag.id, ResourceRef(ref.path, ref.wirePath, "tag", false, "", 0), false)
+            }
+        }
+    }
     private suspend fun writeAssociation(context: SessionContext, id: String, file: ResourceRef, adding: Boolean) {
         val body = tagAssociationBody(file)
         val response = context.api.action(if (adding) "POST" else "DELETE", "/api/tags/${android.net.Uri.encode(id)}/paths", body)
@@ -135,6 +144,12 @@ class TagsController(private val scope: CoroutineScope, private val isCurrent: (
                 writeAssociation(context, id, file, id in additions)
             }
         }
+    }
+    fun selectionPaths(): List<TagPathRef> {
+        val state = mutable.value
+        val tag = state.items.firstOrNull { it.id == state.pathTag } ?: return emptyList()
+        val parent = state.pathParent?.let { tagPathRef(it, state.pathParentWire).identity }
+        return tag.pathRefs.filter { it.openable && (state.pathParent == null || parent != null && it.identity?.substringBeforeLast('/')?.ifEmpty { "/" } == parent) }
     }
     fun loadPaths(id: String, parent: String?, more: Boolean = false, parentWire: String? = null) {
         val context = bound ?: return

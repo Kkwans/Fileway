@@ -64,7 +64,7 @@ data class ClientState(
     val profile: ServerProfile? = null, val accounts: List<AccountRecord> = emptyList(), val editorVersion: Int = 0,
     val librarySection: LibrarySection = LibrarySection.FAVORITES,
     val recentSection: RecentSection = RecentSection.PLAYBACK,
-    val recentPlaybackLoading: Boolean = false, val recentPlaybackError: String? = null,
+    val recentPlaybackDeleting: Boolean = false, val recentPlaybackLoading: Boolean = false, val recentPlaybackError: String? = null,
     val taskCenterSection: TaskCenterSection = TaskCenterSection.DOWNLOADS,
     val permissions: ServerPermissions = ServerPermissions(),
     val notice: String? = null,
@@ -107,6 +107,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     val recent = recentMutable.asStateFlow()
     private var recentLocalEntries = emptyList<PlaybackSnapshot>()
     private var recentCloudEntries: List<PlaybackSnapshot>? = null
+    private var recentCloudReadEpoch = 0L
     private var recentCloudJob: Job? = null
     private var recentCloudOwner = ""
     private var recentCloudUnavailable = false
@@ -1367,22 +1368,24 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         recentMutable.value = merged.distinctBy { it.resourceKey }.sortedByDescending { it.updatedAt }.take(100)
     }
     fun refreshRecentPlayback(force: Boolean = false) {
-        if (recentCloudUnavailable && !force) return
+        if (mutable.value.recentPlaybackDeleting || recentCloudUnavailable && !force) return
         val bound = context ?: return
         if (recentCloudJob?.isActive == true && recentCloudOwner == bound.api.id) return
         recentCloudJob?.cancel(); recentCloudOwner = bound.api.id
-        mutable.value = mutable.value.copy(recentPlaybackLoading = recentCloudEntries == null)
+        val readEpoch = ++recentCloudReadEpoch
+        mutable.value = mutable.value.copy(recentPlaybackLoading = recentCloudEntries == null || mediaClosing?.isActive == true)
         recentCloudJob = viewModelScope.launch {
             try {
+                mediaClosing?.join()
                 val rows = history.recentRemote(bound.api, bound.account)
-                if (context !== bound || generation != bound.generation) return@launch
+                if (context !== bound || generation != bound.generation || readEpoch != recentCloudReadEpoch) return@launch
                 recentCloudUnavailable = false
                 recentCloudEntries = rows; publishRecentPlayback()
                 mutable.value = mutable.value.copy(recentPlaybackLoading = false, recentPlaybackError = null)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
-                if (context === bound && generation == bound.generation) recentCloudUnavailable = error is ServiceException && error.status in setOf(404, 501)
-                if (context === bound && generation == bound.generation) mutable.value = mutable.value.copy(
+                if (context === bound && generation == bound.generation && readEpoch == recentCloudReadEpoch) recentCloudUnavailable = error is ServiceException && error.status in setOf(404, 501)
+                if (context === bound && generation == bound.generation && readEpoch == recentCloudReadEpoch) mutable.value = mutable.value.copy(
                     recentPlaybackLoading = false, recentPlaybackError = if (error is ServiceException && error.status in setOf(404, 501))
                         "服务器尚不支持云端播放列表，需升级服务；当前显示本机记录"
                     else when {
@@ -1395,8 +1398,51 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+    fun deleteRecentPlayback(keys: Set<String>, clear: Boolean = false, onSaved: () -> Unit = {}) {
+        val bound = context ?: return
+        if (mutable.value.recentPlaybackDeleting) return
+        val chosen = recentMutable.value.filter { it.accountKey == bound.account.key && (clear || it.resourceKey in keys) }
+        if (chosen.isEmpty() && !clear) return
+        recentCloudReadEpoch++; recentCloudJob?.cancel()
+        mutable.value = mutable.value.copy(recentPlaybackDeleting = true, recentPlaybackError = null)
+        viewModelScope.launch {
+            var acknowledged = false
+            try {
+                // A late writer from the player we just left must finish before deletion.
+                mediaClosing?.join(); check(context === bound && generation == bound.generation)
+                if (clear) bound.api.action("DELETE", "/api/media/playback/recent")
+                else {
+                    val remote = chosen.filter { it.sync != ProgressSync.UNSUPPORTED }.map { snapshot ->
+                        recentCloudEntries?.firstOrNull { it.resourceKey == snapshot.resourceKey && it.identity == snapshot.identity } ?: snapshot
+                    }
+                    if (remote.isNotEmpty()) {
+                        val body = JSONObject().put("items", org.json.JSONArray(remote.map {
+                            JSONObject().put("wirePath", it.wirePath.ifEmpty { it.resourceKey }).put("identity", it.identity).put("updatedAt", it.updatedAt)
+                        }))
+                        val result = bound.api.action("POST", "/api/media/playback/delete", body)
+                        check(result.getInt("acknowledged") == remote.size) { "部分播放记录已变化，请刷新后重新选择" }
+                    }
+                }
+                acknowledged = true
+                check(context === bound && generation == bound.generation)
+                history.deleteLocal(bound.account, chosen, clear)
+                if (context === bound) {
+                    val removed = chosen.map { it.resourceKey }.toSet()
+                    recentLocalEntries = if (clear) emptyList() else recentLocalEntries.filterNot { it.resourceKey in removed }
+                    recentCloudEntries = if (clear) emptyList() else recentCloudEntries?.filterNot { it.resourceKey in removed }
+                    publishRecentPlayback(); onSaved()
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (context === bound) mutable.value = mutable.value.copy(recentPlaybackError = if (acknowledged)
+                    "服务器记录已删除，本机列表整理失败，请刷新核对" else error.message ?: "播放记录删除失败，请重试")
+            } finally {
+                if (context === bound) { mutable.value = mutable.value.copy(recentPlaybackDeleting = false); refreshRecentPlayback(force = true) }
+            }
+        }
+    }
     fun stopRecentPlaybackRefresh(sourceScope: String) {
-        if (recentCloudOwner == sourceScope) { recentCloudJob?.cancel(); mutable.value = mutable.value.copy(recentPlaybackLoading = false) }
+        if (recentCloudOwner == sourceScope) { recentCloudReadEpoch++; recentCloudJob?.cancel(); mutable.value = mutable.value.copy(recentPlaybackLoading = false) }
     }
     fun openRecent(snapshot: PlaybackSnapshot) {
         val bound = context ?: return
@@ -1578,7 +1624,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         endPlayback(); val old = context; context = null
         recentJob?.cancel(); recentCloudJob?.cancel(); recentCloudOwner = ""; recentCloudUnavailable = false
         recentLocalEntries = emptyList(); recentCloudEntries = null; recentMutable.value = emptyList()
-        mutable.value = mutable.value.copy(recentPlaybackError = null, recentPlaybackLoading = false, health = null, recoveryInProgress = false, recoveryNeedsPassword = false, recoveryError = null)
+        mutable.value = mutable.value.copy(recentPlaybackError = null, recentPlaybackDeleting = false, recentPlaybackLoading = false, health = null, recoveryInProgress = false, recoveryNeedsPassword = false, recoveryError = null)
         val previous = closing; val media = mediaClosing
         if (old != null) closing = cleanup.launch { previous?.join(); media?.join(); old.api.close() }
     }
