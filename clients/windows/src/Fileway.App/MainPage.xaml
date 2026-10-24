@@ -96,7 +96,7 @@
     <MenuFlyoutSeparator/>
     <MenuFlyoutItem x:Name="StorageSettingsButton" Text="缓存与存储…" Click="StorageSettings_Click" IsEnabled="False" AutomationProperties.Name="缓存与存储设置"/>
    </MenuBarItem>
-   <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="帮助" AccessKey="H"><MenuFlyoutItem Text="键盘快捷键" Click="KeyboardHelp_Click"/><MenuFlyoutItem Text="关于" Click="AboutApplication_Click"/></MenuBarItem>
+   <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="帮助" AccessKey="H"><MenuFlyoutItem Text="键盘快捷键" Click="KeyboardHelp_Click"/><MenuFlyoutItem Text="关于" Click="AboutApplication_Click"/><MenuFlyoutSeparator/><MenuFlyoutItem x:Name="LanguageFollowItem" Text="语言：跟随系统" Click="LanguageFollow_Click"/><MenuFlyoutItem x:Name="LanguageChineseItem" Text="语言：简体中文" Click="LanguageChinese_Click"/><MenuFlyoutItem x:Name="LanguageEnglishItem" Text="Language: English" Click="LanguageEnglish_Click"/></MenuBarItem>
    </MenuBar>
   </StackPanel>
   <Border x:Name="ContentBackdrop" Grid.Column="1" Grid.RowSpan="2" Background="{ThemeResource FileContentSurfaceBrush}" BorderThickness="0" CornerRadius="8,0,0,0" IsHitTestVisible="False"/>

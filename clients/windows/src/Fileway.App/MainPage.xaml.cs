@@ -74,6 +74,8 @@ public sealed partial class MainPage : Page, IDisposable
 
     public MainPage()
     {
+        Localization.ApplyCulture();
+        ApplyLocalization();
         InitializeComponent();
         InitializePresentation();
         _thumbnailController = new BrowserThumbnailController(_lifetime.Token, FileList, FileGrid);
@@ -529,6 +531,52 @@ public sealed partial class MainPage : Page, IDisposable
         EmptyDescription.Text = _session is null ? "连接服务器后即可浏览文件、打开图片和播放视频。" : _loadStateDescription ?? (filtering ? "可清除名称或类型筛选；筛选仅覆盖当前目录。" : "可以刷新目录，查看服务器上的最新内容。");
         RetryLoadButton.Visibility = _session is not null && _loadStateTitle is not null ? Visibility.Visible : Visibility.Collapsed;
     }
+    private void SetLanguage(AppLanguage language)
+    {
+        Localization.Language = language;
+        UpdateLanguageMenuChecks();
+        // Reopen flows re-render on next navigation; visible surfaces refresh via the event.
+        ApplyLocalization();
+    }
+
+    private void UpdateLanguageMenuChecks()
+    {
+        var language = Localization.Language;
+        LanguageFollowItem.Text = Localization.T("语言：跟随系统");
+        LanguageChineseItem.Text = Localization.T("语言：简体中文");
+        LanguageEnglishItem.Text = Localization.IsEnglish ? "Language: English" : "语言：English";
+        LanguageFollowItem.Visibility = Localization.IsEnglish ? Visibility.Visible : Visibility.Visible;
+        _ = language;
+    }
+
+    private void LanguageFollow_Click(object sender, RoutedEventArgs args) => SetLanguage(AppLanguage.FollowSystem);
+    private void LanguageChinese_Click(object sender, RoutedEventArgs args) => SetLanguage(AppLanguage.Chinese);
+    private void LanguageEnglish_Click(object sender, RoutedEventArgs args) => SetLanguage(AppLanguage.English);
+
+    /// <summary>Applies the active language to the named menu surfaces; keys fall back to Chinese.</summary>
+    private void ApplyLocalization()
+    {
+        string T(string key) => Localization.T(key);
+        if (NewButton is not null) NewButton.Label = T("新建");
+        if (UploadFileButton is not null) UploadFileButton.Label = T("上传文件");
+        if (DownloadFileButton is not null) DownloadFileButton.Label = T("下载");
+        if (DownloadHistoryButton is not null) DownloadHistoryButton.Label = T("下载记录");
+        if (UploadHistoryButton is not null) UploadHistoryButton.Label = T("上传记录");
+        if (LogoutButton is not null) LogoutButton.Text = T("退出登录");
+        if (MenuTrashPageItem is not null) MenuTrashPageItem.Text = T("回收站");
+        if (CollectionsButton is not null) CollectionsButton.Text = T("管理收藏与标签…");
+        if (StorageSettingsButton is not null) StorageSettingsButton.Text = T("缓存与存储…");
+        if (MenuRecentItem is not null) MenuRecentItem.Text = T("最近访问");
+        if (MenuTransfersItem is not null) MenuTransfersItem.Text = T("传输中心");
+        if (MenuServerSearchItem is not null) MenuServerSearchItem.Text = T("服务器搜索");
+        if (MenuNasTasksItem is not null) MenuNasTasksItem.Text = T("文件任务");
+        if (ChangePasswordButton is not null) ChangePasswordButton.Text = T("修改密码…");
+        if (FavoriteActionButton is not null) FavoriteActionButton.Label = T("收藏");
+        if (TagActionButton is not null) TagActionButton.Label = T("标记");
+        Localization.CultureChanged -= ApplyLocalization;
+        Localization.CultureChanged += ApplyLocalization;
+    }
+
     private async Task OpenSelectedAsync()
     {
         if (_disposed || _connecting || _session is not { } session || ActiveFiles.SelectedItem is not FileRow row) return;
