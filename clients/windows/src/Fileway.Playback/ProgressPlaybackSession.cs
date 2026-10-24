@@ -272,6 +272,11 @@ internal sealed class ProgressPlaybackSession : IPlaybackSession, IPlaybackResum
         finally { _mutations.Release(); }
     }
 
+    public Task PlayAsync(PlaybackInput input, CancellationToken cancellationToken) =>
+        // Episode switching resets the engine position; progress saving for the previous
+        // media is flushed by its own ended observation before the switch is accepted.
+        _inner.PlayAsync(input, cancellationToken);
+
     public Task StopAsync(CancellationToken cancellationToken)
     {
         Task stop;

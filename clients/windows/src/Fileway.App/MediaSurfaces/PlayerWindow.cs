@@ -20,6 +20,10 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
 {
     private readonly IPlaybackSession _session;
     private readonly Fileway.Core.Contracts.IRemoteSubtitleSource? _remoteSubtitles;
+    private readonly Fileway.Core.Contracts.IRemoteEpisodeSource? _remoteEpisodes;
+    private IReadOnlyList<Fileway.Core.Contracts.RemoteMediaOption>? _episodeCache;
+    private Fileway.Core.Contracts.RemoteResourceRef? _episodeCacheOrigin;
+    private string? _advanceAttemptedWire;
     private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private readonly PlaybackSnapshotDispatcher _snapshotDispatcher;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _videoGestureTimer;
@@ -60,6 +64,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     {
         _session = session;
         _remoteSubtitles = remoteSubtitles;
+        _remoteEpisodes = remoteSubtitles as Fileway.Core.Contracts.IRemoteEpisodeSource;
         _bufferingTimer = DispatcherQueue.CreateTimer(); _bufferingTimer.IsRepeating = false; _bufferingTimer.Interval = TimeSpan.FromMilliseconds(500);
         _bufferingTimer.Tick += (_, _) => { if (!_closing && !_disposed && _hasFrame && _session.Snapshot.Status is PlaybackStatus.Seeking or PlaybackStatus.Buffering) _overlay?.ApplySnapshot(_session.Snapshot, transientLoading: true); };
         _boundsTimer = DispatcherQueue.CreateTimer(); _boundsTimer.IsRepeating = false; _boundsTimer.Interval = TimeSpan.FromMilliseconds(16);
@@ -115,7 +120,9 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _overlay.ExitFullscreenRequested += (_, _) => _ = RunCommandAsync(() => SetFullscreenAsync(false, _watchCancellation.Token).AsTask());
         _overlay.AddSubtitleRequested += Overlay_AddSubtitleRequested;
         _overlay.RemoteSubtitleRequested += Overlay_RemoteSubtitleRequested;
+        _overlay.EpisodeRequested += Overlay_EpisodeRequested;
         _overlay.SupportsRemoteSubtitles = remoteSubtitles is not null;
+        _overlay.SupportsEpisodes = _remoteEpisodes is not null && session.Snapshot.Origin is not null;
         _overlay.MinimizeRequested += (_, _) => MinimizeWindow();
         _overlay.MaximizeRequested += (_, _) => ToggleWindowMaximized();
         _overlay.VideoPointerPressed += point => HandleVideoGesture(true, point, PlaybackVideoInputSurface.Hud);
@@ -564,6 +571,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             case PlaybackStatus.Failed:
                 ShowState("无法播放这个视频", "请关闭窗口，检查连接后重新打开文件。", loading: false);
                 break;
+            case PlaybackStatus.Ended:
+                _hasFrame = true;
+                // Auto-advance fires once per ended media; the guard resets when a switch changes the origin.
+                _ = TryAdvanceEpisodeAsync();
+                break;
             case PlaybackStatus.Closing:
                 ShowState("正在关闭视频", "正在释放播放资源…", loading: true);
                 break;
@@ -704,6 +716,90 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             origin, _session.Snapshot, _watchCancellation.IsCancellationRequested);
 
     private void Overlay_RemoteSubtitleRequested(object? sender, EventArgs args) => _ = AddRemoteSubtitleAsync();
+
+    private void Overlay_EpisodeRequested(object? sender, EventArgs args) => _ = ShowEpisodePickerAsync();
+
+    private async Task<IReadOnlyList<Fileway.Core.Contracts.RemoteMediaOption>?> EpisodesAsync()
+    {
+        if (_remoteEpisodes is null) return null;
+        var origin = _session.Snapshot.Origin;
+        if (origin is null) return null;
+        if (_episodeCache is { } cache && _episodeCacheOrigin?.WirePath == origin.WirePath &&
+            _episodeCacheOrigin.Account == origin.Account) return cache;
+        var options = await _remoteEpisodes.ListEpisodesAsync(origin, _watchCancellation.Token);
+        _episodeCache = options;
+        _episodeCacheOrigin = origin;
+        return options;
+    }
+
+    private async Task ShowEpisodePickerAsync()
+    {
+        if (_disposed || _detached || _closing || _subtitlePickerOpen || _watchCancellation.IsCancellationRequested) return;
+        _subtitlePickerOpen = true;
+        try
+        {
+            var options = await EpisodesAsync();
+            if (_disposed || _detached || _closing || _watchCancellation.IsCancellationRequested || options is null) return;
+            if (options.Count == 0)
+            {
+                await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("同目录没有可切换的媒体文件。"); });
+                return;
+            }
+            var panel = new StackPanel { Spacing = 8, MinWidth = 320, MaxWidth = 460 };
+            panel.Children.Add(new TextBlock { Text = "选择要播放的媒体（与当前同目录）", TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.8 });
+            var list = new ListView { SelectionMode = ListViewSelectionMode.Single, HorizontalContentAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Stretch, MaxHeight = 320 };
+            Fileway.Core.Contracts.RemoteMediaOption? initiallySelected = null;
+            foreach (var option in options)
+            {
+                var row = new StackPanel { Spacing = 2, Tag = option };
+                var title = new TextBlock { Text = option.Resource.DisplayName + (option.IsCurrent ? "  （正在播放）" : ""), TextWrapping = TextWrapping.Wrap, FontSize = 13 };
+                if (option.IsCurrent) title.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+                row.Children.Add(title);
+                row.Children.Add(new TextBlock { Text = DownloadPresentationPolicy.FormatBytes(option.Size), FontSize = 11, Opacity = 0.6 });
+                list.Items.Add(row);
+                if (option.IsCurrent) initiallySelected = option;
+            }
+            if (initiallySelected is { } current) list.SelectedItem = list.Items.First(item => ((StackPanel)item).Tag is Fileway.Core.Contracts.RemoteMediaOption option && option.IsCurrent);
+            if (list.SelectedItem is not null) list.ScrollIntoView(list.SelectedItem);
+            panel.Children.Add(list);
+            var dialog = new ContentDialog { Title = "选集", Content = panel, PrimaryButtonText = "播放", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
+            var choice = await dialog.ShowAsync().AsTask(_watchCancellation.Token);
+            if (choice != ContentDialogResult.Primary || list.SelectedItem is not StackPanel { Tag: Fileway.Core.Contracts.RemoteMediaOption selected } ||
+                selected.IsCurrent || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested) return;
+            await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(selected.Resource), _watchCancellation.Token));
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("选集未能加载，请检查连接后重试。"); });
+        }
+        finally
+        {
+            if (DispatcherQueue.HasThreadAccess) _subtitlePickerOpen = false;
+            else DispatcherQueue.TryEnqueue(() => _subtitlePickerOpen = false);
+        }
+    }
+
+    /// <summary>Plays the next same-directory media once after the current one ends.</summary>
+    private async Task TryAdvanceEpisodeAsync()
+    {
+        try
+        {
+            var origin = _session.Snapshot.Origin;
+            if (origin is null || _advanceAttemptedWire == origin.WirePath) return;
+            _advanceAttemptedWire = origin.WirePath;
+            var options = await EpisodesAsync();
+            if (options is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested) return;
+            int index = -1;
+            for (int position = 0; position < options.Count; position++)
+                if (options[position].Resource.WirePath == origin.WirePath) { index = position; break; }
+            if (index < 0 || index + 1 >= options.Count) return;
+            var next = options[index + 1];
+            await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(next.Resource), _watchCancellation.Token));
+            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("自动播放下一集：" + next.Resource.DisplayName); });
+        }
+        catch (Exception) { /* 自动连播失败不打断当前结束状态。 */ }
+    }
 
     private async Task AddRemoteSubtitleAsync()
     {

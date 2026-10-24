@@ -626,6 +626,63 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
         }
         return QueueAsync([["set", "sub-pos", position.ToString("R", CultureInfo.InvariantCulture)]], cancellationToken);
     }
+    public async Task PlayAsync(PlaybackInput input, CancellationToken cancellationToken)
+    {
+        // Episode switching stays within one remote browsing context; download-sourced sessions
+        // keep their dedicated reader lifecycle and switch by opening a new session instead.
+        if (input is not RemotePlaybackInput remote)
+            throw MpvNative.Error(ErrorCode.InvalidRequest, "选集切换仅支持服务器媒体。");
+        if (_request.Input is not RemotePlaybackInput)
+            throw MpvNative.Error(ErrorCode.CapabilityMissing, "当前播放来源不支持选集切换。");
+        if (remote.Resource.Account != Account)
+            throw MpvNative.Error(ErrorCode.InvalidRequest, "选集必须属于当前播放账户。");
+        cancellationToken.ThrowIfCancellationRequested();
+        await _ready.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        IResourceLease? previous;
+        lock (_gate) previous = _primaryLease;
+        await StopStatisticsAsync().ConfigureAwait(false);
+        string source = await SourceAsync(input, cancellationToken, primary: true).ConfigureAwait(false);
+        try
+        {
+            await QueueAsync([["loadfile", source, "replace"]], cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            await StopStatisticsAsync().ConfigureAwait(false);
+            throw;
+        }
+        // The previous source is released only after its replacement was accepted.
+        if (previous is not null)
+        {
+            try { await previous.DisposeAsync().ConfigureAwait(false); }
+            catch (Exception) { /* The replaced source is no longer authoritative; session close still owns it. */ }
+        }
+        lock (_gate)
+        {
+            _ended = false;
+            _seeking = false;
+            _bitmapSubtitleSelected = false;
+        }
+        Publish(snapshot => snapshot with
+        {
+            Status = PlaybackStatus.Preparing,
+            DisplayName = remote.Resource.DisplayName,
+            Origin = remote.Resource,
+            Position = TimeSpan.Zero,
+            ConfirmedPosition = null,
+            Duration = null,
+            Tracks = Array.Empty<MediaTrack>(),
+            Chapters = null,
+            BufferedUntil = null,
+            BufferedRanges = null,
+            BufferingPercent = null,
+            DownloadBytesPerSecond = null,
+            ResumePrompt = null,
+            Error = null,
+            IsPaused = null,
+        });
+    }
+
     public async Task AddSubtitleAsync(PlaybackInput subtitle, CancellationToken cancellationToken)
     {
         if (subtitle is RemotePlaybackInput remote && remote.Resource.Account != Account)

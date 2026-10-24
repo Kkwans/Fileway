@@ -139,6 +139,21 @@ public interface IRemoteSubtitleSource
     Task<IReadOnlyList<RemoteSubtitleOption>> ListAsync(RemoteResourceRef media, CancellationToken cancellationToken);
 }
 
+/// <summary>One same-directory playable media candidate (episode) relative to the current media.</summary>
+public sealed record RemoteMediaOption(RemoteResourceRef Resource, long Size, bool IsCurrent)
+{
+    public override string ToString() => "RemoteMediaOption (private locations redacted)";
+}
+
+/// <summary>
+/// Lists same-directory media episodes for the playing remote resource. Listing is bounded and
+/// read-only; switching happens through an explicit session play request, never here.
+/// </summary>
+public interface IRemoteEpisodeSource
+{
+    Task<IReadOnlyList<RemoteMediaOption>> ListEpisodesAsync(RemoteResourceRef media, CancellationToken cancellationToken);
+}
+
 public interface IPlaybackSession : IAsyncDisposable
 {
     Guid Id { get; }
@@ -157,6 +172,12 @@ public interface IPlaybackSession : IAsyncDisposable
     Task SetSubtitleSafeAreaAsync(double bottomInsetFraction, CancellationToken cancellationToken);
     Task AddSubtitleAsync(PlaybackInput subtitle, CancellationToken cancellationToken);
     Task StopAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// Switches this session's primary source to another remote media resource (mpv loadfile
+    /// replace). Only remote-to-remote switching is supported; the session keeps its window and
+    /// lifecycle, and the previous primary lease is released after the new source is accepted.
+    /// </summary>
+    Task PlayAsync(PlaybackInput input, CancellationToken cancellationToken);
 }
 
 public interface IPlaybackService : IAsyncDisposable

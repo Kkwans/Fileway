@@ -43,7 +43,7 @@
 | 文件任务 | Windows 页面展示 NAS 执行的复制/移动等任务，筛选、分页、详情、取消/重试/归档、未知结果核实 | 默认当前账号；管理员跨用户任务与完整结果体验后续补齐；202 表示提交接受 | `src/Fileway.App/` 的 Task 相关控制器/控件、`Services/` |
 | 回收站 | 当前账号列表、紧凑名称/时间、详情、恢复冲突确认、单项永久删除、持久未知操作核实 | 全部清空、统计、撤销窗口、批量策略尚未形成完整交付；旧文档“单项永久删除未接入”已过时 | `Controls/Trash/TrashControl.xaml.cs`、`TrashListController.cs`、`Services/FilewayClientServices.Trash.cs` |
 | 图片 | 真正解码、Enter/双击打开、前后张、缩放，原图缓存、成功记录最近访问 | 旋转、更多格式与完整图像工具后续完善；旧原生通过记录不覆盖当前所有 UI 变化 | `src/Fileway.App/MediaSurfaces/`、`Services/` 图片入口 |
-| 视频基础 | libmpv、Screenbox 风格界面、暂停/seek、音量/静音、章节、音轨/内挂字幕、倍速、续播、真实 FullScreen Presenter、单击播放暂停/双击全屏、窗口拖动缩放 | 代码接入不等于所有硬件/容器/窗口模式通过；退出 CFG 故障已定责外部钩子（P-01），最终退出证据仍开放；不改成 WebView 主界面 | `MediaSurfaces/PlayerWindow*.cs`、`Controls/Playback/ScreenboxPlayerControls*`、`src/Fileway.Playback/` |
+| 视频基础 | 0.4 选集与自动连播：同目录选集菜单（当前项高亮、选定后同窗口换源）、播放结束自动播下一集（仅远端→远端、每集一次、失败不打断）；libmpv、Screenbox 风格界面、暂停/seek、音量/静音、章节、音轨/内挂字幕、倍速、续播、真实 FullScreen Presenter、单击播放暂停/双击全屏、窗口拖动缩放 | 代码接入不等于所有硬件/容器/窗口模式通过；退出 CFG 故障已定责外部钩子（P-01），最终退出证据仍开放；不改成 WebView 主界面 | `MediaSurfaces/PlayerWindow*.cs`、`Controls/Playback/ScreenboxPlayerControls*`、`src/Fileway.Playback/` |
 | 播放反馈 | seek 保留待确认目标，避免圆点回跳；加载超过 500ms 再显示，保留旧帧；引擎有真实缓冲百分比才展示；默认 5 秒隐藏控件、时长可调 | 真实大文件跳转、缩放、全屏和错误帧体验由用户验收，不宣称已全通过 | 同上及 `docs/ui-motion.md` |
 | 字幕 | 本地外挂文件上限 500 MB；系统字体列表、字体/字号/缩放/位置/延迟即时调节；黑边坐标策略；ASS 作者样式与覆盖分开；位图字幕限制提示；0.4 远端同目录外挂字幕：播放器“从服务器加载字幕”列出同目录候选（同名优先、≤50），选定后经认证租约流式 sub-add | 检索为同目录一层不递归；任意 PGS 画布/ASS 显式坐标不保证可完整移入黑边；真实字幕旅程待用户验收 | `MediaSurfaces/LocalSubtitlePolicy.cs`、播放器控件与 mpv 属性适配 |
 | 雪碧图/分辨率 | 服务端媒体雪碧图状态与悬停 tile 预览已接；工具栏常用清晰度名，精确尺寸在媒体信息 | 源分辨率标签不是 HLS 多画质；选集、画质切换、后台转码未完成 | `ScreenboxPlayerControls.Sprites.cs`、`Services/` 的 VideoSprites 实现 |
