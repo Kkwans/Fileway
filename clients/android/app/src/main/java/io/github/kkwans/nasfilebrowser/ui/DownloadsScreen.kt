@@ -72,6 +72,35 @@ import kotlinx.coroutines.withContext
             catch (_: Exception) { model.downloads.reportError("无法打开目录，请检查文件管理器及目录授权") }
         }
     }
+    fun kindOf(item: DownloadRecord) = ResourceRef(item.path, item.wirePath, item.name, false, item.type, item.expectedSize, item.modified, item.id).mediaKind()
+    fun canOpenDownload(item: DownloadRecord) = item.localUri.isNotEmpty() && (item.complete || kindOf(item) == MediaKind.VIDEO)
+    fun actionsFor(item: DownloadRecord) = buildList {
+        add(FilewayTaskAction("detail", "任务详情", R.drawable.ic_info, enabled = !state.busy))
+        if (canOpenDownload(item)) add(FilewayTaskAction("open", if (item.complete) "打开文件" else "边下边播", R.drawable.ic_visibility, enabled = !state.busy))
+        if (!item.complete) add(FilewayTaskAction("toggle", if (item.active) "暂停" else "继续", if (item.active) R.drawable.art_pause else R.drawable.art_play, enabled = !state.busy))
+        add(FilewayTaskAction("folder", "打开所在目录", R.drawable.ic_folder, enabled = !state.busy))
+        if (item.treeUri.isNotEmpty()) add(FilewayTaskAction("reauthorize", "重新授权目录", R.drawable.ic_restore, enabled = !state.busy && !item.active))
+        if (item.complete) add(FilewayTaskAction("remove", "移除记录", R.drawable.ic_trash, enabled = !state.busy))
+        add(FilewayTaskAction("delete", "删除文件与记录", R.drawable.ic_trash, enabled = !state.busy))
+    }
+    fun perform(item: DownloadRecord, action: String) {
+        val current = state.items.firstOrNull { it.id == item.id } ?: return
+        if (state.busy) return
+        if (action in setOf("open", "folder", "remove", "delete", "reauthorize")) detailsId = null
+        when (action) {
+            "detail" -> detailsId = current.id
+            "open" -> if (canOpenDownload(current)) openDownloaded(context, model, current, kindOf(current))
+            "toggle" -> if (current.active) model.downloads.pause(current) else model.downloads.resume(current)
+            "folder" -> openFolder(current.treeUri, current.relativeDirectory)
+            "reauthorize" -> {
+                reauthorizing = current.id
+                try { recoverFolder.launch(model.downloads.target.directoryUri(current.treeUri)) }
+                catch (_: Exception) { reauthorizing = null; model.downloads.reportError("无法打开目录选择器，请检查系统文件管理器") }
+            }
+            "remove" -> { deleteFile = false; remove = current }
+            "delete" -> { deleteFile = true; remove = current }
+        }
+    }
     val records = state.items.filter { when (filter) { "已完成" -> it.complete; "未完成" -> !it.complete; else -> true } }
     val selection = rememberFilewayTaskSelection(filter, records.map { it.id })
     val chosen = records.filter { it.id in selection.ids }
@@ -127,15 +156,7 @@ Column(Modifier.fillMaxSize()) {
                 else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}"
                 val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } else null
 
-                val cardActions = buildList {
-                    add(FilewayTaskAction("detail", "任务信息", R.drawable.ic_info, enabled = !state.busy))
-                    if (canOpen) add(FilewayTaskAction("open", if (item.complete) "打开下载" else "边下边播", R.drawable.ic_visibility, enabled = !state.busy, primary = item.complete))
-                    add(FilewayTaskAction("folder", "打开所在目录", R.drawable.ic_folder, enabled = !state.busy))
-                    if (item.treeUri.isNotEmpty()) add(FilewayTaskAction("reauthorize", "重新授权目录", R.drawable.ic_restore,
-                        enabled = !state.busy && !item.active))
-                    if (item.complete) add(FilewayTaskAction("remove", "移除记录", R.drawable.ic_trash, enabled = !state.busy))
-                    add(FilewayTaskAction("delete", "删除文件与记录", R.drawable.ic_trash, enabled = !state.busy))
-                }
+                val cardActions = actionsFor(item).filterNot { it.key == "toggle" }
                 FilewayTaskCard(
                     title = item.name,
                     icon = {
@@ -145,7 +166,7 @@ Column(Modifier.fillMaxSize()) {
                         } else if (item.complete && completionObserved) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                             io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(24.dp),
                             play = completionObserved && LocalFilewayPageActive.current)
-                        else Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                        else Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                     },
                     titleAction = if (canOpen) ({ openDownloaded(context, model, item, kind) }) else null,
                     onClick = { if (selection.active) selection.toggle(item.id) else if (canOpen) openDownloaded(context, model, item, kind) else detailsId = item.id },
@@ -155,21 +176,8 @@ Column(Modifier.fillMaxSize()) {
                             item.status in setOf("running", "paused"), item.expectedSize)
                     },
                     actions = {
-                        if (!selection.active) FilewayTaskActionStrip(cardActions, alwaysMenu = true, onAction = { action ->
-                                when (action) {
-                                    "detail" -> detailsId = item.id
-                                    "open" -> openDownloaded(context, model, item, kind)
-                                    "toggle" -> if (item.active) model.downloads.pause(item) else model.downloads.resume(item)
-                                    "folder" -> openFolder(item.treeUri, item.relativeDirectory)
-                                    "reauthorize" -> {
-                                        reauthorizing = item.id
-                                        try { recoverFolder.launch(model.downloads.target.directoryUri(item.treeUri)) }
-                                        catch (_: Exception) { reauthorizing = null; model.downloads.reportError("无法打开目录选择器，请检查系统文件管理器") }
-                                    }
-                                    "remove" -> { deleteFile = false; remove = item }
-                                    "delete" -> { deleteFile = true; remove = item }
-                                }
-                            }, moreLabel = "下载操作：${item.name}")
+                        if (!selection.active) FilewayTaskActionStrip(cardActions, alwaysMenu = true,
+                            onAction = { action -> perform(item, action) }, moreLabel = "下载操作：${item.name}")
                     },
                 ) {
                     if (!item.complete) TransferProgressRow(progress, fraction, speed, unknownZip && item.active)
@@ -184,7 +192,13 @@ Column(Modifier.fillMaxSize()) {
 }
 
     state.items.firstOrNull { it.id == detailsId }?.let { item ->
-        FileOperationSheet("下载任务信息", { detailsId = null }, footer = { FilewayTextButton({ detailsId = null }) { Text("关闭") } }) {
+        val footer = actionsFor(item).filter { it.key in setOf("toggle", "open", "folder", "delete") }.map {
+            FilewayMenuEntry(it.key, when (it.key) { "folder" -> "所在目录"; "delete" -> "删除"; else -> it.label }, it.icon,
+                enabled = it.enabled, destructive = it.key == "delete", accessibilityLabel = it.label)
+        }
+        FileOperationSheet("下载任务详情", { detailsId = null }, footer = {
+            FilewaySheetActions(footer) { action -> perform(item, action) }
+        }) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -199,6 +213,7 @@ Column(Modifier.fillMaxSize()) {
                         if (item.zipExport && !item.complete) Text("ZIP总大小生成中；恢复时从零重新打包，旧的未完成输出会被截断。", style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                        state.error?.takeIf { it != item.error }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                     }
                 }
             }

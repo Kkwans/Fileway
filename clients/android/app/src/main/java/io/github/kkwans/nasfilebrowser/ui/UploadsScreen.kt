@@ -31,6 +31,31 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
     val chosen = items.filter { it.id in selection.ids }
     var clearSelected by remember(account, filter) { mutableStateOf(false) }
     var infoId by remember(account) { mutableStateOf<String?>(null) }
+    fun actionsFor(item: UploadRecord) = buildList {
+        add(FilewayTaskAction("detail", "任务详情", R.drawable.ic_info, enabled = !state.busy))
+        if (item.canResume) add(FilewayTaskAction("toggle", if (item.active) "暂停" else "继续", if (item.active) R.drawable.art_pause else R.drawable.art_play, enabled = !state.busy))
+        if (item.status == "cancel_failed") add(FilewayTaskAction("cleanup", "重试清理", R.drawable.ic_refresh, enabled = !state.busy))
+        else if (!item.complete && item.status !in setOf("canceled", "canceling", "restarted")) add(FilewayTaskAction("cancel", "取消上传", R.drawable.ic_close, enabled = !state.busy))
+        if (item.canReselectSource) add(FilewayTaskAction("reselect", "重新选择上传原文件", R.drawable.ic_refresh, enabled = !state.busy))
+        if (item.canRestart) add(FilewayTaskAction("restart", "重新开始上传", R.drawable.ic_refresh, enabled = !state.busy))
+        if (item.complete) add(FilewayTaskAction("open", "打开所在目录", R.drawable.ic_folder, enabled = !state.busy))
+        if (item.complete || item.status in setOf("canceled", "restarted")) add(FilewayTaskAction("remove", "删除记录", R.drawable.ic_trash, enabled = !state.busy))
+    }
+    fun perform(item: UploadRecord, action: String) {
+        val current = state.items.firstOrNull { it.id == item.id && it.accountKey == account } ?: return
+        if (state.busy) return
+        if (action in setOf("open", "remove", "cancel", "reselect", "restart")) infoId = null
+        when (action) {
+            "detail" -> infoId = current.id
+            "toggle" -> if (current.active) model.uploads.pause(current) else model.uploads.resume(current)
+            "cleanup" -> model.uploads.cancel(current)
+            "cancel" -> cancel = current
+            "reselect" -> reselectSource(current, false)
+            "restart" -> reselectSource(current, true)
+            "open" -> model.openUploadedFile(current)
+            "remove" -> remove = current
+        }
+    }
     TaskCenterHeaderActions {
         if (!selection.active) IconButton({ selection.start() }, enabled = !state.busy && items.isNotEmpty()) {
             Icon(painterResource(R.drawable.ic_select_multiple), "多选上传")
@@ -78,14 +103,7 @@ Column(Modifier.fillMaxSize()) {
                 val progress = if (item.complete) readableSize(item.expectedSize) else "${(fraction * 100).toInt().coerceAtMost(99)}% · ${readableSize(transferred)} / ${readableSize(item.expectedSize)}"
                 val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } else null
 
-                val cardActions = buildList {
-                    if (item.status == "cancel_failed") add(FilewayTaskAction("cleanup", "重试清理上传", R.drawable.ic_refresh, enabled = !state.busy, primary = true))
-                    else if (!item.complete && item.status !in setOf("canceled", "canceling", "restarted")) add(FilewayTaskAction("cancel", "取消上传", R.drawable.ic_close, enabled = !state.busy))
-                    if (item.canReselectSource) add(FilewayTaskAction("reselect", "重新选择上传原文件", R.drawable.ic_refresh, enabled = !state.busy))
-                    if (item.canRestart) add(FilewayTaskAction("restart", "重新开始上传", R.drawable.ic_refresh, enabled = !state.busy))
-                    if (item.complete) add(FilewayTaskAction("open", "定位服务器文件", R.drawable.ic_folder, enabled = !state.busy, primary = true))
-                    if (item.complete || item.status in setOf("canceled", "restarted")) add(FilewayTaskAction("remove", "移除记录", R.drawable.ic_trash, enabled = !state.busy))
-                }
+                val cardActions = actionsFor(item).filterNot { it.key == "toggle" }
                 FilewayTaskCard(
                     title = item.name,
                     onClick = { if (selection.active) selection.toggle(item.id) else infoId = item.id },
@@ -94,24 +112,15 @@ Column(Modifier.fillMaxSize()) {
                         if (!item.complete && item.canResume && !selection.active) TransferPrimaryControl(item.active,
                             if (item.active) "暂停上传" else "继续上传", !state.busy) {
                             if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
-                        } else Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                        } else Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                     },
                     meta = {
                         TransferListMeta(item.createdAt, item.activeMillis, item.timingComplete,
                             item.status in setOf("running", "paused"), item.expectedSize)
                     },
                     actions = {
-                        if (!selection.active) FilewayTaskActionStrip(cardActions, alwaysMenu = true, onAction = { action ->
-                            when (action) {
-                                "toggle" -> if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
-                                "cleanup" -> model.uploads.cancel(item)
-                                "cancel" -> cancel = item
-                                "reselect" -> reselectSource(item, false)
-                                "restart" -> reselectSource(item, true)
-                                "open" -> model.openUploadedFile(item)
-                                "remove" -> remove = item
-                            }
-                        }, moreLabel = "上传操作：${item.name}")
+                        if (!selection.active) FilewayTaskActionStrip(cardActions, alwaysMenu = true,
+                            onAction = { action -> perform(item, action) }, moreLabel = "上传操作：${item.name}")
                     },
                 ) {
                     if (!item.complete && item.canResume) TransferProgressRow(progress, fraction, speed, false)
@@ -125,7 +134,14 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
-    state.items.firstOrNull { it.id == infoId }?.let { row -> FileOperationSheet("上传详情", { infoId = null }) {
+    state.items.firstOrNull { it.id == infoId && it.accountKey == account }?.let { row ->
+        val footer = actionsFor(row).filterNot { it.key == "detail" }.map {
+            FilewayMenuEntry(it.key, when (it.key) { "open" -> "所在目录"; "reselect" -> "选择原文件"; "restart" -> "重新开始"; else -> it.label }, it.icon, enabled = it.enabled,
+                destructive = it.key in setOf("cancel", "remove"), accessibilityLabel = it.label)
+        }
+        FileOperationSheet("上传任务详情", { infoId = null }, footer = if (footer.isEmpty()) null else {{
+            FilewaySheetActions(footer) { action -> perform(row, action) }
+        }}) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(row.name, style = MaterialTheme.typography.titleMedium)
             Text("创建：${serverTime(row.createdAt)}", style = MaterialTheme.typography.bodySmall)
@@ -135,11 +151,12 @@ Column(Modifier.fillMaxSize()) {
             FileOperationLocation("目标位置", row.targetPath, showBasename = false)
             Text("${readableSize(row.uploaded)} / ${readableSize(row.expectedSize)}", style = MaterialTheme.typography.bodyMedium)
             if (row.error.isNotEmpty()) Text(row.error, color = MaterialTheme.colorScheme.error)
+            state.error?.takeIf { it != row.error }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         }
     } }
-    if (clearSelected) FilewayAlertDialog(onDismissRequest = { clearSelected = false }, title = { Text("移除当前列表的全部已结束记录？") },
-        text = { Text("所选 ${chosen.size} 条上传记录将移除，本机原文件和服务器文件保留。") },
-        confirmButton = { FilewayButton({ model.uploads.batch(chosen, "remove"); clearSelected = false }, enabled = !state.busy) { Text("移除记录") } },
+    if (clearSelected) FilewayAlertDialog(onDismissRequest = { clearSelected = false }, title = { Text("删除当前列表的全部已结束记录？") },
+        text = { Text("所选 ${chosen.size} 条上传记录将删除，本机原文件和服务器文件保留。") },
+        confirmButton = { FilewayButton({ model.uploads.batch(chosen, "remove"); clearSelected = false }, enabled = !state.busy) { Text("删除记录") } },
         dismissButton = { FilewayOutlinedButton({ clearSelected = false }) { Text("取消") } })
     state.restart?.let { draft -> FilewayAlertDialog(onDismissRequest = { model.uploads.dismissRestart() }, title = { Text("从零重新开始上传？") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -149,8 +166,8 @@ Column(Modifier.fillMaxSize()) {
         } },
         confirmButton = { FilewayTextButton(model.uploads::restart, enabled = !state.busy) { Text(if (state.busy) "正在处理" else "确认重新开始") } },
         dismissButton = { FilewayTextButton(model.uploads::dismissRestart, enabled = !state.busy) { Text("保留原任务") } }) }
-    remove?.let { item -> FilewayAlertDialog(onDismissRequest = { remove = null }, title = { Text("移除上传记录？") }, text = { Text("${item.name}\n\n本机原文件和服务器上的文件均保留。") },
-        confirmButton = { FilewayTextButton({ model.uploads.remove(item); remove = null }) { Text("移除记录") } }, dismissButton = { FilewayTextButton({ remove = null }) { Text("取消") } }) }
+    remove?.let { item -> FilewayAlertDialog(onDismissRequest = { remove = null }, title = { Text("删除上传记录？") }, text = { Text("${item.name}\n\n本机原文件和服务器上的文件均保留。") },
+        confirmButton = { FilewayTextButton({ model.uploads.remove(item); remove = null }) { Text("删除记录") } }, dismissButton = { FilewayTextButton({ remove = null }) { Text("取消") } }) }
     cancel?.let { item -> FilewayAlertDialog(onDismissRequest = { cancel = null }, title = { Text("取消这项上传？") },
         text = { Text("${item.name}\n\n将停止上传并清理原服务器上的本次未完成片段。本机原文件和服务器已经收到的完整文件保留。暂停后继续，请选择“暂停”。") },
         confirmButton = { FilewayTextButton({ cancel = null; model.uploads.cancel(item) }) { Text("取消上传") } },
