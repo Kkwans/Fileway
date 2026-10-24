@@ -21,6 +21,21 @@ public sealed partial class UploadApplicationService : IDownloadControlService
         finally { _commands.Release(); }
     }
 
+    public async Task<bool> VerifyLocalOpenAsync(DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken)
+    {
+        var record = await ReadAsync(task, cancellationToken).ConfigureAwait(false);
+        if (record.Plan.Reference != task || record.Plan.Direction != TransferDirection.Download ||
+            record.Checkpoint.Phase != TransferPhase.Completed || record.Checkpoint.Uncertainty != TransferUncertainty.None ||
+            record.Checkpoint.Error is not null ||
+            record.Checkpoint.Files is not { PublishedFileIdentity: not null } files ||
+            record.Checkpoint.Source is not { Length: > 0 } source ||
+            string.IsNullOrEmpty(record.Checkpoint.LocalSha256) || record.Checkpoint.LocalSha256 != record.Checkpoint.ServerSha256)
+            throw DownloadSafe(ErrorCode.InvalidRequest);
+        await Task.Run(() => Fileway.Infrastructure.Transfers.WindowsDownloadFileAccess
+            .VerifyPublishedForOpenAsync(record.Plan.LocalPath, files, source.Length, cancellationToken), cancellationToken).ConfigureAwait(false);
+        return true;
+    }
+
     public async Task RemoveAsync(DownloadContext context, TransferTaskRef task, bool deleteLocalFile, CancellationToken cancellationToken)
     {
         var binding = RequireDownloadContext(context, task);

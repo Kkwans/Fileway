@@ -50,6 +50,12 @@ public interface IDownloadControlService
     /// </summary>
     Task<DownloadItem> ResumeAsync(DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken);
     Task RemoveAsync(DownloadContext context, TransferTaskRef task, bool deleteLocalFile, CancellationToken cancellationToken);
+    /// <summary>
+    /// Verifies a completed download's published local file (identity, length, ancestors) and, on
+    /// success, reports that the confirmed path may be opened by the system default app. It opens
+    /// nothing itself, grants no write/delete authority, and never touches the NAS original.
+    /// </summary>
+    Task<bool> VerifyLocalOpenAsync(DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken);
 }
 
 public sealed record DownloadPage(IReadOnlyList<DownloadItem> Items, string? NextCursor);

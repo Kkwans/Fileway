@@ -307,6 +307,17 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
     /// Read-only reopen of one completed download's final file. The persisted evidence must name the
     /// exact published identity and expected length; the opened object grants reads only.
     /// </summary>
+    /// <summary>
+    /// Verifies a completed download's final file for "open with the system default app": the same
+    /// positively identified read-only reopen, released immediately; it grants no handle to the caller.
+    /// </summary>
+    public static async Task VerifyPublishedForOpenAsync(string finalPath, TransferWorkFiles files,
+        long expectedLength, CancellationToken cancellationToken)
+    {
+        var destination = await OpenPublishedReadAsync(finalPath, files, expectedLength, cancellationToken).ConfigureAwait(false);
+        await destination.DisposeAsync().ConfigureAwait(false);
+    }
+
     public static async Task<IDownloadDestination> OpenPublishedReadAsync(string finalPath, TransferWorkFiles files,
         long expectedLength, CancellationToken cancellationToken)
     {
