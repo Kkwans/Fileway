@@ -26,6 +26,8 @@ public sealed partial class MainPage : Page, IDisposable
     private IArchiveBrowseService? _archiveBrowse;
     private IFileBytesService? _fileBytes;
     private IStorageAnalysisService? _storageAnalysis;
+    private IAccountSecurityService? _accountSecurity;
+    private int _sessionPasswordMinimum = 8;
     private IThumbnailContentService? _thumbnails;
     private readonly BrowserThumbnailController _thumbnailController;
     private IPlaybackService? _playback;
@@ -176,9 +178,9 @@ public sealed partial class MainPage : Page, IDisposable
     public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images,
         IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null,
         ITextContentService? texts = null, IArchiveBrowseService? archiveBrowse = null, IFileBytesService? fileBytes = null,
-        IStorageAnalysisService? storageAnalysis = null)
+        IStorageAnalysisService? storageAnalysis = null, IAccountSecurityService? accountSecurity = null)
     {
-        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts; _archiveBrowse = archiveBrowse; _fileBytes = fileBytes; _storageAnalysis = storageAnalysis;
+        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts; _archiveBrowse = archiveBrowse; _fileBytes = fileBytes; _storageAnalysis = storageAnalysis; _accountSecurity = accountSecurity; _sessionPasswordMinimum = Math.Clamp(_session?.Capabilities.MinimumPasswordLength ?? 0, 1, 128);
         UpdateThumbnailContext();
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
@@ -579,6 +581,37 @@ public sealed partial class MainPage : Page, IDisposable
         catch (OperationCanceledException) { if (CurrentOpen()) SetNotice("打开已取消", "可以重新选择文件。", InfoBarSeverity.Informational); }
         catch (Exception exception) { if (CurrentOpen()) SetNotice("无法打开文件", ErrorMessage(exception), InfoBarSeverity.Error); }
     }
+    private async void ChangePassword_Click(object sender, RoutedEventArgs args)
+    {
+        if (_disposed || _connecting || _session is not { } session || _accountSecurity is not { } service) return;
+        var account = session.Account;
+        var current = new PasswordBox { Header = "当前密码", Width = 320 };
+        var next = new PasswordBox { Header = "新密码（至少 " + _sessionPasswordMinimum + " 位）", Width = 320 };
+        var again = new PasswordBox { Header = "确认新密码", Width = 320 };
+        var panel = new StackPanel { Spacing = 12, MinWidth = 320 };
+        panel.Children.Add(new TextBlock { Text = "修改当前连接账户（" + session.DisplayName + "）的登录密码。修改后需要用新密码重新登录其他设备。", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(current); panel.Children.Add(next); panel.Children.Add(again);
+        var confirm = new ContentDialog { Title = "修改密码", Content = panel, PrimaryButtonText = "修改", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = false };
+        void Validate(object? s, object e) => confirm.IsPrimaryButtonEnabled =
+            current.Password.Length > 0 && next.Password.Length >= _sessionPasswordMinimum && next.Password == again.Password;
+        current.PasswordChanged += (_, _) => Validate(null, null!);
+        next.PasswordChanged += (_, _) => Validate(null, null!);
+        again.PasswordChanged += (_, _) => Validate(null, null!);
+        var choice = await ShowBrowserDialogAsync(confirm);
+        if (choice != ContentDialogResult.Primary || IsCurrentAccount(account) is false) return;
+        SetNotice("正在修改密码", "如修改成功，当前连接保持有效。", InfoBarSeverity.Informational);
+        try
+        {
+            var result = await service.ChangePasswordAsync(account, current.Password, next.Password, _lifetime.Token);
+            if (!IsCurrentAccount(account)) return;
+            SetNotice("密码已修改", result.Username + " 的登录密码已更新。", InfoBarSeverity.Success);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { if (IsCurrentAccount(account)) SetNotice("密码修改未完成", ErrorMessage(error), InfoBarSeverity.Error); }
+    }
+
+    private bool IsCurrentAccount(AccountKey account) => !_disposed && _session?.Account == account;
+
     private async void Collections_Click(object sender, RoutedEventArgs e)
     {
         if (_disposed || _connecting || _session is null || _collections is null) return;

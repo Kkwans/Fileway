@@ -83,6 +83,9 @@ public sealed partial class MainPage
         MenuTrashPageItem.IsEnabled = TrashPageButton.IsEnabled = connected && !connectionView && _files is ITrashService;
         CollectionsButton.IsEnabled = connected && _collections is not null && !connectionView;
         LogoutButton.IsEnabled = connected;
+        ChangePasswordButton.Visibility = connected && _session is { } session &&
+            session.Capabilities.AuthMethod.Equals("json", StringComparison.OrdinalIgnoreCase)
+            ? Visibility.Visible : Visibility.Collapsed;
 
         MenuMosaicItem.IsChecked = _browserPreferences.ViewMode == BrowserViewMode.Mosaic;
         MenuCompactGridItem.IsChecked = _browserPreferences.ViewMode == BrowserViewMode.CompactGrid;

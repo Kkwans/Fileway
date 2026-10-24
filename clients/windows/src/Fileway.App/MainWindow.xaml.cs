@@ -34,8 +34,8 @@ public sealed partial class MainWindow : Window, IDisposable
     public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images,
         IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null,
         ITextContentService? texts = null, IArchiveBrowseService? archiveBrowse = null, IFileBytesService? fileBytes = null,
-        IStorageAnalysisService? storageAnalysis = null)
-        => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails, texts, archiveBrowse, fileBytes, storageAnalysis);
+        IStorageAnalysisService? storageAnalysis = null, IAccountSecurityService? accountSecurity = null)
+        => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails, texts, archiveBrowse, fileBytes, storageAnalysis, accountSecurity);
     public void SetDownloadService(IDownloadService downloads)
         => ((MainPage)RootFrame.Content).SetDownloadService(downloads);
     public void SetUploadService(IUploadService uploads)

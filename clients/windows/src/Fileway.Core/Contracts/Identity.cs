@@ -47,7 +47,10 @@ public sealed record ServerCapabilities(
     bool ResourcePaginationV1 = false,
     bool ConditionalDownloadV1 = false,
     bool SearchWirePathV1 = false,
-    bool ResourceWireOperations = false);
+    bool ResourceWireOperations = false,
+    /// <summary>Server auth mode ("json"/"noauth"/...); empty on servers that predate the field.</summary>
+    string AuthMethod = "",
+    int MinimumPasswordLength = 0);
 
 public sealed record ConnectionSession(
     Guid Id,

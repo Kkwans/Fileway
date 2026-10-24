@@ -468,7 +468,10 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
                     new PermissionSet(Flag(permissions, "download"), Flag(permissions, "create"), Flag(permissions, "rename"),
                         Flag(permissions, "modify"), Flag(permissions, "delete"), Flag(permissions, "execute")),
                     new ServerCapabilities(Flag(capabilities, "resourcePaginationV1"), Flag(capabilities, "conditionalDownloadV1"),
-                        Flag(capabilities, "searchWirePathV1"), Flag(capabilities, "resourceWireOperations")));
+                        Flag(capabilities, "searchWirePathV1"), Flag(capabilities, "resourceWireOperations"),
+                        OptionalText(capabilities, "authMethod") ?? "",
+                        capabilities.TryGetProperty("minimumPasswordLength", out var minimum) && minimum.ValueKind == JsonValueKind.Number
+                            ? minimum.GetInt32() : 0));
                 return new VerifiedConnection(session, ParseResumePreferences(user), currentToken);
             }
             throw Safe(ErrorCode.AuthenticationExpired, "登录状态在核验期间持续变化，请重新连接。");
