@@ -19,7 +19,8 @@ public sealed partial class MainPage
         NasTasksPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
         TrashPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
         StorageAnalysisPane.Attach(_storageAnalysis
-            ?? throw new InvalidOperationException("存储分析服务不可用。"));
+            ?? throw new InvalidOperationException("存储分析服务不可用。"),
+            _storageAnalysis as IDuplicateAnalysisService);
         UpdateRemoteToolsContext();
     }
 
