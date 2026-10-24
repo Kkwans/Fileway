@@ -25,25 +25,23 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     DisposableEffect(foreground) { onDispose { foreground.close() } }
     val scroll = rememberScrollState()
     @Composable fun field(label: String, value: String) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
             SelectionContainer { Text(value, style = MaterialTheme.typography.bodyMedium) }
         }
     }
     CompositionLocalProvider(LocalFileOperationForeground provides foreground) {
         if (foreground.destination == FileOperationDestination.DETAILS) {
-            FileOperationSheet("文件详情", onDismiss, footer = {
-                if (onLocation != null) FilewayTextButton(onLocation, enabled = openEnabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("打开所在目录") }
-                if (onOpen == null) FilewayTextButton(onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("关闭") }
-                else {
-                    FilewayTextButton(onDismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("关闭") }
+            FileOperationSheet("文件详情", onDismiss, footer = if (onLocation == null && onOpen == null) null else {{
+                if (onLocation != null) FilewayOutlinedButton(onLocation, enabled = openEnabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("打开所在目录") }
+                if (onOpen != null) {
                     FilewayButton(onOpen, enabled = openEnabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("打开") }
                 }
-            }) {
+            }}) {
                 Column(Modifier.weight(1f, fill = false).verticalScroll(scroll)
                     .semantics { contentDescription = "文件详情内容" }, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     field("名称", file.name)
-                    FileOperationLocation("位置", file.path)
+                    FileOperationLocation("位置", file.path, showBasename = false)
                     actions?.invoke()
                     additionalActions?.invoke()
                     HorizontalDivider(color = FilewayTheme.colors.outlineVariant)

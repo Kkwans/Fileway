@@ -141,6 +141,28 @@ class TrashController(private val scope: CoroutineScope, private val isCurrent: 
         TrashResult(if (skipped) "已跳过，项目仍在回收站" else "已恢复到 $path", restored = path.takeUnless { skipped })
     }
     fun closeConflict() { mutable.value = mutable.value.copy(conflict = null) }
+    fun restoreAll(items: List<TrashItem>) = change { context ->
+        val snapshot = items.distinctBy { it.id }
+        require(snapshot.isNotEmpty() && snapshot.all { it.status == "available" }) { "所选项目包含暂不可还原的内容" }
+        val perm = context.api.permissions()
+        check(perm.admin || perm.create) { "当前账号没有恢复文件的权限" }
+        var completed = 0
+        for (item in snapshot) {
+            if (!current(context)) return@change TrashResult("连接已切换")
+            val result = try { context.api.action("POST", "/api/trash/${android.net.Uri.encode(item.id)}/restore", JSONObject().put("conflict", "fail")) }
+            catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (error is ServiceException && error.status == 409 && current(context)) {
+                    mutable.value = mutable.value.copy(conflict = item)
+                    return@change TrashResult("已还原 $completed 项；${item.name} 存在同名目标，请处理冲突后继续")
+                }
+                throw IllegalStateException("已还原 $completed / ${snapshot.size} 项；后续结果未确认，请刷新核对：${error.message.orEmpty()}", error)
+            }
+            if (!current(context)) return@change TrashResult("连接已切换")
+            if (!result.optBoolean("skipped")) { completed++; onRestored(context, result.optString("path", item.path)) }
+        }
+        TrashResult("已还原 $completed 项")
+    }
     fun permanentlyDeleteResource(file: ResourceRef, done: () -> Unit) {
         if (mutable.value.permanentResultUnknown) return
         var submitted = false

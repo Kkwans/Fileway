@@ -105,9 +105,15 @@ Column(Modifier.fillMaxSize()) {
                             else model.startDirectoryCreation(state.previewScope)
                         })
                     }
+                    IconButton({ selecting = true; selected = emptySet(); batchKind = "" }, enabled = !state.busy && displayed.isNotEmpty() && !selectionBusy) {
+                        Icon(painterResource(R.drawable.ic_select_multiple), "多选文件", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                    }
+                    IconButton(onClick = model::openSearch, enabled = !state.busy) {
+                        Icon(painterResource(R.drawable.ic_search), "搜索文件", Modifier.size(22.dp), tint = colors.onBackground)
+                    }
                     Box {
                         IconButton({ browserMenu = true }, enabled = !state.busy) {
-                            Icon(painterResource(R.drawable.ic_more_vert), "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                            Icon(painterResource(R.drawable.ic_actions), "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                         }
                         FilewayMenu(browserMenu, { browserMenu = false }, items = buildList {
                             if (state.permissions.create) {
@@ -116,7 +122,6 @@ Column(Modifier.fillMaxSize()) {
                                 add(FilewayMenuEntry("uploadFolder", "上传文件夹", R.drawable.ic_folder, enabled = canUpload))
                             }
                             add(FilewayMenuEntry("refresh", "刷新", R.drawable.ic_refresh))
-                            add(FilewayMenuEntry("select", "多选", R.drawable.ic_check, enabled = displayed.isNotEmpty() && !selectionBusy))
                         }, onItemClick = { item ->
                             browserMenu = false
                             when (item.key) {
@@ -128,9 +133,6 @@ Column(Modifier.fillMaxSize()) {
                                 "select" -> { selecting = true; selected = emptySet(); batchKind = "" }
                             }
                         })
-                    }
-                    IconButton(onClick = model::openSearch, enabled = !state.busy) {
-                        Icon(painterResource(R.drawable.ic_search), "搜索文件", Modifier.size(22.dp), tint = colors.onBackground)
                     }
                 }
                 if (state.path != "/") DirectoryBreadcrumbs(state.path, state.wirePath, state.busy, { model.back() }, model::jumpDirectory)

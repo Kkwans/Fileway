@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -55,6 +56,7 @@ import kotlinx.coroutines.withTimeout
             Icon(painterResource(icon), label, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
                 else if (active) FilewayTheme.colors.primary else FilewayTheme.colors.onSurfaceVariant)
         } else FilewayTextButton(onClick, enabled = enabled, modifier = Modifier.widthIn(min = 48.dp).heightIn(min = 64.dp).focusRequester(focus)
+            .background(filewayGlassLayerColor(), RoundedCornerShape(12.dp)).filewayGlassFrame()
             .semantics { contentDescription = label }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Icon(painterResource(icon), null, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
@@ -109,8 +111,8 @@ import kotlinx.coroutines.withTimeout
     CompositionLocalProvider(LocalFileOperationForeground provides foreground) {
         if (foreground.destination == FileOperationDestination.DETAILS) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(color = FilewayTheme.colors.surfaceContainerLow, shape = MaterialTheme.shapes.small) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
                         FavoriteFileAction(model, file, enabled)
                         FileActionIcon(R.drawable.ic_tag, "设置文件标签", enabled && !tags.changing, model.tags.assigned(file).isNotEmpty(), caption = "标签") {
                             switch(FileOperationDestination.TAGS, "设置文件标签")
@@ -151,7 +153,7 @@ import kotlinx.coroutines.withTimeout
                                     performExtra(item)
                                 }
                             } else Box {
-                                FileActionIcon(R.drawable.ic_more_vert, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
+                                FileActionIcon(R.drawable.ic_actions, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
                                 FilewayMenu(more, { more = false }, items = extraActions, onItemClick = performExtra)
                             }
                         }

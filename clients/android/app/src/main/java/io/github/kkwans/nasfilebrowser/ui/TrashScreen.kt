@@ -41,8 +41,8 @@ import io.github.kkwans.nasfilebrowser.app.*
     val filtered = state.items.filter { when (status) { "available" -> it.status == "available"; "working" -> it.status in setOf("pending", "restoring") || it.sizeState == "calculating"; "failed" -> it.status == "failed" || it.sizeState == "failed"; else -> true } }
     val displayed = when (order) { "name" -> filtered.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }; "size" -> filtered.sortedByDescending { it.size }; else -> filtered.sortedByDescending { it.deletedAt } }
     LibraryScaffold(model, LibrarySection.TRASH, actions = {
-        if (canDelete) IconButton({ selecting = !selecting; selected = emptySet() }, enabled = enabled) {
-            Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_check), if (selecting) "退出回收站多选" else "多选回收项目")
+        if (canDelete || canRestore) IconButton({ selecting = !selecting; selected = emptySet() }, enabled = enabled) {
+            Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple), if (selecting) "退出回收站多选" else "多选回收项目")
         }
         FilewayTextButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) { Text("清空") }
     }) {
@@ -78,8 +78,19 @@ import io.github.kkwans.nasfilebrowser.app.*
                     FilewayMenuEntry(id, label, selected = order == id)
                 }, selection = FilewayMenuSelection.Single) { item -> order = item.key; orders = false }
             }
-            if (canDelete && selecting) FilewayTextButton({ selected = if (selected.size == displayed.size) emptySet() else displayed.filter { it.status != "restoring" }.map { it.id }.toSet() }, enabled = enabled) { Text("全选") }
-            if (canDelete && selecting && selected.isNotEmpty()) FilewayTextButton({ deleting = selected.toList() }, enabled = enabled) { Text("删除 ${selected.size} 项") }
+            if (selecting) {
+                val eligible = displayed.filter { it.status != "restoring" }.map { it.id }.toSet()
+                IconButton({ selected = if (selected.containsAll(eligible)) selected - eligible else selected + eligible }, enabled = enabled) {
+                    Icon(painterResource(R.drawable.ic_select_multiple), "全选或取消全选")
+                }
+                if (canRestore) IconButton({ model.trash.restoreAll(state.items.filter { it.id in selected }) },
+                    enabled = enabled && selected.isNotEmpty() && state.items.filter { it.id in selected }.all { it.status == "available" }) {
+                    Icon(painterResource(R.drawable.ic_restore), "还原所选项目")
+                }
+                if (canDelete) IconButton({ deleting = selected.toList() }, enabled = enabled && selected.isNotEmpty()) {
+                    Icon(painterResource(R.drawable.ic_trash), "永久删除所选项目", tint = MaterialTheme.colorScheme.error)
+                }
+            }
         }
         if (state.loaded && displayed.isEmpty() && !state.loading && state.error == null) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -88,27 +99,15 @@ import io.github.kkwans.nasfilebrowser.app.*
             }
         } else LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端回收站列表" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(displayed, key = { it.id }) { item ->
-                val measure = item.directory && item.status == "available" && item.sizeState !in setOf("accurate", "calculating") && (canDelete || state.permissions.admin)
-                val task = item.sizeTaskId.isNotEmpty() && item.sizeState in setOf("calculating", "failed", "incomplete")
                 LibraryObjectCard(item.name, libraryLocation(item.path), fileArtworkIcon(item.name, item.directory),
                     summary = "${trashSize(item)} · ${serverTime(item.deletedAt)}",
                     onOpen = { if (selecting) { if (enabled && item.status != "restoring") selected = if (item.id in selected) selected - item.id else selected + item.id } else details = item },
-                    artwork = if (canDelete && selecting) { {
-                        Checkbox(item.id in selected, { value -> selected = if (value) selected + item.id else selected - item.id },
-                            enabled = enabled && item.status != "restoring", modifier = Modifier.semantics { contentDescription = "选择回收项目：${item.name}" })
-                    } } else null,
+                    enabled = enabled && (!selecting || item.status != "restoring"),
+                    selected = item.id in selected, selectionMode = selecting,
+                    onLongClick = if (canDelete || canRestore) ({ if (enabled && item.status != "restoring") { selecting = true; selected = selected + item.id } }) else null,
                     trailing = {
                         if (!selecting) {
-                            if (measure) IconButton({ model.trash.measure(item) }, enabled = enabled) {
-                                Icon(painterResource(R.drawable.ic_storage), "统计大小：${item.name}")
-                            }
-                            if (task) IconButton({ model.showServerTask(item.sizeTaskId) }, enabled = enabled) {
-                                Icon(painterResource(R.drawable.ic_tasks), "查看大小统计任务")
-                            }
-                            if (!measure && !task) IconButton({ details = item }) { Icon(painterResource(R.drawable.ic_info), "回收站详情：${item.name}") }
-                            IconButton({ model.trash.restore(item) }, enabled = enabled && canRestore && item.status == "available") {
-                                Icon(painterResource(R.drawable.ic_restore), "恢复：${item.name}", tint = MaterialTheme.colorScheme.primary)
-                            }
+                            IconButton({ details = item }) { Icon(painterResource(R.drawable.ic_info), "回收站详情：${item.name}") }
                         }
                     }) {
                     if (item.status != "available") Text(when (item.status) { "pending" -> "等待完成移入"; "restoring" -> "正在恢复"; "failed" -> "处理失败"; else -> "状态暂不可用" },
@@ -131,15 +130,24 @@ import io.github.kkwans.nasfilebrowser.app.*
             FilewayTextButton({ model.trash.restore(item, "skip") }, enabled = enabled && canRestore) { Text("跳过恢复") }
         }
     }, confirmButton = { FilewayTextButton(model.trash::closeConflict) { Text("取消") } }) }
-    details?.let { item -> FileOperationSheet("回收站详情", { details = null }, footer = {
-        FilewayTextButton({ details = null }) { Text("关闭") }
-    }) {
+    details?.let { item -> FileOperationSheet("回收站详情", { details = null }, footer = if (!canDelete && !canRestore) null else {{
+        if (canDelete) FilewayOutlinedButton({ deleting = listOf(item.id); details = null }, enabled = enabled && item.status != "restoring", modifier = Modifier.weight(1f)) {
+            Icon(painterResource(R.drawable.ic_trash), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("永久删除")
+        }
+        if (canRestore) FilewayButton({ model.trash.restore(item); details = null }, enabled = enabled && item.status == "available", modifier = Modifier.weight(1f)) {
+            Icon(painterResource(R.drawable.ic_restore), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("还原")
+        }
+    }}) {
         SelectionContainer(Modifier.weight(1f, fill = false)) {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(item.name, style = MaterialTheme.typography.titleMedium)
                 FileOperationLocation("原位置", item.path, showBasename = false)
                 Text("${if (item.directory) "文件夹" else "文件"} · ${trashSize(item)}", style = MaterialTheme.typography.bodyMedium)
                 Text("删除时间：${serverTime(item.deletedAt)}", style = MaterialTheme.typography.bodyMedium)
+                if (item.directory && item.status == "available" && item.sizeState !in setOf("accurate", "calculating") && (canDelete || state.permissions.admin))
+                    FilewayOutlinedButton({ model.trash.measure(item) }, enabled = enabled) { Text("统计大小") }
+                if (item.sizeTaskId.isNotEmpty() && item.sizeState in setOf("calculating", "failed", "incomplete"))
+                    FilewayOutlinedButton({ model.showServerTask(item.sizeTaskId) }) { Text("查看大小统计任务") }
                 if (item.error.isNotEmpty()) Text(item.error, color = MaterialTheme.colorScheme.error)
             }
         }

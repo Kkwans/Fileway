@@ -1,6 +1,8 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -9,6 +11,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
@@ -27,13 +31,19 @@ internal fun libraryLocation(path: String): String {
 @Composable internal fun LibraryObjectCard(
     name: String, location: String, icon: Int, modifier: Modifier = Modifier, summary: String? = null,
     onOpen: (() -> Unit)? = null, enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null, selected: Boolean = false, selectionMode: Boolean = false,
     leading: @Composable RowScope.() -> Unit = {}, trailing: @Composable RowScope.() -> Unit = {},
     artwork: (@Composable () -> Unit)? = null,
     context: @Composable ColumnScope.() -> Unit = {},
 ) {
-    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,
+        border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (onOpen != null) Modifier.clickable(enabled = enabled, role = Role.Button, onClick = onOpen) else Modifier),
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).then(if (onOpen != null) Modifier.combinedClickable(enabled = enabled,
+                role = if (selectionMode) Role.Checkbox else Role.Button, onClick = onOpen, onLongClick = onLongClick,
+                onLongClickLabel = if (onLongClick != null) "多选" else null) else Modifier)
+                .then(if (selectionMode) Modifier.semantics { this.selected = selected } else Modifier),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 leading()
                 if (artwork != null) artwork() else Icon(painterResource(icon), null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
