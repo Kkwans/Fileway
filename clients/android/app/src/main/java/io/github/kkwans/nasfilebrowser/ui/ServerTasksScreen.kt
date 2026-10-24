@@ -206,7 +206,8 @@ private fun taskTimestamp(value: Long): String = if (value <= 0) "未提供" els
 }.getOrDefault("未提供")
 
 private fun serverTaskIcon(task: ServerTask): Int = when {
-    task.fileCategory -> R.drawable.ic_file
+    task.type == "file.copy" -> R.drawable.ic_copy
+    task.type == "file.move" -> R.drawable.ic_move
     task.type.startsWith("archive") -> R.drawable.ic_archive
     task.type.startsWith("analysis") -> R.drawable.ic_storage
     task.type.startsWith("media") -> R.drawable.ic_video

@@ -117,7 +117,7 @@ Column(Modifier.fillMaxSize()) {
                     }
                     if (item.status !in setOf("running", "paused", "completed")) Text(status, style = MaterialTheme.typography.bodySmall,
                         color = if (item.status in setOf("failed", "expired")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(transferSummary(item.uploaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall,
+                    if (item.timingComplete || item.activeMillis > 0) Text(transferSummary(item.uploaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)

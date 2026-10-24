@@ -178,7 +178,7 @@ Column(Modifier.fillMaxSize()) {
                     }
                     if (item.status !in setOf("running", "paused", "completed")) Text(status, style = MaterialTheme.typography.bodySmall,
                         color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(transferSummary(item.downloaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall,
+                    if (item.timingComplete || item.activeMillis > 0) Text(transferSummary(item.downloaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -196,7 +196,7 @@ Column(Modifier.fillMaxSize()) {
                         Text(item.name, style = MaterialTheme.typography.titleMedium)
                         Text("创建：${serverTime(item.createdAt)}", style = MaterialTheme.typography.bodySmall)
                         Text("更新：${serverTime(item.updatedAt)}", style = MaterialTheme.typography.bodySmall)
-                        Text(transferSummary(item.downloaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall)
+                        if (item.timingComplete || item.activeMillis > 0) Text(transferSummary(item.downloaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall)
                         if (!item.timingComplete) Text("旧任务仅累计升级后的运行时间，暂停与离线时间不计入。", style = MaterialTheme.typography.bodySmall)
                         Text("服务器原位置：${item.path}", style = MaterialTheme.typography.bodySmall)
                         if (item.relativeDirectory.isNotEmpty()) Text("本机子目录：${item.relativeDirectory}", style = MaterialTheme.typography.bodySmall)

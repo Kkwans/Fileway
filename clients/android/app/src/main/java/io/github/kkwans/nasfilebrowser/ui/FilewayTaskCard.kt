@@ -132,6 +132,6 @@ internal fun transferRuntime(millis: Long, completeHistory: Boolean): String {
 }
 
 internal fun transferSummary(bytes: Long, millis: Long, completeHistory: Boolean): String =
-    transferRuntime(millis, completeHistory) +
+    if (!completeHistory && millis <= 0) "运行耗时未记录" else transferRuntime(millis, completeHistory) +
         (io.github.kkwans.nasfilebrowser.data.transferAverageBytesPerSecond(bytes, millis, completeHistory)
             ?.let { " · 平均 ${readableSize(it)}/s" } ?: "")
