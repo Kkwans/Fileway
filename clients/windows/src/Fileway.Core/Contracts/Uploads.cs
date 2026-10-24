@@ -5,8 +5,10 @@ namespace Fileway.Core.Contracts;
 /// <summary>Presentation authority for one verified application upload activation.</summary>
 public readonly record struct UploadContext(AccountKey Account, Guid SessionId, Guid ActivationId);
 
-/// <summary>An explicitly confirmed local file and original destination. RequestId prevents duplicate task creation.</summary>
-public sealed record UploadSubmission(Guid RequestId, UploadContext Context, RemoteResourceRef Parent, string LocalPath)
+/// <summary>An explicitly confirmed local file and original destination. RequestId prevents duplicate task creation;
+/// the optional batch identity groups tree uploads into the same durable (batch, ordinal) slot.</summary>
+public sealed record UploadSubmission(Guid RequestId, UploadContext Context, RemoteResourceRef Parent, string LocalPath,
+    Guid? BatchId = null, int Ordinal = 0)
 {
     public override string ToString() => "UploadSubmission (private locations redacted)";
 }
@@ -33,6 +35,11 @@ public interface IUploadService
     event EventHandler<UploadItem>? TaskChanged;
     UploadContext? CurrentContext { get; }
     Task<UploadItem> SubmitAsync(UploadSubmission submission, CancellationToken cancellationToken);
+    /// <summary>
+    /// Creates the missing remote subdirectories of a confirmed tree upload under an existing parent
+    /// and returns the deepest directory reference. Existing levels are verified, never replaced.
+    /// </summary>
+    Task<RemoteResourceRef> EnsureRemoteTreeAsync(UploadContext context, RemoteResourceRef parent, string relativeDirectory, CancellationToken cancellationToken);
     Task<UploadPage> ListAsync(UploadContext context, string? cursor, int limit, CancellationToken cancellationToken);
     Task<UploadItem> PauseAsync(UploadContext context, TransferTaskRef task, CancellationToken cancellationToken);
     Task<UploadItem> ResumeAsync(UploadContext context, TransferTaskRef task, CancellationToken cancellationToken);

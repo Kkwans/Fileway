@@ -66,7 +66,56 @@ public sealed partial class UploadApplicationService
         string display = (submission.Parent.DisplayPath == "/" ? "" : submission.Parent.DisplayPath) + "/" + name;
         var target = new RemoteResourceRef(submission.Context.Account, wire, name, display);
         return TransferTaskValidation.Plan(new(new(submission.Context.Account, submission.RequestId), TransferDirection.Upload,
-            target, path, FileConflictPolicy.Fail, AutomaticResume: false));
+            target, path, FileConflictPolicy.Fail, AutomaticResume: false, submission.BatchId, submission.Ordinal));
+    }
+
+    public async Task<RemoteResourceRef> EnsureRemoteTreeAsync(UploadContext context, RemoteResourceRef parent,
+        string relativeDirectory, CancellationToken cancellationToken)
+    {
+        await EnterAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var binding = Require(context);
+            RequireCreate(binding);
+            if (parent is null || parent.Account != context.Account || parent.SourceVersion is not null)
+                throw Safe(ErrorCode.InvalidRequest);
+            string relative = relativeDirectory ?? "";
+            var segments = relative.Length == 0
+                ? Array.Empty<string>()
+                : relative.Replace('\\', '/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (segments.Length > 32) throw Safe(ErrorCode.InvalidRequest);
+            var current = parent;
+            foreach (var segment in segments)
+            {
+                string normalized = segment.TrimEnd(' ', '.');
+                if (normalized.Length == 0 || normalized.Length > 255 || normalized.Any(char.IsControl))
+                    throw Safe(ErrorCode.InvalidRequest);
+                _ = StrictUtf8.GetByteCount(normalized);
+                try
+                {
+                    var created = await _files.CreateDirectoryAsync(current, normalized, cancellationToken).ConfigureAwait(false);
+                    RequireCurrent(binding);
+                    if (created.Outcome != OperationOutcome.Confirmed && created.Error is { } failure)
+                        throw new FilewayException(failure);
+                }
+                catch (FilewayException error) when (error.Error.Code == ErrorCode.Conflict)
+                {
+                    // An existing same-name entry is acceptable only if it is a directory; the
+                    // verification below rejects a same-name file instead of replacing it.
+                }
+                RequireCurrent(binding);
+                string wire = (current.WirePath == "/" ? "" : current.WirePath) + "/" + Uri.EscapeDataString(normalized);
+                string display = (current.DisplayPath == "/" ? "" : current.DisplayPath) + "/" + normalized;
+                var child = new RemoteResourceRef(context.Account, wire, normalized, display);
+                var observed = await _files.GetAsync(child, cancellationToken).ConfigureAwait(false);
+                RequireCurrent(binding);
+                if (!observed.IsDirectory || observed.Resource.WirePath != wire) throw Safe(ErrorCode.Conflict);
+                current = child;
+            }
+            return current;
+        }
+        catch (Exception error) { throw Normalize(error); }
+        finally { _commands.Release(); }
     }
 
     private void RequireCreate(Binding binding)

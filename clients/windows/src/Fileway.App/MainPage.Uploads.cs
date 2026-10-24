@@ -128,6 +128,137 @@ public sealed partial class MainPage
         }
     }
 
+    private const int MaximumUploadTreeFiles = 1000;
+
+    private async void UploadFolder_Click(object sender, RoutedEventArgs args)
+    {
+        if (!CanSubmitUpload || _uploads is not { } service || _session is not { } session
+            || _directory is not { } parent || ActiveUploadContext is not { } context) return;
+        var generation = _generation;
+        var viewGeneration = _uploadViewGeneration;
+        bool CurrentDestination() => viewGeneration == _uploadViewGeneration && IsCurrentUploadContext(context)
+            && SameBrowser(session, parent, generation) && _session?.Permissions.Create == true && !HasUnresolvedWrite;
+        _uploadPickerOpen = true; UpdateUploadContext();
+        try
+        {
+            var picker = new FolderPicker(_uploadOwner)
+            {
+                Title = "选择要上传的文件夹", CommitButtonText = "选择文件夹",
+                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
+            };
+            var folder = await picker.PickSingleFolderAsync().AsTask(_lifetime.Token);
+            if (folder is null || !CurrentDestination()) return;
+            var (files, failures, truncated) = EnumerateLocalUploadTree(folder.Path, MaximumUploadTreeFiles);
+            long total = 0;
+            foreach (var (path, _) in files)
+                try { total = checked(total + new FileInfo(path).Length); } catch (IOException) { }
+            var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
+            content.Children.Add(new TextBlock { Text = Path.GetFileName(folder.Path.TrimEnd('\\')), FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            content.Children.Add(new TextBlock { Text = $"上传到：{parent.DisplayPath}\n共 {files.Count} 个文件 · {DownloadPresentationPolicy.FormatBytes(total)}", TextWrapping = TextWrapping.Wrap });
+            content.Children.Add(new TextBlock { Text = "保留文件夹相对结构逐个上传；同名项目停止并报告冲突，不覆盖现有文件。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+            if (truncated) content.Children.Add(new TextBlock { Text = $"枚举达到上限（{MaximumUploadTreeFiles} 个文件），超出部分未包含。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+            foreach (var failure in failures.Take(8))
+                content.Children.Add(new TextBlock { Text = failure + "：无法读取，该子目录未包含。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+            if (failures.Count > 8) content.Children.Add(new TextBlock { Text = $"另有 {failures.Count - 8} 个无法读取的子目录。", FontSize = 12 });
+            var confirm = new ContentDialog { Title = "确认上传文件夹", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close,
+                IsPrimaryButtonEnabled = files.Count > 0 };
+            _uploadDialog = confirm;
+            ContentDialogResult confirmed;
+            try { confirmed = await ShowBrowserDialogAsync(confirm); }
+            finally { if (ReferenceEquals(_uploadDialog, confirm)) _uploadDialog = null; }
+            if (confirmed != ContentDialogResult.Primary || !CurrentDestination() || files.Count == 0) return;
+            _uploadErrorTitle = _uploadErrorMessage = null;
+            _uploadCommandBusy = true; UpdateUploadContext();
+            var batchId = Guid.NewGuid();
+            var parents = new Dictionary<string, RemoteResourceRef>(StringComparer.OrdinalIgnoreCase) { [""] = parent };
+            var deadDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int added = 0, unconfirmed = 0, ordinal = 0;
+            foreach (var (path, relative) in files)
+            {
+                if (!CurrentDestination()) break;
+                string relativeDirectory = Path.GetDirectoryName(relative) ?? "";
+                if (deadDirectories.Any(dead => relativeDirectory.StartsWith(dead + "\\", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(relativeDirectory, dead, StringComparison.OrdinalIgnoreCase)))
+                { unconfirmed++; continue; }
+                try
+                {
+                    if (!parents.TryGetValue(relativeDirectory, out var targetParent))
+                    {
+                        targetParent = await service.EnsureRemoteTreeAsync(context, parent, relativeDirectory, _lifetime.Token);
+                        parents[relativeDirectory] = targetParent;
+                    }
+                    if (!CurrentDestination()) break;
+                    var item = await service.SubmitAsync(new UploadSubmission(Guid.NewGuid(), context, targetParent, path, batchId, ordinal++), _lifetime.Token);
+                    if (IsCurrentUploadContext(context))
+                    {
+                        _uploadOrigins[item.Snapshot.Task] = new UploadOrigin(session, parent, generation);
+                        AcceptUploadItem(item);
+                    }
+                    added++;
+                }
+                catch (Exception)
+                {
+                    // One failing directory must not poison its siblings; its remaining files are
+                    // skipped without resubmitting an unconfirmed draft.
+                    deadDirectories.Add(relativeDirectory);
+                    unconfirmed++;
+                }
+            }
+            if (IsCurrentUploadContext(context))
+                SetNotice("文件夹上传", $"已提交 {added} 个文件。" + (unconfirmed > 0 ? $"{unconfirmed} 个文件因目录冲突或未确认未提交，请到传输中心核实，勿重复提交。" : ""), unconfirmed > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error)
+        {
+            if (CurrentDestination()) ShowUploadError("文件夹上传未完成", error);
+        }
+        finally
+        {
+            _uploadPickerOpen = false; _uploadCommandBusy = false;
+            if (!_disposed) UpdateUploadContext();
+        }
+    }
+
+    /// <summary>Bounded local enumeration for a confirmed upload; reparse points are never traversed.</summary>
+    private static (List<(string Path, string Relative)> Files, List<string> Failures, bool Truncated) EnumerateLocalUploadTree(string root, int maximum)
+    {
+        var files = new List<(string Path, string Relative)>();
+        var failures = new List<string>();
+        bool truncated = false;
+        var pending = new Queue<(string Directory, string Relative)>();
+        pending.Enqueue((root, ""));
+        while (pending.Count != 0 && !truncated)
+        {
+            var (directory, relative) = pending.Dequeue();
+            try
+            {
+                foreach (var entry in System.IO.Directory.EnumerateFileSystemEntries(directory))
+                {
+                    System.IO.FileAttributes attributes;
+                    try { attributes = System.IO.File.GetAttributes(entry); }
+                    catch (IOException) { continue; }
+                    string name = Path.GetFileName(entry);
+                    if ((attributes & System.IO.FileAttributes.Directory) != 0)
+                    {
+                        // Reparse points (junctions/links) are never traversed: their content is
+                        // outside the confirmed folder and may recurse infinitely.
+                        if ((attributes & System.IO.FileAttributes.ReparsePoint) != 0) continue;
+                        if (files.Count >= maximum) { truncated = true; break; }
+                        pending.Enqueue((entry, relative.Length == 0 ? name : relative + "\\" + name));
+                    }
+                    else
+                    {
+                        if (files.Count >= maximum) { truncated = true; break; }
+                        files.Add((entry, relative.Length == 0 ? name : relative + "\\" + name));
+                    }
+                }
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            { failures.Add(relative.Length == 0 ? "(文件夹根目录)" : relative); }
+        }
+        return (files, failures, truncated);
+    }
+
     private void Upload_TaskChanged(object? sender, UploadItem item) => DispatcherQueue.TryEnqueue(() =>
     {
         if (!ReferenceEquals(sender, _uploads) || !IsCurrentUploadContext(item.Context)) return;
