@@ -31,6 +31,15 @@ public interface IDownloadDestinationProvider
     Task<IDownloadDestination> CreateFreshAsync(string finalPath, CancellationToken cancellationToken);
     /// <summary>Reopens only positively identified owned partial/final evidence; never creates, renames or deletes.</summary>
     Task<IDownloadDestination> OpenOwnedAsync(string finalPath, TransferWorkFiles files, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reopens an owned unpublished partial with read admission over its verified prefix. Durable
+    /// resume uses this after truncating to the confirmed offset; it never grants write or delete
+    /// authority beyond the owning execution and is not a publication path.
+    /// </summary>
+    Task<IDownloadDestination> OpenOwnedReadableAsync(string finalPath, TransferWorkFiles files,
+        CancellationToken cancellationToken) => Task.FromException<IDownloadDestination>(
+            new NotSupportedException("此本地文件能力不支持重开下载临时文件的读取。"));
 }
 
 /// <summary>Received bytes are distinct from the successfully flushed local prefix.</summary>

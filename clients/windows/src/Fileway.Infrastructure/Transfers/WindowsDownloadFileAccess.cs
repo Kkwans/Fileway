@@ -235,10 +235,14 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
     }
 
     public Task<IDownloadDestination> OpenOwnedAsync(string finalPath, TransferWorkFiles files, CancellationToken cancellationToken)
-        => OpenOwnedCoreAsync(finalPath, files, publishedReadAdmission: false, cancellationToken);
+        => OpenOwnedCoreAsync(finalPath, files, readAdmission: false, cancellationToken);
+
+    public Task<IDownloadDestination> OpenOwnedReadableAsync(string finalPath, TransferWorkFiles files,
+        CancellationToken cancellationToken)
+        => OpenOwnedCoreAsync(finalPath, files, readAdmission: true, cancellationToken);
 
     private static Task<IDownloadDestination> OpenOwnedCoreAsync(string finalPath, TransferWorkFiles files,
-        bool publishedReadAdmission, CancellationToken cancellationToken)
+        bool readAdmission, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         DirectoryGuard? directories = null;
@@ -279,14 +283,13 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 if (ambiguous is not null) throw Unknown();
                 files = files with { PublishedFileIdentity = identity };
                 published = true;
-                // Read-only reopen of a completed task: the same positively identified final object
-                // may admit readers, but never writers or deletion authority. The admission flag is
-                // consumed below; a published file never opens with writer authority.
+                // Read-only reopen: the positively identified published final or a resume's verified
+                // partial may admit readers; neither ever opens with writer or delete authority.
             }
             directories.Revalidate(AccessContext.Owned);
             cancellationToken.ThrowIfCancellationRequested();
             IDownloadDestination destination = new DownloadDestination(final, partial, identity, handle, directories,
-                files, information.Length, published, readerAdmission: published && publishedReadAdmission);
+                files, information.Length, published, readerAdmission: readAdmission);
             handle = null;
             directories = null;
             return Task.FromResult(destination);
@@ -307,7 +310,7 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
     public static async Task<IDownloadDestination> OpenPublishedReadAsync(string finalPath, TransferWorkFiles files,
         long expectedLength, CancellationToken cancellationToken)
     {
-        var destination = await OpenOwnedCoreAsync(finalPath, files, publishedReadAdmission: true, cancellationToken).ConfigureAwait(false);
+        var destination = await OpenOwnedCoreAsync(finalPath, files, readAdmission: true, cancellationToken).ConfigureAwait(false);
         try
         {
             if (!destination.IsPublished || destination.Length != expectedLength ||

@@ -63,7 +63,8 @@ public sealed partial class FileDownloadRunner
             state.ConditionalVersion = version;
             var provider = ConditionalProvider(state) ?? throw Safe(ErrorCode.CapabilityMissing);
             // Reopens only positively identified owned partial evidence; it never creates files.
-            destination = await AcquireOwnedAsync(token => _destinations.OpenOwnedAsync(
+            // Read admission covers exactly the verified prefix below the confirmed offset.
+            destination = await AcquireOwnedAsync(token => _destinations.OpenOwnedReadableAsync(
                 state.Record.Plan.LocalPath, checkpoint.Files!, token), state.Execution.Stop.Token).ConfigureAwait(false);
             RequireOwnedEvidence(state, destination);
             if (destination.IsPublished) { state.ResumeEvidenceBroken = true; throw Safe(ErrorCode.InvalidRequest); }
@@ -79,6 +80,9 @@ public sealed partial class FileDownloadRunner
             state.Destination = destination;
             state.DestinationAccepted = true;
             await SaveAsync(state, state.Record.Checkpoint with { Phase = TransferPhase.Running }, release: false).ConfigureAwait(false);
+            // After truncation the readable prefix is exactly the durable confirmed offset, so
+            // progressive playback may resume alongside the continuing transfer.
+            AcceptReaderDestination(state, destination);
             await CheckIntentAsync(state).ConfigureAwait(false);
 
             // Re-observe the source through the conditional protocol; any version, length or
