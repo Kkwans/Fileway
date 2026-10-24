@@ -105,13 +105,11 @@ import kotlinx.coroutines.launch
                         SettingsAction("服务器档案", "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
                     }
                 }
+                item { CacheSettingsPanel(model) { message ->
+                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+                } }
                 item {
-                    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-                        SettingsAction("缓存图片管理", "本机全部图片缓存 · 可离线管理", R.drawable.ic_image) { model.tab("cache-images") }
-                    }
-                }
-                item {
-                    SettingsGroup("本机设置") {
+                    SettingsGroup("外观与连接") {
                         SettingsAction("主题", when {
                             appearance.loading -> "正在读取"
                             appearance.saving -> "正在保存"
@@ -125,13 +123,8 @@ import kotlinx.coroutines.launch
                         SettingsAction("应用内 Tailscale", network.label, R.drawable.ic_network) { networkDetails = true }
                     }
                 }
-                item { CacheSettingsPanel(model) { message ->
-                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
-                } }
                 if (state.permissions.admin || state.permissions.execute) item {
                     SettingsGroup("服务器管理") {
-                        Text("作用于当前服务器", Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (state.permissions.admin) SettingsAction("用户管理", "账号、权限与访问规则", R.drawable.ic_person) { model.tab("admin-users") }
                         if (state.permissions.admin) SettingsAction("服务器全局设置", "影响所有用户的配置与默认策略", R.drawable.ic_storage) { model.tab("server-settings") }
                         if (state.permissions.execute) SettingsAction("服务器命令", "在当前目录运行允许的单条命令", R.drawable.ic_code, action = model::openShell)

@@ -35,7 +35,13 @@ import kotlinx.coroutines.launch
     LaunchedEffect(Unit) { model.cache.refresh() }
     fun edit(key: String, value: Long) { number = key; input = value.toString() }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        SettingsGroup("本机缓存 · 缩略图") {
+        SettingsGroup("图片") {
+            SettingsAction("缓存图片管理", "查看与管理全部缓存图片", R.drawable.ic_image) { model.tab("cache-images") }
+            SettingsAction("默认图片质量", settings.imageQuality.label, R.drawable.ic_visibility, enabled) { quality = true }
+            SettingsAction("图片缓存容量", "已用 ${readableSize(state.images)} / ${settings.imageMB} MB${if (settings.imageMB == 0L) " · 已关闭" else ""}", R.drawable.ic_storage, enabled) { edit("image", settings.imageMB) }
+            SettingsAction("清理图片缓存", "清理本机所有图片缓存，服务器文件保留", R.drawable.ic_refresh, enabled, navigation = false) { clear = "image" }
+        }
+        SettingsGroup("缩略图缓存") {
             SettingsAction("容量上限", "已用 ${readableSize(state.thumbnails)} / ${settings.thumbnailMB} MB", R.drawable.ic_storage, enabled) { edit("thumbnail", settings.thumbnailMB) }
             SettingsAction("清理缩略图缓存", "移除此设备已缓存的文件预览", R.drawable.ic_refresh, enabled, navigation = false) { clear = "thumbnail" }
         }
@@ -43,11 +49,6 @@ import kotlinx.coroutines.launch
             SettingsAction("容量上限", "已用 ${readableSize(state.playback)} / ${settings.playbackMB} MB${if (settings.playbackMB == 0L) " · 已关闭" else ""}", R.drawable.ic_storage, enabled) { edit("playback", settings.playbackMB) }
             SettingsAction("自动清理周期", "${settings.cleanupHours} 小时 · 保留正在播放的文件", R.drawable.ic_history, enabled) { edit("hours", settings.cleanupHours.toLong()) }
             SettingsAction("清理播放缓存", "保留正在播放的缓存", R.drawable.ic_refresh, enabled, navigation = false) { clear = "playback" }
-        }
-        SettingsGroup("图片缓存与查看") {
-            SettingsAction("默认图片质量", settings.imageQuality.label, R.drawable.ic_visibility, enabled) { quality = true }
-            SettingsAction("图片缓存容量", "已用 ${readableSize(state.images)} / ${settings.imageMB} MB${if (settings.imageMB == 0L) " · 已关闭" else ""}", R.drawable.ic_storage, enabled) { edit("image", settings.imageMB) }
-            SettingsAction("清理图片缓存", "清理本机所有图片缓存，服务器文件保留", R.drawable.ic_refresh, enabled, navigation = false) { clear = "image" }
         }
         if (state.loading || state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         state.error?.let {
