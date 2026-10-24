@@ -31,8 +31,10 @@ public sealed partial class MainWindow : Window, IDisposable
         InitializeAppearance();
         Closed += MainWindow_Closed;
     }
-    public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
-        => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails);
+    public Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images,
+        IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null,
+        ITextContentService? texts = null)
+        => ((MainPage)RootFrame.Content).SetServicesAsync(connection, files, images, playback, catalog, thumbnails, texts);
     public void SetDownloadService(IDownloadService downloads)
         => ((MainPage)RootFrame.Content).SetDownloadService(downloads);
     public void SetUploadService(IUploadService uploads)

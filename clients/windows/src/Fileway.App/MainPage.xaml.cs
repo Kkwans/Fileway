@@ -22,6 +22,7 @@ public sealed partial class MainPage : Page, IDisposable
     private long _preferenceRevision;
     private bool _applyingPreferences;
     private IImageContentService? _images;
+    private ITextContentService? _texts;
     private IThumbnailContentService? _thumbnails;
     private readonly BrowserThumbnailController _thumbnailController;
     private IPlaybackService? _playback;
@@ -43,6 +44,7 @@ public sealed partial class MainPage : Page, IDisposable
     private readonly List<RemoteFile> _items = [];
     private readonly ObservableCollection<FileRow> _rows = [];
     private readonly HashSet<ImageWindow> _imageWindows = [];
+    private readonly HashSet<TextWindow> _textWindows = [];
     private CancellationTokenSource? _loadCancellation;
     private readonly CancellationTokenSource _lifetime = new();
     private long _generation;
@@ -157,9 +159,11 @@ public sealed partial class MainPage : Page, IDisposable
             }
         }
     }
-    public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images, IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null)
+    public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images,
+        IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null,
+        ITextContentService? texts = null)
     {
-        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails;
+        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts;
         UpdateThumbnailContext();
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
@@ -199,6 +203,7 @@ public sealed partial class MainPage : Page, IDisposable
             _connection.ConnectionIssue -= Connection_Issue;
         }
         foreach (var window in _imageWindows.ToArray()) window.Close();
+        foreach (var window in _textWindows.ToArray()) window.Close();
         _connectionCancellation?.Dispose(); _loadCancellation?.Dispose(); _lifetime.Dispose();
     }
 
@@ -242,6 +247,7 @@ public sealed partial class MainPage : Page, IDisposable
             if (_session is not null)
             {
                 foreach (var window in _imageWindows.ToArray()) window.Close();
+                foreach (var window in _textWindows.ToArray()) window.Close();
                 if (_playback is not null) await _playback.CloseAccountAsync(_session.Account, token);
                 await _connection.DisconnectAsync(_session.Account, token);
                 ClearActiveWorkspace();
@@ -526,6 +532,14 @@ public sealed partial class MainPage : Page, IDisposable
                 SetNotice(row.IsAudio ? "正在打开音频" : "正在打开视频", row.Name, InfoBarSeverity.Informational);
                 await _playback.OpenAsync(new PlaybackOpenRequest(new RemotePlaybackInput(row.File.Resource)), _lifetime.Token);
                 if (CurrentOpen()) Notice.IsOpen = false;
+            }
+            else if (row.IsText && _texts is { } texts)
+            {
+                if (row.File.Size > TextWindow.MaximumTextBytes)
+                { SetNotice("文本过大", "超过 4 MB 的文本暂不支持预览，请下载后查看。", InfoBarSeverity.Informational); return; }
+                var window = new TextWindow(texts, row.File.Resource); _textWindows.Add(window);
+                window.SetTheme(Shell.RequestedTheme);
+                window.Closed += (_, _) => _textWindows.Remove(window); window.Activate();
             }
             else SetNotice("暂不支持打开此文件", "本次原生预览支持图片、视频与音频。你仍可浏览其他文件的名称、大小和修改时间。", InfoBarSeverity.Informational);
         }
@@ -837,15 +851,23 @@ public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = n
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".heic", ".avif" };
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".ts", ".m2ts", ".wmv" };
     internal static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp3", ".flac", ".wav", ".aac", ".ogg", ".opus", ".m4a", ".wma", ".ape", ".mka", ".aiff" };
+    internal static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".md", ".markdown", ".log", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+        ".csv", ".tsv", ".srt", ".ass", ".vtt", ".lrc", ".py", ".cs", ".go", ".js", ".ts", ".c", ".h", ".cpp",
+        ".hpp", ".java", ".kt", ".rs", ".sh", ".bat", ".cmd", ".ps1", ".sql", ".html", ".htm", ".css", ".properties",
+    };
     public RemoteFile File { get; } = file;
     public string Name => File.Resource.DisplayName;
     public bool IsImage => !File.IsDirectory && (File.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true || ImageExtensions.Contains(Path.GetExtension(Name)));
     public bool IsVideo => !File.IsDirectory && (File.MediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true || VideoExtensions.Contains(Path.GetExtension(Name)));
     public bool IsAudio => !File.IsDirectory && (File.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true || AudioExtensions.Contains(Path.GetExtension(Name)));
     public bool IsMedia => IsVideo || IsAudio;
+    public bool IsText => !File.IsDirectory && (File.MediaType?.StartsWith("text/", StringComparison.OrdinalIgnoreCase) == true ||
+        !IsMedia && File.Size <= 4 * 1024 * 1024 && TextExtensions.Contains(Path.GetExtension(Name)));
     public string Glyph => File.IsDirectory ? "\uE8B7" : IsImage ? "\uEB9F" : IsVideo ? "\uE714" : "\uE8A5";
     public string IconName => File.IsDirectory ? "folder" : IsImage ? "image" : IsVideo ? "film-strip" : File.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true ? "headphones" : Path.GetExtension(Name).ToLowerInvariant() switch { ".srt" or ".ass" or ".txt" or ".md" => "article", ".cs" or ".py" or ".go" or ".json" => "file-code", _ => "file" };
-    public string Kind => File.IsDirectory ? "文件夹" : IsImage ? "图片" : IsVideo ? "视频" : IsAudio ? "音频" : string.IsNullOrEmpty(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant() + " 文件";
+    public string Kind => File.IsDirectory ? "文件夹" : IsImage ? "图片" : IsVideo ? "视频" : IsAudio ? "音频" : IsText ? "文本" : string.IsNullOrEmpty(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant() + " 文件";
     public string Size => File.IsDirectory ? "—" : FormatSize(File.Size);
     public string Summary => File.IsDirectory ? Kind : $"{Kind} · {Size}";
     public string Metadata => $"{Kind} · {Size} · {Modified}";
