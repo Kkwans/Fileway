@@ -69,30 +69,36 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
                     additionalActions?.invoke()
                     HorizontalDivider(color = FilewayTheme.colors.outlineVariant)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        Column(Modifier.weight(1f)) { field("类型", fileTypeLabel(file)) }
-                        if (showSize && !file.directory) Column(Modifier.weight(1f)) { field("大小", readableSize(metadata.size)) }
-                    }
-                    if (showSize && file.directory && model != null) {
-                        Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("文件夹大小", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
-                            size?.let { result ->
-                                Text("${readableSize(result.bytes)} · ${result.files} 个文件", style = MaterialTheme.typography.bodyMedium)
-                                if (result.skippedLinks > 0) Text("不含 ${result.skippedLinks} 个符号链接", style = FilewayTheme.text.metadata)
+                        Column(Modifier.weight(1f)) { field("类型", fileTypeLabel(metadata)) }
+                        if (showSize) Column(Modifier.weight(1f)) {
+                            if (!file.directory) field("大小", readableSize(metadata.size))
+                            else Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text("大小", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
+                                if (model != null) FilewayTextButton({
+                                    if (sizing?.isActive == true) sizing?.cancel()
+                                    else sizing = scope.launch {
+                                        folders = 0; sizeError = null; size = null
+                                        try { size = model.directorySize(file) { folders = it } }
+                                        catch (failure: Exception) { if (failure is CancellationException) throw failure; sizeError = failure.message ?: "统计失败，请重试" }
+                                        finally { sizing = null }
+                                    }
+                                }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics {
+                                    contentDescription = if (sizing?.isActive == true) "停止统计文件夹大小" else "统计或重新统计文件夹大小"
+                                }, contentPadding = PaddingValues(0.dp)) {
+                                    Text(if (sizing?.isActive == true) "停止统计 · $folders 目录"
+                                        else size?.let { "${readableSize(it.bytes)} · ${it.files} 个文件" } ?: "统计大小",
+                                        modifier = Modifier.fillMaxWidth())
+                                } else Text("未提供", style = MaterialTheme.typography.bodyMedium)
+                                size?.takeIf { it.skippedLinks > 0 }?.let { Text("不含 ${it.skippedLinks} 个符号链接", style = FilewayTheme.text.metadata) }
+                                sizeError?.let { Text(it, color = FilewayTheme.colors.error, style = FilewayTheme.text.metadata) }
                             }
-                            if (sizing?.isActive == true) FilewayOutlinedButton({ sizing?.cancel() }) { Text("停止统计 · 已读取 $folders 个目录") }
-                            else FilewayOutlinedButton({
-                                sizing = scope.launch {
-                                    folders = 0; sizeError = null; size = null
-                                    try { size = model.directorySize(file) { folders = it } }
-                                    catch (failure: Exception) { if (failure is CancellationException) throw failure; sizeError = failure.message ?: "统计失败，请重试" }
-                                    finally { sizing = null }
-                                }
-                            }) { Text(if (size == null) "统计大小" else "重新统计") }
-                            sizeError?.let { Text(it, color = FilewayTheme.colors.error, style = FilewayTheme.text.metadata) }
                         }
                     }
-                    field("修改时间", displayModified(metadata.modified) ?: "未提供")
-                    displayModified(metadata.created)?.let { field("创建时间", it) }
+                    val created = displayModified(metadata.created)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Column(Modifier.weight(1f)) { field("修改时间", displayModified(metadata.modified) ?: "未提供") }
+                        if (created != null) Column(Modifier.weight(1f)) { field("创建时间", created) }
+                    }
                     metadataError?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR, { retry++ }, "重新读取元数据") }
                 }
             }

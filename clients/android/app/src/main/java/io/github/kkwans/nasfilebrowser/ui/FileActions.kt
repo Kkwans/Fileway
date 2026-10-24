@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -59,7 +60,7 @@ private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
         if (caption == null) IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp).focusRequester(focus)) {
             Icon(painterResource(icon), label, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
                 else if (active) FilewayTheme.colors.primary else FilewayTheme.colors.onSurfaceVariant)
-        } else FilewayTextButton(onClick, enabled = enabled, modifier = (if (width == null) Modifier.widthIn(min = 48.dp) else Modifier.width(width)).heightIn(min = 68.dp).focusRequester(focus)
+        } else FilewayTextButton(onClick, enabled = enabled, modifier = (if (width == null) Modifier.widthIn(min = 48.dp) else Modifier.width(width)).heightIn(min = 64.dp).focusRequester(focus)
             .background(filewayGlassLayerColor(), RoundedCornerShape(12.dp)).filewayGlassFrame()
             .semantics { contentDescription = label }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -117,10 +118,13 @@ private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
         if (foreground.destination == FileOperationDestination.DETAILS) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    CompositionLocalProvider(LocalFileActionWidth provides ((maxWidth - 16.dp) / 3)) {
-                    FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = 3,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val hasMore = file.path != "/" && (client.permissions.rename || client.permissions.create || client.permissions.download)
+                    val count = 2 + (if (client.permissions.download) 1 else 0) +
+                        (if (client.permissions.delete && file.path != "/") 1 else 0) + (if (hasMore) 1 else 0)
+                    val width = maxOf(48.dp, (maxWidth - 8.dp * (count - 1)) / count)
+                    CompositionLocalProvider(LocalFileActionWidth provides width) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         FavoriteFileAction(model, file, enabled)
                         FileActionIcon(R.drawable.ic_tag, "设置文件标签", enabled && !tags.changing, model.tags.assigned(file).isNotEmpty(), caption = "标签") {
                             switch(FileOperationDestination.TAGS, "设置文件标签")
@@ -155,12 +159,7 @@ private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
                                     "move" -> { model.startFileTransfer(listOf(file), FileTransferAction.MOVE, client.previewScope); leave() }
                                 }
                             }
-                            if (extraActions.size <= 2) extraActions.forEach { item ->
-                                FileActionIcon(requireNotNull(item.icon), item.accessibilityLabel ?: item.label, enabled && operations.transfer == null && item.enabled,
-                                    caption = when (item.key) { "zip" -> "打包下载"; "checksum" -> "校验"; "rename" -> "重命名"; "copy" -> "复制"; else -> "移动" }) {
-                                    performExtra(item)
-                                }
-                            } else Box {
+                            Box {
                                 FileActionIcon(R.drawable.ic_more_actions, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
                                 FilewayMenu(more, { more = false }, items = extraActions, onItemClick = performExtra)
                             }
