@@ -23,6 +23,7 @@ public sealed partial class MainPage : Page, IDisposable
     private bool _applyingPreferences;
     private IImageContentService? _images;
     private ITextContentService? _texts;
+    private IArchiveBrowseService? _archiveBrowse;
     private IThumbnailContentService? _thumbnails;
     private readonly BrowserThumbnailController _thumbnailController;
     private IPlaybackService? _playback;
@@ -45,6 +46,12 @@ public sealed partial class MainPage : Page, IDisposable
     private readonly ObservableCollection<FileRow> _rows = [];
     private readonly HashSet<ImageWindow> _imageWindows = [];
     private readonly HashSet<TextWindow> _textWindows = [];
+    private readonly HashSet<ArchiveWindow> _archiveWindows = [];
+    private const long ArchiveBrowseBudget = 64L * 1024 * 1024;
+    private static bool IsZipArchive(FileRow row) => !row.File.IsDirectory &&
+        row.File.Size <= ArchiveBrowseBudget &&
+        (row.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+         row.File.MediaType?.Equals("application/zip", StringComparison.OrdinalIgnoreCase) == true);
     private CancellationTokenSource? _loadCancellation;
     private readonly CancellationTokenSource _lifetime = new();
     private long _generation;
@@ -161,9 +168,9 @@ public sealed partial class MainPage : Page, IDisposable
     }
     public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images,
         IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null,
-        ITextContentService? texts = null)
+        ITextContentService? texts = null, IArchiveBrowseService? archiveBrowse = null)
     {
-        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts;
+        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts; _archiveBrowse = archiveBrowse;
         UpdateThumbnailContext();
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
@@ -532,6 +539,14 @@ public sealed partial class MainPage : Page, IDisposable
                 SetNotice(row.IsAudio ? "正在打开音频" : "正在打开视频", row.Name, InfoBarSeverity.Informational);
                 await _playback.OpenAsync(new PlaybackOpenRequest(new RemotePlaybackInput(row.File.Resource)), _lifetime.Token);
                 if (CurrentOpen()) Notice.IsOpen = false;
+            }
+            else if (IsZipArchive(row) && _archiveBrowse is { } archives)
+            {
+                if (row.File.Size > ArchiveBrowseBudget)
+                { SetNotice("压缩包过大", "超过 64 MB 的压缩包暂不支持在线浏览，请下载后解压。", InfoBarSeverity.Informational); return; }
+                var window = new ArchiveWindow(archives, _storageSettings!, row.File.Resource); _archiveWindows.Add(window);
+                window.SetTheme(Shell.RequestedTheme);
+                window.Closed += (_, _) => _archiveWindows.Remove(window); window.Activate();
             }
             else if (row.IsText && _texts is { } texts)
             {
