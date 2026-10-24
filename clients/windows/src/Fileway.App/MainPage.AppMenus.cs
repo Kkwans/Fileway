@@ -57,7 +57,8 @@ public sealed partial class MainPage
         MenuNewItem.IsEnabled = browser && CanWrite(p => p.Create);
         MenuNewFileItem.IsEnabled = FileManagement is not null;
         MenuUploadItem.IsEnabled = browser && CanSubmitUpload;
-        MenuDownloadItem.IsEnabled = MenuSaveAsItem.IsEnabled = browser && CanDownloadSelection;
+        MenuDownloadItem.IsEnabled = browser && CanDownloadSelection;
+        MenuSaveAsItem.IsEnabled = browser && CanDownloadSaveAsSelection;
         MenuRenameItem.Text = selected.Length > 1 ? "批量重命名…" : "重命名…";
         MenuRenameItem.IsEnabled = hasSelection && CanWrite(p => p.Rename) && (selected.Length == 1 || FileManagement is not null);
         MenuCopyItem.IsEnabled = hasSelection && FileManagement is not null && CanWrite(p => p.Create);

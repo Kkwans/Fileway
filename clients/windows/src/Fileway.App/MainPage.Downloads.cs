@@ -41,11 +41,11 @@ public sealed partial class MainPage
         {
             if (_disposed || _downloads is null) return false;
             var selected = SelectedRows();
-            return DownloadPolicy.CanPrepare(_session?.Permissions, ActiveDownloadContext is not null, BrowserReady,
-                LoadingRing.IsActive, _downloadOperationBusy || _downloadItems.Values.Any(item => DownloadPolicy.IsActive(DownloadPolicy.EffectiveStatus(item))),
-                selected.Length, selected.Length != 1 || selected[0].File.IsDirectory);
+            return _session?.Permissions.Download == true && ActiveDownloadContext is not null && BrowserReady &&
+                !LoadingRing.IsActive && !_downloadOperationBusy && selected.Length > 0;
         }
     }
+    private bool CanDownloadSaveAsSelection => CanDownloadSelection && SelectedRows() is [var row] && !row.File.IsDirectory;
 
     private void UpdateDownloadContext()
     {
@@ -80,6 +80,8 @@ public sealed partial class MainPage
         SetDetailsVisible(false);
         if (!CanDownloadSelection || _downloads is not { } service || _session is not { } session
             || _directory is not { } directory || ActiveDownloadContext is not { } context) return;
+        if (SelectedRows().Length != 1 || SelectedRows()[0].File.IsDirectory)
+        { await DownloadBatchSelectionAsync(); return; }
         var source = SelectedRows()[0].File.Resource;
         var generation = _generation; var viewGeneration = _downloadViewGeneration;
         var submitted = false;
@@ -127,7 +129,7 @@ public sealed partial class MainPage
 
     private async void DownloadSaveAs_Click(object sender, RoutedEventArgs args)
     {
-        if (!CanDownloadSelection || _browserDialog is not null || _storageDialog is not null
+        if (!CanDownloadSaveAsSelection || _browserDialog is not null || _storageDialog is not null
             || _downloads is not { } service || _session is not { } session
             || _directory is not { } directory || ActiveDownloadContext is not { } context) return;
         var source = SelectedRows()[0].File.Resource;
