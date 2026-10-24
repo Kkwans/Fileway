@@ -37,7 +37,7 @@ internal static class HostWire
             if (property.Name.Equals("op", StringComparison.OrdinalIgnoreCase) ||
                 property.Name.Equals("session", StringComparison.OrdinalIgnoreCase) ||
                 property.Name.Equals("requestId", StringComparison.OrdinalIgnoreCase) ||
-                property.Name.Equals("bodyBase64", StringComparison.OrdinalIgnoreCase))
+                property.Name.Equals("requestId", StringComparison.OrdinalIgnoreCase))
                 throw SafeError(ErrorCode.InvalidRequest, "Reserved Host parameters are not allowed.");
         }
         byte[] payload = JsonSerializer.SerializeToUtf8Bytes(new RequestEnvelope

@@ -44,10 +44,17 @@ public sealed class TextWindow : Window, IAsyncDisposable
         Visibility = Visibility.Collapsed,
     };
     private readonly Grid _editor = new() { MinHeight = 200 };
+    private AppBarButton? _editButton;
+    private AppBarButton? _saveButton;
+    private AppBarButton? _discardButton;
     private AppBarToggleButton? _renderToggle;
     private AppBarToggleButton? _tableToggle;
+    private bool _editing;
+    private bool _dirty;
+    private Fileway.Core.Contracts.TextEditExpectation? _expectation;
     private bool _isMarkdown;
     private bool _isTable;
+    private string _encodingName = "UTF-8";
     private CsvGridParser.Grid? _grid;
     private string _rawText = "";
     private bool _showRendered = true;
@@ -66,6 +73,9 @@ public sealed class TextWindow : Window, IAsyncDisposable
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 760));
 
         var commands = new CommandBar { DefaultLabelPosition = CommandBarDefaultLabelPosition.Right, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        var edit = new AppBarButton { Label = "编辑" };
+        var save = new AppBarButton { Label = "保存", IsEnabled = false };
+        var discard = new AppBarButton { Label = "放弃修改", IsEnabled = false };
         var renderToggle = new AppBarToggleButton { Label = "渲染视图" };
         var wrap = new AppBarButton { Label = "自动换行", Icon = new FontIcon { Glyph = "" } };
         var copy = new AppBarButton { Label = "复制全文", Icon = new SymbolIcon(Symbol.Copy) };
@@ -93,9 +103,16 @@ public sealed class TextWindow : Window, IAsyncDisposable
         };
         tableToggle.Visibility = Visibility.Collapsed;
         _tableToggle = tableToggle;
+        commands.PrimaryCommands.Add(edit);
+        commands.PrimaryCommands.Add(save);
+        commands.PrimaryCommands.Add(discard);
         commands.PrimaryCommands.Add(renderToggle);
         commands.PrimaryCommands.Add(tableToggle);
         commands.PrimaryCommands.Add(wrap);
+        _editButton = edit; _saveButton = save; _discardButton = discard;
+        edit.Click += (_, _) => EnterEditMode();
+        save.Click += (_, _) => _ = SaveAsync();
+        discard.Click += (_, _) => DiscardEdit();
         commands.PrimaryCommands.Add(copy);
         renderToggle.Click += (_, _) =>
         {
@@ -131,6 +148,12 @@ public sealed class TextWindow : Window, IAsyncDisposable
         Content = windowRoot;
         _chrome = new FramelessWindowChrome(this, _titleBar);
         root.Loaded += async (_, _) => { if (_started) return; _started = true; await LoadAsync(); };
+        AppWindow.Closing += (window, closingArgs) =>
+        {
+            if (_closed || !_editing || !_dirty) return;
+            closingArgs.Cancel = true;
+            _ = ConfirmDiscardAndCloseAsync();
+        };
         Closed += (_, _) =>
         {
             _closed = true;
@@ -147,9 +170,99 @@ public sealed class TextWindow : Window, IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
+    private async Task ConfirmDiscardAndCloseAsync()
+    {
+        var confirm = new ContentDialog { Title = "有未保存的修改", Content = "关闭将放弃本次编辑，且不会写入服务器。", PrimaryButtonText = "放弃并关闭", CloseButtonText = "返回编辑", DefaultButton = ContentDialogButton.Close };
+        var choice = await confirm.ShowAsync();
+        if (_closed) return;
+        if (choice == ContentDialogResult.Primary)
+        {
+            _editing = false;
+            Close();
+        }
+    }
+
     public void SetTheme(ElementTheme theme)
     {
         if (!_closed && Content is FrameworkElement root) root.RequestedTheme = theme;
+    }
+
+    private void UpdateEditCommands()
+    {
+        if (_editButton is { } edit) { edit.IsEnabled = !_closed && !_editing && _expectation is not null; }
+        if (_saveButton is { } save) save.IsEnabled = _editing && _dirty;
+        if (_discardButton is { } discard) discard.IsEnabled = _editing && _dirty;
+    }
+
+    private void EnterEditMode()
+    {
+        if (_editing || _closed) return;
+        if (_expectation is null)
+        {
+            _notice.Severity = InfoBarSeverity.Informational;
+            _notice.Message = "此文件暂不可编辑（服务器状态未取得或读取期间已变化），请重新打开。";
+            _notice.IsOpen = true;
+            return;
+        }
+        _editing = true;
+        _dirty = false;
+        _text.IsReadOnly = false;
+        // Editing happens in plain text; rendering/table projections are suspended.
+        _text.Visibility = Visibility.Visible;
+        _renderScroll.Visibility = Visibility.Collapsed;
+        _tableScroll.Visibility = Visibility.Collapsed;
+        UpdateEditCommands();
+        _text.Focus(FocusState.Programmatic);
+    }
+
+    private void DiscardEdit()
+    {
+        if (!_editing) return;
+        _text.IsReadOnly = true;
+        _editing = false;
+        _dirty = false;
+        _text.Text = _rawText;
+        ApplyViewMode();
+        UpdateEditCommands();
+        _notice.IsOpen = false;
+    }
+
+    private bool ContentEncodingIsLegacy() => _encodingName is not ("UTF-8" or "UTF-8 BOM");
+
+    private async Task SaveAsync()
+    {
+        if (!_editing || !_dirty || _expectation is not { } expected || _closed) return;
+        bool reencode = ContentEncodingIsLegacy();
+        var panel = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 420 };
+        panel.Children.Add(new TextBlock { Text = "保存对服务器上文件的修改？" + (reencode ? "\n原文件不是 UTF-8：保存将以 UTF-8 重写。" : ""), TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "若期间文件已在服务器上被修改，保存会被拒绝且不会覆盖。", FontSize = 12, Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
+        var confirm = new ContentDialog { Title = "保存修改", Content = panel, PrimaryButtonText = "保存", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
+        var choice = await confirm.ShowAsync();
+        if (choice != ContentDialogResult.Primary || !_editing || _closed) return;
+        _saveButton?.IsEnabled = false;
+        _discardButton?.IsEnabled = false;
+        _notice.Severity = InfoBarSeverity.Informational;
+        _notice.Message = "正在保存…";
+        _notice.IsOpen = true;
+        try
+        {
+            _expectation = await _service.SaveAsync(_resource, expected, _text.Text, _lifetime.Token);
+            _dirty = false;
+            _text.IsReadOnly = true;
+            _editing = false;
+            ApplyViewMode();
+            UpdateEditCommands();
+            _notice.Severity = InfoBarSeverity.Success;
+            _notice.Message = "修改已保存。";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error)
+        {
+            var message = error is FilewayException fileway ? fileway.Error.Message : "保存未能完成，请检查连接后重试。";
+            _notice.Severity = InfoBarSeverity.Error;
+            _notice.Message = message;
+            UpdateEditCommands();
+        }
     }
 
     /// <summary>Renders the bounded markdown subset natively; plain text stays one click away.</summary>
@@ -237,8 +350,6 @@ public sealed class TextWindow : Window, IAsyncDisposable
         {
             var content = await _service.OpenAsync(_resource, _lifetime.Token);
             if (_closed) return;
-            _text.Text = content.Text;
-            _rawText = content.Text;
             _isMarkdown = _resource.DisplayName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ||
                 _resource.DisplayName.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase);
             _isTable = !_isMarkdown && (_resource.DisplayName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ||
@@ -249,6 +360,10 @@ public sealed class TextWindow : Window, IAsyncDisposable
                 _grid = CsvGridParser.Parse(content.Text, delimiter);
             }
             if (_renderToggle is { } toggle) toggle.Visibility = _isMarkdown ? Visibility.Visible : Visibility.Collapsed;
+            _expectation = content.Edit;
+            _encodingName = content.EncodingName;
+            UpdateEditCommands();
+            _text.TextChanged += (_, _) => { if (_editing && !_dirty) { _dirty = true; UpdateEditCommands(); } };
             if (_tableToggle is { } tableButton) tableButton.Visibility = _grid is not null ? Visibility.Visible : Visibility.Collapsed;
             _summary.Text = $"{content.EncodingName} · {DownloadPresentationPolicy.FormatBytes(content.DeclaredLength)} · 只读预览";
             _notice.IsOpen = false;

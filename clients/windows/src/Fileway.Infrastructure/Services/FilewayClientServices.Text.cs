@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
@@ -11,6 +12,7 @@ public sealed partial class FilewayClientServices : ITextContentService
     async Task<TextContent> ITextContentService.OpenAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(resource);
+        var state = GetResourceState(resource);
         var lease = (ResourceLease)await AcquireCachedAsync(resource, cancellationToken).ConfigureAwait(false);
         HttpResponseMessage? response = null;
         byte[]? bytes = null;
@@ -37,7 +39,10 @@ public sealed partial class FilewayClientServices : ITextContentService
             RequireDownload(lease.State);
             var (text, encodingName) = DecodeText(bytes);
             await lease.DisposeAsync().ConfigureAwait(false);
-            return new TextContent(resource, response.Content.Headers.ContentLength ?? bytes.LongLength, text, encodingName);
+            return new TextContent(resource, response.Content.Headers.ContentLength ?? bytes.LongLength, text, encodingName)
+            {
+                Edit = await ExpectationAsync(state, resource, bytes.LongLength, linked.Token).ConfigureAwait(false),
+            };
         }
         catch (FilewayException) { await lease.DisposeAsync().ConfigureAwait(false); throw; }
         catch (OperationCanceledException)
@@ -53,6 +58,69 @@ public sealed partial class FilewayClientServices : ITextContentService
             throw Safe(ErrorCode.NetworkUnavailable, "无法读取文本内容，请检查连接后重试。");
         }
         finally { response?.Dispose(); _ = bytes; }
+    }
+
+    /// <summary>Fetches the conditional-write expectation; null when the read is already stale.</summary>
+    private async Task<TextEditExpectation?> ExpectationAsync(SessionState state, RemoteResourceRef resource,
+        long observedBytes, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var document = await DownloadMetadataDocumentAsync(state, resource, cancellationToken).ConfigureAwait(false);
+            long size = document.RootElement.GetProperty("size").GetInt64();
+            string modified = RequiredText(document.RootElement.GetProperty("modified"));
+            if (size != observedBytes) return null; // Content changed during the read; keep view-only.
+            return new TextEditExpectation(size, modified);
+        }
+        catch (Exception error) when (error is FilewayException { Error.Code: ErrorCode.SourceChanged or ErrorCode.InvalidRequest }
+            or System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        { return null; }
+    }
+
+    async Task<TextEditExpectation> ITextContentService.SaveAsync(RemoteResourceRef resource, TextEditExpectation expected,
+        string newText, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(resource);
+        ArgumentNullException.ThrowIfNull(expected);
+        ArgumentNullException.ThrowIfNull(newText);
+        var state = GetResourceState(resource);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        try
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(newText);
+            if (bytes.LongLength > MaximumTextBytes)
+                throw Safe(ErrorCode.ResponseTooLarge, "文本超过本次编辑的 4 MB 上限。");
+            string endpoint = "/api/resources" + resource.WirePath +
+                "?conditional=true&expectedSize=" + expected.Size.ToString(CultureInfo.InvariantCulture) +
+                "&expectedModified=" + Uri.EscapeDataString(expected.ModifiedRaw);
+            var response = await SessionRequestAsync(state, new
+            {
+                method = "PUT",
+                endpoint,
+                bodyBase64 = Convert.ToBase64String(bytes),
+            }, requireDownload: true, HostCallSafety.Mutation, linked.Token, operation: "request",
+            beforeSend: async token =>
+            {
+                RequireModify(state);
+            }).ConfigureAwait(false);
+            RequireExactStatus(response, 200);
+            // Refresh the observation so the next save is conditioned on the file we just wrote.
+            var next = await ExpectationAsync(state, resource, bytes.LongLength, linked.Token).ConfigureAwait(false)
+                ?? throw Safe(ErrorCode.SourceChanged, "保存已确认，但无法取得最新文件状态；请重新打开后再编辑。");
+            return next;
+        }
+        catch (FilewayException error) when (error.Error.HttpStatus == 409)
+        { throw Safe(ErrorCode.SourceChanged, "文件已在服务器上变化；本次修改未写入，请重新打开后再编辑。", 409); }
+        catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
+    }
+
+    private void RequireModify(SessionState state)
+    {
+        lock (_gate)
+        {
+            EnsureActive(state);
+            if (!state.Session.Permissions.Modify) throw Safe(ErrorCode.PermissionDenied, Message(ErrorCode.PermissionDenied));
+        }
     }
 
     internal static (string Text, string EncodingName) DecodeText(byte[] bytes)

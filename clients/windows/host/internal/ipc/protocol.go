@@ -225,7 +225,7 @@ var operations = map[string]operation{
 	"close_session":       {session: true, control: true},
 	"open":                {parameters: "baseUrl token network"},
 	"login":               {parameters: "username password", session: true},
-	"request":             {parameters: "method endpoint body", session: true},
+	"request":             {parameters: "method endpoint body bodyBase64", session: true},
 	"token":               {session: true},
 	"lease":               {parameters: "path wirePath sourceVersion cacheKey cacheOwner archiveFiles archiveFormat", session: true},
 	"asset":               {parameters: "endpoint", session: true},
@@ -284,7 +284,13 @@ func commandFor(request Request, coreID string) ([]byte, error) {
 		command["session"], _ = json.Marshal(request.Session)
 	}
 	data, err := json.Marshal(command)
-	if err != nil || len(data) > MaxCoreCommandBytes {
+	// A base64 request body is the raw resource write path; the bridge accepts up to
+	// its 15 MiB envelope, so the host frame (16 MiB) must not strangle it at 1 MiB.
+	limit := MaxCoreCommandBytes
+	if _, hasRawBody := command["bodyBase64"]; hasRawBody {
+		limit = 14 << 20
+	}
+	if err != nil || len(data) > limit {
 		return nil, errors.New("core command exceeds size limit")
 	}
 	var typed bridge.Command

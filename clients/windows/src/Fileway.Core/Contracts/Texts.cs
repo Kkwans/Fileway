@@ -7,6 +7,17 @@ namespace Fileway.Core.Contracts;
 public sealed record TextContent(RemoteResourceRef Resource, long DeclaredLength, string Text, string EncodingName)
 {
     public override string ToString() => "TextContent (private text redacted)";
+    /// <summary>Conditional-write evidence; null means view-only (stale read or unavailable observation).</summary>
+    public TextEditExpectation? Edit { get; init; }
+}
+
+/// <summary>
+/// Conditional-write evidence for one text file: the exact server observation this view was
+/// loaded from. Null disables editing until the file is reloaded.
+/// </summary>
+public sealed record TextEditExpectation(long Size, string ModifiedRaw)
+{
+    public override string ToString() => "TextEditExpectation (private observation redacted)";
 }
 
 /// <summary>
@@ -16,4 +27,13 @@ public sealed record TextContent(RemoteResourceRef Resource, long DeclaredLength
 public interface ITextContentService
 {
     Task<TextContent> OpenAsync(RemoteResourceRef resource, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Conditional text save: the server stages the bytes and publishes only if its current
+    /// observation still equals <paramref name="expected"/>. A changed source throws
+    /// SourceChanged instead of overwriting; the result carries the fresh observation for
+    /// further edits. The text is written as UTF-8 (BOM preserved only for BOM sources).
+    /// </summary>
+    Task<TextEditExpectation> SaveAsync(RemoteResourceRef resource, TextEditExpectation expected,
+        string newText, CancellationToken cancellationToken);
 }
