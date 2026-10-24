@@ -114,7 +114,7 @@ import kotlin.math.abs
                 }
             }
         }
-        details?.let { FileDetailsDialog(it, actions = {
+        details?.let { FileDetailsDialog(it, model = model, actions = {
             FileActions(model, it) { details = null }
         }, additionalActions = {
             if (it.downloadId.isEmpty() && !model.isTemporaryContent(it)) FilewayTextButton({ originalOverrides = originalOverrides + it.mediaKey; details = null }) { Text("加载原图") }

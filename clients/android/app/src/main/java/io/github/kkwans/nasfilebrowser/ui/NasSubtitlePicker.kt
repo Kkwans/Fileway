@@ -57,5 +57,5 @@ import kotlinx.coroutines.launch
             }
         }
     }
-    details?.let { FileDetailsDialog(it, onDismiss = { details = null }) }
+    details?.let { FileDetailsDialog(it, model = model, onDismiss = { details = null }) }
 }

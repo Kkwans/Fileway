@@ -44,7 +44,9 @@ import io.github.kkwans.nasfilebrowser.app.*
         if (canDelete || canRestore) IconButton({ selecting = !selecting; selected = emptySet() }, enabled = enabled) {
             Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple), if (selecting) "退出回收站多选" else "多选回收项目")
         }
-        FilewayTextButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) { Text("清空") }
+        IconButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) {
+            Icon(painterResource(R.drawable.ic_trash), "清空回收站", tint = MaterialTheme.colorScheme.error)
+        }
     }) {
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.trash.refresh() }
         state.lastTask?.let { task ->
@@ -107,7 +109,9 @@ import io.github.kkwans.nasfilebrowser.app.*
                     onLongClick = if (canDelete || canRestore) ({ if (enabled && item.status != "restoring") { selecting = true; selected = selected + item.id } }) else null,
                     trailing = {
                         if (!selecting) {
-                            IconButton({ details = item }) { Icon(painterResource(R.drawable.ic_info), "回收站详情：${item.name}") }
+                            if (canRestore) IconButton({ model.trash.restore(item) }, enabled = enabled && item.status == "available") {
+                                Icon(painterResource(R.drawable.ic_restore), "还原：${item.name}", tint = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }) {
                     if (item.status != "available") Text(when (item.status) { "pending" -> "等待完成移入"; "restoring" -> "正在恢复"; "failed" -> "处理失败"; else -> "状态暂不可用" },

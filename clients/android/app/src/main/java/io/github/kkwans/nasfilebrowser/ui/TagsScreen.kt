@@ -84,7 +84,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 tag?.let { selected ->
                     IconButton({ model.tags.filter(selected.id, !currentOnly); model.tab("files") }, enabled = enabled) {
-                        Icon(painterResource(R.drawable.ic_filter), "在文件页筛选此标签")
+                        Icon(painterResource(R.drawable.ic_search), "在文件页筛选此标签")
                     }
                     IconButton({ editing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_edit), "编辑标签") }
                     IconButton({ removing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), "删除标签", tint = MaterialTheme.colorScheme.error) }
@@ -130,7 +130,10 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
         text = { Text("这个标签的全部关联将被取消，文件保持原位。网页端也会同步此变更。") },
         confirmButton = { FilewayTextButton({ model.tags.remove(value); removing = null }, enabled = enabled) { Text("删除标签") } },
         dismissButton = { FilewayTextButton({ removing = null }) { Text("取消") } }) }
-    details?.let { file -> FileDetailsDialog(file, actions = { FileActions(model, file) { details = null } }, onLocation = { details = null; model.openContainingDirectory(file) }, onDismiss = { details = null }) }
+    details?.let { file -> FileDetailsDialog(file, model = model, openEnabled = enabled,
+        onUnassign = tag?.let { chosenTag -> { state.paths.firstOrNull { it.file?.mediaKey == file.mediaKey }?.let { row ->
+            model.tags.removePath(chosenTag, row.ref, state.scope); details = null
+        } } }, actions = { FileActions(model, file) { details = null } }, onLocation = { details = null; model.openContainingDirectory(file) }, onDismiss = { details = null }) }
 }
 
 @OptIn(ExperimentalLayoutApi::class)

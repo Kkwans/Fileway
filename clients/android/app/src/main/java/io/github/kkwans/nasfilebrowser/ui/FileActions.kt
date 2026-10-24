@@ -31,6 +31,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
@@ -40,9 +41,12 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
 
+private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun FileActionIcon(icon: Int, label: String, enabled: Boolean, active: Boolean = false,
     caption: String? = null, onClick: () -> Unit) {
+    val width = LocalFileActionWidth.current
     val foreground = LocalFileOperationForeground.current
     val focus = remember(label) { FocusRequester() }
     val tooltip = rememberTooltipState()
@@ -55,7 +59,7 @@ import kotlinx.coroutines.withTimeout
         if (caption == null) IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp).focusRequester(focus)) {
             Icon(painterResource(icon), label, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
                 else if (active) FilewayTheme.colors.primary else FilewayTheme.colors.onSurfaceVariant)
-        } else FilewayTextButton(onClick, enabled = enabled, modifier = Modifier.widthIn(min = 48.dp).heightIn(min = 64.dp).focusRequester(focus)
+        } else FilewayTextButton(onClick, enabled = enabled, modifier = (if (width == null) Modifier.widthIn(min = 48.dp) else Modifier.width(width)).heightIn(min = 68.dp).focusRequester(focus)
             .background(filewayGlassLayerColor(), RoundedCornerShape(12.dp)).filewayGlassFrame()
             .semantics { contentDescription = label }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -70,6 +74,7 @@ import kotlinx.coroutines.withTimeout
         tooltip = { PlainTooltip { Text(label) } }, state = tooltip) { button() } else button()
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable internal fun FileActions(model: ClientModel, file: ResourceRef, onMoved: () -> Unit = {}) {
     if (model.isTemporaryContent(file)) {
         Text("包内文件 · 解压后可收藏、打标签或修改", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
@@ -111,8 +116,11 @@ import kotlinx.coroutines.withTimeout
     CompositionLocalProvider(LocalFileOperationForeground provides foreground) {
         if (foreground.destination == FileOperationDestination.DETAILS) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    CompositionLocalProvider(LocalFileActionWidth provides ((maxWidth - 16.dp) / 3)) {
+                    FlowRow(Modifier.fillMaxWidth(), maxItemsInEachRow = 3,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         FavoriteFileAction(model, file, enabled)
                         FileActionIcon(R.drawable.ic_tag, "设置文件标签", enabled && !tags.changing, model.tags.assigned(file).isNotEmpty(), caption = "标签") {
                             switch(FileOperationDestination.TAGS, "设置文件标签")
@@ -153,11 +161,12 @@ import kotlinx.coroutines.withTimeout
                                     performExtra(item)
                                 }
                             } else Box {
-                                FileActionIcon(R.drawable.ic_actions, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
+                                FileActionIcon(R.drawable.ic_more_actions, "更多文件操作", enabled && operations.transfer == null, caption = "更多") { more = true }
                                 FilewayMenu(more, { more = false }, items = extraActions, onItemClick = performExtra)
                             }
                         }
                     }
+                }
                 }
                 favorites.error?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR, model.favorites::refresh, "重试") }
                 FilewayToast(downloads.notice)

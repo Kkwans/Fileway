@@ -113,7 +113,7 @@ Column(Modifier.fillMaxSize()) {
                     }
                     Box {
                         IconButton({ browserMenu = true }, enabled = !state.busy) {
-                            Icon(painterResource(R.drawable.ic_actions), "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                            Icon(painterResource(R.drawable.ic_more_actions), "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                         }
                         FilewayMenu(browserMenu, { browserMenu = false }, items = buildList {
                             if (state.permissions.create) {
@@ -215,7 +215,7 @@ Column(Modifier.fillMaxSize()) {
 }
 
         }
-        details?.let { file -> FileDetailsDialog(file, actions = { FileActions(model, file) { details = null } }, onDismiss = { details = null }) }
+        details?.let { file -> FileDetailsDialog(file, model = model, actions = { FileActions(model, file) { details = null } }, onDismiss = { details = null }) }
         operations.batchRename?.let { rename -> BatchRenameSheet(model.fileOperations) {
             selected = emptySet(); selecting = false
             model.openContainingDirectory(rename.files.first())

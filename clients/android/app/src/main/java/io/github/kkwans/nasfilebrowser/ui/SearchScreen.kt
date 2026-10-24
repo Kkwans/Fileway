@@ -132,7 +132,7 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
         }
         details?.let { result ->
             val resource = result.resource(state.resultBasePath, state.resultBaseWirePath)
-            if (resource != null) FileDetailsDialog(resource, openEnabled = !client.busy,
+            if (resource != null) FileDetailsDialog(resource, model = model, openEnabled = !client.busy,
                 actions = { FileActions(model, resource) { details = null } },
                 onLocation = { details = null; model.openContainingDirectory(resource) },
                 onOpen = { if (!model.state.value.busy) { details = null; model.search.openResult(result) } }, onDismiss = { details = null })

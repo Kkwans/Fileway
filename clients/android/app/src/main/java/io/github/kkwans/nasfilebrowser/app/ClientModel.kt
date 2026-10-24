@@ -52,7 +52,7 @@ enum class TaskCenterSection(val route: String, val label: String) {
 }
 enum class LibrarySection(val label: String, val title: String) { FAVORITES("收藏", "收藏夹"), TAGS("标签", "标签"), TRASH("回收站", "回收站"), TASKS("任务", "任务中心"), TOOLS("工具", "存储工具") }
 
-data class ResourceRef(val path: String, val wirePath: String, val name: String, val directory: Boolean, val type: String, val size: Long, val modified: String = "", val downloadId: String = "", val previewWidth: Int = 0, val previewHeight: Int = 0)
+data class ResourceRef(val path: String, val wirePath: String, val name: String, val directory: Boolean, val type: String, val size: Long, val modified: String = "", val downloadId: String = "", val previewWidth: Int = 0, val previewHeight: Int = 0, val created: String = "")
 data class ClientState(
     val startupPending: Boolean = false,
     val connected: Boolean = false, val busy: Boolean = false, val stage: String = "",
@@ -892,6 +892,28 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             if (image.bitmap.width != sprite.sheetWidth || image.bitmap.height != sprite.sheetHeight) return null
             return sprite to image.bitmap
         } finally { withContext(kotlinx.coroutines.NonCancellable) { lease.release() } }
+    }
+    suspend fun resourceMetadata(file: ResourceRef): ResourceRef {
+        val bound = context ?: error("请先连接服务器")
+        check(file.downloadId.isEmpty() && !isTemporaryContent(file)) { "本机文件不读取服务器元数据" }
+        val wire = file.wirePath.ifEmpty { SearchResult.encodePath(file.path) }
+        val row = bound.api.request("GET", "/api/resources$wire?metadata=1")
+        currentCoroutineContext().ensureActive()
+        check(context === bound && generation == bound.generation) { "文件来源已切换" }
+        check(resourceWireBytes(row.optString("wirePath")).contentEquals(resourceWireBytes(wire))) { "文件来源已变化，请刷新核对" }
+        return file.copy(name = row.getString("name"), directory = row.getBoolean("isDir"), type = row.optString("type"),
+            size = row.getLong("size"), modified = row.optString("modified"), created = row.optString("created"))
+    }
+    internal suspend fun directorySize(file: ResourceRef, progress: (Int) -> Unit): DirectorySize {
+        val bound = context ?: error("请先连接服务器")
+        check(file.directory && file.downloadId.isEmpty() && !isTemporaryContent(file))
+        return measureDirectorySize(file, { endpoint ->
+            check(context === bound && generation == bound.generation) { "文件来源已切换" }
+            bound.api.request("GET", endpoint).also {
+                currentCoroutineContext().ensureActive()
+                check(context === bound && generation == bound.generation) { "文件来源已切换" }
+            }
+        }, progress)
     }
     suspend fun subtitleFiles(path: String, wirePath: String): List<ResourceRef> {
         val binding = playback ?: error("视频尚未打开")
