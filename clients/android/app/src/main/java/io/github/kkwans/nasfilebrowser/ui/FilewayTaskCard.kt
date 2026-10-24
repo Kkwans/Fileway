@@ -13,6 +13,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
@@ -43,8 +46,8 @@ internal fun FilewayTaskCard(
     val shape = RoundedCornerShape(12.dp)
     val content: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { icon() }
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) { icon() }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 titleSupporting?.invoke()
@@ -100,7 +103,7 @@ internal fun FilewayTaskIconButton(
     onClick: () -> Unit,
 ) {
     IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
-        Icon(painterResource(icon), label, Modifier.size(22.dp))
+        Icon(painterResource(icon), label, Modifier.size(24.dp))
     }
 }
 
@@ -114,17 +117,31 @@ internal fun transferRuntime(millis: Long, completeHistory: Boolean): String {
     return (if (completeHistory) "用时 " else "升级后用时 ") + value
 }
 
-@Composable internal fun TransferProgressRow(progress: String, fraction: Float, speed: String?, indeterminate: Boolean,
-    toggleEnabled: Boolean, running: Boolean, toggleLabel: String, onToggle: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(listOfNotNull(progress, speed).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (indeterminate) LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
-            else LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
-        }
-        FilewayTaskIconButton(if (running) R.drawable.art_pause else R.drawable.art_play, toggleLabel, toggleEnabled, onToggle)
+/** Progress stays in the information column; primary transport control owns the leading slot. */
+@Composable internal fun TransferProgressRow(progress: String, fraction: Float, speed: String?, indeterminate: Boolean) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(listOfNotNull(progress, speed).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        if (indeterminate) LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
+        else LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
     }
+}
+
+@Composable internal fun TransferPrimaryControl(running: Boolean, label: String, enabled: Boolean, onClick: () -> Unit) {
+    FilewayTonalButton(onClick, Modifier.size(48.dp), enabled = enabled, contentPadding = PaddingValues(0.dp),
+        colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = .09f),
+            contentColor = MaterialTheme.colorScheme.primary)) {
+        Icon(painterResource(if (running) R.drawable.art_pause else R.drawable.art_play), label, Modifier.size(24.dp))
+    }
+}
+
+/** One information axis for short record names, matching the library object rows. */
+@Composable internal fun TaskRecordMeta(status: String, timestamp: Long, color: androidx.compose.ui.graphics.Color) {
+    Text(buildAnnotatedString {
+        withStyle(SpanStyle(color = color)) { append(status) }
+        append(" · "); append(serverTime(timestamp))
+    }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2, overflow = TextOverflow.Ellipsis)
 }
 
 internal fun transferSummary(bytes: Long, millis: Long, completeHistory: Boolean): String =

@@ -63,14 +63,14 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
             }
             if (!selection.active && singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && (state.total > 0 || singleBulk == "archive-ended")) {
                 Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_trash),
-                    if (singleBulk == "batch-unarchive") "恢复全部记录" else "删除全部已结束任务记录", Modifier.size(22.dp),
+                    if (singleBulk == "batch-unarchive") "恢复全部记录" else "删除全部已结束任务记录", Modifier.size(24.dp),
                     tint = if (singleBulk == "batch-unarchive") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
             } else if (!selection.active && state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) {
                 IconButton({ confirmAction(null, "batch-archive") }, enabled = enabled && state.total > 0) {
-                    Icon(painterResource(R.drawable.ic_trash), "删除全部已结束记录", Modifier.size(22.dp), tint = MaterialTheme.colorScheme.error)
+                    Icon(painterResource(R.drawable.ic_trash), "删除全部已结束记录", Modifier.size(24.dp), tint = MaterialTheme.colorScheme.error)
                 }
                 IconButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) {
-                    Icon(painterResource(R.drawable.ic_refresh), "批量重试", Modifier.size(22.dp))
+                    Icon(painterResource(R.drawable.ic_refresh), "批量重试", Modifier.size(24.dp))
                 }
             }
         }
@@ -120,11 +120,8 @@ Column(Modifier.fillMaxSize()) {
                     title = task.title.ifEmpty { task.typeLabel },
                     icon = { Icon(painterResource(serverTaskIcon(task)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     meta = {
-                        Text(task.statusLabel, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                            color = if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(serverTime(if (task.status == "completed") task.finishedAt else task.createdAt), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        TaskRecordMeta(task.statusLabel, if (task.status == "completed") task.finishedAt else task.createdAt,
+                            if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     },
                     actions = {
                         if (!selection.active) FilewayTaskActionStrip(cardActions, onAction = { command ->

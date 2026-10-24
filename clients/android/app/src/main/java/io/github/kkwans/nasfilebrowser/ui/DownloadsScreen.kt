@@ -139,7 +139,10 @@ Column(Modifier.fillMaxSize()) {
                 FilewayTaskCard(
                     title = item.name,
                     icon = {
-                        if (item.complete && completionObserved) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
+                        if (!item.complete && !selection.active) TransferPrimaryControl(item.active,
+                            if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载", !state.busy) {
+                            if (item.active) model.downloads.pause(item) else model.downloads.resume(item)
+                        } else if (item.complete && completionObserved) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                             io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(24.dp),
                             play = completionObserved && LocalFilewayPageActive.current)
                         else Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
@@ -169,11 +172,7 @@ Column(Modifier.fillMaxSize()) {
                             }, moreLabel = "下载操作：${item.name}")
                     },
                 ) {
-                    if (!item.complete) TransferProgressRow(progress, fraction, speed, unknownZip && item.active,
-                        !state.busy && !selection.active, item.active,
-                        if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载") {
-                        if (item.active) model.downloads.pause(item) else model.downloads.resume(item)
-                    }
+                    if (!item.complete) TransferProgressRow(progress, fraction, speed, unknownZip && item.active)
                     if (item.status !in setOf("running", "paused", "completed")) Text(status, style = MaterialTheme.typography.bodySmall,
                         color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,

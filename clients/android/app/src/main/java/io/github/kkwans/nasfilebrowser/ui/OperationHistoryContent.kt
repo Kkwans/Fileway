@@ -101,9 +101,8 @@ Column(Modifier.fillMaxSize()) {
                 FilewayTaskCard(title = target.name.ifEmpty { entry.actionLabel },
                     icon = { Icon(painterResource(R.drawable.ic_history), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     meta = {
-                            Text(if (target.name.isEmpty()) entry.statusLabel else "${entry.actionLabel} · ${entry.statusLabel}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                color = when (entry.status) { "failed" -> MaterialTheme.colorScheme.error; "submitted" -> MaterialTheme.colorScheme.primary; else -> MaterialTheme.colorScheme.onSurfaceVariant })
-                            Text(serverTime(entry.createdAt), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TaskRecordMeta(if (target.name.isEmpty()) entry.statusLabel else "${entry.actionLabel} · ${entry.statusLabel}", entry.createdAt,
+                            when (entry.status) { "failed" -> MaterialTheme.colorScheme.error; "submitted" -> MaterialTheme.colorScheme.primary; else -> MaterialTheme.colorScheme.onSurfaceVariant })
                     }, onClick = { if (selection.active) selection.toggle(entry.id) else detail = entry },
                     onLongClick = { if (enabled) selection.start(entry.id) }, selected = entry.id in selection.ids,
                     actions = { if (!selection.active) IconButton({ controller.deleteSelected(setOf(entry.id)) }, enabled = enabled && !state.showingPreviousFilter) {
