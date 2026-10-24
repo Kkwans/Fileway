@@ -21,6 +21,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private readonly IPlaybackSession _session;
     private readonly Fileway.Core.Contracts.IRemoteSubtitleSource? _remoteSubtitles;
     private readonly Fileway.Core.Contracts.IRemoteEpisodeSource? _remoteEpisodes;
+    private SystemMediaController? _systemMedia;
     private IReadOnlyList<Fileway.Core.Contracts.RemoteMediaOption>? _episodeCache;
     private Fileway.Core.Contracts.RemoteResourceRef? _episodeCacheOrigin;
     private string? _advanceAttemptedWire;
@@ -92,6 +93,12 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _root.PointerCaptureLost += (_, _) => CancelVideoInput(PlaybackVideoInputSurface.Root);
         Content = _root;
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _systemMedia = SystemMediaController.TryCreate(_window,
+            play: () => DispatcherQueue.TryEnqueue(() => { if (!_closing && !_disposed && !_detached) _ = RunCommandAsync(() => _session.SetPausedAsync(false, _watchCancellation.Token)); }),
+            pause: () => DispatcherQueue.TryEnqueue(() => { if (!_closing && !_disposed && !_detached) _ = RunCommandAsync(() => _session.SetPausedAsync(true, _watchCancellation.Token)); }),
+            next: () => DispatcherQueue.TryEnqueue(() => { if (!_closing && !_disposed && !_detached) _ = PlayEpisodeOffsetAsync(+1, announce: true); }),
+            previous: () => DispatcherQueue.TryEnqueue(() => { if (!_closing && !_disposed && !_detached) _ = PlayEpisodeOffsetAsync(-1, announce: true); }),
+            stop: () => DispatcherQueue.TryEnqueue(BeginClose));
         _videoGestureTimer = DispatcherQueue.CreateTimer();
         _videoGestureTimer.IsRepeating = false;
         _videoGestureTimer.Tick += VideoGestureTimer_Tick;
@@ -151,7 +158,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
                 DispatcherQueue.TryEnqueue(() => { UpdateBounds(); _overlay.SynchronizePointerPosition(); });
         };
         AppWindow.Closing += (_, args) => { if (_disposed) return; args.Cancel = true; BeginClose(); };
-        Closed += (_, _) => { _bufferingTimer.Stop(); _boundsTimer.Stop(); CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); if (!_disposed) _watchCancellation.Cancel(); };
+        Closed += (_, _) => { _bufferingTimer.Stop(); _boundsTimer.Stop(); CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); _systemMedia?.Dispose(); if (!_disposed) _watchCancellation.Cancel(); };
         _ = WatchAsync();
     }
 
@@ -554,6 +561,19 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         var transientLoading = waiting && _bufferingSince is { } since && TimeProvider.System.GetElapsedTime(since) >= TimeSpan.FromMilliseconds(500);
         _overlay.ApplySnapshot(snapshot, transientLoading);
         // Stop retains any prior failure metadata. Closing must still happen.
+        if (_systemMedia is { } systemMedia)
+        {
+            systemMedia.Update(snapshot.DisplayName, snapshot.Status switch
+            {
+                PlaybackStatus.Playing => global::Windows.Media.MediaPlaybackStatus.Playing,
+                PlaybackStatus.Preparing or PlaybackStatus.Buffering or PlaybackStatus.Seeking =>
+                    global::Windows.Media.MediaPlaybackStatus.Changing,
+                PlaybackStatus.Paused => global::Windows.Media.MediaPlaybackStatus.Paused,
+                PlaybackStatus.Ended => global::Windows.Media.MediaPlaybackStatus.Stopped,
+                PlaybackStatus.Failed => global::Windows.Media.MediaPlaybackStatus.Stopped,
+                _ => global::Windows.Media.MediaPlaybackStatus.Closed,
+            });
+        }
         if (snapshot.Status == PlaybackStatus.Stopped) { BeginClose(); return; }
         if (snapshot.Error is { } error) { ShowState("无法播放这个视频", error.Message, loading: false); return; }
         switch (snapshot.Status)
@@ -788,17 +808,36 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             var origin = _session.Snapshot.Origin;
             if (origin is null || _advanceAttemptedWire == origin.WirePath) return;
             _advanceAttemptedWire = origin.WirePath;
-            var options = await EpisodesAsync();
-            if (options is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested) return;
-            int index = -1;
-            for (int position = 0; position < options.Count; position++)
-                if (options[position].Resource.WirePath == origin.WirePath) { index = position; break; }
-            if (index < 0 || index + 1 >= options.Count) return;
-            var next = options[index + 1];
-            await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(next.Resource), _watchCancellation.Token));
-            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("自动播放下一集：" + next.Resource.DisplayName); });
+            await PlayEpisodeOffsetAsync(+1, announce: true);
         }
         catch (Exception) { /* 自动连播失败不打断当前结束状态。 */ }
+    }
+
+    /// <summary>
+    /// Plays a neighboring same-directory media by offset. Also refreshes the system media
+    /// controller's next/previous availability from the fetched ordering.
+    /// </summary>
+    private async Task PlayEpisodeOffsetAsync(int offset, bool announce)
+    {
+        var origin = _session.Snapshot.Origin;
+        if (origin is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested) return;
+        var options = await EpisodesAsync();
+        if (options is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested) return;
+        int index = -1;
+        for (int position = 0; position < options.Count; position++)
+            if (options[position].Resource.WirePath == origin.WirePath) { index = position; break; }
+        if (index < 0) return;
+        if (_systemMedia is { } media)
+        {
+            media.NextEnabled = index + 1 < options.Count;
+            media.PreviousEnabled = index - 1 >= 0;
+        }
+        int target = index + offset;
+        if (target < 0 || target >= options.Count) return;
+        var neighbor = options[target];
+        await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(neighbor.Resource), _watchCancellation.Token));
+        if (announce)
+            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError((offset > 0 ? "已切换下一集：" : "已切换上一集：") + neighbor.Resource.DisplayName); });
     }
 
     private async Task AddRemoteSubtitleAsync()
