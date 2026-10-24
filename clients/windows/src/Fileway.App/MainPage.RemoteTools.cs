@@ -21,6 +21,8 @@ public sealed partial class MainPage
         StorageAnalysisPane.Attach(_storageAnalysis
             ?? throw new InvalidOperationException("存储分析服务不可用。"),
             _storageAnalysis as IDuplicateAnalysisService);
+        if (_storageAnalysis is IAdminUserService adminUsers && _session is { } adminSession)
+            StorageAnalysisPane.AttachAdmin(adminUsers, adminSession.DisplayName);
         UpdateRemoteToolsContext();
     }
 
