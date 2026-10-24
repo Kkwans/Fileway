@@ -12,8 +12,19 @@ public sealed partial class MainPage
         _downloadOperationBusy = true;
         try
         {
-            AcceptDownloadItem(await service.SetPausedAsync(item.Context, task, item.CanPause, _lifetime.Token));
-            if (item.CanPause && IsCurrentDownloadContext(item.Context)) SetNotice("下载已暂停", "可在本次运行中继续；彻底退出后尚不能续传，关闭到托盘会保留。", InfoBarSeverity.Informational);
+            // A live in-process pause keeps Phase Running with Pause intent; everything else
+            // resumable is an interrupted task that re-enters through durable resume.
+            bool inProcess = item.CanPause || item.Snapshot.Phase == TransferPhase.Running && item.Snapshot.Intent == TransferIntent.Pause;
+            if (inProcess)
+            {
+                AcceptDownloadItem(await service.SetPausedAsync(item.Context, task, item.CanPause, _lifetime.Token));
+                if (item.CanPause && IsCurrentDownloadContext(item.Context)) SetNotice("下载已暂停", "暂停保留当前进度，可随时继续；关闭应用后也会从已确认的保存位置续传。", InfoBarSeverity.Informational);
+            }
+            else
+            {
+                AcceptDownloadItem(await service.ResumeAsync(item.Context, task, _lifetime.Token));
+                if (IsCurrentDownloadContext(item.Context)) SetNotice("继续下载", "已重新排队，将从上次确认的保存位置继续，并先核对远端文件版本。", InfoBarSeverity.Informational);
+            }
         }
         catch (Exception error) { if (IsCurrentDownloadContext(item.Context)) SetNotice("下载操作未完成", ErrorMessage(error), InfoBarSeverity.Warning); }
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }

@@ -16,9 +16,13 @@ public interface IDownloadDestination : IAsyncDisposable
     long Length { get; }
     Task WriteAsync(ReadOnlyMemory<byte> bytes, CancellationToken cancellationToken);
     Task<long> FlushToDiskAsync(CancellationToken cancellationToken);
+    /// <summary>Same-handle truncation of an owned unpublished partial; it never extends or replaces the file.</summary>
+    Task TruncateAsync(long length, CancellationToken cancellationToken) => Task.FromException(NotSupported());
     Task<DownloadLocalFileHash> CalculateSha256Async(CancellationToken cancellationToken);
     Task<string> PublishNoReplaceAsync(CancellationToken cancellationToken);
     Task DeleteOwnedPartialAsync(CancellationToken cancellationToken);
+
+    private static NotSupportedException NotSupported() => new("此本地文件能力不支持截断已持有的下载临时文件。");
 }
 
 public interface IDownloadDestinationProvider
@@ -47,4 +51,14 @@ public interface IFileDownloadRunner : IAsyncDisposable
 public interface IActiveDownloadPauseControl
 {
     Task<TransferTaskRecord> SetPausedAsync(TransferTaskRef task, bool paused, CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// Optional durable resume. It requires checkpoint evidence with a pinned source version, a
+/// confirmed flushed offset and positively owned partial identity; a fresh-only runner or an
+/// unversioned (legacy-server) task never gains resume through this surface.
+/// </summary>
+public interface IFileDownloadResumeControl
+{
+    Task<TransferTaskRecord> ResumeAsync(TransferTaskRef task, CancellationToken cancellationToken);
 }

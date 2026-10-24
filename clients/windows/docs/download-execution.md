@@ -1,9 +1,45 @@
-# 单文件 fresh 下载
+# 单文件 fresh 下载与 0.3.5 Range 续传
 
-`FileDownloadRunner` 连接下载源、schema 6 持久任务与 Windows 本地文件能力。
-本切片只处理明确确认的单文件，从头读取，`Fail` 不覆盖，`AutomaticResume=false`。
-0.3.1 增加当前进程活动下载的暂停/继续，不提供 Range 断点续传、目录批次或启动自动执行。
-列表与本地核实不会发起下载。
+`FileDownloadRunner` 连接下载源、schema 6/7 持久任务与 Windows 本地文件能力。
+明确确认的单文件默认从头读取，`Fail` 不覆盖；服务端声明 `conditionalDownloadV1` 时，
+下载从准备阶段起就绑定 opaque `sourceVersion`（快照写入 checkpoint.Source），这正是后续
+断点续传的身份前提。旧服务端无该能力时保持原 fresh-only 语义，续传入口对其不可用。
+
+0.3.1 增加当前进程活动下载的暂停/继续。0.3.5 增加跨进程/跨重启的 Range 断点续传：
+进程内暂停仍保留原 HTTP 响应与句柄（不是续传）；挂起、崩溃或可重试失败后，
+由持久证据（pinned sourceVersion + 已确认 flush 偏移 + 已持有的 partial 文件身份）授权
+`ResumeAsync` 重新进入同一 FIFO 单 writer 队列。列表与本地核实本身不会发起下载或续传。
+
+## Range 续传契约（0.3.5）
+
+- 续传准入是持久证据而非 UI 状态：`Source.SourceVersion` 非空、`Files` 含未发布
+  partial 身份、`ConfirmedOffset` 已确认、无 Uncertainty；相位为 Paused/Running(陈旧 run)/
+  Reconciling(本执行器自己的恢复 claim)/WaitingNetwork/WaitingAuthentication/Failed。
+  恢复执行先在本任务 OS 锁下把意图翻回 Run，再以 recovery claim 围栏陈旧 run。
+- 重新观察源：版本、长度或修改时间与快照不一致即拒绝续传（`SourceChanged`），
+  删除 partial 收束任务；版本变更绝不续传。校验和经
+  `CalculateConditionalDownloadChecksumAsync` 绑定同一版本（前后观察与 pinned 版本一致）。
+- partial 以 `OpenOwnedAsync` 重开并核对 128 位身份；长于 `ConfirmedOffset` 的未确认
+  尾部先截断（同句柄 `FileEndOfInformation`），短于确认偏移视为证据损坏，删除并失败。
+- Range 请求要求精确 `206` 与 `Content-Range: bytes offset-(total-1)/total` 且响应
+  `X-Fileway-Source-Version` 与 pinned 版本一致；对 Range 请求返回 `200` 一律拒绝
+  （不追加、不盲目重开），`412/416` 按源变化处理。
+- 版本化接收每 `CheckpointInterval`（默认 30 秒）flush 并持久化确认偏移，崩溃最多
+  损失一个间隔的已接收字节；完成校验仍从持有句柄重读全文件 SHA-256，前缀不需要
+  可序列化的哈希状态。
+- 失败语义：版本化任务的取消以外失败保留 partial 并落入可恢复相位
+  （认证过期→WaitingAuthentication、网络/超时→WaitingNetwork、其余→Failed 并保留错误）；
+  显式用户取消与源变化仍删除 partial。发布不确定路径不变（先核实）。
+- 退出排空优先"挂起"：对符合条件的版本化执行持久化 Pause 意图、等待有界的
+  flush 确认后停止，保留 partial 与确认偏移（相位 Paused、释放 run）；不符合条件的
+  执行保持原取消清理语义。发布中（Publishing）的任务不挂起，仍走核实路径。
+- 传输中心的继续按钮按证据路由：进程内暂停（Running+Pause 意图）走原暂停控制，
+  其余可恢复任务走 `ResumeAsync`。"连接后自动继续未完成的下载"是存储设置中的
+  显式偏好（schema 7，默认关闭），开启后每次连接把有持久证据的中断任务批量重新
+  排队（`ResumeEligibleAsync`，仍受队列上限约束）。
+
+已恢复执行的 partial 不提供边下边播读取准入（`OpenOwnedAsync` 不授予 reader admission）；
+边下边播与历史完成下载重开保持各自独立边界。
 
 0.3.4 的应用层接受当前进程内最多 100 个已确认 fresh 任务，按 FIFO 单 writer 执行。
 批量确认前只预检，不创建或开始下载；确认后目录浏览不取消已确认的清单，但账号、会话、权限及退出仍使其失效。
@@ -16,7 +52,8 @@
 保留 run、HTTP 响应与同一文件句柄，不能使用会释放 run 的通用 Paused checkpoint。
 继续恢复 Run 意图并等待执行器确认，避免快速暂停/继续覆盖前一轮信号。
 取消会唤醒暂停等待，仍遵循原发布及取消语义。暂停不重新 GET、不重开 partial；
-长暂停导致上游连接断开时保持安全失败，关闭应用不等于可在下一次启动续传。
+长暂停导致上游连接断开时保持安全失败。进程内暂停不是 Range 续传；退出时的挂起与
+崩溃后的重启恢复见上方 0.3.5 契约。
 
 传输中心先展示下载，使用接收字节增量计算实时速度与预计剩余时间，完成时间和耗时来自持久记录。
 删除运行任务先取消并等待原执行及播放 reader 排空；仅允许按 revision 删除无 run、无未知结果的终态记录。

@@ -13,10 +13,13 @@ public sealed record FileDownloadRunnerOptions
     public TimeSpan ProgressInterval { get; init; } = TimeSpan.FromMilliseconds(200);
     public TimeSpan ControlCallTimeout { get; init; } = TimeSpan.FromSeconds(30);
     public TimeSpan PersistenceTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    /// <summary>Upper bound between durable flushed-offset checkpoints during a versioned receive.</summary>
+    public TimeSpan CheckpointInterval { get; init; } = TimeSpan.FromSeconds(30);
 }
 
 /// <summary>One explicit fresh file at a time. Construction, listing and reconciliation never initiate a GET.</summary>
-public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownloadReadLeaseProvider, IActiveDownloadPauseControl
+public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownloadReadLeaseProvider,
+    IActiveDownloadPauseControl, IFileDownloadResumeControl
 {
     private readonly ITransferTaskStore _store;
     private readonly IDownloadSourceProvider _sources;
@@ -45,7 +48,8 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             _options.RequestIdleTimeout <= TimeSpan.Zero || _options.RequestIdleTimeout > TimeSpan.FromHours(1) ||
             _options.ProgressInterval < TimeSpan.FromMilliseconds(200) || _options.ProgressInterval > TimeSpan.FromSeconds(30) ||
             _options.ControlCallTimeout <= TimeSpan.Zero || _options.ControlCallTimeout > TimeSpan.FromMinutes(5) ||
-            _options.PersistenceTimeout <= TimeSpan.Zero || _options.PersistenceTimeout > TimeSpan.FromMinutes(5))
+            _options.PersistenceTimeout <= TimeSpan.Zero || _options.PersistenceTimeout > TimeSpan.FromMinutes(5) ||
+            _options.CheckpointInterval < TimeSpan.FromSeconds(5) || _options.CheckpointInterval > TimeSpan.FromMinutes(10))
             throw Safe(ErrorCode.InvalidRequest);
         _store = store; _sources = sources; _destinations = destinations; _executionLocks = executionLocks;
         _http = new(handler ?? new SocketsHttpHandler
@@ -176,12 +180,17 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         RequirePlan(record);
         if (IsTerminal(record)) return record;
         if (execution.Mode == ExecutionMode.Fresh) RequireFresh(record);
+        if (execution.Mode == ExecutionMode.Resume) RequireResumable(record);
+        if (execution.Mode == ExecutionMode.Resume) record = await SetIntentRunAsync(record, execution.Stop.Token).ConfigureAwait(false);
         record = await ClaimAsync(record, execution.Mode != ExecutionMode.Fresh, execution.Stop.Token).ConfigureAwait(false);
         if (record.Run is null || IsTerminal(record)) return record;
         var state = new RunState(execution, record);
-        return execution.Mode == ExecutionMode.Fresh
-            ? await DownloadAsync(state).ConfigureAwait(false)
-            : await ReconcileLocalAsync(state).ConfigureAwait(false);
+        return execution.Mode switch
+        {
+            ExecutionMode.Fresh => await DownloadAsync(state).ConfigureAwait(false),
+            ExecutionMode.Resume => await ResumeDownloadAsync(state).ConfigureAwait(false),
+            _ => await ReconcileLocalAsync(state).ConfigureAwait(false),
+        };
     }
 
     private async Task<TransferTaskRecord> DownloadAsync(RunState state)
@@ -191,11 +200,22 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         try
         {
             await CheckIntentAsync(state).ConfigureAwait(false);
-            var metadata = await ControlAsync(token => _sources.PrepareDownloadAsync(state.Source, token),
+            // Conditional-first: a server that advertises conditionalDownloadV1 pins the source
+            // version for the whole task, which is what later durable resume requires.
+            var conditionalProvider = ConditionalProvider(state);
+            var metadata = await ControlAsync(token => conditionalProvider is not null
+                ? conditionalProvider.PrepareConditionalDownloadAsync(state.Source, token)
+                : _sources.PrepareDownloadAsync(state.Source, token),
                 state.Execution.Stop.Token).ConfigureAwait(false);
-            RequireRemote(state, metadata.Resource);
+            if (conditionalProvider is not null)
+            {
+                string pinned = metadata.Resource.SourceVersion ?? throw Safe(ErrorCode.CapabilityMissing);
+                RequireRemoteConditional(state, metadata.Resource, pinned);
+                state.ConditionalVersion = pinned;
+            }
+            else RequireRemote(state, metadata.Resource);
             if (metadata.IsDirectory || metadata.Size < 0) throw Safe(ErrorCode.ProtocolMismatch);
-            var snapshot = new TransferSourceSnapshot(metadata.Size, metadata.Modified?.ToUniversalTime());
+            var snapshot = new TransferSourceSnapshot(metadata.Size, metadata.Modified?.ToUniversalTime(), state.ConditionalVersion);
             await SaveAsync(state, state.Record.Checkpoint with { Source = snapshot }, release: false).ConfigureAwait(false);
             await CheckIntentAsync(state).ConfigureAwait(false);
             destination = await AcquireFreshDestinationAsync(state).ConfigureAwait(false);
@@ -206,13 +226,25 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             { Phase = TransferPhase.Running, Files = destination.Files, ConfirmedOffset = 0 }, release: false).ConfigureAwait(false);
             AcceptReaderDestination(state, destination);
             await CheckIntentAsync(state).ConfigureAwait(false);
-            lease = await AcquireOwnedAsync(token => _sources.AcquireDownloadAsync(new(state.Source, snapshot.Length), token),
-                state, state.Execution.Stop.Token).ConfigureAwait(false);
-            RequireRemote(state, lease.Resource);
-            if (lease.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
-            if (lease.Length != snapshot.Length) throw Safe(ErrorCode.SourceChanged);
-            RequireAddress(lease.Address);
-            await ReceiveAsync(state, destination, lease).ConfigureAwait(false);
+            if (state.ConditionalVersion is { } version)
+            {
+                lease = await AcquireOwnedAsync(token => conditionalProvider!.AcquireConditionalDownloadAsync(
+                    new(state.Source, snapshot.Length, version), token), state, state.Execution.Stop.Token).ConfigureAwait(false);
+                RequireRemoteConditional(state, lease.Resource, version);
+                if (lease.Length != snapshot.Length) throw Safe(ErrorCode.SourceChanged);
+                RequireAddress(lease.Address);
+                await ReceiveRangeAsync(state, destination, lease, 0).ConfigureAwait(false);
+            }
+            else
+            {
+                lease = await AcquireOwnedAsync(token => _sources.AcquireDownloadAsync(new(state.Source, snapshot.Length), token),
+                    state, state.Execution.Stop.Token).ConfigureAwait(false);
+                RequireRemote(state, lease.Resource);
+                if (lease.SourceVersion is not null) throw Safe(ErrorCode.CapabilityMissing);
+                if (lease.Length != snapshot.Length) throw Safe(ErrorCode.SourceChanged);
+                RequireAddress(lease.Address);
+                await ReceiveAsync(state, destination, lease).ConfigureAwait(false);
+            }
             await CheckIntentAsync(state).ConfigureAwait(false);
             long flushed = await destination.FlushToDiskAsync(state.Execution.Stop.Token).ConfigureAwait(false);
             if (flushed != snapshot.Length || destination.Length != snapshot.Length) throw Safe(ErrorCode.SourceChanged);
@@ -223,12 +255,23 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             { Phase = TransferPhase.Verifying, ConfirmedOffset = flushed, LocalSha256 = localHash }, release: false).ConfigureAwait(false);
             await CheckIntentAsync(state).ConfigureAwait(false);
             // Do not apply the short control budget to the provider's existing sixteen-minute checksum read.
-            var server = await _sources.CalculateDownloadChecksumAsync(new(state.Source, snapshot.Length),
-                state.Execution.Stop.Token).ConfigureAwait(false);
-            RequireRemote(state, server.Resource);
+            var server = state.ConditionalVersion is { } verifyVersion
+                ? await conditionalProvider!.CalculateConditionalDownloadChecksumAsync(
+                    new(state.Source, snapshot.Length, verifyVersion), state.Execution.Stop.Token).ConfigureAwait(false)
+                : await _sources.CalculateDownloadChecksumAsync(new(state.Source, snapshot.Length),
+                    state.Execution.Stop.Token).ConfigureAwait(false);
+            if (state.ConditionalVersion is { } expected)
+            {
+                RequireRemoteConditional(state, server.Resource, expected);
+                if (server.Modified?.ToUniversalTime() != snapshot.Modified) throw Safe(ErrorCode.SourceChanged);
+            }
+            else
+            {
+                RequireRemote(state, server.Resource);
+                if (server.Modified?.ToUniversalTime() != snapshot.Modified) throw Safe(ErrorCode.SourceChanged);
+            }
             if (server.Algorithm != ChecksumAlgorithm.Sha256) throw Safe(ErrorCode.ProtocolMismatch);
-            if (server.Size != snapshot.Length || server.Modified?.ToUniversalTime() != snapshot.Modified)
-                throw Safe(ErrorCode.SourceChanged);
+            if (server.Size != snapshot.Length) throw Safe(ErrorCode.SourceChanged);
             string serverHash = RequireHash(server.Digest);
             if (!StringComparer.Ordinal.Equals(localHash, serverHash)) throw Safe(ErrorCode.SourceChanged);
             await SaveAsync(state, state.Record.Checkpoint with { ServerSha256 = serverHash }, release: false).ConfigureAwait(false);
@@ -315,7 +358,9 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
 
     private async Task<TransferTaskRecord> FinishFailureAsync(RunState state, IDownloadDestination? destination, FilewayException failure)
     {
-        if (failure.Error.Code == ErrorCode.Canceled || state.RejectedDestinationWasCanceled)
+        // A drain suspension keeps Pause intent; it must not persist a user Cancel here.
+        bool suspendCancellation = failure.Error.Code == ErrorCode.Canceled && state.Execution.SuspendRequested && state.DestinationAccepted;
+        if (failure.Error.Code == ErrorCode.Canceled && !suspendCancellation || state.RejectedDestinationWasCanceled)
         {
             // Caller cancellation remains durable even when an unconfirmed rejected-file
             // cleanup takes precedence over its Canceled result.
@@ -339,6 +384,34 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             // Even a cancellation or failed acknowledgement after rename cannot erase the final file.
             if (state.PersistenceFailed) throw Safe(ErrorCode.LocalStorageUnavailable);
             return await UnknownAsync(state, failure.Error).ConfigureAwait(false);
+        }
+        if (destination is not null && state.DestinationAccepted && PreservesResumePartial(state, failure))
+        {
+            // A pinned-version task keeps its partial and confirmed flushed prefix for durable
+            // resume: an interrupted transfer is not a completed download, and deleting the
+            // prefix here would make restart recovery worthless.
+            if (state.PersistenceFailed) throw Safe(ErrorCode.LocalStorageUnavailable);
+            long flushed = state.Record.Checkpoint.ConfirmedOffset ?? 0;
+            try
+            {
+                var confirmed = await destination.FlushToDiskAsync(CancellationToken.None).ConfigureAwait(false);
+                if (confirmed >= flushed) flushed = confirmed;
+            }
+            catch (Exception error) when (error is FilewayException or IOException or UnauthorizedAccessException or InvalidOperationException)
+            {
+                // The last durably confirmed offset stays authoritative when the tail cannot flush.
+            }
+            bool suspended = failure.Error.Code == ErrorCode.Canceled;
+            var preservedPhase = failure.Error.Code switch
+            {
+                ErrorCode.Canceled => TransferPhase.Paused,
+                ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable => TransferPhase.WaitingAuthentication,
+                ErrorCode.NetworkUnavailable or ErrorCode.Timeout or ErrorCode.HostExited => TransferPhase.WaitingNetwork,
+                _ => TransferPhase.Failed,
+            };
+            await SaveAsync(state, state.Record.Checkpoint with
+            { Phase = preservedPhase, ConfirmedOffset = flushed, Error = suspended ? null : failure.Error }, release: true).ConfigureAwait(false);
+            return state.Record;
         }
         if (destination is not null && state.DestinationAccepted)
         {
@@ -408,9 +481,9 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         {
             if (execution is not null)
             {
-                try { _ = await SetCancelAsync(execution.Task, CancellationToken.None).ConfigureAwait(false); }
-                catch (Exception error) { failure = Normalize(error); }
-                var stopFailure = await StopAsync(execution).ConfigureAwait(false);
+                // Drain first tries a suspension that keeps the pinned-version partial and its
+                // confirmed offset for restart resume; only an ineligible execution is canceled.
+                var stopFailure = await SuspendOrStopAsync(execution).ConfigureAwait(false);
                 failure ??= stopFailure;
                 try { _ = await execution.Completion.Task.ConfigureAwait(false); }
                 catch (Exception error) { failure ??= Normalize(error); }
@@ -496,7 +569,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         }
     }
 
-    private enum ExecutionMode { Fresh, Reconcile }
+    private enum ExecutionMode { Fresh, Reconcile, Resume }
     private sealed class Execution(TransferTaskRef task, ExecutionMode mode, CancellationToken caller)
     {
         internal TransferTaskRef Task { get; } = task;
@@ -510,6 +583,8 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         internal long ReceivedBytes;
         internal DownloadTaskProgress? PendingProgress;
         internal int PublishingProgress;
+        // Drain requests suspension (keep partial/checkpoint) rather than user-style cancellation.
+        internal volatile bool SuspendRequested;
         internal TaskCompletionSource ResumeGate = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Paused = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource Resumed = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -521,7 +596,9 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         internal TransferRunToken Run { get; } = record.Run ?? throw Safe(ErrorCode.Conflict);
         internal RemoteResourceRef Source { get; } = new(record.Plan.Remote.Account, record.Plan.Remote.WirePath,
             record.Plan.Remote.DisplayName, record.Plan.Remote.DisplayPath);
+        internal string? ConditionalVersion;
         internal bool DestinationAccepted;
+        internal bool ResumeEvidenceBroken;
         internal bool PublishAttempted;
         internal IDownloadDestination? Destination;
         internal bool PersistenceFailed;

@@ -49,7 +49,7 @@
 | 雪碧图/分辨率 | 服务端媒体雪碧图状态与悬停 tile 预览已接；工具栏常用清晰度名，精确尺寸在媒体信息 | 源分辨率标签不是 HLS 多画质；选集、画质切换、后台转码未完成 | `ScreenboxPlayerControls.Sprites.cs`、`Services/` 的 VideoSprites 实现 |
 | 缓存/预加载 | 视频磁盘缓存与预读、真实引擎时间区间和上游速率；缩略图/原图共池；默认总额 5 GB、自定义缓存/下载目录、清理 | 缓存不是完整离线下载；目录变更不静默迁移旧数据；活跃缓存与账号隔离仍需后续候选集中验收 | `Services/LocalStorageSettingsService*.cs`、`src/Fileway.Playback/PlaybackCacheState.cs`、共享 `transport/cache.go` |
 | 上传 | 普通单文件 TUS、持久任务、确认偏移、显式上传队列、暂停/取消/手动恢复、切账号/退出排空 | 不等于目录上传/拖入文件夹/重启自动恢复完整旅程；不得用已发送字节冒充远端接受 | `MainPage.Uploads.cs`、`Services/UploadApplicationService.Uploads.cs`、`docs/upload-execution.md` |
-| 下载 | 普通文件从头下载、另存为本地名、实际路径确认、不覆盖目标、句柄归属、flush/checkpoint、内部 SHA-256、发布与未知结果核实；0.3.4 多文件队列 | 仅固定本地卷；UNC/映射盘/reparse 安全能力未支持；暂停保持原 HTTP 响应和句柄，非 Range 续传；另存为不修改远端名 | `MainPage.Downloads.cs`、`MainPage.BatchDownloads.cs`、`Transfers/FileDownloadRunner*.cs`、`WindowsDownloadFileAccess.cs` |
+| 下载 | 普通文件从头下载、另存为本地名、实际路径确认、不覆盖目标、句柄归属、flush/checkpoint、内部 SHA-256、发布与未知结果核实；0.3.4 多文件队列；0.3.5 版本绑定 fresh 与 Range 续传/重启恢复、挂起保留 partial、人工/自动恢复偏好（schema 7，默认手动） | 仅固定本地卷；UNC/映射盘/reparse 安全能力未支持；旧服务端（无 conditionalDownloadV1）保持 fresh-only 不续传；续传执行期间不提供该 partial 的边下边播准入；另存为不修改远端名 | `MainPage.Downloads.cs`、`MainPage.BatchDownloads.cs`、`Transfers/FileDownloadRunner*.cs`、`WindowsDownloadFileAccess.cs` |
 | 传输中心 | 下载在前、上传在后，当前账号分页记录，实时速度/ETA/耗时、暂停继续/取消/删除；删除完成本地文件需额外勾选，默认保留 | 删除不能操作 NAS 源文件或陌生同名文件；历史记录不自动启动；目录/归档/重启恢复未完成 | `src/Fileway.App/Controls/` 传输控件、`Services/UploadApplicationService.Download*.cs` |
 | 边下边播 | 活动视频下载读取同一持有文件的连续前缀；缺失部分可用认证 Range；取消/撤权唤醒并排空；播放器单独显示下载字节/写盘证据 | 非完整任意容器/索引支持；非已完成历史任务重开；Y4M `vo=null` 旧证据不代表可见 UI 或 MP4/MKV 全通过 | `Services/UploadApplicationService.DownloadPlayback.cs`、`Transfers/FileDownloadRunner.Readers.cs`、`Native/MpvDownloadStreamBridge.cs` |
 | 主界面/材质 | 无原生顶栏边框；全局菜单、可折叠可调宽侧栏、主内容不透明；中性雾灰默认、实时桌面 Acrylic/壁纸 Mica 可选；暗色/高对比回退 | 统一下拉、焦点、窄窗、字体裁切和所有页面仍需用户确认；不因 API 启用材质即宣称美观 | `Windowing/FramelessWindowChrome.cs`、`Controls/ChoiceBox.cs`、样式资源 |
@@ -78,7 +78,7 @@ SQLite 为当前用户单机嵌入式持久化，不引入 MySQL 服务，不导
 | --- | --- | --- | --- |
 | P-01 | P0 | 播放器退出 C0000409 / fast-fail 10 已定责：外部安装的 ANSI Windows 钩子过程经 `USER32!DispatchHookA` 派发时指向已释放内存，非 Fileway callback/窗口/native 生命周期缺陷（证据链见 `docs/player-exit-cfg-analysis.md`） | 待重新授权后用有界实时捕获指认外部钩子所有者；在无陈旧钩子环境取得未附加调试器的应用与 Host 双零退出证据后才可关闭；CFG 与安全机制保持 |
 | P-02 | P1 | 0.3.3/0.3.4 下拉、收藏/标签、详情、回收站和队列视觉及交互尚未完成用户验收 | 整理用户一轮反馈、按共同组件修复；维持已认可播放器及清晰 Fluent，不再逐页发明样式 |
-| P-03 | P1 | 下载 Range 断点续传和重启恢复未实现；进程内暂停不是续传 | 先固定源版本、确认偏移、原生文件身份、发布/核实边界，再启用恢复；200 不追加、版本变更拒绝续传 |
+| P-03 | 已实现待验收 | 0.3.5 已接入下载 Range 续传与重启恢复：pinned sourceVersion、确认偏移、partial 身份、200 不追加、版本变更拒绝、退出挂起保留、人工/自动恢复偏好（schema 7） | 真实 NAS 大文件续传、崩溃/退出重启旅程与自动恢复偏好由用户人工验收；旧服务端保持 fresh-only |
 | P-04 | P1 | 已完成历史下载无法从传输列表重新播放 | 新增只读准入：当前账号/任务/完成事实/最终文件身份核实后持有原生句柄；不只放开按钮，不增加写入或删除权限 |
 | P-05 | P1 | 任意 MP4/MKV、尾部索引和大跨度跳转的边下边播尚未完整验收 | 对齐 Android 的 DownloadDataSource/DownloadIndex/PlayerScreen 语义；本地前缀/认证远端缺失数据与保存进度隔离，关闭/取消无互等 |
 | P-06 | P1 | 目录上传下载、批次子项、非法名称映射和归档下载未交付 | 有界枚举、预览/冲突确认、逐项结果；动态归档不可假装 Range 恢复，失败不重做已确认项 |

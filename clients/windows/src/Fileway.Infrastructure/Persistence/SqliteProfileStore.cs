@@ -8,7 +8,7 @@ namespace Fileway.Infrastructure.Persistence;
 /// <summary>Versioned, credential-free profile storage with durable logout intent.</summary>
 public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore, ITransferTaskStore
 {
-    private const int SchemaVersion = 6;
+    private const int SchemaVersion = 7;
     private const int BusyTimeoutSeconds = 3;
     private const string Columns = "profile_id, source_revision, display_name, base_address, network_mode, proxy_mode, proxy_address, authentication_mode, username, server_user_id, keep_signed_in, last_connected_at";
     private const string AccountPredicate = "profile_id = $profile AND source_revision = $revision AND server_user_id = $user";
@@ -154,10 +154,10 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
 
     public Task<ClientStorageSettings?> ReadStorageSettingsAsync(CancellationToken cancellationToken) => RunAsync(connection =>
     {
-        using var command = Command(connection, "SELECT cache_directory, download_directory, maximum_cache_bytes FROM client_storage_settings WHERE id = 1");
+        using var command = Command(connection, "SELECT cache_directory, download_directory, maximum_cache_bytes, auto_resume_downloads FROM client_storage_settings WHERE id = 1");
         using var reader = command.ExecuteReader();
         return reader.Read() ? StorageSettingsValidation.Normalize(new ClientStorageSettings(
-            reader.GetString(0), reader.GetString(1), reader.GetInt64(2))) : null;
+            reader.GetString(0), reader.GetString(1), reader.GetInt64(2), reader.GetInt64(3) != 0)) : null;
     }, cancellationToken);
 
     public Task SaveStorageSettingsAsync(ClientStorageSettings settings, CancellationToken cancellationToken) => RunAsync(connection =>
@@ -165,14 +165,16 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         var normalized = StorageSettingsValidation.Normalize(settings);
         using var transaction = connection.BeginTransaction(deferred: false);
         using var command = Command(connection, """
-            INSERT INTO client_storage_settings (id, cache_directory, download_directory, maximum_cache_bytes)
-            VALUES (1, $cache, $download, $maximum)
+            INSERT INTO client_storage_settings (id, cache_directory, download_directory, maximum_cache_bytes, auto_resume_downloads)
+            VALUES (1, $cache, $download, $maximum, $autoResume)
             ON CONFLICT(id) DO UPDATE SET cache_directory = excluded.cache_directory,
-                download_directory = excluded.download_directory, maximum_cache_bytes = excluded.maximum_cache_bytes
+                download_directory = excluded.download_directory, maximum_cache_bytes = excluded.maximum_cache_bytes,
+                auto_resume_downloads = excluded.auto_resume_downloads
             """, transaction);
         command.Parameters.AddWithValue("$cache", normalized.CacheDirectory);
         command.Parameters.AddWithValue("$download", normalized.DownloadDirectory);
         command.Parameters.AddWithValue("$maximum", normalized.MaximumCacheBytes);
+        command.Parameters.AddWithValue("$autoResume", normalized.AutoResumeDownloads ? 1 : 0);
         command.ExecuteNonQuery();
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
@@ -346,6 +348,15 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
             }
             if (version < 5) CreateOperationJournal(connection, transaction);
             if (version < 6) CreateTransferTasks(connection, transaction);
+            if (version < 7)
+            {
+                using var migrate = Command(connection, """
+                    ALTER TABLE client_storage_settings ADD COLUMN auto_resume_downloads INTEGER NOT NULL DEFAULT 0
+                        CHECK (typeof(auto_resume_downloads) = 'integer' AND auto_resume_downloads IN (0, 1));
+                    PRAGMA user_version = 7;
+                    """, transaction);
+                migrate.ExecuteNonQuery();
+            }
             if (version < SchemaVersion) CheckIntegrity(connection, transaction);
             transaction.Commit();
             using var journal = Command(connection, "PRAGMA journal_mode = WAL");

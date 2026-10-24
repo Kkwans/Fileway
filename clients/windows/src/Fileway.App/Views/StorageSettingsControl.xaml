@@ -41,6 +41,8 @@
                     <Button Grid.Column="1" Content="选择…" Click="ChooseDownload_Click" VerticalAlignment="Bottom" AutomationProperties.Name="选择默认下载目录"/>
                 </Grid>
                 <TextBlock Text="单文件下载使用已生效的默认目录，开始前会显示实际保存位置。目录变更在重启后生效；下载文件独立于缓存，不参与缓存清理。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <ToggleSwitch x:Name="AutoResumeBox" Header="连接后自动继续未完成的下载" OffContent="手动继续" OnContent="自动继续" AutomationProperties.Name="连接后自动继续未完成的下载"/>
+                <TextBlock Text="开启后，每次连接时会把上次中断、仍有可靠续传证据的下载重新排队，从已确认的保存位置继续并核对远端版本。默认关闭，保持手动继续。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <TextBlock x:Name="PendingSettingsText" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
               </StackPanel>
             </ContentControl>

@@ -4,7 +4,8 @@ namespace Fileway.Core.Contracts;
 public sealed record ClientStorageSettings(
     string CacheDirectory,
     string DownloadDirectory,
-    long MaximumCacheBytes = ClientStorageSettings.DefaultMaximumCacheBytes)
+    long MaximumCacheBytes = ClientStorageSettings.DefaultMaximumCacheBytes,
+    bool AutoResumeDownloads = false)
 {
     public const long DefaultMaximumCacheBytes = 5_000_000_000;
     public const long MaximumSupportedCacheBytes = 1L << 40;

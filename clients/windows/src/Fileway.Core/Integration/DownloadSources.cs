@@ -50,4 +50,13 @@ public interface IConditionalDownloadSourceProvider
     Task<RemoteFile> PrepareConditionalDownloadAsync(RemoteResourceRef resource, CancellationToken cancellationToken);
     Task<IDownloadLease> AcquireConditionalDownloadAsync(ConditionalDownloadLeaseRequest request,
         CancellationToken cancellationToken);
+    /// <summary>
+    /// SHA-256 bound to the pinned source version: every observation in the exchange must report the
+    /// same version, so a changed source is rejected instead of hashing mismatched content.
+    /// </summary>
+    Task<FileChecksumResult> CalculateConditionalDownloadChecksumAsync(ConditionalDownloadLeaseRequest request,
+        CancellationToken cancellationToken) => Task.FromException<FileChecksumResult>(Missing());
+
+    private static FilewayException Missing() => new(new(ErrorCode.CapabilityMissing,
+        "当前仅支持全新单文件下载，此版本能力尚不受支持。"));
 }

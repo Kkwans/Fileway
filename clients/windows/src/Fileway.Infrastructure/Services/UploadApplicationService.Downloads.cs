@@ -29,6 +29,7 @@ public sealed partial class UploadApplicationService
         internal LinkedListNode<DownloadWork>? Node { get; set; }
         internal bool Started { get; set; }
         internal bool Canceling { get; set; }
+        internal bool Resume { get; init; }
         internal DownloadTaskProgress? PendingProgress { get; set; }
         internal bool ReadingProgress { get; set; }
     }
@@ -87,7 +88,13 @@ public sealed partial class UploadApplicationService
             if (source is null || source.Account != context.Account || source.SourceVersion is not null)
                 throw DownloadSafe(ErrorCode.InvalidRequest);
             string? requestedLeaf = explicitLocalName ? DownloadLocalName(localName) : null;
-            var metadata = await _downloads!.Sources.PrepareDownloadAsync(source, cancellationToken).ConfigureAwait(false);
+            // Conditional-first: servers that advertise conditionalDownloadV1 return versioned
+            // metadata, which the fresh (legacy) reader rejects; version pinning is also what
+            // makes this task durable-resumable later.
+            var sources = _downloads!.Sources;
+            var metadata = await (sources is IConditionalDownloadSourceProvider conditional && conditional.CanUseConditionalDownload(source)
+                ? conditional.PrepareConditionalDownloadAsync(source, cancellationToken)
+                : sources.PrepareDownloadAsync(source, cancellationToken)).ConfigureAwait(false);
             RequireCurrent(binding);
             if (metadata.IsDirectory || metadata.Size < 0 || metadata.Resource.Account != context.Account ||
                 metadata.Resource.WirePath != source.WirePath) throw DownloadSafe(ErrorCode.InvalidRequest);
@@ -211,6 +218,131 @@ public sealed partial class UploadApplicationService
             return new(items, page.NextCursor);
         }
         catch (Exception error) { throw NormalizeDownload(error); }
+    }
+
+    /// <summary>
+    /// Explicit durable resume. A live in-process task is refused in favour of pause control;
+    /// an eligible interrupted task re-enters the same bounded FIFO writer queue.
+    /// </summary>
+    async Task<DownloadItem> IDownloadControlService.ResumeAsync(DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken)
+    {
+        await EnterAsync(cancellationToken).ConfigureAwait(false);
+        Binding? binding = null;
+        try
+        {
+            binding = RequireDownloadContext(context, task);
+            RequireDownloadPermission(binding);
+            if (_downloads!.Runner is not IFileDownloadResumeControl) throw DownloadSafe(ErrorCode.CapabilityMissing);
+            var record = await ReadAsync(task, cancellationToken).ConfigureAwait(false);
+            RequireCurrent(binding);
+            if (record.Plan.Reference != task || record.Plan.Direction != TransferDirection.Download) throw DownloadSafe(ErrorCode.InvalidRequest);
+            lock (_gate)
+            {
+                RequireCurrent(binding);
+                if (_downloadExecutions.ContainsKey(task)) throw DownloadSafe(ErrorCode.Busy);
+            }
+            _ = ObserveDownload(binding, record, publish: false);
+            DownloadWork work;
+            lock (_gate)
+            {
+                RequireCurrent(binding);
+                RequireDownloadPermission(binding);
+                RequireDownloadQueueCapacityLocked(binding);
+                work = new(binding, task, cancellationToken) { Resume = true };
+                binding.DownloadItems[work.Task].Scheduled = true;
+                _downloadExecutions.Add(work.Task, work);
+                work.Node = _downloadQueue.AddLast(work);
+                RegisterDownloadStopLocked(work);
+            }
+            DispatchDownloads();
+            lock (_gate)
+            {
+                RequireCurrent(binding);
+                var item = ProjectDownload(binding, binding.DownloadItems[work.Task]);
+                QueueDownloadUpdateLocked(item);
+                return item;
+            }
+        }
+        catch (Exception error)
+        {
+            var failure = NormalizeDownload(error);
+            // Admission failed: retire a never-started registration instead of leaving a
+            // scheduled item that no queue node will ever dispatch.
+            lock (_gate)
+            {
+                if (binding is not null && binding.DownloadItems.TryGetValue(task, out var item))
+                {
+                    item.Scheduled = false;
+                    if (_downloadExecutions.TryGetValue(task, out var stale) && stale.Resume && !stale.Started)
+                    {
+                        if (stale.Node is { } node) { _downloadQueue.Remove(node); stale.Node = null; }
+                        _downloadExecutions.Remove(task);
+                        stale.StopRegistration.Dispose();
+                        stale.Stop.Dispose();
+                        stale.Completion.TrySetResult(new DownloadCompletion(null, failure));
+                    }
+                    if (ReferenceEquals(_current, binding)) QueueDownloadUpdateLocked(ProjectDownload(binding, item));
+                }
+            }
+            throw failure;
+        }
+        finally { _commands.Release(); }
+    }
+
+    /// <summary>
+    /// Batch durable resume for the auto-resume preference. Eligibility is the same durable
+    /// checkpoint evidence as the single-task entry; queue capacity bounds the batch.
+    /// </summary>
+    async Task<IReadOnlyList<DownloadItem>> IDownloadService.ResumeEligibleAsync(DownloadContext context, CancellationToken cancellationToken)
+    {
+        await EnterAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var binding = RequireDownloadContext(context);
+            RequireDownloadPermission(binding);
+            if (_downloads!.Runner is not IFileDownloadResumeControl) throw DownloadSafe(ErrorCode.CapabilityMissing);
+            var enqueued = new List<TransferTaskRef>();
+            bool capacityReached = false;
+            string? cursor = null;
+            do
+            {
+                var page = await StorageAsync(token => _tasks.ListTransfersAsync(context.Account, cursor, 200, token),
+                    cancellationToken).ConfigureAwait(false);
+                RequireCurrent(binding);
+                foreach (var record in page.Items)
+                {
+                    if (record.Plan.Reference.Account != context.Account) throw DownloadSafe(ErrorCode.ProtocolMismatch);
+                    if (record.Plan.Direction != TransferDirection.Download) continue;
+                    var observed = ObserveDownload(binding, record, publish: false);
+                    if (!observed.Snapshot.CanResumeLocally) continue;
+                    lock (_gate)
+                    {
+                        RequireCurrent(binding);
+                        if (_downloadExecutions.ContainsKey(record.Plan.Reference)) continue;
+                        try { RequireDownloadQueueCapacityLocked(binding); }
+                        catch (FilewayException) { capacityReached = true; }
+                        if (capacityReached) break;
+                        DownloadWork work = new(binding, record.Plan.Reference, cancellationToken) { Resume = true };
+                        binding.DownloadItems[work.Task].Scheduled = true;
+                        _downloadExecutions.Add(work.Task, work);
+                        work.Node = _downloadQueue.AddLast(work);
+                        RegisterDownloadStopLocked(work);
+                        enqueued.Add(work.Task);
+                    }
+                    if (capacityReached) break;
+                }
+                cursor = capacityReached ? null : page.NextCursor;
+            } while (cursor is not null);
+            if (enqueued.Count != 0) DispatchDownloads();
+            lock (_gate)
+            {
+                RequireCurrent(binding);
+                return enqueued.Where(task => binding.DownloadItems.TryGetValue(task, out _))
+                    .Select(task => ProjectDownload(binding, binding.DownloadItems[task])).ToArray();
+            }
+        }
+        catch (Exception error) { throw NormalizeDownload(error); }
+        finally { _commands.Release(); }
     }
 
     Task<DownloadItem> IDownloadService.CancelAsync(DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken) =>

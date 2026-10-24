@@ -22,6 +22,7 @@ public sealed partial class MainPage
     private long _downloadViewGeneration;
     private string? _downloadErrorTitle;
     private string? _downloadErrorMessage;
+    private DownloadContext? _downloadAutoResumeApplied;
 
     public void SetDownloadService(IDownloadService downloads)
     {
@@ -52,6 +53,13 @@ public sealed partial class MainPage
         if (DownloadFileButton is null) return;
         var current = ActiveDownloadContext;
         if (_downloadContext != current) { ClearDownloadPresentation(); _downloadContext = current; }
+        if (current is { } active && _downloadAutoResumeApplied != active)
+        {
+            // One shot per connection: the stored preference decides whether interrupted
+            // durable-resumable downloads re-enter the queue automatically.
+            _downloadAutoResumeApplied = active;
+            _ = AutoResumeDownloadsAsync(active);
+        }
         DownloadFileButton.IsEnabled = CanDownloadSelection;
         DownloadFileButton.Visibility = _session?.Permissions.Download == false ? Visibility.Collapsed : Visibility.Visible;
         DownloadHistoryButton.IsEnabled = current is not null && !_downloadOperationBusy;
@@ -59,12 +67,26 @@ public sealed partial class MainPage
         UpdateTransferCenterContext();
     }
 
+    private async Task AutoResumeDownloadsAsync(DownloadContext context)
+    {
+        try
+        {
+            if (_storageSettings is null || _downloads is not { } service) return;
+            var state = await _storageSettings.ReadAsync(_lifetime.Token);
+            if (!IsCurrentDownloadContext(context) || !state.Active.AutoResumeDownloads) return;
+            var resumed = await service.ResumeEligibleAsync(context, _lifetime.Token);
+            if (resumed.Count > 0 && IsCurrentDownloadContext(context))
+                SetNotice("已继续未完成的下载", $"{resumed.Count} 个中断任务已重新排队，将从已确认的保存位置继续并核对远端版本。", InfoBarSeverity.Informational);
+        }
+        catch (Exception) { /* 自动继续是便利功能；单项失败由任务自身状态呈现。 */ }
+    }
+
     private void ClearDownloadPresentation()
     {
         ++_downloadViewGeneration;
         _downloadDialog?.Hide(); _downloadDialog = null; _downloadDetails = null; _downloadDetailTask = null;
         _downloadContext = null; _latestDownload = null; _downloadItems.Clear(); _downloadPreparing = false;
-        _downloadErrorTitle = _downloadErrorMessage = null;
+        _downloadErrorTitle = _downloadErrorMessage = null; _downloadAutoResumeApplied = null;
         if (DownloadNotice is not null) DownloadNotice.IsOpen = false;
         ClearTransferDownloadPresentation();
     }

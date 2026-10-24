@@ -26,7 +26,7 @@ public enum DownloadStatus
 public sealed record DownloadTaskSnapshot(TransferTaskRef Task, TransferIntent Intent, TransferPhase Phase,
     long? ConfirmedOffset, long? TotalBytes, bool LocalPublished, TransferUncertainty Uncertainty,
     ErrorInfo? Error, long Revision, long Generation, bool CanReconcileLocally = false,
-    DateTimeOffset? CreatedAt = null, DateTimeOffset? UpdatedAt = null);
+    DateTimeOffset? CreatedAt = null, DateTimeOffset? UpdatedAt = null, bool CanResumeLocally = false);
 
 /// <summary>
 /// Presentation data only; no private plan, owned file identity, partial path or read capability.
@@ -40,10 +40,15 @@ public sealed record DownloadItem(DownloadContext Context, RemoteResourceRef Sou
     public override string ToString() => "DownloadItem (private display locations redacted)";
 }
 
-/// <summary>Explicit current-process writer control; never claims restart resume support.</summary>
+/// <summary>Explicit current-process writer control; restart resume requires pinned-version checkpoint evidence.</summary>
 public interface IDownloadControlService
 {
     Task<DownloadItem> SetPausedAsync(DownloadContext context, TransferTaskRef task, bool paused, CancellationToken cancellationToken);
+    /// <summary>
+    /// Explicit durable resume of an interrupted task with pinned-version partial evidence. It re-enters
+    /// the same bounded FIFO writer queue; a live in-process task is refused in favour of pause control.
+    /// </summary>
+    Task<DownloadItem> ResumeAsync(DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken);
     Task RemoveAsync(DownloadContext context, TransferTaskRef task, bool deleteLocalFile, CancellationToken cancellationToken);
 }
 
@@ -63,4 +68,9 @@ public interface IDownloadService
     Task<DownloadItem> CancelAsync(DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken);
     /// <summary>Inspects local ownership/hash evidence only; never starts network reads, resumes or repeats publication.</summary>
     Task<DownloadItem> ReconcileLocalAsync(DownloadContext context, TransferTaskRef task, CancellationToken cancellationToken);
+    /// <summary>
+    /// Enqueues every durably resumable interrupted download of this account through the same bounded
+    /// FIFO admission; listing itself never starts work, and ineligible tasks are simply not returned.
+    /// </summary>
+    Task<IReadOnlyList<DownloadItem>> ResumeEligibleAsync(DownloadContext context, CancellationToken cancellationToken);
 }

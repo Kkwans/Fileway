@@ -89,7 +89,7 @@ public sealed partial class LocalStorageSettingsService : ILocalStorageSettingsS
             var active = _active ?? throw Unavailable();
             if (StorageSettingsValidation.SameDirectory(active.CacheDirectory, normalized.CacheDirectory))
             {
-                var updated = active with { MaximumCacheBytes = normalized.MaximumCacheBytes };
+                var updated = active with { MaximumCacheBytes = normalized.MaximumCacheBytes, AutoResumeDownloads = normalized.AutoResumeDownloads };
                 if (!_cacheConfigured) _active = updated;
                 else
                 {
@@ -103,6 +103,12 @@ public sealed partial class LocalStorageSettingsService : ILocalStorageSettingsS
                         Trace.TraceWarning("Fileway saved cache capacity is pending ({0}).", error.Error.Code);
                     }
                 }
+            }
+            else
+            {
+                // Directory-dependent capacity stays pending until restart; the resume preference
+                // is orthogonal to the cache pool and takes effect immediately.
+                _active = active with { AutoResumeDownloads = normalized.AutoResumeDownloads };
             }
             return State();
         }

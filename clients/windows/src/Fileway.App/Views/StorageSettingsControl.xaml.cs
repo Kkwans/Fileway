@@ -68,7 +68,8 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
             ShowStatus("请选择缓存目录和默认下载目录。", InfoBarSeverity.Error);
             return;
         }
-        var requested = new ClientStorageSettings(CacheDirectoryBox.Text, DownloadDirectoryBox.Text, checked((long)bytes));
+        var requested = new ClientStorageSettings(CacheDirectoryBox.Text, DownloadDirectoryBox.Text, checked((long)bytes),
+            AutoResumeBox.IsOn);
         SetBusy(true);
         try
         {
@@ -90,7 +91,8 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
         CacheDirectoryBox.Text = state.Pending.CacheDirectory;
         DownloadDirectoryBox.Text = state.Pending.DownloadDirectory;
         MaximumCacheGbBox.Value = state.Pending.MaximumCacheBytes / BytesPerGb;
-        ActiveSettingsText.Text = $"缓存：{state.Active.CacheDirectory}\n容量：{state.Active.MaximumCacheBytes / BytesPerGb:0.##} GB\n下载：{state.Active.DownloadDirectory}";
+        AutoResumeBox.IsOn = state.Pending.AutoResumeDownloads;
+        ActiveSettingsText.Text = $"缓存：{state.Active.CacheDirectory}\n容量：{state.Active.MaximumCacheBytes / BytesPerGb:0.##} GB\n下载：{state.Active.DownloadDirectory}\n自动继续未完成下载：{(state.Active.AutoResumeDownloads ? "开" : "关")}";
         PendingSettingsText.Text = state.RestartRequired
             ? $"已保存待生效\n缓存：{state.Pending.CacheDirectory}\n容量：{state.Pending.MaximumCacheBytes / BytesPerGb:0.##} GB\n下载：{state.Pending.DownloadDirectory}\n本次编辑请点击保存。"
             : "当前无待生效配置。本次编辑请点击保存。";

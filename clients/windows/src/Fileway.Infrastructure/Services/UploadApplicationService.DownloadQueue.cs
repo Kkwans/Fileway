@@ -1,4 +1,5 @@
 using Fileway.Core.Contracts;
+using Fileway.Core.Integration;
 using Fileway.Infrastructure.Persistence;
 
 namespace Fileway.Infrastructure.Services;
@@ -61,16 +62,28 @@ public sealed partial class UploadApplicationService
     }
     private async Task<TransferTaskRecord> RunQueuedDownloadAsync(DownloadWork work)
     {
+        long initialGeneration = -1;
         while (true)
         {
             work.Stop.Token.ThrowIfCancellationRequested();
             lock (_gate) { RequireCurrent(work.Binding); RequireDownloadPermission(work.Binding); }
-            try { return await _downloads!.Runner.RunAsync(work.Task, work.Stop.Token).ConfigureAwait(false); }
+            try
+            {
+                if (work.Resume) return await (_downloads!.Runner as IFileDownloadResumeControl ??
+                    throw DownloadSafe(ErrorCode.CapabilityMissing)).ResumeAsync(work.Task, work.Stop.Token).ConfigureAwait(false);
+                return await _downloads!.Runner.RunAsync(work.Task, work.Stop.Token).ConfigureAwait(false);
+            }
             catch (FilewayException error) when (error.Error.Code == ErrorCode.Busy)
             {
                 var record = await ReadAsync(work.Task, work.Stop.Token).ConfigureAwait(false);
-                if (!TransferTaskValidation.IsUnstartedDownload(record) || record.Intent != TransferIntent.Run) throw;
-                // Only retry a proved never-started admission when uploads occupy the shared
+                if (initialGeneration < 0) initialGeneration = record.Generation;
+                bool retryable = work.Resume
+                    ? record.Plan.Reference == work.Task && record.Intent == TransferIntent.Run &&
+                        !TransferTaskValidation.IsUnstartedDownload(record) && !DownloadTerminal(record.Checkpoint.Phase) &&
+                        (record.Run is null || record.Run.Value.Generation == initialGeneration)
+                    : TransferTaskValidation.IsUnstartedDownload(record) && record.Intent == TransferIntent.Run;
+                if (!retryable) throw;
+                // Only retry a proved never-claimed admission when uploads occupy the shared
                 // run budget. Never repeat a request that has source/file/run evidence.
                 await Task.Delay(TimeSpan.FromMilliseconds(500), work.Stop.Token).ConfigureAwait(false);
             }

@@ -220,6 +220,74 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider, ICo
         { throw InvalidResponse(); }
     }
 
+    public async Task<FileChecksumResult> CalculateConditionalDownloadChecksumAsync(ConditionalDownloadLeaseRequest request,
+        CancellationToken cancellationToken)
+    {
+        ValidateConditionalDownloadRequest(request);
+        var state = GetResourceState(request.Source);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        try
+        {
+            using var beforeBody = await DownloadMetadataDocumentAsync(state, request.Source, linked.Token).ConfigureAwait(false);
+            var before = ParseConditionalChecksumMetadata(beforeBody.RootElement, request, state);
+            RequireConditionalDownload(state);
+
+            // The checksum endpoint itself is not version-conditioned server-side; the pinned
+            // version is enforced by comparing every surrounding observation instead.
+            var response = await SessionLongReadAsync(state,
+                "/api/resources" + request.Source.WirePath + "?metadata=1&checksum=sha256",
+                TimeSpan.FromMinutes(16), linked.Token, requireDownload: true).ConfigureAwait(false);
+            RequireExactStatus(response, 200);
+            using var hashBody = ParseBody(response);
+            var hashed = ParseConditionalChecksumMetadata(hashBody.RootElement, request, state);
+            RequireUnchangedConditionalSource(before, hashed);
+            string digest = NormalizeChecksumHex(RequiredText(hashBody.RootElement.GetProperty("checksums").GetProperty("sha256")),
+                64, fromServer: true);
+
+            using var afterBody = await DownloadMetadataDocumentAsync(state, request.Source, linked.Token).ConfigureAwait(false);
+            var after = ParseConditionalChecksumMetadata(afterBody.RootElement, request, state);
+            RequireUnchangedConditionalSource(before, after);
+            lock (_gate)
+            {
+                linked.Token.ThrowIfCancellationRequested();
+                RequireConditionalDownload(state);
+                // The digest is attributed to the pinned version only, so a resume consumer
+                // can treat it as evidence about its own checkpoint, not a fresh observation.
+                return new FileChecksumResult(request.Source with { SourceVersion = request.SourceVersion },
+                    ChecksumAlgorithm.Sha256, digest, ChecksumComparison.NotRequested, after.File.Size, after.File.Modified);
+            }
+        }
+        catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
+        { throw InvalidResponse(); }
+    }
+
+    private ChecksumMetadata ParseConditionalChecksumMetadata(JsonElement row, ConditionalDownloadLeaseRequest request,
+        SessionState state)
+    {
+        try
+        {
+            var file = ParseConditionalDownloadFile(row, state, request.Source);
+            if (file.Modified is null) throw InvalidResponse();
+            string modified = RequiredText(row.GetProperty("modified"));
+            if (file.Size != request.Length) throw Safe(ErrorCode.Conflict, "下载源长度已变化，请刷新后重试。", 409);
+            // The pinned version already binds size and modification time, so a mismatch means
+            // the digest belongs to a different source and must not extend the checkpoint.
+            if (!StringComparer.Ordinal.Equals(file.Resource.SourceVersion, request.SourceVersion))
+                throw Safe(ErrorCode.SourceChanged, "下载源已变化，续传已停止。", 412);
+            return new ChecksumMetadata(file, modified);
+        }
+        catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
+        { throw InvalidResponse(); }
+    }
+
+    private static void RequireUnchangedConditionalSource(ChecksumMetadata before, ChecksumMetadata after)
+    {
+        if (before.File.Size != after.File.Size || before.Modified != after.Modified ||
+            !StringComparer.Ordinal.Equals(before.File.Resource.SourceVersion, after.File.Resource.SourceVersion))
+            throw Safe(ErrorCode.Conflict, "文件在计算期间已变化，请刷新后重试。", 409);
+    }
+
     private async Task<RemoteFile> ReadFreshDownloadMetadataAsync(SessionState state, RemoteResourceRef resource,
         CancellationToken cancellationToken, bool operationGateOwned = false)
     {

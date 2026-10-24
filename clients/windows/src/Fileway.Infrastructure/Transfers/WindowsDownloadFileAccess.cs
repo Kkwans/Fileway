@@ -433,6 +433,16 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
         return status == 0 && CompletionSucceeded(completion) ? 0 : status == 0 ? -1 : status;
     }
 
+    private static int TruncateByHandle(SafeFileHandle handle, long length)
+    {
+        // FileEndOfInformation with the held write-capable handle extends or truncates the same
+        // object; the caller bounds length so a resume only ever removes an unconfirmed tail.
+        var information = new DownloadFileNative.EndOfInformation { EndOfFile = length };
+        int status = DownloadFileNative.SetEndOfInformation(handle, out var completion, in information,
+            checked((uint)Marshal.SizeOf<DownloadFileNative.EndOfInformation>()), DownloadFileNative.FileEndOfInformation);
+        return status == 0 && CompletionSucceeded(completion) ? 0 : status == 0 ? -1 : status;
+    }
+
     private static bool CompletionSucceeded(UploadFileNative.IoStatusBlock completion) =>
         // IO_STATUS_BLOCK overlays 32-bit NTSTATUS with PVOID; its unused upper pointer bits are not status.
         unchecked((int)completion.StatusOrPointer) == 0;
@@ -624,6 +634,37 @@ public sealed class WindowsDownloadFileAccess : IDownloadDestinationProvider
                 Verify(compareLength: true);
                 cancellationToken.ThrowIfCancellationRequested();
                 return _length;
+            }
+            catch (FilewayException error)
+            {
+                if (error.Error.Code == ErrorCode.OutcomeUnknown && !_disposed) FaultReaders();
+                throw;
+            }
+            catch (Exception error) when (IsFileFailure(error))
+            { FaultReaders(); throw ManagedFailure(error, AccessContext.Operation); }
+            finally { _serial.Release(); }
+        }
+
+        public async Task TruncateAsync(long length, CancellationToken cancellationToken)
+        {
+            if (length < 0) throw Invalid();
+            await _serial.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                RequireActive();
+                if (_published || _deleted) throw Invalid();
+                RequireCompleteWrites();
+                Verify(compareLength: true);
+                if (length > _length) throw Invalid();
+                cancellationToken.ThrowIfCancellationRequested();
+                int status = await Task.Run(() => TruncateByHandle(handle, length), CancellationToken.None).ConfigureAwait(false);
+                if (status != 0) throw NativeFailure(unchecked((int)UploadFileNative.RtlNtStatusToDosError(status)), AccessContext.Operation);
+                Interlocked.Exchange(ref _length, length);
+                Verify(compareLength: true);
+                cancellationToken.ThrowIfCancellationRequested();
+                // An opened-owned partial never admits prefix readers, so shrinking the
+                // prefix here cannot strand a waiter; keep both lengths consistent.
+                lock (_readerGate) Interlocked.Exchange(ref _readablePrefix, length);
             }
             catch (FilewayException error)
             {
@@ -1155,10 +1196,12 @@ internal static partial class DownloadFileNative
     internal const uint OwnedAccess = UploadFileNative.FileGenericRead | UploadFileNative.FileGenericWrite | DeleteAccess;
     internal const uint MetadataAccess = 0x00100080, ShareAll = 7; // SYNCHRONIZE | FILE_READ_ATTRIBUTES; READ/WRITE/DELETE sharing.
     internal const uint FixedDrive = 3;
-    internal const int FileRenameInformation = 10, FileDispositionInformation = 13;
+    internal const int FileRenameInformation = 10, FileDispositionInformation = 13, FileEndOfInformation = 20;
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct DispositionInformation { internal byte DeleteFile; }
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct EndOfInformation { internal long EndOfFile; }
     [StructLayout(LayoutKind.Sequential)]
     internal struct RenameInformation
     {
@@ -1176,4 +1219,7 @@ internal static partial class DownloadFileNative
     [LibraryImport("ntdll.dll", EntryPoint = "NtSetInformationFile")]
     internal static partial int SetDispositionInformation(SafeFileHandle handle, out UploadFileNative.IoStatusBlock completion,
         in DispositionInformation information, uint size, int informationClass);
+    [LibraryImport("ntdll.dll", EntryPoint = "NtSetInformationFile")]
+    internal static partial int SetEndOfInformation(SafeFileHandle handle, out UploadFileNative.IoStatusBlock completion,
+        in EndOfInformation information, uint size, int informationClass);
 }

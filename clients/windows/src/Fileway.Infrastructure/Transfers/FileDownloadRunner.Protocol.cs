@@ -16,7 +16,9 @@ public sealed partial class FileDownloadRunner
 
     private static void RequirePlan(TransferTaskRecord record)
     {
-        if (record.Plan.Remote.SourceVersion is not null || record.Checkpoint.Source?.SourceVersion is not null)
+        // A pinned plan-level version still has no runner semantics; checkpoint-level versions
+        // belong to versioned executions and durable resume and are validated separately.
+        if (record.Plan.Remote.SourceVersion is not null)
             throw Safe(ErrorCode.CapabilityMissing);
         _ = TransferTaskValidation.Plan(record.Plan);
         if (record.Plan.Direction != TransferDirection.Download || record.Plan.Conflict != FileConflictPolicy.Fail ||
