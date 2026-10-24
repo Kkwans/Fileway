@@ -82,6 +82,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             _controls.AddSubtitleRequested += Controls_AddSubtitleRequested;
             _controls.RemoteSubtitleRequested += Controls_RemoteSubtitleRequested;
             _controls.EpisodeRequested += Controls_EpisodeRequested;
+            _controls.QualitySelected += Controls_QualitySelected;
             _controls.MinimizeRequested += Controls_MinimizeRequested;
             _controls.MaximizeRequested += Controls_MaximizeRequested;
             _controls.KeyDown += Controls_KeyDown;
@@ -121,6 +122,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     internal event EventHandler? AddSubtitleRequested;
     internal event EventHandler? RemoteSubtitleRequested;
     internal event EventHandler? EpisodeRequested;
+    internal event EventHandler<string>? QualitySelected;
     internal bool SupportsRemoteSubtitles
     {
         get => _controls.SupportsRemoteSubtitles;
@@ -130,6 +132,11 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         get => _controls.SupportsEpisodes;
         set => _controls.SupportsEpisodes = value;
+    }
+    internal bool SupportsCompatibilityPlayback
+    {
+        get => _controls.SupportsCompatibilityPlayback;
+        set => _controls.SupportsCompatibilityPlayback = value;
     }
     internal event EventHandler? MinimizeRequested;
     internal event EventHandler? MaximizeRequested;
@@ -254,6 +261,11 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void Controls_EpisodeRequested(object? sender, EventArgs args)
     {
         if (!_disposed) EpisodeRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void Controls_QualitySelected(object? sender, string quality)
+    {
+        if (!_disposed) QualitySelected?.Invoke(this, quality);
     }
 
     private void Controls_AddSubtitleRequested(object? sender, EventArgs args)
@@ -632,6 +644,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         _controls.AddSubtitleRequested -= Controls_AddSubtitleRequested;
         _controls.RemoteSubtitleRequested -= Controls_RemoteSubtitleRequested;
         _controls.EpisodeRequested -= Controls_EpisodeRequested;
+        _controls.QualitySelected -= Controls_QualitySelected;
         _controls.MinimizeRequested -= Controls_MinimizeRequested;
         _controls.MaximizeRequested -= Controls_MaximizeRequested;
         _controls.KeyDown -= Controls_KeyDown;

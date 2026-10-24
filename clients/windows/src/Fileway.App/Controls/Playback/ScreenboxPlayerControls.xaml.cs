@@ -119,8 +119,10 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public event EventHandler? AddSubtitleRequested;
     public event EventHandler? RemoteSubtitleRequested;
     public event EventHandler? EpisodeRequested;
+    public event EventHandler<string>? QualitySelected;
     internal bool SupportsRemoteSubtitles { get; set; }
     internal bool SupportsEpisodes { get; set; }
+    internal bool SupportsCompatibilityPlayback { get; set; }
     public event EventHandler? ControlsVisibilityChanged;
     public event EventHandler? MaterialBoundsChanged;
     public bool ControlsVisible { get; private set; } = true;
@@ -583,6 +585,18 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (_snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio)) Add("音轨", "MusicNote2", () => ShowTracks(MoreButton, MediaTrackKind.Audio));
         Add("字幕", "ClosedCaption", () => ShowTracks(MoreButton, MediaTrackKind.Subtitle));
         if (SupportsEpisodes) Add("选集…", "ListVideo", () => EpisodeRequested?.Invoke(this, EventArgs.Empty));
+        if (SupportsCompatibilityPlayback)
+        {
+            var qualities = new MenuFlyoutSubItem { Text = "兼容画质" };
+            foreach (var (label, value) in new[] { ("原画（直连）", "source"), ("2160p", "2160p"), ("1080p", "1080p"), ("720p", "720p"), ("480p", "480p") })
+            {
+                var item = new MenuFlyoutItem { Text = label };
+                string quality = value;
+                item.Click += (_, _) => QualitySelected?.Invoke(this, quality);
+                qualities.Items.Add(item);
+            }
+            menu.Items.Add(qualities);
+        }
         if (SupportsRemoteSubtitles) Add("从服务器加载字幕…", "CloudDownload", () => RemoteSubtitleRequested?.Invoke(this, EventArgs.Empty));
         if (SubtitleStyleButton.Visibility == Visibility.Visible) Add("字幕样式", "TextFontSize", () => SubtitleStyle_Click(MoreButton, args));
         Add("播放速度 · " + FormatRate(_snapshot.PlaybackRate), "TopSpeed", () => Speed_Click(MoreButton, args));

@@ -21,6 +21,9 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private readonly IPlaybackSession _session;
     private readonly Fileway.Core.Contracts.IRemoteSubtitleSource? _remoteSubtitles;
     private readonly Fileway.Core.Contracts.IRemoteEpisodeSource? _remoteEpisodes;
+    private readonly Fileway.Core.Contracts.ICompatibilityPlaybackSource? _compatibility;
+    private Fileway.Core.Contracts.RemoteResourceRef? _compatibilityMedia;
+    private string? _compatibilityTaskId;
     private SystemMediaController? _systemMedia;
     private IReadOnlyList<Fileway.Core.Contracts.RemoteMediaOption>? _episodeCache;
     private Fileway.Core.Contracts.RemoteResourceRef? _episodeCacheOrigin;
@@ -61,11 +64,13 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private RectInt32? _videoBounds;
 
     public PlayerWindow(IPlaybackSession session, IVideoSpriteService? sprites = null,
-        Fileway.Core.Contracts.IRemoteSubtitleSource? remoteSubtitles = null)
+        Fileway.Core.Contracts.IRemoteSubtitleSource? remoteSubtitles = null,
+        Fileway.Core.Contracts.ICompatibilityPlaybackSource? compatibility = null)
     {
         _session = session;
         _remoteSubtitles = remoteSubtitles;
         _remoteEpisodes = remoteSubtitles as Fileway.Core.Contracts.IRemoteEpisodeSource;
+        _compatibility = compatibility;
         _bufferingTimer = DispatcherQueue.CreateTimer(); _bufferingTimer.IsRepeating = false; _bufferingTimer.Interval = TimeSpan.FromMilliseconds(500);
         _bufferingTimer.Tick += (_, _) => { if (!_closing && !_disposed && _hasFrame && _session.Snapshot.Status is PlaybackStatus.Seeking or PlaybackStatus.Buffering) _overlay?.ApplySnapshot(_session.Snapshot, transientLoading: true); };
         _boundsTimer = DispatcherQueue.CreateTimer(); _boundsTimer.IsRepeating = false; _boundsTimer.Interval = TimeSpan.FromMilliseconds(16);
@@ -130,6 +135,8 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _overlay.EpisodeRequested += Overlay_EpisodeRequested;
         _overlay.SupportsRemoteSubtitles = remoteSubtitles is not null;
         _overlay.SupportsEpisodes = _remoteEpisodes is not null && session.Snapshot.Origin is not null;
+        _overlay.SupportsCompatibilityPlayback = compatibility is not null && session.Snapshot.Origin is not null;
+        _overlay.QualitySelected += Overlay_QualitySelected;
         _overlay.MinimizeRequested += (_, _) => MinimizeWindow();
         _overlay.MaximizeRequested += (_, _) => ToggleWindowMaximized();
         _overlay.VideoPointerPressed += point => HandleVideoGesture(true, point, PlaybackVideoInputSurface.Hud);
@@ -158,7 +165,12 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
                 DispatcherQueue.TryEnqueue(() => { UpdateBounds(); _overlay.SynchronizePointerPosition(); });
         };
         AppWindow.Closing += (_, args) => { if (_disposed) return; args.Cancel = true; BeginClose(); };
-        Closed += (_, _) => { _bufferingTimer.Stop(); _boundsTimer.Stop(); CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); _systemMedia?.Dispose(); if (!_disposed) _watchCancellation.Cancel(); };
+        Closed += (_, _) => {
+            _bufferingTimer.Stop(); _boundsTimer.Stop(); CancelVideoGestures(); _responsiveness?.Dispose(); _snapshotDispatcher.Stop(); _systemMedia?.Dispose();
+            if (_compatibility is { } service && _compatibilityMedia is { } media && _compatibilityTaskId is { } task)
+                _ = service.CancelAsync(media, task, CancellationToken.None);
+            if (!_disposed) _watchCancellation.Cancel();
+        };
         _ = WatchAsync();
     }
 
@@ -736,6 +748,41 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             origin, _session.Snapshot, _watchCancellation.IsCancellationRequested);
 
     private void Overlay_RemoteSubtitleRequested(object? sender, EventArgs args) => _ = AddRemoteSubtitleAsync();
+
+    private void Overlay_QualitySelected(object? sender, string quality) => _ = SwitchCompatibilityQualityAsync(quality);
+
+    private async Task SwitchCompatibilityQualityAsync(string quality)
+    {
+        if (_compatibility is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested) return;
+        var origin = _session.Snapshot.Origin;
+        if (origin is null) return;
+        if (_compatibilityTaskId is { } previous)
+        {
+            // A superseded task is canceled best effort; its lease dies with the session anyway.
+            _ = _compatibility.CancelAsync(origin, previous, CancellationToken.None);
+            _compatibilityTaskId = null;
+        }
+        if (quality == "source")
+        {
+            await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(origin), _watchCancellation.Token));
+            return;
+        }
+        try
+        {
+            var opened = await _compatibility.OpenAsync(origin, quality, _watchCancellation.Token);
+            if (_disposed || _detached || _closing || _watchCancellation.IsCancellationRequested)
+            { _ = _compatibility.CancelAsync(origin, opened.TaskId, CancellationToken.None); return; }
+            _compatibilityTaskId = opened.TaskId;
+            _compatibilityMedia = origin;
+            await RunCommandAsync(() => _session.PlayAsync(new HlsPlaybackInput(opened.StreamUri, origin), _watchCancellation.Token));
+            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("兼容画质：" + quality + "（转码在后台继续）"); });
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception)
+        {
+            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError("兼容画质未能开始，可直接播放原画。"); });
+        }
+    }
 
     private void Overlay_EpisodeRequested(object? sender, EventArgs args) => _ = ShowEpisodePickerAsync();
 

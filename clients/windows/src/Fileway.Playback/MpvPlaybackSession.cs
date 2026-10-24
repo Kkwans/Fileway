@@ -172,6 +172,17 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
             if (primary && _downloadBridge is not null) return _downloadBridge.Uri;
             throw MpvNative.Error(ErrorCode.InvalidRequest, "下载读取能力仅用于当前主播放来源。");
         }
+        if (input is HlsPlaybackInput compatibility)
+        {
+            // The playlist lease was issued by the application service; the engine only needs a
+            // validated loopback address. Segments resolve under the same lease sub-path.
+            if (compatibility.StreamUri is not { IsAbsoluteUri: true } valid || valid.Scheme != Uri.UriSchemeHttp ||
+                !IPAddress.TryParse(valid.Host, out var candidate) || !IPAddress.IsLoopback(candidate) ||
+                valid.IsDefaultPort || valid.Port <= 0 || !string.IsNullOrEmpty(valid.UserInfo) ||
+                !string.IsNullOrEmpty(valid.Fragment))
+                throw MpvNative.Error(ErrorCode.InvalidRequest, "兼容播放地址无效。");
+            return valid.AbsoluteUri;
+        }
         if (input is LocalPlaybackInput local)
         {
             if (!Path.IsPathFullyQualified(local.FullPath) || local.FullPath.StartsWith(@"\\", StringComparison.Ordinal) || !File.Exists(local.FullPath))
@@ -631,12 +642,18 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
     }
     public async Task PlayAsync(PlaybackInput input, CancellationToken cancellationToken)
     {
-        // Episode switching stays within one remote browsing context; download-sourced sessions
-        // keep their dedicated reader lifecycle and switch by opening a new session instead.
-        if (input is not RemotePlaybackInput remote)
+        // Episode and quality switching stay within one remote media context; download-sourced
+        // sessions keep their dedicated reader lifecycle and switch by opening a new session.
+        if (input is not RemotePlaybackInput and not HlsPlaybackInput)
             throw MpvNative.Error(ErrorCode.InvalidRequest, "选集切换仅支持服务器媒体。");
         if (_request.Input is not RemotePlaybackInput)
             throw MpvNative.Error(ErrorCode.CapabilityMissing, "当前播放来源不支持选集切换。");
+        var remote = input switch
+        {
+            RemotePlaybackInput direct => direct,
+            HlsPlaybackInput stream => new RemotePlaybackInput(stream.Resource),
+            _ => throw MpvNative.Error(ErrorCode.InvalidRequest, "播放输入类型不受支持。"),
+        };
         if (remote.Resource.Account != Account)
             throw MpvNative.Error(ErrorCode.InvalidRequest, "选集必须属于当前播放账户。");
         cancellationToken.ThrowIfCancellationRequested();

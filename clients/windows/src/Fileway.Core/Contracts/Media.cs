@@ -139,6 +139,29 @@ public interface IRemoteSubtitleSource
     Task<IReadOnlyList<RemoteSubtitleOption>> ListAsync(RemoteResourceRef media, CancellationToken cancellationToken);
 }
 
+/// <summary>Plays a server compatibility (HLS) stream already served on a loopback lease URI.</summary>
+public sealed record HlsPlaybackInput(Uri StreamUri, RemoteResourceRef Resource) : PlaybackInput
+{
+    public override string ToString() => "HlsPlaybackInput (stream address redacted)";
+}
+
+/// <summary>One started compatibility playback task bound to the playing session.</summary>
+public sealed record CompatibilityPlaybackSource(Uri StreamUri, string TaskId, string Quality)
+{
+    public override string ToString() => "CompatibilityPlaybackSource (stream address redacted)";
+}
+
+/// <summary>
+/// Starts and cancels the server's compatibility (HLS) playback family for one remote media
+/// resource. Opening returns a loopback playlist URI for the player; nothing here implies a
+/// direct-download capability or a quality list beyond the explicitly requested profile.
+/// </summary>
+public interface ICompatibilityPlaybackSource
+{
+    Task<CompatibilityPlaybackSource> OpenAsync(RemoteResourceRef media, string quality, CancellationToken cancellationToken);
+    Task CancelAsync(RemoteResourceRef media, string taskId, CancellationToken cancellationToken);
+}
+
 /// <summary>One same-directory playable media candidate (episode) relative to the current media.</summary>
 public sealed record RemoteMediaOption(RemoteResourceRef Resource, long Size, bool IsCurrent)
 {

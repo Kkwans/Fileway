@@ -5,7 +5,7 @@ using Microsoft.UI.Dispatching;
 namespace Fileway.App.MediaSurfaces;
 
 public sealed class PlaybackWindowFactory(DispatcherQueue dispatcher, IVideoSpriteService? sprites = null,
-    IRemoteSubtitleSource? remoteSubtitles = null) : IPlaybackSurfaceFactory
+    IRemoteSubtitleSource? remoteSubtitles = null, ICompatibilityPlaybackSource? compatibility = null) : IPlaybackSurfaceFactory
 {
     public Task<IPlaybackSurface> CreateAsync(IPlaybackSession session, CancellationToken cancellationToken)
     {
@@ -14,7 +14,7 @@ public sealed class PlaybackWindowFactory(DispatcherQueue dispatcher, IVideoSpri
         void Create()
         {
             if (cancellationToken.IsCancellationRequested) { completion.TrySetCanceled(cancellationToken); return; }
-            try { var window = new PlayerWindow(session, sprites, remoteSubtitles); window.Activate(); completion.TrySetResult(window); }
+            try { var window = new PlayerWindow(session, sprites, remoteSubtitles, compatibility); window.Activate(); completion.TrySetResult(window); }
             catch (Exception exception) { completion.TrySetException(exception); }
         }
         if (dispatcher.HasThreadAccess) Create();
