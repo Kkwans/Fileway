@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Shapes;
 
@@ -43,7 +44,7 @@ public sealed class SidebarCollectionsControl : UserControl
             var favorites = snapshot.Favorites.Where(item => item.GroupId == group.Id).OrderBy(item => item.Order).ToArray();
             foreach (var favorite in favorites) children.Children.Add(FavoriteButton(favorite));
             if (favorites.Length == 0) children.Children.Add(Empty("此分组暂无收藏"));
-            var expander = new Expander { Header = $"{group.Name} · {favorites.Length}", Content = children, IsExpanded = _expandedGroups.GetValueOrDefault(group.Id), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 0, 4, 0) };
+            var expander = FavoriteGroup(group.Name, favorites.Length, children, _expandedGroups.GetValueOrDefault(group.Id));
             AutomationProperties.SetName(expander, $"收藏分组 {group.Name}，{favorites.Length} 项");
             expander.Expanding += (_, _) => { if (generation == _generation) _expandedGroups[group.Id] = true; };
             expander.Collapsed += (_, _) => { if (generation == _generation) _expandedGroups[group.Id] = false; };
@@ -73,6 +74,51 @@ public sealed class SidebarCollectionsControl : UserControl
             _tags.Children.Add(button);
         }
         if (snapshot.Tags.Count == 0) _tags.Children.Add(Empty("尚无标签。可直接标记选中资源。"));
+    }
+
+    private static Expander FavoriteGroup(string name, int count, UIElement content, bool expanded)
+    {
+        var header = new Grid { ColumnSpacing = 8 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis, FontSize = 13, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
+        var tally = new TextBlock { Text = count.ToString(System.Globalization.CultureInfo.CurrentCulture), FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetColumn(tally, 1); header.Children.Add(tally);
+        var expander = new Expander
+        {
+            Header = header, Content = content, IsExpanded = expanded,
+            HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            MinWidth = 0, MinHeight = 36, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness = new Thickness(0), CornerRadius = new CornerRadius(4), Padding = new Thickness(12, 2, 0, 2),
+        };
+        // Keep the native toggle, focus/automation peer and expansion animation. The
+        // header owns separate brushes in the stock template, independent of Background.
+        expander.Resources["ExpanderHeaderPadding"] = new Thickness(12, 0, 0, 0);
+        expander.Resources["ExpanderChevronMargin"] = new Thickness(8, 0, 4, 0);
+        expander.Resources["ExpanderChevronButtonSize"] = 28d;
+        expander.Resources["ExpanderContentDownBorderThickness"] = new Thickness(0);
+        foreach (var theme in new[] { "Light", "Default" })
+        {
+            var resources = new ResourceDictionary();
+            foreach (var key in new[] { "ExpanderHeaderBackground", "ExpanderHeaderBorderBrush", "ExpanderHeaderBorderPointerOverBrush", "ExpanderHeaderBorderPressedBrush", "ExpanderHeaderDisabledBorderBrush" })
+                resources[key] = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            resources["ExpanderHeaderBorderThickness"] = new Thickness(0);
+            expander.Resources.ThemeDictionaries[theme] = resources;
+        }
+        // An explicit HighContrast dictionary prevents the transparent Default values
+        // from becoming its fallback. ThemeResource keeps customized system colors live.
+        expander.Resources.ThemeDictionaries["HighContrast"] = (ResourceDictionary)XamlReader.Load("""
+            <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+              <SolidColorBrush x:Key="ExpanderHeaderBackground" Color="{ThemeResource SystemColorButtonFaceColor}"/>
+              <SolidColorBrush x:Key="ExpanderHeaderBorderBrush" Color="{ThemeResource SystemColorButtonTextColor}"/>
+              <SolidColorBrush x:Key="ExpanderHeaderBorderPointerOverBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
+              <SolidColorBrush x:Key="ExpanderHeaderBorderPressedBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
+              <SolidColorBrush x:Key="ExpanderHeaderDisabledBorderBrush" Color="{ThemeResource SystemColorGrayTextColor}"/>
+              <Thickness x:Key="ExpanderHeaderBorderThickness">2</Thickness>
+            </ResourceDictionary>
+            """);
+        ToolTipService.SetToolTip(expander, name);
+        return expander;
     }
 
     private Button FavoriteButton(ResourceFavorite favorite)

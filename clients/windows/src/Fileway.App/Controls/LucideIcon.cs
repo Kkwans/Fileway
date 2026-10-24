@@ -1,42 +1,37 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Data;
 
 namespace Fileway.App.Controls;
 
-/// <summary>Original Lucide artwork; no resource-dictionary registration at startup.</summary>
+/// <summary>Original Lucide artwork tinted by the native foreground, including control states.</summary>
 public sealed class LucideIcon : UserControl
 {
-    private readonly Image _image = new() { Stretch = Microsoft.UI.Xaml.Media.Stretch.Uniform };
+    private readonly BitmapIcon _image = new() { ShowAsMonochrome = true };
     public static readonly DependencyProperty IconNameProperty = DependencyProperty.Register(nameof(IconName), typeof(string), typeof(LucideIcon), new PropertyMetadata("file", (owner, _) => ((LucideIcon)owner).Refresh()));
     public string IconName { get => (string)GetValue(IconNameProperty); set => SetValue(IconNameProperty, value); }
     public LucideIcon()
     {
         Content = _image; IsHitTestVisible = false; IsTabStop = false;
-        Loaded += (_, _) => Refresh(); ActualThemeChanged += (_, _) => Refresh();
+        _image.SetBinding(IconElement.ForegroundProperty, new Binding { Source = this, Path = new PropertyPath(nameof(Foreground)) });
+        Refresh();
     }
-    private void Refresh() => _image.Source = LucideActionIcon.SourceFor(IconName, ActualTheme);
+    private void Refresh() => _image.UriSource = LucideActionIcon.SourceFor(IconName);
     internal static LucideActionIcon Action(string name) => new() { IconName = name };
 }
 
-public sealed class LucideActionIcon : ImageIcon
+public sealed class LucideActionIcon : BitmapIcon
 {
-    private static readonly Dictionary<string, BitmapImage> Sources = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, Uri> Sources = new(StringComparer.Ordinal);
     public static readonly DependencyProperty IconNameProperty = DependencyProperty.Register(nameof(IconName), typeof(string), typeof(LucideActionIcon), new PropertyMetadata("file", (owner, _) => ((LucideActionIcon)owner).Refresh()));
     public string IconName { get => (string)GetValue(IconNameProperty); set => SetValue(IconNameProperty, value); }
-    public LucideActionIcon() { Loaded += (_, _) => Refresh(); ActualThemeChanged += (_, _) => Refresh(); }
-    private void Refresh() => Source = SourceFor(IconName, ActualTheme);
-    internal static BitmapImage SourceFor(string name, ElementTheme theme)
+    public LucideActionIcon() { ShowAsMonochrome = true; Refresh(); }
+    private void Refresh() => UriSource = SourceFor(IconName);
+    internal static Uri SourceFor(string name)
     {
-        var dark = theme == ElementTheme.Dark;
-        var accessibility = new Windows.UI.ViewManagement.AccessibilitySettings();
-        if (accessibility.HighContrast)
-        {
-            var color = new Windows.UI.ViewManagement.UISettings().GetColorValue(Windows.UI.ViewManagement.UIColorType.Foreground);
-            dark = color.R + color.G + color.B > 384;
-        }
-        var key = (dark ? "dark/" : "light/") + name;
-        if (!Sources.TryGetValue(key, out var source)) Sources.Add(key, source = new BitmapImage(new Uri("ms-appx:///Assets/Lucide/" + key + ".png")));
+        // Only the existing artwork's alpha is used. Native Foreground resources handle
+        // light/dark, high contrast, selection and disabled states without global subscriptions.
+        if (!Sources.TryGetValue(name, out var source)) Sources.Add(name, source = new Uri("ms-appx:///Assets/Lucide/light/" + name + ".png"));
         return source;
     }
 }
