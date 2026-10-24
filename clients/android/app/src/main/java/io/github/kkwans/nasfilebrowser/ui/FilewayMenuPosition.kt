@@ -33,9 +33,9 @@ internal fun filewayMenuPosition(
     val maxX = (availableBounds.right - menuSize.width).coerceAtLeast(availableBounds.left)
     val maxY = (availableBounds.bottom - menuSize.height).coerceAtLeast(availableBounds.top)
     val xCandidates = if (layoutDirection == LayoutDirection.Ltr) {
-        listOf(anchorBounds.left, anchorBounds.right - menuSize.width, maxX)
+        listOf(anchorBounds.left, anchorBounds.right - menuSize.width)
     } else {
-        listOf(anchorBounds.right - menuSize.width, anchorBounds.left, availableBounds.left)
+        listOf(anchorBounds.right - menuSize.width, anchorBounds.left)
     }
     val x = xCandidates.firstOrNull { it in availableBounds.left..maxX }
         ?: xCandidates.first().coerceIn(availableBounds.left, maxX)
