@@ -50,7 +50,7 @@ enum class TaskView(val label: String, val statuses: List<String>) {
     ALL("全部", emptyList()), ACTIVE("进行中", listOf("queued", "running")), ATTENTION("待处理", listOf("failed", "interrupted")),
     COMPLETED("已完成", listOf("completed")), CANCELED("已取消", listOf("canceled")), ARCHIVED("已删除", emptyList())
 }
-data class TaskFilter(val category: String = "background", val view: TaskView = TaskView.ALL, val text: String = "", val owner: String = "", val type: String = "",
+data class TaskFilter(val category: String = "", val view: TaskView = TaskView.ALL, val text: String = "", val owner: String = "", val type: String = "",
     val from: Long = 0, val to: Long = 0) {
     fun query(cursor: String = "", limit: Int = 30): String {
         val values = linkedMapOf("category" to category, "archived" to (view == TaskView.ARCHIVED).toString(), "limit" to limit.toString())

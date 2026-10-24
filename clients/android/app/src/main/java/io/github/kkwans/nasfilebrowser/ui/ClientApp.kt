@@ -150,15 +150,8 @@ import java.util.Locale
     if (state.tab == "updates") { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme { AppUpdatesScreen(model) } }; return }
     if (state.tab == "cache-images") { CacheGalleryScreen(model); return }
     if (!state.connected && state.tab == "downloads") {
-        Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
-            Box(Modifier.statusBarsPadding()) {
-                io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar("下载文件", leadingIcon = R.drawable.ic_arrow_back,
-                    leadingDescription = "返回连接页面", onLeadingClick = ::requestBack)
-            }
-        }) { insets ->
-            Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-                CompositionLocalProvider(LocalSkipBottomNavigation provides true) { DownloadsScreen(model) }
-            }
+        LocalDownloadsScaffold(::requestBack) {
+            CompositionLocalProvider(LocalSkipBottomNavigation provides true) { DownloadsScreen(model) }
         }
         return
     }
@@ -307,7 +300,7 @@ import java.util.Locale
                 }
             }
             }
-            details?.let { file -> FileDetailsDialog(file, showSize = false, openEnabled = !state.busy,
+            details?.let { file -> FileDetailsDialog(file, model = model, openEnabled = !state.busy,
                 actions = if (detailsActionsEnabled) { { FileActions(model, file) { details = null } } } else null,
                 onLocation = { details = null; model.openContainingDirectory(file) }, onDismiss = { details = null }) }
         }

@@ -111,6 +111,10 @@ class DownloadRuntime private constructor(private val context: Context) {
             if (dao.claim(id, System.currentTimeMillis()) != 1) return@withTransaction null
             dao.get(id)
         } ?: return
+        io.github.kkwans.nasfilebrowser.data.withTransferTiming({ dao.addRuntime(id, it) }) { writeClaimed(record) }
+    }
+    private suspend fun writeClaimed(record: DownloadRecord) {
+        val id = record.id
         if (record.zipExport) { writeZip(record); return }
         var input: androidx.media3.datasource.HttpDataSource? = null
         var access: DownloadSource? = null

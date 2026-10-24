@@ -25,7 +25,7 @@ import io.github.kkwans.nasfilebrowser.R
 @Composable internal fun rememberFilewayTaskSelection(key: Any?, ids: List<String>): FilewayTaskSelection {
     val selection = remember(key) { FilewayTaskSelection() }
     LaunchedEffect(ids) { selection.retain(ids.toSet()) }
-    BackHandler(selection.active) { selection.close() }
+    BackHandler(selection.active && LocalFilewayPageActive.current) { selection.close() }
     return selection
 }
 

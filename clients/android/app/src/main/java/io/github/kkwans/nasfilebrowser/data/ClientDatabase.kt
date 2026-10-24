@@ -92,7 +92,7 @@ data class PlaybackSnapshot(
     @Query("DELETE FROM server_profiles WHERE id = :id") suspend fun deleteProfile(id: String)
 }
 
-@Database(entities = [ServerProfile::class, AccountRecord::class, DirectoryState::class, PlaybackSnapshot::class, AppPreference::class, ActiveSession::class, DownloadRecord::class, UploadRecord::class], version = 8, exportSchema = true)
+@Database(entities = [ServerProfile::class, AccountRecord::class, DirectoryState::class, PlaybackSnapshot::class, AppPreference::class, ActiveSession::class, DownloadRecord::class, UploadRecord::class], version = 9, exportSchema = true)
 abstract class ClientDatabase : RoomDatabase() {
     abstract fun profiles(): ProfileDao
     abstract fun playback(): PlaybackDao
@@ -104,7 +104,7 @@ abstract class ClientDatabase : RoomDatabase() {
         /** One upgrade chain for the app and isolated historical-database checks. */
         internal fun migrations(backups: java.io.File): Array<androidx.room.migration.Migration> = arrayOf(
             HistoryMigration(backups), AppearanceMigration(backups), FileLayoutMigration(backups),
-            ActiveSessionMigration(backups), DownloadMigration(), DownloadFolderMigration(), UploadMigration(),
+            ActiveSessionMigration(backups), DownloadMigration(), DownloadFolderMigration(), UploadMigration(), TransferTimingMigration(backups),
         )
         fun get(context: Context): ClientDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(context.applicationContext, ClientDatabase::class.java, "nfb-client.db")

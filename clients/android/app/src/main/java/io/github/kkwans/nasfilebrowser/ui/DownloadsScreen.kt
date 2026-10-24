@@ -76,6 +76,11 @@ import kotlinx.coroutines.withContext
     val selection = rememberFilewayTaskSelection(filter, records.map { it.id })
     val chosen = records.filter { it.id in selection.ids }
     var clearSelected by remember(filter) { mutableStateOf(false) }
+    TaskCenterHeaderActions {
+        if (!selection.active) IconButton({ selection.start() }, enabled = !state.busy && records.isNotEmpty()) {
+            Icon(painterResource(R.drawable.ic_select_multiple), "多选下载")
+        }
+    }
     FilewayRefresh(false, model.downloads::refresh) {
 Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, !state.busy, {
@@ -83,9 +88,8 @@ Column(Modifier.fillMaxSize()) {
         }) {
             IconButton({ model.downloads.batch(chosen.filter { it.active }, "pause") }, enabled = !state.busy && chosen.any { it.active }) { Icon(painterResource(R.drawable.art_pause), "暂停所选运行中下载") }
             IconButton({ model.downloads.batch(chosen.filter { !it.active && !it.complete }, "resume") }, enabled = !state.busy && chosen.any { !it.active && !it.complete }) { Icon(painterResource(R.drawable.art_play), "继续所选未完成下载") }
-            IconButton({ if (chosen.size == records.size) clearSelected = true else model.downloads.batch(chosen, "remove") }, enabled = !state.busy && chosen.isNotEmpty() && chosen.all { it.complete }) { Icon(painterResource(R.drawable.ic_trash), "移除所选完成记录，保留文件") }
+            IconButton({ clearSelected = true }, enabled = !state.busy && chosen.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "删除所选下载") }
         } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton({ selection.start() }, enabled = !state.busy && records.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选下载") }
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
             Spacer(Modifier.weight(1f))
             FilewayTextButton({ settings = true }) { Text("目录") }
@@ -126,13 +130,11 @@ Column(Modifier.fillMaxSize()) {
                 val cardActions = buildList {
                     add(FilewayTaskAction("detail", "任务信息", R.drawable.ic_info, enabled = !state.busy))
                     if (canOpen) add(FilewayTaskAction("open", if (item.complete) "打开下载" else "边下边播", R.drawable.ic_visibility, enabled = !state.busy, primary = item.complete))
-                    if (!item.complete) add(FilewayTaskAction("toggle", if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载",
-                        if (item.active) R.drawable.art_pause else R.drawable.art_play, enabled = !state.busy, primary = true))
                     add(FilewayTaskAction("folder", "打开所在目录", R.drawable.ic_folder, enabled = !state.busy))
                     if (item.treeUri.isNotEmpty()) add(FilewayTaskAction("reauthorize", "重新授权目录", R.drawable.ic_restore,
                         enabled = !state.busy && !item.active))
                     if (item.complete) add(FilewayTaskAction("remove", "移除记录", R.drawable.ic_trash, enabled = !state.busy))
-                    if (!item.active) add(FilewayTaskAction("delete", "删除文件与记录", R.drawable.ic_trash, enabled = !state.busy))
+                    add(FilewayTaskAction("delete", "删除文件与记录", R.drawable.ic_trash, enabled = !state.busy))
                 }
                 FilewayTaskCard(
                     title = item.name,
@@ -141,12 +143,10 @@ Column(Modifier.fillMaxSize()) {
                     onClick = { if (selection.active) selection.toggle(item.id) else if (canOpen) openDownloaded(context, model, item, kind) else detailsId = item.id },
                     onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids,
                     meta = {
-                        Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
-                            color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val trailing = if (item.complete) readableSize(item.expectedSize) else speed
-                        if (trailing != null) Text(trailing, style = MaterialTheme.typography.labelMedium,
+                        Text(serverTime(item.createdAt), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(if (item.complete) readableSize(item.expectedSize) else (speed ?: ""),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     },
                     actions = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -171,10 +171,15 @@ Column(Modifier.fillMaxSize()) {
                         }
                     },
                 ) {
-                    if (!item.complete) Text(progress, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (!item.complete && !unknownZip) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
-                    if (unknownZip && item.active) LinearProgressIndicator(Modifier.fillMaxWidth().height(3.dp))
+                    if (!item.complete) TransferProgressRow(progress, fraction, null, unknownZip && item.active,
+                        !state.busy && !selection.active, item.active,
+                        if (item.active) "暂停下载" else if (item.zipExport) "重新打包" else "继续下载") {
+                        if (item.active) model.downloads.pause(item) else model.downloads.resume(item)
+                    }
+                    if (item.status !in setOf("running", "paused", "completed")) Text(status, style = MaterialTheme.typography.bodySmall,
+                        color = if (item.status == "failed") MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(transferSummary(item.downloaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -189,6 +194,10 @@ Column(Modifier.fillMaxSize()) {
                 SelectionContainer {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(item.name, style = MaterialTheme.typography.titleMedium)
+                        Text("创建：${serverTime(item.createdAt)}", style = MaterialTheme.typography.bodySmall)
+                        Text("更新：${serverTime(item.updatedAt)}", style = MaterialTheme.typography.bodySmall)
+                        Text(transferSummary(item.downloaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall)
+                        if (!item.timingComplete) Text("旧任务仅累计升级后的运行时间，暂停与离线时间不计入。", style = MaterialTheme.typography.bodySmall)
                         Text("服务器原位置：${item.path}", style = MaterialTheme.typography.bodySmall)
                         if (item.relativeDirectory.isNotEmpty()) Text("本机子目录：${item.relativeDirectory}", style = MaterialTheme.typography.bodySmall)
                         Text(if (item.zipExport && !item.complete) "已接收 ${readableSize(item.downloaded)} · ZIP 总量待生成" else "${readableSize(item.downloaded)} / ${readableSize(item.expectedSize)}", style = MaterialTheme.typography.bodySmall)
@@ -229,12 +238,15 @@ Column(Modifier.fillMaxSize()) {
             if (state.tree.isNotEmpty()) FilewayTextButton({ model.downloads.selectDirectory(null) }, Modifier.fillMaxWidth(), enabled = !state.busy) { Text("恢复默认 · Download/fileway") }
         }
     }
-    if (clearSelected) FilewayAlertDialog(onDismissRequest = { clearSelected = false }, title = { Text("移除当前列表的全部完成记录？") },
-        text = { Text("将移除所选 ${chosen.size} 条下载记录，本机文件和服务器原文件均保留。") },
-        confirmButton = { FilewayButton({ model.downloads.batch(chosen, "remove"); clearSelected = false }, enabled = !state.busy) { Text("移除记录") } },
-        dismissButton = { FilewayOutlinedButton({ clearSelected = false }) { Text("取消") } })
+    if (clearSelected) {
+        val unfinished = chosen.any { !it.complete }
+        FilewayAlertDialog(onDismissRequest = { clearSelected = false }, title = { Text(if (unfinished) "删除所选下载？" else "移除所选下载记录？") },
+            text = { Text(if (unfinished) "将停止所选 ${chosen.size} 项下载并删除本机文件与记录，下载进度无法恢复。服务器原文件保留。" else "将移除所选 ${chosen.size} 条记录，本机文件和服务器原文件保留。") },
+            confirmButton = { FilewayButton({ model.downloads.batch(chosen, if (unfinished) "delete" else "remove"); clearSelected = false }, enabled = !state.busy) { Text(if (unfinished) "删除本机文件与记录" else "移除记录") } },
+            dismissButton = { FilewayOutlinedButton({ clearSelected = false }) { Text("取消") } })
+    }
     remove?.let { item -> FilewayAlertDialog(onDismissRequest = { remove = null }, title = { Text(if (deleteFile) "删除本机文件？" else "移除下载记录？") },
-        text = { Text(item.name + "\n\n" + if (deleteFile) "本机文件与下载记录将删除。服务器上的原文件保持不变。" else if (item.complete) "仅移除记录，本机文件仍保留，可通过系统文件管理器查看。" else "仅移除记录会留下未完成文件，且无法继续下载。建议选择删除文件与记录。") },
+        text = { Text(item.name + "\n\n" + if (deleteFile) "将先停止下载，再删除本机文件与记录。已下载进度无法恢复；服务器原文件保留。" else if (item.complete) "仅移除记录，本机文件仍保留，可通过系统文件管理器查看。" else "仅移除记录会留下未完成文件，且无法继续下载。建议选择删除文件与记录。") },
         confirmButton = { FilewayTextButton({ model.downloads.remove(item, deleteFile); remove = null }) { Text(if (deleteFile) "删除" else "移除记录") } },
         dismissButton = { FilewayTextButton({ remove = null }) { Text("取消") } }) }
 }

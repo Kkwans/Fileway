@@ -39,6 +39,12 @@ import java.time.format.DateTimeFormatter
     val enabled = connected && !state.loading && !state.paging && !state.clearing
     val selection = rememberFilewayTaskSelection(state.scope to state.filter, state.items.map { it.id })
     var deleteSelection by remember(state.scope, state.filter) { mutableStateOf(false) }
+    TaskCenterHeaderActions {
+        if (!selection.active && connected) {
+            IconButton({ selection.start() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选操作记录") }
+            IconButton({ controller.requestClear() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空操作历史", tint = MaterialTheme.colorScheme.error) }
+        }
+    }
     if (!connected) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(painterResource(R.drawable.ic_history), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -61,8 +67,6 @@ Column(Modifier.fillMaxSize()) {
                 controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
             }
             IconButton({ filters = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选操作历史") }
-            IconButton({ selection.start() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选操作记录") }
-            IconButton({ controller.requestClear() }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), "清空操作历史", tint = MaterialTheme.colorScheme.error) }
 
         }
         if (state.filter.active) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -223,17 +223,22 @@ class DownloadController(private val context: Context, private val scope: Corout
     fun pause(record: DownloadRecord) = perform { DownloadScheduler.pause(context, record.id); if (record.zipExport) "ZIP已暂停，恢复时会从零重新打包" else "下载已暂停，已保存的部分保留" }
     fun remove(record: DownloadRecord, file: Boolean) = perform { removeOne(record, file) }
     private suspend fun removeOne(record: DownloadRecord, file: Boolean): String {
-        val current = dao.get(record.id) ?: error("下载记录不存在")
-        check(!current.active) { "请先暂停下载" }
-        check(file || current.complete) { "未完成文件请使用删除文件与记录，避免留下无法恢复的片段" }
+        var current = dao.get(record.id) ?: error("下载记录不存在")
+        if (current.active) {
+            check(file) { "运行中的任务请使用删除文件与记录" }
+            DownloadScheduler.pause(context, current.id)
+        }
         withTimeout(30_000) { DownloadRuntime.get(context).awaitStopped(record.id) }
+        current = dao.get(record.id) ?: error("下载记录不存在")
+        check(!current.active) { "下载仍在运行，请稍后重试" }
+        check(file || current.complete) { "未完成文件请使用删除文件与记录，避免留下无法恢复的片段" }
         if (file && current.localUri.isNotEmpty()) check(target.delete(current)) { "无法删除本机文件，请检查目录授权" }
         check(dao.removeRecord(record.id) == 1)
         withContext(Dispatchers.IO) { DownloadIndex.get(context).remove(record) }
         return if (file) "文件与记录已删除" else "记录已移除，本机文件保留"
     }
     fun batch(records: List<DownloadRecord>, command: String) = perform {
-        require(command in setOf("pause", "resume", "remove"))
+        require(command in setOf("pause", "resume", "remove", "delete"))
         val snapshot = records.distinctBy { it.id }
         var succeeded = 0
         val failures = mutableListOf<String>()
@@ -242,6 +247,7 @@ class DownloadController(private val context: Context, private val scope: Corout
             when (command) {
                 "pause" -> DownloadScheduler.pause(context, record.id)
                 "resume" -> resumeOne(record)
+                "delete" -> removeOne(record, true)
                 else -> removeOne(record, false)
             }
             succeeded++

@@ -30,7 +30,12 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
     val selection = rememberFilewayTaskSelection(account to filter, items.map { it.id })
     val chosen = items.filter { it.id in selection.ids }
     var clearSelected by remember(account, filter) { mutableStateOf(false) }
-    var info by remember(account) { mutableStateOf<UploadRecord?>(null) }
+    var infoId by remember(account) { mutableStateOf<String?>(null) }
+    TaskCenterHeaderActions {
+        if (!selection.active) IconButton({ selection.start() }, enabled = !state.busy && items.isNotEmpty()) {
+            Icon(painterResource(R.drawable.ic_select_multiple), "多选上传")
+        }
+    }
     FilewayRefresh(false, model.uploads::refresh) {
 Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, !state.busy, {
@@ -41,7 +46,6 @@ Column(Modifier.fillMaxSize()) {
             IconButton({ if (chosen.size == items.size) clearSelected = true else model.uploads.batch(chosen, "remove") },
                 enabled = !state.busy && chosen.isNotEmpty() && chosen.all { it.complete || it.status in setOf("canceled", "restarted") }) { Icon(painterResource(R.drawable.ic_trash), "移除所选已结束记录") }
         } else Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconButton({ selection.start() }, enabled = !state.busy && items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选上传") }
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
         }
         state.error?.let { Text(it, Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.error) }
@@ -75,8 +79,6 @@ Column(Modifier.fillMaxSize()) {
                 val speed = if (item.active) state.speeds[item.id]?.let { readableSize(it) + "/s" } else null
 
                 val cardActions = buildList {
-                    if (item.canResume) add(FilewayTaskAction("toggle", if (item.active) "暂停上传" else "继续上传",
-                        if (item.active) R.drawable.art_pause else R.drawable.art_play, enabled = !state.busy, primary = true))
                     if (item.status == "cancel_failed") add(FilewayTaskAction("cleanup", "重试清理上传", R.drawable.ic_refresh, enabled = !state.busy, primary = true))
                     else if (!item.complete && item.status !in setOf("canceled", "canceling", "restarted")) add(FilewayTaskAction("cancel", "取消上传", R.drawable.ic_close, enabled = !state.busy))
                     if (item.canReselectSource) add(FilewayTaskAction("reselect", "重新选择上传原文件", R.drawable.ic_refresh, enabled = !state.busy))
@@ -86,19 +88,17 @@ Column(Modifier.fillMaxSize()) {
                 }
                 FilewayTaskCard(
                     title = item.name,
-                    onClick = { if (selection.active) selection.toggle(item.id) else info = item },
+                    onClick = { if (selection.active) selection.toggle(item.id) else infoId = item.id },
                     onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids,
                     icon = { Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     meta = {
-                        Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
-                            color = if (item.status in setOf("failed", "expired")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        val trailing = if (item.complete) readableSize(item.expectedSize) else speed
-                        if (trailing != null) Text(trailing, style = MaterialTheme.typography.labelMedium,
+                        Text(serverTime(item.createdAt), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        Text(if (item.complete) readableSize(item.expectedSize) else (speed ?: ""),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                     },
                     actions = {
-                        if (!selection.active) FilewayTaskActionStrip(cardActions, onAction = { action ->
+                        if (!selection.active) FilewayTaskActionStrip(cardActions, alwaysMenu = true, onAction = { action ->
                             when (action) {
                                 "toggle" -> if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
                                 "cleanup" -> model.uploads.cancel(item)
@@ -111,9 +111,14 @@ Column(Modifier.fillMaxSize()) {
                         }, moreLabel = "上传操作：${item.name}")
                     },
                 ) {
-                    if (!item.complete) Text(progress, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (item.active) LinearProgressIndicator(progress = { fraction }, Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
+                    if (!item.complete && item.canResume) TransferProgressRow(progress, fraction, null, false,
+                        !state.busy && !selection.active, item.active, if (item.active) "暂停上传" else "继续上传") {
+                        if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
+                    }
+                    if (item.status !in setOf("running", "paused", "completed")) Text(status, style = MaterialTheme.typography.bodySmall,
+                        color = if (item.status in setOf("failed", "expired")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(transferSummary(item.uploaded, item.activeMillis, item.timingComplete), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (item.error.isNotEmpty()) Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -122,9 +127,13 @@ Column(Modifier.fillMaxSize()) {
     }
 }
 
-    info?.let { row -> FileOperationSheet("上传详情", { info = null }) {
+    state.items.firstOrNull { it.id == infoId }?.let { row -> FileOperationSheet("上传详情", { infoId = null }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(row.name, style = MaterialTheme.typography.titleMedium)
+            Text("创建：${serverTime(row.createdAt)}", style = MaterialTheme.typography.bodySmall)
+            Text("更新：${serverTime(row.updatedAt)}", style = MaterialTheme.typography.bodySmall)
+            Text(transferSummary(row.uploaded, row.activeMillis, row.timingComplete), style = MaterialTheme.typography.bodySmall)
+            if (!row.timingComplete) Text("旧任务仅累计升级后的运行时间，暂停与离线时间不计入。", style = MaterialTheme.typography.bodySmall)
             FileOperationLocation("目标位置", row.targetPath, showBasename = false)
             Text("${readableSize(row.uploaded)} / ${readableSize(row.expectedSize)}", style = MaterialTheme.typography.bodyMedium)
             if (row.error.isNotEmpty()) Text(row.error, color = MaterialTheme.colorScheme.error)

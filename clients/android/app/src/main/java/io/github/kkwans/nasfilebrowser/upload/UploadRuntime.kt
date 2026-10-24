@@ -210,6 +210,10 @@ class UploadRuntime private constructor(private val context: Context) {
             if (dao.claim(id, System.currentTimeMillis()) != 1) return@withTransaction null
             dao.get(id)
         } ?: return
+        io.github.kkwans.nasfilebrowser.data.withTransferTiming({ dao.addRuntime(id, it) }) { writeClaimed(record) }
+    }
+    private suspend fun writeClaimed(record: UploadRecord) {
+        val id = record.id
         var api: NasSession? = null; var lease: PreviewLease? = null
         try {
             val local = UploadSources(context).read(Uri.parse(record.sourceUri))

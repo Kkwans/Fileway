@@ -10,13 +10,17 @@ data class DownloadRecord(@PrimaryKey val id: String, val jobId: Int, val accoun
     val modified: String, val identity: String, val sourceLabel: String, val treeUri: String, val localUri: String = "",
     val status: String = "queued", val downloaded: Long = 0, val createdAt: Long, val updatedAt: Long,
     val generation: Long = 0, val error: String = "", val positionMs: Long = 0, val durationMs: Long = 0,
-    @ColumnInfo(defaultValue = "''") val relativeDirectory: String = "") {
+    @ColumnInfo(defaultValue = "''") val relativeDirectory: String = "",
+    @ColumnInfo(defaultValue = "0") val activeMillis: Long = 0,
+    @ColumnInfo(defaultValue = "0") val timingComplete: Boolean = true) {
     val complete get() = status == "completed"
     val active get() = status in setOf("queued", "running")
     val zipExport get() = type == ZIP_EXPORT_TYPE
 }
 
 @Dao interface DownloadDao {
+    @Query("UPDATE downloads SET activeMillis = activeMillis + :millis WHERE id = :id")
+    suspend fun addRuntime(id: String, millis: Long)
     @Query("SELECT * FROM downloads ORDER BY createdAt DESC") fun observe(): Flow<List<DownloadRecord>>
     @Query("SELECT * FROM downloads WHERE id = :id") suspend fun get(id: String): DownloadRecord?
     @Query("SELECT COALESCE(MAX(jobId), 7300000) FROM downloads") suspend fun lastJobId(): Int

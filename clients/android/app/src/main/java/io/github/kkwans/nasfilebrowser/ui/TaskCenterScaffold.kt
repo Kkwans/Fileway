@@ -2,7 +2,7 @@ package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -17,18 +17,59 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 
+private class TaskHeaderRegistry {
+    val actions = mutableStateMapOf<TaskCenterSection, @Composable RowScope.() -> Unit>()
+}
+private val LocalTaskHeaders = staticCompositionLocalOf<TaskHeaderRegistry?> { null }
+private val LocalTaskHeaderSection = staticCompositionLocalOf { TaskCenterSection.DOWNLOADS }
+
+/** The pager keeps neighbouring pages composed; only the visible page owns header actions. */
+@Composable internal fun TaskCenterHeaderActions(content: @Composable RowScope.() -> Unit) {
+    val registry = LocalTaskHeaders.current
+    val section = LocalTaskHeaderSection.current
+    val current by rememberUpdatedState(content)
+    if (registry == null) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, content = content)
+    } else DisposableEffect(registry, section) {
+        val action: @Composable RowScope.() -> Unit = { current() }
+        registry.actions[section] = action
+        onDispose { if (registry.actions[section] === action) registry.actions.remove(section) }
+    }
+}
+
 /** Owns global insets and navigation once; each group supplies content only. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun TaskCenterScaffold(model: ClientModel, section: TaskCenterSection, content: @Composable ColumnScope.(TaskCenterSection) -> Unit) {
     Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "taskcenter") }) { insets ->
         val pager = rememberFilewayPager(section.ordinal, TaskCenterSection.entries.size) { model.taskCenterSection(TaskCenterSection.entries[it]) }
+        val headers = remember { TaskHeaderRegistry() }
+        val parentActive = LocalFilewayPageActive.current
+        CompositionLocalProvider(LocalTaskHeaders provides headers) {
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-            FilewayPageHeader("任务中心")
+            FilewayPageHeader("任务中心", actions = { headers.actions[TaskCenterSection.entries[pager.currentPage]]?.invoke(this) })
             FilewayPagerTabs(pager, TaskCenterSection.entries.map { it.label })
             androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), beyondViewportPageCount = 1) { page ->
-                Column(Modifier.fillMaxSize()) { content(TaskCenterSection.entries[page]) }
+                CompositionLocalProvider(LocalTaskHeaderSection provides TaskCenterSection.entries[page],
+                    LocalFilewayPageActive provides (parentActive && pager.currentPage == page)) {
+                    Column(Modifier.fillMaxSize()) { content(TaskCenterSection.entries[page]) }
+                }
             }
         }
+        }
+    }
+}
+
+/** Offline downloads reuse the same header action ownership as the connected task pager. */
+@Composable internal fun LocalDownloadsScaffold(onBack: () -> Unit, content: @Composable () -> Unit) {
+    val headers = remember { TaskHeaderRegistry() }
+    CompositionLocalProvider(LocalTaskHeaders provides headers, LocalTaskHeaderSection provides TaskCenterSection.DOWNLOADS) {
+        Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
+            Box(Modifier.statusBarsPadding()) {
+                io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar("下载文件", leadingIcon = R.drawable.ic_arrow_back,
+                    leadingDescription = "返回连接页面", onLeadingClick = onBack,
+                    actions = { headers.actions[TaskCenterSection.DOWNLOADS]?.invoke(this) })
+            }
+        }) { insets -> Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) { content() } }
     }
 }
 

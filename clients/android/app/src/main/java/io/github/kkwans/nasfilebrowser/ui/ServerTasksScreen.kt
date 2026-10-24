@@ -51,37 +51,9 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
     val selection = rememberFilewayTaskSelection(state.scope to state.filter, state.items.map { it.id })
     val chosen = state.items.filter { it.id in selection.ids }
     var deleteSelection by remember(state.scope, state.filter) { mutableStateOf(false) }
-    LaunchedEffect(list, state.scope) { snapshotFlow { list.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }.collect(model.tasks::watch) }
-    FilewayRefresh(state.loading, { model.tasks.refresh() }) {
-Column(Modifier.fillMaxSize()) {
-        if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
-            if (selection.ids.size == state.total) selection.select(emptyList()) else model.tasks.selectAll { selection.select(it) }
-        }) {
-            if (state.filter.view == TaskView.ARCHIVED) IconButton({ model.tasks.actionSelected(selection.ids, "unarchive") }, enabled = enabled && chosen.isNotEmpty() && chosen.all { model.tasks.canEdit(it) && it.archivedAt > 0 }) {
-                Icon(painterResource(R.drawable.ic_restore), "恢复所选任务记录")
-            } else IconButton({ if (chosen.size == state.total) deleteSelection = true else model.tasks.actionSelected(selection.ids, "archive") },
-                enabled = enabled && chosen.isNotEmpty() && chosen.all { it.canArchive && model.tasks.canEdit(it) }) {
-                Icon(painterResource(R.drawable.ic_trash), "删除所选已结束任务记录")
-            }
-        } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            FilewaySearchField(search, { search = it }, "查找任务", Modifier.weight(1f), enabled) {
-                model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
-            }
-            IconButton({ advanced = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选任务") }
+    TaskCenterHeaderActions {
+        if (!selection.active) {
             IconButton({ selection.start() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选后台任务") }
-
-        }
-        LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.tasks.refresh() }
-        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端任务列表" }, state = list, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Chrome uses a non-string key so visible-task polling never treats it as a task ID.
-        item(key = 0) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).padding(vertical = 8.dp)) {
-                Text("${if (state.filter.category == "file") "文件任务" else "其他后台任务"} · ${state.filter.view.label} · ${state.items.size}/${state.total}", style = MaterialTheme.typography.labelLarge)
-                val conditions = listOfNotNull(state.filter.type.takeIf { it.isNotEmpty() }?.let { SERVER_TASK_TYPES[it] ?: it },
-                    if (state.filter.from > 0 || state.filter.to > 0) "限定日期" else null)
-                if (conditions.isNotEmpty()) Text(conditions.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             val singleBulk = when (state.filter.view) {
                 TaskView.ARCHIVED -> "batch-unarchive"
                 TaskView.COMPLETED, TaskView.CANCELED -> "batch-archive"
@@ -101,13 +73,41 @@ Column(Modifier.fillMaxSize()) {
                 }
             }
         }
+    }
+    LaunchedEffect(list, state.scope) { snapshotFlow { list.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }.collect(model.tasks::watch) }
+    FilewayRefresh(state.loading, { model.tasks.refresh() }) {
+Column(Modifier.fillMaxSize()) {
+        if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
+            if (selection.ids.size == state.total) selection.select(emptyList()) else model.tasks.selectAll { selection.select(it) }
+        }) {
+            if (state.filter.view == TaskView.ARCHIVED) IconButton({ model.tasks.actionSelected(selection.ids, "unarchive") }, enabled = enabled && chosen.isNotEmpty() && chosen.all { model.tasks.canEdit(it) && it.archivedAt > 0 }) {
+                Icon(painterResource(R.drawable.ic_restore), "恢复所选任务记录")
+            } else IconButton({ if (chosen.size == state.total) deleteSelection = true else model.tasks.actionSelected(selection.ids, "archive") },
+                enabled = enabled && chosen.isNotEmpty() && chosen.all { it.canArchive && model.tasks.canEdit(it) }) {
+                Icon(painterResource(R.drawable.ic_trash), "删除所选已结束任务记录")
+            }
+        } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            FilewaySearchField(search, { search = it }, "查找任务", Modifier.weight(1f), enabled) {
+                model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
+            }
+            IconButton({ advanced = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选任务") }
+
         }
+        LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.tasks.refresh() }
+        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "服务端任务列表" }, state = list, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         if (state.items.isEmpty() && !state.loading && state.error == null) item {
             Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
                 Text("没有匹配的任务，可调整筛选条件", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-            items(state.items, key = { it.id }) { task ->
+            val groups = listOf(true to "文件任务", false to "其他任务")
+            for ((fileGroup, label) in groups) {
+            val rows = state.items.filter { it.fileCategory == fileGroup }
+            if (rows.isNotEmpty()) item(key = if (fileGroup) 1 else 2) {
+                Text(label, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            items(rows, key = { it.id }) { task ->
                 val cardActions = buildList {
                     if (task.active) add(FilewayTaskAction(if (task.pendingDeletion) "unarchive" else "cancel",
                         if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, enabled = enabled && model.tasks.canEdit(task), primary = true))
@@ -143,6 +143,7 @@ Column(Modifier.fillMaxSize()) {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
+            }
             }
             if (state.nextCursor.isNotEmpty()) item { FilewayTextButton({ model.tasks.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text(if (state.paging) "正在加载" else "加载更多任务") } }
         }
@@ -187,7 +188,7 @@ Column(Modifier.fillMaxSize()) {
         val batch = command.startsWith("batch-")
         val title = when (command) { "cancel" -> if (task?.pendingDeletion == true) "撤销删除任务？" else "停止这个任务？"; "retry", "batch-retry" -> "创建重试任务？"; "batch-unarchive", "unarchive" -> "恢复记录？"; else -> "删除全部已结束任务记录？" }
         FilewayAlertDialog(onDismissRequest = { confirm = null }, title = { Text(title) }, text = { Text(when {
-            command == "archive-ended" -> "删除当前分类中我的所有已结束记录。文件保留，记录可从“已删除”恢复。"
+            command == "archive-ended" -> "删除${if (choice.filter.category.isEmpty()) "全部分类" else "当前分类"}中我的所有已结束记录，包括筛选条件外的记录。文件保留，记录可从“已删除”恢复。"
             batch -> "将对当前筛选的 ${choice.count} 个服务端任务执行此操作。数量或状态变化时会停止并要求重新确认。"
             command == "cancel" -> "${task?.title}\n已经开始的任务可能已有部分结果；取消后可查看实际状态。"
             else -> task?.title.orEmpty()
@@ -265,8 +266,9 @@ private fun serverTaskIcon(task: ServerTask): Int = when {
     ) {
             Text("分类", style = MaterialTheme.typography.labelLarge)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(category.isEmpty(), { category = "" }, { Text("全部") }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = libraryChipColors())
                 FilterChip(category == "file", { category = "file" }, { Text("文件任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = libraryChipColors())
-                FilterChip(category == "background", { category = "background" }, { Text("其他后台任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = libraryChipColors())
+                FilterChip(category == "background", { category = "background" }, { Text("其他任务", Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }, modifier = Modifier.weight(1f).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = libraryChipColors())
             }
             Text("状态", style = MaterialTheme.typography.labelLarge)
             TaskView.entries.chunked(2).forEach { row ->

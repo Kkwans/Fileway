@@ -130,7 +130,7 @@ class ServerTasksController(private val scope: CoroutineScope, private val isCur
         }
     }
     private fun matches(task: ServerTask, filter: TaskFilter): Boolean =
-        task.fileCategory == (filter.category == "file") && (task.archivedAt > 0) == (filter.view == TaskView.ARCHIVED) &&
+        (filter.category.isEmpty() || task.fileCategory == (filter.category == "file")) && (task.archivedAt > 0) == (filter.view == TaskView.ARCHIVED) &&
             (filter.view.statuses.isEmpty() || task.status in filter.view.statuses) && (filter.type.isEmpty() || task.type == filter.type) &&
             (filter.owner.isEmpty() || task.owner.equals(filter.owner.trim(), true) || task.userId.toString() == filter.owner.trim()) &&
             (filter.from <= 0 || task.createdAt >= filter.from) && (filter.to <= 0 || task.createdAt <= filter.to) &&
@@ -198,7 +198,16 @@ class ServerTasksController(private val scope: CoroutineScope, private val isCur
         "已${if (value == "archive") "删除" else "恢复"} $completed 条任务记录，文件保留"
     }
     fun archiveEnded() = change { context ->
-        val count = context.api.action("DELETE", "/api/tasks?category=${mutable.value.filter.category}").optInt("deleted")
+        var count = 0
+        val categories = mutable.value.filter.category.takeIf { it.isNotEmpty() }?.let(::listOf) ?: listOf("file", "background")
+        for (category in categories) {
+            check(current(context)) { "任务来源已切换" }
+            try { count += context.api.action("DELETE", "/api/tasks?category=$category").optInt("deleted") }
+            catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                error("已确认删除 $count 条记录；后续结果未确认，请刷新核对：${failure.message.orEmpty()}")
+            }
+        }
         "已删除我的 $count 条已结束任务记录，文件保留"
     }
 }

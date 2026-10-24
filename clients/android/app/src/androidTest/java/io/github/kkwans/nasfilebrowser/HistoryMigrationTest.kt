@@ -41,7 +41,7 @@ class HistoryMigrationTest {
             assertEquals("Fixture", upgraded.profiles().profile("profile")?.name)
             assertEquals("/films", upgraded.profiles().directory("account")?.wirePath)
             val files = backups.listFiles()!!
-            assertEquals(4, files.size)
+            assertEquals(5, files.size)
             val backup = files.single { it.name.startsWith("schema1-before2-") }
             val v2 = JSONObject(files.single { it.name.startsWith("schema2-before3-") }.readText())
             assertEquals(2, v2.getInt("schemaVersion"))

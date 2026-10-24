@@ -11,7 +11,9 @@ data class UploadRecord(@PrimaryKey val id: String, val jobId: Int, val accountK
     val overwrite: Boolean = false, val replacedIdentity: String = "", val protocol: String = "tus", val remoteCreated: Boolean = false,
     val status: String = "queued", val uploaded: Long = 0, val createdAt: Long, val updatedAt: Long,
     val generation: Long = 0, val error: String = "", val batchId: String = "", val batchName: String = "", val batchItems: Int = 0,
-    val batchBytes: Long = 0, val folderUpload: Boolean = false) {
+    val batchBytes: Long = 0, val folderUpload: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val activeMillis: Long = 0,
+    @ColumnInfo(defaultValue = "0") val timingComplete: Boolean = true) {
     val complete get() = status == "completed"
     val active get() = status in setOf("queued", "running")
     val canResume get() = !complete && status !in setOf("canceled", "canceling", "cancel_failed", "restarted")
@@ -20,6 +22,8 @@ data class UploadRecord(@PrimaryKey val id: String, val jobId: Int, val accountK
 }
 
 @Dao interface UploadDao {
+    @Query("UPDATE uploads SET activeMillis = activeMillis + :millis WHERE id = :id")
+    suspend fun addRuntime(id: String, millis: Long)
     @Query("SELECT * FROM uploads ORDER BY createdAt DESC") fun observe(): Flow<List<UploadRecord>>
     @Query("SELECT * FROM uploads WHERE id = :id") suspend fun get(id: String): UploadRecord?
     @Query("SELECT targetWire FROM uploads WHERE accountKey = :accountKey AND sourceRevision = :sourceRevision AND status NOT IN ('completed', 'canceled', 'restarted')")
