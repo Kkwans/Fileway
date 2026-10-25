@@ -44,6 +44,7 @@ import kotlinx.coroutines.launch
 /** Compatibility boundary: every library page now inherits the single application theme. */
 @Composable internal fun LibraryTheme(content: @Composable () -> Unit) = content()
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun ClientNavigation(model: ClientModel, selected: String, activeOverride: ClientMainDestination? = null) {
     if (LocalSkipBottomNavigation.current) return
     val state by model.state.collectAsStateWithLifecycle()
@@ -51,7 +52,7 @@ import kotlinx.coroutines.launch
     val navigationPulse = LocalFilewayNavigationPulse.current
     val labelStyle = MaterialTheme.typography.labelMedium
     val barHeight = 68.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    CompositionLocalProvider(LocalFilewayIconFamily provides FilewayIconFamily.LORDICON_OUTLINE) {
+    CompositionLocalProvider(LocalFilewayIconFamily provides FilewayIconFamily.LORDICON_OUTLINE, LocalRippleConfiguration provides null) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
         modifier = Modifier.height(barHeight)) {
         listOf(Triple(ClientMainDestination.FILES, "文件", R.drawable.ic_nav_files_077),
