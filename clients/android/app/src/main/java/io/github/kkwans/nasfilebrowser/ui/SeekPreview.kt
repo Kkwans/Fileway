@@ -77,14 +77,24 @@ import kotlin.math.abs
     }
 }
 
+/** Stable preview bounds: asynchronous arrival never moves the window or the target-time row. */
 @Composable private fun SeekThumbnail(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long, width: Dp = 144.dp) {
-    asset?.let { (sprite, bitmap) ->
-        val image = remember(bitmap) { bitmap.asImageBitmap() }
-        val (x, y) = sprite.tileAt(positionMs)
-        Canvas(Modifier.width(width).aspectRatio(sprite.width.toFloat() / sprite.height).clip(RoundedCornerShape(12.dp))
-            .semantics { contentDescription = "当前拖动时间附近的视频缩略图" }) {
-            drawImage(image, srcOffset = IntOffset(x, y), srcSize = IntSize(sprite.width, sprite.height),
-                dstSize = IntSize(size.width.toInt(), size.height.toInt()))
+    Box(Modifier.width(width).height(width * 9f / 16f).clip(RoundedCornerShape(12.dp))
+        .background(Color.White.copy(alpha = .06f)), contentAlignment = Alignment.Center) {
+        if (asset == null) {
+            FilewayIcon(R.drawable.ic_image, null, Modifier.size(24.dp), tint = Color.White.copy(alpha = .24f))
+        } else {
+            val (sprite, bitmap) = asset
+            val image = remember(bitmap) { bitmap.asImageBitmap() }
+            val (x, y) = sprite.tileAt(positionMs)
+            Canvas(Modifier.matchParentSize().semantics { contentDescription = "当前拖动时间附近的视频缩略图" }) {
+                val scale = minOf(size.width / sprite.width, size.height / sprite.height)
+                val widthPx = (sprite.width * scale).toInt()
+                val heightPx = (sprite.height * scale).toInt()
+                drawImage(image, srcOffset = IntOffset(x, y), srcSize = IntSize(sprite.width, sprite.height),
+                    dstOffset = IntOffset((size.width.toInt() - widthPx) / 2, (size.height.toInt() - heightPx) / 2),
+                    dstSize = IntSize(widthPx, heightPx))
+            }
         }
     }
 }
