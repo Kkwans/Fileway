@@ -65,11 +65,9 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         analysisHost.Children.Add(analysisRoot);
         var duplicatesHost = new Grid { Visibility = Visibility.Collapsed };
         duplicatesHost.Children.Add(_duplicatesRoot);
-        analysisHost.Children.Add(duplicatesHost);
         var adminHost = new Grid { Visibility = Visibility.Collapsed };
         BuildAdminRoot();
         adminHost.Children.Add(_adminRoot);
-        analysisHost.Children.Add(adminHost);
 
         var root = new StackPanel { Spacing = 12, Padding = new Thickness(24, 18, 24, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch };
         root.Children.Add(new TextBlock { Text = "存储工具", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
