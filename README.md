@@ -6,7 +6,7 @@
 
 连接自己的服务器，在浏览器或 Android 手机上管理文件、欣赏媒体、整理资料。
 
-[Android 1.0.0 正式版](https://github.com/Kkwans/Fileway/releases/tag/android-1.0.0-966bf38) · [下载 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.0.0-966bf38/fileway-android-1.0.0.apk) · [部署服务端](#快速开始) · [English](README_EN.md)
+[Android 1.1.0 正式版](https://github.com/Kkwans/Fileway/releases/tag/android-1.1.0) · [下载 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.1.0/fileway-android-1.1.0.apk) · [部署服务端](#快速开始) · [English](README_EN.md)
 
 </div>
 
@@ -20,7 +20,7 @@
 | --- | --- |
 | <img src="docs/images/android-files.png" alt="Android 文件浏览" width="300"> | <img src="docs/images/android-player.png" alt="Android 视频播放" width="300"> |
 
-Android 截图展示 **1.1.0 候选界面**；当前可公开下载的正式版为 **1.0.0**。截图仅使用演示内容。
+Android 截图展示 **1.1.0 界面**，拍摄自同界面的候选构建；截图仅使用演示内容。
 
 ## 可以做什么
 
@@ -31,7 +31,7 @@ Android 截图展示 **1.1.0 候选界面**；当前可公开下载的正式版�
 - **空间与恢复**：回收站、存储分析和重复文件报告，帮助了解空间去向并谨慎清理。
 - **自己的服务器**：Linux／NAS 与 Windows 服务端共用 Web 界面及 API，账户权限和访问范围由自己的实例管理。
 
-Android 1.1 候选正在完善系统画中画、播放器反馈、图标动效与统一多选体验，尚未作为正式版公开发布。
+Android 1.1 加入系统画中画、流动封面氛围、统一播放器反馈与图标动效，并完善多选和存储分析报告。
 
 ## 快速开始
 
@@ -46,7 +46,7 @@ Android 1.1 候选正在完善系统画中画、播放器反馈、图标动效�
 
 ### 2. 连接 Android
 
-[下载 Android 正式版 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.0.0-966bf38/fileway-android-1.0.0.apk)，安装后填写自己的服务器地址并登录。
+[下载 Android 正式版 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.1.0/fileway-android-1.1.0.apk)，安装后填写自己的服务器地址并登录。
 
 - Android **10 及以上**；安装包包含 **arm64-v8a、x86_64**。
 - 覆盖安装沿用原包名和签名，保留账户、任务记录及本机设置；无需卸载旧版。

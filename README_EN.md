@@ -6,7 +6,7 @@
 
 Connect to your server from a browser or an Android phone to manage files, enjoy media and organize your library.
 
-[Android 1.0.0 stable](https://github.com/Kkwans/Fileway/releases/tag/android-1.0.0-966bf38) · [Download APK](https://github.com/Kkwans/Fileway/releases/download/android-1.0.0-966bf38/fileway-android-1.0.0.apk) · [Set up a server](#get-started) · [简体中文](README.md)
+[Android 1.1.0 stable](https://github.com/Kkwans/Fileway/releases/tag/android-1.1.0) · [Download APK](https://github.com/Kkwans/Fileway/releases/download/android-1.1.0/fileway-android-1.1.0.apk) · [Set up a server](#get-started) · [简体中文](README.md)
 
 </div>
 
@@ -20,7 +20,7 @@ Connect to your server from a browser or an Android phone to manage files, enjoy
 | --- | --- |
 | <img src="docs/images/android-files.png" alt="Android file browser" width="300"> | <img src="docs/images/android-player.png" alt="Android video player" width="300"> |
 
-Android screenshots show the **1.1.0 candidate UI**. The publicly available stable Android release remains **1.0.0**. All screenshots use demonstration content.
+Android screenshots show the **1.1.0 UI**, captured from a candidate with the same interface. All screenshots use demonstration content.
 
 ## What you can do
 
@@ -31,7 +31,7 @@ Android screenshots show the **1.1.0 candidate UI**. The publicly available stab
 - **Storage and recovery:** trash, storage analysis and duplicate-file reports for informed cleanup.
 - **Your own server:** Linux/NAS and Windows servers share the same Web interface and API, while each instance manages its own accounts and permissions.
 
-The Android 1.1 candidate adds system picture-in-picture and refines player feedback, animated icons and multiselect. It has not been publicly released as stable.
+Android 1.1 adds system picture-in-picture, flowing artwork ambience, unified player feedback and animated icons, and improves multiselect and storage reports.
 
 ## Get started
 
@@ -46,7 +46,7 @@ The server includes the Web interface. Open your instance address in a browser o
 
 ### 2. Connect Android
 
-[Download the stable Android APK](https://github.com/Kkwans/Fileway/releases/download/android-1.0.0-966bf38/fileway-android-1.0.0.apk), install it, enter your own server address and sign in.
+[Download the stable Android APK](https://github.com/Kkwans/Fileway/releases/download/android-1.1.0/fileway-android-1.1.0.apk), install it, enter your own server address and sign in.
 
 - Android **10 or later**, with **arm64-v8a and x86_64** in one APK.
 - Install over the existing app to retain accounts, transfer records and settings; the package and signing identity are preserved.

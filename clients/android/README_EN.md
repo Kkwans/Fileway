@@ -6,13 +6,13 @@ A native Android file and media client for your own Fileway server. Android **10
 
 ## Install and update
 
-[Download Android 1.0.0 stable](https://github.com/Kkwans/Fileway/releases/download/android-1.0.0-966bf38/fileway-android-1.0.0.apk) · [Release notes](docs/release-1.0.0.md) · [All releases](https://github.com/Kkwans/Fileway/releases)
+[Download Android 1.1.0 stable](https://github.com/Kkwans/Fileway/releases/download/android-1.1.0/fileway-android-1.1.0.apk) · [Release notes](docs/release-1.1.0.md) · [All releases](https://github.com/Kkwans/Fileway/releases)
 
-The main branch is preparing the **1.1.0 candidate**, which is not a published stable release. Upgrade over the existing app to preserve the package, signing identity and local state. Uninstalling or clearing data is not part of an ordinary upgrade.
+The current stable release is **1.1.0**. Upgrade over the existing app to preserve the package, signing identity and local state. Uninstalling or clearing data is not part of an ordinary upgrade.
 
 ## Screenshots
 
-| Files | Video player · 1.1 candidate |
+| Files | Video player · 1.1 |
 | --- | --- |
 | <img src="../../docs/images/android-files.png" alt="File browser" width="300"> | <img src="../../docs/images/android-player.png" alt="Video player" width="300"> |
 
@@ -24,7 +24,7 @@ The main branch is preparing the **1.1.0 candidate**, which is not a published s
 - Manage downloads, uploads, server tasks and operation history together. Use trash and storage tools for recovery and analysis.
 - Select audio tracks, embedded or external subtitles, subtitle fonts and timing, playback speeds and directory playlists.
 
-The 1.1 candidate also unifies glass feedback, cover-derived player ambience, animated icons and multiselect, and adds system picture-in-picture with manual entry by default.
+Version 1.1 unifies glass feedback, cover-derived player ambience, animated icons and multiselect, and adds system picture-in-picture with manual entry by default.
 
 ## Native media and local state
 

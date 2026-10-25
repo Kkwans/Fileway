@@ -4,6 +4,7 @@ import androidx.media3.common.C
 import java.util.Locale
 
 /** Source metadata only: this does not assert the display or decoder is outputting HDR. */
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 internal fun sourceDynamicRange(mime: String?, codecs: String?, transfer: Int?): String {
     val dolby = codecs.orEmpty().split(',').any {
         it.trim().substringBefore('.').lowercase(Locale.ROOT) in setOf("dvhe", "dvh1", "dvav", "dva1", "dav1")

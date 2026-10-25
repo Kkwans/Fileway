@@ -6,13 +6,13 @@
 
 ## 安装与更新
 
-[下载 1.0.0 正式版 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.0.0-966bf38/fileway-android-1.0.0.apk) · [发布说明](docs/release-1.0.0.md) · [全部版本](https://github.com/Kkwans/Fileway/releases)
+[下载 1.1.0 正式版 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.1.0/fileway-android-1.1.0.apk) · [发布说明](docs/release-1.1.0.md) · [全部版本](https://github.com/Kkwans/Fileway/releases)
 
-当前主线正在开发 **1.1.0 候选**，不等同于已发布正式版。覆盖安装保留原包名、签名和本机数据；不要通过卸载或清空数据解决普通升级问题。
+当前正式版为 **1.1.0**。覆盖安装保留原包名、签名和本机数据；不要通过卸载或清空数据解决普通升级问题。
 
 ## 界面预览
 
-| 文件浏览 | 视频播放器 · 1.1候选 |
+| 文件浏览 | 视频播放器 · 1.1 |
 | --- | --- |
 | <img src="../../docs/images/android-files.png" alt="文件浏览" width="300"> | <img src="../../docs/images/android-player.png" alt="视频播放器" width="300"> |
 
@@ -24,7 +24,7 @@
 - 下载、上传、后台任务及操作历史集中管理；回收站与存储工具提供恢复和分析入口。
 - 视频支持音轨选择、内嵌及外挂字幕、字体与偏移调整、自定义倍速、目录播放列表。
 
-1.1 候选进一步统一播放器玻璃反馈、封面氛围背景、图标动效和多选，并提供默认手动开启的系统画中画。
+1.1 统一播放器玻璃反馈、封面氛围背景、图标动效和多选，并提供默认手动开启的系统画中画。
 
 ## 原生媒体与数据
 
