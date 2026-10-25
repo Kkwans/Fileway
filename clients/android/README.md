@@ -4,24 +4,30 @@ Native Android client for Fileway's Linux/Windows servers. Windows desktop is
 planned as a later delivery in this same repository.
 
 Android 10+ / arm64-v8a and x86_64. Kotlin, Compose, Media3 with FFmpeg audio and libass subtitles,
-and an embedded Go/tsnet transport. The 0.7 line uses this native playback chain;
-actual HDR output, audible continuity and long-play acceptance remain open.
+and an embedded Go/tsnet transport. Device-specific HDR, audio and long-play
+behavior is validated separately from code and package checks.
 
-## Status
+## Android 1.0.0
 
-Implementation and acceptance are in progress. Scoped engineering/device results
-are separate from full API35/API37 CI, physical HDR, speaker/Bluetooth continuity,
-long-film performance and complete UI acceptance. This preview does not certify
-all formats, server/provider behavior or recovery scenarios.
+[Download the signed Android APK](https://github.com/Kkwans/Fileway/releases/latest/download/fileway-android-1.0.0.apk)
+· [Release notes](docs/release-1.0.0.md)
+· [All releases](https://github.com/Kkwans/Fileway/releases)
 
-## Install the 0.7.4 preview
+The stable APK uses versionName `1.0.0`, versionCode **38**, Room **9**, and the
+original package ID and signing certificate. Upgrade over an existing installation;
+profiles, saved logins, downloads and local settings are retained. The published
+release identifies its exact source commit and APK checksum. Recent-record batch
+deletion requires the shared server `2026.10.25-v1` or later.
 
-[Android 0.7.4 preview — download APK](https://github.com/Kkwans/fileway/releases/download/android-preview-0.7.4-63d3ddb/fileway-android-0.7.4-preview.apk)
+Files, Recent, Favorites and Tags use a single tap for details, a long press for
+multiselect, and a double tap to open supported objects. Trash and operation-only
+records expose their available actions in details. See the [1.0 design contract](docs/design-system.md).
 
-Published artifact: `0.7.4-preview`, **signed release**, versionCode **14**, Room **8**.
-The original package ID and signing identity are preserved. Source:
-`63d3ddb21007731bfdee6f8d91a9b266c6c82ddc`.
-See [0.7.4 release notes](https://github.com/Kkwans/fileway/releases/tag/android-preview-0.7.4-63d3ddb).
+### Historical 0.7.4 verification
+
+The results below belong to the old `0.7.4-preview`/code14 release, not the current
+1.0 verification. Its immutable [release and notes](https://github.com/Kkwans/Fileway/releases/tag/android-preview-0.7.4-63d3ddb)
+remain available for historical reference.
 
 Release build/lint and 95 JVM tests in the configured debug host-test variant
 passed, including both ABI and 16 KiB ELF/ZIP checks. Xiaomi14 was cover-upgraded
@@ -40,7 +46,7 @@ The [complete Android CI for this source](https://github.com/Kkwans/fileway/acti
 counts are not this version's totals. Complete functional, hardware/media and UI
 acceptance remain open.
 
-### Features available in the 0.7 line
+### Implemented capabilities
 
 - A task center with separate downloads, uploads, server background tasks and
   operation history; Recent separates playback/resume history from server-access records.
@@ -61,7 +67,7 @@ acceptance remain open.
 
 These are implemented feature groups, with scoped verification. Server capabilities
 and versions determine availability; unsupported newer operations request an upgrade.
-The full App-internal download/install/cover-upgrade flow remains a separate gate.
+The final release records the app-update download/install/cover-upgrade result separately from build checks.
 
 The historical stock-Media3/libVLC comparison is a separate, opt-in diagnostic:
 build the test APK with `-PfilewayEngineComparison=true`, then explicitly run

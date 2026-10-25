@@ -3,6 +3,11 @@
 跨设备的个人文件与媒体中心。This repository is the migration destination for
 NAS File Browser, its Windows server adaptation, and the native clients.
 
+## Android 1.0.0
+
+[下载正式版 APK](https://github.com/Kkwans/Fileway/releases/latest/download/fileway-android-1.0.0.apk)
+· [发布说明](clients/android/docs/release-1.0.0.md)
+
 ## Components
 
 The historical projects have been consolidated into this repository. Linux and
@@ -13,7 +18,7 @@ remain unchanged. Android hardware/media acceptance is separate from server CI.
 | Component | Path | Status |
 | --- | --- | --- |
 | Linux/Windows server core and Web | `server` | One backend, one frontend; native platform adapters |
-| Android application | `clients/android` | Existing Android application |
+| Android application | `clients/android` | 1.0.0 stable |
 | Shared client core | [`clients/shared/core`](clients/shared/core/README.md) | Client-side Go transport and protocol core; not a second backend |
 | Windows native client | Not scaffolded | Later planned delivery; no placeholder app |
 
