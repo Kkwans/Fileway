@@ -1,6 +1,8 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.combinedClickable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -44,10 +46,15 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
     var visibleGroups by remember(state.reportId) { mutableIntStateOf(20) }
     val enabled = !state.loading && !state.changing && !client.busy
     LaunchedEffect(state.scope) { model.storageTools.refresh() }
-    LibraryScaffold(model, LibrarySection.TOOLS, actions = {
-        FilewayTextButton({ scan = true }, enabled = enabled && state.permissions.download) { Text("新建扫描") }
+    BackHandler(state.reportId != null && LocalFilewayPageActive.current) { model.storageTools.closeReport() }
+    LibraryScaffold(model, LibrarySection.TOOLS,
+        title = if (state.reportId != null) (if (state.tool == "storage") "存储分析报告" else "重复文件报告") else null,
+        back = if (state.reportId != null) ({ model.storageTools.closeReport() }) else null, tabs = state.reportId == null, actions = {
+        if (state.reportId != null) FilewayIconButton({ state.reportId?.let { model.storageTools.openReport(it) } }, enabled = !state.reportLoading && !state.changing) {
+            FilewayIcon(R.drawable.ic_refresh, "刷新报告", Modifier.size(24.dp))
+        } else FilewayIconButton({ scan = true }, enabled = enabled && state.permissions.download) { FilewayIcon(R.drawable.ic_add, "新建扫描", Modifier.size(24.dp)) }
     }) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (state.reportId == null) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(state.tool == "storage", { model.storageTools.tool("storage") }, { Text("存储占用") }, enabled = enabled, colors = libraryChipColors())
             FilterChip(state.tool == "duplicates", { model.storageTools.tool("duplicates") }, { Text("重复文件") }, enabled = enabled, colors = libraryChipColors())
         }
@@ -63,9 +70,9 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                             val total = volume.optLong("totalSpace"); val used = volume.optLong("usedSpace")
                             if (total > 0) LinearProgressIndicator(progress = { (used.toDouble() / total).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.fillMaxWidth().height(4.dp), gapSize = 0.dp, drawStopIndicator = {})
                             Text("已用 ${readableSize(used)}" + if (total > 0) " / ${readableSize(total)} · 可用 ${readableSize(volume.optLong("freeSpace", (total - used).coerceAtLeast(0)))}" else " · 总容量未知", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row {
-                                FilewayTextButton({ model.openRemotePath(volume.getString("path")) }, enabled = !client.busy) { Text("打开存储卷") }
-                                FilewayTextButton({ scan = true }, enabled = enabled && state.permissions.download) { Text("扫描范围") }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilewayOutlinedButton({ model.openRemotePath(volume.getString("path")) }, enabled = !client.busy) { Text("打开存储卷") }
+                                FilewayOutlinedButton({ scan = true }, enabled = enabled && state.permissions.download) { Text("扫描范围") }
                             }
                         }
                     }
@@ -82,46 +89,35 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text("${serverTime(row.optLong("createdAt"))} · " + when (row.optString("status")) { "completed" -> "已完成"; "failed" -> "失败"; "canceled" -> "已取消"; "interrupted" -> "已中断"; "running" -> "进行中"; else -> "排队中" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row {
-                                FilewayTextButton({ model.storageTools.openReport(row.getString("id"), row.getString("tool")) }) { Text(if (row.optBoolean("resultReady")) "查看报告" else "查看进度") }
-                                FilewayTextButton({ model.showServerTask(row.getString("id")) }) { Text("任务详情") }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilewayOutlinedButton({ model.storageTools.openReport(row.getString("id"), row.getString("tool")) }, Modifier.weight(1f)) { Text(if (row.optBoolean("resultReady")) "查看报告" else "查看进度") }
+                                FilewayOutlinedButton({ model.showServerTask(row.getString("id")) }, Modifier.weight(1f)) { Text("任务详情") }
                             }
                         }
                     }
                 }
-                if (state.nextCursor.isNotEmpty()) item { FilewayTextButton({ model.storageTools.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("加载更多分析记录") } }
+                if (state.nextCursor.isNotEmpty()) item { FilewayOutlinedButton({ model.storageTools.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("加载更多分析记录") } }
             } else {
-                item { Row(verticalAlignment = Alignment.CenterVertically) {
-                    FilewayTextButton(model.storageTools::closeReport, enabled = !state.changing) { Text("返回分析记录") }
-                    Spacer(Modifier.weight(1f))
-                    FilewayTextButton({ state.reportId?.let { model.storageTools.openReport(it) } }, enabled = !state.reportLoading && !state.changing) { Text("刷新报告") }
-                } }
                 if (state.reportLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 state.reportError?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-                state.task?.let { task -> item {
+                state.task?.takeIf { state.report == null }?.let { task -> item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("${task.title} · ${task.statusLabel}", style = MaterialTheme.typography.titleMedium)
                         if (task.active) TaskProgress(task)
                         else Text("完成时间 · ${serverTime(task.finishedAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        FilewayTextButton({ model.showServerTask(task.id) }) { Text("查看分析任务") }
+                        FilewayOutlinedButton({ model.showServerTask(task.id) }) { Text("查看分析任务") }
                     }
                 } }
                 state.report?.let { report ->
-                    item {
-                        val scopes = report.optJSONArray("scopes")
-                        if (scopes != null) SelectionContainer { Text((0 until scopes.length()).mapNotNull {
-                            when (val value = scopes.opt(it)) { is String -> value; is JSONObject -> value.optString("path"); else -> null }
-                        }.joinToString("\n"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        Text("扫描 ${report.optLong("scannedFiles")} 个文件 · ${readableSize(report.optLong("scannedBytes"))}", style = MaterialTheme.typography.bodyMedium)
-                        if (state.cleanup != null) Text("分析报告为清理前的历史快照，清理结果在下方单独列出。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (report.optBoolean("truncated")) Text("结果数量达到服务端上限，报告未包含所有条目。", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                        if (report.optInt("skippedCount") > 0) Text("${report.optInt("skippedCount")} 项跳过或无法读取。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                    }
+                    item { AnalysisSummary(report, state.tool, state.task) { state.reportId?.let(model::showServerTask) } }
+                    if (state.cleanup != null) item { Text("此报告保留清理前的分析结果，清理结果见下方。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (report.optBoolean("truncated")) item { Text("结果达到服务端上限，报告未包含所有条目。", color = MaterialTheme.colorScheme.error) }
+                    if (report.optInt("skippedCount") > 0) item { Text("${report.optInt("skippedCount")} 项跳过或无法读取。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     if (state.tool == "storage") {
                         item { Text("最大的文件夹", style = MaterialTheme.typography.titleMedium) }
-                        items(jsonRows(report, "largestDirectories"), key = { "dir/" + it.getString("path") }) { value -> AnalysisPathRow(value.getString("path"), value.optLong("bytes"), "${value.optLong("files")} 个文件", model, directory = true, enabled = !client.busy) }
+                        items(jsonRows(report, "largestDirectories"), key = { "dir/" + it.getString("path") }) { value -> AnalysisPathRow(value.getString("path"), value.optLong("bytes"), "${value.optLong("files")} 个文件", model, directory = true, enabled = !client.busy, maximum = jsonRows(report, "largestDirectories").maxOfOrNull { it.optLong("bytes") } ?: 0) }
                         item { Text("最大的文件", style = MaterialTheme.typography.titleMedium) }
-                        items(jsonRows(report, "largestFiles"), key = { "file/" + it.getString("path") }) { value -> AnalysisPathRow(value.getString("path"), value.optLong("size"), serverTime(value.optLong("modified")), model, enabled = !client.busy) }
+                        items(jsonRows(report, "largestFiles"), key = { "file/" + it.getString("path") }) { value -> AnalysisPathRow(value.getString("path"), value.optLong("size"), serverTime(value.optLong("modified")), model, enabled = !client.busy, maximum = jsonRows(report, "largestFiles").maxOfOrNull { it.optLong("size") } ?: 0) }
                         if (jsonRows(report, "largestFiles").isEmpty() && jsonRows(report, "largestDirectories").isEmpty()) item { Text("这个范围没有可列出的文件。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     } else {
                         val groups = jsonRows(report, "groups")
@@ -137,18 +133,18 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                                     if (members.size > 3) Text("另 ${members.size - 3} 项 · 点下方查看全部", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (keep != null) Text("保留：${libraryBasename(keep)}\n${libraryParent(keep)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
                                     if (!cleanable(report, group)) Text("这组缺少完整、安全的文件身份信息，可查看但不能清理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    FilewayTextButton({ selecting = group }, enabled = !state.changing) { Text(if (keep == null) "查看并选择保留文件" else "修改保留文件") }
+                                    FilewayOutlinedButton({ selecting = group }, enabled = !state.changing) { Text(if (keep == null) "查看并选择保留文件" else "修改保留文件") }
                                 }
                             }
                         }
-                        if (visibleGroups < groups.size) item { FilewayTextButton({ visibleGroups += 20 }, Modifier.fillMaxWidth()) { Text("显示更多重复组") } }
+                        if (visibleGroups < groups.size) item { FilewayOutlinedButton({ visibleGroups += 20 }, Modifier.fillMaxWidth()) { Text("显示更多重复组") } }
                         if (keepers.isNotEmpty() && state.cleanup == null && state.permissions.delete && state.task?.userId == state.userId) item { FilewayButton({ confirmCleanup = true }, Modifier.fillMaxWidth(), enabled = enabled && state.cleanupLookupKnown && !state.cleanupLoading) { Text("清理已选择的 ${keepers.size} 组") } }
                     }
                 }
                 state.cleanup?.let { task -> item {
                     Text("清理任务 · ${task.statusLabel}", style = MaterialTheme.typography.titleMedium)
                     if (task.active) TaskProgress(task)
-                    FilewayTextButton({ model.showServerTask(task.id) }) { Text("查看清理任务") }
+                    FilewayOutlinedButton({ model.showServerTask(task.id) }) { Text("查看清理任务") }
                 } }
                 state.cleanupError?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) } }
                 state.cleanupResult?.let { raw ->
@@ -181,14 +177,14 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
         FilewayAlertDialog(onDismissRequest = { scan = false }, title = { Text(if (state.tool == "storage") "分析存储占用" else "查找重复文件") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("选择有权访问的服务器路径。扫描只在你提交后开始。", style = MaterialTheme.typography.bodyMedium)
-                OutlinedTextField(input, { input = it }, label = { Text("扫描路径，每行一个") }, modifier = Modifier.fillMaxWidth(), minLines = 2, maxLines = 5)
-                FilewayTextButton({ input = client.path }) { Text("使用当前目录") }
+                OutlinedTextField(input, { input = it }, label = { Text("扫描路径，每行一个") }, modifier = Modifier.fillMaxWidth(), minLines = 1, maxLines = 3, shape = RoundedCornerShape(12.dp))
+                FilewayOutlinedButton({ input = client.path }) { Text("使用当前目录") }
                 if (targets.any { !it.startsWith('/') }) Text("请输入以 / 开始的服务器路径", color = MaterialTheme.colorScheme.error)
                 if (targets.size > 32) Text("一次最多选择32个范围", color = MaterialTheme.colorScheme.error)
                 if ("/" in targets) Text("根目录可能包含大量文件，扫描会占用服务器资源。", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
             }
-        }, confirmButton = { FilewayTextButton({ model.storageTools.start(targets); scan = false }, enabled = targets.isNotEmpty() && targets.size <= 32 && targets.all { it.startsWith('/') } && enabled) { Text("提交扫描") } },
-            dismissButton = { FilewayTextButton({ scan = false }) { Text("取消") } })
+        }, confirmButton = { FilewayOutlinedButton({ model.storageTools.start(targets); scan = false }, enabled = targets.isNotEmpty() && targets.size <= 32 && targets.all { it.startsWith('/') } && enabled) { Text("提交扫描") } },
+            dismissButton = { FilewayOutlinedButton({ scan = false }) { Text("取消") } })
     }
     selecting?.let { group ->
         val report = state.report ?: return@let
@@ -203,13 +199,13 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                         RadioButton(path == keep, null, enabled = safe && state.cleanup == null)
                         Column(Modifier.weight(1f).padding(start = 8.dp)) { Text(libraryBasename(path)); Text(path, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant); Text("${readableSize(file.optLong("size"))} · ${serverTime(file.optLong("modified"))}", style = MaterialTheme.typography.bodySmall) }
                     }
-                    FilewayTextButton({ model.openRemotePath(path) }, enabled = !client.busy && favoritePathIdentity(path, null, null).openable) { Text("打开文件") }
+                    FilewayOutlinedButton({ model.openRemotePath(path) }, enabled = !client.busy && favoritePathIdentity(path, null, null).openable) { Text("打开文件") }
                 }
                 if (!safe) Text("报告被截断，或文件是链接/身份信息缺失。请重新扫描或手动查看文件。", color = MaterialTheme.colorScheme.error)
-                if (keepers.containsKey(group.getString("sha256"))) FilewayTextButton({ keepers = keepers - group.getString("sha256"); selecting = null }) { Text("取消此组清理") }
+                if (keepers.containsKey(group.getString("sha256"))) FilewayOutlinedButton({ keepers = keepers - group.getString("sha256"); selecting = null }) { Text("取消此组清理") }
             }
-        }, confirmButton = { FilewayTextButton({ keepers = keepers + (group.getString("sha256") to keep); selecting = null }, enabled = safe && keep.isNotEmpty() && state.cleanup == null) { Text("保留此文件") } },
-            dismissButton = { FilewayTextButton({ selecting = null }) { Text("取消") } })
+        }, confirmButton = { FilewayOutlinedButton({ keepers = keepers + (group.getString("sha256") to keep); selecting = null }, enabled = safe && keep.isNotEmpty() && state.cleanup == null) { Text("保留此文件") } },
+            dismissButton = { FilewayOutlinedButton({ selecting = null }) { Text("取消") } })
     }
     if (confirmCleanup) FilewayAlertDialog(onDismissRequest = { confirmCleanup = false }, title = { Text("将重复副本移入回收站？") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -220,33 +216,75 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
             Text("服务端会重新检查文件身份，逐项结果可在任务中心查看。", style = MaterialTheme.typography.bodySmall)
         } },
         confirmButton = { FilewayButton({ model.storageTools.cleanup(keepers.toMap()); confirmCleanup = false }, enabled = enabled && state.cleanupLookupKnown && !state.cleanupLoading) { Text("提交清理") } },
-        dismissButton = { FilewayTextButton({ confirmCleanup = false }) { Text("取消") } })
+        dismissButton = { FilewayOutlinedButton({ confirmCleanup = false }) { Text("取消") } })
 }
 
-@Composable private fun AnalysisPathRow(path: String, size: Long, info: String, model: ClientModel, directory: Boolean = false, enabled: Boolean = true) {
-    val safe = favoritePathIdentity(path, null, null).openable && enabled
+@Composable private fun AnalysisPathRow(path: String, size: Long, info: String, model: ClientModel, directory: Boolean = false, enabled: Boolean = true, maximum: Long = 0) {
     var inspecting by remember(path) { mutableStateOf(false) }
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(painterResource(fileArtworkIcon(libraryBasename(path), directory)), null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
+    val safe = enabled && favoritePathIdentity(path, null, null).openable
+    Surface(Modifier.fillMaxWidth().combinedClickable(onClick = { inspecting = true },
+        onDoubleClick = if (safe) ({ model.openRemotePath(path) }) else null),
+        shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FilewayIcon(fileArtworkIcon(libraryBasename(path), directory), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(libraryBasename(path), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("${readableSize(size)} · $info", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(libraryParent(path), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (maximum > 0) LinearProgressIndicator(progress = { (size.toDouble() / maximum).toFloat().coerceIn(0f,1f) },
+                    modifier = Modifier.fillMaxWidth().height(3.dp), gapSize = 0.dp, drawStopIndicator = {})
             }
-            SelectionContainer { Text(libraryParent(path), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            Text("${readableSize(size)} · $info", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row {
-                FilewayTextButton({ model.openRemotePath(path) }, enabled = safe) { Text("打开") }
-                FilewayTextButton({ model.openRemotePath(libraryParent(path)) }, enabled = safe) { Text("所在目录") }
-                FilewayTextButton({ inspecting = true }) { Text("详情") }
+            FilewayIconButton({ inspecting = true }) { FilewayIcon(R.drawable.ic_more_actions, "文件操作", Modifier.size(24.dp)) }
+        }
+    }
+    if (inspecting) FileDetailsDialog(ResourceRef(path, "", libraryBasename(path), directory, "", size), model = if (safe) model else null,
+        openEnabled = safe, onOpen = if (safe) ({ inspecting = false; model.openRemotePath(path) }) else null,
+        onLocation = if (safe) ({ inspecting = false; model.openRemotePath(libraryParent(path)) }) else null,
+        onDismiss = { inspecting = false })
+}
+
+@Composable private fun AnalysisSummary(report: JSONObject, tool: String, task: ServerTask?, onTask: () -> Unit) {
+    var expanded by remember(report) { mutableStateOf(false) }
+    val scopes = report.optJSONArray("scopes")
+    val paths = scopes?.let { (0 until it.length()).mapNotNull { i -> when(val value = it.opt(i)) {
+        is String -> value; is JSONObject -> value.optString("path"); else -> null
+    } }.joinToString("\n") }.orEmpty()
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("扫描概况", style = MaterialTheme.typography.titleMedium)
+                    task?.let { Text("${it.statusLabel} · ${serverTime(if (it.finishedAt > 0) it.finishedAt else it.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+                FilewayIconButton(onTask, enabled = task != null) { FilewayIcon(R.drawable.ic_tasks, "查看分析任务", Modifier.size(24.dp)) }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                AnalysisMetric("扫描文件", "${report.optLong("scannedFiles")} 个", Modifier.weight(1f))
+                AnalysisMetric("扫描大小", readableSize(report.optLong("scannedBytes")), Modifier.weight(1f))
+            }
+            if (tool == "duplicates") Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                AnalysisMetric("重复文件组", "${report.optInt("duplicateGroups")} 组", Modifier.weight(1f))
+                AnalysisMetric("可回收空间", readableSize(report.optLong("reclaimableBytes")), Modifier.weight(1f))
+            }
+            if (paths.isNotBlank()) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha=.5f))
+                Row(Modifier.fillMaxWidth().combinedClickable(onClick = { expanded = !expanded }), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    FilewayIcon(R.drawable.ic_folder, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("扫描范围", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        SelectionContainer { Text(paths, style = MaterialTheme.typography.bodyMedium, maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis) }
+                    }
+                    FilewayIcon(R.drawable.ic_arrow_forward, if (expanded) "收起范围" else "展开范围", Modifier.size(18.dp))
+                }
             }
         }
     }
-    if (inspecting) FileOperationDialog("对象详情", { inspecting = false }, footer = {
-        FilewayTextButton({ inspecting = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("关闭") }
-    }) {
-        Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            FileOperationLocation("完整路径", path)
-            SelectionContainer { Text("${readableSize(size)} · $info", style = MaterialTheme.typography.bodySmall) }
-        }
+}
+
+@Composable private fun AnalysisMetric(label: String, value: String, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = MaterialTheme.typography.titleMedium)
     }
 }

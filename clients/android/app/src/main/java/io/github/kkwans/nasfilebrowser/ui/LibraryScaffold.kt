@@ -23,6 +23,9 @@ import io.github.kkwans.nasfilebrowser.app.LibrarySection
 private val LocalLibraryPager = staticCompositionLocalOf<PagerState?> { null }
 private class LibraryChrome {
     var owner by mutableStateOf<LibrarySection?>(null)
+    var title by mutableStateOf<String?>(null)
+    var back by mutableStateOf<(() -> Unit)?>(null)
+    var tabs by mutableStateOf(true)
     var actions by mutableStateOf<@Composable RowScope.() -> Unit>({})
 }
 private val LocalLibraryChrome = staticCompositionLocalOf<LibraryChrome?> { null }
@@ -36,9 +39,12 @@ private val LocalLibraryChrome = staticCompositionLocalOf<LibraryChrome?> { null
     val chrome = remember { LibraryChrome() }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "library") }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-            FilewayPageHeader(sections[pager.currentPage].title, actions = chrome.actions)
-            FilewayPagerTabs(pager, sections.map { it.label })
-            HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), beyondViewportPageCount = 1) { page ->
+            if (chrome.back != null) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar(
+                chrome.title ?: sections[pager.currentPage].title, leadingIcon = io.github.kkwans.nasfilebrowser.R.drawable.ic_arrow_back,
+                leadingDescription = "返回分析记录", onLeadingClick = { chrome.back?.invoke() }, actions = chrome.actions)
+            else FilewayPageHeader(chrome.title ?: sections[pager.currentPage].title, actions = chrome.actions)
+            if (chrome.tabs) FilewayPagerTabs(pager, sections.map { it.label })
+            HorizontalPager(pager, Modifier.weight(1f).fillMaxWidth(), userScrollEnabled = chrome.tabs, beyondViewportPageCount = 1) { page ->
                 holder.SaveableStateProvider(sections[page].name) {
                     CompositionLocalProvider(LocalLibraryPager provides pager, LocalLibraryChrome provides chrome,
                         LocalFilewayPageActive provides (parentActive && page == pager.settledPage)) { content(sections[page]) }
@@ -50,26 +56,32 @@ private val LocalLibraryChrome = staticCompositionLocalOf<LibraryChrome?> { null
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun LibraryScaffold(model: ClientModel, section: LibrarySection,
+    title: String? = null, back: (() -> Unit)? = null, tabs: Boolean = true,
     actions: @Composable RowScope.() -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
     val chrome = LocalLibraryChrome.current
     if (chrome != null) {
+        val latestBack = rememberUpdatedState(back)
+        val backSlot: () -> Unit = remember(section) { { latestBack.value?.invoke(); Unit } }
         val latest = rememberUpdatedState(actions)
         val slot: @Composable RowScope.() -> Unit = remember(section) { { latest.value(this) } }
         val active = LocalFilewayPageActive.current
         DisposableEffect(chrome, section, active) {
             if (active) { chrome.owner = section; chrome.actions = slot }
-            onDispose { if (chrome.owner == section) { chrome.owner = null; chrome.actions = {} } }
+            onDispose { if (chrome.owner == section) { chrome.owner = null; chrome.actions = {}; chrome.title = null; chrome.back = null; chrome.tabs = true } }
         }
+        SideEffect { if (active) { chrome.title = title; chrome.back = if (back == null) null else backSlot; chrome.tabs = tabs } }
         Column(Modifier.fillMaxSize()) { LibraryRefreshContent(model, section, content) }
         return
     }
     val pages = LibrarySection.entries.filter { it != LibrarySection.TASKS }
     Scaffold(containerColor = MaterialTheme.colorScheme.background, bottomBar = { ClientNavigation(model, "library") }) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-            FilewayPageHeader(section.title, actions = actions)
+            if (back != null) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar(title ?: section.title,
+                leadingIcon = io.github.kkwans.nasfilebrowser.R.drawable.ic_arrow_back, leadingDescription = "返回分析记录", onLeadingClick = back, actions = actions)
+            else FilewayPageHeader(title ?: section.title, actions = actions)
             val pager = LocalLibraryPager.current
-            if (pager != null) FilewayPagerTabs(pager, pages.map { it.label })
-            else PrimaryTabRow(selectedTabIndex = pages.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.background) {
+            if (tabs && pager != null) FilewayPagerTabs(pager, pages.map { it.label })
+            else if (tabs) PrimaryTabRow(selectedTabIndex = pages.indexOf(section).coerceAtLeast(0), containerColor = MaterialTheme.colorScheme.background) {
                 pages.forEach { page -> Tab(page == section, { model.librarySection(page) }, text = { Text(page.label) }) }
             }
             LibraryRefreshContent(model, section, content)
