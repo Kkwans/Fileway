@@ -94,7 +94,7 @@ Column(Modifier.fillMaxSize()) {
                 FilewayPageHeader("文件") {
                     if (state.permissions.create) Box {
                         FilewayIconButton({ createMenu = true }, enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null) {
-                            FilewayIcon(R.drawable.ic_add, "新建文件或文件夹", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                            FilewayIcon(R.drawable.ic_add, "新建文件或文件夹", Modifier.size(24.dp), tint = colors.onSurfaceVariant)
                         }
                         FilewayMenu(createMenu, { createMenu = false }, items = listOf(
                             FilewayMenuEntry("file", "新建文件", R.drawable.ic_file),
@@ -114,7 +114,7 @@ Column(Modifier.fillMaxSize()) {
                     }
                     Box {
                         FilewayIconButton({ browserMenu = true }, enabled = !state.busy) {
-                            FilewayIcon(R.drawable.ic_more_actions, "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                            FilewayIcon(R.drawable.ic_more_actions, "更多文件操作", Modifier.size(24.dp), tint = colors.onSurfaceVariant)
                         }
                         FilewayMenu(browserMenu, { browserMenu = false }, items = buildList {
                             if (state.permissions.create) {

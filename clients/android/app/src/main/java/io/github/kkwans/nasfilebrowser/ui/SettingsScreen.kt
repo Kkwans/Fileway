@@ -51,6 +51,7 @@ import kotlinx.coroutines.launch
     val navigationPulse = LocalFilewayNavigationPulse.current
     val labelStyle = MaterialTheme.typography.labelMedium
     val barHeight = 68.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    CompositionLocalProvider(LocalFilewayIconFamily provides FilewayIconFamily.LORDICON_OUTLINE) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
         modifier = Modifier.height(barHeight)) {
         listOf(Triple(ClientMainDestination.FILES, "文件", R.drawable.ic_nav_files_077),
@@ -65,6 +66,7 @@ import kotlinx.coroutines.launch
                     selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary,
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant, unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant))
         }
+    }
     }
 }
 

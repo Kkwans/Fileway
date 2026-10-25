@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.size
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayAnimatedGlyph
 
+internal enum class FilewayIconFamily { MATERIAL_ROUNDED, LORDICON_OUTLINE }
+
+/** Select the family for an entire group, never silently replace individual toolbar glyphs. */
+internal val LocalFilewayIconFamily = staticCompositionLocalOf { FilewayIconFamily.MATERIAL_ROUNDED }
 internal val LocalFilewayIconPulse = staticCompositionLocalOf { 0 }
 internal val LocalFilewayNavigationPulse = staticCompositionLocalOf<MutableState<Pair<String,Int>>?> { null }
 
@@ -28,7 +32,7 @@ private fun animatedAsset(resource: Int): String? = when(resource) {
 /** One semantic tint and optical slot for both animated originals and Material Symbols fallbacks. */
 @Composable internal fun FilewayIcon(resource: Int, contentDescription: String?, modifier: Modifier=Modifier.size(24.dp),
     tint: Color=LocalContentColor.current, eventKey: Int=LocalFilewayIconPulse.current) {
-    val asset = animatedAsset(resource)
+    val asset = if (LocalFilewayIconFamily.current == FilewayIconFamily.LORDICON_OUTLINE) animatedAsset(resource) else null
     val description = contentDescription
     val actualTint = if (tint == Color.Unspecified && asset != null) LocalContentColor.current else tint
     FilewayAnimatedGlyph(asset, if(asset == null) null else "default:hover-pinch",resource,

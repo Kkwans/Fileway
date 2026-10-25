@@ -66,3 +66,5 @@
 - Feedback uses window-local compositor live blur with no focus or touch interception; retain SurfaceView. System PiP only, manual default, optional automatic entry off by default; no overlay permission.
 - Selection entry/exit stays in its top slot; retain header actions and separate all/invert semantics across all filtered pages.
 - Reuse valid same-source CI checks; one complete Windows candidate build and a bounded Xiaomi14 acceptance batch, followed only by affected fixes. No publication or unrelated post-delivery testing.
+
+- 2026-10-25 icon-group override: a toolbar/menu/list-action group uses one family throughout. Default ordinary controls to Material Symbols Rounded; opt in complete navigation groups to Lordicon. Do not silently animate a single search/folder glyph among Material neighbors. PRO assets require confirmed license; the user currently has no PRO subscription.
