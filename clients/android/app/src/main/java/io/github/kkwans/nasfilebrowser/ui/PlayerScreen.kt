@@ -119,7 +119,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
 @Composable internal fun PlayerScreen(model: ClientModel, file: ResourceRef) {
     val pictureInPicture = LocalPlayerPictureInPicture.current
     val pipMode = pictureInPicture?.let { it.active || it.preparing } == true
-    val pageColors = rememberMediaColors(model, file)
+    val artwork = rememberPlayerArtwork(model, file)
+    val pageColors = artwork.scheme
     val headerAccent = animateColorAsState(pageColors.tertiary, tween(210), label = "playerAccent")
     val state by model.player.state.collectAsStateWithLifecycle()
     val client by model.state.collectAsStateWithLifecycle()
@@ -374,14 +375,14 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 }
                 .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
                 .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
-                if (!fullscreen) PlayerAmbient(pageColors.tertiary, state.playing && gestureForeground, Modifier.fillMaxSize())
+                if (!fullscreen) PlayerAmbient(artwork.atmosphere, state.playing && gestureForeground, Modifier.fillMaxSize())
                 val landscape = maxWidth > maxHeight
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
                     else WindowInsets.displayCutout.union(WindowInsets.captionBar)
                 val headerDensity = LocalDensity.current
                 val controlPadding = if (landscape) 20.dp else 12.dp
                 val downloadCoverageHeight = with(headerDensity) { 16.sp.toDp() }
-                val portraitControlsReserve = (if (maxWidth - controlPadding * 2 >= 600.dp) 96.dp else 144.dp) +
+                val portraitControlsReserve = (if (maxWidth - 56.dp >= 600.dp) 96.dp else 144.dp) + 16.dp +
                     if (download != null) downloadCoverageHeight else 0.dp
                 val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
                 Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
@@ -400,6 +401,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     val stage = if (fullscreen) Modifier.weight(1f) else Modifier.fillMaxWidth().height(portraitStageHeight)
                     CompositionLocalProvider(LocalContentColor provides FilewayTheme.status.mediaContent) {
                     Box(stage.background(if (fullscreen) Color.Black else Color.Transparent)) {
+                        if (!fullscreen) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(portraitControlsReserve)
+                            .background(Brush.verticalGradient(listOf(Color.Black, Color.Transparent),
+                                endY = with(headerDensity) { 72.dp.toPx() })))
                         Box(Modifier.fillMaxSize().padding(bottom = if (fullscreen) 0.dp else portraitControlsReserve).background(Color.Black)) {
                             AndroidView(factory = { PlayerViewport(it).also(model.player::attach) }, modifier = Modifier.fillMaxSize()
                                 .onGloballyPositioned { coordinates ->
@@ -562,8 +566,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         MaterialTheme(colorScheme = if (fullscreen) MaterialTheme.colorScheme else pageColors) {
                         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
                         Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(if (fullscreen) listOf(Color.Transparent, Color(0xE6000000)) else listOf(Color.Transparent, Color.Transparent)))
-                            .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) else Modifier)
-                            .padding(start = controlPadding, end = controlPadding, bottom = if (fullscreen) 8.dp else 0.dp)
+                            .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                                else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = .065f)).border(1.dp, Color.White.copy(alpha = .12f), RoundedCornerShape(12.dp)))
+                            .padding(start = if (fullscreen) controlPadding else 12.dp, end = if (fullscreen) controlPadding else 12.dp, bottom = if (fullscreen) 8.dp else 0.dp)
                             .alpha(if (!fullscreen && touchLocked) .55f else 1f)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()), color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
@@ -645,7 +651,11 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         .padding(horizontal = 16.dp),
                         contentPadding = PaddingValues(vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        item(key = "video-information") { PlayerInformation(file, state) }
+                        item(key = "video-information") { PlayerInformation(model, file, client.previewScope, state) }
+                        if (queue?.hasNext != true) item(key = "track-information") {
+                            PlayerTrackInformation(state, controlsEnabled,
+                                audio = { touch(); sheet = PlayerSheet.AUDIO }, subtitles = { touch(); sheet = PlayerSheet.SUBTITLE })
+                        }
                         queue?.takeIf { it.hasNext }?.let { snapshot ->
                             val upcoming = snapshot.items.drop(snapshot.index + 1)
                             item(key = "upcoming-header") { Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),

@@ -342,13 +342,7 @@ class NativePlayer(context: Context) {
             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0),
             width = player.videoSize.width, height = player.videoSize.height, rate = player.playbackParameters.speed, volume = (player.volume * 100).toInt(),
             sourceVideoCodec = format?.codecs ?: format?.sampleMimeType ?: "未知",
-            sourceDynamicRange = when {
-                format?.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION -> "Dolby Vision（片源标记）"
-                colors?.colorTransfer == C.COLOR_TRANSFER_ST2084 -> "PQ（片源标记）"
-                colors?.colorTransfer == C.COLOR_TRANSFER_HLG -> "HLG（片源标记）"
-                colors?.colorTransfer == C.COLOR_TRANSFER_SDR -> "SDR（片源标记）"
-                else -> "未知"
-            },
+            sourceDynamicRange = sourceDynamicRange(format?.sampleMimeType, format?.codecs, colors?.colorTransfer),
             sourceColorSpace = when (colors?.colorSpace) {
                 C.COLOR_SPACE_BT2020 -> "BT.2020"
                 C.COLOR_SPACE_BT709 -> "BT.709"

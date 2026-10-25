@@ -43,7 +43,7 @@ abstract class PrepareFilewayNotices : DefaultTask() {
     }
 }
 val prepareFilewayNotices = tasks.register<PrepareFilewayNotices>("prepareFilewayNotices") {
-    notices.from(rootProject.files("licenses/haze-Apache-2.0.txt", "licenses/material-icons.md", "licenses/material-symbols.md", "licenses/lordicon.md"))
+    notices.from(rootProject.files("licenses/haze-Apache-2.0.txt", "licenses/material-icons.md", "licenses/material-symbols.md", "licenses/lordicon.md", "licenses/mirage.md", "licenses/mirage-Apache-2.0.txt", "licenses/mirage-NOTICE.txt"))
     outputDirectory.set(layout.buildDirectory.dir("generated/fileway-notices"))
 }
 androidComponents.onVariants { variant ->
@@ -120,6 +120,7 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.palette:palette:1.0.0")
+    implementation("io.github.androidpoet:mirage:0.1.0")
     implementation("dev.chrisbanes.haze:haze-blur:2.0.0")
     implementation("com.airbnb.android:lottie-compose:6.7.1")
     implementation("io.coil-kt.coil3:coil-compose:3.6.3")

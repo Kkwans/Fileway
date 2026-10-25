@@ -26,13 +26,15 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private data class MediaAccent(val tertiary: Color, val tertiaryContainer: Color)
+internal data class PlayerArtworkPalette(val scheme: ColorScheme, val atmosphere: List<Color>)
+private data class MediaAccent(val tertiary: Color, val tertiaryContainer: Color, val atmosphere: List<Color>)
+private val fallbackAtmosphere = listOf(Color(0xFF233D47), Color(0xFF47364E), Color(0xFF263B56), Color(0xFF181A24))
 
 /** Palette owns quantization and scoring; the page only consumes its accent roles. */
 private val mediaAccentCache = object : LruCache<String, MediaAccent>(96) {}
 
 @Composable
-internal fun rememberMediaColors(model: ClientModel, file: ResourceRef): ColorScheme {
+internal fun rememberPlayerArtwork(model: ClientModel, file: ResourceRef): PlayerArtworkPalette {
     val context = LocalContext.current
     val cacheKey = model.thumbnailKey(file)
     var accent by remember(cacheKey) { mutableStateOf(mediaAccentCache.get(cacheKey)) }
@@ -52,9 +54,9 @@ internal fun rememberMediaColors(model: ClientModel, file: ResourceRef): ColorSc
         }
     }
 
-    val selected = accent ?: MediaAccent(FilewayPlayerColors.tertiary, FilewayPlayerColors.tertiaryContainer)
+    val selected = accent ?: MediaAccent(FilewayPlayerColors.tertiary, FilewayPlayerColors.tertiaryContainer, fallbackAtmosphere)
     return remember(selected) {
-        FilewayPlayerColors.copy(tertiary = selected.tertiary, tertiaryContainer = selected.tertiaryContainer)
+        PlayerArtworkPalette(FilewayPlayerColors.copy(tertiary = selected.tertiary, tertiaryContainer = selected.tertiaryContainer), selected.atmosphere)
     }
 }
 
@@ -82,24 +84,26 @@ private suspend fun loadMediaAccent(model: ClientModel, file: ResourceRef, conte
 
 private fun accentFrom(bitmap: Bitmap): MediaAccent {
     val palette = Palette.from(bitmap).maximumColorCount(16).generate()
-    val swatch = listOfNotNull(
-        palette.mutedSwatch,
-        palette.darkMutedSwatch,
-        palette.lightMutedSwatch,
-        palette.dominantSwatch,
-    ).firstOrNull(::isUsableSwatch)
-    if (swatch == null) return MediaAccent(FilewayPlayerColors.tertiary, FilewayPlayerColors.tertiaryContainer)
-    val rgb = swatch.rgb
-    val container = Color(ColorUtils.blendARGB(FilewayPlayerColors.surfaceContainerHigh.toArgb(), rgb, .34f))
-    return MediaAccent(Color(rgb), container)
-}
-
-private fun isUsableSwatch(swatch: Palette.Swatch): Boolean {
-    val hsl = swatch.hsl
-    val saturation = hsl[1]
-    val lightness = hsl[2]
-    val luminance = ColorUtils.calculateLuminance(swatch.rgb)
-    val contrast = ColorUtils.calculateContrast(swatch.rgb, FilewayPlayerColors.surface.toArgb())
-    val warmDarkBrown = hsl[0] in 0f..60f && saturation >= .20f && lightness < .42f
-    return saturation >= .18f && lightness in .20f.. .88f && luminance >= .12f && contrast >= 2f && !warmDarkBrown
+    // Retain cinematic/desaturated and warm artwork instead of discarding it for blue.
+    val swatches = listOfNotNull(palette.dominantSwatch, palette.mutedSwatch, palette.vibrantSwatch,
+        palette.darkMutedSwatch, palette.lightMutedSwatch) + palette.swatches.sortedByDescending { it.population }
+    val useful = swatches.filter { it.hsl[2] in .08f.. .94f }.distinctBy { it.rgb }
+    if (useful.isEmpty()) return MediaAccent(FilewayPlayerColors.tertiary, FilewayPlayerColors.tertiaryContainer, fallbackAtmosphere)
+    val distinct = mutableListOf<Palette.Swatch>()
+    useful.forEach { candidate ->
+        if (distinct.none { existing ->
+            val hue = kotlin.math.abs(existing.hsl[0] - candidate.hsl[0])
+            minOf(hue, 360f - hue) < 24f && kotlin.math.abs(existing.hsl[2] - candidate.hsl[2]) < .18f
+        }) distinct.add(candidate)
+    }
+    val atmosphere = (0..2).map { index ->
+        val hsl = distinct[index % distinct.size].hsl.copyOf()
+        hsl[1] = hsl[1].coerceIn(.16f, .48f)
+        hsl[2] = listOf(.27f, .20f, .32f)[index]
+        Color(ColorUtils.HSLToColor(hsl))
+    } + Color(0xFF171922)
+    val primary = useful.first().hsl.copyOf().also { it[1] = it[1].coerceIn(.18f,.55f); it[2] = .72f }
+    val accent = Color(ColorUtils.HSLToColor(primary))
+    val container = Color(ColorUtils.blendARGB(FilewayPlayerColors.surfaceContainerHigh.toArgb(), accent.toArgb(), .34f))
+    return MediaAccent(accent, container, atmosphere)
 }
