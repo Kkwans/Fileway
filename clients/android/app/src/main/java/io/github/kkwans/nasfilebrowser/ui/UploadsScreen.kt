@@ -113,7 +113,7 @@ Column(Modifier.fillMaxSize()) {
                         if (!item.complete && item.canResume && !selection.active) TransferPrimaryControl(item.active,
                             if (item.active) "暂停上传" else "继续上传", !state.busy) {
                             if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
-                        } else Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+                        } else Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                     },
                     meta = {
                         TransferListMeta(item.createdAt, item.activeMillis, item.timingComplete,

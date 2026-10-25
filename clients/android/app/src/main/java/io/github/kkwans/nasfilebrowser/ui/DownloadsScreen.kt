@@ -166,7 +166,7 @@ Column(Modifier.fillMaxSize()) {
                         } else if (item.complete && completionObserved) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                             io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(24.dp),
                             play = completionObserved && LocalFilewayPageActive.current)
-                        else Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+                        else Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                     },
                     onDoubleClick = if (!selection.active && canOpen) ({ openDownloaded(context, model, item, kind) }) else null,
                     onClick = { if (selection.active) selection.toggle(item.id) else detailsId = item.id },
