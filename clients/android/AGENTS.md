@@ -57,3 +57,12 @@
 
 - Run only necessary checks. The user performs manual visual/interaction acceptance; do not launch routine screenshot journeys or repeat broad lint/JVM/contract suites for a small style or layout condition change.
 - Keep required compilation/package identity and focused diagnosis of actual failures. Reuse unchanged valid evidence, record skipped/interrupted checks honestly, and spend development time on product implementation. Do not recheck legacy baseline hashes.
+
+## Android 1.1 candidate contract (user, 2026-10-25)
+
+- Main-agent-only implementation. Deliver original-signed 1.1.0-preview/code39 on Xiaomi14; no public release. Preserve legacy tracked work and EPUB files.
+- Lordicon System Outline first, Material Symbols Rounded for gaps; exactly two UI icon sources. Ship actual licensed animation exports, semantic colors and visible static resting frames; use bounded one-shot interaction motion.
+- Outside the video, use muted cover-derived slow ambient color movement, paused with playback/background/reduced motion. This supersedes the fixed graphite backdrop restriction for the non-fullscreen player.
+- Feedback uses window-local compositor live blur with no focus or touch interception; retain SurfaceView. System PiP only, manual default, optional automatic entry off by default; no overlay permission.
+- Selection entry/exit stays in its top slot; retain header actions and separate all/invert semantics across all filtered pages.
+- Reuse valid same-source CI checks; one complete Windows candidate build and a bounded Xiaomi14 acceptance batch, followed only by affected fixes. No publication or unrelated post-delivery testing.
