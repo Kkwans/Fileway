@@ -5,6 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -37,7 +38,8 @@ private fun animatedAsset(resource: Int): String? = when(resource) {
     val actualTint = if (tint == Color.Unspecified && asset != null) LocalContentColor.current else tint
     FilewayAnimatedGlyph(asset, if(asset == null) null else "default:hover-pinch",resource,
         if(eventKey > 0) eventKey.toString() else null,
-        modifier.semantics { if(description != null) this.contentDescription=description },actualTint)
+        modifier.then(if (asset == null && resource == R.drawable.ic_add) Modifier.scale(1.25f) else Modifier)
+            .semantics { if(description != null) this.contentDescription=description },actualTint)
 }
 
 @Composable internal fun FilewayIconButton(onClick: () -> Unit, modifier: Modifier=Modifier, enabled: Boolean=true,
