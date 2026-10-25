@@ -39,6 +39,9 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
 
 @Composable internal fun StorageToolsScreen(model: ClientModel, client: ClientState) {
     val state by model.storageTools.state.collectAsStateWithLifecycle()
+    val recordedKeepers = remember(state.cleanupResult) {
+        state.cleanupResult?.let { DuplicateCleanupPresentation.from(it) }?.groups?.associate { it.sha256 to it.keepPath }.orEmpty()
+    }
     var scan by remember(state.scope) { mutableStateOf(false) }
     var keepers by remember(state.scope, state.reportId) { mutableStateOf<Map<String, String>>(emptyMap()) }
     var selecting by remember(state.scope, state.reportId) { mutableStateOf<JSONObject?>(null) }
@@ -121,19 +124,21 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                         if (jsonRows(report, "largestFiles").isEmpty() && jsonRows(report, "largestDirectories").isEmpty()) item { Text("这个范围没有可列出的文件。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     } else {
                         val groups = jsonRows(report, "groups")
-                        item { Text("${report.optInt("duplicateGroups")} 个重复组 · 最多可回收 ${readableSize(report.optLong("reclaimableBytes"))}", style = MaterialTheme.typography.titleMedium) }
                         items(groups.take(visibleGroups), key = { it.getString("sha256") }) { group ->
                             val hash = group.getString("sha256"); val keep = keepers[hash]
+                            val recordedKeep = recordedKeepers[hash]
+                            val displayedKeep = keep ?: recordedKeep
                             Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     val members = jsonRows(group, "files")
                                     Text(members.firstOrNull()?.optString("path")?.let(::libraryBasename) ?: "重复文件组", style = MaterialTheme.typography.titleSmall)
-                                    Text("${group.optInt("totalFiles")} 个相同文件 · 每份 ${readableSize(group.optLong("size"))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    members.take(3).forEach { file -> Text(libraryParent(file.getString("path")), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                    Text("${group.optInt("totalFiles")} 份 · 每份 ${readableSize(group.optLong("size"))} · 可回收 ${readableSize(group.optLong("reclaimableBytes"))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    members.take(3).forEach { file -> Text(libraryLocation(file.getString("path")), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                                     if (members.size > 3) Text("另 ${members.size - 3} 项 · 点下方查看全部", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    if (keep != null) Text("保留：${libraryBasename(keep)}\n${libraryParent(keep)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                    if (displayedKeep != null) Text("保留：${libraryBasename(displayedKeep)}\n${libraryLocation(displayedKeep)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                                    else Text("尚未选择保留文件", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     if (!cleanable(report, group)) Text("这组缺少完整、安全的文件身份信息，可查看但不能清理。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    FilewayOutlinedButton({ selecting = group }, enabled = !state.changing) { Text(if (keep == null) "查看并选择保留文件" else "修改保留文件") }
+                                    FilewayOutlinedButton({ selecting = group }, Modifier.fillMaxWidth(), enabled = !state.changing) { Text(if (state.cleanup != null) "查看组内文件" else if (keep == null) "选择保留文件" else "修改保留文件") }
                                 }
                             }
                         }
@@ -142,9 +147,18 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                     }
                 }
                 state.cleanup?.let { task -> item {
-                    Text("清理任务 · ${task.statusLabel}", style = MaterialTheme.typography.titleMedium)
-                    if (task.active) TaskProgress(task)
-                    FilewayOutlinedButton({ model.showServerTask(task.id) }) { Text("查看清理任务") }
+                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text("清理记录", style = MaterialTheme.typography.titleSmall)
+                                    Text("${task.statusLabel} · ${serverTime(if (task.finishedAt > 0) task.finishedAt else task.createdAt)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                FilewayIconButton({ model.showServerTask(task.id) }) { FilewayIcon(R.drawable.ic_info, "查看清理任务", Modifier.size(24.dp)) }
+                            }
+                            if (task.active) TaskProgress(task)
+                        }
+                    }
                 } }
                 state.cleanupError?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) } }
                 state.cleanupResult?.let { raw ->
