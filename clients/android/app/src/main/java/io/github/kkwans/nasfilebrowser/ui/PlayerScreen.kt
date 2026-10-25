@@ -14,7 +14,6 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
@@ -46,7 +45,6 @@ import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.luminance
@@ -121,7 +119,6 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val pipMode = pictureInPicture?.let { it.active || it.preparing } == true
     val artwork = rememberPlayerArtwork(model, file)
     val pageColors = artwork.scheme
-    val headerAccent = animateColorAsState(pageColors.tertiary, tween(210), label = "playerAccent")
     val state by model.player.state.collectAsStateWithLifecycle()
     val client by model.state.collectAsStateWithLifecycle()
     val downloads by model.downloads.state.collectAsStateWithLifecycle()
@@ -366,23 +363,20 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
             // Fullscreen media ignores changing system-bar visibility. Insets
             // protect only the overlay controls, never resize the video Surface.
-            val chromeDensity = LocalDensity.current
-            val chromeHeight = with(chromeDensity) { 52.dp.toPx() } + WindowInsets.safeDrawing.getTop(chromeDensity)
-            BoxWithConstraints(Modifier.fillMaxSize().background(if (fullscreen) FilewayTheme.status.mediaCanvas else pageColors.background)
-                .drawBehind {
-                    if (!fullscreen) drawRect(Brush.horizontalGradient(listOf(headerAccent.value.copy(alpha = .08f), Color.Transparent)),
-                        size = androidx.compose.ui.geometry.Size(size.width, minOf(size.height, chromeHeight)))
-                }
+            // Paint first, then inset only interactive content. One atmosphere extends
+            // behind both transparent system bars instead of leaving fixed graphite strips.
+            Box(Modifier.fillMaxSize().background(if (fullscreen) FilewayTheme.status.mediaCanvas else pageColors.background)) {
+                if (!fullscreen) PlayerAmbient(artwork.atmosphere, state.playing && gestureForeground, Modifier.fillMaxSize())
+            BoxWithConstraints(Modifier.fillMaxSize()
                 .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
                 .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
-                if (!fullscreen) PlayerAmbient(artwork.atmosphere, state.playing && gestureForeground, Modifier.fillMaxSize())
                 val landscape = maxWidth > maxHeight
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
                     else WindowInsets.displayCutout.union(WindowInsets.captionBar)
                 val headerDensity = LocalDensity.current
                 val controlPadding = if (landscape) 20.dp else 12.dp
                 val downloadCoverageHeight = with(headerDensity) { 16.sp.toDp() }
-                val portraitControlsReserve = (if (maxWidth - 56.dp >= 600.dp) 96.dp else 144.dp) + 16.dp +
+                val portraitControlsReserve = (if (maxWidth - controlPadding * 2 >= 600.dp) 96.dp else 144.dp) +
                     if (download != null) downloadCoverageHeight else 0.dp
                 val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
                 Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
@@ -411,6 +405,12 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     pictureInPicture?.videoBounds(android.graphics.Rect(rectangle.x.roundToInt(), rectangle.y.roundToInt(),
                                         (rectangle.x + coordinates.size.width).roundToInt(), (rectangle.y + coordinates.size.height).roundToInt()))
                                 })
+                            if (!fullscreen) {
+                                Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(16.dp)
+                                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .38f), Color.Transparent))))
+                                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(16.dp)
+                                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .38f)))))
+                            }
                             Box(Modifier.fillMaxSize().semantics {
                                 contentDescription = "视频画面"
                                 onClick("显示播放控制") { touch(); true }
@@ -566,10 +566,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         MaterialTheme(colorScheme = if (fullscreen) MaterialTheme.colorScheme else pageColors) {
                         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
                         Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(if (fullscreen) listOf(Color.Transparent, Color(0xE6000000)) else listOf(Color.Transparent, Color.Transparent)))
-                            .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
-                                else Modifier.padding(horizontal = 16.dp, vertical = 8.dp).clip(RoundedCornerShape(12.dp))
-                                    .background(Color.White.copy(alpha = .065f)).border(1.dp, Color.White.copy(alpha = .12f), RoundedCornerShape(12.dp)))
-                            .padding(start = if (fullscreen) controlPadding else 12.dp, end = if (fullscreen) controlPadding else 12.dp, bottom = if (fullscreen) 8.dp else 0.dp)
+                            .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) else Modifier)
+                            .padding(start = controlPadding, end = controlPadding, bottom = if (fullscreen) 8.dp else 0.dp)
                             .alpha(if (!fullscreen && touchLocked) .55f else 1f)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()), color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
@@ -919,6 +917,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     }
                 }
                 }
+            }
             }
         }
     }
