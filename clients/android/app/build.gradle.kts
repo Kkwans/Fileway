@@ -43,7 +43,7 @@ abstract class PrepareFilewayNotices : DefaultTask() {
     }
 }
 val prepareFilewayNotices = tasks.register<PrepareFilewayNotices>("prepareFilewayNotices") {
-    notices.from(rootProject.files("licenses/haze-Apache-2.0.txt", "licenses/material-icons.md"))
+    notices.from(rootProject.files("licenses/haze-Apache-2.0.txt", "licenses/material-icons.md", "licenses/material-symbols.md", "licenses/lordicon.md"))
     outputDirectory.set(layout.buildDirectory.dir("generated/fileway-notices"))
 }
 androidComponents.onVariants { variant ->
@@ -58,8 +58,8 @@ android {
         applicationId = "io.github.kkwans.nasfilebrowser"
         minSdk = 29
         targetSdk = 37
-        versionCode = 38
-        versionName = "1.0.0"
+        versionCode = 39
+        versionName = "1.1.0-preview"
         // AGP reads test versionCode before placeholder expansion. Keep the
         // explicit test metadata aligned so upgrades never fall back to code 0.
         val testManifest = file("src/androidTest/AndroidManifest.xml").readText()
