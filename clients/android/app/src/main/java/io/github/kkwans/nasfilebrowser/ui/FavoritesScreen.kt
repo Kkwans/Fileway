@@ -180,14 +180,9 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
         }
     }
     val footer: @Composable RowScope.() -> Unit = { FilewaySheetActions(actions, ::perform) }
-    val file = resource
-    if (file == null && loading) { FilewayDetailsLoading(onDismiss); return }
-    if (file == null) FileOperationSheet("收藏详情", onDismiss, footer = footer) {
-        Text(favorite.name.ifEmpty { libraryBasename(favorite.path) }, style = MaterialTheme.typography.titleMedium)
-        if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error); FilewayOutlinedButton({ attempt++ }) { Text("重新读取") } }
-        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-    } else FileDetailsDialog(file, model = model, readMetadata = false, openEnabled = enabled, footerActions = footer,
+    val file = resource ?: ResourceRef(favorite.path, favorite.wirePath, libraryBasename(favorite.path), false, "", 0)
+    FileDetailsDialog(file, model = model, readMetadata = false, openEnabled = enabled, footerActions = footer,
+        load = FileDetailsLoad(resource, loading, error) { attempt++ },
         actions = { FileActions(model, file, showFavorite = false, onMoved = onDismiss) },
         additionalActions = { state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) } }, onDismiss = onDismiss)
 }

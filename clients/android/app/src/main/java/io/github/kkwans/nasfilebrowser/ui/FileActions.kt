@@ -113,7 +113,7 @@ private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
     }
     fun back() { focus.clearFocus(); keyboard?.hide(); foreground.back() }
     fun leave() { more = false; focus.clearFocus(); keyboard?.hide(); onMoved() }
-    val enabled = !trash.changing && !client.busy && !operations.changing
+    val enabled = LocalFileDetailsActionsEnabled.current && !trash.changing && !client.busy && !operations.changing
     CompositionLocalProvider(LocalFileOperationForeground provides foreground) {
         if (foreground.destination == FileOperationDestination.DETAILS) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

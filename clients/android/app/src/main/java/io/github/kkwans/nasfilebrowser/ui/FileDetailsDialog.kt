@@ -26,15 +26,22 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
 
+internal data class FileDetailsLoad(val value: ResourceRef?, val loading: Boolean, val error: String?, val retry: () -> Unit)
+internal val LocalFileDetailsActionsEnabled = staticCompositionLocalOf { true }
+
 @Composable internal fun FileDetailsDialog(file: ResourceRef, showSize: Boolean = true, onOpen: (() -> Unit)? = null,
     openEnabled: Boolean = true, onLocation: (() -> Unit)? = null, actions: (@Composable () -> Unit)? = null,
     additionalActions: (@Composable () -> Unit)? = null, model: ClientModel? = null,
     onUnassign: (() -> Unit)? = null, readMetadata: Boolean = true,
-    footerActions: (@Composable RowScope.() -> Unit)? = null, onDismiss: () -> Unit) {
+    footerActions: (@Composable RowScope.() -> Unit)? = null, load: FileDetailsLoad? = null, onDismiss: () -> Unit) {
     if (!LocalFilewayPageActive.current) return
     val needsMetadata = readMetadata && model != null && file.downloadId.isEmpty() && !model.isTemporaryContent(file)
-    var ready by remember(file.mediaKey) { mutableStateOf(!needsMetadata) }
-    var metadata by remember(file.mediaKey) { mutableStateOf(file) }
+    var fetched by remember(file.mediaKey) { mutableStateOf(file) }
+    var fetching by remember(file.mediaKey) { mutableStateOf(needsMetadata) }
+    var resolved by remember(file.mediaKey) { mutableStateOf(!needsMetadata || file.modified.isNotBlank()) }
+    val metadata = load?.value ?: fetched
+    val pending = load?.loading ?: fetching
+    val known = if (load != null) load.value != null else resolved
     var metadataError by remember(file.mediaKey) { mutableStateOf<String?>(null) }
     var retry by remember(file.mediaKey) { mutableIntStateOf(0) }
     var size by remember(file.mediaKey) { mutableStateOf<DirectorySize?>(null) }
@@ -45,12 +52,11 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
     DisposableEffect(file.mediaKey) { onDispose { sizing?.cancel() } }
     LaunchedEffect(file.mediaKey, model, readMetadata, retry) {
         if (readMetadata && model != null && file.downloadId.isEmpty() && !model.isTemporaryContent(file)) {
-            try { metadata = model.resourceMetadata(file); metadataError = null }
+            try { fetching = true; fetched = model.resourceMetadata(file); resolved = true; metadataError = null }
             catch (failure: Exception) { if (failure is CancellationException) throw failure; metadataError = failure.message ?: "元数据暂时无法读取" }
-            finally { ready = true }
+            finally { fetching = false }
         }
     }
-    if (!ready) { FilewayDetailsLoading(onDismiss); return }
     val foreground = remember(file.mediaKey) { FileOperationForeground() }
     // Dialog has its own composition. Moving movableContent between that owner
     // and the screen corrupts Compose's slot groups when opening child actions.
@@ -69,7 +75,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
                 if (onLocation != null) add(FilewayMenuEntry("location", "所在目录", io.github.kkwans.nasfilebrowser.R.drawable.ic_folder, enabled = openEnabled, accessibilityLabel = "打开所在目录"))
                 if (onOpen != null) add(FilewayMenuEntry("open", "打开", io.github.kkwans.nasfilebrowser.R.drawable.ic_visibility, enabled = openEnabled))
             }
-            FileOperationSheet("文件详情", onDismiss, footer = footerActions ?: if (buttons.isEmpty()) null else {{
+            FileOperationSheet("文件详情", onDismiss, stableHeight = true, footer = footerActions ?: if (buttons.isEmpty()) null else {{
                 FilewaySheetActions(buttons) { action -> when (action) {
                     "unassign" -> onUnassign?.invoke(); "location" -> onLocation?.invoke(); "open" -> onOpen?.invoke()
                 } }
@@ -78,20 +84,21 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
                     .semantics { contentDescription = "文件详情内容" }, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     field("名称", metadata.name)
                     FileOperationLocation("位置", file.path, showBasename = false)
-                    actions?.invoke()
+                    CompositionLocalProvider(LocalFileDetailsActionsEnabled provides known) { actions?.invoke() }
                     additionalActions?.invoke()
                     HorizontalDivider(color = FilewayTheme.colors.outlineVariant)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        Column(Modifier.weight(1f)) { field("类型", fileTypeLabel(metadata)) }
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Column(Modifier.weight(1f)) { field("类型", if (known) fileTypeLabel(metadata) else if (pending) "读取中…" else "未提供") }
                         if (showSize) Column(Modifier.weight(1f)) {
-                            if (!file.directory) field("大小", readableSize(metadata.size))
+                            if (!known) field("大小", if (pending) "读取中…" else "未提供")
+                            else if (!metadata.directory) field("大小", readableSize(metadata.size))
                             else Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
                                     .clickable(enabled = model != null, role = Role.Button) {
                                         if (sizing?.isActive == true) sizing?.cancel()
                                         else if (model != null) sizing = scope.launch {
                                             folders = 0; sizeError = null; size = null
-                                            try { size = model.directorySize(file) { folders = it } }
+                                            try { size = model.directorySize(metadata) { folders = it } }
                                             catch (failure: Exception) { if (failure is CancellationException) throw failure; sizeError = failure.message ?: "统计失败，请重试" }
                                             finally { sizing = null }
                                         }
@@ -110,10 +117,10 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
                     }
                     val created = displayModified(metadata.created)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        Column(Modifier.weight(1f)) { field("修改时间", displayModified(metadata.modified) ?: "未提供") }
-                        if (created != null) Column(Modifier.weight(1f)) { field("创建时间", created) }
+                        Column(Modifier.weight(1f)) { field("修改时间", displayModified(metadata.modified) ?: if (pending) "读取中…" else "未提供") }
+                        Column(Modifier.weight(1f)) { field("创建时间", created ?: if (pending) "读取中…" else "未提供") }
                     }
-                    metadataError?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR, { retry++ }, "重新读取元数据") }
+                    (load?.error ?: metadataError)?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR, load?.retry ?: { retry += 1 }, "重新读取元数据") }
                 }
             }
         } else {
@@ -122,17 +129,5 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
             // underlying buttons paint outside this zero-sized host.
             Box(Modifier.size(0.dp).clipToBounds().clearAndSetSemantics {}) { actions?.invoke() }
         }
-    }
-}
-
-/** Keep the eventual sheet out of the window until its first content is known. */
-@Composable internal fun FilewayDetailsLoading(onDismiss: () -> Unit) {
-    if (!LocalFilewayPageActive.current) return
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { kotlinx.coroutines.delay(180); visible = true }
-    androidx.activity.compose.BackHandler(onBack = onDismiss)
-    if (visible) androidx.compose.ui.window.Popup(alignment = androidx.compose.ui.Alignment.Center,
-        onDismissRequest = onDismiss, properties = androidx.compose.ui.window.PopupProperties(focusable = true)) {
-        CircularProgressIndicator(Modifier.size(24.dp).semantics { contentDescription = "正在读取详情" }, strokeWidth = 2.dp)
     }
 }

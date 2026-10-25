@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -55,8 +56,9 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     canDismiss: Boolean = true,
     back: Boolean = false,
     footer: (@Composable RowScope.() -> Unit)? = null,
+    stableHeight: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
-) = FileOperationSurface(title, onDismiss, canDismiss, back, sheet = true, footer, content)
+) = FileOperationSurface(title, onDismiss, canDismiss, back, sheet = true, footer, stableHeight, content)
 
 @Composable internal fun FileOperationDialog(
     title: String,
@@ -64,13 +66,13 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     canDismiss: Boolean = true,
     footer: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
-) = FileOperationSurface(title, onDismiss, canDismiss, back = false, sheet = false, footer, content)
+) = FileOperationSurface(title, onDismiss, canDismiss, back = false, sheet = false, footer, false, content)
 
 /** Operation windows are bounded native floating dialogs. The body owns its one scroll container. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun FileOperationSurface(
     title: String, onDismiss: () -> Unit, canDismiss: Boolean, back: Boolean, sheet: Boolean,
-    footer: (@Composable RowScope.() -> Unit)?, content: @Composable ColumnScope.() -> Unit,
+    footer: (@Composable RowScope.() -> Unit)?, stableHeight: Boolean, content: @Composable ColumnScope.() -> Unit,
 ) {
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
@@ -92,6 +94,10 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     val surfaceHeight = (hostHeight - safeTop - maxOf(safeBottom, imeBottom)).coerceAtLeast(1)
     val surfaceWidthDp = with(density) { surfaceWidth.toDp() }
     val surfaceHeightDp = with(density) { surfaceHeight.toDp() }
+    // Freeze the first complete framework measurement, not the eventual network result.
+    // Width/inset/font changes get a fresh layout; data changes only scroll inside it.
+    var firstHeight by remember(surfaceWidth, surfaceHeight, density.fontScale, density.density) { mutableStateOf<Int?>(null) }
+    val heldHeight = firstHeight?.let { with(density) { it.toDp() } }
     Dialog(onDismissRequest = { if (canDismiss) onDismiss() }, properties = DialogProperties(
         usePlatformDefaultWidth = false, decorFitsSystemWindows = true, dismissOnBackPress = false,
         dismissOnClickOutside = canDismiss,
@@ -145,7 +151,9 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
         }
         BackHandler { requestBack() }
         Surface(
-            Modifier.requiredWidth(surfaceWidthDp).heightIn(max = surfaceHeightDp)
+            Modifier.requiredWidth(surfaceWidthDp)
+                .then(if (stableHeight && heldHeight != null) Modifier.height(minOf(heldHeight, surfaceHeightDp)) else Modifier.heightIn(max = surfaceHeightDp))
+                .onSizeChanged { if (stableHeight && firstHeight == null && it.height > 0) firstHeight = it.height }
                 .filewayGlassFrame(if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp)),
             color = glassColor,
             shape = if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp),
@@ -161,7 +169,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
                         Icon(painterResource(R.drawable.ic_close), "关闭$title", Modifier.size(22.dp))
                     }
                 }
-                Column(Modifier.weight(1f, fill = false).fillMaxWidth().padding(horizontal = 20.dp),
+                Column(Modifier.weight(1f, fill = stableHeight && firstHeight != null).fillMaxWidth().padding(horizontal = 20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
                 if (footer != null) {
                     HorizontalDivider(Modifier.padding(top = 12.dp), color = FilewayTheme.colors.outlineVariant)

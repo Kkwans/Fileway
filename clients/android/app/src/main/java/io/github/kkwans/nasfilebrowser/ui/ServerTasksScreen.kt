@@ -154,10 +154,7 @@ Column(Modifier.fillMaxSize()) {
         confirmButton = { FilewayButton({ model.tasks.actionSelected(selection.ids, "archive"); deleteSelection = false }, enabled = enabled) { Text("删除记录") } },
         dismissButton = { FilewayOutlinedButton({ deleteSelection = false }) { Text("取消") } })
     if (advanced) TaskFilterSheet(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
-    var detailReady by remember(state.scope, state.focusId) { mutableStateOf(false) }
-    LaunchedEffect(state.detailLoading, state.focusId) { if (state.focusId != null && !state.detailLoading) detailReady = true }
-    if (state.focusId != null && !detailReady) FilewayDetailsLoading(model::closeTaskDetail)
-    if (state.focusId != null && detailReady && LocalFilewayPageActive.current) {
+    if (state.focusId != null && LocalFilewayPageActive.current) {
         val task = state.selected
         val detailEnabled = enabled && !state.detailLoading && state.detailError == null
         val buttons = buildList {
@@ -170,7 +167,9 @@ Column(Modifier.fillMaxSize()) {
                 if (task.archivedAt > 0) add(FilewayMenuEntry("unarchive", "恢复记录", R.drawable.ic_restore, enabled = detailEnabled && model.tasks.canEdit(task)))
             }
         }
-        FileOperationSheet("任务详情", model::closeTaskDetail, footer = if (buttons.isEmpty()) null else {{
+        FileOperationSheet("任务详情", model::closeTaskDetail, stableHeight = true, footer = if (buttons.isEmpty()) {
+            if (state.detailLoading) ({ Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) { Text("正在读取可用操作", color = MaterialTheme.colorScheme.onSurfaceVariant) } }) else null
+        } else {{
             FilewaySheetActions(buttons) { action -> if (task != null) when (action) {
                 "report" -> { model.tasks.closeDetail(); model.showAnalysis(task.id, task.type) }
                 "output" -> { model.tasks.closeDetail(); model.openRemotePath(task.outputPath) }
@@ -181,6 +180,20 @@ Column(Modifier.fillMaxSize()) {
         }}) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); FilewayOutlinedButton({ state.focusId?.let(model.tasks::select) }) { Text("重新读取") } }
+                if (task == null) {
+                    val placeholder = if (state.detailLoading) "读取中…" else "未提供"
+                    Text("任务信息", style = MaterialTheme.typography.titleMedium)
+                    Text(if (state.detailLoading) "读取中…" else "暂时无法读取", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    HorizontalDivider()
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        DetailMetadata("创建时间", placeholder, Modifier.weight(1f))
+                        DetailMetadata("结束时间", placeholder, Modifier.weight(1f))
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        DetailMetadata("处理大小", placeholder, Modifier.weight(1f))
+                        DetailMetadata("处理项目", placeholder, Modifier.weight(1f))
+                    }
+                }
                 task?.let {
                     Text(task.title.ifEmpty { task.typeLabel }, style = MaterialTheme.typography.titleMedium)
                     Text("${task.typeLabel} · ${task.statusLabel}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
