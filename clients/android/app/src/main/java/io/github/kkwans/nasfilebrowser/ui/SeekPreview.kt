@@ -70,7 +70,7 @@ import kotlin.math.abs
             if (duration > 0) Text("/ ${clock(duration)}", color = Color.White.copy(alpha=.68f), fontSize = 12.sp)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilewayIcon(if (target < start) R.drawable.ic_skip_back else R.drawable.ic_skip_forward, null,
+            FilewayIcon(if (target < start) R.drawable.ic_arrow_back else R.drawable.ic_arrow_forward, null,
                 Modifier.size(18.dp), tint = Color.White.copy(alpha=.72f))
             Text((if (target < start) "−" else "+") + clock(abs(target-start)), color = Color.White.copy(alpha=.72f), fontSize = 12.sp)
         }

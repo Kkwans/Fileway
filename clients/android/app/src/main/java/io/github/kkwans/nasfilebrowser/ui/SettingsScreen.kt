@@ -81,6 +81,7 @@ import kotlinx.coroutines.launch
     val network by model.networkState.collectAsStateWithLifecycle()
     val appearance by model.appearance.state.collectAsStateWithLifecycle()
     val autoPip by model.playbackPreferences.autoPictureInPicture.collectAsStateWithLifecycle()
+    val supportsPictureInPicture = LocalPlayerPictureInPicture.current?.supported == true
     val preferenceScope = rememberCoroutineScope()
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         bottomBar = { ClientNavigation(model, "settings") },
@@ -108,7 +109,7 @@ import kotlinx.coroutines.launch
                         SettingsAction("服务器档案", "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
                     }
                 }
-                item { SettingsGroup("视频播放") {
+                if (supportsPictureInPicture) item { SettingsGroup("视频播放") {
                     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         FilewayIcon(R.drawable.ic_pip, null, Modifier.size(24.dp))
