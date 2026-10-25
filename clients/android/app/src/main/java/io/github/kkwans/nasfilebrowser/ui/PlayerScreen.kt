@@ -117,6 +117,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable internal fun PlayerScreen(model: ClientModel, file: ResourceRef) {
+    val pictureInPicture = LocalPlayerPictureInPicture.current
+    val pipMode = pictureInPicture?.let { it.active || it.preparing } == true
     val pageColors = rememberMediaColors(model, file)
     val headerAccent = animateColorAsState(pageColors.tertiary, tween(210), label = "playerAccent")
     val state by model.player.state.collectAsStateWithLifecycle()
@@ -177,7 +179,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var dragStart by remember(file) { mutableFloatStateOf(0f) }
     val landscapeOrientation = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var displayMode by rememberSaveable { mutableStateOf(PlayerDisplayMode.AUTOMATIC) }
-    val fullscreen = landscapeOrientation || displayMode != PlayerDisplayMode.AUTOMATIC
+    val fullscreen = pipMode || landscapeOrientation || displayMode != PlayerDisplayMode.AUTOMATIC
     val view = LocalView.current
     val accessibility = remember(context) { context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager }
     var exploration by remember { mutableStateOf(accessibility.isTouchExplorationEnabled) }
@@ -193,10 +195,11 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var interaction by remember { mutableIntStateOf(0) }
     var sheet by remember { mutableStateOf<PlayerSheet?>(null) }
     var seek by remember(file) { mutableStateOf<Float?>(null) }
+    var timelineStart by remember(file) { mutableLongStateOf(0L) }
     var pictureSeek by remember(file, state.mediaGeneration) { mutableStateOf<Long?>(null) }
     var dragSession by remember(file, state.mediaGeneration) { mutableStateOf<SeekDragSession?>(null) }
     val seekPreview = rememberSeekPreview(model, file, state.mediaGeneration, seek != null || pictureSeek != null)
-    val showControls = (!fullscreen || visible && sheet == null) && pictureSeek == null && !touchLocked
+    val showControls = !pipMode && (!fullscreen || visible && sheet == null) && pictureSeek == null && !touchLocked
     val controlsEnabled = !client.busy && !touchLocked
     var showRequest by remember(file) { mutableStateOf(false) }
     var showBuffering by remember(file) { mutableStateOf(false) }
@@ -294,7 +297,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     LaunchedEffect(sheet, touchLocked, gestureForeground) {
         if (sheet != null || touchLocked || !gestureForeground) cancelGesture()
     }
-    LaunchedEffect(gestureMessage, gestureMeter, interaction) { if (gestureMessage != null || gestureMeter != null) { delay(1_000); gestureMessage = null; gestureMeter = null } }
+    LaunchedEffect(pipMode) { if (pipMode) { cancelGesture(); sheet = null; visible = false } }
+    LaunchedEffect(gestureMessage, gestureMeter, interaction, draggingVertical) { if (!draggingVertical && (gestureMessage != null || gestureMeter != null)) { delay(1_000); gestureMessage = null; gestureMeter = null } }
     DisposableEffect(accessibility) {
         val listener = AccessibilityManager.TouchExplorationStateChangeListener { exploration = it }
         accessibility.addTouchExplorationStateChangeListener(listener)
@@ -370,6 +374,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 }
                 .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
                 .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
+                if (!fullscreen) PlayerAmbient(pageColors.tertiary, state.playing && gestureForeground, Modifier.fillMaxSize())
                 val landscape = maxWidth > maxHeight
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
                     else WindowInsets.displayCutout.union(WindowInsets.captionBar)
@@ -394,9 +399,14 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     // hiding the HUD never changes the native surface size.
                     val stage = if (fullscreen) Modifier.weight(1f) else Modifier.fillMaxWidth().height(portraitStageHeight)
                     CompositionLocalProvider(LocalContentColor provides FilewayTheme.status.mediaContent) {
-                    Box(stage.background(if (fullscreen) Color.Black else pageColors.background)) {
+                    Box(stage.background(if (fullscreen) Color.Black else Color.Transparent)) {
                         Box(Modifier.fillMaxSize().padding(bottom = if (fullscreen) 0.dp else portraitControlsReserve).background(Color.Black)) {
-                            AndroidView(factory = { PlayerViewport(it).also(model.player::attach) }, modifier = Modifier.fillMaxSize())
+                            AndroidView(factory = { PlayerViewport(it).also(model.player::attach) }, modifier = Modifier.fillMaxSize()
+                                .onGloballyPositioned { coordinates ->
+                                    val rectangle = coordinates.localToWindow(Offset.Zero)
+                                    pictureInPicture?.videoBounds(android.graphics.Rect(rectangle.x.roundToInt(), rectangle.y.roundToInt(),
+                                        (rectangle.x + coordinates.size.width).roundToInt(), (rectangle.y + coordinates.size.height).roundToInt()))
+                                })
                             Box(Modifier.fillMaxSize().semantics {
                                 contentDescription = "视频画面"
                                 onClick("显示播放控制") { touch(); true }
@@ -476,14 +486,15 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         }
                                     })
                             })
-                            if (holding) Text("${holdRate}× 倍速播放", Modifier.align(Alignment.TopCenter).padding(top = 20.dp)
-                                .clip(RoundedCornerShape(12.dp)).background(FilewayTheme.status.mediaSurface).padding(horizontal = 12.dp, vertical = 8.dp), fontSize = 13.sp)
-                            gestureMessage?.let { message -> Text(message, Modifier.align(Alignment.Center)
-                                .clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .62f)).padding(horizontal = 20.dp, vertical = 14.dp), color = Color.White, fontSize = 18.sp) }
-                            gestureMeter?.let { (brightnessControl, level) ->
+                            if (holding && !pipMode) PlayerActionFeedback("${holdRate}× 倍速播放", R.drawable.ic_fast,
+                                Modifier.align(Alignment.TopCenter).padding(top = 20.dp))
+                            gestureMessage?.takeIf { !pipMode }?.let { message -> PlayerActionFeedback(message,
+                                if (message.startsWith("−")) R.drawable.ic_skip_back else R.drawable.ic_skip_forward,
+                                Modifier.align(Alignment.Center)) }
+                            gestureMeter?.takeIf { !pipMode }?.let { (brightnessControl, level) ->
                                 PlayerLevelFeedback(brightnessControl, level, Modifier.align(Alignment.Center))
                             }
-                            pictureSeek?.let { target -> dragSession?.let { drag ->
+                            pictureSeek?.takeIf { !pipMode }?.let { target -> dragSession?.let { drag ->
                                 PictureSeekFeedback(target, drag.startMs, drag.durationMs, seekPreview.takeIf { fullscreen }, Modifier.align(Alignment.Center))
                             } }
                             val failure = if (client.busy) null else client.error ?: state.error
@@ -511,7 +522,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     }
                                 }
                             }
-                            if (showControls || touchLocked) Box(Modifier.align(AbsoluteAlignment.CenterLeft)
+                            if (!pipMode && (showControls || touchLocked)) Box(Modifier.align(AbsoluteAlignment.CenterLeft)
                                 .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Left)) else Modifier)
                                 .absolutePadding(left = if (fullscreen) 4.dp else 8.dp)) {
                                 // Retain this anchor while locked, including after a real
@@ -547,18 +558,18 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                         MaterialTheme(colorScheme = if (fullscreen) MaterialTheme.colorScheme else pageColors) {
                         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
-                        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(if (fullscreen) listOf(Color.Transparent, Color(0xE6000000)) else listOf(pageColors.background, pageColors.background)))
+                        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(if (fullscreen) listOf(Color.Transparent, Color(0xE6000000)) else listOf(Color.Transparent, Color.Transparent)))
                             .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) else Modifier)
                             .padding(start = controlPadding, end = controlPadding, bottom = if (fullscreen) 8.dp else 0.dp)
                             .alpha(if (!fullscreen && touchLocked) .55f else 1f)) {
-                            SeekPreview(seekPreview, seek?.toLong())
+                            SeekPreview(seekPreview, seek?.toLong(), state.durationMs, timelineStart)
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()), color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
                                     fontFamily = FontFamily.Monospace, maxLines = 1,
                                     modifier = Modifier.offset(y = if (fullscreen) 4.dp else 0.dp))
                                 PlayerSlider(seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat().coerceIn(0f, state.durationMs.toFloat().coerceAtLeast(1f)), state.durationMs.toFloat().coerceAtLeast(1f),
                                     "播放进度", controlsEnabled && state.seekable && state.durationMs > 0,
-                                    { gestureSeek.reset(); seek = it; touch() }, { seek?.let { model.player.seek(it.toLong()) }; seek = null; touch() },
+                                    { if (seek == null) timelineStart = state.positionMs; gestureSeek.reset(); seek = it; touch() }, { seek?.let { model.player.seek(it.toLong()) }; seek = null; touch() },
                                     clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()) + "，共 " + clock(state.durationMs),
                                     downloadedValue = downloadedUntil?.toFloat(), bufferedValue = state.bufferedPositionMs.toFloat(), mediaSurface = fullscreen,
                                     visualTrackOffset = if (fullscreen) 4.dp else 0.dp, modifier = Modifier.weight(1f))
@@ -596,6 +607,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     PlayerIcon(R.drawable.ic_settings, "视频解码器", { touch(); sheet = PlayerSheet.DECODER }, controlsEnabled && !changingDecoder)
                                 }
                                 val display: @Composable RowScope.() -> Unit = {
+                                    if (pictureInPicture?.supported == true) PlayerIcon(R.drawable.ic_pip, "画中画", {
+                                        cancelGesture(); sheet = null
+                                        if (!pictureInPicture.enter()) uiScope.launch { feedback.showSnackbar("暂时无法进入画中画，请检查系统画中画权限") }
+                                    }, controlsEnabled && state.firstFrameRendered)
                                     if (!fullscreen) PlayerIcon(R.drawable.ic_portrait_fullscreen, "竖屏全屏", { changeDisplay(PlayerDisplayMode.PORTRAIT_FULLSCREEN) }, !touchLocked)
                                     PlayerIcon(if (fullscreen) R.drawable.art_fullscreen_off else R.drawable.art_fullscreen_on, if (fullscreen) "退出全屏" else "横屏全屏", {
                                         changeDisplay(if (fullscreen) PlayerDisplayMode.AUTOMATIC else PlayerDisplayMode.LANDSCAPE_FULLSCREEN)
@@ -625,6 +640,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         .padding(horizontal = 16.dp),
                         contentPadding = PaddingValues(vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        item(key = "video-information") { PlayerInformation(model, file, state) }
                         queue?.takeIf { it.hasNext }?.let { snapshot ->
                             val upcoming = snapshot.items.drop(snapshot.index + 1)
                             item(key = "upcoming-header") { Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
@@ -648,7 +664,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 }
                 if (sheet == null) SnackbarHost(feedback, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp)
                     .then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier))
-                if (touchLocked) {
+                if (touchLocked && !pipMode) {
                     // The topmost input layer covers controls as well as the picture. System Back unlocks first.
                     Box(Modifier.fillMaxSize()
                         .clearAndSetSemantics {
@@ -665,7 +681,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             enabled = unlockVisible)
                     }
                 }
-                if (sheet != null) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
+                if (sheet != null && !pipMode) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
                     pageColors, fullscreen) { PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_PRESETS -> "倍速预设"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; PlayerSheet.DECODER -> "视频解码器"; else -> "播放信息" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
                     { sheet = PlayerSheet.SUBTITLE; touch() }
                 } else if (sheet == PlayerSheet.SUBTITLE_FONT) {

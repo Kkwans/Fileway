@@ -46,37 +46,33 @@ import kotlin.math.abs
     return asset
 }
 
-@Composable internal fun SeekPreview(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long?) {
+@Composable internal fun SeekPreview(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long?, durationMs: Long, startMs: Long) {
     if (positionMs == null) return
-    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xE6202023)).padding(6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            SeekThumbnail(asset, positionMs)
-            Text(clock(positionMs), color = Color.White, fontSize = 12.sp)
+    BoxWithConstraints(Modifier.fillMaxWidth().height(0.dp)) {
+        val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else .5f
+        PlayerFeedbackWindow(Modifier.offset(x = maxWidth * fraction), above = true) {
+            SeekFeedbackContent(asset, positionMs, startMs, durationMs)
         }
     }
 }
 
 @Composable internal fun PictureSeekFeedback(targetMs: Long, startMs: Long, durationMs: Long,
     asset: Pair<VideoSprite, Bitmap>?, modifier: Modifier = Modifier) {
-    val delta = targetMs - startMs
-    val change = (if (delta < 0) "后退 " else "前进 ") + clock(abs(delta))
-    Column(modifier.clearAndSetSemantics {
-        contentDescription = "画面拖动进度"
-        stateDescription = "${clock(targetMs)}，$change"
-    }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        SeekThumbnail(asset, targetMs, 96.dp)
-        Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Color(0xB3000000))
-            .padding(horizontal = 10.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(clock(targetMs), color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 14.sp,
-                    lineHeight = 18.sp, fontWeight = FontWeight.Medium, maxLines = 1, modifier = Modifier.alignByBaseline())
-                Text("/ ${clock(durationMs)}", color = Color(0xFFD1D6DD), fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp, lineHeight = 16.sp, maxLines = 1, modifier = Modifier.alignByBaseline())
-            }
-            Text((if (delta < 0) "−" else "+") + clock(abs(delta)), color = Color(0xFFD1D6DD),
-                fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 14.sp, maxLines = 1)
+    PlayerFeedbackWindow(modifier) { SeekFeedbackContent(asset, targetMs, startMs, durationMs) }
+}
+
+@Composable private fun SeekFeedbackContent(asset: Pair<VideoSprite, Bitmap>?, target: Long, start: Long, duration: Long) {
+    Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SeekThumbnail(asset, target)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(clock(target), color = Color.White, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
+            if (duration > 0) Text("/ ${clock(duration)}", color = Color.White.copy(alpha=.68f), fontSize = 12.sp)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Icon(painterResource(if (target < start) R.drawable.ic_skip_back else R.drawable.ic_skip_forward), null,
+                Modifier.size(18.dp), tint = Color.White.copy(alpha=.72f))
+            Text((if (target < start) "−" else "+") + clock(abs(target-start)), color = Color.White.copy(alpha=.72f), fontSize = 12.sp)
         }
     }
 }
@@ -96,14 +92,24 @@ import kotlin.math.abs
 /** Compact neutral glass feedback. Percent remains available to accessibility. */
 @Composable internal fun PlayerLevelFeedback(brightness: Boolean, level: Float, modifier: Modifier = Modifier) {
     val amount = level.coerceIn(0f, 1f)
-    Row(modifier.clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .62f))
-        .padding(horizontal = 18.dp, vertical = 16.dp).clearAndSetSemantics {
-            contentDescription = if (brightness) "亮度" else "音量"
-            stateDescription = "${(amount * 100).toInt()}%"
-        }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-        Icon(painterResource(if (brightness) R.drawable.ic_theme_light else R.drawable.art_volume), null,
-            Modifier.size(26.dp), tint = Color.White)
-        LinearProgressIndicator(progress = { amount }, modifier = Modifier.width(104.dp).height(4.dp),
-            color = Color.White, trackColor = Color.White.copy(alpha = .22f))
+    PlayerFeedbackWindow(modifier) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(painterResource(if (brightness) R.drawable.ic_theme_light else R.drawable.art_volume), null,
+                Modifier.size(24.dp), tint = Color.White)
+            LinearProgressIndicator(progress = { amount }, modifier = Modifier.width(104.dp).height(4.dp),
+                color = Color.White, trackColor = Color.White.copy(alpha=.22f), gapSize = 0.dp, drawStopIndicator = {})
+            Text("${(amount * 100).toInt()}%", Modifier.widthIn(min=36.dp), color = Color.White, fontSize = 13.sp)
+        }
+    }
+}
+
+@Composable internal fun PlayerActionFeedback(message: String, icon: Int, modifier: Modifier = Modifier) {
+    PlayerFeedbackWindow(modifier) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(painterResource(icon), null, Modifier.size(24.dp), tint = Color.White)
+            Text(message, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+        }
     }
 }

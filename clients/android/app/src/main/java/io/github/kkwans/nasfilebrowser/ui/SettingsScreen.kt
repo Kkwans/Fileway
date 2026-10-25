@@ -79,6 +79,8 @@ import kotlinx.coroutines.launch
     var networkDetails by remember { mutableStateOf(false) }
     val network by model.networkState.collectAsStateWithLifecycle()
     val appearance by model.appearance.state.collectAsStateWithLifecycle()
+    val autoPip by model.playbackPreferences.autoPictureInPicture.collectAsStateWithLifecycle()
+    val preferenceScope = rememberCoroutineScope()
     Scaffold(containerColor = MaterialTheme.colorScheme.background,
         bottomBar = { ClientNavigation(model, "settings") },
         topBar = { Column(Modifier.statusBarsPadding()) {
@@ -105,6 +107,19 @@ import kotlinx.coroutines.launch
                         SettingsAction("服务器档案", "${if (state.profile?.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${if (state.profile?.network == ConnectionMode.TAILNET) "内嵌 Tailscale" else "直接连接"}", R.drawable.ic_storage) { profileDetails = true }
                     }
                 }
+                item { SettingsGroup("视频播放") {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Icon(painterResource(R.drawable.ic_pip), null, Modifier.size(24.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("离开应用时自动画中画", style = MaterialTheme.typography.bodyLarge)
+                            Text("仅在视频正在播放时开启", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(autoPip, { enabled -> preferenceScope.launch { try { model.playbackPreferences.saveAutoPictureInPicture(enabled) }
+                            catch (error: Exception) { if (error is kotlinx.coroutines.CancellationException) throw error
+                                android.widget.Toast.makeText(context, "无法保存画中画设置，请重试", android.widget.Toast.LENGTH_SHORT).show() } } })
+                    }
+                } }
                 item { CacheSettingsPanel(model) { message ->
                     android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
                 } }

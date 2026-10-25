@@ -28,6 +28,12 @@ class PlaybackPreferences(context: Context) {
     private val prefs = context.getSharedPreferences("playback_preferences", Context.MODE_PRIVATE)
     private val mutable = MutableStateFlow(prefs.getFloat("hold_rate", 3f).takeIf { it.isFinite() && it in .1f..5f } ?: 3f)
     val holdRate = mutable.asStateFlow()
+    private val autoPipMutable = MutableStateFlow(prefs.getBoolean("auto_picture_in_picture", false))
+    val autoPictureInPicture = autoPipMutable.asStateFlow()
+    suspend fun saveAutoPictureInPicture(value: Boolean) = withContext(Dispatchers.IO) {
+        check(prefs.edit().putBoolean("auto_picture_in_picture", value).commit()) { "无法保存画中画设置" }
+        autoPipMutable.value = value
+    }
     private val presetWrites = Mutex()
     private val presetMutable = MutableStateFlow(readPlaybackRatePresets(prefs.getString("rate_presets", null)))
     val ratePresets = presetMutable.asStateFlow()

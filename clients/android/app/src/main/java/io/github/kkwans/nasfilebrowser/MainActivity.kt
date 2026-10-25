@@ -1,6 +1,12 @@
 package io.github.kkwans.nasfilebrowser
 
 import android.os.Bundle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import io.github.kkwans.nasfilebrowser.ui.LocalPlayerPictureInPicture
+import io.github.kkwans.nasfilebrowser.ui.PlayerPictureInPicture
 import androidx.compose.foundation.layout.fillMaxSize
 import android.graphics.Color
 import androidx.activity.SystemBarStyle
@@ -18,14 +24,23 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import io.github.kkwans.nasfilebrowser.app.ClientModel
+import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.ui.ClientApp
 import io.github.kkwans.nasfilebrowser.ui.ClientTheme
 import io.github.kkwans.nasfilebrowser.ui.LocalFilewayDarkCanvasOwner
 
 class MainActivity : ComponentActivity() {
     private val model: ClientModel by viewModels()
+    private lateinit var pictureInPicture: PlayerPictureInPicture
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        pictureInPicture = PlayerPictureInPicture(this, model)
+        lifecycleScope.launch {
+            combine(model.player.state, model.state, model.playbackPreferences.autoPictureInPicture) { player, client, auto ->
+                listOf(client.selected?.mediaKey, player.mediaGeneration, player.playing, player.width, player.height,
+                    player.firstFrameRendered, player.error, player.seekable, auto)
+            }.distinctUntilChanged().collect { pictureInPicture.update() }
+        }
         enableEdgeToEdge()
         openIntent(intent)
         setContent {
@@ -68,7 +83,7 @@ class MainActivity : ComponentActivity() {
                     bars.isAppearanceLightNavigationBars = !dark
                 }
             }
-            CompositionLocalProvider(LocalFilewayDarkCanvasOwner provides registerDarkCanvas) {
+            CompositionLocalProvider(LocalFilewayDarkCanvasOwner provides registerDarkCanvas, LocalPlayerPictureInPicture provides pictureInPicture) {
                 ClientTheme(darkTheme = dark) {
                     androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.background) { ClientApp(model) }
                 }
@@ -85,5 +100,21 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra("open_uploads", false)) { intent.removeExtra("open_uploads"); model.openUploads() }
     }
     override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); setIntent(intent); openIntent(intent) }
+    override fun onResume() { super.onResume(); pictureInPicture.resumed() }
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (android.os.Build.VERSION.SDK_INT < 31 && model.playbackPreferences.autoPictureInPicture.value && model.player.state.value.playing)
+            pictureInPicture.enter()
+    }
+    override fun onPictureInPictureModeChanged(value: Boolean, configuration: android.content.res.Configuration) {
+        super.onPictureInPictureModeChanged(value, configuration)
+        pictureInPicture.modeChanged(value)
+    }
+    @androidx.annotation.RequiresApi(31)
+    override fun onPictureInPictureUiStateChanged(state: android.app.PictureInPictureUiState) {
+        super.onPictureInPictureUiStateChanged(state)
+        if (android.os.Build.VERSION.SDK_INT >= 35) pictureInPicture.transition(state.isTransitioningToPip)
+    }
+    override fun onDestroy() { pictureInPicture.dispose(); super.onDestroy() }
     override fun onStop() { model.foreground(false); model.pausePlayback(); super.onStop() }
 }
