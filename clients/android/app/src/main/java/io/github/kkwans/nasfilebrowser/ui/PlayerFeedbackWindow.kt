@@ -1,6 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui
 
-import android.app.Dialog
+import androidx.activity.ComponentDialog
 import android.content.Context
 import android.content.ContextWrapper
 import android.app.Activity
@@ -41,7 +41,8 @@ private tailrec fun Context.feedbackActivity(): Activity? = when(this) {
     val latest by rememberUpdatedState(content)
     val margin = with(LocalDensity.current) { 12.dp.roundToPx() }
     var anchor by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
-    val dialog = remember(owner) { Dialog(owner).apply {
+    // ComponentDialog installs ViewTree lifecycle/saved-state owners before Compose attaches.
+    val dialog = remember(owner) { ComponentDialog(owner).apply {
         window?.let { window ->
             window.requestFeature(android.view.Window.FEATURE_NO_TITLE)
             window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
