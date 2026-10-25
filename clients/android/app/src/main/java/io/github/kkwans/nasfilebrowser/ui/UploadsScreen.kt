@@ -57,9 +57,7 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
         }
     }
     TaskCenterHeaderActions {
-        if (!selection.active) IconButton({ selection.start() }, enabled = !state.busy && items.isNotEmpty()) {
-            Icon(painterResource(R.drawable.ic_select_multiple), "多选上传")
-        }
+        FilewaySelectionToggle(selection, "多选上传", !state.busy && items.isNotEmpty())
     }
     FilewayRefresh(false, model.uploads::refresh) {
 Column(Modifier.fillMaxSize()) {

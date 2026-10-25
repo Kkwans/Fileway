@@ -276,10 +276,8 @@ import java.util.Locale
                         }
                     } else FilewayRefresh(state.recentPlaybackLoading, { model.refreshRecentPlayback(force = true) }) { Column(Modifier.fillMaxSize()) {
                         FilewayPageHeaderActions {
-                            if (!selection.active) {
-                                IconButton({ selection.start() }, enabled = recentEnabled && recent.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选播放记录") }
-                                IconButton({ playbackDeletion = emptySet() }, enabled = recentEnabled && recent.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空最近播放", Modifier.size(24.dp), tint = colors.error) }
-                            }
+                            FilewaySelectionToggle(selection, "多选播放记录", recentEnabled && recent.isNotEmpty())
+                            IconButton({ playbackDeletion = emptySet() }, enabled = recentEnabled && recent.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空最近播放", Modifier.size(24.dp), tint = colors.error) }
                         }
                         if (selection.active) FilewayTaskSelectionBar(selection, recentEnabled, {
                             selection.select(if (selection.ids.size == recent.size) emptyList() else recent.map { it.resourceKey })

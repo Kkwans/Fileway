@@ -52,7 +52,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
     val selectableRefs = remember(state.items, state.pathTag, state.pathParent, state.pathParentWire) { model.tags.selectionPaths() }
     val selection = rememberFilewayTaskSelection(listOf(state.scope, chosen, currentOnly), selectableRefs.mapNotNull { it.identity })
     LibraryScaffold(model, LibrarySection.TAGS, actions = {
-        if (!selection.active) IconButton({ selection.start() }, enabled = enabled && state.paths.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选标签关联") }
+        FilewaySelectionToggle(selection, "多选标签关联", enabled && state.paths.isNotEmpty())
         if (currentOnly) IconButton({ scopeDetails = true }) { Icon(painterResource(R.drawable.ic_info), "查看当前目录范围") }
         IconButton({ creating = true }, enabled = enabled && state.loaded) { Icon(painterResource(R.drawable.ic_add), "新建标签") }
     }) {

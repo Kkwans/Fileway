@@ -102,13 +102,11 @@ import kotlinx.coroutines.withContext
         }
     }
     val records = state.items.filter { when (filter) { "已完成" -> it.complete; "未完成" -> !it.complete; else -> true } }
-    val selection = rememberFilewayTaskSelection(filter, records.map { it.id })
+    val selection = rememberFilewayTaskSelection("downloads" to filter, records.map { it.id })
     val chosen = records.filter { it.id in selection.ids }
     var clearSelected by remember(filter) { mutableStateOf(false) }
     TaskCenterHeaderActions {
-        if (!selection.active) IconButton({ selection.start() }, enabled = !state.busy && records.isNotEmpty()) {
-            Icon(painterResource(R.drawable.ic_select_multiple), "多选下载")
-        }
+        FilewaySelectionToggle(selection, "多选下载", !state.busy && records.isNotEmpty())
     }
     FilewayRefresh(false, model.downloads::refresh) {
 Column(Modifier.fillMaxSize()) {

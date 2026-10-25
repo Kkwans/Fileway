@@ -42,7 +42,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     val items = state.items.filter { filter == null || it.groupId == filter }
     val selection = rememberFilewayTaskSelection(state.scope to filter, items.map { it.id })
     LibraryScaffold(model, LibrarySection.FAVORITES, actions = {
-        if (!selection.active) IconButton({ selection.start() }, enabled = enabled && items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选收藏") }
+        FilewaySelectionToggle(selection, "多选收藏", enabled && items.isNotEmpty())
         IconButton({ managing = true }, enabled = enabled && state.loaded) { Icon(painterResource(R.drawable.ic_settings), "管理收藏分组") }
     }) {
             if (selection.active) FilewayTaskSelectionBar(selection, enabled, {

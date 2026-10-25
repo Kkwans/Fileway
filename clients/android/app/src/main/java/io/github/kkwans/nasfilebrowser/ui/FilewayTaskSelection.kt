@@ -15,6 +15,10 @@ import io.github.kkwans.nasfilebrowser.R
         private set
     var ids by mutableStateOf(emptySet<String>())
         private set
+    var universe by mutableStateOf(emptySet<String>())
+    fun invert() { select(universe - ids) }
+    fun toggleMode() { if (active) close() else start() }
+    fun clear() { ids = emptySet() }
     fun start(id: String? = null) { active = true; if (id != null) ids = ids + id }
     fun toggle(id: String) { ids = if (id in ids) ids - id else ids + id }
     fun select(values: Collection<String>) { active = true; ids = values.toSet() }
@@ -22,19 +26,28 @@ import io.github.kkwans.nasfilebrowser.R
     fun close() { active = false; ids = emptySet() }
 }
 
-@Composable internal fun rememberFilewayTaskSelection(key: Any?, ids: List<String>, pageActive: Boolean = LocalFilewayPageActive.current): FilewayTaskSelection {
-    val selection = remember(key) { FilewayTaskSelection() }
-    LaunchedEffect(ids) { selection.retain(ids.toSet()) }
+@Composable internal fun rememberFilewayTaskSelection(key: Any?, ids: List<String>, pageActive: Boolean = LocalFilewayPageActive.current, complete: Boolean = true): FilewayTaskSelection {
+    val scope = when (key) { is Pair<*, *> -> key.first; is List<*> -> key.firstOrNull(); else -> key }
+    val selection = remember(scope) { FilewayTaskSelection() }
+    LaunchedEffect(key) { selection.clear() }
+    LaunchedEffect(ids, complete) { selection.universe = ids.toSet(); if (complete) selection.retain(ids.toSet()) }
     BackHandler(selection.active && pageActive) { selection.close() }
     return selection
 }
 
 @Composable internal fun FilewayTaskSelectionBar(selection: FilewayTaskSelection, enabled: Boolean,
-    onSelectAll: () -> Unit, actions: @Composable RowScope.() -> Unit) {
+    onSelectAll: () -> Unit, onInvert: () -> Unit = selection::invert, actions: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("已选 ${selection.ids.size} 项", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-        IconButton(onSelectAll, enabled = enabled) { Icon(painterResource(R.drawable.ic_select_multiple), "全选或取消全选", Modifier.size(22.dp)) }
+        IconButton(onSelectAll, enabled = enabled) { Icon(painterResource(R.drawable.ic_select_all), "全选或取消全选", Modifier.size(22.dp)) }
         actions()
-        IconButton(selection::close, enabled = enabled) { Icon(painterResource(R.drawable.ic_close), "退出多选", Modifier.size(22.dp)) }
+        IconButton(onInvert, enabled = enabled) { Icon(painterResource(R.drawable.ic_invert_selection), "反选", Modifier.size(24.dp)) }
+    }
+}
+
+@Composable internal fun FilewaySelectionToggle(selection: FilewayTaskSelection, label: String, enabled: Boolean) {
+    IconButton(selection::toggleMode, enabled = enabled || selection.active) {
+        Icon(painterResource(if (selection.active) R.drawable.ic_close else R.drawable.ic_select_multiple),
+            if (selection.active) "退出多选" else label, Modifier.size(24.dp))
     }
 }

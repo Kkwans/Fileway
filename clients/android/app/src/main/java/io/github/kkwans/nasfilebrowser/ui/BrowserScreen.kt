@@ -73,7 +73,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     LaunchedEffect(operations.lastTask?.id) {
         if (operations.lastTask != null) {
             selected = selected - operations.lastSources.map(::key).toSet()
-            if (selected.isEmpty()) selecting = false
+
         }
     }
     LaunchedEffect(operations.scope, operations.batchCompletion) {
@@ -105,11 +105,12 @@ Column(Modifier.fillMaxSize()) {
                             else model.startDirectoryCreation(state.previewScope)
                         })
                     }
-                    IconButton({ selecting = true; selected = emptySet(); batchKind = "" }, enabled = !state.busy && displayed.isNotEmpty() && !selectionBusy) {
-                        Icon(painterResource(R.drawable.ic_select_multiple), "多选文件", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
-                    }
                     IconButton(onClick = model::openSearch, enabled = !state.busy) {
-                        Icon(painterResource(R.drawable.ic_search), "搜索文件", Modifier.size(22.dp), tint = colors.onBackground)
+                        Icon(painterResource(R.drawable.ic_search), "搜索文件", Modifier.size(24.dp), tint = colors.onSurfaceVariant)
+                    }
+                    IconButton({ selecting = !selecting; selected = emptySet(); batchKind = "" }, enabled = selecting || !state.busy && displayed.isNotEmpty() && !selectionBusy) {
+                        Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple),
+                            if (selecting) "退出文件多选" else "多选文件", Modifier.size(24.dp), tint = colors.onSurfaceVariant)
                     }
                     Box {
                         IconButton({ browserMenu = true }, enabled = !state.busy) {
@@ -136,7 +137,7 @@ Column(Modifier.fillMaxSize()) {
                     }
                 }
                 if (state.path != "/") DirectoryBreadcrumbs(state.path, state.wirePath, state.busy, { model.back() }, model::jumpDirectory)
-                if (!selecting) Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     FileCategoryMenu(state.fileCategories.ifEmpty { if (state.fileCategory == FileCategory.ALL) emptySet() else setOf(state.fileCategory) }, !state.busy, model::fileCategories)
                     Spacer(Modifier.weight(1f))
                     FileOrderMenu(state.fileOrder, !state.busy, model::fileOrder)
@@ -146,9 +147,8 @@ Column(Modifier.fillMaxSize()) {
                 if (selecting) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("已选 ${chosen.size} 项", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
-                        FilewayTextButton({ selected = if (selected == shownKeys) emptySet() else shownKeys }, enabled = !selectionBusy && !state.busy) { Text(if (selected == shownKeys) "全不选" else "全选") }
-                        FilewayTextButton({ selected = shownKeys - selected }, enabled = !selectionBusy && !state.busy) { Text("反选") }
-                        FileActionIcon(R.drawable.ic_arrow_back, "退出多选", true) { selecting = false; selected = emptySet() }
+                        FileActionIcon(R.drawable.ic_select_all, "全选或取消全选", !selectionBusy && !state.busy) { selected = if (selected == shownKeys) emptySet() else shownKeys }
+                        FileActionIcon(R.drawable.ic_invert_selection, "反选", !selectionBusy && !state.busy) { selected = shownKeys - selected }
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         if (state.permissions.create) FileActionIcon(R.drawable.ic_copy, "批量复制", !state.busy && !selectionBusy && operations.transfer == null && operations.batchRename == null && chosen.isNotEmpty()) {
@@ -166,7 +166,7 @@ Column(Modifier.fillMaxSize()) {
                             batchKind = "download"
                             model.downloadFiles(chosen) { file ->
                                 selected = selected - key(file)
-                                if (selected.isEmpty()) selecting = false
+
                             }
                             if (chosen.none { it.directory } && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
                                 notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
@@ -234,7 +234,7 @@ Column(Modifier.fillMaxSize()) {
                 batchKind = "trash"; trashAttempted = true
                 model.trash.moveAll(pending, { file ->
                     selected = selected - key(file)
-                    if (selected.isEmpty()) selecting = false
+
                     pendingTrash = pendingTrash?.filterNot { key(it) == key(file) }
                 }, { pendingTrash = null })
             }, enabled = !selectionBusy && pending.isNotEmpty()) { Text(if (trash.changing) "正在移动" else "移入回收站") } },

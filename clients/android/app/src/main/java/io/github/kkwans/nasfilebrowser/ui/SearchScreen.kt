@@ -64,9 +64,7 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                         }
                         FilewaySearchField(state.query, { if (!model.state.value.busy) model.search.query(it) },
                             "搜索文件名", Modifier.weight(1f), enabled = !client.busy, submit = ::submit)
-                        if (!selection.active) IconButton({ selection.start() }, enabled = !client.busy && displayed.isNotEmpty()) {
-                            Icon(painterResource(R.drawable.ic_select_multiple), "多选搜索结果")
-                        }
+                        FilewaySelectionToggle(selection, "多选搜索结果", !client.busy && displayed.isNotEmpty())
                     }
                     if (selection.active) FilewayTaskSelectionBar(selection, !client.busy && !trash.changing, {
                         selection.select(if (selection.ids.size == displayed.size) emptyList() else displayed.map { it.relativePath })

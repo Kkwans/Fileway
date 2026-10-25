@@ -37,11 +37,11 @@ import java.time.format.DateTimeFormatter
     var detail by remember(state.scope) { mutableStateOf<OperationHistoryEntry?>(null) }
     val keyboard = LocalSoftwareKeyboardController.current
     val enabled = connected && !state.loading && !state.paging && !state.clearing
-    val selection = rememberFilewayTaskSelection(state.scope to state.filter, state.items.map { it.id })
+    val selection = rememberFilewayTaskSelection(state.scope to state.filter, state.items.map { it.id }, complete = state.nextCursor.isEmpty())
     var deleteSelection by remember(state.scope, state.filter) { mutableStateOf(false) }
     TaskCenterHeaderActions {
-        if (!selection.active && connected) {
-            IconButton({ selection.start() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选操作记录") }
+        if (connected) {
+            FilewaySelectionToggle(selection, "多选操作记录", enabled && state.items.isNotEmpty())
             IconButton({ controller.requestClear() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空操作历史", tint = MaterialTheme.colorScheme.error) }
         }
     }
@@ -59,10 +59,11 @@ import java.time.format.DateTimeFormatter
 Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
             if (selection.ids.size == state.total) selection.select(emptyList()) else controller.selectAll { selection.select(it) }
-        }) {
+        }, onInvert = { val before = selection.ids; controller.selectAll { selection.select(it - before) } }) {
             IconButton({ if (selection.ids.size == state.total) deleteSelection = true else controller.deleteSelected(selection.ids) },
                 enabled = enabled && !state.showingPreviousFilter && selection.ids.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "删除所选操作记录") }
-        } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        }
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilewaySearchField(search, { search = it }, "查找操作、文件或详情", Modifier.weight(1f), enabled) {
                 controller.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
             }

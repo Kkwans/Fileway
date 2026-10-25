@@ -44,7 +44,7 @@ import io.github.kkwans.nasfilebrowser.app.*
         if (canDelete || canRestore) IconButton({ selecting = !selecting; selected = emptySet() }, enabled = enabled) {
             Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple), if (selecting) "退出回收站多选" else "多选回收项目")
         }
-        if (!selecting) IconButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) {
+        IconButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) {
             Icon(painterResource(R.drawable.ic_trash), "清空回收站", tint = MaterialTheme.colorScheme.error)
         }
     }) {
@@ -83,8 +83,9 @@ import io.github.kkwans.nasfilebrowser.app.*
             if (selecting) {
                 val eligible = displayed.filter { it.status != "restoring" }.map { it.id }.toSet()
                 IconButton({ selected = if (selected.containsAll(eligible)) selected - eligible else selected + eligible }, enabled = enabled) {
-                    Icon(painterResource(R.drawable.ic_select_multiple), "全选或取消全选")
+                    Icon(painterResource(R.drawable.ic_select_all), "全选或取消全选")
                 }
+                IconButton({ selected = eligible - selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_invert_selection), "反选回收项目") }
                 if (canRestore) IconButton({ model.trash.restoreAll(state.items.filter { it.id in selected }) },
                     enabled = enabled && selected.isNotEmpty() && state.items.filter { it.id in selected }.all { it.status == "available" }) {
                     Icon(painterResource(R.drawable.ic_restore), "还原所选项目")

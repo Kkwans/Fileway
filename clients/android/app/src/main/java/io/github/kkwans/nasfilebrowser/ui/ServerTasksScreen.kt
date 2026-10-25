@@ -48,31 +48,25 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
     fun confirmAction(task: ServerTask?, command: String) { confirm = TaskConfirmation(task, command, state.filter, state.total) }
     val list = rememberLazyListState()
     val enabled = !state.loading && !state.changing && !state.paging
-    val selection = rememberFilewayTaskSelection(state.scope to state.filter, state.items.map { it.id })
+    val selection = rememberFilewayTaskSelection(state.scope to state.filter, state.items.map { it.id }, complete = state.nextCursor.isEmpty())
     val chosen = state.items.filter { it.id in selection.ids }
     var deleteSelection by remember(state.scope, state.filter) { mutableStateOf(false) }
     TaskCenterHeaderActions {
-        if (!selection.active) {
-            IconButton({ selection.start() }, enabled = enabled && state.items.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选后台任务") }
-            val singleBulk = when (state.filter.view) {
-                TaskView.ARCHIVED -> "batch-unarchive"
-                TaskView.COMPLETED, TaskView.CANCELED -> "batch-archive"
-                TaskView.ALL -> "archive-ended"
-                TaskView.ATTENTION -> if (state.filter.type.isEmpty()) "batch-archive" else null
-                else -> null
-            }
-            if (!selection.active && singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && (state.total > 0 || singleBulk == "archive-ended")) {
-                Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_trash),
-                    if (singleBulk == "batch-unarchive") "恢复全部记录" else "删除全部已结束任务记录", Modifier.size(24.dp),
-                    tint = if (singleBulk == "batch-unarchive") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
-            } else if (!selection.active && state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) {
-                IconButton({ confirmAction(null, "batch-archive") }, enabled = enabled && state.total > 0) {
-                    Icon(painterResource(R.drawable.ic_trash), "删除全部已结束记录", Modifier.size(24.dp), tint = MaterialTheme.colorScheme.error)
-                }
-                IconButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) {
-                    Icon(painterResource(R.drawable.ic_refresh), "批量重试", Modifier.size(24.dp))
-                }
-            }
+        FilewaySelectionToggle(selection, "多选后台任务", enabled && state.items.isNotEmpty())
+        val singleBulk = when (state.filter.view) {
+            TaskView.ARCHIVED -> "batch-unarchive"
+            TaskView.COMPLETED, TaskView.CANCELED -> "batch-archive"
+            TaskView.ALL -> "archive-ended"
+            TaskView.ATTENTION -> "batch-archive"
+            else -> null
+        }
+        if (singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && state.total > 0) {
+            Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_trash),
+                if (singleBulk == "batch-unarchive") "恢复全部记录" else "删除全部已结束任务记录", Modifier.size(24.dp),
+                tint = if (singleBulk == "batch-unarchive") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
+        }
+        if (state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) IconButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) {
+            Icon(painterResource(R.drawable.ic_refresh), "批量重试", Modifier.size(24.dp))
         }
     }
     LaunchedEffect(list, state.scope) { snapshotFlow { list.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }.collect(model.tasks::watch) }
@@ -80,14 +74,15 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
 Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
             if (selection.ids.size == state.total) selection.select(emptyList()) else model.tasks.selectAll { selection.select(it) }
-        }) {
+        }, onInvert = { val before = selection.ids; model.tasks.selectAll { selection.select(it - before) } }) {
             if (state.filter.view == TaskView.ARCHIVED) IconButton({ model.tasks.actionSelected(selection.ids, "unarchive") }, enabled = enabled && chosen.isNotEmpty() && chosen.all { model.tasks.canEdit(it) && it.archivedAt > 0 }) {
                 Icon(painterResource(R.drawable.ic_restore), "恢复所选任务记录")
             } else IconButton({ if (chosen.size == state.total) deleteSelection = true else model.tasks.actionSelected(selection.ids, "archive") },
                 enabled = enabled && chosen.isNotEmpty() && chosen.all { it.canArchive && model.tasks.canEdit(it) }) {
                 Icon(painterResource(R.drawable.ic_trash), "删除所选已结束任务记录")
             }
-        } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        }
+        Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilewaySearchField(search, { search = it }, "查找任务", Modifier.weight(1f), enabled) {
                 model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
             }
@@ -211,8 +206,8 @@ Column(Modifier.fillMaxSize()) {
                         if (task.totalItems > 0) DetailMetadata("处理项目", "${task.processedItems} / ${task.totalItems}", Modifier.weight(1f))
                     }
                     if (!task.active && task.duration > 0) DetailMetadata("处理时长", "${clock((task.processedSeconds * 1000).toLong())} / ${clock((task.duration * 1000).toLong())}")
-                    FilewayOutlinedButton({ technicalDetails = !technicalDetails }, Modifier.fillMaxWidth()) {
-                        Icon(painterResource(R.drawable.ic_info), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(if (technicalDetails) "收起任务标识" else "查看任务标识")
+                    FilewayTextButton({ technicalDetails = !technicalDetails }) {
+                        Icon(painterResource(R.drawable.ic_info), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(if (technicalDetails) "收起技术信息" else "技术信息")
                     }
                     if (technicalDetails) SelectionContainer { Text("任务 ID：${task.id}\n创建：${taskTimestamp(task.createdAt)}\n开始：${taskTimestamp(task.startedAt)}\n结束：${taskTimestamp(task.finishedAt)}", style = MaterialTheme.typography.bodySmall) }
                 }

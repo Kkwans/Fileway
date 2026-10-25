@@ -35,8 +35,8 @@ import io.github.kkwans.nasfilebrowser.data.RecentAccessEntry
     var unverified by remember(state.scope) { mutableStateOf<RecentAccessEntry?>(null) }
     val enabled = connected && !state.changing
     FilewayPageHeaderActions {
-        if (!selection.active && connected) {
-            IconButton({ selection.start() }, enabled = enabled && entries.isNotEmpty()) { Icon(painterResource(R.drawable.ic_select_multiple), "多选访问记录") }
+        if (connected) {
+            FilewaySelectionToggle(selection, "多选访问记录", enabled && entries.isNotEmpty())
             IconButton({ deletion = emptySet() }, enabled = enabled && entries.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空最近访问", Modifier.size(24.dp), tint = MaterialTheme.colorScheme.error) }
         }
     }
