@@ -14,6 +14,34 @@
 
 历史版本（0.3.5—0.7.0）的完整功能清单见各 release-*.md 与 release-0.7.0.md；本版不重复罗列。播放器退出 C0000409 已定责为外部环境钩子（`player-exit-cfg-analysis.md`），随实机验收确认。
 
+## 启动崩溃修复（2026-10-25 晚复验，阻断发布）
+
+`20261025-release080` 与 `20261025-release080-fix1` 目录的安装包启动后 8—15 秒静默退出，
+为两段缺陷叠加；`20261025-release080-fix2` 已修复并重新打包：
+
+1. **构造期托管异常（743eef84）**：0.7-a 在 `InitializeRemoteTools()`（MainPage 构造函数内）
+   调用 `StorageAnalysisPane.Attach(_storageAnalysis ?? throw ...)`，而服务要到
+   `SetServicesAsync` 才注入，构造期必为 null 并抛 `InvalidOperationException`（0xC0000271）。
+   改为在 `UpdateRemoteToolsContext()` 内守卫式幂等附加。
+2. **XAML 解析失败（224ad39a）**：`StorageAnalysisControl` 构造函数把 `duplicatesHost` 与
+   `adminHost` 先加入 `analysisHost`、后又加入 `root`，抛 `XamlParseException: Element is
+   already the child of another element`（HRESULT 0x802B000A），触发 `0xC000027B`
+   stowed exception failfast。移除 `analysisHost` 中的两次重复挂载，三标签页显隐逻辑与
+   root 布局保持一致。
+3. **缺失图标资源（83dca1a7）**：侧栏存储工具引用不存在的 `database.png`，改用现有
+   `file-code` 图标；此项不是本次崩溃根因，独立 database 美术资源留待验收后补充。
+
+复验口径：Release 零警告零错误；publish 目录启动冒烟 15 秒与 20 秒均存活、
+Responding=True、EnumWindows 可见主窗标题含“栖卷”，无 `diagnostics/startup.log`。
+0.8.0 功能增量未变，版本号保持 0.8.0，以新交付目录与哈希区分。
+
+本地未签名交付（仓库外）：
+
+- `Fileway-windows-artifacts\20261025-release080-fix2\delivery\Fileway-0.8.0-win-x64-unsigned-setup.exe`
+  （SHA-256 `6f80168ee48ff33912ea46a73b6b60cb1903d9dd44aeb539339ffdd9c25ca2eb`）
+- `Fileway-0.8.0-win-x64-unsigned.zip`
+  （SHA-256 `984a13ec1fdb3e4c8ca5c2cbad115f077c728660292592562dc8f6c352c0b3ef`）
+
 ## 按用户决定后置的范围（不在本版本）
 
 - 网络与完整性全套：系统/PAC/手动代理、内嵌 tsnet、证书、外置播放器、休眠换网、
