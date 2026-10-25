@@ -1,6 +1,7 @@
 package io.github.kkwans.nasfilebrowser.player
 
 import androidx.media3.common.Format
+import androidx.media3.common.util.UnstableApi
 
 /** In-memory only. A format identity is never a UI title, list index or engine track ID. */
 internal data class DecoderTrackIdentity(
@@ -9,6 +10,7 @@ internal data class DecoderTrackIdentity(
     val channels: Int, val sampleRate: Int, val accessibilityChannel: Int,
 ) {
     companion object {
+        @androidx.annotation.OptIn(UnstableApi::class)
         fun from(type: Int, format: Format) = DecoderTrackIdentity(type, format.id, format.label,
             format.language, format.sampleMimeType, format.codecs, format.roleFlags, format.selectionFlags,
             format.channelCount, format.sampleRate, format.accessibilityChannel)
