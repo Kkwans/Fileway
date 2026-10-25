@@ -822,6 +822,9 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val parent = file.path.substringBeforeLast('/').ifEmpty { "/" }
         val wire = file.wirePath.ifEmpty { SearchResult.encodePath(file.path) }
             .substringBeforeLast('/').ifEmpty { "/" }
+        // Reveal the requested directory instead of loading it behind the active player.
+        // Reuse the normal exit path so progress, subtitles and media leases are closed consistently.
+        if (current.selected != null) leavePlayer()
         navigateToDirectory(parent, wire, resetCategory = true)
     }
     fun jumpDirectory(crumb: DirectoryCrumb) {

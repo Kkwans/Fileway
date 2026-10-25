@@ -645,7 +645,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         .padding(horizontal = 16.dp),
                         contentPadding = PaddingValues(vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        item(key = "video-information") { PlayerInformation(model, file, state) }
+                        item(key = "video-information") { PlayerInformation(file, state) }
                         queue?.takeIf { it.hasNext }?.let { snapshot ->
                             val upcoming = snapshot.items.drop(snapshot.index + 1)
                             item(key = "upcoming-header") { Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
@@ -872,6 +872,13 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             item { SourceField("文件", file.name) }
                             item { SourceField("读取来源", playbackSourceLabel) }
                             item { SourceField("路径", file.path) }
+                            if (file.downloadId.isEmpty() && !model.isTemporaryContent(file)) item {
+                                FilewayOutlinedButton({ sheet = null; model.openContainingDirectory(file) }, Modifier.fillMaxWidth(),
+                                    enabled = client.connected && !client.busy) {
+                                    FilewayIcon(R.drawable.ic_folder, null, Modifier.size(20.dp))
+                                    Spacer(Modifier.width(8.dp)); Text("打开所在目录")
+                                }
+                            }
                             item { SourceField("播放方式", "原生播放 · Media3") }
                             item { SourceField("画质", "原画 · 直接读取原文件") }
                             if (state.width > 0) item { SourceField("源分辨率", "${state.width} × ${state.height}") }

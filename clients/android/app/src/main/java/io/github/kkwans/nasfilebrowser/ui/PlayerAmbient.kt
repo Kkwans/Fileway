@@ -4,23 +4,16 @@ import android.animation.ValueAnimator
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
-import io.github.kkwans.nasfilebrowser.R
-import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
-import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.player.PlayerState
 import kotlinx.coroutines.isActive
 import kotlin.math.sin
@@ -51,10 +44,9 @@ import kotlin.math.cos
     }
 }
 
-@Composable internal fun PlayerInformation(model: ClientModel, file: ResourceRef, state: PlayerState) {
+@Composable internal fun PlayerInformation(file: ResourceRef, state: PlayerState) {
     val surface = Color.White.copy(alpha=.055f)
     val border = BorderStroke(1.dp,Color.White.copy(alpha=.09f))
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
     Surface(Modifier.fillMaxWidth(),shape=RoundedCornerShape(12.dp),color=surface,border=border) {
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(14.dp)) {
             Text("视频信息",style=MaterialTheme.typography.titleSmall)
@@ -67,22 +59,6 @@ import kotlin.math.cos
                 PlayerInformationField("视频格式",state.sourceVideoCodec.takeUnless{it=="未知"}.orEmpty().ifBlank { file.name.substringAfterLast('.',"—").uppercase() },Modifier.weight(1f))
             }
         }
-    }
-    if (file.path.isNotBlank()) {
-        var expanded by remember(file.mediaKey) { mutableStateOf(false) }
-        val parent = file.path.substringBeforeLast('/',file.path).ifBlank { "/" }
-        Surface(Modifier.fillMaxWidth(),shape=RoundedCornerShape(12.dp),color=surface,border=border) {
-            Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                Text("文件位置",style=MaterialTheme.typography.titleSmall)
-                SelectionContainer { Text(parent,Modifier.fillMaxWidth().clickable{expanded=!expanded},
-                    style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines=if(expanded) Int.MAX_VALUE else 2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
-                if (file.downloadId.isEmpty()) FilewayOutlinedButton({model.openContainingDirectory(file)},Modifier.fillMaxWidth()) {
-                    FilewayIcon(R.drawable.ic_folder,null,Modifier.size(20.dp));Spacer(Modifier.width(8.dp));Text("所在目录")
-                }
-            }
-        }
-    }
     }
 }
 
