@@ -42,7 +42,7 @@ internal class PlayerPictureInPicture(private val activity: ComponentActivity, p
         }
     }
     init { ContextCompat.registerReceiver(activity, receiver, IntentFilter(action), ContextCompat.RECEIVER_NOT_EXPORTED) }
-    fun videoBounds(rect: Rect) { if (rect != videoBounds && !rect.isEmpty) { videoBounds = rect; update() } }
+    fun videoBounds(rect: Rect) { if (!active && !preparing && rect != videoBounds && !rect.isEmpty) { videoBounds = rect; update() } }
     fun modeChanged(value: Boolean) { active = value; preparing = false }
     fun transition(value: Boolean) { preparing = value }
     fun resumed() { if (!activity.isInPictureInPictureMode) { active = false; preparing = false } }

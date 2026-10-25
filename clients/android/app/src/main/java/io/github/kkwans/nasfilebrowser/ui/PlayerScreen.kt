@@ -489,7 +489,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             if (holding && !pipMode) PlayerActionFeedback("${holdRate}× 倍速播放", R.drawable.ic_fast,
                                 Modifier.align(Alignment.TopCenter).padding(top = 20.dp))
                             gestureMessage?.takeIf { !pipMode }?.let { message -> PlayerActionFeedback(message,
-                                if (message.startsWith("−")) R.drawable.ic_skip_back else R.drawable.ic_skip_forward,
+                                when { message.startsWith("−") -> R.drawable.ic_skip_back; message.startsWith("+") -> R.drawable.ic_skip_forward; else -> R.drawable.art_volume },
                                 Modifier.align(Alignment.Center)) }
                             gestureMeter?.takeIf { !pipMode }?.let { (brightnessControl, level) ->
                                 PlayerLevelFeedback(brightnessControl, level, Modifier.align(Alignment.Center))
@@ -498,7 +498,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                 PictureSeekFeedback(target, drag.startMs, drag.durationMs, seekPreview.takeIf { fullscreen }, Modifier.align(Alignment.Center))
                             } }
                             val failure = if (client.busy) null else client.error ?: state.error
-                            if (failure != null) {
+                            if (failure != null && pipMode) {
+                                Text("播放中断", color = Color.White, style = MaterialTheme.typography.labelSmall,
+                                    modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = .7f), RoundedCornerShape(8.dp)).padding(8.dp))
+                            } else if (failure != null) {
                                 Column(Modifier.align(Alignment.Center).widthIn(max = 360.dp).padding(20.dp)
                                     .clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .68f)).padding(12.dp),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -517,8 +520,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
                                     }
-                                    if (client.busy) IconButton(model::cancel, Modifier.align(Alignment.CenterEnd).size(48.dp).background(Color.Black.copy(alpha = .35f), CircleShape)) {
-                                        Icon(painterResource(R.drawable.ic_close), "取消播放请求", Modifier.size(20.dp), tint = FilewayTheme.status.mediaContent)
+                                    if (client.busy && !pipMode) FilewayIconButton(model::cancel, Modifier.align(Alignment.CenterEnd).size(48.dp).background(Color.Black.copy(alpha = .35f), CircleShape)) {
+                                        FilewayIcon(R.drawable.ic_close, "取消播放请求", Modifier.size(20.dp), tint = FilewayTheme.status.mediaContent)
                                     }
                                 }
                             }
@@ -562,17 +565,19 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) else Modifier)
                             .padding(start = controlPadding, end = controlPadding, bottom = if (fullscreen) 8.dp else 0.dp)
                             .alpha(if (!fullscreen && touchLocked) .55f else 1f)) {
-                            SeekPreview(seekPreview, seek?.toLong(), state.durationMs, timelineStart)
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()), color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
                                     fontFamily = FontFamily.Monospace, maxLines = 1,
                                     modifier = Modifier.offset(y = if (fullscreen) 4.dp else 0.dp))
+                                Box(Modifier.weight(1f)) {
+                                SeekPreview(seekPreview, seek?.toLong(), state.durationMs, timelineStart)
                                 PlayerSlider(seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat().coerceIn(0f, state.durationMs.toFloat().coerceAtLeast(1f)), state.durationMs.toFloat().coerceAtLeast(1f),
                                     "播放进度", controlsEnabled && state.seekable && state.durationMs > 0,
                                     { if (seek == null) timelineStart = state.positionMs; gestureSeek.reset(); seek = it; touch() }, { seek?.let { model.player.seek(it.toLong()) }; seek = null; touch() },
                                     clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()) + "，共 " + clock(state.durationMs),
                                     downloadedValue = downloadedUntil?.toFloat(), bufferedValue = state.bufferedPositionMs.toFloat(), mediaSurface = fullscreen,
-                                    visualTrackOffset = if (fullscreen) 4.dp else 0.dp, modifier = Modifier.weight(1f))
+                                    visualTrackOffset = if (fullscreen) 4.dp else 0.dp, modifier = Modifier.fillMaxWidth())
+                                }
                                 Text(if (state.durationMs > 0) clock(state.durationMs) else "--:--", color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
                                     fontFamily = FontFamily.Monospace, maxLines = 1,
                                     modifier = Modifier.offset(y = if (fullscreen) 4.dp else 0.dp))
@@ -905,7 +910,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
 
 @Composable private fun PlayerLockIcon(icon: Int, label: String, state: String, locked: Boolean, click: () -> Unit,
     enabled: Boolean = true, modifier: Modifier = Modifier) {
-    IconButton(onClick = click, enabled = enabled, modifier = modifier.size(48.dp)
+    FilewayIconButton(onClick = click, enabled = enabled, modifier = modifier.size(48.dp)
         .background(Color.Black.copy(alpha = .28f), CircleShape).clearAndSetSemantics {
             contentDescription = label
             stateDescription = state
@@ -913,19 +918,19 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             role = Role.Button
             if (enabled) onClick { click(); true } else disabled()
         }) {
-        Icon(painterResource(icon), null, Modifier.size(22.dp),
+        FilewayIcon(icon, null, Modifier.size(22.dp),
             tint = if (!enabled) Color.White.copy(alpha = .38f) else if (locked) FilewayTheme.colors.primary else Color.White.copy(alpha = .94f))
     }
 }
 
 @Composable private fun PlayerIcon(icon: Int, label: String, click: () -> Unit, enabled: Boolean = true, description: String? = null) {
-    IconButton(onClick = click, enabled = enabled, modifier = Modifier.size(48.dp).clearAndSetSemantics {
+    FilewayIconButton(onClick = click, enabled = enabled, modifier = Modifier.size(48.dp).clearAndSetSemantics {
         contentDescription = label
         description?.let { stateDescription = it }
         role = Role.Button
         if (enabled) onClick { click(); true } else disabled()
     }) {
-        Icon(painterResource(icon), null, Modifier.size(22.dp), tint = LocalContentColor.current.copy(alpha = if (enabled) 0.94f else 0.38f))
+        FilewayIcon(icon, null, Modifier.size(22.dp), tint = LocalContentColor.current.copy(alpha = if (enabled) 0.94f else 0.38f))
     }
 }
 @Composable private fun PlayerLabel(text: String, label: String, enabled: Boolean = true, click: () -> Unit) {
@@ -1085,7 +1090,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             if (detail.isNotBlank()) Text(detail, style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
         }
         Box(Modifier.size(20.dp)) {
-            if (selected) Icon(painterResource(R.drawable.art_check), null, Modifier.size(20.dp), tint = FilewayTheme.colors.primary)
+            if (selected) FilewayIcon(R.drawable.art_check, null, Modifier.size(20.dp), tint = FilewayTheme.colors.primary)
         }
     }
 }

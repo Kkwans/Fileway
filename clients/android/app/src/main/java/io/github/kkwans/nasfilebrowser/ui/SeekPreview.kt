@@ -70,7 +70,7 @@ import kotlin.math.abs
             if (duration > 0) Text("/ ${clock(duration)}", color = Color.White.copy(alpha=.68f), fontSize = 12.sp)
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Icon(painterResource(if (target < start) R.drawable.ic_skip_back else R.drawable.ic_skip_forward), null,
+            FilewayIcon(if (target < start) R.drawable.ic_skip_back else R.drawable.ic_skip_forward, null,
                 Modifier.size(18.dp), tint = Color.White.copy(alpha=.72f))
             Text((if (target < start) "−" else "+") + clock(abs(target-start)), color = Color.White.copy(alpha=.72f), fontSize = 12.sp)
         }
@@ -95,7 +95,7 @@ import kotlin.math.abs
     PlayerFeedbackWindow(modifier) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(painterResource(if (brightness) R.drawable.ic_theme_light else R.drawable.art_volume), null,
+            FilewayIcon(if (brightness) R.drawable.ic_theme_light else R.drawable.art_volume, null,
                 Modifier.size(24.dp), tint = Color.White)
             LinearProgressIndicator(progress = { amount }, modifier = Modifier.width(104.dp).height(4.dp),
                 color = Color.White, trackColor = Color.White.copy(alpha=.22f), gapSize = 0.dp, drawStopIndicator = {})
@@ -108,7 +108,7 @@ import kotlin.math.abs
     PlayerFeedbackWindow(modifier) {
         Row(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Icon(painterResource(icon), null, Modifier.size(24.dp), tint = Color.White)
+            FilewayIcon(icon, null, Modifier.size(24.dp), tint = Color.White)
             Text(message, color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
         }
     }
