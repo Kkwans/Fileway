@@ -53,14 +53,14 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
     Column(Modifier.fillMaxSize().background(media.mediaCanvas).safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(model::leavePlayer, Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "关闭音频", tint = media.mediaContent) }
+            FilewayIconButton(model::leavePlayer, Modifier.size(48.dp)) { FilewayIcon(R.drawable.ic_arrow_back, "关闭音频", tint = media.mediaContent) }
             Text("正在播放", Modifier.weight(1f), color = media.mediaContent, style = MaterialTheme.typography.titleMedium)
-            IconButton({ menu = "queue" }, Modifier.size(48.dp), enabled = queue != null) {
-                Icon(painterResource(R.drawable.ic_playlist_play), "音频播放列表", tint = media.mediaContent)
+            FilewayIconButton({ menu = "queue" }, Modifier.size(48.dp), enabled = queue != null) {
+                FilewayIcon(R.drawable.ic_playlist_play, "音频播放列表", tint = media.mediaContent)
             }
         }
         Box(Modifier.size(112.dp).background(media.mediaSurface, CircleShape), contentAlignment = Alignment.Center) {
-            Icon(painterResource(R.drawable.ic_audio), null, Modifier.size(52.dp), tint = colors.primary)
+            FilewayIcon(R.drawable.ic_audio, null, Modifier.size(52.dp), tint = colors.primary)
         }
         Text(file.name, color = media.mediaContent, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
         if (client.busy || state.waitingForBuffer) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -80,15 +80,15 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            IconButton(model::previousMedia, Modifier.size(56.dp), enabled = queue?.hasPrevious == true) {
-                Icon(painterResource(R.drawable.ic_skip_previous), "上一首")
+            FilewayIconButton(model::previousMedia, Modifier.size(56.dp), enabled = queue?.hasPrevious == true) {
+                FilewayIcon(R.drawable.ic_skip_previous, "上一首")
             }
             FilledIconButton({ model.player.toggle() }, Modifier.size(72.dp), enabled = !client.busy && state.error == null,
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = colors.primary, contentColor = colors.onPrimary)) {
-                Icon(painterResource(if (state.playing) R.drawable.art_pause else R.drawable.art_play), if (state.playing) "暂停音频" else "播放音频", Modifier.size(36.dp))
+                FilewayIcon(if (state.playing) R.drawable.art_pause else R.drawable.art_play, if (state.playing) "暂停音频" else "播放音频", Modifier.size(36.dp))
             }
-            IconButton(model::nextMedia, Modifier.size(56.dp), enabled = queue?.hasNext == true) {
-                Icon(painterResource(R.drawable.ic_skip_next), "下一首")
+            FilewayIconButton(model::nextMedia, Modifier.size(56.dp), enabled = queue?.hasNext == true) {
+                FilewayIcon(R.drawable.ic_skip_next, "下一首")
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {

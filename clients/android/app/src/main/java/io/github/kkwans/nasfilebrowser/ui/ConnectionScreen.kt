@@ -127,14 +127,14 @@ import io.github.kkwans.nasfilebrowser.data.*
                     Box(Modifier.fillMaxWidth()) {
                         FilewayOutlinedButton(onClick = { focus.clearFocus(); profilesOpen = true }, enabled = !state.busy, shape = MaterialTheme.shapes.medium,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = "选择服务器档案" }) {
-                            Icon(painterResource(R.drawable.ic_storage), null, Modifier.size(22.dp))
+                            FilewayIcon(R.drawable.ic_storage, null, Modifier.size(22.dp))
                             Column(Modifier.weight(1f).padding(horizontal = 12.dp), horizontalAlignment = Alignment.Start) {
                                 Text(state.profile?.name ?: "新建服务器", maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text(state.profile?.let { "${if (it.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${serverAddressSummary(it.address)}" }
                                     ?: if (profiles.isEmpty()) "填写下方地址与账号" else "选择已保存的服务器档案", style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp))
+                            FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(18.dp))
                         }
                         FilewayMenu(profilesOpen, { profilesOpen = false }, items = buildList {
                             add(FilewayMenuEntry("new", "新建服务器", R.drawable.ic_add, selected = state.profile == null))
@@ -209,12 +209,12 @@ import io.github.kkwans.nasfilebrowser.data.*
                                         .alpha(if (canRestore) 1f else .38f).padding(end = 12.dp, top = 4.dp, bottom = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                         Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                                            Icon(painterResource(R.drawable.ic_person), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            FilewayIcon(R.drawable.ic_person, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                         Text(account.username, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         Text("已保存", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                                        FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                                     }
                                 }
                             } }
@@ -224,8 +224,8 @@ import io.github.kkwans.nasfilebrowser.data.*
                             keyboardType = KeyboardType.Password, imeAction = ImeAction.Done, onDone = connect,
                             visualTransformation = if (visiblePassword) VisualTransformation.None else PasswordVisualTransformation(),
                             trailing = {
-                                IconButton(onClick = { visiblePassword = !visiblePassword }) {
-                                    Icon(painterResource(if (visiblePassword) R.drawable.ic_visibility_off else R.drawable.ic_visibility),
+                                FilewayIconButton(onClick = { visiblePassword = !visiblePassword }) {
+                                    FilewayIcon(if (visiblePassword) R.drawable.ic_visibility_off else R.drawable.ic_visibility,
                                         if (visiblePassword) "隐藏密码" else "显示密码")
                                 }
                             })
@@ -282,7 +282,7 @@ import io.github.kkwans.nasfilebrowser.data.*
         shape = MaterialTheme.shapes.medium, color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Icon(painterResource(icon), null, Modifier.size(18.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+            FilewayIcon(icon, null, Modifier.size(18.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
             Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
     }
@@ -296,7 +296,7 @@ import io.github.kkwans.nasfilebrowser.data.*
 ) {
     OutlinedTextField(value, change, label = { Text(label, fontSize = 13.sp) }, enabled = enabled, singleLine = true,
         textStyle = MaterialTheme.typography.bodyMedium,
-        leadingIcon = { Icon(painterResource(icon), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        leadingIcon = { FilewayIcon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant) },
         trailingIcon = trailing, placeholder = if (placeholder.isEmpty()) null else ({ Text(placeholder) }),
         supportingText = if (supporting == null) null else ({ Text(supporting) }),
         visualTransformation = visualTransformation, keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = imeAction),

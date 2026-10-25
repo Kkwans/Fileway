@@ -53,7 +53,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                 leadingIcon = R.drawable.ic_arrow_back, leadingDescription = if (draft == null) "返回来源页面" else "返回用户列表",
                 onLeadingClick = { if (!state.saving) editorBack() }, actions = {
                     if (draft == null) FilewayTextButton(controller::create, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) { Text("新增") }
-                    IconButton(controller::refresh, enabled = !state.loading && !state.saving) { Icon(painterResource(R.drawable.ic_refresh), "刷新用户列表") }
+                    FilewayIconButton(controller::refresh, enabled = !state.loading && !state.saving) { FilewayIcon(R.drawable.ic_refresh, "刷新用户列表") }
                 })
         }
     }, bottomBar = {

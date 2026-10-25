@@ -116,7 +116,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                         val serverName = draft.reviewedChanges.firstOrNull { batchRenameSourceWire(it.file) == wire }?.target?.name
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Row(verticalAlignment = Alignment.Top) {
-                                Icon(painterResource(if (row.file.directory) R.drawable.ic_folder else R.drawable.ic_edit), null,
+                                FilewayIcon(if (row.file.directory) R.drawable.ic_folder else R.drawable.ic_edit, null,
                                     Modifier.padding(top = 2.dp).size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 SelectionContainer { Text("${index + 1}. ${row.file.name}", Modifier.padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium) }
                             }

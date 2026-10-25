@@ -45,6 +45,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
     val appearance by model.appearance.state.collectAsStateWithLifecycle()
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    val navigationPulse = remember { mutableStateOf("" to 0) }
     val glass = rememberHazeState()
     val glassActive = drawer.isOpen || drawer.targetValue == DrawerValue.Open
     val glassStyle = filewayDrawerGlassStyle()
@@ -87,9 +88,9 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                     Row(Modifier.fillMaxWidth().clickable { navigate { if (state.connected) model.disconnect() else model.showConnection() } }
                                         .heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        Icon(painterResource(R.drawable.ic_server), null, Modifier.size(22.dp))
+                                        FilewayIcon(R.drawable.ic_server, null, Modifier.size(22.dp))
                                         Text(if (state.connected) "切换服务器或账号" else "连接服务器", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                        Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp))
+                                        FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(18.dp))
                                     }
                                 }
                             }
@@ -156,7 +157,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                     color = if (chosen) MaterialTheme.colorScheme.primary.copy(alpha = .12f) else Color.Transparent) {
                                     Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally,
                                         verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
-                                        Icon(painterResource(icon), null, Modifier.size(22.dp), tint = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+                                        FilewayIcon(icon, null, Modifier.size(22.dp), tint = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                         Text(label, style = MaterialTheme.typography.labelSmall, color = if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
@@ -167,7 +168,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
             },
         ) {
             Box(Modifier.fillMaxSize().then(if (glassActive) Modifier.hazeSource(glass) else Modifier)) {
-            CompositionLocalProvider(LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack,
+            CompositionLocalProvider(LocalFilewayNavigationPulse provides navigationPulse, LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack,
                 LocalFilewaySessionModel provides model) {
                 if (state.connected && state.destination.main != null && !state.searchDisplayed) {
                     val destination = state.destination.main!!
@@ -191,7 +192,7 @@ private fun FilewayDrawerItem(title: String, icon: Int, selected: Boolean = fals
             unselectedContainerColor = Color.Transparent, selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary),
         label = { Text(title, style = MaterialTheme.typography.bodyMedium) }, selected = selected, onClick = onClick,
         shape = MaterialTheme.shapes.medium,
-        icon = { Icon(painterResource(icon), null, Modifier.size(22.dp)) },
+        icon = { FilewayIcon(icon, null, Modifier.size(22.dp)) },
         modifier = Modifier.padding(horizontal = 8.dp).heightIn(min = 48.dp),
     )
 }

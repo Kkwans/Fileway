@@ -77,8 +77,8 @@ internal fun FileLayoutMenu(
                 color = colors.primary,
             )
             Spacer(Modifier.width(4.dp))
-            Icon(
-                painterResource(R.drawable.ic_expand_more),
+            FilewayIcon(
+                R.drawable.ic_expand_more,
                 null,
                 Modifier.size(18.dp),
                 tint = colors.primary,

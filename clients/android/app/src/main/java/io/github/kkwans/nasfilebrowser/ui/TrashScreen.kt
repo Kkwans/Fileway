@@ -41,11 +41,11 @@ import io.github.kkwans.nasfilebrowser.app.*
     val filtered = state.items.filter { when (status) { "available" -> it.status == "available"; "working" -> it.status in setOf("pending", "restoring") || it.sizeState == "calculating"; "failed" -> it.status == "failed" || it.sizeState == "failed"; else -> true } }
     val displayed = when (order) { "name" -> filtered.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }; "size" -> filtered.sortedByDescending { it.size }; else -> filtered.sortedByDescending { it.deletedAt } }
     LibraryScaffold(model, LibrarySection.TRASH, actions = {
-        if (canDelete || canRestore) IconButton({ selecting = !selecting; selected = emptySet() }, enabled = enabled) {
-            Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple), if (selecting) "退出回收站多选" else "多选回收项目")
+        if (canDelete || canRestore) FilewayIconButton({ selecting = !selecting; selected = emptySet() }, enabled = enabled) {
+            FilewayIcon(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple, if (selecting) "退出回收站多选" else "多选回收项目")
         }
-        IconButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) {
-            Icon(painterResource(R.drawable.ic_trash), "清空回收站", tint = MaterialTheme.colorScheme.error)
+        FilewayIconButton({ clearing = true }, enabled = enabled && canDelete && state.items.isNotEmpty()) {
+            FilewayIcon(R.drawable.ic_trash, "清空回收站", tint = MaterialTheme.colorScheme.error)
         }
     }) {
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.trash.refresh() }
@@ -82,16 +82,16 @@ import io.github.kkwans.nasfilebrowser.app.*
             }
             if (selecting) {
                 val eligible = displayed.filter { it.status != "restoring" }.map { it.id }.toSet()
-                IconButton({ selected = if (selected.containsAll(eligible)) selected - eligible else selected + eligible }, enabled = enabled) {
-                    Icon(painterResource(R.drawable.ic_select_all), "全选或取消全选")
+                FilewayIconButton({ selected = if (selected.containsAll(eligible)) selected - eligible else selected + eligible }, enabled = enabled) {
+                    FilewayIcon(R.drawable.ic_select_all, "全选或取消全选")
                 }
-                IconButton({ selected = eligible - selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_invert_selection), "反选回收项目") }
-                if (canRestore) IconButton({ model.trash.restoreAll(state.items.filter { it.id in selected }) },
+                FilewayIconButton({ selected = eligible - selected }, enabled = enabled) { FilewayIcon(R.drawable.ic_invert_selection, "反选回收项目") }
+                if (canRestore) FilewayIconButton({ model.trash.restoreAll(state.items.filter { it.id in selected }) },
                     enabled = enabled && selected.isNotEmpty() && state.items.filter { it.id in selected }.all { it.status == "available" }) {
-                    Icon(painterResource(R.drawable.ic_restore), "还原所选项目")
+                    FilewayIcon(R.drawable.ic_restore, "还原所选项目")
                 }
-                if (canDelete) IconButton({ deleting = selected.toList() }, enabled = enabled && selected.isNotEmpty()) {
-                    Icon(painterResource(R.drawable.ic_trash), "永久删除所选项目", tint = MaterialTheme.colorScheme.error)
+                if (canDelete) FilewayIconButton({ deleting = selected.toList() }, enabled = enabled && selected.isNotEmpty()) {
+                    FilewayIcon(R.drawable.ic_trash, "永久删除所选项目", tint = MaterialTheme.colorScheme.error)
                 }
             }
         }
@@ -110,8 +110,8 @@ import io.github.kkwans.nasfilebrowser.app.*
                     onLongClick = if (canDelete || canRestore) ({ if (enabled && item.status != "restoring") { selecting = true; selected = selected + item.id } }) else null,
                     trailing = {
                         if (!selecting) {
-                            if (canRestore) IconButton({ model.trash.restore(item) }, enabled = enabled && item.status == "available") {
-                                Icon(painterResource(R.drawable.ic_restore), "还原：${item.name}", tint = MaterialTheme.colorScheme.primary)
+                            if (canRestore) FilewayIconButton({ model.trash.restore(item) }, enabled = enabled && item.status == "available") {
+                                FilewayIcon(R.drawable.ic_restore, "还原：${item.name}", tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }) {
@@ -137,10 +137,10 @@ import io.github.kkwans.nasfilebrowser.app.*
     }, confirmButton = { FilewayTextButton(model.trash::closeConflict) { Text("取消") } }) }
     details?.let { item -> FileOperationSheet("回收站详情", { details = null }, footer = if (!canDelete && !canRestore) null else {{
         if (canDelete) FilewayOutlinedButton({ deleting = listOf(item.id); details = null }, enabled = enabled && item.status != "restoring", modifier = Modifier.weight(1f)) {
-            Icon(painterResource(R.drawable.ic_trash), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("永久删除")
+            FilewayIcon(R.drawable.ic_trash, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("永久删除")
         }
         if (canRestore) FilewayButton({ model.trash.restore(item); details = null }, enabled = enabled && item.status == "available", modifier = Modifier.weight(1f)) {
-            Icon(painterResource(R.drawable.ic_restore), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("还原")
+            FilewayIcon(R.drawable.ic_restore, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("还原")
         }
     }}) {
         SelectionContainer(Modifier.weight(1f, fill = false)) {

@@ -89,7 +89,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                             resourceWireContains(taskResourceTarget(source.path, source.wirePath, allowOpaque = true).wirePath,
                                 taskResourceTarget(folder.path, folder.wirePath, allowOpaque = true).wirePath)
                         }.getOrDefault(true) }
-                        ListItem(headlineContent = { Text(folder.name) }, leadingContent = { Icon(painterResource(R.drawable.ic_folder), null) },
+                        ListItem(headlineContent = { Text(folder.name) }, leadingContent = { FilewayIcon(R.drawable.ic_folder, null) },
                             supportingContent = if (excluded) ({ Text("源目录内，不能作为目标") }) else null,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = !busy && !excluded) {
                                 model.fileOperations.readTransferDirectory(DirectoryCrumb(folder.name, folder.path, folder.wirePath))

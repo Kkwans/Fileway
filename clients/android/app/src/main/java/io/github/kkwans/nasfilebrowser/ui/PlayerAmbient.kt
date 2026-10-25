@@ -78,7 +78,7 @@ import kotlin.math.cos
                     style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines=if(expanded) Int.MAX_VALUE else 2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
                 if (file.downloadId.isEmpty()) FilewayOutlinedButton({model.openContainingDirectory(file)},Modifier.fillMaxWidth()) {
-                    Icon(painterResource(R.drawable.ic_folder),null,Modifier.size(20.dp));Spacer(Modifier.width(8.dp));Text("所在目录")
+                    FilewayIcon(R.drawable.ic_folder,null,Modifier.size(20.dp));Spacer(Modifier.width(8.dp));Text("所在目录")
                 }
             }
         }

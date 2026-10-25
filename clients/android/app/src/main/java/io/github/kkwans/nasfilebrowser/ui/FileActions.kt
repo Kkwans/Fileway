@@ -57,14 +57,14 @@ private val LocalFileActionWidth = staticCompositionLocalOf<Dp?> { null }
             focus.requestFocus()
     }
     @Composable fun button() {
-        if (caption == null) IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp).focusRequester(focus)) {
-            Icon(painterResource(icon), label, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
+        if (caption == null) FilewayIconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp).focusRequester(focus)) {
+            FilewayIcon(icon, label, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
                 else if (active) FilewayTheme.colors.primary else FilewayTheme.colors.onSurfaceVariant)
         } else FilewayTextButton(onClick, enabled = enabled, modifier = (if (width == null) Modifier.widthIn(min = 48.dp) else Modifier.width(width)).heightIn(min = 64.dp).focusRequester(focus)
             .background(filewayGlassLayerColor(), RoundedCornerShape(12.dp)).filewayGlassFrame()
             .semantics { contentDescription = label }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Icon(painterResource(icon), null, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
+                FilewayIcon(icon, null, Modifier.size(24.dp), tint = if (!enabled) FilewayTheme.colors.onSurface.copy(alpha = .38f)
                     else if (active) FilewayTheme.colors.primary else FilewayTheme.colors.onSurfaceVariant)
                 Text(caption, style = MaterialTheme.typography.labelMedium,
                     color = if (enabled) FilewayTheme.colors.onSurfaceVariant else FilewayTheme.colors.onSurface.copy(alpha = .38f))

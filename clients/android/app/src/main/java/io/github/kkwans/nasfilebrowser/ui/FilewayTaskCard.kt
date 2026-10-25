@@ -106,8 +106,8 @@ internal fun FilewayTaskIconButton(
     enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
-    IconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
-        Icon(painterResource(icon), label, Modifier.size(24.dp))
+    FilewayIconButton(onClick, enabled = enabled, modifier = Modifier.size(48.dp)) {
+        FilewayIcon(icon, label, Modifier.size(24.dp))
     }
 }
 
@@ -135,7 +135,7 @@ internal fun transferRuntime(millis: Long, completeHistory: Boolean): String {
     FilewayTonalButton(onClick, Modifier.size(48.dp), enabled = enabled, contentPadding = PaddingValues(0.dp),
         colors = ButtonDefaults.filledTonalButtonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = .09f),
             contentColor = MaterialTheme.colorScheme.primary)) {
-        Icon(painterResource(if (running) R.drawable.art_pause else R.drawable.art_play), label, Modifier.size(24.dp))
+        FilewayIcon(if (running) R.drawable.art_pause else R.drawable.art_play, label, Modifier.size(24.dp))
     }
 }
 

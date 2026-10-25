@@ -27,8 +27,8 @@ import io.github.kkwans.nasfilebrowser.app.AccountSettingsController
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
         Column(Modifier.statusBarsPadding()) {
             FilewayTopAppBar("账户安全", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回来源页面", onLeadingClick = onBack,
-                actions = { IconButton(controller::refresh, enabled = !state.loading && !state.saving) {
-                    Icon(painterResource(R.drawable.ic_refresh), "刷新账户资料")
+                actions = { FilewayIconButton(controller::refresh, enabled = !state.loading && !state.saving) {
+                    FilewayIcon(R.drawable.ic_refresh, "刷新账户资料")
                 } })
         }
     }) { insets ->

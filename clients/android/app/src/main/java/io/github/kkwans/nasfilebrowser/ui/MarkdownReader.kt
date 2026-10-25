@@ -674,18 +674,18 @@ internal fun ReaderCode(code: String, language: String?, style: TextStyle) {
                 Text(language?.takeWhile { !it.isWhitespace() }?.ifEmpty { "代码" } ?: "代码",
                     Modifier.weight(1f).padding(start = 12.dp, end = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, lineHeight = 16.sp), color = codeMuted)
-                IconButton({ wrap = !wrap }, modifier = Modifier.size(48.dp).clearAndSetSemantics {
+                FilewayIconButton({ wrap = !wrap }, modifier = Modifier.size(48.dp).clearAndSetSemantics {
                     contentDescription = if (wrap) "横向滚动代码" else "自动换行代码"
                     stateDescription = if (wrap) "当前自动换行" else "当前横向滚动"
                     role = Role.Button
                     onClick { wrap = !wrap; true }
-                }) { Icon(painterResource(R.drawable.ic_wrap_text), null, Modifier.size(20.dp), tint = codeMuted) }
-                IconButton(copyCode, modifier = copyModifier.clearAndSetSemantics {
+                }) { FilewayIcon(R.drawable.ic_wrap_text, null, Modifier.size(20.dp), tint = codeMuted) }
+                FilewayIconButton(copyCode, modifier = copyModifier.clearAndSetSemantics {
                     contentDescription = if (copied) "已复制代码" else "复制代码"
                     stateDescription = if (copied) "已复制" else "复制完整代码"
                     role = Role.Button
                     onClick { copyCode(); true }
-                }) { Icon(painterResource(if (copied) R.drawable.art_check else R.drawable.ic_copy), null,
+                }) { FilewayIcon(if (copied) R.drawable.art_check else R.drawable.ic_copy, null,
                     Modifier.size(20.dp), tint = if (copied) codeText else codeMuted) }
             }
             if (copyFailed) Text("无法复制，请长按选择代码。", Modifier.padding(horizontal = 12.dp, vertical = 4.dp),

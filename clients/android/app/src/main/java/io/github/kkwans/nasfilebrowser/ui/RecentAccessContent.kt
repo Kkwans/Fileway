@@ -37,7 +37,7 @@ import io.github.kkwans.nasfilebrowser.data.RecentAccessEntry
     FilewayPageHeaderActions {
         if (connected) {
             FilewaySelectionToggle(selection, "多选访问记录", enabled && entries.isNotEmpty())
-            IconButton({ deletion = emptySet() }, enabled = enabled && entries.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空最近访问", Modifier.size(24.dp), tint = MaterialTheme.colorScheme.error) }
+            FilewayIconButton({ deletion = emptySet() }, enabled = enabled && entries.isNotEmpty()) { FilewayIcon(R.drawable.ic_trash, "清空最近访问", Modifier.size(24.dp), tint = MaterialTheme.colorScheme.error) }
         }
     }
     FilewayRefresh(state.loading, { controller.refresh() }) {
@@ -49,8 +49,8 @@ Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
             selection.select(if (selection.ids.size == entries.size) emptyList() else entries.map { it.id })
         }) {
-            IconButton({ if (selection.ids.size == entries.size) deletion = selection.ids.toSet() else controller.deleteSelected(selection.ids, onSaved = selection::close) }, enabled = enabled && selection.ids.isNotEmpty()) {
-                Icon(painterResource(R.drawable.ic_trash), "删除所选访问记录", tint = MaterialTheme.colorScheme.error)
+            FilewayIconButton({ if (selection.ids.size == entries.size) deletion = selection.ids.toSet() else controller.deleteSelected(selection.ids, onSaved = selection::close) }, enabled = enabled && selection.ids.isNotEmpty()) {
+                FilewayIcon(R.drawable.ic_trash, "删除所选访问记录", tint = MaterialTheme.colorScheme.error)
             }
         }
         if (state.loading || state.changing) LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
@@ -58,7 +58,7 @@ Column(Modifier.fillMaxSize()) {
             Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp)) {
                 Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Icon(painterResource(R.drawable.ic_info), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    FilewayIcon(R.drawable.ic_info, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                     Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             }
@@ -98,8 +98,8 @@ Column(Modifier.fillMaxSize()) {
                             onLongClick = { selection.start(entry.id) },
                             trailing = {
                                 if (!selection.active) Box {
-                                    IconButton({ menu = true }, modifier = Modifier.size(48.dp)) {
-                                        Icon(painterResource(R.drawable.ic_more_actions), "最近访问操作")
+                                    FilewayIconButton({ menu = true }, modifier = Modifier.size(48.dp)) {
+                                        FilewayIcon(R.drawable.ic_more_actions, "最近访问操作")
                                     }
                                     FilewayMenu(menu, { menu = false }, items = buildList {
                                         add(FilewayMenuEntry("open", "打开", R.drawable.ic_visibility, enabled = entry.openable))
@@ -144,7 +144,7 @@ Column(Modifier.fillMaxSize()) {
 @Composable private fun ColumnScope.RecentAccessMessage(title: String, message: String, action: String, onAction: () -> Unit) {
     Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
         Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(painterResource(R.drawable.ic_history), null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+            FilewayIcon(R.drawable.ic_history, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
             Text(title, style = MaterialTheme.typography.titleMedium)
             Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FilewayTextButton(onAction) { Text(action) }

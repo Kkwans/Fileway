@@ -48,6 +48,7 @@ import kotlinx.coroutines.launch
     if (LocalSkipBottomNavigation.current) return
     val state by model.state.collectAsStateWithLifecycle()
     val active = activeOverride ?: state.destination.main ?: ClientDestination.forRoute(selected)?.main
+    val navigationPulse = LocalFilewayNavigationPulse.current
     val labelStyle = MaterialTheme.typography.labelMedium
     val barHeight = 68.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
@@ -57,9 +58,9 @@ import kotlinx.coroutines.launch
             Triple(ClientMainDestination.LIBRARY, "资料", R.drawable.ic_library),
             Triple(ClientMainDestination.TASKS, "任务", R.drawable.ic_tasks),
             Triple(ClientMainDestination.MY, "我的", R.drawable.ic_person)).forEach { (tab, label, icon) ->
-            NavigationBarItem(selected = active == tab, onClick = { model.navigateMain(tab) },
+            NavigationBarItem(selected = active == tab, onClick = { navigationPulse?.let { it.value = tab.name to (it.value.second + 1) }; model.navigateMain(tab) },
                 modifier = Modifier.semantics { contentDescription = "${label}导航" },
-                icon = { Icon(painterResource(icon), null, Modifier.size(26.dp)) }, label = { Text(label, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                icon = { FilewayIcon(icon, null, Modifier.size(24.dp), eventKey = if (active == tab && navigationPulse?.value?.first == tab.name) navigationPulse.value.second else 0) }, label = { Text(label, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent,
                     selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary,
                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant, unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant))
@@ -94,7 +95,7 @@ import kotlinx.coroutines.launch
                     SettingsGroup("当前服务器与账户") {
                         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Icon(painterResource(R.drawable.ic_server), null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
+                            FilewayIcon(R.drawable.ic_server, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(state.accountName, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 Text(state.profile?.name.orEmpty(), style = MaterialTheme.typography.bodySmall,
@@ -110,7 +111,7 @@ import kotlinx.coroutines.launch
                 item { SettingsGroup("视频播放") {
                     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Icon(painterResource(R.drawable.ic_pip), null, Modifier.size(24.dp))
+                        FilewayIcon(R.drawable.ic_pip, null, Modifier.size(24.dp))
                         Column(Modifier.weight(1f)) {
                             Text("离开应用时自动画中画", style = MaterialTheme.typography.bodyLarge)
                             Text("仅在视频正在播放时开启", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -193,12 +194,12 @@ import kotlinx.coroutines.launch
 @Composable internal fun SettingsAction(title: String, subtitle: String, icon: Int, enabled: Boolean = true, navigation: Boolean = true, action: () -> Unit) {
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.Button, onClick = action).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Icon(painterResource(icon), null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        FilewayIcon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(title, style = MaterialTheme.typography.bodyMedium)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        if (navigation) Icon(painterResource(R.drawable.ic_arrow_forward), null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (navigation) FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

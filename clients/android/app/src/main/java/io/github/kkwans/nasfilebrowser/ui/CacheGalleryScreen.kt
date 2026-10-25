@@ -86,10 +86,10 @@ Column(Modifier.fillMaxSize()) {
             FilewayTopAppBar(if (selecting) "已选 ${selected.size} 张" else "图片缓存", leadingIcon = R.drawable.ic_arrow_back,
                 leadingDescription = "返回我的", onLeadingClick = { model.back() }, actions = {
                     if (selecting) {
-                        IconButton({ selected = if (selected.size == images.size) emptySet() else images.map { it.key }.toSet() }, enabled = !busy) {
-                            Icon(painterResource(R.drawable.ic_check), "全选或取消全选", Modifier.size(22.dp))
+                        FilewayIconButton({ selected = if (selected.size == images.size) emptySet() else images.map { it.key }.toSet() }, enabled = !busy) {
+                            FilewayIcon(R.drawable.ic_check, "全选或取消全选", Modifier.size(22.dp))
                         }
-                        IconButton({
+                        FilewayIconButton({
                             val targets = images.filter { it.key in selected }
                             if (targets.isNotEmpty()) {
                                 busy = true
@@ -101,11 +101,11 @@ Column(Modifier.fillMaxSize()) {
                                     catch (_: Exception) { error = "删除未完成，请刷新后核对"; busy = false }
                                 }
                             }
-                        }, enabled = !busy && selected.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "删除选中缓存", tint = MaterialTheme.colorScheme.error) }
-                        IconButton({ selecting = false; selected = emptySet() }, enabled = !busy) { Icon(painterResource(R.drawable.ic_close), "退出多选") }
+                        }, enabled = !busy && selected.isNotEmpty()) { FilewayIcon(R.drawable.ic_trash, "删除选中缓存", tint = MaterialTheme.colorScheme.error) }
+                        FilewayIconButton({ selecting = false; selected = emptySet() }, enabled = !busy) { FilewayIcon(R.drawable.ic_close, "退出多选") }
                     } else {
                         Box {
-                            IconButton({ sorting = true }) { Icon(painterResource(R.drawable.ic_sort), "缓存排序") }
+                            FilewayIconButton({ sorting = true }) { FilewayIcon(R.drawable.ic_sort, "缓存排序") }
                             FilewayMenu(sorting, { sorting = false }, items = CacheImageOrder.entries.map {
                                 FilewayMenuEntry(it.name, it.label, selected = it == order)
                             }, selection = FilewayMenuSelection.Single, onItemClick = { item ->
@@ -113,7 +113,7 @@ Column(Modifier.fillMaxSize()) {
                                 sorting = false
                             })
                         }
-                        IconButton({ selecting = true }, enabled = !busy && images.isNotEmpty()) { Icon(painterResource(R.drawable.ic_check), "多选缓存图片") }
+                        FilewayIconButton({ selecting = true }, enabled = !busy && images.isNotEmpty()) { FilewayIcon(R.drawable.ic_check, "多选缓存图片") }
                     }
                 })
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
@@ -163,10 +163,10 @@ Column(Modifier.fillMaxSize()) {
             }
             Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .55f)),
                 verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onBack) { Icon(painterResource(R.drawable.ic_arrow_back), "返回缓存图库", tint = Color.White) }
+                FilewayIconButton(onBack) { FilewayIcon(R.drawable.ic_arrow_back, "返回缓存图库", tint = Color.White) }
                 Text("缓存图片", Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                IconButton({
+                FilewayIconButton({
                     val image = images[pager.settledPage]
                     if (!saving) {
                         saving = true
@@ -178,7 +178,7 @@ Column(Modifier.fillMaxSize()) {
                             android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
-                }, enabled = !saving) { Icon(painterResource(R.drawable.ic_download), "保存缓存图片到相册",
+                }, enabled = !saving) { FilewayIcon(R.drawable.ic_download, "保存缓存图片到相册",
                     tint = Color.White.copy(alpha = if (saving) .38f else 1f)) }
             }
             Surface(Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.Black.copy(alpha = .5f),
@@ -224,7 +224,7 @@ Column(Modifier.fillMaxSize()) {
         .listener(onError = { _, _ -> failed = true; decoded = false }).build() }
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         if (cached != null) Image(cached.asPainter(context), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-        else if (!failed && !decoded && !viewer) Icon(painterResource(R.drawable.ic_image), null, Modifier.size(24.dp),
+        else if (!failed && !decoded && !viewer) FilewayIcon(R.drawable.ic_image, null, Modifier.size(24.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .4f))
         if (lease != null) {
             if (viewer) {
@@ -239,6 +239,6 @@ Column(Modifier.fillMaxSize()) {
         if (showLoading && !decoded && cached == null && !failed)
             CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)
         if (failed) { if (viewer) Text("缓存已不可用，请返回刷新", color = Color.White)
-            else Icon(painterResource(R.drawable.ic_image), "缓存不可用", Modifier.size(20.dp)) }
+            else FilewayIcon(R.drawable.ic_image, "缓存不可用", Modifier.size(20.dp)) }
     }
 }

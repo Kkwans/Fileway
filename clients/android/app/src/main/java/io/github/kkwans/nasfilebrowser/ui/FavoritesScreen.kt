@@ -43,13 +43,13 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     val selection = rememberFilewayTaskSelection(state.scope to filter, items.map { it.id })
     LibraryScaffold(model, LibrarySection.FAVORITES, actions = {
         FilewaySelectionToggle(selection, "多选收藏", enabled && items.isNotEmpty())
-        IconButton({ managing = true }, enabled = enabled && state.loaded) { Icon(painterResource(R.drawable.ic_settings), "管理收藏分组") }
+        FilewayIconButton({ managing = true }, enabled = enabled && state.loaded) { FilewayIcon(R.drawable.ic_settings, "管理收藏分组") }
     }) {
             if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
                 selection.select(if (selection.ids.size == items.size) emptyList() else items.map { it.id })
             }) {
-                IconButton({ model.favorites.removeSelected(selection.ids, state.scope, selection::close) }, enabled = enabled && selection.ids.isNotEmpty()) {
-                    Icon(painterResource(R.drawable.ic_bookmark), "取消所选收藏")
+                FilewayIconButton({ model.favorites.removeSelected(selection.ids, state.scope, selection::close) }, enabled = enabled && selection.ids.isNotEmpty()) {
+                    FilewayIcon(R.drawable.ic_bookmark, "取消所选收藏")
                 }
             }
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -71,7 +71,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                 Column(Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (state.items.isEmpty()) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                         io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.EMPTY_FAVORITES, state.scope, Modifier.size(40.dp), play = LocalFilewayPageActive.current)
-                    else Icon(painterResource(R.drawable.ic_bookmark), null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
+                    else FilewayIcon(R.drawable.ic_bookmark, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
                     Text(if (state.items.isEmpty()) "常用文件，随手收藏" else if (filter == "") "还没有未分组的收藏" else "这个分组还没有收藏", style = MaterialTheme.typography.titleMedium)
                     Text(if (state.items.isEmpty()) "长按文件或文件夹，在详情中加入收藏。这里与网页端同步。" else "试试其他分组，或在收藏的更多菜单中调整分组。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FilewayTextButton(onClick = { model.tab("files") }) { Text("浏览文件") }
@@ -88,7 +88,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                         summary = if (filter == null) state.groups.firstOrNull { it.id == favorite.groupId }?.name else null,
                         trailing = {
                             if (!selection.active) Box {
-                                IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_actions), "收藏更多：${favorite.name.ifEmpty { basename }}") }
+                                FilewayIconButton({ menu = true }, enabled = enabled) { FilewayIcon(R.drawable.ic_more_actions, "收藏更多：${favorite.name.ifEmpty { basename }}") }
                                 FilewayMenu(menu, { menu = false }, items = listOf(
                                     FilewayMenuEntry("detail", "文件详情", R.drawable.ic_info),
                                     FilewayMenuEntry("edit", "编辑收藏", R.drawable.ic_edit),
@@ -212,7 +212,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                         Box(Modifier.size(12.dp).background(favoriteColor(group.color, MaterialTheme.colorScheme.primary), CircleShape))
                         Text(group.name, Modifier.weight(1f).padding(horizontal = 12.dp), style = MaterialTheme.typography.titleSmall)
                         Box {
-                            IconButton({ menu = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_more_actions), "分组更多：${group.name}") }
+                            FilewayIconButton({ menu = true }, enabled = enabled) { FilewayIcon(R.drawable.ic_more_actions, "分组更多：${group.name}") }
                             FilewayMenu(menu, { menu = false }, items = listOf(
                                 FilewayMenuEntry("edit", "编辑分组", R.drawable.ic_edit),
                                 FilewayMenuEntry("up", "上移", R.drawable.ic_expand_less, enabled = state.groups.firstOrNull()?.id != group.id),

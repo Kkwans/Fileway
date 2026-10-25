@@ -62,7 +62,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             when (state.phase) {
                 UpdatePhase.AVAILABLE -> {
                     FilewayButton(onClick = download, modifier = Modifier.widthIn(max = 560.dp).fillMaxWidth().heightIn(min = 48.dp)) {
-                        Icon(painterResource(R.drawable.ic_download), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("下载更新 · ${readableSize(update?.asset?.size ?: 0)}")
+                        FilewayIcon(R.drawable.ic_download, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("下载更新 · ${readableSize(update?.asset?.size ?: 0)}")
                     }
                     FilewayTextButton(onClick = check) { Text("重新检查更新") }
                 }
@@ -175,7 +175,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             }
             Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
                 if (showPending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                else Icon(painterResource(if (state.phase == UpdatePhase.CURRENT) R.drawable.ic_check else R.drawable.ic_arrow_forward), null,
+                else FilewayIcon(if (state.phase == UpdatePhase.CURRENT) R.drawable.ic_check else R.drawable.ic_arrow_forward, null,
                     Modifier.size(22.dp), tint = colors.onSurfaceVariant)
             }
             Column(Modifier.weight(1f), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {

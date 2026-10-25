@@ -94,7 +94,7 @@ internal val LocalTaskHeaderSection = staticCompositionLocalOf<Any> { TaskCenter
 @Composable internal fun TaskConnectionGuide(onConnect: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)) {
-        Icon(painterResource(R.drawable.ic_network), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+        FilewayIcon(R.drawable.ic_network, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
         Text("连接服务器后查看后台任务", style = MaterialTheme.typography.titleMedium)
         Text("后台任务属于当前服务器和账号。连接后可查看进度、详情与处理结果。", color = MaterialTheme.colorScheme.onSurfaceVariant)
         FilewayButton(onConnect) { Text("连接服务器") }

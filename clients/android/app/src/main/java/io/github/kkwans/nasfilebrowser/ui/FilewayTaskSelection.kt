@@ -39,15 +39,15 @@ import io.github.kkwans.nasfilebrowser.R
     onSelectAll: () -> Unit, onInvert: () -> Unit = selection::invert, actions: @Composable RowScope.() -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Text("已选 ${selection.ids.size} 项", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-        IconButton(onSelectAll, enabled = enabled) { Icon(painterResource(R.drawable.ic_select_all), "全选或取消全选", Modifier.size(22.dp)) }
+        FilewayIconButton(onSelectAll, enabled = enabled) { FilewayIcon(R.drawable.ic_select_all, "全选或取消全选", Modifier.size(22.dp)) }
         actions()
-        IconButton(onInvert, enabled = enabled) { Icon(painterResource(R.drawable.ic_invert_selection), "反选", Modifier.size(24.dp)) }
+        FilewayIconButton(onInvert, enabled = enabled) { FilewayIcon(R.drawable.ic_invert_selection, "反选", Modifier.size(24.dp)) }
     }
 }
 
 @Composable internal fun FilewaySelectionToggle(selection: FilewayTaskSelection, label: String, enabled: Boolean) {
-    IconButton(selection::toggleMode, enabled = enabled || selection.active) {
-        Icon(painterResource(if (selection.active) R.drawable.ic_close else R.drawable.ic_select_multiple),
+    FilewayIconButton(selection::toggleMode, enabled = enabled || selection.active) {
+        FilewayIcon(if (selection.active) R.drawable.ic_close else R.drawable.ic_select_multiple,
             if (selection.active) "退出多选" else label, Modifier.size(24.dp))
     }
 }

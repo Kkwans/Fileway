@@ -9,7 +9,7 @@ import androidx.compose.material3.ButtonColors
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonElevation
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
@@ -21,18 +21,28 @@ import androidx.compose.ui.unit.dp
     elevation: ButtonElevation? = ButtonDefaults.buttonElevation(), border: BorderStroke? = null,
     contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
     interactionSource: MutableInteractionSource? = null, content: @Composable RowScope.() -> Unit,
-) = androidx.compose.material3.Button(onClick = onClick, modifier = modifier, enabled = enabled,
+) {
+    var pulse by remember { mutableIntStateOf(0) }
+    CompositionLocalProvider(LocalFilewayIconPulse provides pulse) {
+        androidx.compose.material3.Button(onClick = { pulse++; onClick() }, modifier = modifier, enabled = enabled,
     shape = shape, colors = colors, elevation = elevation, border = border,
     contentPadding = contentPadding, interactionSource = interactionSource, content = content)
+    }
+}
 
 @Composable internal fun FilewayTextButton(
     onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
     shape: Shape = RoundedCornerShape(12.dp), colors: ButtonColors = ButtonDefaults.textButtonColors(),
     border: BorderStroke? = null, contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
     interactionSource: MutableInteractionSource? = null, content: @Composable RowScope.() -> Unit,
-) = androidx.compose.material3.TextButton(onClick = onClick, modifier = modifier, enabled = enabled,
+) {
+    var pulse by remember { mutableIntStateOf(0) }
+    CompositionLocalProvider(LocalFilewayIconPulse provides pulse) {
+        androidx.compose.material3.TextButton(onClick = { pulse++; onClick() }, modifier = modifier, enabled = enabled,
     shape = shape, colors = colors, border = border,
     contentPadding = contentPadding, interactionSource = interactionSource, content = content)
+    }
+}
 
 @Composable internal fun FilewayOutlinedButton(
     onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
@@ -41,9 +51,14 @@ import androidx.compose.ui.unit.dp
     border: BorderStroke? = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = if (enabled) 1f else .38f)),
     contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
     interactionSource: MutableInteractionSource? = null, content: @Composable RowScope.() -> Unit,
-) = androidx.compose.material3.OutlinedButton(onClick = onClick, modifier = modifier, enabled = enabled,
+) {
+    var pulse by remember { mutableIntStateOf(0) }
+    CompositionLocalProvider(LocalFilewayIconPulse provides pulse) {
+        androidx.compose.material3.OutlinedButton(onClick = { pulse++; onClick() }, modifier = modifier, enabled = enabled,
     shape = shape, colors = colors, elevation = elevation, border = border,
     contentPadding = contentPadding, interactionSource = interactionSource, content = content)
+    }
+}
 
 @Composable internal fun FilewayTonalButton(
     onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
@@ -51,6 +66,11 @@ import androidx.compose.ui.unit.dp
     elevation: ButtonElevation? = ButtonDefaults.filledTonalButtonElevation(), border: BorderStroke? = null,
     contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
     interactionSource: MutableInteractionSource? = null, content: @Composable RowScope.() -> Unit,
-) = androidx.compose.material3.FilledTonalButton(onClick = onClick, modifier = modifier, enabled = enabled,
+) {
+    var pulse by remember { mutableIntStateOf(0) }
+    CompositionLocalProvider(LocalFilewayIconPulse provides pulse) {
+        androidx.compose.material3.FilledTonalButton(onClick = { pulse++; onClick() }, modifier = modifier, enabled = enabled,
     shape = shape, colors = colors, elevation = elevation, border = border,
     contentPadding = contentPadding, interactionSource = interactionSource, content = content)
+    }
+}

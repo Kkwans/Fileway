@@ -142,7 +142,7 @@ private fun PlayerTrackRow(title: String, detail: String, selected: Boolean, pen
         }
         if (pending) CircularProgressIndicator(Modifier.size(16.dp), color = FilewayTheme.status.mediaSecondary, strokeWidth = 2.dp)
         Box(Modifier.size(20.dp), contentAlignment = Alignment.Center) {
-            if (selected) Icon(painterResource(R.drawable.art_check), null, Modifier.size(20.dp), tint = FilewayTheme.colors.primary)
+            if (selected) FilewayIcon(R.drawable.art_check, null, Modifier.size(20.dp), tint = FilewayTheme.colors.primary)
         }
     }
 }
@@ -175,7 +175,7 @@ internal fun PlayerSubtitleHomeActions(
                 .clickable(enabled = enabled, role = Role.Button, onClick = click)
                 .heightIn(min = 64.dp).padding(horizontal = 4.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
-                Icon(painterResource(icon), null, Modifier.size(22.dp), tint = FilewayTheme.status.mediaContent.copy(alpha = if (enabled) 1f else .38f))
+                FilewayIcon(icon, null, Modifier.size(22.dp), tint = FilewayTheme.status.mediaContent.copy(alpha = if (enabled) 1f else .38f))
                 Text(title, color = FilewayTheme.status.mediaContent.copy(alpha = if (enabled) 1f else .38f), fontSize = 12.sp, lineHeight = 18.sp)
             }
         }
@@ -227,13 +227,13 @@ internal fun PlayerSubtitleAdjustments(
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             heading("字幕时间", "每步 0.5 秒")
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                IconButton({ onDelay(delayMs - 500) }, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(container)) {
-                    Icon(painterResource(R.drawable.ic_arrow_back), "字幕提前0.5秒", Modifier.size(22.dp))
+                FilewayIconButton({ onDelay(delayMs - 500) }, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(container)) {
+                    FilewayIcon(R.drawable.ic_arrow_back, "字幕提前0.5秒", Modifier.size(22.dp))
                 }
                 FilewayTonalButton({ onDelay(0); onOffsetText("") }, Modifier.weight(1f).height(48.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp),
                     colors = ButtonDefaults.filledTonalButtonColors(containerColor = container, contentColor = content)) {
-                    Icon(painterResource(R.drawable.ic_refresh), null, Modifier.size(18.dp))
+                    FilewayIcon(R.drawable.ic_refresh, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(when {
                         delayMs > 0 -> "延后 ${delayMs / 1000.0} 秒"
@@ -241,8 +241,8 @@ internal fun PlayerSubtitleAdjustments(
                         else -> "无偏移"
                     }, Modifier.semantics { contentDescription = "字幕时间偏移，点击归零" }, style = MaterialTheme.typography.bodyMedium)
                 }
-                IconButton({ onDelay(delayMs + 500) }, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(container)) {
-                    Icon(painterResource(R.drawable.ic_arrow_forward), "字幕延后0.5秒", Modifier.size(22.dp))
+                FilewayIconButton({ onDelay(delayMs + 500) }, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(container)) {
+                    FilewayIcon(R.drawable.ic_arrow_forward, "字幕延后0.5秒", Modifier.size(22.dp))
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -257,8 +257,8 @@ internal fun PlayerSubtitleAdjustments(
                         if (offsetText.isEmpty()) Text("精确偏移（秒，±600）", style = MaterialTheme.typography.bodyMedium, color = secondary)
                         inner()
                     } })
-                IconButton(onApplyOffset, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.primary.copy(alpha = .12f))) {
-                    Icon(painterResource(R.drawable.ic_check), "应用字幕偏移", Modifier.size(22.dp), tint = FilewayTheme.colors.primary)
+                FilewayIconButton(onApplyOffset, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp)).background(FilewayTheme.colors.primary.copy(alpha = .12f))) {
+                    FilewayIcon(R.drawable.ic_check, "应用字幕偏移", Modifier.size(22.dp), tint = FilewayTheme.colors.primary)
                 }
             }
             offsetError?.let { Text(it, style = FilewayTheme.text.metadata, color = MaterialTheme.colorScheme.error) }
@@ -281,7 +281,7 @@ internal fun PlayerSubtitleAdjustments(
                         Text("字体", style = MaterialTheme.typography.bodyMedium, color = content)
                         Text(font.label, Modifier.weight(1f), style = FilewayTheme.text.metadata, color = secondary,
                             maxLines = 2, textAlign = TextAlign.End, overflow = TextOverflow.Ellipsis)
-                        Icon(painterResource(R.drawable.ic_arrow_forward), "选择字幕字体", Modifier.size(20.dp), tint = secondary)
+                        FilewayIcon(R.drawable.ic_arrow_forward, "选择字幕字体", Modifier.size(20.dp), tint = secondary)
                     }
                     if (fonts.failed || fonts.missing(appearance.fontKey)) Text("字体不可用时使用字幕默认，可重新选择。", style = FilewayTheme.text.metadata, color = secondary)
                     SubtitleAppearanceSlider("字号", "${(appearance.scale * 100).roundToInt()}%", appearance.scale, .5f, 2f) {
@@ -319,11 +319,11 @@ internal fun PlayerSubtitleAdjustments(
             Row(Modifier.fillMaxWidth().onSizeChanged { onFooterHeight(it.height) }.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilewayOutlinedButton({ onAppearance(TextSubtitleAppearance()) }, Modifier.weight(1f).heightIn(min = 48.dp),
                     enabled = appearance != TextSubtitleAppearance(), contentPadding = PaddingValues(horizontal = 12.dp)) {
-                    Icon(painterResource(R.drawable.ic_refresh), null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("恢复默认")
+                    FilewayIcon(R.drawable.ic_refresh, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("恢复默认")
                 }
                 FilewayButton(onSaveAppearance, Modifier.weight(1f).heightIn(min = 48.dp), enabled = canSave && !saving,
                     contentPadding = PaddingValues(horizontal = 12.dp)) {
-                    Icon(painterResource(R.drawable.ic_check), null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("保存到本机")
+                    FilewayIcon(R.drawable.ic_check, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("保存到本机")
                 }
             }
         }

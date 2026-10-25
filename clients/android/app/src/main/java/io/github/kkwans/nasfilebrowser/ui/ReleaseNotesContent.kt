@@ -54,8 +54,8 @@ import org.intellij.markdown.ast.getTextInNode
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(release.displayVersion, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                 Text(if (release.preview) "预览版" else "正式版", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                IconButton({ open(UpdatePolicy.REPOSITORY + "/releases/tag/" + release.tag) }) {
-                    Icon(painterResource(R.drawable.ic_link), "打开${release.displayVersion}完整发布说明", Modifier.size(20.dp))
+                FilewayIconButton({ open(UpdatePolicy.REPOSITORY + "/releases/tag/" + release.tag) }) {
+                    FilewayIcon(R.drawable.ic_link, "打开${release.displayVersion}完整发布说明", Modifier.size(20.dp))
                 }
             }
             if (release.notesTruncated) Text("说明较长，完整内容可通过标题右侧链接查看。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

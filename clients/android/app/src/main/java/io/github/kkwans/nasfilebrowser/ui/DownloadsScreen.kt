@@ -113,9 +113,9 @@ Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, !state.busy, {
             selection.select(if (selection.ids.size == records.size) emptyList() else records.map { it.id })
         }) {
-            IconButton({ model.downloads.batch(chosen.filter { it.active }, "pause") }, enabled = !state.busy && chosen.any { it.active }) { Icon(painterResource(R.drawable.art_pause), "暂停所选运行中下载") }
-            IconButton({ model.downloads.batch(chosen.filter { !it.active && !it.complete }, "resume") }, enabled = !state.busy && chosen.any { !it.active && !it.complete }) { Icon(painterResource(R.drawable.art_play), "继续所选未完成下载") }
-            IconButton({ clearSelected = true }, enabled = !state.busy && chosen.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "删除所选下载") }
+            FilewayIconButton({ model.downloads.batch(chosen.filter { it.active }, "pause") }, enabled = !state.busy && chosen.any { it.active }) { FilewayIcon(R.drawable.art_pause, "暂停所选运行中下载") }
+            FilewayIconButton({ model.downloads.batch(chosen.filter { !it.active && !it.complete }, "resume") }, enabled = !state.busy && chosen.any { !it.active && !it.complete }) { FilewayIcon(R.drawable.art_play, "继续所选未完成下载") }
+            FilewayIconButton({ clearSelected = true }, enabled = !state.busy && chosen.isNotEmpty()) { FilewayIcon(R.drawable.ic_trash, "删除所选下载") }
         } else Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
             Spacer(Modifier.weight(1f))
@@ -126,7 +126,7 @@ Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机下载列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (records.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(painterResource(R.drawable.ic_download), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+                    FilewayIcon(R.drawable.ic_download, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                     Text(if (state.items.isEmpty()) "把文件带在身边" else "这里还没有${filter}的文件", style = MaterialTheme.typography.titleMedium)
                     Text("从文件详情中下载。下载中的视频可边下边播，完成的图片和视频可离线打开。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FilewayTextButton({ model.tab("files") }) { Text("浏览服务器文件") }
@@ -164,7 +164,7 @@ Column(Modifier.fillMaxSize()) {
                         } else if (item.complete && completionObserved) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
                             io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.COMPLETE, item.id, Modifier.size(24.dp),
                             play = completionObserved && LocalFilewayPageActive.current)
-                        else Icon(painterResource(fileArtworkIcon(item.name, false, item.type)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                        else FilewayIcon(fileArtworkIcon(item.name, false, item.type), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                     },
                     onDoubleClick = if (!selection.active && canOpen) ({ openDownloaded(context, model, item, kind) }) else null,
                     onClick = { if (selection.active) selection.toggle(item.id) else detailsId = item.id },

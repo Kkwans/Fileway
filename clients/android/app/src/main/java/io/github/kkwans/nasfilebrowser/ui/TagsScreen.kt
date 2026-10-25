@@ -53,15 +53,15 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
     val selection = rememberFilewayTaskSelection(listOf(state.scope, chosen, currentOnly), selectableRefs.mapNotNull { it.identity })
     LibraryScaffold(model, LibrarySection.TAGS, actions = {
         FilewaySelectionToggle(selection, "多选标签关联", enabled && state.paths.isNotEmpty())
-        if (currentOnly) IconButton({ scopeDetails = true }) { Icon(painterResource(R.drawable.ic_info), "查看当前目录范围") }
-        IconButton({ creating = true }, enabled = enabled && state.loaded) { Icon(painterResource(R.drawable.ic_add), "新建标签") }
+        if (currentOnly) FilewayIconButton({ scopeDetails = true }) { FilewayIcon(R.drawable.ic_info, "查看当前目录范围") }
+        FilewayIconButton({ creating = true }, enabled = enabled && state.loaded) { FilewayIcon(R.drawable.ic_add, "新建标签") }
     }) {
         if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
             selection.select(if (selection.ids.size == selectableRefs.size) emptyList() else selectableRefs.mapNotNull { it.identity })
         }) {
-            IconButton({ tag?.let { model.tags.removePaths(it, selectableRefs.filter { it.identity in selection.ids }, state.scope, selection::close) } },
+            FilewayIconButton({ tag?.let { model.tags.removePaths(it, selectableRefs.filter { it.identity in selection.ids }, state.scope, selection::close) } },
                 enabled = enabled && selection.ids.isNotEmpty() && selectableRefs.any { it.identity in selection.ids }) {
-                Icon(painterResource(R.drawable.ic_tag), "取消所选路径的标签")
+                FilewayIcon(R.drawable.ic_tag, "取消所选路径的标签")
             }
         }
         LibraryMessage(state.error ?: client.error, state.notice, state.loading || state.changing, model.tags::refresh)
@@ -82,7 +82,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 Box {
                     FilewayTextButton({ scopeMenu = true }, enabled = enabled, shape = RoundedCornerShape(12.dp)) {
                         Text(if (currentOnly) "当前目录" else "全部关联")
-                        Icon(painterResource(R.drawable.ic_expand_more), null, Modifier.size(18.dp))
+                        FilewayIcon(R.drawable.ic_expand_more, null, Modifier.size(18.dp))
                     }
                     FilewayMenu(scopeMenu, { scopeMenu = false }, items = buildList {
                         add(FilewayMenuEntry("all", "全部关联", selected = !currentOnly))
@@ -95,11 +95,11 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 Text("${state.paths.size} / ${state.pathTotal}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 tag?.let { selected ->
-                    IconButton({ model.tags.filter(selected.id, !currentOnly); model.tab("files") }, enabled = enabled) {
-                        Icon(painterResource(R.drawable.ic_search), "在文件页筛选此标签")
+                    FilewayIconButton({ model.tags.filter(selected.id, !currentOnly); model.tab("files") }, enabled = enabled) {
+                        FilewayIcon(R.drawable.ic_search, "在文件页筛选此标签")
                     }
-                    IconButton({ editing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_edit), "编辑标签") }
-                    IconButton({ removing = selected }, enabled = enabled) { Icon(painterResource(R.drawable.ic_trash), "删除标签", tint = MaterialTheme.colorScheme.error) }
+                    FilewayIconButton({ editing = selected }, enabled = enabled) { FilewayIcon(R.drawable.ic_edit, "编辑标签") }
+                    FilewayIconButton({ removing = selected }, enabled = enabled) { FilewayIcon(R.drawable.ic_trash, "删除标签", tint = MaterialTheme.colorScheme.error) }
                 }
             }
             LibraryMessage(state.pathsError, null, state.pathsLoading) { tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, parentWire = if (currentOnly) client.wirePath else null) } }
@@ -118,7 +118,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                         onDoubleClick = {
                             if (file.directory) model.tags.filter(tag?.id, true)
                             model.openTagged(file, candidates, sourceScope)
-                        }, trailing = { if (!selection.active) IconButton({ details = file }, enabled = enabled) { Icon(painterResource(R.drawable.ic_info), "标签文件操作：${file.name}") } })
+                        }, trailing = { if (!selection.active) FilewayIconButton({ details = file }, enabled = enabled) { FilewayIcon(R.drawable.ic_info, "标签文件操作：${file.name}") } })
                     else Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(
                         onClick = { if (selection.active && row.ref.openable) selection.toggle(row.key) else pathDetails = row.path },
                         onLongClick = if (row.ref.openable) ({ selection.start(row.key) }) else null),

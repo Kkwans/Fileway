@@ -45,7 +45,7 @@ private enum class GlobalSettingsGroup(val label: String, val icon: Int) {
     if (!fullPage) Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
         Box(Modifier.statusBarsPadding()) {
         FilewayTopAppBar("全局设置", null, R.drawable.ic_arrow_back, "返回设置", { if (!state.saving) onBack() },
-            actions = { IconButton(controller::refresh, enabled = !state.loading && !state.saving) { Icon(painterResource(R.drawable.ic_refresh), "刷新全局设置") } })
+            actions = { FilewayIconButton(controller::refresh, enabled = !state.loading && !state.saving) { FilewayIcon(R.drawable.ic_refresh, "刷新全局设置") } })
         }
     }, bottomBar = {
         if (draft != null) Surface {
@@ -172,7 +172,7 @@ private enum class GlobalSettingsGroup(val label: String, val icon: Int) {
             Surface {
                 FilewayOutlinedButton(::back, enabled = canDismiss, modifier = Modifier.fillMaxWidth()
                     .navigationBarsPadding().imePadding().padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 48.dp)) {
-                    Icon(painterResource(R.drawable.ic_arrow_back), null, Modifier.size(18.dp))
+                    FilewayIcon(R.drawable.ic_arrow_back, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp)); Text("保留草稿并返回")
                 }
             }
@@ -182,7 +182,7 @@ private enum class GlobalSettingsGroup(val label: String, val icon: Int) {
         }
     } else FileOperationSheet(title, onBack, canDismiss = canDismiss, footer = {
         FilewayOutlinedButton(onBack, enabled = canDismiss, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Icon(painterResource(R.drawable.ic_arrow_back), null, Modifier.size(18.dp))
+            FilewayIcon(R.drawable.ic_arrow_back, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp)); Text("保留草稿并返回")
         }
     }) {

@@ -1,5 +1,8 @@
 package io.github.kkwans.nasfilebrowser.ui.designsystem
 
+import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
+import io.github.kkwans.nasfilebrowser.ui.FilewayIconButton
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -62,8 +65,8 @@ fun FilewayTopAppBar(
             .padding(horizontal = FilewaySpace.tiny),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        IconButton(onClick = onLeadingClick, modifier = Modifier.size(FilewaySpace.target)) {
-            Icon(painterResource(leadingIcon), leadingDescription, Modifier.size(24.dp),
+        FilewayIconButton(onClick = onLeadingClick, modifier = Modifier.size(FilewaySpace.target)) {
+            FilewayIcon(leadingIcon, leadingDescription, Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.onBackground)
         }
         Column(Modifier.weight(1f).padding(horizontal = FilewaySpace.tiny)) {
@@ -107,12 +110,12 @@ fun FilewayMenuItem(
         modifier = Modifier.heightIn(min = FilewaySpace.target).semantics { this.selected = selected },
         leadingIcon = {
             Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                if (icon != null) Icon(painterResource(icon), null, Modifier.size(22.dp))
+                if (icon != null) FilewayIcon(icon, null, Modifier.size(22.dp))
             }
         },
         trailingIcon = {
             Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                if (selected) Icon(painterResource(R.drawable.ic_check), null, Modifier.size(20.dp))
+                if (selected) FilewayIcon(R.drawable.ic_check, null, Modifier.size(20.dp))
             }
         },
     )
@@ -184,7 +187,7 @@ fun FilewayEmptyState(
         Modifier.fillMaxWidth().padding(FilewaySpace.section),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(painterResource(icon), null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+        FilewayIcon(icon, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(FilewaySpace.content))
         Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center)
@@ -250,8 +253,8 @@ fun FilewayStatusBanner(
                     style = MaterialTheme.typography.bodySmall,
                 )
                 if (onDismiss != null) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(FilewaySpace.target)) {
-                        Icon(painterResource(R.drawable.ic_close), "关闭提示", Modifier.size(20.dp), tint = content)
+                    FilewayIconButton(onClick = onDismiss, modifier = Modifier.size(FilewaySpace.target)) {
+                        FilewayIcon(R.drawable.ic_close, "关闭提示", Modifier.size(20.dp), tint = content)
                     }
                 }
             }

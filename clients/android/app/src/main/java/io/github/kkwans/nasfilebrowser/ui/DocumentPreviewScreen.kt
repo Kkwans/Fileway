@@ -166,11 +166,11 @@ import kotlin.math.roundToInt
 }
 
 @Composable private fun DocumentIcon(icon: Int, label: String, enabled: Boolean = true, click: () -> Unit) {
-    IconButton(onClick = click, enabled = enabled, modifier = Modifier.size(48.dp).clearAndSetSemantics {
+    FilewayIconButton(onClick = click, enabled = enabled, modifier = Modifier.size(48.dp).clearAndSetSemantics {
         contentDescription = label
         role = Role.Button
         if (enabled) onClick { click(); true } else disabled()
-    }) { Icon(painterResource(icon), null) }
+    }) { FilewayIcon(icon, null) }
 }
 
 @Composable private fun ColumnScope.DocumentTextContent(controller: DocumentPreviewController, state: DocumentPreviewState, imageCache: CacheController?, findRequested: Boolean, onFindConsumed: () -> Unit, onInputFocus: (Boolean) -> Unit) {
@@ -287,9 +287,9 @@ import kotlin.math.roundToInt
         FilewaySearchField(state.query, controller::search, "查找文档文字",
             Modifier.weight(1f).focusRequester(findFocus).onFocusChanged { onInputFocus(it.isFocused) }, status = count) { controller.nextMatch(1) }
         val canNavigate = !state.searching && state.searchError == null && state.search.matches.isNotEmpty()
-        IconButton({ controller.nextMatch(-1) }, enabled = canNavigate, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_expand_less), "上一个匹配") }
-        IconButton({ controller.nextMatch(1) }, enabled = canNavigate, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_expand_more), "下一个匹配") }
-        IconButton(::closeFind, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_close), "关闭文档查找") }
+        FilewayIconButton({ controller.nextMatch(-1) }, enabled = canNavigate, modifier = Modifier.size(48.dp)) { FilewayIcon(R.drawable.ic_expand_less, "上一个匹配") }
+        FilewayIconButton({ controller.nextMatch(1) }, enabled = canNavigate, modifier = Modifier.size(48.dp)) { FilewayIcon(R.drawable.ic_expand_more, "下一个匹配") }
+        FilewayIconButton(::closeFind, modifier = Modifier.size(48.dp)) { FilewayIcon(R.drawable.ic_close, "关闭文档查找") }
     }
     if (findOpen) state.searchError?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
@@ -335,14 +335,14 @@ import kotlin.math.roundToInt
         awaitDispose { lease?.close() }
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-        IconButton({ controller.selectPage(state.page - 1) }, enabled = state.page > 0, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_back), "上一页 PDF") }
+        FilewayIconButton({ controller.selectPage(state.page - 1) }, enabled = state.page > 0, modifier = Modifier.size(48.dp)) { FilewayIcon(R.drawable.ic_arrow_back, "上一页 PDF") }
         FilewayTextButton({ jumpOpen = true }, Modifier.weight(1f).heightIn(min = 48.dp).semantics { contentDescription = "跳转 PDF 页码" }) {
             Text("${state.page + 1} / ${state.pageCount}", maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        IconButton({ controller.selectPage(state.page + 1) }, enabled = state.page + 1 < state.pageCount, modifier = Modifier.size(48.dp)) { Icon(painterResource(R.drawable.ic_arrow_forward), "下一页 PDF") }
-        IconButton({ controller.zoom(state.zoom - 25) }, enabled = state.zoom > 50, modifier = Modifier.size(48.dp).semantics { contentDescription = "缩小 PDF" }) { Text("−", style = MaterialTheme.typography.titleLarge) }
+        FilewayIconButton({ controller.selectPage(state.page + 1) }, enabled = state.page + 1 < state.pageCount, modifier = Modifier.size(48.dp)) { FilewayIcon(R.drawable.ic_arrow_forward, "下一页 PDF") }
+        FilewayIconButton({ controller.zoom(state.zoom - 25) }, enabled = state.zoom > 50, modifier = Modifier.size(48.dp).semantics { contentDescription = "缩小 PDF" }) { Text("−", style = MaterialTheme.typography.titleLarge) }
         Text("${state.zoom}%", style = MaterialTheme.typography.bodySmall)
-        IconButton({ controller.zoom(state.zoom + 25) }, enabled = state.zoom < 200, modifier = Modifier.size(48.dp).semantics { contentDescription = "放大 PDF" }) { Text("+", style = MaterialTheme.typography.titleLarge) }
+        FilewayIconButton({ controller.zoom(state.zoom + 25) }, enabled = state.zoom < 200, modifier = Modifier.size(48.dp).semantics { contentDescription = "放大 PDF" }) { Text("+", style = MaterialTheme.typography.titleLarge) }
     }
     if (jumpOpen) FileOperationDialog("跳转页码", { jumpOpen = false }, footer = {
         FilewayTextButton({ jumpOpen = false }) { Text("取消") }

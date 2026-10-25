@@ -189,7 +189,7 @@ import java.util.Locale
                     Triple("settings", "缓存设置", R.drawable.ic_settings)).forEach { (route, label, icon) ->
                     FilewayTextButton({ model.tab(route) }, Modifier.weight(1f).heightIn(min = 48.dp)) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(painterResource(icon), null, Modifier.size(22.dp))
+                            FilewayIcon(icon, null, Modifier.size(22.dp))
                             Text(label, style = MaterialTheme.typography.labelSmall)
                         }
                     }
@@ -277,13 +277,13 @@ import java.util.Locale
                     } else FilewayRefresh(state.recentPlaybackLoading, { model.refreshRecentPlayback(force = true) }) { Column(Modifier.fillMaxSize()) {
                         FilewayPageHeaderActions {
                             FilewaySelectionToggle(selection, "多选播放记录", recentEnabled && recent.isNotEmpty())
-                            IconButton({ playbackDeletion = emptySet() }, enabled = recentEnabled && recent.isNotEmpty()) { Icon(painterResource(R.drawable.ic_trash), "清空最近播放", Modifier.size(24.dp), tint = colors.error) }
+                            FilewayIconButton({ playbackDeletion = emptySet() }, enabled = recentEnabled && recent.isNotEmpty()) { FilewayIcon(R.drawable.ic_trash, "清空最近播放", Modifier.size(24.dp), tint = colors.error) }
                         }
                         if (selection.active) FilewayTaskSelectionBar(selection, recentEnabled, {
                             selection.select(if (selection.ids.size == recent.size) emptyList() else recent.map { it.resourceKey })
                         }) {
-                            IconButton({ if (selection.ids.size == recent.size) playbackDeletion = selection.ids.toSet() else model.deleteRecentPlayback(selection.ids, onSaved = selection::close) }, enabled = recentEnabled && selection.ids.isNotEmpty()) {
-                                Icon(painterResource(R.drawable.ic_trash), "删除所选播放记录", tint = colors.error)
+                            FilewayIconButton({ if (selection.ids.size == recent.size) playbackDeletion = selection.ids.toSet() else model.deleteRecentPlayback(selection.ids, onSaved = selection::close) }, enabled = recentEnabled && selection.ids.isNotEmpty()) {
+                                FilewayIcon(R.drawable.ic_trash, "删除所选播放记录", tint = colors.error)
                             }
                         }
 
@@ -300,7 +300,7 @@ import java.util.Locale
                             if (recent.isEmpty() && !state.busy) item {
                                 Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = colors.background) {
                                     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Icon(painterResource(R.drawable.ic_history), null, Modifier.size(24.dp), tint = colors.primary)
+                                        FilewayIcon(R.drawable.ic_history, null, Modifier.size(24.dp), tint = colors.primary)
                                         Text("还没有播放记录", style = MaterialTheme.typography.titleMedium)
                                         Text("从文件页打开视频，观看进度会保存在这里。", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                                         FilewayTextButton(onClick = { model.tab("files") }) { Text("浏览文件") }

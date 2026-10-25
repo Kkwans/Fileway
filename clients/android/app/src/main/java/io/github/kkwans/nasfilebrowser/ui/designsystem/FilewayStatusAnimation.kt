@@ -1,11 +1,16 @@
 package io.github.kkwans.nasfilebrowser.ui.designsystem
 
 import android.animation.ValueAnimator
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -15,7 +20,7 @@ import androidx.lifecycle.compose.currentStateAsState
 import com.airbnb.lottie.LottieProperty
 import com.airbnb.lottie.compose.*
 import io.github.kkwans.nasfilebrowser.R
-import kotlinx.coroutines.CancellationException
+import io.github.kkwans.nasfilebrowser.ui.LocalFilewayPageActive
 
 internal enum class FilewayStatusAnimation(val asset: String, val fallback: Int) {
     CONNECTION("connection-ready", R.drawable.ic_link),
@@ -23,25 +28,49 @@ internal enum class FilewayStatusAnimation(val asset: String, val fallback: Int)
     EMPTY_FAVORITES("favorites-empty", R.drawable.ic_bookmark),
 }
 
-/** Assets are privately injected into signed builds; public clones retain native fallbacks. */
-@Composable internal fun FilewayStatusIcon(status: FilewayStatusAnimation, eventKey: String, modifier: Modifier = Modifier.size(28.dp), play: Boolean = true) {
-    val composition by rememberLottieComposition(LottieCompositionSpec.Asset("lordicon/${status.asset}.json"))
+@Composable internal fun FilewayStatusIcon(status: FilewayStatusAnimation, eventKey: String,
+    modifier: Modifier = Modifier.size(28.dp), play: Boolean = true) {
+    FilewayAnimatedGlyph(status.asset, null, status.fallback, if (play) eventKey else null, modifier, FilewayTheme.colors.primary)
+}
+
+/** One renderer for status and interaction icons; original marker ranges and geometry are retained. */
+@Composable internal fun FilewayAnimatedGlyph(asset: String?, markerName: String?, fallback: Int, trigger: String?,
+    modifier: Modifier, tint: Color) {
+    val composition = if (asset == null) null else rememberLottieComposition(LottieCompositionSpec.Asset("lordicon/$asset.json")).value
     val animation = rememberLottieAnimatable()
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
-    var consumed by rememberSaveable(status, eventKey) { mutableStateOf(false) }
-    val allowed = lifecycle.isAtLeast(Lifecycle.State.RESUMED) && ValueAnimator.areAnimatorsEnabled()
-    LaunchedEffect(composition, allowed, eventKey, play) {
-        val source = composition ?: return@LaunchedEffect
-        if (!allowed || !play || consumed) { animation.snapTo(source, 1f); return@LaunchedEffect }
-        consumed = true
-        try { animation.animate(source, iterations = 1, initialProgress = 0f, cancellationBehavior = LottieCancellationBehavior.Immediately) }
-        catch (cancelled: CancellationException) { throw cancelled }
+    val allowed = lifecycle.isAtLeast(Lifecycle.State.RESUMED) && LocalFilewayPageActive.current && ValueAnimator.areAnimatorsEnabled()
+    var lastTrigger by rememberSaveable(asset) { mutableStateOf<String?>(null) }
+    var lastPulse by rememberSaveable(asset) { mutableStateOf<String?>(null) }
+    var ready by remember(asset) { mutableStateOf(false) }
+    val scale = remember { Animatable(1f) }
+    LaunchedEffect(trigger, allowed) {
+        if (composition == null && trigger != null && trigger != lastPulse) {
+            lastPulse = trigger
+            if (allowed) { scale.snapTo(.88f); scale.animateTo(1f, tween(180)) }
+        }
     }
-    val color = FilewayTheme.colors.primary
+    LaunchedEffect(composition, trigger, allowed) {
+        val source = composition ?: return@LaunchedEffect
+        val marker = markerName?.let(source::getMarker)
+        val rest = marker?.let { (it.startFrame / source.endFrame).coerceIn(0f,1f) } ?: 1f
+        val clip = marker?.let { LottieClipSpec.Frame(it.startFrame.toInt(), (it.startFrame + it.durationFrames).toInt()-1) }
+        if (!ready) { animation.snapTo(source, rest); ready = true }
+        if (trigger == null || trigger == lastTrigger || !allowed) {
+            if (trigger != null) lastTrigger = trigger
+            animation.snapTo(source, rest)
+            return@LaunchedEffect
+        }
+        lastTrigger = trigger
+        animation.animate(source, iterations=1, clipSpec=clip, initialProgress=if(marker == null) 0f else rest,
+            cancellationBehavior=LottieCancellationBehavior.Immediately)
+        animation.snapTo(source, rest)
+    }
+    val color = if (tint == Color.Unspecified) FilewayTheme.colors.onSurface else tint.copy(alpha=1f)
     val properties = rememberLottieDynamicProperties(
-        rememberLottieDynamicProperty(LottieProperty.STROKE_COLOR, color.toArgb(), "**"),
-        rememberLottieDynamicProperty(LottieProperty.COLOR, color.toArgb(), "**"),
+        rememberLottieDynamicProperty(LottieProperty.STROKE_COLOR,color.toArgb(),"**"),
+        rememberLottieDynamicProperty(LottieProperty.COLOR,color.toArgb(),"**"),
     )
-    if (composition == null) Icon(painterResource(status.fallback), null, modifier, tint = color)
-    else LottieAnimation(composition, progress = { if (!play || !allowed || consumed && !animation.isPlaying) 1f else animation.progress }, modifier = modifier, dynamicProperties = properties)
+    if (composition == null || !ready) Icon(painterResource(fallback), null, modifier.scale(scale.value), tint=tint)
+    else LottieAnimation(composition, progress={animation.progress},modifier=modifier.alpha(tint.alpha),dynamicProperties=properties)
 }

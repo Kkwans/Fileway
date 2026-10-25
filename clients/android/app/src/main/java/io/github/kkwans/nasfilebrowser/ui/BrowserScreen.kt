@@ -93,8 +93,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 Column(Modifier.fillMaxSize()) {
                 FilewayPageHeader("文件") {
                     if (state.permissions.create) Box {
-                        IconButton({ createMenu = true }, enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null) {
-                            Icon(painterResource(R.drawable.ic_add), "新建文件或文件夹", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                        FilewayIconButton({ createMenu = true }, enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null) {
+                            FilewayIcon(R.drawable.ic_add, "新建文件或文件夹", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                         }
                         FilewayMenu(createMenu, { createMenu = false }, items = listOf(
                             FilewayMenuEntry("file", "新建文件", R.drawable.ic_file),
@@ -105,16 +105,16 @@ Column(Modifier.fillMaxSize()) {
                             else model.startDirectoryCreation(state.previewScope)
                         })
                     }
-                    IconButton(onClick = model::openSearch, enabled = !state.busy) {
-                        Icon(painterResource(R.drawable.ic_search), "搜索文件", Modifier.size(24.dp), tint = colors.onSurfaceVariant)
+                    FilewayIconButton(onClick = model::openSearch, enabled = !state.busy) {
+                        FilewayIcon(R.drawable.ic_search, "搜索文件", Modifier.size(24.dp), tint = colors.onSurfaceVariant)
                     }
-                    IconButton({ selecting = !selecting; selected = emptySet(); batchKind = "" }, enabled = selecting || !state.busy && displayed.isNotEmpty() && !selectionBusy) {
-                        Icon(painterResource(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple),
+                    FilewayIconButton({ selecting = !selecting; selected = emptySet(); batchKind = "" }, enabled = selecting || !state.busy && displayed.isNotEmpty() && !selectionBusy) {
+                        FilewayIcon(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple,
                             if (selecting) "退出文件多选" else "多选文件", Modifier.size(24.dp), tint = colors.onSurfaceVariant)
                     }
                     Box {
-                        IconButton({ browserMenu = true }, enabled = !state.busy) {
-                            Icon(painterResource(R.drawable.ic_more_actions), "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                        FilewayIconButton({ browserMenu = true }, enabled = !state.busy) {
+                            FilewayIcon(R.drawable.ic_more_actions, "更多文件操作", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                         }
                         FilewayMenu(browserMenu, { browserMenu = false }, items = buildList {
                             if (state.permissions.create) {

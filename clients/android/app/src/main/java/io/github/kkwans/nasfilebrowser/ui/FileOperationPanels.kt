@@ -161,12 +161,12 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
         ) {
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(start = if (back) 4.dp else 20.dp, end = 4.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (back) IconButton(::requestBack, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
-                        Icon(painterResource(R.drawable.ic_arrow_back), "返回文件详情", Modifier.size(22.dp))
+                    if (back) FilewayIconButton(::requestBack, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
+                        FilewayIcon(R.drawable.ic_arrow_back, "返回文件详情", Modifier.size(22.dp))
                     }
                     Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
-                    if (!back) IconButton(::leave, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
-                        Icon(painterResource(R.drawable.ic_close), "关闭$title", Modifier.size(22.dp))
+                    if (!back) FilewayIconButton(::leave, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
+                        FilewayIcon(R.drawable.ic_close, "关闭$title", Modifier.size(22.dp))
                     }
                 }
                 Column(Modifier.weight(1f, fill = stableHeight && firstHeight != null).fillMaxWidth().padding(horizontal = 20.dp),

@@ -278,7 +278,7 @@ private fun FilewayMenuRow(
         if (hasIcons && (alignment == FilewayMenuAlignment.Start || item.icon != null)) {
             Box(Modifier.size(MenuIconSlot), contentAlignment = Alignment.Center) {
                 item.icon?.let { icon ->
-                    Icon(painterResource(icon), null, Modifier.size(22.dp), tint = iconColor)
+                    FilewayIcon(icon, null, Modifier.size(22.dp), tint = iconColor)
                 }
             }
             Spacer(Modifier.width(MenuSlotGap))
@@ -299,8 +299,8 @@ private fun FilewayMenuRow(
             Spacer(Modifier.width(MenuSlotGap))
             Box(Modifier.size(MenuCheckSlot), contentAlignment = Alignment.Center) {
                 if (item.selected) {
-                    Icon(
-                        painterResource(R.drawable.ic_check),
+                    FilewayIcon(
+                        R.drawable.ic_check,
                         "当前选项",
                         Modifier.size(20.dp),
                         tint = selectedColor.copy(alpha = enabledAlpha),

@@ -94,17 +94,17 @@ import kotlin.math.abs
                 }
                 if (chrome) {
                     Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .55f)), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = model::closeImage) { Icon(painterResource(R.drawable.ic_arrow_back), "返回文件", tint = Color.White) }
+                        FilewayIconButton(onClick = model::closeImage) { FilewayIcon(R.drawable.ic_arrow_back, "返回文件", tint = Color.White) }
                         Text(current.name, Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        IconButton({ details = current }) { Icon(painterResource(R.drawable.ic_info), "图片详情", tint = Color.White) }
-                        if (!model.isTemporaryContent(current)) IconButton({ saving = true; scope.launch {
+                        FilewayIconButton({ details = current }) { FilewayIcon(R.drawable.ic_info, "图片详情", tint = Color.White) }
+                        if (!model.isTemporaryContent(current)) FilewayIconButton({ saving = true; scope.launch {
                             val message = try { model.saveImageToAlbum(current); "已保存到相册" }
                             catch (cancelled: CancellationException) { throw cancelled }
                             catch (error: Exception) { error.message ?: "保存失败，请重试" }
                             finally { saving = false }
                             android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
-                        } }, enabled = !saving) { Icon(painterResource(R.drawable.ic_download), "保存原图到相册", tint = Color.White) }
+                        } }, enabled = !saving) { FilewayIcon(R.drawable.ic_download, "保存原图到相册", tint = Color.White) }
                     }
                     Surface(Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.Black.copy(alpha = .5f),
                         contentColor = Color.White, shape = MaterialTheme.shapes.medium) {
@@ -291,7 +291,7 @@ import kotlin.math.abs
         if (!imageState.isImageDisplayed && !imageState.isPlaceholderDisplayed) {
             preview?.let { Image(it.asPainter(context), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
             if (preview == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(painterResource(R.drawable.ic_image), "图片预览", Modifier.size(36.dp), tint = media.mediaSecondary)
+                FilewayIcon(R.drawable.ic_image, "图片预览", Modifier.size(36.dp), tint = media.mediaSecondary)
                 Text(previewStatus, color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
             }
         }

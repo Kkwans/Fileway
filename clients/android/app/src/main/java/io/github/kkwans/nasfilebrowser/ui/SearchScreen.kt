@@ -59,8 +59,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
                 FilewayRefresh(state.running, { if (!state.running && !client.busy && state.query.isNotBlank()) model.search.refresh() }) {
 Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
-                            Icon(painterResource(R.drawable.ic_arrow_back), "返回文件", Modifier.size(22.dp), tint = colors.onBackground)
+                        FilewayIconButton(onClick = onBack, modifier = Modifier.size(48.dp)) {
+                            FilewayIcon(R.drawable.ic_arrow_back, "返回文件", Modifier.size(22.dp), tint = colors.onBackground)
                         }
                         FilewaySearchField(state.query, { if (!model.state.value.busy) model.search.query(it) },
                             "搜索文件名", Modifier.weight(1f), enabled = !client.busy, submit = ::submit)
@@ -69,11 +69,11 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                     if (selection.active) FilewayTaskSelectionBar(selection, !client.busy && !trash.changing, {
                         selection.select(if (selection.ids.size == displayed.size) emptyList() else displayed.map { it.relativePath })
                     }) {
-                        if (client.permissions.download) IconButton({ model.downloadFiles(chosen) }, enabled = !client.busy && chosen.isNotEmpty() && chosen.size == selection.ids.size) {
-                            Icon(painterResource(R.drawable.ic_download), "下载所选文件")
+                        if (client.permissions.download) FilewayIconButton({ model.downloadFiles(chosen) }, enabled = !client.busy && chosen.isNotEmpty() && chosen.size == selection.ids.size) {
+                            FilewayIcon(R.drawable.ic_download, "下载所选文件")
                         }
-                        if (client.permissions.delete) IconButton({ pendingTrash = chosen }, enabled = !client.busy && !trash.changing && chosen.isNotEmpty() && chosen.size == selection.ids.size) {
-                            Icon(painterResource(R.drawable.ic_trash), "将所选文件移入回收站")
+                        if (client.permissions.delete) FilewayIconButton({ pendingTrash = chosen }, enabled = !client.busy && !trash.changing && chosen.isNotEmpty() && chosen.size == selection.ids.size) {
+                            FilewayIcon(R.drawable.ic_trash, "将所选文件移入回收站")
                         }
                     }
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {

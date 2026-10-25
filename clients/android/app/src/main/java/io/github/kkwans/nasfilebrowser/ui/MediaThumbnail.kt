@@ -87,7 +87,7 @@ internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<St
             val compact = minOf(maxWidth, maxHeight) < 48.dp
             val ringSize = if (compact) 24.dp else 32.dp
             val placeholderSize = if (showLoading) { if (compact) 12.dp else 18.dp } else { if (compact) 24.dp else 36.dp }
-            if (decoded == null) Icon(painterResource(if (file.mediaKind() == MediaKind.VIDEO) R.drawable.ic_video else R.drawable.ic_image),
+            if (decoded == null) FilewayIcon(if (file.mediaKind() == MediaKind.VIDEO) R.drawable.ic_video else R.drawable.ic_image,
                 null, Modifier.size(placeholderSize), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (showLoading) .22f else .32f))
             val image = decoded
             if (image != null) Image(image.asPainter(context), null, Modifier.fillMaxSize(), contentScale = contentScale)

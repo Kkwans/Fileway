@@ -70,7 +70,7 @@ import java.util.Locale
                 FileLayout.LIST -> 28.dp
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Icon(painterResource(fileArtworkIcon(file)), null,
+                FilewayIcon(fileArtworkIcon(file), null,
                     Modifier.size(if (layout == FileLayout.UNBOUNDED && !file.directory) 32.dp else iconSize),
                     tint = if (file.directory) colors.primary else colors.onSurfaceVariant)
                 if (layout == FileLayout.UNBOUNDED && !file.directory && fileArtworkIcon(file) == R.drawable.ic_file) {
@@ -141,9 +141,9 @@ import java.util.Locale
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     artwork(Modifier.size(44.dp))
                     caption(Modifier.weight(1f))
-                    if (selected == null) IconButton(onClick = details, enabled = enabled,
+                    if (selected == null) FilewayIconButton(onClick = details, enabled = enabled,
                         modifier = Modifier.size(48.dp).semantics { contentDescription = "文件操作：${file.name}" }) {
-                        Icon(painterResource(R.drawable.ic_more_actions), null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                        FilewayIcon(R.drawable.ic_more_actions, null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                     } else Spacer(Modifier.width(12.dp))
                 }
             }

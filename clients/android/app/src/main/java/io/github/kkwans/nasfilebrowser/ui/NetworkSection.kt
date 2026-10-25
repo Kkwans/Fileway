@@ -66,7 +66,7 @@ import io.github.kkwans.nasfilebrowser.core.NetworkState
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(painterResource(R.drawable.ic_network), null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+                FilewayIcon(R.drawable.ic_network, null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Tailscale", style = MaterialTheme.typography.bodyMedium)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -77,11 +77,11 @@ import io.github.kkwans.nasfilebrowser.core.NetworkState
                     }
                 }
                 if (active) FilewayTextButton(stop) { Text(if (network.connected) "断开" else "取消") }
-                if (network.canLogout) IconButton(logout) {
-                    Icon(painterResource(R.drawable.ic_logout), "退出 Tailscale 账号", Modifier.size(22.dp))
+                if (network.canLogout) FilewayIconButton(logout) {
+                    FilewayIcon(R.drawable.ic_logout, "退出 Tailscale 账号", Modifier.size(22.dp))
                 }
-                if (hasDetails) IconButton({ details = !details }) {
-                    Icon(painterResource(if (details) R.drawable.ic_expand_less else R.drawable.ic_info),
+                if (hasDetails) FilewayIconButton({ details = !details }) {
+                    FilewayIcon(if (details) R.drawable.ic_expand_less else R.drawable.ic_info,
                         if (details) "收起网络详情" else "网络详情", Modifier.size(22.dp))
                 }
             }

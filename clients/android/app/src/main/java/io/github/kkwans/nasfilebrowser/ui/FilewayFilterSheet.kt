@@ -28,8 +28,8 @@ internal fun FilewayDateRangeFields(
             verticalAlignment = Alignment.CenterVertically) {
             FilewayFilterField("开始日期", start, onStart, Modifier.weight(1f))
             FilewayFilterField("结束日期", end, onEnd, Modifier.weight(1f))
-            if (canClear) IconButton(onClear, modifier = Modifier.size(48.dp)) {
-                Icon(painterResource(R.drawable.ic_close), "清除日期", Modifier.size(22.dp))
+            if (canClear) FilewayIconButton(onClear, modifier = Modifier.size(48.dp)) {
+                FilewayIcon(R.drawable.ic_close, "清除日期", Modifier.size(22.dp))
             }
         }
         if (invalidRange) Text("结束日期不能早于开始日期", color = MaterialTheme.colorScheme.error,
@@ -85,8 +85,8 @@ internal fun FilewayFilterField(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Icon(
-            painterResource(R.drawable.ic_expand_more),
+        FilewayIcon(
+            R.drawable.ic_expand_more,
             contentDescription = null,
             modifier = Modifier.size(18.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,

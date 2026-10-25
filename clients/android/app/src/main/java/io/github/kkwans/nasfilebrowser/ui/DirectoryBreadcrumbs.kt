@@ -29,8 +29,8 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
     val measurer = rememberTextMeasurer()
     val style = FilewayTheme.text.fileName
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = back, enabled = !busy, modifier = Modifier.size(48.dp)) {
-            Icon(painterResource(R.drawable.ic_arrow_back), "上一级", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+        FilewayIconButton(onClick = back, enabled = !busy, modifier = Modifier.size(48.dp)) {
+            FilewayIcon(R.drawable.ic_arrow_back, "上一级", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
         }
         BoxWithConstraints(Modifier.weight(1f)) {
             val available = with(density) { maxWidth.roundToPx() }

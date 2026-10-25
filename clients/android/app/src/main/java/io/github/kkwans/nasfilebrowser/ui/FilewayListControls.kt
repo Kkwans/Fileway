@@ -50,7 +50,7 @@ import kotlinx.coroutines.delay
             if (status != null) Text(status, Modifier.padding(start = 8.dp).widthIn(max = 72.dp), maxLines = 1,
                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            IconButton(submit, enabled = enabled && submitEnabled) { Icon(painterResource(actionIcon), actionLabel, Modifier.size(22.dp)) }
+            FilewayIconButton(submit, enabled = enabled && submitEnabled) { FilewayIcon(actionIcon, actionLabel, Modifier.size(22.dp)) }
         } })
 }
 

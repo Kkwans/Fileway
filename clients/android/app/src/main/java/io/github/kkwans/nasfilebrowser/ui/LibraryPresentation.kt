@@ -52,7 +52,7 @@ internal fun libraryLocation(path: String): String {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 leading()
-                if (artwork != null) artwork() else Icon(painterResource(icon), null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (artwork != null) artwork() else FilewayIcon(icon, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     FileNameText(name, FilewayTheme.text.fileName, MaterialTheme.colorScheme.onSurface, maxLines = 2, centered = false)
                     // Group, size and time belong to the object's information

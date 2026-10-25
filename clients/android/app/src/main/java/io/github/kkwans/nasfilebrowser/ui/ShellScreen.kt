@@ -56,7 +56,7 @@ import kotlinx.coroutines.flow.collect
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             FilewayTopAppBar("运行命令", null, R.drawable.ic_arrow_back, "关闭命令输出", ::back, actions = {
-                IconButton(controller::refresh, enabled = !state.running && !state.loading) { Icon(painterResource(R.drawable.ic_refresh), "刷新命令权限") }
+                FilewayIconButton(controller::refresh, enabled = !state.running && !state.loading) { FilewayIcon(R.drawable.ic_refresh, "刷新命令权限") }
             })
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("工作目录 · ${libraryBasename(state.directory.path)}", Modifier.weight(1f), style = FilewayTheme.text.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)

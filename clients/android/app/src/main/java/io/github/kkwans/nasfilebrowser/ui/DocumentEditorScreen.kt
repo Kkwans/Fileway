@@ -65,7 +65,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 FilewayTextButton(controller::save, enabled = !busy && state.dirty && !state.unknownWrite && !state.conflict,
                     modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在保存" else "保存") }
                 Box {
-                    IconButton({ more = true }) { Icon(painterResource(R.drawable.ic_more_actions), "编辑操作") }
+                    FilewayIconButton({ more = true }) { FilewayIcon(R.drawable.ic_more_actions, "编辑操作") }
                     FilewayMenu(more, { more = false }, items = listOf(
                         FilewayMenuEntry("copy", "复制草稿", R.drawable.ic_copy, enabled = state.draft.length <= 131_072),
                         FilewayMenuEntry("reload", "重新读取服务器版本", R.drawable.ic_refresh, enabled = !busy && !state.unknownWrite),

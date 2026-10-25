@@ -113,7 +113,7 @@ internal fun PlayerQueuePanel(
                                 Text("${index + 1}", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace, maxLines = 1)
                                 if (current) {
-                                    Icon(painterResource(if (playing) R.drawable.art_play else R.drawable.art_check),
+                                    FilewayIcon(if (playing) R.drawable.art_play else R.drawable.art_check,
                                         null, Modifier.size(14.dp), tint = FilewayTheme.colors.primary)
                                     Text(status, color = FilewayTheme.colors.primary, fontSize = 12.sp,
                                         maxLines = 1, overflow = TextOverflow.Ellipsis)

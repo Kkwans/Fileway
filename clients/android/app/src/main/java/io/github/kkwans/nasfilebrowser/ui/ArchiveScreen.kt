@@ -35,8 +35,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     val compactScroll = rememberScrollState()
     Scaffold(topBar = {
         FilewayTopAppBar("压缩包浏览", state.file?.name, R.drawable.ic_arrow_back, "返回文件", { if (!state.submitting) onBack() }, actions = {
-            IconButton(controller::refresh, enabled = !busy && state.task?.active != true && !state.reportLoading) {
-                Icon(painterResource(R.drawable.ic_refresh), "刷新压缩包")
+            FilewayIconButton(controller::refresh, enabled = !busy && state.task?.active != true && !state.reportLoading) {
+                FilewayIcon(R.drawable.ic_refresh, "刷新压缩包")
             }
         })
     }) { padding ->
@@ -61,9 +61,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 }
                 if (listing.truncated) Text("${listing.limitReason}。完整范围无法确认，不会提交解压。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 OutlinedTextField(state.query, controller::search, Modifier.fillMaxWidth(), label = { Text("搜索包内路径") }, singleLine = true, enabled = !state.submitting,
-                    leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) })
+                    leadingIcon = { FilewayIcon(R.drawable.ic_search, null) })
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    if (state.prefix.isNotEmpty()) IconButton(controller::up, enabled = !state.submitting) { Icon(painterResource(R.drawable.ic_arrow_back), "返回压缩包上一级") }
+                    if (state.prefix.isNotEmpty()) FilewayIconButton(controller::up, enabled = !state.submitting) { FilewayIcon(R.drawable.ic_arrow_back, "返回压缩包上一级") }
                     Text(if (state.query.isNotBlank()) "全部搜索结果" else if (state.prefix.isEmpty()) "压缩包根目录" else state.rows.firstOrNull()?.path?.substringBeforeLast('/', state.prefix) ?: state.prefix,
                         Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     FilewayTextButton(controller::selectDirectory, enabled = !state.submitting) { Text(if (state.prefix.isEmpty()) "全选" else "选择此目录") }
@@ -80,7 +80,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                                 Row(Modifier.weight(1f).clickable(enabled = !state.submitting, role = Role.Button) {
                                     if (entry.isDir) controller.enter(entry) else controller.toggle(entry)
                                 }.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(painterResource(fileArtworkIcon(entry.name, entry.isDir)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                                    FilewayIcon(fileArtworkIcon(entry.name, entry.isDir), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                         Text(entry.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         if (state.query.isNotBlank()) Text(entry.path.substringBeforeLast('/', "").ifEmpty { "压缩包根目录" },
@@ -89,8 +89,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                                             style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
-                                if (!entry.isDir && onOpenEntry != null) IconButton({ onOpenEntry(entry) }, enabled = !busy) { Icon(painterResource(R.drawable.ic_visibility), "打开包内文件：${entry.name}") }
-                                else if (entry.isDir) IconButton({ controller.enter(entry) }, enabled = !state.submitting) { Icon(painterResource(R.drawable.ic_arrow_forward), "进入 ${entry.name}") }
+                                if (!entry.isDir && onOpenEntry != null) FilewayIconButton({ onOpenEntry(entry) }, enabled = !busy) { FilewayIcon(R.drawable.ic_visibility, "打开包内文件：${entry.name}") }
+                                else if (entry.isDir) FilewayIconButton({ controller.enter(entry) }, enabled = !state.submitting) { FilewayIcon(R.drawable.ic_arrow_forward, "进入 ${entry.name}") }
                             }
                         }
                     }
@@ -176,7 +176,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 if (state.directories.isEmpty() && !state.directoryLoading && state.directoryError == null) item { Text("没有子目录，可使用当前目录", Modifier.padding(vertical = 20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 items(state.directories, key = { it.wirePath }) { folder ->
                     ListItem(headlineContent = { Text(folder.name, maxLines = 2, overflow = TextOverflow.Ellipsis) }, supportingContent = { Text(folder.path, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                        leadingContent = { Icon(painterResource(R.drawable.ic_folder), null) }, modifier = Modifier.fillMaxWidth().clickable(enabled = !state.directoryLoading) {
+                        leadingContent = { FilewayIcon(R.drawable.ic_folder, null) }, modifier = Modifier.fillMaxWidth().clickable(enabled = !state.directoryLoading) {
                             controller.browseDestination(DirectoryCrumb(folder.name, folder.path, folder.wirePath))
                         })
                 }

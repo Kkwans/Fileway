@@ -60,13 +60,13 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
             TaskView.ATTENTION -> "batch-archive"
             else -> null
         }
-        if (singleBulk != null) IconButton({ confirmAction(null, singleBulk) }, enabled = enabled && state.total > 0) {
-            Icon(painterResource(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_trash),
+        if (singleBulk != null) FilewayIconButton({ confirmAction(null, singleBulk) }, enabled = enabled && state.total > 0) {
+            FilewayIcon(if (singleBulk == "batch-unarchive") R.drawable.ic_restore else R.drawable.ic_trash,
                 if (singleBulk == "batch-unarchive") "恢复全部记录" else "删除全部已结束任务记录", Modifier.size(24.dp),
                 tint = if (singleBulk == "batch-unarchive") MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
         }
-        if (state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) IconButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) {
-            Icon(painterResource(R.drawable.ic_refresh), "批量重试", Modifier.size(24.dp))
+        if (state.filter.view == TaskView.ATTENTION && state.filter.type.isNotEmpty()) FilewayIconButton({ confirmAction(null, "batch-retry") }, enabled = enabled && state.total > 0) {
+            FilewayIcon(R.drawable.ic_refresh, "批量重试", Modifier.size(24.dp))
         }
     }
     LaunchedEffect(list, state.scope) { snapshotFlow { list.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }.collect(model.tasks::watch) }
@@ -75,18 +75,18 @@ Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
             if (selection.ids.size == state.total) selection.select(emptyList()) else model.tasks.selectAll { selection.select(it) }
         }, onInvert = { val before = selection.ids; model.tasks.selectAll { selection.select(it - before) } }) {
-            if (state.filter.view == TaskView.ARCHIVED) IconButton({ model.tasks.actionSelected(selection.ids, "unarchive") }, enabled = enabled && chosen.isNotEmpty() && chosen.all { model.tasks.canEdit(it) && it.archivedAt > 0 }) {
-                Icon(painterResource(R.drawable.ic_restore), "恢复所选任务记录")
-            } else IconButton({ if (chosen.size == state.total) deleteSelection = true else model.tasks.actionSelected(selection.ids, "archive") },
+            if (state.filter.view == TaskView.ARCHIVED) FilewayIconButton({ model.tasks.actionSelected(selection.ids, "unarchive") }, enabled = enabled && chosen.isNotEmpty() && chosen.all { model.tasks.canEdit(it) && it.archivedAt > 0 }) {
+                FilewayIcon(R.drawable.ic_restore, "恢复所选任务记录")
+            } else FilewayIconButton({ if (chosen.size == state.total) deleteSelection = true else model.tasks.actionSelected(selection.ids, "archive") },
                 enabled = enabled && chosen.isNotEmpty() && chosen.all { it.canArchive && model.tasks.canEdit(it) }) {
-                Icon(painterResource(R.drawable.ic_trash), "删除所选已结束任务记录")
+                FilewayIcon(R.drawable.ic_trash, "删除所选已结束任务记录")
             }
         }
         Row(Modifier.fillMaxWidth().padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilewaySearchField(search, { search = it }, "查找任务", Modifier.weight(1f), enabled) {
                 model.tasks.filter(state.filter.copy(text = search.trim())); keyboard?.hide()
             }
-            IconButton({ advanced = true }, enabled = enabled) { Icon(painterResource(R.drawable.ic_filter), "筛选任务") }
+            FilewayIconButton({ advanced = true }, enabled = enabled) { FilewayIcon(R.drawable.ic_filter, "筛选任务") }
 
         }
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.tasks.refresh() }
@@ -113,7 +113,7 @@ Column(Modifier.fillMaxSize()) {
                 }
                 FilewayTaskCard(
                     title = task.title.ifEmpty { task.typeLabel },
-                    icon = { Icon(painterResource(serverTaskIcon(task)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
+                    icon = { FilewayIcon(serverTaskIcon(task), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary) },
                     meta = {
                         TaskRecordMeta(task.statusLabel, if (task.status == "completed") task.finishedAt else task.createdAt,
                             if (task.status in setOf("failed", "interrupted")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -207,7 +207,7 @@ Column(Modifier.fillMaxSize()) {
                     }
                     if (!task.active && task.duration > 0) DetailMetadata("处理时长", "${clock((task.processedSeconds * 1000).toLong())} / ${clock((task.duration * 1000).toLong())}")
                     FilewayTextButton({ technicalDetails = !technicalDetails }) {
-                        Icon(painterResource(R.drawable.ic_info), null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(if (technicalDetails) "收起技术信息" else "技术信息")
+                        FilewayIcon(R.drawable.ic_info, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(if (technicalDetails) "收起技术信息" else "技术信息")
                     }
                     if (technicalDetails) SelectionContainer { Text("任务 ID：${task.id}\n创建：${taskTimestamp(task.createdAt)}\n开始：${taskTimestamp(task.startedAt)}\n结束：${taskTimestamp(task.finishedAt)}", style = MaterialTheme.typography.bodySmall) }
                 }

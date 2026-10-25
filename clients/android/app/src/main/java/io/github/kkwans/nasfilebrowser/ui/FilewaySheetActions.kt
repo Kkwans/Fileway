@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
             colors = ButtonDefaults.outlinedButtonColors(containerColor = filewayGlassLayerColor(), contentColor = color),
             border = filewayGlassBorder(inner = true), contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                action.icon?.let { Icon(painterResource(it), null, Modifier.size(24.dp)) }
+                action.icon?.let { FilewayIcon(it, null, Modifier.size(24.dp)) }
                 Text(action.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }

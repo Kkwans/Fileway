@@ -64,10 +64,10 @@ Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, !state.busy, {
             selection.select(if (selection.ids.size == items.size) emptyList() else items.map { it.id })
         }) {
-            IconButton({ model.uploads.batch(chosen.filter { it.active }, "pause") }, enabled = !state.busy && chosen.any { it.active }) { Icon(painterResource(R.drawable.art_pause), "暂停所选运行中上传") }
-            IconButton({ model.uploads.batch(chosen.filter { it.canResume && !it.active }, "resume") }, enabled = !state.busy && chosen.any { it.canResume && !it.active }) { Icon(painterResource(R.drawable.art_play), "继续所选可恢复上传") }
-            IconButton({ if (chosen.size == items.size) clearSelected = true else model.uploads.batch(chosen, "remove") },
-                enabled = !state.busy && chosen.isNotEmpty() && chosen.all { it.complete || it.status in setOf("canceled", "restarted") }) { Icon(painterResource(R.drawable.ic_trash), "移除所选已结束记录") }
+            FilewayIconButton({ model.uploads.batch(chosen.filter { it.active }, "pause") }, enabled = !state.busy && chosen.any { it.active }) { FilewayIcon(R.drawable.art_pause, "暂停所选运行中上传") }
+            FilewayIconButton({ model.uploads.batch(chosen.filter { it.canResume && !it.active }, "resume") }, enabled = !state.busy && chosen.any { it.canResume && !it.active }) { FilewayIcon(R.drawable.art_play, "继续所选可恢复上传") }
+            FilewayIconButton({ if (chosen.size == items.size) clearSelected = true else model.uploads.batch(chosen, "remove") },
+                enabled = !state.busy && chosen.isNotEmpty() && chosen.all { it.complete || it.status in setOf("canceled", "restarted") }) { FilewayIcon(R.drawable.ic_trash, "移除所选已结束记录") }
         } else Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("全部", "未完成", "已完成").forEach { label -> FilterChip(filter == label, { filter = label }, { Text(label) }, colors = libraryChipColors()) }
         }
@@ -76,7 +76,7 @@ Column(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.weight(1f).semantics { contentDescription = "本机上传列表" }, contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (items.isEmpty()) item {
                 Column(Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(painterResource(R.drawable.ic_upload), null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+                    FilewayIcon(R.drawable.ic_upload, null, Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
                     Text(if (state.items.isEmpty()) "把本机文件带回文件库" else "这里还没有${filter}的上传", style = MaterialTheme.typography.titleMedium)
                     Text("在服务器文件页选择上传文件或文件夹，确认目标后开始。本机原文件不会被删除。", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     FilewayTextButton({ model.tab("files") }) { Text("选择服务器目录") }
@@ -111,7 +111,7 @@ Column(Modifier.fillMaxSize()) {
                         if (!item.complete && item.canResume && !selection.active) TransferPrimaryControl(item.active,
                             if (item.active) "暂停上传" else "继续上传", !state.busy) {
                             if (item.active) model.uploads.pause(item) else model.uploads.resume(item)
-                        } else Icon(painterResource(fileArtworkIcon(item.name, false)), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                        } else FilewayIcon(fileArtworkIcon(item.name, false), null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
                     },
                     meta = {
                         TransferListMeta(item.createdAt, item.activeMillis, item.timingComplete,

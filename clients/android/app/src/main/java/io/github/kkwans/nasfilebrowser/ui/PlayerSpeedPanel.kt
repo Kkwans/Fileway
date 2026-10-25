@@ -55,8 +55,8 @@ import io.github.kkwans.nasfilebrowser.data.parsePlaybackRate
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             FilewayOutlinedButton(onClick = { onEdit(false) }, shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("自定义播放速度") }
-            IconButton(onClick = onEditPresets, modifier = Modifier.size(48.dp)) {
-                Icon(painterResource(R.drawable.ic_edit), "编辑倍速预设", Modifier.size(22.dp))
+            FilewayIconButton(onClick = onEditPresets, modifier = Modifier.size(48.dp)) {
+                FilewayIcon(R.drawable.ic_edit, "编辑倍速预设", Modifier.size(22.dp))
             }
         }
         HorizontalDivider()
@@ -93,16 +93,16 @@ private data class SpeedPresetDraft(val id: Int, val text: String)
                         label = { Text("倍速") },
                         suffix = { Text("×") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    IconButton(onClick = { rows.removeAll { it.id == row.id } }, enabled = !saving,
+                    FilewayIconButton(onClick = { rows.removeAll { it.id == row.id } }, enabled = !saving,
                         modifier = Modifier.size(48.dp)) {
-                        Icon(painterResource(R.drawable.ic_trash), "移除此倍速预设", Modifier.size(22.dp))
+                        FilewayIcon(R.drawable.ic_trash, "移除此倍速预设", Modifier.size(22.dp))
                     }
                 }
             }
             item {
                 FilewayOutlinedButton(onClick = { rows.add(SpeedPresetDraft(nextId++, "")) }, enabled = !saving,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    Icon(painterResource(R.drawable.ic_add), null, Modifier.size(20.dp))
+                    FilewayIcon(R.drawable.ic_add, null, Modifier.size(20.dp))
                     Spacer(Modifier.width(8.dp)); Text("添加倍速")
                 }
             }
