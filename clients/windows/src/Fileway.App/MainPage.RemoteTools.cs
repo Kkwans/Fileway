@@ -18,11 +18,6 @@ public sealed partial class MainPage
         SearchPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
         NasTasksPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
         TrashPane.CloseRequested += (_, _) => ReturnFromRemoteTools();
-        StorageAnalysisPane.Attach(_storageAnalysis
-            ?? throw new InvalidOperationException("存储分析服务不可用。"),
-            _storageAnalysis as IDuplicateAnalysisService);
-        if (_storageAnalysis is IAdminUserService adminUsers && _session is { } adminSession)
-            StorageAnalysisPane.AttachAdmin(adminUsers, adminSession.DisplayName);
         UpdateRemoteToolsContext();
     }
 
@@ -45,6 +40,14 @@ public sealed partial class MainPage
         SearchPane.SetContext(_files as IServerSearchService, _files, session, _directory ?? _root);
         NasTasksPane.SetContext(_files as IServerTaskService, Operations, session);
         TrashPane.SetContext(_files as ITrashService, Operations, session);
+        // Services arrive via SetServicesAsync after the constructor; attach here (idempotent)
+        // so a missing service can never throw during startup.
+        if (_storageAnalysis is { } storageAnalysis)
+        {
+            StorageAnalysisPane.Attach(storageAnalysis, _storageAnalysis as IDuplicateAnalysisService);
+            if (_storageAnalysis is IAdminUserService adminUsers && session is { } adminSession)
+                StorageAnalysisPane.AttachAdmin(adminUsers, adminSession.DisplayName);
+        }
         if (session is null) HideRemoteToolsPanes();
     }
 
