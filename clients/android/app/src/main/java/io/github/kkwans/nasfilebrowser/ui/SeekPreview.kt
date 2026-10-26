@@ -119,3 +119,16 @@ import kotlin.math.abs
         }
     }
 }
+
+/** Holding can last throughout a scene; this tag leaves the image centre unobstructed. */
+@Composable internal fun PlayerHoldFeedback(rate: Float, modifier: Modifier = Modifier) {
+    val label = rate.toString().trimEnd('0').trimEnd('.')
+    PlayerFeedbackWindow(modifier, topAligned = true) {
+        Row(Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilewayIcon(R.drawable.ic_fast, null, Modifier.size(16.dp), tint = Color.White)
+            Text("${label}× 倍速中", color = Color.White, fontSize = 12.sp, lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium, maxLines = 1)
+        }
+    }
+}

@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.player
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Rect
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.BackgroundColorSpan
@@ -30,6 +31,8 @@ import kotlin.math.max
 /** Stable native video Surface plus independent text/ASS layers; HUD changes cannot resize them. */
 @androidx.annotation.OptIn(UnstableApi::class)
 class PlayerViewport(context: Context) : FrameLayout(context) {
+    internal var onPictureBoundsChanged: ((Rect) -> Unit)? = null
+    private var lastPictureBounds = Rect()
     private val content = AspectRatioFrameLayout(context).apply { setAspectRatio(16f / 9f) }
     internal val video = SurfaceView(context)
     internal val text = SubtitleView(context)
@@ -82,6 +85,11 @@ class PlayerViewport(context: Context) : FrameLayout(context) {
     }
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
+        val picture = Rect(content.left, content.top, content.right, content.bottom)
+        if (picture != lastPictureBounds) {
+            lastPictureBounds = picture
+            onPictureBoundsChanged?.invoke(Rect(picture))
+        }
         updateStageSafeArea(rootWindowInsets)
         updateTextSize()
     }

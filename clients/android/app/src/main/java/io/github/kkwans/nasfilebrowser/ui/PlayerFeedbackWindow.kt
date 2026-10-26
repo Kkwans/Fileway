@@ -36,14 +36,15 @@ private tailrec fun Context.feedbackActivity(): Activity? = when(this) {
 }
 
 /** A bounded compositor window. Set input flags BEFORE show so an ongoing gesture keeps its owner. */
-@Composable internal fun PlayerFeedbackWindow(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+@Composable internal fun PlayerFeedbackWindow(modifier: Modifier = Modifier, topAligned: Boolean = false,
+    content: @Composable () -> Unit) {
     val owner = LocalContext.current.feedbackActivity() ?: return
     val parent = rememberCompositionContext()
     val latest by rememberUpdatedState(content)
     val margin = with(LocalDensity.current) { 12.dp.roundToPx() }
     var anchor by remember { mutableStateOf<androidx.compose.ui.geometry.Offset?>(null) }
     // ComponentDialog installs ViewTree lifecycle/saved-state owners before Compose attaches.
-    val dialog = remember(owner) { ComponentDialog(owner).apply {
+    val dialog = remember(owner, topAligned) { ComponentDialog(owner).apply {
         window?.let { window ->
             window.requestFeature(android.view.Window.FEATURE_NO_TITLE)
             window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT))
@@ -59,7 +60,7 @@ private tailrec fun Context.feedbackActivity(): Activity? = when(this) {
             }
         }
     } }
-    // This slot is the picture centre for every feedback type, including timeline dragging.
+    // Other HUDs anchor at their centre; the compact hold tag anchors at its top edge.
     Box(modifier.size(1.dp).onGloballyPositioned {
         anchor = it.localToWindow(androidx.compose.ui.geometry.Offset.Zero)
         dialog.window?.decorView?.invalidate()
@@ -98,7 +99,7 @@ private tailrec fun Context.feedbackActivity(): Activity? = when(this) {
                 decor.getLocationOnScreen(decorOrigin)
                 val desiredX = (ownerOrigin[0] + point.x.toInt() - decor.width / 2)
                     .coerceIn(safe.left + margin, (safe.right - decor.width - margin).coerceAtLeast(safe.left + margin))
-                val desiredY = (ownerOrigin[1] + point.y.toInt() - decor.height / 2)
+                val desiredY = (ownerOrigin[1] + point.y.toInt() - if (topAligned) 0 else decor.height / 2)
                     .coerceIn(safe.top + margin, (safe.bottom - decor.height - margin).coerceAtLeast(safe.top + margin))
                 val attributes = window.attributes
                 val x = desiredX - (decorOrigin[0] - attributes.x)

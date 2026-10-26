@@ -187,6 +187,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var lockInteraction by remember(file) { mutableIntStateOf(0) }
     var playerPosition by remember { mutableStateOf(Offset.Zero) }
     var touchLockPosition by remember { mutableStateOf(Offset.Zero) }
+    var pictureBounds by remember { mutableStateOf(android.graphics.Rect()) }
     val gestureSeek = remember(file) { SeekGestureAccumulator() }
     var gestureMessage by remember(file) { mutableStateOf<String?>(null) }
     var gestureMeter by remember(file) { mutableStateOf<Pair<Boolean, Float>?>(null) }
@@ -197,7 +198,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var pictureSeek by remember(file, state.mediaGeneration) { mutableStateOf<Long?>(null) }
     var dragSession by remember(file, state.mediaGeneration) { mutableStateOf<SeekDragSession?>(null) }
     val seekPreview = rememberSeekPreview(model, file, state.mediaGeneration, seek != null || pictureSeek != null)
-    val showControls = !pipMode && (!fullscreen || visible && sheet == null) && pictureSeek == null && !touchLocked
+    val showControls = !pipMode && (!fullscreen || visible && sheet == null && !holding) && pictureSeek == null && !touchLocked
     val controlsEnabled = !client.busy && !touchLocked
     var showRequest by remember(file) { mutableStateOf(false) }
     var showBuffering by remember(file) { mutableStateOf(false) }
@@ -374,6 +375,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
                     else WindowInsets.displayCutout.union(WindowInsets.captionBar)
                 val headerDensity = LocalDensity.current
+                val holdMargin = with(headerDensity) { 12.dp.roundToPx() }
+                val holdTop = maxOf(pictureBounds.top + holdMargin,
+                    if (fullscreen) controlInsets.getTop(headerDensity) + holdMargin else 0)
                 val controlPadding = if (landscape) 20.dp else 12.dp
                 val downloadCoverageHeight = with(headerDensity) { 16.sp.toDp() }
                 val portraitControlsReserve = (if (maxWidth - controlPadding * 2 >= 600.dp) 96.dp else 144.dp) +
@@ -401,7 +405,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             .background(Brush.verticalGradient(listOf(Color.Black, Color.Transparent),
                                 endY = with(headerDensity) { 72.dp.toPx() })))
                         Box(Modifier.fillMaxSize().padding(bottom = if (fullscreen) 0.dp else portraitControlsReserve).background(Color.Black)) {
-                            AndroidView(factory = { PlayerViewport(it).also(model.player::attach) }, modifier = Modifier.fillMaxSize()
+                            AndroidView(factory = { PlayerViewport(it).apply {
+                                onPictureBoundsChanged = { bounds -> pictureBounds = bounds }
+                            }.also(model.player::attach) }, modifier = Modifier.fillMaxSize()
                                 .onGloballyPositioned { coordinates ->
                                     val rectangle = coordinates.localToWindow(Offset.Zero)
                                     pictureInPicture?.videoBounds(android.graphics.Rect(rectangle.x.roundToInt(), rectangle.y.roundToInt(),
@@ -497,7 +503,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                 feedbackSeek != null -> PictureSeekFeedback(feedbackSeek,
                                     if (seek != null) timelineStart else dragSession?.startMs ?: state.positionMs,
                                     state.durationMs, seekPreview, Modifier.align(Alignment.Center))
-                                holding -> PlayerActionFeedback("${holdRate}× 倍速播放", R.drawable.ic_fast, Modifier.align(Alignment.Center))
+                                holding -> PlayerHoldFeedback(holdRate, Modifier.align(Alignment.TopCenter)
+                                    .offset { IntOffset(0, holdTop) })
                                 feedbackMeter != null -> PlayerLevelFeedback(feedbackMeter.first, feedbackMeter.second, Modifier.align(Alignment.Center))
                                 feedbackMessage != null -> PlayerActionFeedback(feedbackMessage,
                                     when { feedbackMessage.startsWith("−") -> R.drawable.ic_skip_back; feedbackMessage.startsWith("+") -> R.drawable.ic_skip_forward; else -> R.drawable.art_volume },
@@ -538,7 +545,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             }
                         }
                         androidx.compose.animation.AnimatedVisibility(showControls && fullscreen,
-                            enter = fadeIn(tween(140)), exit = fadeOut(tween(if (!fullscreen || sheet != null || touchLocked) 0 else 140)),
+                            enter = fadeIn(tween(140)), exit = fadeOut(tween(if (!fullscreen || sheet != null || touchLocked || holding) 0 else 140)),
                             modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
                         Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
                             .windowInsetsPadding(controlInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
@@ -558,7 +565,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         }
                         }
                         androidx.compose.animation.AnimatedVisibility(!fullscreen || showControls,
-                            enter = fadeIn(tween(140)), exit = fadeOut(tween(if (sheet != null || touchLocked) 0 else 140)),
+                            enter = fadeIn(tween(140)), exit = fadeOut(tween(if (sheet != null || touchLocked || holding) 0 else 140)),
                             modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
                         MaterialTheme(colorScheme = if (fullscreen) MaterialTheme.colorScheme else pageColors) {
                         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {

@@ -16,6 +16,15 @@ import androidx.compose.ui.window.DialogWindowProvider
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import java.util.function.Consumer
 
+/** Uniform native corners must report ROUND_RECT, not a per-corner path outline.
+ * DecorView reads that radius for its separate compositor blur drawable. */
+internal fun filewayWindowGlassBackground(corner: Float, bottomAttached: Boolean): GradientDrawable =
+    GradientDrawable().apply {
+        setColor(Color.TRANSPARENT)
+        if (bottomAttached) cornerRadii = floatArrayOf(corner, corner, corner, corner, 0f, 0f, 0f, 0f)
+        else cornerRadius = corner
+    }
+
 /** Native compositor backdrop blur, restricted to the actual floating window.
  * Callers must size their Window to the surface, never use a fullscreen shell.
  * Includes SurfaceView; no frame capture or rendering-surface replacement.
@@ -29,11 +38,7 @@ import java.util.function.Consumer
     val radius = with(LocalDensity.current) { blurRadius.roundToPx().coerceAtMost(120) }
     val corner = with(LocalDensity.current) { 12.dp.toPx() }
     val background = remember(window, corner, bottomAttached) {
-        GradientDrawable().apply {
-            setColor(Color.TRANSPARENT)
-            cornerRadii = if (bottomAttached) floatArrayOf(corner, corner, corner, corner, 0f, 0f, 0f, 0f)
-                else FloatArray(8) { corner }
-        }
+        filewayWindowGlassBackground(corner, bottomAttached)
     }
     SideEffect {
         window?.let {
