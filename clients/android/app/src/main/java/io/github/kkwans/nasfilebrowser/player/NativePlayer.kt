@@ -98,6 +98,8 @@ class NativePlayer(context: Context) {
     private var subtitleDisabled = false
     private var subtitleExplicitlyChosen = false
     private var automaticSubtitleId: Int? = null
+    private var audioSelection = AudioSelectionPolicy()
+    private var audioRoles: Map<String, AudioTrackRole> = emptyMap()
     private val trackCommands = mutableMapOf<Int, Runnable>()
     private val trackTimeouts = mutableMapOf<Int, Runnable>()
     private data class Choice(val group: TrackGroup, val index: Int, val type: Int)
@@ -159,6 +161,10 @@ class NativePlayer(context: Context) {
         subtitleDisabled = restore != null
         subtitleExplicitlyChosen = restore != null && restore.subtitleMode != DecoderSubtitleMode.AUTO
         automaticSubtitleId = null
+        audioSelection = AudioSelectionPolicy(restoring = restore != null)
+        // Extractors run off-main; one map belongs only to this media generation.
+        val currentAudioRoles = java.util.concurrent.ConcurrentHashMap<String, AudioTrackRole>()
+        audioRoles = currentAudioRoles
         mutable.value = PlayerState(phase = "正在打开视频", rate = session.preferredRate, mediaGeneration = epoch,
             videoDecodePolicy = videoDecodePolicy, subtitleDelayMs = restore?.subtitleDelayMs ?: 0)
         trace.beginOpen(positionMs)
@@ -194,7 +200,7 @@ class NativePlayer(context: Context) {
             }
         val extractors = ExtractorsFactory {
             DefaultExtractorsFactory().createExtractors().map {
-                if (it is MatroskaExtractor) MediaSubtitleExtractor(subtitles) else it
+                if (it is MatroskaExtractor) MediaSubtitleExtractor(subtitles) { id, role -> currentAudioRoles[id] = role } else it
             }.toTypedArray()
         }
         val bufferControl = PlaybackLoadControl().also { loadControl = it }
@@ -463,6 +469,7 @@ class NativePlayer(context: Context) {
         val player = engine ?: return
         val audio = mutableListOf(NativeTrack(-1, "关闭")); val text = mutableListOf(NativeTrack(-1, "关闭"))
         choices.clear()
+        val audioCandidates = mutableListOf<AudioSelectionCandidate>()
         var selectedAudio = -1; var selectedText = -1; var actualText = -1; var selectedFormat: Format? = null
         for (group in player.currentTracks.groups) {
             if (group.type != C.TRACK_TYPE_AUDIO && group.type != C.TRACK_TYPE_TEXT) continue
@@ -475,7 +482,15 @@ class NativePlayer(context: Context) {
                     ?: format.language?.takeUnless { it.isBlank() || it == "und" }
                     ?: "${if (group.type == C.TRACK_TYPE_AUDIO) "音轨" else "字幕"} ${index + 1}"
                 val item = NativeTrack(id, title, mime, format.language.orEmpty())
-                if (group.type == C.TRACK_TYPE_AUDIO) { audio.add(item); if (group.isTrackSelected(index)) selectedAudio = id }
+                if (group.type == C.TRACK_TYPE_AUDIO) {
+                    audio.add(item)
+                    if (group.isTrackSelected(index)) selectedAudio = id
+                    val declared = format.id?.let(audioRoles::get) ?: AudioTrackRole()
+                    audioCandidates += AudioSelectionCandidate(id, item.language,
+                        default = format.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
+                        role = declared.copy(commentary = declared.commentary || format.roleFlags and C.ROLE_FLAG_COMMENTARY != 0),
+                        supported = group.isTrackSupported(index))
+                }
                 else {
                     text.add(item)
                     if (group.isTrackSelected(index)) {
@@ -483,6 +498,15 @@ class NativePlayer(context: Context) {
                         if (!subtitleDisabled) { selectedText = id; selectedFormat = format }
                     }
                 }
+            }
+        }
+        val policy = audioSelection
+        policy.initialChoice(audioCandidates)?.takeIf { it != selectedAudio }?.let { preferred ->
+            val epoch = session.generation
+            handler.post {
+                if (session.accepts(epoch) && engine === player && audioSelection === policy &&
+                    !policy.userOrRestoreOwnsSelection && pendingRestore == null && preferred in choices)
+                    selectTrack(preferred, C.TRACK_TYPE_AUDIO)
             }
         }
         // Prefer declared Chinese/Chinese-English tracks without overriding a user's choice.
@@ -548,6 +572,7 @@ class NativePlayer(context: Context) {
     fun restoreRate(epoch: Long) { if (session.accepts(epoch)) { temporaryRate = null; applyRate(session.preferredRate) } }
     fun volume(value: Int) { engine?.volume = value.coerceIn(0, 100) / 100f; publish() }
     fun audio(id: Int) {
+        audioSelection.manualChoice()
         pendingRestore?.let { it.audioApplied = true; it.audioUserChoice = true }
         selectTrack(id, C.TRACK_TYPE_AUDIO)
     }

@@ -128,7 +128,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val ratePresets by model.playbackPreferences.ratePresets.collectAsStateWithLifecycle()
     val savedSubtitleAppearance by model.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
     // A save acknowledgement must not replace edits made while the write was in flight.
-    var subtitlePreview by remember { mutableStateOf(savedSubtitleAppearance) }
+    var subtitlePreview by remember(file.mediaKey) { mutableStateOf(savedSubtitleAppearance) }
     var savingSubtitle by remember { mutableStateOf(false) }
     LaunchedEffect(subtitlePreview) { model.player.textSubtitleAppearance(subtitlePreview) }
     val liveHoldRate by rememberUpdatedState(holdRate)
@@ -766,14 +766,33 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                             catch (cancelled: CancellationException) { throw cancelled }
                                             catch (_: Exception) { false }
                                             finally { savingSubtitle = false }
-                                        feedback.showSnackbar(if (success) "字幕外观已保存到本机" else "字幕外观保存失败，请重试")
+                                        feedback.showSnackbar(if (success) "已设为默认字幕外观" else "字幕外观保存失败，请重试")
                                     }
                                 }
                             },
                         )
-                        PlayerSheet.SUBTITLE_FONT -> PlayerSubtitleFontPicker(subtitlePreview) {
-                            subtitlePreview = it; sheet = PlayerSheet.SUBTITLE_ADJUST; touch()
-                        }
+                        PlayerSheet.SUBTITLE_FONT -> PlayerSubtitleFontPicker(subtitlePreview,
+                            defaultFontKey = savedSubtitleAppearance.fontKey, saving = savingSubtitle,
+                            onChoose = { subtitlePreview = it; touch() },
+                            onUseOnce = { sheet = PlayerSheet.SUBTITLE_ADJUST; touch() },
+                            onSetDefault = {
+                                if (!savingSubtitle) {
+                                    savingSubtitle = true
+                                    val fontKey = subtitlePreview.fontKey
+                                    val sourceKey = file.mediaKey
+                                    uiScope.launch {
+                                        val success = try { model.playbackPreferences.saveDefaultSubtitleFont(fontKey); true }
+                                            catch (cancelled: CancellationException) { throw cancelled }
+                                            catch (_: Exception) { false }
+                                            finally { savingSubtitle = false }
+                                        if (model.state.value.selected?.mediaKey == sourceKey) {
+                                            if (success && sheet == PlayerSheet.SUBTITLE_FONT && subtitlePreview.fontKey == fontKey)
+                                                sheet = PlayerSheet.SUBTITLE_ADJUST
+                                            feedback.showSnackbar(if (success) "已设为默认字幕字体" else "默认字体保存失败，请重试")
+                                        }
+                                    }
+                                }
+                            })
                         PlayerSheet.EXTERNAL -> NasSubtitlePicker(model, file, chosen = { sheet = PlayerSheet.SUBTITLE; touch() })
                         PlayerSheet.SPEED -> PlayerSpeedHome(
                             rate = state.rate, holdRate = holdRate, presets = ratePresets,

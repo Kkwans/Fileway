@@ -71,6 +71,14 @@ class PlaybackPreferences(context: Context) {
             subtitleMutable.value = value
         }
     }
+    /** Set only the default font. Other defaults must not inherit this video's unsaved edits. */
+    suspend fun saveDefaultSubtitleFont(fontKey: String) = subtitleWrites.withLock {
+        require(fontKey.isNotBlank())
+        withContext(kotlinx.coroutines.NonCancellable + Dispatchers.IO) {
+            check(prefs.edit().putString("subtitle_font", fontKey).commit()) { "无法保存默认字幕字体" }
+            subtitleMutable.value = subtitleMutable.value.copy(fontKey = fontKey)
+        }
+    }
     private val holdWrites = Mutex()
     suspend fun saveHoldRate(value: Float) = holdWrites.withLock {
         require(value.isFinite() && value in .1f..5f)

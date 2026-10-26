@@ -19,7 +19,9 @@ import java.io.EOFException
 /** Public-API interception before Media3's subtitle transcoding; no private field access.
  * This adapter reports original ASS packets; it does not render them. */
 @androidx.annotation.OptIn(UnstableApi::class)
-internal class MediaSubtitleExtractor(private val sink: Sink) : Extractor {
+internal class MediaSubtitleExtractor(private val sink: Sink,
+    private val audioRole: (String, AudioTrackRole) -> Unit = { _, _ -> },
+) : Extractor {
     interface Sink {
         fun active() = Unit
         fun font(name: String, bytes: ByteArray)
@@ -36,16 +38,34 @@ internal class MediaSubtitleExtractor(private val sink: Sink) : Extractor {
         private var name: String? = null
         private var mime: String? = null
         private var bytes: ByteArray? = null
+        private var trackNumber = 0L
+        private var trackType = 0L
+        private var original = false
+        private var commentary = false
         override fun getElementType(id: Int): Int = when (id) {
             0x1941A469, 0x61A7 -> EbmlProcessor.ELEMENT_TYPE_MASTER
             0x466E, 0x4660 -> EbmlProcessor.ELEMENT_TYPE_STRING
             0x465C -> EbmlProcessor.ELEMENT_TYPE_BINARY
+            // Matroska v4 FlagOriginal / FlagCommentary are not exposed by Media3.
+            0x55AE, 0x55AF -> EbmlProcessor.ELEMENT_TYPE_UNSIGNED_INT
             else -> super.getElementType(id)
         }
         override fun isLevel1Element(id: Int) = id == 0x1941A469 || super.isLevel1Element(id)
         override fun startMasterElement(id: Int, contentPosition: Long, contentSize: Long) {
             if (id == 0x61A7) { name = null; mime = null; bytes = null }
-            else super.startMasterElement(id, contentPosition, contentSize)
+            else {
+                if (id == 0xAE) { trackNumber = 0; trackType = 0; original = false; commentary = false }
+                super.startMasterElement(id, contentPosition, contentSize)
+            }
+        }
+        override fun integerElement(id: Int, value: Long) {
+            when (id) {
+                0x55AE -> { original = value == 1L; return }
+                0x55AF -> { commentary = value == 1L; return }
+                0xD7 -> trackNumber = value
+                0x83 -> trackType = value
+            }
+            super.integerElement(id, value)
         }
         override fun stringElement(id: Int, value: String) {
             when (id) { 0x466E -> name = value; 0x4660 -> mime = value; else -> super.stringElement(id, value) }
@@ -57,7 +77,12 @@ internal class MediaSubtitleExtractor(private val sink: Sink) : Extractor {
             bytes = ByteArray(contentSize).also { input.readFully(it, 0, it.size) }
         }
         override fun endMasterElement(id: Int) {
-            if (id != 0x61A7) { super.endMasterElement(id); return }
+            if (id != 0x61A7) {
+                // initializeOutput uses TrackNumber as Format.id. Publish roles before it emits tracks.
+                if (id == 0xAE && trackType == 2L && trackNumber > 0)
+                    audioRole(trackNumber.toString(), AudioTrackRole(original, commentary))
+                super.endMasterElement(id); return
+            }
             val data = bytes; val title = name
             if (data != null && title != null && title.length <= 256 && mime in FONT_MIMES) {
                 fontBytes += data.size

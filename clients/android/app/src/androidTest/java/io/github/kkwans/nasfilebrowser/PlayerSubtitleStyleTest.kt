@@ -190,4 +190,23 @@ class PlayerSubtitleStyleTest {
             assertEquals(saved.fontKey, PlaybackPreferences(isolated).textSubtitleAppearance.value.fontKey)
         } finally { target.deleteSharedPreferences(name) }
     }
+    @Test fun defaultFontDoesNotSaveOtherTemporaryStyleEditsAndSurvivesRecreation(): Unit = runBlocking {
+        val target = instrumentation.targetContext
+        val name = "owned-subtitle-default-${UUID.randomUUID()}"
+        val isolated = object : ContextWrapper(target) {
+            override fun getSharedPreferences(unused: String, mode: Int) = target.getSharedPreferences(name, mode)
+        }
+        try {
+            val store = PlaybackPreferences(isolated)
+            val defaults = TextSubtitleAppearance(scale = 1.25f, bottomPadding = .15f,
+                area = TextSubtitleArea.STAGE, backgroundOpacity = .3f)
+            store.saveTextSubtitleAppearance(defaults)
+            val temporary = defaults.copy(scale = 2f, bottomPadding = .35f, fontKey = "system-default")
+            store.saveDefaultSubtitleFont(temporary.fontKey)
+            assertEquals(defaults.copy(fontKey = "system-default"), store.textSubtitleAppearance.value)
+            assertEquals(defaults.copy(fontKey = "system-default"), PlaybackPreferences(isolated).textSubtitleAppearance.value)
+            assertEquals(2f, temporary.scale, 0f)
+        } finally { target.deleteSharedPreferences(name) }
+    }
+
 }

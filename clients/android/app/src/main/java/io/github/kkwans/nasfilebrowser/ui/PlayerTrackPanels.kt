@@ -323,7 +323,7 @@ internal fun PlayerSubtitleAdjustments(
                 }
                 FilewayButton(onSaveAppearance, Modifier.weight(1f).heightIn(min = 48.dp), enabled = canSave && !saving,
                     contentPadding = PaddingValues(horizontal = 12.dp)) {
-                    FilewayIcon(R.drawable.ic_check, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("保存到本机")
+                    FilewayIcon(R.drawable.ic_check, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("保存为默认")
                 }
             }
         }
@@ -344,11 +344,16 @@ internal fun PlayerSubtitleAdjustments(
 @Composable internal fun PlayerSubtitleFontPicker(
     appearance: TextSubtitleAppearance,
     onChoose: (TextSubtitleAppearance) -> Unit,
+    defaultFontKey: String,
+    saving: Boolean,
+    onUseOnce: () -> Unit,
+    onSetDefault: () -> Unit,
 ) {
     val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
     val current = fonts.resolve(appearance.fontKey)
     LaunchedEffect(Unit) { SubtitleFontCatalog.request() }
-    LazyColumn(Modifier.fillMaxWidth().selectableGroup(), contentPadding = PaddingValues(vertical = 12.dp)) {
+    Column(Modifier.fillMaxWidth()) {
+    LazyColumn(Modifier.weight(1f, fill = false).fillMaxWidth().selectableGroup(), contentPadding = PaddingValues(vertical = 12.dp)) {
         if (fonts.loading || fonts.failed || fonts.missing(appearance.fontKey)) item(key = "status") {
             Text(when {
                 fonts.loading -> "正在读取系统可用字体…"
@@ -363,5 +368,17 @@ internal fun PlayerSubtitleAdjustments(
                 onChoose(appearance.copy(fontKey = option.key))
             }
         }
+    }
+    HorizontalDivider(color = FilewayTheme.status.mediaSecondary.copy(alpha = .16f))
+    Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FilewayOutlinedButton(onUseOnce, Modifier.weight(1f).heightIn(min = 48.dp), enabled = !saving) {
+            FilewayIcon(R.drawable.ic_visibility, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("本次使用")
+        }
+        FilewayButton(onSetDefault, Modifier.weight(1f).heightIn(min = 48.dp),
+            enabled = !saving && current.key != defaultFontKey) {
+            FilewayIcon(R.drawable.ic_check, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
+            Text(if (saving) "保存中…" else if (current.key == defaultFontKey) "已是默认" else "设为默认")
+        }
+    }
     }
 }
