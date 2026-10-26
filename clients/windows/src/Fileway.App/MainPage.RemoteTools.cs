@@ -1,4 +1,5 @@
 using Fileway.Core.Contracts;
+using Fileway.App.Controls.StorageTools;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -8,6 +9,7 @@ namespace Fileway.App;
 
 public sealed partial class MainPage
 {
+    private StorageAnalysisControl? _storageAnalysisView;
     private bool CanShowRemoteTools => !_disposed && !_connecting && _session is not null &&
         _browserDialog is null && _storageDialog is null && !CollectionsPanel.HasOpenDialog && !NasTasksPane.HasOpenDialog && !TrashPane.HasOpenDialog &&
         ConnectionPanel.Visibility != Visibility.Visible;
@@ -40,14 +42,6 @@ public sealed partial class MainPage
         SearchPane.SetContext(_files as IServerSearchService, _files, session, _directory ?? _root);
         NasTasksPane.SetContext(_files as IServerTaskService, Operations, session);
         TrashPane.SetContext(_files as ITrashService, Operations, session);
-        // Services arrive via SetServicesAsync after the constructor; attach here (idempotent)
-        // so a missing service can never throw during startup.
-        if (_storageAnalysis is { } storageAnalysis)
-        {
-            StorageAnalysisPane.Attach(storageAnalysis, _storageAnalysis as IDuplicateAnalysisService);
-            if (_storageAnalysis is IAdminUserService adminUsers && session is { } adminSession)
-                StorageAnalysisPane.AttachAdmin(adminUsers, adminSession.DisplayName);
-        }
         if (session is null) HideRemoteToolsPanes();
     }
 
@@ -56,7 +50,14 @@ public sealed partial class MainPage
         if (SearchPane is not null) { SearchPane.Visibility = Visibility.Collapsed; SearchPane.SuspendView(); }
         if (NasTasksPane is not null) { NasTasksPane.Visibility = Visibility.Collapsed; NasTasksPane.SuspendView(); }
         if (TrashPane is not null) { TrashPane.Visibility = Visibility.Collapsed; TrashPane.SuspendView(); }
-        if (StorageAnalysisPane is not null) { StorageAnalysisPane.Visibility = Visibility.Collapsed; StorageAnalysisPane.SuspendView(); }
+        RetireStorageAnalysis();
+    }
+
+    private void RetireStorageAnalysis()
+    {
+        _storageAnalysisView?.Dispose();
+        _storageAnalysisView = null;
+        if (StorageToolsHost is not null) { StorageToolsHost.Visibility = Visibility.Collapsed; StorageToolsHost.Content = null; }
     }
 
     private async Task ShowSearchAsync(string? query = null)
@@ -82,16 +83,23 @@ public sealed partial class MainPage
         if (!string.IsNullOrWhiteSpace(args.QueryText)) await ShowSearchAsync(args.QueryText);
     }
 
-    private async void StorageTools_Click(object sender, RoutedEventArgs args)
+    private void StorageTools_Click(object sender, RoutedEventArgs args)
     {
-        if (!CanShowRemoteTools || _storageAnalysis is null) return;
+        if (!CanShowRemoteTools || _storageAnalysis is null || _session is not { } session || (_directory ?? _root) is not { } directory) return;
+        if (StorageToolsHost.Visibility == Visibility.Visible) return;
         CloseSidebarOverlay(); HideCollections(); UpdateRemoteToolsContext();
+        // A view owns one immutable account/directory context. Retiring it cancels
+        // observation; a later visit cannot reuse its canceled token or old callbacks.
+        var view = new StorageAnalysisControl();
+        view.Attach(_storageAnalysis, _storageAnalysis as IDuplicateAnalysisService);
+        view.SetContext(directory);
+        if (_storageAnalysis is IAdminUserService admin) view.AttachAdmin(admin, session.DisplayName);
+        _storageAnalysisView = view;
+        StorageToolsHost.Content = view;
         Workspace.Visibility = Visibility.Collapsed;
-        StorageAnalysisPane.Visibility = Visibility.Visible;
+        StorageToolsHost.Visibility = Visibility.Visible;
         _thumbnailController.SetContext(null, null);
         UpdateSelection();
-        StorageAnalysisPane.SetContext(_directory ?? _root);
-        await Task.CompletedTask;
     }
 
     private async void NasTasks_Click(object sender, RoutedEventArgs args)

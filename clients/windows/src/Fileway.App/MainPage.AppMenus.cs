@@ -80,6 +80,7 @@ public sealed partial class MainPage
         MenuServerSearchItem.IsEnabled = connected && !connectionView && _files is IServerSearchService && (_directory ?? _root) is not null;
         MenuNasTasksItem.IsEnabled = NasTasksButton.IsEnabled = connected && !connectionView && _files is IServerTaskService;
         MenuTrashPageItem.IsEnabled = TrashPageButton.IsEnabled = connected && !connectionView && _files is ITrashService;
+        StorageToolsButton.IsEnabled = connected && !connectionView && _storageAnalysis is not null && (_directory ?? _root) is not null;
         CollectionsButton.IsEnabled = connected && _collections is not null && !connectionView;
         LogoutButton.IsEnabled = connected;
         ChangePasswordButton.Visibility = connected && _session is { } session &&

@@ -228,7 +228,7 @@
   <nasTasks:NasTasksControl x:Name="NasTasksPane" Visibility="Collapsed"/>
   <trash:TrashControl x:Name="TrashPane" Visibility="Collapsed"/>
   <transfers:TransferCenterControl x:Name="TransfersPanel" Visibility="Collapsed"/>
-  <storageTools:StorageAnalysisControl x:Name="StorageAnalysisPane" Visibility="Collapsed"/>
+  <ContentControl x:Name="StorageToolsHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
   <collections:ResourceCollectionsControl x:Name="CollectionsPanel" Visibility="Collapsed"/>
   <Grid x:Name="ConnectionPanel" Background="Transparent" Visibility="Collapsed">
    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

@@ -23,11 +23,11 @@ public sealed partial class FilewayClientServices : IDuplicateAnalysisService
             }, requireDownload: true, HostCallSafety.Control, cancellationToken, operation: "request",
             beforeSend: async token =>
             {
-                var current = await GetAsync(directory, token).ConfigureAwait(false);
-                if (!current.IsDirectory || current.Resource.WirePath != directory.WirePath)
+                var current = await FileMetadataAsync(state, directory, allowMissing: false, token).ConfigureAwait(false);
+                if (current is not { IsDirectory: true } || current.Resource.WirePath != directory.WirePath)
                     throw Safe(ErrorCode.SourceChanged, "扫描范围已变化，请重新选择。", 412);
             }).ConfigureAwait(false);
-            RequireExactStatus(response, 200);
+            RequireExactStatus(response, 202);
             using var body = ParseBody(response);
             string id = RequiredText(body.RootElement.GetProperty("id"));
             lock (_gate)
@@ -60,6 +60,8 @@ public sealed partial class FilewayClientServices : IDuplicateAnalysisService
             EnsureActive(state);
             return ParseDuplicateReport(body.RootElement);
         }
+        catch (FilewayException error) when (error.Error.HttpStatus is 404 or 409)
+        { EnsureActive(state); return null; }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }
@@ -154,6 +156,8 @@ public sealed partial class FilewayClientServices : IDuplicateAnalysisService
             EnsureActive(state);
             return ParseServerTask(body.RootElement, state.Session.Account);
         }
+        catch (FilewayException error) when (error.Error.HttpStatus == 404)
+        { EnsureActive(state); return null; }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }
@@ -169,7 +173,7 @@ public sealed partial class FilewayClientServices : IDuplicateAnalysisService
         {
             var response = await RequestAsync(state, "/api/analysis/duplicates/cleanup/" + Uri.EscapeDataString(cleanupTask.Id), linked.Token).ConfigureAwait(false);
             int status = response.GetProperty("status").GetInt32();
-            if (status == 404) return null;
+            if (status is 404 or 409) return null;
             RequireExactStatus(response, 200);
             using var body = ParseBody(response);
             EnsureActive(state);
@@ -185,6 +189,8 @@ public sealed partial class FilewayClientServices : IDuplicateAnalysisService
             }
             return new DuplicateCleanupResult(RequiredText(row.GetProperty("reportId")), groups);
         }
+        catch (FilewayException error) when (error.Error.HttpStatus is 404 or 409)
+        { EnsureActive(state); return null; }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }

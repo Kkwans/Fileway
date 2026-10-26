@@ -25,11 +25,11 @@ public sealed partial class FilewayClientServices : IStorageAnalysisService
             {
                 // Scope fidelity: the server path this task analyzes must still be the directory
                 // the user chose, re-observed right before submission.
-                var current = await GetAsync(directory, token).ConfigureAwait(false);
-                if (!current.IsDirectory || current.Resource.WirePath != directory.WirePath)
+                var current = await FileMetadataAsync(state, directory, allowMissing: false, token).ConfigureAwait(false);
+                if (current is not { IsDirectory: true } || current.Resource.WirePath != directory.WirePath)
                     throw Safe(ErrorCode.SourceChanged, "分析范围已变化，请重新选择。", 412);
             }).ConfigureAwait(false);
-            RequireExactStatus(response, 200);
+            RequireExactStatus(response, 202);
             using var body = ParseBody(response);
             string id = RequiredText(body.RootElement.GetProperty("id"));
             lock (_gate)
@@ -63,6 +63,8 @@ public sealed partial class FilewayClientServices : IStorageAnalysisService
             EnsureActive(state);
             return ParseStorageReport(body.RootElement);
         }
+        catch (FilewayException error) when (error.Error.HttpStatus is 404 or 409)
+        { EnsureActive(state); return null; }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }
