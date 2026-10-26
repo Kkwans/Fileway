@@ -70,12 +70,18 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         _service = service; _files = files;
         if (changed)
         {
-            ++_generation; ++_openGeneration; _contextCancellation?.Cancel(); _contextCancellation?.Dispose();
-            _contextCancellation = session is null ? null : new CancellationTokenSource();
-            _dialog?.Hide(); _session = session; _snapshot = null; _busy = false;
-            _records.Clear(); _resources.Clear();
-            _browseTagId = null;
-            GroupBox.ItemsSource = null; Status.IsOpen = false;
+            var wasRendering = _rendering;
+            _rendering = true;
+            try
+            {
+                ++_generation; ++_openGeneration; _contextCancellation?.Cancel(); _contextCancellation?.Dispose();
+                _contextCancellation = session is null ? null : new CancellationTokenSource();
+                _dialog?.Hide(); _session = session; _snapshot = null; _busy = false;
+                _records.Clear(); _resources.Clear();
+                _browseTagId = null;
+                GroupBox.ItemsSource = null; Status.IsOpen = false;
+            }
+            finally { _rendering = wasRendering; }
         }
         else _session = session;
         RestoreAccountWriteState();
@@ -125,6 +131,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
 
     private void Render()
     {
+        if (_rendering || _disposed) return;
         var selectedId = Selected?.Id;
         var groupId = (GroupBox.SelectedItem as GroupChoice)?.Id;
         _rendering = true;
