@@ -57,6 +57,7 @@ public sealed partial class MainWindow : Window, IDisposable
     public event EventHandler? ExitRequested;
     public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);
+    public void ShowFileOpenError(string name, string message) => ((MainPage)RootFrame.Content).ShowFileOpenError(name, message);
     private void Chrome_CloseRequested(object? sender, EventArgs args) => CloseRequested?.Invoke(this, args);
     private void Chrome_ExitRequested(object? sender, EventArgs args) => ExitRequested?.Invoke(this, args);
 

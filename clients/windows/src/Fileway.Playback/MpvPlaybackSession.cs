@@ -126,9 +126,9 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
                     ("title", "Fileway video"), ("force-media-title", _snapshot.DisplayName.Replace("\0", "", StringComparison.Ordinal)),
                     ("vo", "gpu-next"), ("gpu-context", "d3d11"), ("d3d11-output-mode", "window"),
                     ("hwdec", "auto-safe"), ("audio-client-name", "Fileway"), ("network-timeout", "15"),
-                // 100% equals the system mixer level; 100–200% is engine-side amplification and
-                // stays independent of the Windows volume. Boost may clip on loud sources.
-                ("softvol-max", "200"),
+                    // 100% equals the system mixer level; 100–200% is engine-side amplification and
+                    // stays independent of the Windows volume. Boost may clip on loud sources.
+                    ("volume-max", "200"),
                     // mpv 0.41 options: bounded packet RAM; the owner lease supplies persistent blocks.
                     ("cache", _request.Input is RemotePlaybackInput or DownloadPlaybackInput ? "yes" : "auto"), ("cache-on-disk", "no"),
                     ("cache-secs", "30"), ("demuxer-readahead-secs", "1"),

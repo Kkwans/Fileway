@@ -134,9 +134,8 @@ public partial class App : Application, IAsyncDisposable
             {
                 if (!_closing) _window.ShowStorageWarning("本地缓存暂不可用，连接与在线浏览仍可继续。请检查缓存目录后重试。");
             }
-            await OpenLaunchFileAsync();
         }
-        catch (OperationCanceledException) when (_closing) { }
+        catch (OperationCanceledException) when (_closing) { return; }
         catch (Exception exception)
         {
             RecordStartupFailure(exception);
@@ -147,7 +146,9 @@ public partial class App : Application, IAsyncDisposable
                     : "无法启动原生核心或媒体组件。请完整解压预览包后运行 Fileway.App.exe。";
                 _window?.ShowStartupError(message);
             }
+            return;
         }
+        if (!_closing) await OpenLaunchFileAsync();
     }
 
     private async Task OpenLaunchFileAsync()
@@ -155,13 +156,21 @@ public partial class App : Application, IAsyncDisposable
         // Desktop file activation also works offline: a completed local file needs no server session.
         var arguments = Environment.GetCommandLineArgs();
         if (arguments.Length != 2 || !Path.IsPathFullyQualified(arguments[1])) return;
-        var path = Path.GetFullPath(arguments[1]);
-        if (!File.Exists(path))
+        var displayName = "本地文件";
+        try
         {
-            _window?.ShowStartupError("本地文件不存在或不可读取，请重新选择文件。");
-            return;
+            var path = Path.GetFullPath(arguments[1]);
+            displayName = Path.GetFileName(path);
+            if (path.StartsWith(@"\\", StringComparison.Ordinal) || !File.Exists(path))
+                throw new FilewayException(new ErrorInfo(ErrorCode.InvalidRequest, "本地文件不存在或不可读取，请重新选择文件。"));
+            await _playback!.OpenAsync(new PlaybackOpenRequest(new LocalPlaybackInput(path, displayName)), _lifetime.Token);
         }
-        await _playback!.OpenAsync(new PlaybackOpenRequest(new LocalPlaybackInput(path, Path.GetFileName(path))), _lifetime.Token);
+        catch (OperationCanceledException) when (_closing) { }
+        catch (Exception error)
+        {
+            if (!_closing) _window?.ShowFileOpenError(displayName,
+                error is FilewayException known ? known.Error.Message : "文件未能打开，请重新选择文件后重试。");
+        }
     }
 
     private void MainWindow_CloseRequested(object? sender, EventArgs args)

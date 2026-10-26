@@ -201,6 +201,7 @@ public sealed partial class MainPage : Page, IDisposable
         catch (Exception exception) { LoginError(ErrorMessage(exception)); }
     }
     public void ShowStartupError(string message) { LoginNotice.Severity = InfoBarSeverity.Error; LoginNotice.Message = message; SetNotice("核心服务启动失败", message, InfoBarSeverity.Error); }
+    public void ShowFileOpenError(string name, string message) => SetNotice("无法打开文件", $"{name}：{message}", InfoBarSeverity.Error);
     public void Shutdown() => Dispose();
     public void Dispose()
     {

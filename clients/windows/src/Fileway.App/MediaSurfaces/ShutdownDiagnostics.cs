@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 
 namespace Fileway.App.MediaSurfaces;
@@ -29,6 +30,7 @@ internal sealed class ShutdownDiagnostics : IDisposable
     private static readonly Lazy<ShutdownDiagnostics?> Current = new(() => TryCreate());
     private readonly string _directory;
     private readonly object _gate = new();
+    private readonly long _started = Stopwatch.GetTimestamp();
     private FileStream? _stream;
     private int _recorded;
     private bool _stopped;
@@ -80,6 +82,7 @@ internal sealed class ShutdownDiagnostics : IDisposable
                     schemaVersion = 1,
                     stage = (int)stage,
                     uiThread = uiThread ? 1 : 0,
+                    elapsedMilliseconds = (long)Stopwatch.GetElapsedTime(_started).TotalMilliseconds,
                 });
                 _stream.Write(bytes);
                 _stream.WriteByte((byte)'\n');
