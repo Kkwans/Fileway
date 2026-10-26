@@ -24,11 +24,15 @@ public sealed partial class UploadApplicationService
             Binding? previous;
             lock (_gate) { _opening = opening; previous = FenceCurrentLocked(); }
             try { await AwaitDrainsAsync().ConfigureAwait(false); }
-            catch
+            catch (Exception error)
             {
                 // Drain failures are reported only after local release. Retire the old owner but do not open a new one.
-                if (previous is not null) await _connection.DisconnectAsync(previous.Context.Account, CancellationToken.None).ConfigureAwait(false);
-                throw;
+                if (previous is not null)
+                {
+                    try { await _connection.DisconnectAsync(previous.Context.Account, CancellationToken.None).ConfigureAwait(false); }
+                    catch (Exception) { /* Preserve the original drain failure and keep replacement admission fenced. */ }
+                }
+                throw Normalize(error);
             }
             if (previous is not null)
                 await _connection.DisconnectAsync(previous.Context.Account, CancellationToken.None).ConfigureAwait(false);
