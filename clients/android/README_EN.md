@@ -6,9 +6,9 @@ A native Android file and media client for your own Fileway server. Android **10
 
 ## Install and update
 
-[Download Android 1.1.0 stable](https://github.com/Kkwans/Fileway/releases/download/android-1.1.0/fileway-android-1.1.0.apk) · [Release notes](docs/release-1.1.0.md) · [All releases](https://github.com/Kkwans/Fileway/releases)
+[Download Android 1.1.1 stable](https://github.com/Kkwans/Fileway/releases/download/android-1.1.1/fileway-android-1.1.1.apk) · [Release notes](docs/release-1.1.1.md) · [All releases](https://github.com/Kkwans/Fileway/releases)
 
-The current stable release is **1.1.0**. Upgrade over the existing app to preserve the package, signing identity and local state. Uninstalling or clearing data is not part of an ordinary upgrade.
+The current stable release is **1.1.1**. Upgrade over the existing app to preserve the package, signing identity and local state. Uninstalling or clearing data is not part of an ordinary upgrade.
 
 ## Screenshots
 
