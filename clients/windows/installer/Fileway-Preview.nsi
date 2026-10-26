@@ -16,6 +16,7 @@ Var ProductLanguage
 Var StartMenuLink
 Var DesktopLink
 Var CreatedVersion
+Var StaleRegistration
 !ifndef PAYLOAD_DIR
 !error "PAYLOAD_DIR must point to an externally staged publish directory."
 !endif
@@ -228,10 +229,23 @@ Function un.onInit
 FunctionEnd
 
 Function VerifyInstallDirectory
+  StrCpy $StaleRegistration 0
   ReadRegStr $0 HKCU "${UNINSTALL_KEY}" "InstallLocation"
   ${If} $0 != ""
-    MessageBox MB_OK|MB_ICONSTOP "$(VersionExists)" /SD IDOK
-    Abort
+    ; Only a confirmed missing registered directory permits recovery. Access
+    ; errors and partial payloads remain protected; never delete the old path.
+    System::Call 'kernel32::GetFileAttributesW(w r0) i.r1 ?e'
+    Pop $2
+    ${If} $1 != -1
+      MessageBox MB_OK|MB_ICONSTOP "$(VersionExists)" /SD IDOK
+      Abort
+    ${EndIf}
+    ${If} $2 != 2
+    ${AndIf} $2 != 3
+      MessageBox MB_OK|MB_ICONSTOP "$(VersionExists)" /SD IDOK
+      Abort
+    ${EndIf}
+    StrCpy $StaleRegistration 1
   ${EndIf}
   IfFileExists "$INSTDIR\versions\${PACKAGE_VERSION}" 0 new_version
     MessageBox MB_OK|MB_ICONSTOP "$(VersionExists)" /SD IDOK
@@ -330,6 +344,16 @@ Section "$(ProductName)" SEC_APP
   FileWrite $0 "$ProductLanguage$\r$\n"
   FileClose $0
   IfErrors language_write_failed
+  ${If} $StaleRegistration == 1
+    ; Reconcile only unchanged shortcuts owned by the missing installation,
+    ; after the new payload is complete. Preserve edited/replaced shortcuts.
+    !insertmacro DeleteOwnedShortcut StartMenuShortcut "$SMPROGRAMS"
+    !insertmacro DeleteOwnedShortcut DesktopShortcut "$DESKTOP"
+    DeleteRegValue HKCU "${UNINSTALL_KEY}" "StartMenuShortcut"
+    DeleteRegValue HKCU "${UNINSTALL_KEY}" "StartMenuShortcutStamp"
+    DeleteRegValue HKCU "${UNINSTALL_KEY}" "DesktopShortcut"
+    DeleteRegValue HKCU "${UNINSTALL_KEY}" "DesktopShortcutStamp"
+  ${EndIf}
   !insertmacro CreateOwnedShortcut "$StartMenuLink" StartMenuShortcut
   WriteRegStr HKCU "${SETTINGS_KEY}" "InstallRoot" "$INSTDIR"
   WriteRegStr HKCU "${UNINSTALL_KEY}" "InstallerLanguage" "$LANGUAGE"
