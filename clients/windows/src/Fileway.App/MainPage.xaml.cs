@@ -108,7 +108,7 @@ public sealed partial class MainPage : Page, IDisposable
             UpdateThumbnailContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
         };
         FileList.ItemsSource = FileGrid.ItemsSource = _rows;
-        FileGrid.Loaded += (_, _) => UpdateGridMetrics();
+        FileGrid.Loaded += (_, _) => QueueGridMetricsUpdate();
         FileGrid.SizeChanged += (_, _) => UpdateGridMetrics();
         InitializeBrowserShell();
         InitializeTransferCenter();
@@ -223,6 +223,7 @@ public sealed partial class MainPage : Page, IDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated;
         _remoteClipboard.Clear();
         DisposePresentation();
         DisposeApplicationMenus();
@@ -881,9 +882,25 @@ public sealed partial class MainPage : Page, IDisposable
             foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource))) ActiveFiles.SelectedItems.Add(row);
         }
         finally { _applyingPreferences = false; _changingView = false; }
-        UpdateGridMetrics();
+        QueueGridMetricsUpdate();
         _thumbnailController.RefreshVisibility();
         UpdateSelection();
+    }
+    private void QueueGridMetricsUpdate()
+    {
+        // Changing the template can retire ItemsPanelRoot until the next layout.
+        // One pending handler applies the latest preference to the new panel.
+        FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated;
+        FileGrid.LayoutUpdated += FileGrid_LayoutUpdated;
+        FileGrid.InvalidateMeasure();
+    }
+    private void FileGrid_LayoutUpdated(object? sender, object e)
+    {
+        if (_disposed || FileGrid.Visibility != Visibility.Visible)
+        { FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated; return; }
+        if (FileGrid.ItemsPanelRoot is not ItemsWrapGrid) return;
+        FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated;
+        UpdateGridMetrics();
     }
     private void UpdateGridMetrics()
     {
