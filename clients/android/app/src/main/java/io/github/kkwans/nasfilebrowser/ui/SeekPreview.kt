@@ -46,43 +46,38 @@ import kotlin.math.abs
     return asset
 }
 
-@Composable internal fun SeekPreview(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long?, durationMs: Long, startMs: Long) {
-    if (positionMs == null) return
-    BoxWithConstraints(Modifier.fillMaxWidth().height(0.dp)) {
-        val fraction = if (durationMs > 0) (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) else .5f
-        PlayerFeedbackWindow(Modifier.offset(x = maxWidth * fraction), above = true) {
-            SeekFeedbackContent(asset, positionMs, startMs, durationMs)
-        }
-    }
-}
-
 @Composable internal fun PictureSeekFeedback(targetMs: Long, startMs: Long, durationMs: Long,
     asset: Pair<VideoSprite, Bitmap>?, modifier: Modifier = Modifier) {
     PlayerFeedbackWindow(modifier) { SeekFeedbackContent(asset, targetMs, startMs, durationMs) }
 }
 
 @Composable private fun SeekFeedbackContent(asset: Pair<VideoSprite, Bitmap>?, target: Long, start: Long, duration: Long) {
-    Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         SeekThumbnail(asset, target)
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(clock(target), color = Color.White, fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold)
-            if (duration > 0) Text("/ ${clock(duration)}", color = Color.White.copy(alpha=.68f), fontSize = 12.sp)
-        }
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilewayIcon(if (target < start) R.drawable.ic_arrow_back else R.drawable.ic_arrow_forward, null,
-                Modifier.size(18.dp), tint = Color.White.copy(alpha=.72f))
-            Text((if (target < start) "−" else "+") + clock(abs(target-start)), color = Color.White.copy(alpha=.72f), fontSize = 12.sp)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(clock(target), color = Color.White, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace, maxLines = 1)
+                if (duration > 0) Text("/ ${clock(duration)}", color = Color.White.copy(alpha=.68f), fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace, maxLines = 1)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilewayIcon(if (target < start) R.drawable.ic_arrow_back else R.drawable.ic_arrow_forward, null,
+                    Modifier.size(14.dp), tint = Color.White.copy(alpha=.72f))
+                Text((if (target < start) "−" else "+") + clock(abs(target-start)), color = Color.White.copy(alpha=.72f),
+                    fontSize = 12.sp, lineHeight = 16.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
+            }
         }
     }
 }
 
 /** Stable preview bounds: asynchronous arrival never moves the window or the target-time row. */
-@Composable private fun SeekThumbnail(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long, width: Dp = 144.dp) {
+@Composable private fun SeekThumbnail(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long, width: Dp = 64.dp) {
     Box(Modifier.width(width).height(width * 9f / 16f).clip(RoundedCornerShape(12.dp))
         .background(Color.White.copy(alpha = .06f)), contentAlignment = Alignment.Center) {
         if (asset == null) {
-            FilewayIcon(R.drawable.ic_image, null, Modifier.size(24.dp), tint = Color.White.copy(alpha = .24f))
+            FilewayIcon(R.drawable.ic_image, null, Modifier.size(18.dp), tint = Color.White.copy(alpha = .24f))
         } else {
             val (sprite, bitmap) = asset
             val image = remember(bitmap) { bitmap.asImageBitmap() }

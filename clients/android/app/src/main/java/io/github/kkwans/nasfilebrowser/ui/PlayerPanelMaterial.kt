@@ -23,6 +23,10 @@ import androidx.core.view.WindowCompat
             WindowCompat.setDecorFitsSystemWindows(it, false)
             it.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
             val attributes = it.attributes
+            attributes.flags = attributes.flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            // Keep the bounded floating window, but remove WindowManager's separate
+            // system-bar fitting. The panel body already owns its one safe inset.
+            if (android.os.Build.VERSION.SDK_INT >= 30) attributes.setFitInsetsTypes(0)
             attributes.gravity = if (landscape) Gravity.TOP or Gravity.END else Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             attributes.x = if (landscape) right else 0
             // Floating windows' parent frame already excludes the IME. Adding
@@ -33,5 +37,5 @@ import androidx.core.view.WindowCompat
             it.attributes = attributes
         }
     }
-    return rememberFilewayWindowBlur(window)
+    return rememberFilewayWindowBlur(window, bottomAttached = !landscape)
 }

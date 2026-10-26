@@ -490,17 +490,19 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         }
                                     })
                             })
-                            if (holding && !pipMode) PlayerActionFeedback("${holdRate}× 倍速播放", R.drawable.ic_fast,
-                                Modifier.align(Alignment.TopCenter).padding(top = 20.dp))
-                            gestureMessage?.takeIf { !pipMode }?.let { message -> PlayerActionFeedback(message,
-                                when { message.startsWith("−") -> R.drawable.ic_skip_back; message.startsWith("+") -> R.drawable.ic_skip_forward; else -> R.drawable.art_volume },
-                                Modifier.align(Alignment.Center)) }
-                            gestureMeter?.takeIf { !pipMode }?.let { (brightnessControl, level) ->
-                                PlayerLevelFeedback(brightnessControl, level, Modifier.align(Alignment.Center))
+                            val feedbackSeek = seek?.toLong() ?: pictureSeek
+                            val feedbackMeter = gestureMeter
+                            val feedbackMessage = gestureMessage
+                            if (!pipMode) when {
+                                feedbackSeek != null -> PictureSeekFeedback(feedbackSeek,
+                                    if (seek != null) timelineStart else dragSession?.startMs ?: state.positionMs,
+                                    state.durationMs, seekPreview, Modifier.align(Alignment.Center))
+                                holding -> PlayerActionFeedback("${holdRate}× 倍速播放", R.drawable.ic_fast, Modifier.align(Alignment.Center))
+                                feedbackMeter != null -> PlayerLevelFeedback(feedbackMeter.first, feedbackMeter.second, Modifier.align(Alignment.Center))
+                                feedbackMessage != null -> PlayerActionFeedback(feedbackMessage,
+                                    when { feedbackMessage.startsWith("−") -> R.drawable.ic_skip_back; feedbackMessage.startsWith("+") -> R.drawable.ic_skip_forward; else -> R.drawable.art_volume },
+                                    Modifier.align(Alignment.Center))
                             }
-                            pictureSeek?.takeIf { !pipMode }?.let { target -> dragSession?.let { drag ->
-                                PictureSeekFeedback(target, drag.startMs, drag.durationMs, seekPreview.takeIf { fullscreen }, Modifier.align(Alignment.Center))
-                            } }
                             val failure = if (client.busy) null else client.error ?: state.error
                             if (failure != null && pipMode) {
                                 Text("播放中断", color = Color.White, style = MaterialTheme.typography.labelSmall,
@@ -574,7 +576,6 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     fontFamily = FontFamily.Monospace, maxLines = 1,
                                     modifier = Modifier.offset(y = if (fullscreen) 4.dp else 0.dp))
                                 Box(Modifier.weight(1f)) {
-                                SeekPreview(seekPreview, seek?.toLong(), state.durationMs, timelineStart)
                                 PlayerSlider(seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat().coerceIn(0f, state.durationMs.toFloat().coerceAtLeast(1f)), state.durationMs.toFloat().coerceAtLeast(1f),
                                     "播放进度", controlsEnabled && state.seekable && state.durationMs > 0,
                                     { if (seek == null) timelineStart = state.positionMs; gestureSeek.reset(); seek = it; touch() }, { seek?.let { model.player.seek(it.toLong()) }; seek = null; touch() },
@@ -1070,7 +1071,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             .heightIn(max = with(density) { panelHeight.toDp() })
             .semantics { contentDescription = "播放设置" }) {
             val panel = Modifier.fillMaxWidth().then(if (landscape) Modifier.fillMaxHeight() else Modifier)
-            val panelShape = RoundedCornerShape(12.dp)
+            val panelShape = if (landscape) RoundedCornerShape(12.dp) else RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
             io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPlayerPanelTheme(panelBlurred) {
             CompositionLocalProvider(LocalContentColor provides FilewayTheme.status.mediaContent) {
             Column(panel.clip(panelShape).background(FilewayTheme.status.mediaSurface)

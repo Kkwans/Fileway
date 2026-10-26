@@ -21,15 +21,19 @@ import java.util.function.Consumer
  * Includes SurfaceView; no frame capture or rendering-surface replacement.
  * https://source.android.com/docs/core/display/window-blurs
  */
-@Composable internal fun rememberFilewayWindowBlur(window: Window?, blurRadius: Dp = 24.dp): Boolean {
+@Composable internal fun rememberFilewayWindowBlur(window: Window?, blurRadius: Dp = 24.dp, bottomAttached: Boolean = false): Boolean {
     val manager = remember(window) { window?.context?.getSystemService(WindowManager::class.java) }
     var enabled by remember(window) {
         mutableStateOf(Build.VERSION.SDK_INT >= 31 && manager?.isCrossWindowBlurEnabled == true)
     }
     val radius = with(LocalDensity.current) { blurRadius.roundToPx().coerceAtMost(120) }
     val corner = with(LocalDensity.current) { 12.dp.toPx() }
-    val background = remember(window, corner) {
-        GradientDrawable().apply { setColor(Color.TRANSPARENT); cornerRadius = corner }
+    val background = remember(window, corner, bottomAttached) {
+        GradientDrawable().apply {
+            setColor(Color.TRANSPARENT)
+            cornerRadii = if (bottomAttached) floatArrayOf(corner, corner, corner, corner, 0f, 0f, 0f, 0f)
+                else FloatArray(8) { corner }
+        }
     }
     SideEffect {
         window?.let {
