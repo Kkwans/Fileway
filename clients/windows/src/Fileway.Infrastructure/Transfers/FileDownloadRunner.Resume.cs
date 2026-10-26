@@ -276,14 +276,17 @@ public sealed partial class FileDownloadRunner
     private async Task<FilewayException?> SuspendOrStopAsync(Execution execution)
     {
         bool suspended = false;
+        FilewayException? failure = null;
         try { suspended = await TrySuspendAsync(execution).ConfigureAwait(false); }
-        catch (Exception error) { return Normalize(error); }
+        catch (Exception error) { failure = Normalize(error); }
         if (!suspended)
         {
             try { _ = await SetCancelAsync(execution.Task, CancellationToken.None).ConfigureAwait(false); }
-            catch (Exception error) { return Normalize(error); }
+            catch (Exception error) { failure ??= Normalize(error); }
         }
-        return await StopAsync(execution).ConfigureAwait(false);
+        // A metadata failure must not prevent native writer/HTTP resource release.
+        var stopFailure = await StopAsync(execution).ConfigureAwait(false);
+        return failure ?? stopFailure;
     }
 
     /// <summary>

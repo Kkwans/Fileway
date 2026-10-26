@@ -20,7 +20,9 @@ public sealed partial class UploadApplicationService
             {
                 failure = NormalizeDownload(error);
                 record = await ReadAsync(work.Task, CancellationToken.None).ConfigureAwait(false);
-                if (work.Started && work.Stop.IsCancellationRequested && TransferTaskValidation.IsUnstartedDownload(record))
+                bool retired;
+                lock (_gate) retired = _disposed || !ReferenceEquals(_current, work.Binding);
+                if (work.Started && (work.Stop.IsCancellationRequested || retired) && TransferTaskValidation.IsUnstartedDownload(record))
                     record = await _downloads!.Runner.CancelAsync(work.Task, CancellationToken.None).ConfigureAwait(false);
                 if (record.Checkpoint.Phase == TransferPhase.Canceled) failure = null;
             }
@@ -53,14 +55,14 @@ public sealed partial class UploadApplicationService
         }
     }
 
-    private async Task DrainDownloadsAsync(Binding binding)
+    private async Task DrainDownloadsAsync(Binding binding, bool preserveActive = false)
     {
         if (_downloads is null) return;
         DownloadWork[] pending;
         Task readers;
         lock (_gate)
         {
-            CancelDownloadWorkLocked(binding);
+            CancelDownloadWorkLocked(binding, preserveActive);
             pending = _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)).ToArray();
             readers = RevokePlaybackReadersLocked(binding);
         }
@@ -75,12 +77,15 @@ public sealed partial class UploadApplicationService
         if (failure is not null) throw failure;
     }
 
-    private void CancelDownloadWorkLocked(Binding binding)
+    private void CancelDownloadWorkLocked(Binding binding, bool preserveActive = false)
     {
         CancelArchiveWorkLocked(binding);
         _ = RevokePlaybackReadersLocked(binding);
         foreach (var work in _downloadExecutions.Values.Where(work => ReferenceEquals(work.Binding, binding)).ToArray())
         {
+            // Normal application shutdown lets the runner persist Pause and flush
+            // its own writer. Explicit cancellation and account retirement still cancel.
+            if (preserveActive && work.Started) continue;
             work.StopRequested ??= work.Stop.CancelAsync();
             if (!work.Started) CancelQueuedDownloadLocked(work);
             if (ReferenceEquals(_current, binding) && binding.DownloadItems.TryGetValue(work.Task, out var item))

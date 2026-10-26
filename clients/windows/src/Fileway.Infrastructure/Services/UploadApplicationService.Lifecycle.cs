@@ -136,7 +136,7 @@ public sealed partial class UploadApplicationService
     }
 
     // Caller holds _gate. This notification only fences admission; drain runs outside the retiring runner's stack.
-    private Binding? FenceCurrentLocked()
+    private Binding? FenceCurrentLocked(bool suspendDownloads = false)
     {
         var binding = _current;
         _current = null;
@@ -146,15 +146,15 @@ public sealed partial class UploadApplicationService
         {
             // Mark the token immediately, but run cancellation callbacks off this retiring caller's stack.
             // Runner admission may still be awaiting its initial durable read when its drain begins.
-            CancelDownloadWorkLocked(binding);
-            _drains.Add(Task.Run(() => DrainBindingAsync(binding)));
+            CancelDownloadWorkLocked(binding, preserveActive: suspendDownloads);
+            _drains.Add(Task.Run(() => DrainBindingAsync(binding, suspendDownloads)));
         }
         return binding;
     }
 
-    private Task DrainBindingAsync(Binding binding) => Task.WhenAll(
+    private Task DrainBindingAsync(Binding binding, bool suspendDownloads) => Task.WhenAll(
         Task.Run(() => _coordinator.StopAndDrainAsync(binding.Activation, CancellationToken.None)),
-        Task.Run(() => DrainDownloadsAsync(binding)),
+        Task.Run(() => DrainDownloadsAsync(binding, suspendDownloads)),
         Task.Run(() => DrainArchiveWorkAsync(binding)));
 
     private async Task AwaitDrainsAsync()
@@ -205,7 +205,7 @@ public sealed partial class UploadApplicationService
             if (_disposeCompletion is not null) return new(_disposeCompletion.Task);
             _disposeCompletion = completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
             _disposed = true;
-            _ = FenceCurrentLocked();
+            _ = FenceCurrentLocked(suspendDownloads: true);
         }
         _connection.SessionUpdated -= ConnectionSessionUpdated;
         _connection.ConnectionIssue -= ConnectionIssueReceived;

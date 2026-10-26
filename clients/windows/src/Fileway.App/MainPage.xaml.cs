@@ -211,6 +211,15 @@ public sealed partial class MainPage : Page, IDisposable
     public void ShowStartupError(string message) { StartupPanel.Visibility = Visibility.Collapsed; SetConnectionView(true); LoginNotice.Severity = InfoBarSeverity.Error; LoginNotice.Message = message; SetNotice("核心服务启动失败", message, InfoBarSeverity.Error); }
     public void ShowFileOpenError(string name, string message) => SetNotice("无法打开文件", $"{name}：{message}", InfoBarSeverity.Error);
     public void Shutdown() => Dispose();
+    public void BeginShutdown()
+    {
+        if (_disposed) return;
+        IsEnabled = false;
+        _connectionCancellation?.Cancel();
+        _loadCancellation?.Cancel();
+        // Accepted transfer work shares the page lifetime. Let its application
+        // service suspend writers before Dispose cancels that lifetime.
+    }
     public void Dispose()
     {
         if (_disposed) return;

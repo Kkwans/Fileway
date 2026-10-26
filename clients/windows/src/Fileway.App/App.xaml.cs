@@ -267,6 +267,7 @@ public partial class App : Application, IAsyncDisposable
         }
         catch (Exception error) { RecordStartupFailure(error); }
         ShutdownDiagnostics.Record(ShutdownDiagnosticStage.TransfersDisposed, _window?.DispatcherQueue.HasThreadAccess == true);
+        _window?.CompleteShutdown();
         // Stop native readers before revoking their HTTP resource leases and the Host.
         ShutdownDiagnostics.Record(ShutdownDiagnosticStage.PlaybackDisposeBegin, _window?.DispatcherQueue.HasThreadAccess == true);
         try { if (_playback is not null) await _playback.DisposeAsync(); }
