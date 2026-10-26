@@ -96,7 +96,7 @@ public sealed partial class FileDownloadRunner
             if (confirmed < checkpoint.Source.Length)
             {
                 lease = await AcquireOwnedAsync(token => provider.AcquireConditionalDownloadAsync(
-                    new(state.Source, checkpoint.Source.Length, version), token),
+                    new(state.Source with { SourceVersion = version }, checkpoint.Source.Length, version), token),
                     state, state.Execution.Stop.Token).ConfigureAwait(false);
                 RequireRemoteConditional(state, lease.Resource, version);
                 if (lease.Length != checkpoint.Source.Length) throw Safe(ErrorCode.SourceChanged);
@@ -114,7 +114,7 @@ public sealed partial class FileDownloadRunner
             { Phase = TransferPhase.Verifying, ConfirmedOffset = flushed, LocalSha256 = localHash }, release: false).ConfigureAwait(false);
             await CheckIntentAsync(state).ConfigureAwait(false);
             var server = await provider.CalculateConditionalDownloadChecksumAsync(
-                new(state.Source, checkpoint.Source.Length, version), state.Execution.Stop.Token).ConfigureAwait(false);
+                new(state.Source with { SourceVersion = version }, checkpoint.Source.Length, version), state.Execution.Stop.Token).ConfigureAwait(false);
             RequireRemoteConditional(state, server.Resource, version);
             if (server.Algorithm != ChecksumAlgorithm.Sha256 || server.Size != checkpoint.Source.Length ||
                 server.Modified?.ToUniversalTime() != checkpoint.Source.Modified)

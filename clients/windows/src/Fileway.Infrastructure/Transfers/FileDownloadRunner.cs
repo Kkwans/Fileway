@@ -229,7 +229,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             if (state.ConditionalVersion is { } version)
             {
                 lease = await AcquireOwnedAsync(token => conditionalProvider!.AcquireConditionalDownloadAsync(
-                    new(state.Source, snapshot.Length, version), token), state, state.Execution.Stop.Token).ConfigureAwait(false);
+                    new(state.Source with { SourceVersion = version }, snapshot.Length, version), token), state, state.Execution.Stop.Token).ConfigureAwait(false);
                 RequireRemoteConditional(state, lease.Resource, version);
                 if (lease.Length != snapshot.Length) throw Safe(ErrorCode.SourceChanged);
                 RequireAddress(lease.Address);
@@ -257,7 +257,7 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
             // Do not apply the short control budget to the provider's existing sixteen-minute checksum read.
             var server = state.ConditionalVersion is { } verifyVersion
                 ? await conditionalProvider!.CalculateConditionalDownloadChecksumAsync(
-                    new(state.Source, snapshot.Length, verifyVersion), state.Execution.Stop.Token).ConfigureAwait(false)
+                    new(state.Source with { SourceVersion = verifyVersion }, snapshot.Length, verifyVersion), state.Execution.Stop.Token).ConfigureAwait(false)
                 : await _sources.CalculateDownloadChecksumAsync(new(state.Source, snapshot.Length),
                     state.Execution.Stop.Token).ConfigureAwait(false);
             if (state.ConditionalVersion is { } expected)
