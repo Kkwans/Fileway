@@ -178,7 +178,11 @@ public partial class App : Application, IAsyncDisposable
         if (_closed) return;
         if (!_closing && _tray is { CloseToTray: true })
         {
-            _window?.AppWindow.Hide();
+            if (_window is not null)
+            {
+                _window.AppWindow.IsShownInSwitchers = false;
+                _window.AppWindow.Hide();
+            }
             return;
         }
         RequestExit();
@@ -187,6 +191,7 @@ public partial class App : Application, IAsyncDisposable
     private void ShowMainWindow()
     {
         if (_closing || _closed || _window is null) return;
+        _window.AppWindow.IsShownInSwitchers = true;
         _window.AppWindow.Show();
         if (_window.AppWindow.Presenter is OverlappedPresenter presenter && presenter.State == OverlappedPresenterState.Minimized)
             presenter.Restore();
