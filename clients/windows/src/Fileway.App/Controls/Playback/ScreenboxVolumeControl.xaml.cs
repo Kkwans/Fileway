@@ -39,15 +39,13 @@ public sealed partial class ScreenboxVolumeControl : UserControl
         _commandPending = commandPending;
         if (!commandPending && !_editing) { _updating = true; VolumeSlider.Value = Math.Clamp(volume, 0, 200); _updating = false; }
         MuteToggle.IsChecked = muted;
-        VolumeGlyph.IconName = muted ? "SpeakerMute" : volume < 34 ? "Speaker0" : volume < 67 ? "Speaker1" : "Speaker2";
-        // Above 100% the engine amplifies on top of the system mixer; make that visible.
-        VolumeValue.Foreground = volume > 100
-            ? (Microsoft.UI.Xaml.Application.Current.Resources["AccentFillColorDefaultBrush"] as Microsoft.UI.Xaml.Media.Brush)
-            : null;
+        VolumeGlyph.Symbol = IconFor(volume, muted);
         AutomationProperties.SetName(MuteToggle, muted ? "取消静音" : "静音");
         VolumeValue.Text = $"{volume:0}%";
         ToolTipService.SetToolTip(VolumeSlider, $"音量 {volume:0}%");
     }
+
+    internal static Symbol IconFor(double volume, bool muted) => muted || volume <= 0 ? Symbol.Mute : Symbol.Volume;
 
     public void UseInlineLayout()
     {

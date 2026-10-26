@@ -247,7 +247,7 @@
                         <StackPanel x:Name="Tools" Grid.Column="4" Orientation="Horizontal" Spacing="4">
                             <ContentControl x:Name="InlineVolumeHost" VerticalAlignment="Center" Margin="0,0,8,0" IsTabStop="False" />
                             <Button x:Name="VolumeButton" Style="{StaticResource PlayerButtonStyle}" Click="Volume_Click"
-                                    AutomationProperties.Name="音量" ToolTipService.ToolTip="音量与静音"><local:ScreenboxVectorIcon x:Name="VolumeIcon" IconName="Speaker2" Width="20" Height="20" /></Button>
+                                    AutomationProperties.Name="音量" ToolTipService.ToolTip="音量与静音"><SymbolIcon x:Name="VolumeIcon" Symbol="Volume" Width="20" Height="20" /></Button>
                             <StackPanel x:Name="AdaptiveTools" Orientation="Horizontal" Spacing="4">
                             <Button x:Name="ResolutionButton" Width="Auto" MinWidth="0" Padding="8,0" FontSize="12" Style="{StaticResource PlayerButtonStyle}"
                                     Visibility="Collapsed" Click="Resolution_Click" AutomationProperties.Name="源分辨率" ToolTipService.ToolTip="源分辨率">

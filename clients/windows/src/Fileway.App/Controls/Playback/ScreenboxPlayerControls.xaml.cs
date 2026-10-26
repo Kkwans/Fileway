@@ -236,7 +236,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         SpeedButton.Content = FormatRate(snapshot.PlaybackRate);
         AutomationProperties.SetName(SpeedButton, "播放速度 " + FormatRate(snapshot.PlaybackRate));
         AutomationProperties.SetName(VolumeButton, $"音量 {snapshot.Volume:0}%");
-        VolumeIcon.IconName = snapshot.IsMuted ? "SpeakerMute" : snapshot.Volume < 34 ? "Speaker0" : snapshot.Volume < 67 ? "Speaker1" : "Speaker2";
+        VolumeIcon.Symbol = ScreenboxVolumeControl.IconFor(snapshot.Volume, snapshot.IsMuted);
         _speedControl?.ApplyConfirmedRate(snapshot.PlaybackRate, _rateRunning);
         _volumeControl?.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
         _inlineVolumeControl.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
