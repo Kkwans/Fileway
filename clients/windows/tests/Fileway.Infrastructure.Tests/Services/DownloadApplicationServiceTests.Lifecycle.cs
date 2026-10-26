@@ -128,16 +128,18 @@ public sealed partial class DownloadApplicationServiceTests
         await using var fixture = new Fixture();
         await fixture.ConnectAsync();
         var preview = await fixture.PreviewAsync();
-        var callbackReturned = Signal(); var release = fixture.Gate();
+        var callbackReturned = Signal(); var release = fixture.Gate(); var admitted = fixture.Gate();
         fixture.Runner.BeforeRun = async (_, cancellationToken) =>
         {
+            await admitted.Task.WaitAsync(Token);
             fixture.Connection.Invalidate();
             Assert.Null(fixture.Downloads.CurrentContext);
             Assert.True(cancellationToken.IsCancellationRequested);
             callbackReturned.TrySetResult();
             await release.Task.WaitAsync(Token);
         };
-        await FailureAsync(ErrorCode.SourceChanged, () => fixture.Downloads.SubmitAsync(preview, Token));
+        await fixture.Downloads.SubmitAsync(preview, Token);
+        admitted.TrySetResult();
         await callbackReturned.Task.WaitAsync(Timeout, Token);
         await Task.WhenAll(fixture.Upload.StopEntered.Task, fixture.Runner.StopEntered.Task).WaitAsync(Timeout, Token);
         var reconnecting = fixture.ConnectAsync();
@@ -148,13 +150,20 @@ public sealed partial class DownloadApplicationServiceTests
     }
 
     [Fact]
-    public async Task SynchronousRunnerCompletionBeforeSubmitReturnsRemainsPublishedTerminalTruth()
+    public async Task SynchronousRunnerCompletionIsPublishedAfterQueuedAdmission()
     {
         await using var fixture = new Fixture();
         await fixture.ConnectAsync();
         fixture.Runner.CompleteBeforeReturn = true;
+        var completed = new TaskCompletionSource<DownloadItem>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Downloads.TaskChanged += (_, changed) =>
+        {
+            if (changed.Status == DownloadStatus.Completed) completed.TrySetResult(changed);
+        };
         var preview = await fixture.PreviewAsync();
-        var item = await fixture.Downloads.SubmitAsync(preview, Token);
+        var admitted = await fixture.Downloads.SubmitAsync(preview, Token);
+        var item = await completed.Task.WaitAsync(Timeout, Token);
+        Assert.Equal(admitted.Snapshot.Task, item.Snapshot.Task);
         Assert.Equal(DownloadStatus.Completed, item.Status);
         Assert.True(item.Snapshot.LocalPublished);
         Assert.Equal(8, item.Snapshot.ConfirmedOffset);

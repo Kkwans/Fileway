@@ -383,16 +383,28 @@ public sealed partial class DownloadApplicationServiceTests
     }
 
     [Fact]
-    public async Task OneDownloadAtATimeRejectsSecondBeforeItCreatesDurableWork()
+    public async Task OneWriterExecutesConfirmedDurableDownloadsInFifoOrder()
     {
         await using var fixture = new Fixture();
         await fixture.ConnectAsync();
         var first = await fixture.PreviewAsync(); var second = await fixture.PreviewAsync();
-        await fixture.Downloads.SubmitAsync(first, Token);
+        var secondStarted = Signal();
+        fixture.Runner.BeforeRun = (task, _) =>
+        {
+            if (task.Id == second.Draft.Id) secondStarted.TrySetResult();
+            return Task.CompletedTask;
+        };
+        var firstItem = await fixture.Downloads.SubmitAsync(first, Token);
         await fixture.Runner.Started.Task.WaitAsync(Timeout, Token);
-        await FailureAsync(ErrorCode.Busy, () => fixture.Downloads.SubmitAsync(second, Token));
-        Assert.Equal(1, fixture.Store.Creates);
+        var secondItem = await fixture.Downloads.SubmitAsync(second, Token);
+        Assert.Equal(2, fixture.Store.Creates);
+        Assert.Equal(TransferPhase.Queued, (await fixture.ReadAsync(secondItem.Snapshot.Task)).Checkpoint.Phase);
         Assert.Single(fixture.Runner.Runs);
+        Assert.False(secondStarted.Task.IsCompleted);
+        await fixture.Runner.CompleteAsync(firstItem.Snapshot.Task, Token);
+        await secondStarted.Task.WaitAsync(Timeout, Token);
+        Assert.Equal([firstItem.Snapshot.Task, secondItem.Snapshot.Task], fixture.Runner.Runs.ToArray());
+        await fixture.Runner.CompleteAsync(secondItem.Snapshot.Task, Token);
     }
 
     [Fact]
