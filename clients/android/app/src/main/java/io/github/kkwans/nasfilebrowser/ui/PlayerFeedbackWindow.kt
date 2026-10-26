@@ -80,6 +80,9 @@ private tailrec fun Context.feedbackActivity(): Activity? = when(this) {
         }
         dialog.setContentView(view)
         val window = dialog.window
+        // PhoneWindow installs its theme's default animation while creating DecorView.
+        // Disable it after setContentView, so feedback cannot scale/translate on entry or exit.
+        window?.setWindowAnimations(0)
         val decor = window?.decorView
         val decorOrigin = IntArray(2)
         val ownerOrigin = IntArray(2)

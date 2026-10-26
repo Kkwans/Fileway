@@ -45,7 +45,6 @@ import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.luminance
@@ -381,11 +380,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     if (download != null) downloadCoverageHeight else 0.dp
                 val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
                 Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
-                    if (!fullscreen) Column(Modifier.fillMaxWidth().drawBehind {
-                        // Mirror the lower 72dp blend through the existing status/title area.
-                        drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black),
-                            startY = size.height - 72.dp.toPx(), endY = size.height))
-                    }.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
+                    if (!fullscreen) Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
                         .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         PlayerIcon(R.drawable.ic_arrow_back, "返回文件", model::leavePlayer)
@@ -413,8 +408,6 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         (rectangle.x + coordinates.size.width).roundToInt(), (rectangle.y + coordinates.size.height).roundToInt()))
                                 })
                             if (!fullscreen) {
-                                Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(16.dp)
-                                    .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .38f), Color.Transparent))))
                                 Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(16.dp)
                                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .38f)))))
                             }
@@ -525,22 +518,17 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     }
                                 }
                             } else if (client.busy && showRequest || !client.busy && state.waitingForBuffer && showBuffering) {
-                                // The ring stays at the picture's centre across request/buffer phases.
-                                // Cancellation is a separate target and never offsets that centre.
-                                Box(Modifier.align(Alignment.Center).size(width = 144.dp, height = 56.dp), contentAlignment = Alignment.Center) {
-                                    Box(Modifier.size(48.dp).background(Color.Black.copy(alpha = .35f), CircleShape)
-                                        .semantics { contentDescription = if (client.busy) "正在加载视频" else "正在缓冲" },
-                                        contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
-                                    }
-                                    if (client.busy && !pipMode) FilewayIconButton(model::cancel, Modifier.align(Alignment.CenterEnd).size(48.dp).background(Color.Black.copy(alpha = .35f), CircleShape)) {
-                                        FilewayIcon(R.drawable.ic_close, "取消播放请求", Modifier.size(20.dp), tint = FilewayTheme.status.mediaContent)
-                                    }
+                                Box(Modifier.align(Alignment.Center).size(48.dp)
+                                    .background(Color.Black.copy(alpha = .35f), CircleShape)
+                                    .semantics { contentDescription = if (client.busy) "正在加载视频" else "正在缓冲" },
+                                    contentAlignment = Alignment.Center) {
+                                    CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
                                 }
                             }
                             if (!pipMode && (showControls || touchLocked)) Box(Modifier.align(AbsoluteAlignment.CenterLeft)
                                 .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Left)) else Modifier)
-                                .absolutePadding(left = if (fullscreen) 4.dp else 8.dp)) {
+                                .absolutePadding(left = if (fullscreen) 4.dp else 8.dp)
+                                .absoluteOffset(x = if (fullscreen && landscapeOrientation) (-8).dp else 0.dp)) {
                                 // Retain this anchor while locked, including after a real
                                 // window rotation. The topmost unlock uses these same bounds.
                                 PlayerLockIcon(R.drawable.ic_lock_open, "锁定触控", "触控未锁定", false, ::lockTouch,
@@ -671,13 +659,16 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                             }
                             }
                             itemsIndexed(upcoming, key = { _, next -> next.mediaKey }) { offset, next ->
-                                Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).clip(RoundedCornerShape(12.dp))
-                                    .background(pageColors.surface).clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
-                                    model.navigateMedia(snapshot.index + offset + 1); touch()
-                                }.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    MediaThumbnail(model, next, Modifier.width(80.dp).aspectRatio(16f / 9f), showStatusText = false)
-                                    Text(next.name, Modifier.weight(1f), style = FilewayTheme.text.fileName,
-                                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                PlayerInformationCard(modifier = Modifier.clip(RoundedCornerShape(12.dp))
+                                    .clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
+                                        model.navigateMedia(snapshot.index + offset + 1); touch()
+                                    }, contentPadding = 8.dp) {
+                                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        MediaThumbnail(model, next, Modifier.width(80.dp).aspectRatio(16f / 9f), showStatusText = false)
+                                        Text(next.name, Modifier.weight(1f), style = FilewayTheme.text.fileName,
+                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    }
                                 }
                             }
                         }

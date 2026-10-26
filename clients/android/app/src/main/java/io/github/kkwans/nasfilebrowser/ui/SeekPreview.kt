@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.semantics.contentDescription
@@ -52,32 +53,32 @@ import kotlin.math.abs
 }
 
 @Composable private fun SeekFeedbackContent(asset: Pair<VideoSprite, Bitmap>?, target: Long, start: Long, duration: Long) {
-    Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.width(176.dp).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         SeekThumbnail(asset, target)
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(clock(target), color = Color.White, fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.Monospace, maxLines = 1)
-                if (duration > 0) Text("/ ${clock(duration)}", color = Color.White.copy(alpha=.68f), fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace, maxLines = 1)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                FilewayIcon(if (target < start) R.drawable.ic_arrow_back else R.drawable.ic_arrow_forward, null,
-                    Modifier.size(14.dp), tint = Color.White.copy(alpha=.72f))
-                Text((if (target < start) "−" else "+") + clock(abs(target-start)), color = Color.White.copy(alpha=.72f),
-                    fontSize = 12.sp, lineHeight = 16.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
-            }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(clock(target), color = Color.White, fontSize = 16.sp, lineHeight = 22.sp,
+                fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace, maxLines = 1)
+            if (duration > 0) Text("/ ${clock(duration)}", color = Color.White.copy(alpha = .68f),
+                fontSize = 12.sp, lineHeight = 22.sp, fontFamily = FontFamily.Monospace, maxLines = 1)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // The same Rounded fast-forward geometry faces the actual seek direction.
+            FilewayIcon(R.drawable.ic_fast, null, Modifier.size(18.dp).rotate(if (target < start) 180f else 0f),
+                tint = Color.White.copy(alpha = .76f))
+            Text((if (target < start) "−" else "+") + clock(abs(target - start)),
+                color = Color.White.copy(alpha = .76f), fontSize = 12.sp, lineHeight = 18.sp,
+                fontFamily = FontFamily.Monospace, maxLines = 1)
         }
     }
 }
 
 /** Stable preview bounds: asynchronous arrival never moves the window or the target-time row. */
-@Composable private fun SeekThumbnail(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long, width: Dp = 64.dp) {
+@Composable private fun SeekThumbnail(asset: Pair<VideoSprite, Bitmap>?, positionMs: Long, width: Dp = 160.dp) {
     Box(Modifier.width(width).height(width * 9f / 16f).clip(RoundedCornerShape(12.dp))
         .background(Color.White.copy(alpha = .06f)), contentAlignment = Alignment.Center) {
         if (asset == null) {
-            FilewayIcon(R.drawable.ic_image, null, Modifier.size(18.dp), tint = Color.White.copy(alpha = .24f))
+            FilewayIcon(R.drawable.ic_image, null, Modifier.size(28.dp), tint = Color.White.copy(alpha = .24f))
         } else {
             val (sprite, bitmap) = asset
             val image = remember(bitmap) { bitmap.asImageBitmap() }

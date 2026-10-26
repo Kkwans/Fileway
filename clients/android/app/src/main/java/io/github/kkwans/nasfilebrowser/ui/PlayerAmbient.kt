@@ -99,10 +99,11 @@ import kotlinx.coroutines.CancellationException
     }
 }
 
-@Composable private fun PlayerInformationCard(content: @Composable ColumnScope.() -> Unit) {
-    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = .055f),
+@Composable internal fun PlayerInformationCard(modifier: Modifier = Modifier, contentPadding: androidx.compose.ui.unit.Dp = 16.dp,
+    content: @Composable ColumnScope.() -> Unit) {
+    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = .055f),
         border = BorderStroke(1.dp, Color.White.copy(alpha = .10f))) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
+        Column(Modifier.padding(contentPadding), verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
     }
 }
 
