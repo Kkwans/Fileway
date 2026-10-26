@@ -179,6 +179,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var displayMode by rememberSaveable { mutableStateOf(PlayerDisplayMode.AUTOMATIC) }
     val fullscreen = pipMode || landscapeOrientation || displayMode != PlayerDisplayMode.AUTOMATIC
     val view = LocalView.current
+    val hdrDisplay = rememberPlayerHdrDisplay(view)
+    val activeOutput = io.github.kkwans.nasfilebrowser.player.activeVideoOutput(state.videoOutput, hdrDisplay, state.firstFrameRendered)
     val accessibility = remember(context) { context.getSystemService(Context.ACCESSIBILITY_SERVICE) as AccessibilityManager }
     var exploration by remember { mutableStateOf(accessibility.isTouchExplorationEnabled) }
     var visible by remember(file) { mutableStateOf(true) }
@@ -652,7 +654,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         .padding(horizontal = 16.dp),
                         contentPadding = PaddingValues(vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        item(key = "video-information") { PlayerInformation(model, file, client.previewScope, state) }
+                        item(key = "video-information") { PlayerInformation(model, file, client.previewScope, state, activeOutput) }
                         if (queue?.hasNext != true) item(key = "track-information") {
                             PlayerTrackInformation(state, controlsEnabled,
                                 audio = { touch(); sheet = PlayerSheet.AUDIO }, subtitles = { touch(); sheet = PlayerSheet.SUBTITLE })
@@ -933,7 +935,14 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                 } }
                                 SourceField("当前屏幕 HDR 能力", names?.joinToString(" / ")?.ifEmpty { "系统未报告 HDR 支持" } ?: "未知")
                             }
-                            item { SourceField("实际 HDR 输出", "尚未确认；片源标记和屏幕支持不代表已启用 HDR") }
+                            item { SourceField("实际画面输出", activeOutput.label) }
+                            state.videoOutput?.let { output ->
+                                item { SourceField("实际解码配置", output.configuredMime) }
+                                item { SourceField("解码输出色彩", io.github.kkwans.nasfilebrowser.player.videoOutputColors(output)) }
+                            }
+                            hdrDisplay.ratio?.let { ratio ->
+                                item { SourceField("系统 HDR 亮度比", String.format(java.util.Locale.ROOT, "%.2f×", ratio)) }
+                            }
                             item { SourceField("引擎报告的缓冲位置", if (state.bufferedPositionMs > 0) clock(state.bufferedPositionMs) else "未知") }
                             if (state.durationMs > 0) item { SourceField("全片时长", clock(state.durationMs)) }
                             client.progressStatus?.let { item { SourceField("续播", it) } }

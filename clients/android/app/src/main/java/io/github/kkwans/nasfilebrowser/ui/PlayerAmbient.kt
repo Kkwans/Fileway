@@ -44,7 +44,7 @@ import kotlinx.coroutines.CancellationException
     }
 }
 
-@Composable internal fun PlayerInformation(model: ClientModel, file: ResourceRef, scope: String, state: PlayerState) {
+@Composable internal fun PlayerInformation(model: ClientModel, file: ResourceRef, scope: String, state: PlayerState, output: io.github.kkwans.nasfilebrowser.player.ActiveVideoOutput) {
     var metadata by remember(file.mediaKey, scope) { mutableStateOf(file) }
     var failed by remember(file.mediaKey, scope) { mutableStateOf(false) }
     var attempt by remember(file.mediaKey, scope) { mutableIntStateOf(0) }
@@ -66,7 +66,7 @@ import kotlinx.coroutines.CancellationException
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             PlayerInformationField("文件大小", if (metadata.size > 0) readableSize(metadata.size) else if (failed) "未获取 · 重试" else "—",
                 Modifier.weight(1f).clickable(enabled = failed, role = Role.Button) { attempt++ })
-            PlayerInformationField("视频格式", videoPresentation(file.name, state.sourceDynamicRange), Modifier.weight(1f))
+            PlayerInformationField("视频格式", videoPresentation(file.name, output), Modifier.weight(1f))
         }
     }
 }

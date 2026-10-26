@@ -47,6 +47,7 @@ data class PlayerState(
     val videoDecoder: String = "未知", val audioDecoder: String = "未知",
     val sourceVideoCodec: String = "未知", val sourceDynamicRange: String = "未知",
     val sourceColorSpace: String = "未知",
+    val videoOutput: RenderedVideoOutput? = null,
     val waitingForBuffer: Boolean = false,
     val videoDecodePolicy: VideoDecodePolicy = VideoDecodePolicy.AUTO,
     val videoDecoderKind: String = "未知",
@@ -179,7 +180,20 @@ class NativePlayer(context: Context) {
         val recoverWithSoftware = java.util.concurrent.atomic.AtomicBoolean(false)
         var softwareDecoderReadyAt = Long.MAX_VALUE
         var recoveryCompleted = false
+        lateinit var videoOutputProbe: VideoOutputProbe
+        videoOutputProbe = VideoOutputProbe { output ->
+            handler.post {
+                if (!released && session.accepts(epoch) && engine != null && videoOutputProbe.isCurrent(output)) {
+                    mutable.value = mutable.value.copy(videoOutput = output)
+                    if (BuildConfig.DEBUG) android.util.Log.i("FilewayVideoOutput",
+                        "epoch=$epoch codecSession=${output.codecSession} decoder=${output.decoderName} " +
+                            "mime=${output.decoderMime} configured=${output.configuredMime} output=${output.outputMime} " +
+                            "space=${output.colorSpace} transfer=${output.colorTransfer} range=${output.colorRange} staticHdr=${output.staticHdrMetadata}")
+                }
+            }
+        }
         val factory = object : DefaultRenderersFactory(context) {
+            override fun getCodecAdapterFactory() = videoOutputProbe.observe(super.getCodecAdapterFactory())
             override fun buildMiscellaneousRenderers(context: Context, eventHandler: Handler, extensionRendererMode: Int, out: ArrayList<Renderer>) {
                 super.buildMiscellaneousRenderers(context, eventHandler, extensionRendererMode, out)
                 out.add(MediaSubtitleLayer.Clock(subtitles))
@@ -210,6 +224,9 @@ class NativePlayer(context: Context) {
         val player = ExoPlayer.Builder(context, factory).setLoadControl(bufferControl)
             .setMediaSourceFactory(mediaSources).build()
         engine = player
+        player.setVideoFrameMetadataListener { presentationTimeUs, releaseTimeNs, format, mediaFormat ->
+            videoOutputProbe.onVideoFrameAboutToBeRendered(presentationTimeUs, releaseTimeNs, format, mediaFormat)
+        }
         restore?.let { player.volume = it.volume.coerceIn(0, 100) / 100f }
         if (subtitleDisabled) player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
@@ -259,7 +276,7 @@ class NativePlayer(context: Context) {
                         MediaCodecSelector.DEFAULT.getDecoderInfos(failedCodec.mimeType, requested.first, requested.second).any { it.softwareOnly }
                     }.getOrDefault(false)
                     if (available && recoverWithSoftware.compareAndSet(false, true)) {
-                        mutable.value = mutable.value.copy(playing = false, firstFrameRendered = false,
+                        mutable.value = mutable.value.copy(playing = false, firstFrameRendered = false, videoOutput = null,
                             decoderRecovery = "硬件解码失败，正在尝试软件解码；HDR 输出尚未确认")
                         handler.post {
                             if (current() && player.playerError === error) {
@@ -277,7 +294,7 @@ class NativePlayer(context: Context) {
                 cancelTrackRequest(C.TRACK_TYPE_AUDIO); cancelTrackRequest(C.TRACK_TYPE_TEXT)
                 // An engine failure is not a user pause. Keep the last intent for
                 // an explicit decoder-policy reopen; actual playback remains stopped.
-                mutable.value = mutable.value.copy(playing = false, phase = "播放失败",
+                mutable.value = mutable.value.copy(playing = false, phase = "播放失败", videoOutput = null,
                     decoderRecovery = if (recoverWithSoftware.get() && !recoveryCompleted) "软件解码未能恢复，请手动重试" else mutable.value.decoderRecovery,
                     error = when (error.errorCode) {
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "网络读取失败，请检查连接后重试"
@@ -303,7 +320,7 @@ class NativePlayer(context: Context) {
                 if (current()) mutable.value = mutable.value.copy(audioDecoder = decoderName)
             }
             override fun onVideoDecoderReleased(eventTime: AnalyticsListener.EventTime, decoderName: String) {
-                if (current() && mutable.value.videoDecoder == decoderName) mutable.value = mutable.value.copy(videoDecoder = "未知", videoDecoderKind = "未知")
+                if (current() && mutable.value.videoDecoder == decoderName) mutable.value = mutable.value.copy(videoDecoder = "未知", videoDecoderKind = "未知", videoOutput = null)
             }
             override fun onAudioDecoderReleased(eventTime: AnalyticsListener.EventTime, decoderName: String) {
                 if (current() && mutable.value.audioDecoder == decoderName) mutable.value = mutable.value.copy(audioDecoder = "未知")
