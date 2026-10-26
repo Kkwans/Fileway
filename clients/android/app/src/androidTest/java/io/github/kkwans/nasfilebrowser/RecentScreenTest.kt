@@ -83,9 +83,9 @@ class RecentScreenTest {
             theme(AppTheme.DARK); text("文件已变化"); capture("cards-dark")
             text(longName).click()
             assertTrue(withContext(Dispatchers.IO) { source.playbackStarted.await(5, TimeUnit.SECONDS) })
-            val cancel = device.wait(Until.findObject(By.desc("取消播放请求")), 5000)
-                ?: throw AssertionError("Accessible playback cancel action is missing")
-            cancel.click()
+            assertTrue(device.wait(Until.hasObject(By.desc("正在加载视频")), 5000))
+            assertFalse(device.hasObject(By.desc("取消播放请求")))
+            main { model.cancel() }
             withTimeout(5000) { model.state.first { it.selected == null && !it.busy } }
             assertEquals("recent", model.state.value.tab)
             assertNull(model.state.value.mediaQueue)

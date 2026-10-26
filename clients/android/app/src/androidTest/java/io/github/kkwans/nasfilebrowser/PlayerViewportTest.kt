@@ -62,15 +62,15 @@ class PlayerViewportTest {
             main { model.togglePlayback() }
             assertTrue(withContext(Dispatchers.IO) { source.resumeRead.await(5, TimeUnit.SECONDS) })
             assertTrue(model.state.value.busy)
-            assertTrue(device.wait(Until.hasObject(By.desc("取消播放请求")), 5_000))
-            assertTrue(device.hasObject(By.text("正在加载")))
+            assertTrue(device.wait(Until.hasObject(By.desc("正在加载视频")), 5_000))
+            assertFalse(device.hasObject(By.desc("取消播放请求")))
             noRoutineNotices()
             assertEquals("Loading must overlay, never consume viewport height", initial, bounds())
             device.executeShellCommand("mkdir -p /sdcard/Download/nfb-client-acceptance")
             device.executeShellCommand("screencap -p /sdcard/Download/nfb-client-acceptance/player-resume-wait-viewport.png")
-            device.findObject(By.desc("取消播放请求")).click()
+            main { model.cancel() }
             withTimeout(5_000) { model.state.first { !it.busy } }
-            assertTrue(device.wait(Until.gone(By.desc("取消播放请求")), 5_000))
+            assertTrue(device.wait(Until.gone(By.desc("正在加载视频")), 5_000))
             assertEquals(initial, bounds())
             assertFalse(model.player.state.value.playing)
         } finally {
