@@ -375,9 +375,9 @@ internal fun PlayerSubtitleAdjustments(
             FilewayIcon(R.drawable.ic_visibility, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("本次使用")
         }
         FilewayButton(onSetDefault, Modifier.weight(1f).heightIn(min = 48.dp),
-            enabled = !saving && current.key != defaultFontKey) {
+            enabled = !saving && appearance.fontKey != defaultFontKey) {
             FilewayIcon(R.drawable.ic_check, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp))
-            Text(if (saving) "保存中…" else if (current.key == defaultFontKey) "已是默认" else "设为默认")
+            Text(if (saving) "保存中…" else if (appearance.fontKey == defaultFontKey) "已是默认" else "设为默认")
         }
     }
     }
