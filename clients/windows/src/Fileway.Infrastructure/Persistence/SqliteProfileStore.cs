@@ -6,9 +6,9 @@ using Microsoft.Data.Sqlite;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Versioned, credential-free profile storage with durable logout intent.</summary>
-public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore, ITransferTaskStore
+public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore, ITransferTaskStore, INavigationStateStore
 {
-    private const int SchemaVersion = 7;
+    private const int SchemaVersion = 8;
     private const int BusyTimeoutSeconds = 3;
     private const string Columns = "profile_id, source_revision, display_name, base_address, network_mode, proxy_mode, proxy_address, authentication_mode, username, server_user_id, keep_signed_in, last_connected_at";
     private const string AccountPredicate = "profile_id = $profile AND source_revision = $revision AND server_user_id = $user";
@@ -86,6 +86,11 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         command.Parameters.AddWithValue("$keep", connection.KeepSignedIn ? 1 : 0);
         command.Parameters.AddWithValue("$connected", connection.LastConnectedAt.ToString("O", CultureInfo.InvariantCulture));
         command.ExecuteNonQuery();
+        using (var oldNavigation = Command(database, "DELETE FROM navigation_state WHERE profile_id = $profile AND NOT (source_revision = $revision AND server_user_id = $user)", transaction))
+        {
+            BindAccount(oldNavigation, connection.Account);
+            oldNavigation.ExecuteNonQuery();
+        }
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
         return true;
@@ -103,6 +108,11 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         using var preferences = Command(connection, "DELETE FROM browser_preferences WHERE " + AccountPredicate, transaction);
         BindAccount(preferences, account);
         preferences.ExecuteNonQuery();
+        using (var navigation = Command(connection, "DELETE FROM navigation_state WHERE " + AccountPredicate, transaction))
+        {
+            BindAccount(navigation, account);
+            navigation.ExecuteNonQuery();
+        }
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
         return true;
@@ -137,6 +147,11 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
         {
             BindAccount(saved, account);
             saved.ExecuteNonQuery();
+        }
+        using (var navigation = Command(connection, "DELETE FROM navigation_state WHERE " + AccountPredicate, transaction))
+        {
+            BindAccount(navigation, account);
+            navigation.ExecuteNonQuery();
         }
         cancellationToken.ThrowIfCancellationRequested();
         transaction.Commit();
@@ -354,6 +369,20 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
                     ALTER TABLE client_storage_settings ADD COLUMN auto_resume_downloads INTEGER NOT NULL DEFAULT 0
                         CHECK (typeof(auto_resume_downloads) = 'integer' AND auto_resume_downloads IN (0, 1));
                     PRAGMA user_version = 7;
+                    """, transaction);
+                migrate.ExecuteNonQuery();
+            }
+            if (version < 8)
+            {
+                using var migrate = Command(connection, """
+                    CREATE TABLE navigation_state (
+                        profile_id TEXT NOT NULL,
+                        source_revision TEXT NOT NULL,
+                        server_user_id TEXT NOT NULL,
+                        wire_path TEXT NOT NULL CHECK (length(wire_path) > 0 AND substr(wire_path, 1, 1) = '/'),
+                        PRIMARY KEY (profile_id, source_revision, server_user_id)
+                    );
+                    PRAGMA user_version = 8;
                     """, transaction);
                 migrate.ExecuteNonQuery();
             }

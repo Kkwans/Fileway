@@ -90,6 +90,8 @@ public sealed partial class FilewayClientServices : ICachedResourceLeaseProvider
         // a failed retirement leaves both durable intent and original vault token intact.
         await RetireExactAccountAsync(account).ConfigureAwait(false);
         await CredentialsAsync(() => _credentials.DeleteTokenAsync(account, cancellationToken)).ConfigureAwait(false);
+        if (_passwords is not null)
+            await CredentialsAsync(() => _passwords.DeletePasswordAsync(account, cancellationToken)).ConfigureAwait(false);
         try
         {
             if (_storageSettings is not null && _profiles is ICacheRootStore roots)

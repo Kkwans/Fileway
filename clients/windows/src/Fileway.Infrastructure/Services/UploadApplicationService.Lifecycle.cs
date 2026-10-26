@@ -64,7 +64,11 @@ public sealed partial class UploadApplicationService
                 try { await _connection.DisconnectAsync(opened.Account, CancellationToken.None).ConfigureAwait(false); }
                 catch (Exception) { /* Preserve the original safe failure; the application still owns service disposal. */ }
             }
-            throw Normalize(error);
+            // Connection errors have already been sanitized at the connection boundary.
+            // Do not turn authentication/network failures into upload-specific advice.
+            if (error is FilewayException) throw;
+            if (error is OperationCanceledException) throw;
+            throw new FilewayException(new ErrorInfo(ErrorCode.Unknown, "连接未能完成，请重新连接。"));
         }
         finally
         {

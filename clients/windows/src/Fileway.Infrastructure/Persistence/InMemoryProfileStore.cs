@@ -3,7 +3,7 @@ using Fileway.Core.Contracts;
 namespace Fileway.Infrastructure.Persistence;
 
 /// <summary>Process-local store for callers that do not opt into persistence.</summary>
-public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore, ITransferTaskStore
+public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore, ITransferTaskStore, INavigationStateStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, SavedConnection> _saved = [];
@@ -40,6 +40,7 @@ public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettin
                     if (_operations.Values.Any(record => record.Intent.Reference.Account == previous.Account && OperationJournalValidation.IsUnresolved(record)))
                         throw OperationJournalValidation.UnresolvedConflict();
                     if (HasProtectedTransfers(previous.Account)) throw TransferTaskValidation.ProtectedConflict();
+                    _lastDirectories.Remove(previous.Account);
                 }
             }
             _saved[connection.Profile.Id] = connection;
@@ -60,6 +61,7 @@ public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettin
                 _saved.Remove(account.ProfileId);
             foreach (var key in _browserPreferences.Keys.Where(key => key.Account == account).ToArray())
                 _browserPreferences.Remove(key);
+            _lastDirectories.Remove(account);
         }
         return Task.CompletedTask;
     }
@@ -77,6 +79,7 @@ public sealed partial class InMemoryProfileStore : IProfileStore, IStorageSettin
         {
             ProfileStoreValidation.Validate(account);
             _pending.Add(account);
+            _lastDirectories.Remove(account);
             if (_saved.TryGetValue(account.ProfileId, out var connection) && connection.Account == account)
                 _saved[account.ProfileId] = connection with { KeepSignedIn = false };
         }

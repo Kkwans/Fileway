@@ -23,6 +23,7 @@ public sealed partial class FilewayClientServices : IAccountSecurityService
     {
         var state = GetState(account);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        string replacement = newPassword ?? "";
         try
         {
             lock (_gate)
@@ -47,17 +48,29 @@ public sealed partial class FilewayClientServices : IAccountSecurityService
                     {
                         ["id"] = ulong.Parse(userId, CultureInfo.InvariantCulture),
                         ["username"] = username,
-                        ["password"] = newPassword ?? "",
+                        ["password"] = replacement,
                     },
                 },
             }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request").ConfigureAwait(false);
             RequireExactStatus(response, 200);
-            lock (_gate)
+            // The server mutation is already confirmed. A vault failure is a separate warning,
+            // never a fabricated failure of the password change or permission to replay it.
+            bool localFailure = false;
+            await _persistence.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+            try
             {
-                linked.Token.ThrowIfCancellationRequested();
-                EnsureActive(state);
-                return new PasswordChangeResult(state.Session.DisplayName);
+                var saved = await StorageAsync(() => _profiles.GetAsync(account.ProfileId, CancellationToken.None)).ConfigureAwait(false);
+                var pending = await StorageAsync(() => _profiles.ListPendingLogoutsAsync(CancellationToken.None)).ConfigureAwait(false);
+                if (saved?.Account == account && saved.KeepSignedIn && saved.AuthenticationMode == AuthenticationMode.Password && !pending.Contains(account))
+                {
+                    EnsureActive(state);
+                    if (_passwords is null) localFailure = true;
+                    else await CredentialsAsync(() => _passwords.WritePasswordAsync(account, replacement, CancellationToken.None)).ConfigureAwait(false);
+                }
             }
+            catch (FilewayException) { localFailure = true; }
+            finally { _persistence.Release(); }
+            return new PasswordChangeResult(state.Session.DisplayName, localFailure);
         }
         catch (FilewayException error) when (error.Error.HttpStatus == 400)
         { throw Safe(ErrorCode.PermissionDenied, "当前密码不正确，密码未修改。", 400); }

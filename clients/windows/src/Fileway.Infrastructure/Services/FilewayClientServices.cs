@@ -20,6 +20,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
     private readonly IHostControlClient _host;
     private readonly IProfileStore _profiles;
     private readonly ICredentialVault _credentials;
+    private readonly IPasswordVault? _passwords;
     private readonly object _gate = new();
     private readonly SemaphoreSlim _connections = new(1, 1);
     private readonly SemaphoreSlim _persistence = new(1, 1);
@@ -75,6 +76,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
+        _passwords = credentials as IPasswordVault;
         _storageSettings = storageSettings;
     }
 
@@ -109,7 +111,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             var saved = new SavedConnection(profile, login.Mode, verified.Session.DisplayName, userId,
                 login.KeepSignedIn, DateTimeOffset.UtcNow);
             await _persistence.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try { await SaveConnectionAsync(saved, verified.Token, cancellationToken).ConfigureAwait(false); }
+            try { await SaveConnectionAsync(saved, verified.Token, cancellationToken,
+                login.Mode == AuthenticationMode.Password ? login.Password : null).ConfigureAwait(false); }
             finally { _persistence.Release(); }
             cancellationToken.ThrowIfCancellationRequested();
             lock (_gate)
@@ -147,23 +150,48 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             if (pending.Contains(saved.Account)) throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
             ValidateProfile(saved.Profile, new LoginInput(saved.AuthenticationMode, saved.Username), restoring: true);
             string token = "";
+            bool passwordLoginAttempted = false;
             if (saved.AuthenticationMode == AuthenticationMode.Password)
             {
                 if (!saved.KeepSignedIn) throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
-                token = await CredentialsAsync(() => _credentials.ReadTokenAsync(saved.Account, cancellationToken)).ConfigureAwait(false) ?? "";
-                if (string.IsNullOrWhiteSpace(token)) throw Safe(ErrorCode.AuthenticationExpired, Message(ErrorCode.AuthenticationExpired));
-                RequireTokenAccount(token, saved.ServerUserId);
+                try { token = await CredentialsAsync(() => _credentials.ReadTokenAsync(saved.Account, cancellationToken)).ConfigureAwait(false) ?? ""; }
+                catch (FilewayException error) when (error.Error.Code == ErrorCode.CredentialsUnavailable) { token = ""; }
+                if (!string.IsNullOrWhiteSpace(token))
+                {
+                    string? tokenUser = null;
+                    try { tokenUser = ReadTokenUserId(token); }
+                    catch (FilewayException error) when (error.Error.Code == ErrorCode.ProtocolMismatch) { token = ""; }
+                    if (tokenUser is not null && tokenUser != saved.ServerUserId)
+                        throw Safe(ErrorCode.AuthenticationExpired, "登录状态与所选账户不一致，请重新登录。");
+                }
             }
             await RetireAllAsync().ConfigureAwait(false);
             coreSession = RequiredText(await CallAsync("open", new
             {
                 baseUrl = saved.Profile.BaseAddress.AbsoluteUri, network = "direct", token,
             }, null, cancellationToken).ConfigureAwait(false));
+            if (saved.AuthenticationMode == AuthenticationMode.Password && string.IsNullOrWhiteSpace(token))
+            {
+                passwordLoginAttempted = true;
+                token = await LoginWithSavedPasswordAsync(coreSession, saved, cancellationToken).ConfigureAwait(false);
+            }
             if (saved.AuthenticationMode == AuthenticationMode.NoAuthentication)
                 token = HttpBody(await CallAsync("login", new { username = "", password = "" }, coreSession,
                     cancellationToken).ConfigureAwait(false)).Trim();
-            var verified = await VerifyConnectionAsync(coreSession, saved.Profile, saved.AuthenticationMode,
-                saved.ServerUserId, Guid.NewGuid(), token, cancellationToken).ConfigureAwait(false);
+            VerifiedConnection verified;
+            try
+            {
+                verified = await VerifyConnectionAsync(coreSession, saved.Profile, saved.AuthenticationMode,
+                    saved.ServerUserId, Guid.NewGuid(), token, cancellationToken).ConfigureAwait(false);
+            }
+            catch (FilewayException error) when (!passwordLoginAttempted && saved.AuthenticationMode == AuthenticationMode.Password &&
+                error.Error.Code == ErrorCode.AuthenticationExpired && error.Error.HttpStatus == 401)
+            {
+                // A remote protocol/identity/permission/network failure never becomes a password retry.
+                token = await LoginWithSavedPasswordAsync(coreSession, saved, cancellationToken).ConfigureAwait(false);
+                verified = await VerifyConnectionAsync(coreSession, saved.Profile, saved.AuthenticationMode,
+                    saved.ServerUserId, Guid.NewGuid(), token, cancellationToken).ConfigureAwait(false);
+            }
             saved = saved with { Username = verified.Session.DisplayName, LastConnectedAt = DateTimeOffset.UtcNow };
             await _persistence.WaitAsync(cancellationToken).ConfigureAwait(false);
             try { await SaveConnectionAsync(saved, verified.Token, cancellationToken).ConfigureAwait(false); }
@@ -182,6 +210,18 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             try { if (coreSession is not null) await CloseCoreAsync(coreSession).ConfigureAwait(false); }
             finally { _connections.Release(); }
         }
+    }
+
+    private async Task<string> LoginWithSavedPasswordAsync(string coreSession, SavedConnection saved, CancellationToken cancellationToken)
+    {
+        var password = _passwords is null ? null : await CredentialsAsync(
+            () => _passwords.ReadPasswordAsync(saved.Account, cancellationToken)).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(password))
+            throw Safe(ErrorCode.AuthenticationExpired, "此连接尚无可用的本机自动登录凭据，请输入密码登录一次。");
+        var response = await CallAsync("login", new { username = saved.Username, password }, coreSession, cancellationToken).ConfigureAwait(false);
+        var token = HttpBody(response).Trim();
+        RequireTokenAccount(token, saved.ServerUserId);
+        return token;
     }
 
     public async Task<IReadOnlyList<SavedConnection>> ListAsync(CancellationToken cancellationToken)
@@ -492,7 +532,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
 
     // Callers hold _persistence. Every token write shares this gate with the
     // durable logout intent, so an in-flight refresh cannot resurrect a logout.
-    private async Task SaveConnectionAsync(SavedConnection saved, string token, CancellationToken cancellationToken)
+    private async Task SaveConnectionAsync(SavedConnection saved, string token, CancellationToken cancellationToken, string? password = null)
     {
         var pending = await StorageAsync(() => _profiles.ListPendingLogoutsAsync(cancellationToken)).ConfigureAwait(false);
         if (pending.Contains(saved.Account))
@@ -511,8 +551,21 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         if (saved.KeepSignedIn)
             await CredentialsAsync(() => _credentials.WriteTokenAsync(saved.Account, token, cancellationToken)).ConfigureAwait(false);
         else
+        {
+            // Persist the opt-out before deleting secrets. A partial vault cleanup
+            // must never leave an old keep-signed-in profile eligible to restore.
+            await StorageAsync(() => _profiles.SaveAsync(saved, cancellationToken)).ConfigureAwait(false);
             await CredentialsAsync(() => _credentials.DeleteTokenAsync(saved.Account, cancellationToken)).ConfigureAwait(false);
-        await StorageAsync(() => _profiles.SaveAsync(saved, cancellationToken)).ConfigureAwait(false);
+        }
+        if (_passwords is not null)
+        {
+            if (!saved.KeepSignedIn || saved.AuthenticationMode != AuthenticationMode.Password)
+                await CredentialsAsync(() => _passwords.DeletePasswordAsync(saved.Account, cancellationToken)).ConfigureAwait(false);
+            else if (password is not null)
+                await CredentialsAsync(() => _passwords.WritePasswordAsync(saved.Account, password, cancellationToken)).ConfigureAwait(false);
+        }
+        if (saved.KeepSignedIn)
+            await StorageAsync(() => _profiles.SaveAsync(saved, cancellationToken)).ConfigureAwait(false);
     }
 
     private async Task CompletePendingLogoutsAsync(CancellationToken cancellationToken)

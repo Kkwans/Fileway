@@ -1,15 +1,17 @@
 using System.Security;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using Fileway.Core.Contracts;
 
 namespace Fileway.Infrastructure.Credentials;
 
-/// <summary>Tokens encrypted by Windows DPAPI for the current Windows user and exact account.</summary>
-public sealed class DpapiCredentialVault : ICredentialVault
+/// <summary>Separate token and password secrets encrypted by DPAPI for the current Windows user and exact account.</summary>
+public sealed class DpapiCredentialVault : ICredentialVault, IPasswordVault
 {
     private const int MaximumTokenBytes = 1024 * 1024;
-    private const int MaximumProtectedBytes = MaximumTokenBytes + 64 * 1024;
+    private const int MaximumPasswordBytes = 64 * 1024;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private readonly object _gate = new();
     private readonly string _directoryPath;
@@ -24,18 +26,27 @@ public sealed class DpapiCredentialVault : ICredentialVault
         catch (Exception error) when (IsCredentialFailure(error)) { throw CredentialValidation.Unavailable(); }
     }
 
-    public Task<string?> ReadTokenAsync(AccountKey account, CancellationToken cancellationToken) => RunAsync(() =>
+    public Task<string?> ReadTokenAsync(AccountKey account, CancellationToken cancellationToken) => ReadAsync(account, false, cancellationToken);
+    public Task WriteTokenAsync(AccountKey account, string token, CancellationToken cancellationToken) => WriteAsync(account, token, false, cancellationToken);
+    public Task DeleteTokenAsync(AccountKey account, CancellationToken cancellationToken) => DeleteAsync(account, false, cancellationToken);
+    public Task<string?> ReadPasswordAsync(AccountKey account, CancellationToken cancellationToken) => ReadAsync(account, true, cancellationToken);
+    public Task WritePasswordAsync(AccountKey account, string password, CancellationToken cancellationToken) => WriteAsync(account, password, true, cancellationToken);
+    public Task DeletePasswordAsync(AccountKey account, CancellationToken cancellationToken) => DeleteAsync(account, true, cancellationToken);
+
+    private Task<string?> ReadAsync(AccountKey account, bool password, CancellationToken cancellationToken) => RunAsync(() =>
     {
-        byte[] entropy = AccountEntropy(account);
+        byte[] entropy = AccountEntropy(account, password);
         byte[]? encrypted = null;
         byte[]? plaintext = null;
         try
         {
-            string path = TokenPath(entropy);
+            string path = SecretPath(entropy, password);
+            if (password && Directory.Exists(Path.GetDirectoryName(path))) PreparePasswordDirectory();
+            if (password && File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) throw CredentialValidation.Unavailable();
             try
             {
                 using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                if (file.Length <= 0 || file.Length > MaximumProtectedBytes) throw CredentialValidation.Unavailable();
+                if (file.Length <= 0 || file.Length > MaximumBytes(password) + 64 * 1024) throw CredentialValidation.Unavailable();
                 encrypted = new byte[checked((int)file.Length)];
                 file.ReadExactly(encrypted);
                 if (file.ReadByte() != -1) throw CredentialValidation.Unavailable();
@@ -44,7 +55,7 @@ public sealed class DpapiCredentialVault : ICredentialVault
             catch (DirectoryNotFoundException) { return null; }
             cancellationToken.ThrowIfCancellationRequested();
             plaintext = ProtectedData.Unprotect(encrypted ?? throw CredentialValidation.Unavailable(), entropy, DataProtectionScope.CurrentUser);
-            if (plaintext.Length == 0 || plaintext.Length > MaximumTokenBytes) throw CredentialValidation.Unavailable();
+            if (plaintext.Length == 0 || plaintext.Length > MaximumBytes(password)) throw CredentialValidation.Unavailable();
             return StrictUtf8.GetString(plaintext);
         }
         finally
@@ -55,20 +66,22 @@ public sealed class DpapiCredentialVault : ICredentialVault
         }
     }, cancellationToken);
 
-    public Task WriteTokenAsync(AccountKey account, string token, CancellationToken cancellationToken) => RunAsync(() =>
+    private Task<bool> WriteAsync(AccountKey account, string secret, bool password, CancellationToken cancellationToken) => RunAsync(() =>
     {
-        if (string.IsNullOrEmpty(token) || StrictUtf8.GetByteCount(token) > MaximumTokenBytes)
+        if (string.IsNullOrEmpty(secret) || StrictUtf8.GetByteCount(secret) > MaximumBytes(password))
             throw CredentialValidation.Unavailable();
-        byte[] entropy = AccountEntropy(account);
+        byte[] entropy = AccountEntropy(account, password);
         byte[]? plaintext = null;
         byte[]? encrypted = null;
         string? temporaryPath = null;
         try
         {
-            plaintext = StrictUtf8.GetBytes(token);
+            plaintext = StrictUtf8.GetBytes(secret);
             encrypted = ProtectedData.Protect(plaintext, entropy, DataProtectionScope.CurrentUser);
             Directory.CreateDirectory(_directoryPath);
-            string path = TokenPath(entropy);
+            if (password) PreparePasswordDirectory();
+            string path = SecretPath(entropy, password);
+            if (password && File.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0) throw CredentialValidation.Unavailable();
             temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
             using (var file = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
                 bufferSize: 4096, options: FileOptions.WriteThrough))
@@ -95,12 +108,13 @@ public sealed class DpapiCredentialVault : ICredentialVault
         }
     }, cancellationToken);
 
-    public Task DeleteTokenAsync(AccountKey account, CancellationToken cancellationToken) => RunAsync(() =>
+    private Task<bool> DeleteAsync(AccountKey account, bool password, CancellationToken cancellationToken) => RunAsync(() =>
     {
-        byte[] entropy = AccountEntropy(account);
+        byte[] entropy = AccountEntropy(account, password);
         try
         {
-            try { File.Delete(TokenPath(entropy)); }
+            if (password && Directory.Exists(Path.Combine(_directoryPath, "passwords"))) PreparePasswordDirectory();
+            try { File.Delete(SecretPath(entropy, password)); }
             catch (DirectoryNotFoundException) { /* Already absent. */ }
             return true;
         }
@@ -117,17 +131,37 @@ public sealed class DpapiCredentialVault : ICredentialVault
         }
     }, cancellationToken);
 
-    private static byte[] AccountEntropy(AccountKey account)
+    private static int MaximumBytes(bool password) => password ? MaximumPasswordBytes : MaximumTokenBytes;
+
+    private void PreparePasswordDirectory()
+    {
+        var directory = new DirectoryInfo(Path.Combine(_directoryPath, "passwords"));
+        using var identity = WindowsIdentity.GetCurrent();
+        var user = identity.User ?? throw CredentialValidation.Unavailable();
+        var access = new DirectorySecurity();
+        access.SetOwner(user);
+        access.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        access.AddAccessRule(new FileSystemAccessRule(user, FileSystemRights.FullControl,
+            InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+        directory.Create(access);
+        directory.Refresh();
+        if ((directory.Attributes & FileAttributes.ReparsePoint) != 0 ||
+            !user.Equals(directory.GetAccessControl().GetOwner(typeof(SecurityIdentifier)))) throw CredentialValidation.Unavailable();
+        directory.SetAccessControl(access);
+    }
+
+    private static byte[] AccountEntropy(AccountKey account, bool password)
     {
         CredentialValidation.Validate(account);
         // The two fixed-length GUID fields delimit the final opaque server user ID unambiguously.
-        return StrictUtf8.GetBytes($"Fileway.credentials.v1\n{account.ProfileId:D}\n{account.SourceRevision:D}\n{account.ServerUserId}");
+        var purpose = password ? "Fileway.passwords.v1" : "Fileway.credentials.v1";
+        return StrictUtf8.GetBytes($"{purpose}\n{account.ProfileId:D}\n{account.SourceRevision:D}\n{account.ServerUserId}");
     }
 
-    private string TokenPath(byte[] entropy)
+    private string SecretPath(byte[] entropy, bool password)
     {
         byte[] digest = SHA256.HashData(entropy);
-        try { return Path.Combine(_directoryPath, Convert.ToHexString(digest) + ".dpapi"); }
+        try { return Path.Combine(password ? Path.Combine(_directoryPath, "passwords") : _directoryPath, Convert.ToHexString(digest) + ".dpapi"); }
         finally { CryptographicOperations.ZeroMemory(digest); }
     }
 

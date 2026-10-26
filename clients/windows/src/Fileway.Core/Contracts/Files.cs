@@ -60,7 +60,7 @@ public enum AuthenticationMode
     NoAuthentication,
 }
 
-/// <summary>Ephemeral login input. Password must never be logged or persisted.</summary>
+/// <summary>Ephemeral login input. Secrets are excluded from serialization; retention requires KeepSignedIn and an account-bound vault.</summary>
 public sealed record LoginInput(
     AuthenticationMode Mode,
     string Username = "",

@@ -1,7 +1,7 @@
 namespace Fileway.Core.Contracts;
 
 /// <summary>Outcome of one self-service password change.</summary>
-public sealed record PasswordChangeResult(string Username);
+public sealed record PasswordChangeResult(string Username, bool LocalCredentialUpdateFailed = false);
 
 /// <summary>
 /// Self-service account security for password-auth servers: changes the signed-in user's own

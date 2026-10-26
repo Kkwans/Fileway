@@ -75,8 +75,8 @@ public sealed partial class MainPage : Page, IDisposable
     public MainPage()
     {
         Localization.ApplyCulture();
-        ApplyLocalization();
         InitializeComponent();
+        ApplyLocalization();
         InitializePresentation();
         _thumbnailController = new BrowserThumbnailController(_lifetime.Token, FileList, FileGrid);
         CollectionsPanel.CloseRequested += (_, _) => HideCollections();
@@ -187,7 +187,7 @@ public sealed partial class MainPage : Page, IDisposable
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
         ConnectButton.IsEnabled = true;
-        SaveConnectionButton.IsEnabled = true;
+        NewConnectionButton.IsEnabled = true;
         LoginNotice.IsOpen = false;
         Notice.IsOpen = false;
         UpdateApplicationMenus();
@@ -199,8 +199,16 @@ public sealed partial class MainPage : Page, IDisposable
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { LoginError(ErrorMessage(exception)); }
+        finally
+        {
+            if (!_disposed)
+            {
+                if (_session is null || _directory is null) SetConnectionView(true);
+                StartupPanel.Visibility = Visibility.Collapsed;
+            }
+        }
     }
-    public void ShowStartupError(string message) { LoginNotice.Severity = InfoBarSeverity.Error; LoginNotice.Message = message; SetNotice("核心服务启动失败", message, InfoBarSeverity.Error); }
+    public void ShowStartupError(string message) { StartupPanel.Visibility = Visibility.Collapsed; SetConnectionView(true); LoginNotice.Severity = InfoBarSeverity.Error; LoginNotice.Message = message; SetNotice("核心服务启动失败", message, InfoBarSeverity.Error); }
     public void ShowFileOpenError(string name, string message) => SetNotice("无法打开文件", $"{name}：{message}", InfoBarSeverity.Error);
     public void Shutdown() => Dispose();
     public void Dispose()
@@ -278,13 +286,26 @@ public sealed partial class MainPage : Page, IDisposable
             }
             _session = await connect(token);
             PasswordBox.Password = "";
+            _sessionPasswordMinimum = Math.Clamp(_session.Capabilities.MinimumPasswordLength, 1, 128);
             _root = await _files.GetRootAsync(_session, token);
+            var initialDirectory = _root;
+            if (_files is INavigationStateService navigation)
+            {
+                try { initialDirectory = await navigation.GetLastDirectoryAsync(_session.Account, token) ?? _root; }
+                catch (FilewayException error) when (error.Error.Code == ErrorCode.LocalStorageUnavailable)
+                { SetNotice("已连接", "上次浏览位置暂不可用，已打开根目录。", InfoBarSeverity.Warning); }
+            }
             _trail.Clear(); _trail.Add(_root); _history.Clear();
+            if (initialDirectory.WirePath != _root.WirePath) _trail.Add(initialDirectory);
             ConnectionLabel.Text = _session.DisplayName; SidebarConnectionActionLabel.Text = "切换连接";
             LogoutButton.Visibility = Visibility.Visible;
             DismissConnection.Visibility = Visibility.Visible; SetConnectionView(false);
             NavigationCommands.IsEnabled = !_connecting;
-            await LoadAsync(_root);
+            if (!await LoadAsync(initialDirectory) && initialDirectory.WirePath != _root.WirePath && !_disposed && !token.IsCancellationRequested)
+            {
+                _trail.Clear(); _trail.Add(_root);
+                await LoadAsync(_root);
+            }
             try { await RefreshSavedConnectionsAsync(); }
             catch (Exception exception) when (exception is not OperationCanceledException)
             { SetNotice("已连接，列表更新失败", ErrorMessage(exception), InfoBarSeverity.Warning); }
@@ -302,7 +323,7 @@ public sealed partial class MainPage : Page, IDisposable
         if (connecting) { HideCollections(); CollectionsPanel.SetContext(null, null, null, null); SidebarCollections.SetSnapshot(null); }
         UpdateThumbnailContext();
         ConnectButton.IsEnabled = !connecting && _connection is not null;
-        SaveConnectionButton.IsEnabled = NewConnectionButton.IsEnabled = !connecting && _connection is not null;
+        NewConnectionButton.IsEnabled = !connecting && _connection is not null;
         RestoreSavedButton.IsEnabled = ForgetSavedButton.IsEnabled = SavedConnectionBox.IsEnabled = !connecting;
         ConnectionNameBox.IsEnabled = ServerBox.IsEnabled = AuthenticationBox.IsEnabled = !connecting;
         UsernameBox.IsEnabled = PasswordBox.IsEnabled = KeepSignedInBox.IsEnabled = !connecting;
@@ -465,9 +486,9 @@ public sealed partial class MainPage : Page, IDisposable
         catch (Exception) { /* Session leases are already retired by the connection service. */ }
     });
 
-    private async Task LoadAsync(RemoteResourceRef directory)
+    private async Task<bool> LoadAsync(RemoteResourceRef directory)
     {
-        if (_files is null || _session is not { } session || _disposed) return;
+        if (_files is null || _session is not { } session || _disposed) return false;
         _loadCancellation?.Cancel(); _loadCancellation?.Dispose();
         _loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _loadCancellation.Token;
@@ -481,6 +502,7 @@ public sealed partial class MainPage : Page, IDisposable
         _ = ReadBrowserPreferencesAsync(directory, session, generation, preferenceRevision, token);
         _items.Clear(); _rows.Clear(); SearchBox.Text = "";
         SetLoading(true); Notice.IsOpen = false; EmptyState.Visibility = Visibility.Collapsed;
+        bool loaded = false;
         try
         {
             var query = Query();
@@ -489,13 +511,20 @@ public sealed partial class MainPage : Page, IDisposable
             do
             {
                 var page = await _files.ListAsync(directory, query with { Cursor = cursor }, token);
-                if (!CurrentLoad()) return;
+                if (!CurrentLoad()) return false;
                 token.ThrowIfCancellationRequested();
                 _items.AddRange(page.Items); cursor = page.NextCursor;
                 if (cursor is not null && !seenCursors.Add(cursor)) throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "服务器返回了重复的分页标记。"));
                 ApplyFilter();
             } while (cursor is not null);
             UpdateSelection();
+            loaded = true;
+            if (CurrentLoad() && _files is INavigationStateService navigation)
+            {
+                try { await navigation.RememberDirectoryAsync(directory, token); }
+                catch (FilewayException error) when (error.Error.Code == ErrorCode.LocalStorageUnavailable)
+                { if (CurrentLoad()) SetNotice("目录已打开", "浏览位置未能保存，下次启动可能回到根目录。", InfoBarSeverity.Warning); }
+            }
         }
         catch (OperationCanceledException)
         {
@@ -506,6 +535,7 @@ public sealed partial class MainPage : Page, IDisposable
             if (CurrentLoad()) { _loadStateTitle = "无法加载目录"; _loadStateDescription = ErrorMessage(exception); SetNotice(_loadStateTitle, _loadStateDescription, InfoBarSeverity.Error); }
         }
         finally { if (CurrentLoad()) { SetLoading(false); ApplyFilter(); BackButton.IsEnabled = _history.Count > 0; UpButton.IsEnabled = _trail.Count > 1; } }
+        return loaded && CurrentLoad();
     }
     private DirectoryQuery Query() => new(_browserPreferences.SortBy, _browserPreferences.Descending);
     private void ApplyFilter()
@@ -653,7 +683,9 @@ public sealed partial class MainPage : Page, IDisposable
         {
             var result = await service.ChangePasswordAsync(account, current.Password, next.Password, _lifetime.Token);
             if (!IsCurrentAccount(account)) return;
-            SetNotice("密码已修改", result.Username + " 的登录密码已更新。", InfoBarSeverity.Success);
+            SetNotice("密码已修改", result.LocalCredentialUpdateFailed
+                ? "服务器密码已更新，但本机自动登录凭据未能更新，请重新登录一次。"
+                : result.Username + " 的登录密码已更新。", result.LocalCredentialUpdateFailed ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { if (IsCurrentAccount(account)) SetNotice("密码修改未完成", ErrorMessage(error), InfoBarSeverity.Error); }
@@ -722,6 +754,9 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (CredentialFields is null) return;
         CredentialFields.Visibility = AuthenticationBox.SelectedIndex == 1 ? Visibility.Collapsed : Visibility.Visible;
+        if (RetentionDescription is not null) RetentionDescription.Text = AuthenticationBox.SelectedIndex == 1
+            ? "勾选后在当前 Windows 用户下加密保存会话，用于自动恢复；退出登录或忘记连接会删除。"
+            : "勾选后在当前 Windows 用户下加密保存密码和会话，用于自动恢复；退出登录或忘记连接会删除。";
         if (AuthenticationBox.SelectedIndex == 1) PasswordBox.Password = "";
     }
     private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); SetConnectionView(true); }
