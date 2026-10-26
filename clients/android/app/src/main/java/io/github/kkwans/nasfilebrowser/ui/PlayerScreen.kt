@@ -45,6 +45,7 @@ import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.luminance
@@ -368,7 +369,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             Box(Modifier.fillMaxSize().background(if (fullscreen) FilewayTheme.status.mediaCanvas else pageColors.background)) {
                 if (!fullscreen) PlayerAmbient(artwork.atmosphere, state.playing && gestureForeground, Modifier.fillMaxSize())
             BoxWithConstraints(Modifier.fillMaxSize()
-                .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing))
+                .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)))
                 .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
                 val landscape = maxWidth > maxHeight
                 val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
@@ -380,7 +381,12 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     if (download != null) downloadCoverageHeight else 0.dp
                 val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
                 Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
-                    if (!fullscreen) Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                    if (!fullscreen) Column(Modifier.fillMaxWidth().drawBehind {
+                        // Mirror the lower 72dp blend through the existing status/title area.
+                        drawRect(Brush.verticalGradient(listOf(Color.Transparent, Color.Black),
+                            startY = size.height - 72.dp.toPx(), endY = size.height))
+                    }.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
                         .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         PlayerIcon(R.drawable.ic_arrow_back, "返回文件", model::leavePlayer)
                         Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -388,7 +394,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         networkStatus?.let { PlayerNetworkStatus(it) }
                         PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
                     }
-                    if (!fullscreen) FilewaySessionNotice(model)
+                    FilewaySessionNotice(model)
+                    }
                     // Portrait keeps transport below the picture. Fullscreen
                     // uses the entire viewport with controls over the video;
                     // hiding the HUD never changes the native surface size.

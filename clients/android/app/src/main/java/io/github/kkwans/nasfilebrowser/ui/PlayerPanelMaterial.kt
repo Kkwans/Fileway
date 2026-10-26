@@ -23,7 +23,8 @@ import androidx.core.view.WindowCompat
             WindowCompat.setDecorFitsSystemWindows(it, false)
             it.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
             val attributes = it.attributes
-            attributes.flags = attributes.flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+            attributes.flags = attributes.flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
             // Keep the bounded floating window, but remove WindowManager's separate
             // system-bar fitting. The panel body already owns its one safe inset.
             if (android.os.Build.VERSION.SDK_INT >= 30) attributes.setFitInsetsTypes(0)
