@@ -52,8 +52,7 @@ public sealed partial class MainPage
         AutomationProperties.SetName(ConnectionButton, SidebarConnectionActionLabel.Text);
         ToolTipService.SetToolTip(ConnectionButton, SidebarConnectionActionLabel.Text);
         MenuConnectionItem.IsEnabled = ConnectionButton.IsEnabled = _connection is not null && !_connecting;
-        MenuOpenItem.IsEnabled = browser && selected.Length == 1 && (selected[0].File.IsDirectory
-            || selected[0].IsImage && _images is not null || selected[0].IsVideo && _playback is not null);
+        MenuOpenItem.IsEnabled = browser && selected.Length == 1;
         MenuNewItem.IsEnabled = browser && CanWrite(p => p.Create);
         MenuNewFileItem.IsEnabled = FileManagement is not null;
         MenuUploadItem.IsEnabled = browser && CanSubmitUpload;
