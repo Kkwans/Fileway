@@ -59,7 +59,7 @@ public sealed class TransferTaskStoreTests
             using var database = Database(directory.DatabasePath);
             using var version = database.CreateCommand();
             version.CommandText = "PRAGMA user_version";
-            Assert.Equal(6L, version.ExecuteScalar());
+            Assert.Equal(8L, version.ExecuteScalar());
         }
     }
 

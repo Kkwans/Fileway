@@ -164,7 +164,8 @@ public sealed class BrowserPreferencesStoreTests
         using var writer = OpenDatabase(directory.DatabasePath);
         using (var schemaThree = writer.CreateCommand())
         {
-            schemaThree.CommandText = "DROP TABLE transfer_tasks; DROP TABLE operation_journal_items; DROP TABLE operation_journal; DROP TABLE browser_preferences; PRAGMA user_version = 3; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE);";
+            schemaThree.CommandText = "DROP TABLE navigation_state; ALTER TABLE client_storage_settings DROP COLUMN auto_resume_downloads; " +
+                "DROP TABLE transfer_tasks; DROP TABLE operation_journal_items; DROP TABLE operation_journal; DROP TABLE browser_preferences; PRAGMA user_version = 3; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE);";
             schemaThree.ExecuteNonQuery();
         }
         using (var committed = writer.CreateCommand())
@@ -214,7 +215,7 @@ public sealed class BrowserPreferencesStoreTests
         using var upgraded = OpenDatabase(directory.DatabasePath);
         using var version = upgraded.CreateCommand();
         version.CommandText = "PRAGMA user_version";
-        Assert.Equal(6L, version.ExecuteScalar());
+        Assert.Equal(8L, version.ExecuteScalar());
         Assert.Single(Directory.GetFiles(directory.DirectoryPath, "*.backup"));
     }
 

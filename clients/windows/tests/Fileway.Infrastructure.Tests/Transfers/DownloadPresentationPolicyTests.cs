@@ -217,14 +217,15 @@ public sealed class DownloadPresentationPolicyTests
     }
 
     [Fact]
-    public void AllPublicStagesHaveLabelsWithoutResumeOrPausePromises()
+    public void AllPublicStagesHaveLabelsAndOnlyPausedClaimsPause()
     {
         foreach (var status in Enum.GetValues<DownloadStatus>())
         {
             var stage = DownloadPresentationPolicy.Stage(Item(status, published: status == DownloadStatus.Completed));
             Assert.False(string.IsNullOrWhiteSpace(stage));
             Assert.DoesNotContain("恢复", stage, StringComparison.Ordinal);
-            Assert.DoesNotContain("暂停", stage, StringComparison.Ordinal);
+            if (status == DownloadStatus.Paused) Assert.Equal("已暂停", stage);
+            else Assert.DoesNotContain("暂停", stage, StringComparison.Ordinal);
         }
     }
 

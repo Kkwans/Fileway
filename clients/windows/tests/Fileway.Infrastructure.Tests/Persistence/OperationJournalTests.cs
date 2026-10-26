@@ -406,7 +406,9 @@ public sealed class OperationJournalTests
         using var writer = Database(directory.DatabasePath);
         using (var downgrade = writer.CreateCommand())
         {
-            downgrade.CommandText = "DROP TABLE transfer_tasks; DROP TABLE operation_journal_items; DROP TABLE operation_journal; " +
+            downgrade.CommandText = "DROP TABLE navigation_state; " +
+                (version >= 2 ? "ALTER TABLE client_storage_settings DROP COLUMN auto_resume_downloads; " : "") +
+                "DROP TABLE transfer_tasks; DROP TABLE operation_journal_items; DROP TABLE operation_journal; " +
                 (version < 4 ? "DROP TABLE browser_preferences; " : "") +
                 (version < 3 ? "DROP TABLE cache_roots; " : "") +
                 (version < 2 ? "DROP TABLE client_storage_settings; " : "") +
@@ -439,7 +441,7 @@ public sealed class OperationJournalTests
         Assert.Equal("ok", check.ExecuteScalar());
         using var current = writer.CreateCommand();
         current.CommandText = "PRAGMA user_version";
-        Assert.Equal(6L, current.ExecuteScalar());
+        Assert.Equal(8L, current.ExecuteScalar());
     }
 
     [Fact]

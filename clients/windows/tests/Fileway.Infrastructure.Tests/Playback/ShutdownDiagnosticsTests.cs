@@ -60,11 +60,12 @@ public sealed class ShutdownDiagnosticsTests
             Assert.Equal((int)stage, rows.Length);
             using var row = JsonDocument.Parse(rows[^1]);
             var properties = row.RootElement.EnumerateObject().ToArray();
-            Assert.Equal(["schemaVersion", "stage", "uiThread"], properties.Select(property => property.Name));
+            Assert.Equal(["schemaVersion", "stage", "uiThread", "elapsedMilliseconds"], properties.Select(property => property.Name));
             Assert.All(properties, property => Assert.Equal(JsonValueKind.Number, property.Value.ValueKind));
             Assert.Equal(1, row.RootElement.GetProperty("schemaVersion").GetInt32());
             Assert.Equal((int)stage, row.RootElement.GetProperty("stage").GetInt32());
             Assert.Equal((int)stage % 2, row.RootElement.GetProperty("uiThread").GetInt32());
+            Assert.True(row.RootElement.GetProperty("elapsedMilliseconds").GetInt64() >= 0);
         }
         Assert.DoesNotContain(fixture.Root, string.Join('\n', fixture.ReadRows()), StringComparison.Ordinal);
         Assert.Equal([fixture.Path], Directory.GetFiles(fixture.Root, "*", SearchOption.AllDirectories));
@@ -84,7 +85,7 @@ public sealed class ShutdownDiagnosticsTests
             Assert.InRange(row.RootElement.GetProperty("stage").GetInt32(), 1, 13);
             Assert.InRange(row.RootElement.GetProperty("uiThread").GetInt32(), 0, 1);
         });
-        Assert.InRange(new FileInfo(fixture.Path).Length, 1, 1024);
+        Assert.InRange(new FileInfo(fixture.Path).Length, 1, ShutdownDiagnostics.Capacity * 128L);
     }
 
     [Fact]

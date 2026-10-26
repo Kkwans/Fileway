@@ -235,7 +235,7 @@ public sealed class StorageSettingsTests
         using var upgraded = OpenDatabase(directory.DatabasePath);
         using var version = upgraded.CreateCommand();
         version.CommandText = "PRAGMA user_version";
-        Assert.Equal(6L, version.ExecuteScalar());
+        Assert.Equal(8L, version.ExecuteScalar());
         Assert.Single(Directory.GetFiles(directory.DirectoryPath, "profiles.sqlite3.schema1-*.backup"));
     }
 

@@ -24,7 +24,8 @@ public sealed class CacheRootMigrationTests
         using (var downgrade = writer.CreateCommand())
         {
             // Recreate the schema2 boundary while keeping the real profile/settings schema.
-            downgrade.CommandText = "DROP TABLE transfer_tasks; DROP TABLE operation_journal_items; DROP TABLE operation_journal; DROP TABLE browser_preferences; DROP TABLE cache_roots; PRAGMA user_version = 2; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE);";
+            downgrade.CommandText = "DROP TABLE navigation_state; ALTER TABLE client_storage_settings DROP COLUMN auto_resume_downloads; " +
+                "DROP TABLE transfer_tasks; DROP TABLE operation_journal_items; DROP TABLE operation_journal; DROP TABLE browser_preferences; DROP TABLE cache_roots; PRAGMA user_version = 2; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE);";
             downgrade.ExecuteNonQuery();
         }
         using (var committedWal = writer.CreateCommand())
@@ -89,7 +90,7 @@ public sealed class CacheRootMigrationTests
         using var current = OpenDatabase(directory.DatabasePath);
         using var version = current.CreateCommand();
         version.CommandText = "PRAGMA user_version";
-        Assert.Equal(6L, version.ExecuteScalar());
+        Assert.Equal(8L, version.ExecuteScalar());
         Assert.Single(Directory.GetFiles(directory.DirectoryPath, "profiles.sqlite3.schema2-*.backup"));
     }
 

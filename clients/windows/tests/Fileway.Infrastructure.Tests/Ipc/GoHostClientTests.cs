@@ -370,7 +370,7 @@ public sealed class GoHostClientTests
     }
 
     [Fact]
-    public async Task RealEscapedResponseLimitAndInputBoundaryLeaveHostHealthy()
+    public async Task RealEscapedResponseLimitAndEncodedInputBoundaryLeaveHostHealthy()
     {
         await using var fixture = new HttpFixture(_ => new FixtureResponse(200, new byte[3 << 20]));
         await using var client = await GoHostClient.StartAsync(HarnessFixture.RealOptions, Token);
@@ -378,7 +378,7 @@ public sealed class GoHostClientTests
         HostReply reply = await client.CallAsync(new HostCall("request", Parameters(new { method = "GET", endpoint = "/api/resources/large" }), session), Token);
         Assert.Equal("ResponseTooLarge", reply.Error?.Code);
         Assert.Equal(ErrorCode.InvalidRequest, (await Assert.ThrowsAsync<FilewayException>(() => client.CallAsync(new HostCall("request", Parameters(new { method = "POST", endpoint = "/api/resources/large", body = new string('x', 1 << 20) }), session), Token))).Error.Code);
-        Assert.Equal(ErrorCode.InvalidRequest, (await Assert.ThrowsAsync<FilewayException>(() => client.CallAsync(new HostCall("request", Parameters(new { method = "POST", endpoint = "/api/resources/large", bodyBase64 = "" }), session), Token))).Error.Code);
+        // Raw base64 bodies are now supported; an empty raw body is not an invalid-input fixture.
         Assert.Equal(1, fixture.Count);
         Assert.True((await client.CallAsync(new HostCall("health"), Token)).IsSuccess);
     }

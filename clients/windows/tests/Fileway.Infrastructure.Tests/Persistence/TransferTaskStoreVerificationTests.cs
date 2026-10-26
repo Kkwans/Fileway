@@ -1042,7 +1042,8 @@ public sealed class TransferTaskStoreVerificationTests
         var operation = await bootstrap.CreateIntentAsync(intent, Token);
         operation = await bootstrap.MarkDispatchAsync(intent.Reference, operation.Revision, Token);
         using var writer = Database(directory.DatabasePath);
-        Execute(writer, "DROP TABLE transfer_tasks; PRAGMA user_version = 5; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE);");
+        Execute(writer, "DROP TABLE navigation_state; ALTER TABLE client_storage_settings DROP COLUMN auto_resume_downloads; " +
+            "DROP TABLE transfer_tasks; PRAGMA user_version = 5; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE);");
         Execute(writer, "UPDATE saved_connections SET display_name = 'committed WAL transfer migration';");
         Assert.True(new FileInfo(directory.DatabasePath + "-wal").Length > 0);
 
@@ -1052,7 +1053,7 @@ public sealed class TransferTaskStoreVerificationTests
         Assert.Equal(observed, await migrated.GetAsync(saved.Profile.Id, Token));
         Assert.Equivalent(operation, Assert.IsType<OperationRecord>(await migrated.GetOperationAsync(intent.Reference, Token)), strict: true);
         Assert.Equal(preferences, await migrated.ReadBrowserPreferencesAsync(saved.Account, "2FFF", Token));
-        Assert.Equal(6L, Scalar(writer, "PRAGMA user_version"));
+        Assert.Equal(8L, Scalar(writer, "PRAGMA user_version"));
         string backupPath = Assert.Single(Directory.GetFiles(directory.DirectoryPath, "profiles.sqlite3.schema5-*.backup"));
         string restoredPath = Path.Combine(directory.DirectoryPath, "isolated-restore", "profiles.sqlite3");
         Directory.CreateDirectory(Path.GetDirectoryName(restoredPath)!);
@@ -1076,7 +1077,7 @@ public sealed class TransferTaskStoreVerificationTests
         Assert.NotNull(claim.Run);
         Assert.Empty((await ((ITransferTaskStore)migrated).ListTransfersAsync(saved.Account, null, 10, Token)).Items);
         using var restoredDatabase = Database(restoredPath);
-        Assert.Equal(6L, Scalar(restoredDatabase, "PRAGMA user_version"));
+        Assert.Equal(8L, Scalar(restoredDatabase, "PRAGMA user_version"));
         Assert.Equal("ok", Scalar(restoredDatabase, "PRAGMA integrity_check"));
     }
 
@@ -1095,7 +1096,8 @@ public sealed class TransferTaskStoreVerificationTests
         await bootstrap.SaveAsync(saved, Token);
         // The fixture uses the production connection opener rather than accidentally retrying a native long path.
         using var writer = OpenForFixtureDiagnostics(bootstrap);
-        Execute(writer, "DROP TABLE transfer_tasks; PRAGMA user_version = 5; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE);");
+        Execute(writer, "DROP TABLE navigation_state; ALTER TABLE client_storage_settings DROP COLUMN auto_resume_downloads; " +
+            "DROP TABLE transfer_tasks; PRAGMA user_version = 5; PRAGMA wal_autocheckpoint = 0; PRAGMA wal_checkpoint(TRUNCATE);");
         Execute(writer, "UPDATE saved_connections SET display_name = 'long database committed WAL';");
         Assert.True(new FileInfo(longPath + "-wal").Length > 0);
         var plan = Plan(saved.Account);
@@ -1110,7 +1112,7 @@ public sealed class TransferTaskStoreVerificationTests
         Assert.Equal(saved with { Profile = saved.Profile with { DisplayName = "long database committed WAL" } },
             await reopened.GetAsync(saved.Profile.Id, Token));
         Assert.True(File.Exists(longPath));
-        Assert.Equal(6L, Scalar(writer, "PRAGMA user_version"));
+        Assert.Equal(8L, Scalar(writer, "PRAGMA user_version"));
         string backupPath = Assert.Single(Directory.GetFiles(longDirectory, "profiles.sqlite3.schema5-*.backup"));
         Assert.True(backupPath.Length > 260);
         using (var backup = Database(ProductionDataSourcePath(backupPath)))
