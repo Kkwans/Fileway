@@ -7,6 +7,7 @@ namespace Fileway.Playback.Native;
 internal sealed class MpvNative : IDisposable
 {
     private readonly nint _library;
+    private readonly nint _systemOpenGl;
     private readonly CreateFunction _create;
     private readonly HandleFunction _initialize;
     private readonly DestroyFunction _destroy;
@@ -26,12 +27,17 @@ internal sealed class MpvNative : IDisposable
         string dll = Path.Combine(directory, "libmpv-2.dll");
         if (!Path.IsPathFullyQualified(runtimeDirectory) || !File.Exists(dll))
             throw Error(ErrorCode.CapabilityMissing, "固定播放器运行库不可用。");
-        // Only the explicitly selected DLL directory and Windows System32 are
-        // searched. No PATH/CWD or user-provided mpv configuration is consulted.
-        _library = MpvLibraryMethods.LoadLibraryExW(dll, 0, 0x100 | 0x800);
-        if (_library == 0) throw Error(ErrorCode.CapabilityMissing, "播放器运行库或固定依赖未能加载。");
+        // Resolve the OS OpenGL dependency before loading the pinned mpv closure.
+        // The bundled Mesa proxy installs thread hooks which can outlive its DLL
+        // when mpv is unloaded. Our renderer uses D3D11, not that software driver.
+        _systemOpenGl = MpvLibraryMethods.LoadLibraryExW(
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "opengl32.dll"), 0, 0x800);
+        if (_systemOpenGl == 0) throw Error(ErrorCode.CapabilityMissing, "Windows OpenGL 运行库不可用。");
         try
         {
+            // No PATH/CWD or user-provided mpv configuration is consulted.
+            _library = MpvLibraryMethods.LoadLibraryExW(dll, 0, 0x100 | 0x800);
+            if (_library == 0) throw Error(ErrorCode.CapabilityMissing, "播放器运行库或固定依赖未能加载。");
             var version = Export<VersionFunction>("mpv_client_api_version")();
             if ((version >> 16) != 2) throw Error(ErrorCode.CapabilityMissing, "播放器原生 API 版本不兼容。");
             _create = Export<CreateFunction>("mpv_create");
@@ -46,7 +52,7 @@ internal sealed class MpvNative : IDisposable
             _free = Export<FreeFunction>("mpv_free");
             _addReadOnlyStream = Export<AddReadOnlyStreamFunction>("mpv_stream_cb_add_ro");
         }
-        catch { _ = MpvLibraryMethods.FreeLibrary(_library); throw; }
+        catch { ReleaseLibraries(); throw; }
     }
 
     private T Export<T>(string name) where T : Delegate => Marshal.GetDelegateForFunctionPointer<T>(NativeLibrary.GetExport(_library, name));
@@ -148,7 +154,12 @@ internal sealed class MpvNative : IDisposable
     }
 
     internal static FilewayException Error(ErrorCode code, string message) => new(new ErrorInfo(code, message));
-    public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) _ = MpvLibraryMethods.FreeLibrary(_library); }
+    public void Dispose() { if (Interlocked.Exchange(ref _disposed, 1) == 0) ReleaseLibraries(); }
+    private void ReleaseLibraries()
+    {
+        if (_library != 0) _ = MpvLibraryMethods.FreeLibrary(_library);
+        if (_systemOpenGl != 0) _ = MpvLibraryMethods.FreeLibrary(_systemOpenGl);
+    }
 
     [StructLayout(LayoutKind.Sequential)] private struct EventData { internal int Id, Error; internal ulong User; internal nint Data; }
     [StructLayout(LayoutKind.Sequential)] private struct PropertyData { internal nint Name; internal int Format; internal nint Data; }

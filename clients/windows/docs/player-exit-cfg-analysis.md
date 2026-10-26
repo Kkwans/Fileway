@@ -1,12 +1,14 @@
-# 播放器退出 C0000409 / CFG fast-fail 10 根因分析
+# 播放器退出 CFG 故障与 OpenGL 提供方修复
 
-更新日期：2026-10-24。本文记录 P-01 的证据链与当前结论；证据来自既有 CI 导出诊断，
-未新开任何测试或本机运行。交互与断言细节见 [player-smoke.md](player-smoke.md)，
+更新日期：2026-10-27。新的本机捕获纠正了此前“仅属于外部钩子”的判断：固定媒体闭包中的
+Mesa `opengl32.dll` 会加载 `libgallium_wgl.dll`，后者具有实际被派发的 ANSI 钩子。
+显式选择 Windows System32 OpenGL 后，无调试器的播放后退出已通过。
+交互与断言细节见 [player-smoke.md](player-smoke.md)，
 生命周期背景见 [media-lifecycle.md](media-lifecycle.md) 的“原生退出调查边界”一节。
 
 ## 证据来源
 
-全部为既有 bounded 导出证据（`events.jsonl` / `report.json`，仓库外工件目录）：
+2026-10-24 之前的 bounded 导出证据（`events.jsonl` / `report.json`，仓库外工件目录）：
 
 | Run | 场景 | 应用退出码 | 结果 |
 | --- | --- | --- | --- |
@@ -36,7 +38,7 @@ win32u!NtUserDestroyWindow（B 场景为 Microsoft.UI.Input 发起的另一 win3
 关键事实：
 
 - 故障调用是 `DispatchHookA`（**ANSI** Windows 钩子派发器）对钩子过程的受保护间接调用。
-  本应用及其全部依赖均为 Unicode；ANSI 钩子过程是外部遗留软件的典型特征。
+  ANSI 并不能证明它属于外部软件；此前未覆盖媒体 DLL 的归属排除不成立。
 - `shutdown-cfg-helper-argument` 分类 6：候选地址在捕获时位于 `MEM_FREE` 区域，
   不在任何已加载或已卸载的已知模块范围内。
 - `shutdown-cfg-pre-close-module` 映射 0：关闭前快照中，该地址也不在任何已知模块范围内。
@@ -46,47 +48,34 @@ win32u!NtUserDestroyWindow（B 场景为 Microsoft.UI.Input 发起的另一 win3
 - 关机面包屑：阶段 1–8、10–13 完成、阶段 9（主窗口 close 调用返回）永远缺失——
   崩溃在所有应用层 `Closed` 回调返回之后的原生销毁消息流中。
 
-## 结论：失效目标不是 Fileway 拥有的回调
+## 2026-10-27 本机归属与对照
 
-- 被调用的是一个**外部安装的 ANSI Windows 钩子过程**（CALLWNDPROC 族内核回调），
-  其内存在应用开始关闭消息流之前已被释放。销毁窗口必然产生大量 SendMessage 流量，
-  任何窗口销毁都会派发到该全局钩子，与具体窗口、具体消息无关——这与
-  `messageKind=0` / `windowRole=0`（三种不同关闭路径全部命中同一派发点）完全一致。
-- 进程内自有来源已被排除：
-  1. 仓库源码无任何 `SetWindowsHookEx`/`SetWinEventHook` 调用；
-  2. 本机 2026-10-18 全程断点证明本进程从未通过 user32 安装/卸载钩子；
-  3. 逐一检查交付二进制的导入表：`Fileway.App.exe`、`WinUIEx.dll`、
-     `Microsoft.UI.Input.dll`、`Microsoft.UI.Xaml.dll`、`Microsoft.UI.Windowing.Core.dll`、
-     `Microsoft.WindowsAppRuntime.dll`、`Microsoft.Internal.FrameworkUdk.dll`、
-     `Microsoft.InteractiveExperiences.Projection.dll` 均无钩子 API 引用。
-- B 场景栈中的 `Microsoft.UI.Input` 帧是发起窗口调用（从而触发消息派发）的调用方，
-  不是钩子所有者；其模块身份已由 `shutdown-dispatch-module`（`shutdown-dispatch-input-candidate` matches=1）
-  指纹单独核实，仅为环境相关性记录。
-- 结论：这是**第三方/环境级故障模式**——陈旧的外部全局钩子指向已释放内存，
-  任何 Win32 程序在相同环境关闭窗口都会同样 fast-fail。它不是 Fileway 的
-  callback/窗口/native 生命周期缺陷；应用侧不存在可以“修复”的归属对象。
+- 原始运行包播放 H264、关闭播放器后退出，仍为 `0xC0000409` / fast-fail 10。
+  当前 dump 的调用链为 WinUI InputStateManager 消息窗口销毁 → `DispatchHookA` → CFG；
+  服务释放阶段 1–8 在约 153ms 内完成，主窗口 Close 未返回。旧结论不能替代该次证据。
+- 关闭前的有界调试捕获读取 `DispatchHookA` 第四参数 `r9`，实际目标包含
+  `libgallium_wgl.dll + 0x98ffa0`；模块来自交付包的 `media` 目录。
+  同场也观察到 RTSS 钩子，但不能把模块共存当作它导致此次故障的证据。
+- 固定锁证明 `libmpv-2.dll` 导入 `opengl32.dll`，媒体目录内的 Mesa 代理再导入
+  `libgallium_wgl.dll`。此前只审查应用/WinUI DLL，没有排除这条媒体依赖链。
+- 保持应用代码和其他 DLL 不变，只在隔离诊断副本中移走 Mesa 代理，系统 OpenGL 被加载，
+  Gallium 未加载，H264 播放后无调试器退出为 0。随后产品加载策略修复在完整原始闭包仍在的
+  条件下得到相同结果。调试器捕获本身没有复现崩溃，不能作为退出验收。
 
-## 边界与未决项
+证据位于外部 `20261026-phaseb-081/logs`：`batch7-media-exit-r1.log`、
+`batch7-exit-dump.log`、`batch7-live-hook.log`、`batch7-media-systemgl-r1.log`、
+`batch7-media-fixed-r1.log`。dump 和调试日志不进入 Git。
 
-- 尚未指认外部钩子的具体所有者。静态证据只能证明“不属于本进程的全部交付二进制”。
-  需要一次实时有界捕获（在既有 shutdown-debugger 附加会话中，于关闭前对
-  `USER32!DispatchHookA` 设断点，仅记录钩子过程参数所在模块的 basename 与偏移类别）
-  才能命名所有者。该步骤属于 harness/测试改动，当前用户规则下不编写、不运行，
-  待重新授权后作为独立小切片实施。
-- 本机（用户日常环境）从未复现该崩溃，与“CI 运行器上的陈旧全局钩子”解释一致；
-  用户人工测试中未报告退出崩溃。这不关闭问题：定位所有者并拿到无钩子环境的
-  退出 0 证据之前，P-01 保持开放。
-- 保持不变：不关闭 CFG、不降低安全机制、不吞异常、不通过长驻 DLL 或保留加载掩盖故障；
-  附加调试器的运行永远不能作为正常退出验证（`player-smoke.md` 既有规则）。
-- 2026-10-18 本机调查还记录过一次独立现象：progressive 播放期间
-  `RtlpBreakPointHeap` 报 "Free Heap block modified after it was freed"
-  （堆释放块被改写，无栈记录）。它与 CI CFG 故障的内存形态不同（堆内块 vs 整段
-  未映射 VA），当时未捕获调用栈，作为独立开放观察保留，不并入 P-01 结论。
+## 修复与边界
 
-## 对计划的影响
+`MpvNative` 先以绝对 System32 路径加载 Windows `opengl32.dll`，再按既有受限搜索路径加载
+固定 mpv。依赖会按已加载模块列表解析到系统提供方，符合
+[Windows DLL 搜索规则](https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order)。
+播放器仍使用既定 D3D11 输出；vendor、固定锁、DLL 哈希与完整运行库输入保持不变。
 
-- P-01 从“修 Fileway callback/窗口/native 生命周期”改判为“外部钩子故障的身份指认 +
-  无钩子环境退出验证”。不阻塞 0.3.5 及后续功能批次。
-- 完整关闭证据的最终定义保持：无调试器附加、应用与 Host 双零退出；且需要解释
-  本分析的证据链（同 SHA、同环境）。在此之前任何版本的退出稳定性声明都不得引用
-  附加调试器的运行。
+构造失败释放已取得的两个引用；正常销毁先释放 mpv，再释放本次取得的系统 OpenGL 引用。
+不关闭 CFG，不更改全局 DLL 搜索路径，不保留已卸载驱动或跳过资源释放，不修改 RTSS 配置。
+
+这确认并修复本机媒体依赖选择问题，不追溯宣称旧 CI 每一次故障都已完成同进程地址归属，
+也不关闭曾单独出现、尚无完整堆栈的 progressive 堆写坏观察。
+最终候选仍须按实际提交和环境验证无调试器的播放、应用/Host 退出，不能复用调试器退出码。

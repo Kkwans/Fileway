@@ -161,23 +161,23 @@ Runtime packages require pinned hashes, actual configuration/nonfree checks, com
 
 ## Native shutdown investigation boundary
 
-The application shutdown crash has been attributed to an externally-owned ANSI
-Windows hook procedure called from a freed region; see
-[player-exit-cfg-analysis.md](player-exit-cfg-analysis.md) for the full
-evidence chain and the remaining follow-up. Native smoke run `39091009837`
+The earlier external-hook attribution was incomplete. A 2026-10-27 local capture
+identified a dispatched ANSI hook inside the bundled Mesa `libgallium_wgl.dll`.
+`MpvNative` now resolves OpenGL from System32 before loading mpv and releases both
+references normally. Playback followed by an undebugged application exit passes
+locally with the original runtime inventory present; see
+[player-exit-cfg-analysis.md](player-exit-cfg-analysis.md). Historical run `39091009837`
 completed moving-frame, three settings cycles, pause/resume, button/F11 fullscreen
 cycles and player-surface close, then failed application shutdown with
 `0xC0000409`, fast-fail subcode 10. Completing those interactions does not grant a
 full smoke pass. The main close call did not return after its Closed markers.
 
-The bounded dispatch evidence identifies `USER32!DispatchHookA`
-(`shutdown-dispatch-frame`, frame index 3, symbol ID 5). The candidate target is
-in a `MEM_FREE` region. All shipped Fileway binaries and dependencies import no
-hook APIs, and in-process `SetWindowsHookExA/W` breakpoints never fired during a
-complete local run, so the registration happened outside this process's
-user32 imports. Attribution to a named external owner still requires a live
-bounded capture, which is a harness change pending re-authorization; changing
-CFG policy or retaining a DLL without ownership evidence is not a fix.
+The historical bounded dispatch evidence identifies `USER32!DispatchHookA`
+and a target in a freed region. This established the failure shape, not ownership:
+the old import review omitted media dependencies. The new local capture and
+System32-provider comparison supersede that attribution. They do not establish
+same-process provenance for every historical CI crash. CFG remains enabled;
+retaining an invalid callback's DLL is not the repair.
 
 Shutdown preparation and native close interception are shared window code.
 Only owners subscribing to `CloseRequested` intercept `WM_CLOSE`; image viewers
