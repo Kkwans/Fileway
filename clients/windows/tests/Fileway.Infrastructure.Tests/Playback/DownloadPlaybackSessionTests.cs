@@ -623,6 +623,10 @@ public sealed class DownloadPlaybackSessionTests
         public Task<DownloadPage> ListAsync(DownloadContext input, string? cursor, int limit, CancellationToken cancellationToken) => throw new InvalidOperationException();
         public Task<DownloadItem> CancelAsync(DownloadContext input, TransferTaskRef task, CancellationToken cancellationToken) => throw Mutation();
         public Task<DownloadItem> ReconcileLocalAsync(DownloadContext input, TransferTaskRef task, CancellationToken cancellationToken) => throw Mutation();
+        public Task<IReadOnlyList<DownloadItem>> ResumeEligibleAsync(DownloadContext input, CancellationToken cancellationToken) => throw Mutation();
+        public Task<DownloadTreeEnumeration> EnumerateTreeAsync(DownloadContext input, RemoteResourceRef directory, CancellationToken cancellationToken) => throw new InvalidOperationException();
+        public Task<DownloadPreview> PrepareTreeAsync(DownloadContext input, RemoteResourceRef root, DownloadTreeEntry entry,
+            Guid batchId, int ordinal, CancellationToken cancellationToken) => throw Mutation();
         private InvalidOperationException Mutation() { Interlocked.Increment(ref WriterMutations); return new("Playback must never mutate its writer."); }
     }
 
