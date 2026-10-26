@@ -45,7 +45,7 @@ public sealed partial class FilewayClientServices : IAdminUserService
     /// never drop fields Windows does not yet manage.
     /// </summary>
     private static object AdminUserData(string username, string password, bool isAdmin, PermissionSet permissions,
-        bool lockPassword, ulong id = 0) => new
+        bool lockPassword, ulong id = 0, Dictionary<string, bool>? permissionData = null) => new
     {
         id,
         username,
@@ -58,7 +58,7 @@ public sealed partial class FilewayClientServices : IAdminUserService
         dateFormat = false,
         redirectAfterCopyMove = false,
         lockPassword,
-        perm = new Dictionary<string, bool>
+        perm = permissionData ?? new Dictionary<string, bool>
         {
             ["admin"] = isAdmin,
             ["execute"] = permissions.Execute,
@@ -113,7 +113,6 @@ public sealed partial class FilewayClientServices : IAdminUserService
                 },
             }, requireDownload: false, HostCallSafety.Mutation, cancellationToken, operation: "request").ConfigureAwait(false);
             RequireExactStatus(response, 201);
-            using var created = ParseBody(response);
             // The Location header is not proxied; resolve the new id from the username listing.
             var users = await ((IAdminUserService)this).ListAsync(account, linked.Token).ConfigureAwait(false);
             lock (_gate)
@@ -142,6 +141,10 @@ public sealed partial class FilewayClientServices : IAdminUserService
             if (update.IsAdmin is not null || update.Permissions is not null) which.Add("perm");
             if (update.LockPassword is not null) which.Add("lockPassword");
             if (which.Count == 0) throw Safe(ErrorCode.InvalidRequest, Message(ErrorCode.InvalidRequest));
+            Dictionary<string, bool>? permissionData = which.Contains("perm") ? new(StringComparer.Ordinal) : null;
+            Func<CancellationToken, Task>? beforeSend = null;
+            if (permissionData is { } retained)
+                beforeSend = token => ReadAdminPermissionUpdateAsync(state, update, retained, token);
             // which fields are sensitive for JSON-auth servers: the admin's current password is required.
             var response = await SessionRequestAsync(state, new
             {
@@ -154,14 +157,42 @@ public sealed partial class FilewayClientServices : IAdminUserService
                     current_password = adminPassword ?? "",
                     data = AdminUserData(username: "", password: update.Password ?? "", isAdmin: update.IsAdmin ?? false,
                         permissions: update.Permissions ?? new PermissionSet(true, false, false, false, false, false),
-                        lockPassword: update.LockPassword ?? false, id: update.Id),
+                        lockPassword: update.LockPassword ?? false, id: update.Id, permissionData: permissionData),
                 },
-            }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request").ConfigureAwait(false);
+            }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request", beforeSend: beforeSend).ConfigureAwait(false);
             RequireExactStatus(response, 200);
         }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }
+    }
+
+    // Called under SessionRequestAsync. The server's `which=perm` replaces the
+    // whole permission object, so preserve every current flag not explicitly edited.
+    private async Task ReadAdminPermissionUpdateAsync(SessionState state, AdminUserUpdate update,
+        Dictionary<string, bool> permissions, CancellationToken cancellationToken)
+    {
+        var response = await RequestAsync(state.CoreSession,
+            "/api/users/" + update.Id.ToString(CultureInfo.InvariantCulture), cancellationToken).ConfigureAwait(false);
+        RequireExactStatus(response, 200);
+        using var body = ParseBody(response);
+        var row = body.RootElement;
+        if (!row.GetProperty("id").TryGetUInt64(out ulong id) || id != update.Id) throw InvalidResponse();
+        foreach (var flag in row.GetProperty("perm").EnumerateObject())
+        {
+            if (flag.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                !permissions.TryAdd(flag.Name, flag.Value.GetBoolean())) throw InvalidResponse();
+        }
+        if (update.IsAdmin is { } admin) permissions["admin"] = admin;
+        if (update.Permissions is { } requested)
+        {
+            permissions["download"] = requested.Download;
+            permissions["create"] = requested.Create;
+            permissions["rename"] = requested.Rename;
+            permissions["modify"] = requested.Modify;
+            permissions["delete"] = requested.Delete;
+            permissions["execute"] = requested.Execute;
+        }
     }
 
     async Task IAdminUserService.DeleteAsync(AccountKey account, ulong userId, string adminPassword, CancellationToken cancellationToken)
