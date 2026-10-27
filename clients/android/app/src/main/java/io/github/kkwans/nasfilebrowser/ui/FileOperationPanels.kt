@@ -10,7 +10,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalDensity
@@ -57,8 +56,9 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     back: Boolean = false,
     footer: (@Composable RowScope.() -> Unit)? = null,
     stableHeight: Boolean = false,
+    backDescription: String = "返回文件详情",
     content: @Composable ColumnScope.() -> Unit,
-) = FileOperationSurface(title, onDismiss, canDismiss, back, sheet = true, footer, stableHeight, content)
+) = FileOperationSurface(title, onDismiss, canDismiss, back, sheet = true, footer, stableHeight, backDescription, content)
 
 @Composable internal fun FileOperationDialog(
     title: String,
@@ -66,13 +66,13 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     canDismiss: Boolean = true,
     footer: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
-) = FileOperationSurface(title, onDismiss, canDismiss, back = false, sheet = false, footer, false, content)
+) = FileOperationSurface(title, onDismiss, canDismiss, back = false, sheet = false, footer, false, "返回", content)
 
 /** Operation windows are bounded native floating dialogs. The body owns its one scroll container. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable private fun FileOperationSurface(
     title: String, onDismiss: () -> Unit, canDismiss: Boolean, back: Boolean, sheet: Boolean,
-    footer: (@Composable RowScope.() -> Unit)?, stableHeight: Boolean, content: @Composable ColumnScope.() -> Unit,
+    footer: (@Composable RowScope.() -> Unit)?, stableHeight: Boolean, backDescription: String, content: @Composable ColumnScope.() -> Unit,
 ) {
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
@@ -91,7 +91,9 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     val surfaceWidth = (hostWidth - safeLeft - safeRight - horizontalMargin * 2)
         .coerceAtLeast(1)
         .coerceAtMost(maxWidth)
-    val surfaceHeight = (hostHeight - safeTop - maxOf(safeBottom, imeBottom)).coerceAtLeast(1)
+    // Attached sheets paint the gesture area themselves; floating dialogs stay in
+    // the safe rectangle. The footer owns the one navigation inset below its actions.
+    val surfaceHeight = (hostHeight - safeTop - if (sheet) imeBottom else maxOf(safeBottom, imeBottom)).coerceAtLeast(1)
     val surfaceWidthDp = with(density) { surfaceWidth.toDp() }
     val surfaceHeightDp = with(density) { surfaceHeight.toDp() }
     // Freeze the first complete framework measurement, not the eventual network result.
@@ -99,7 +101,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     var firstHeight by remember(surfaceWidth, surfaceHeight, density.fontScale, density.density) { mutableStateOf<Int?>(null) }
     val heldHeight = firstHeight?.let { with(density) { it.toDp() } }
     Dialog(onDismissRequest = { if (canDismiss) onDismiss() }, properties = DialogProperties(
-        usePlatformDefaultWidth = false, decorFitsSystemWindows = true, dismissOnBackPress = false,
+        usePlatformDefaultWidth = false, decorFitsSystemWindows = !sheet, dismissOnBackPress = false,
         dismissOnClickOutside = canDismiss,
     )) {
         val focus = LocalFocusManager.current
@@ -107,12 +109,17 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
         val view = LocalView.current
         val dialogWindow = (view.parent as? DialogWindowProvider)?.window
         var blurred by remember { mutableStateOf(false) }
-        FilewayDialogGlass { blurred = it }
+        FilewayDialogGlass(bottomAttached = sheet) { blurred = it }
         val glassColor = filewayGlassColor(blurred)
-        val lightNavigation = sheet && glassColor.luminance() > .5f
         SideEffect {
             dialogWindow?.let { window ->
+                if (sheet) WindowCompat.setDecorFitsSystemWindows(window, false)
                 val attributes = window.attributes
+                if (sheet) {
+                    attributes.flags = attributes.flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                        WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
+                    if (android.os.Build.VERSION.SDK_INT >= 30) attributes.setFitInsetsTypes(0)
+                }
                 attributes.gravity = if (sheet) Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL else Gravity.CENTER
                 attributes.x = 0
                 // The parent frame is already inset by the IME. Adding imeBottom
@@ -126,16 +133,8 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
                 window.attributes = attributes
             }
         }
-        DisposableEffect(view, lightNavigation) {
-            // Dialog owns a separate Window; Activity edge-to-edge flags do not apply here.
-            dialogWindow?.let {
-                @Suppress("DEPRECATION")
-                it.navigationBarColor = android.graphics.Color.TRANSPARENT
-                it.isNavigationBarContrastEnforced = false
-                WindowCompat.getInsetsController(it, view).isAppearanceLightNavigationBars = lightNavigation
-            }
-            onDispose { /* Only this dialog's window was changed; it is destroyed on close. */ }
-        }
+        val localNavigation = WindowInsets.navigationBars.getBottom(density)
+        val footerBottom = with(density) { if (sheet && imeBottom == 0) maxOf(safeBottom, localNavigation).toDp() else 0.dp }
         val imeVisible = WindowInsets.isImeVisible
         var imeDismissRequested by remember { mutableStateOf(false) }
         LaunchedEffect(imeVisible) {
@@ -162,9 +161,10 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth().padding(start = if (back) 4.dp else 20.dp, end = 4.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (back) FilewayIconButton(::requestBack, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
-                        FilewayIcon(R.drawable.ic_arrow_back, "返回文件详情", Modifier.size(22.dp))
+                        FilewayIcon(R.drawable.ic_arrow_back, backDescription, Modifier.size(22.dp))
                     }
-                    Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                    Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     if (!back) FilewayIconButton(::leave, enabled = canDismiss, modifier = Modifier.size(48.dp)) {
                         FilewayIcon(R.drawable.ic_close, "关闭$title", Modifier.size(22.dp))
                     }
@@ -174,13 +174,13 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
                 if (footer != null) {
                     HorizontalDivider(Modifier.padding(top = 12.dp), color = FilewayTheme.colors.outlineVariant)
                     Row(Modifier.fillMaxWidth()
-                        .then(if (sheet) Modifier.windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom)) else Modifier)
+                        .padding(bottom = footerBottom)
                         .padding(horizontal = 20.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically,
                         content = footer)
                 } else {
                     Spacer(Modifier.height(12.dp))
-                    if (sheet) Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
+                    if (sheet) Spacer(Modifier.height(footerBottom))
                 }
             }
         }

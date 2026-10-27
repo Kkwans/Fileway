@@ -103,6 +103,6 @@ import kotlinx.coroutines.flow.collect
         }
     }
     if (location) FileOperationDialog("工作目录", { location = false }, footer = {
-        FilewayTextButton({ location = false }) { Text("关闭") }
+        FilewayOutlinedButton({ location = false }, Modifier.fillMaxWidth()) { Text("返回命令") }
     }) { FileOperationLocation("运行位置", state.directory.path) }
 }

@@ -71,10 +71,36 @@ internal fun filewayWindowGlassBackground(corner: Float, bottomAttached: Boolean
 }
 
 /** Compose once inside a Dialog, including inside Material's button slot. */
-@Composable internal fun FilewayDialogGlass(onBlurEnabled: (Boolean) -> Unit) {
+@Composable internal fun FilewayDialogGlass(bottomAttached: Boolean = false, onBlurEnabled: (Boolean) -> Unit) {
     val view = LocalView.current
     val light = FilewayTheme.colors.surface.luminance() > .5f
-    val enabled = rememberFilewayWindowBlur((view.parent as? DialogWindowProvider)?.window, if (light) 32.dp else 24.dp)
+    val window = (view.parent as? DialogWindowProvider)?.window
+    val hostWindow = remember(view) {
+        var context = view.context
+        while (context is android.content.ContextWrapper && context !is android.app.Activity) {
+            val base = context.baseContext
+            if (base === context) break
+            context = base
+        }
+        (context as? android.app.Activity)?.window
+    }
+    val enabled = rememberFilewayWindowBlur(window, if (light) 32.dp else 24.dp, bottomAttached)
+    DisposableEffect(window, light, bottomAttached, hostWindow) {
+        window?.let {
+            @Suppress("DEPRECATION")
+            it.navigationBarColor = Color.TRANSPARENT
+            @Suppress("DEPRECATION")
+            it.statusBarColor = Color.TRANSPARENT
+            it.isNavigationBarContrastEnforced = false
+            val bars = androidx.core.view.WindowCompat.getInsetsController(it, view)
+            val hostBars = hostWindow?.let { host -> androidx.core.view.WindowCompat.getInsetsController(host, host.decorView) }
+            // A floating light menu over a dark image does not paint either
+            // system edge. Only attached sheets own the navigation background.
+            bars.isAppearanceLightStatusBars = hostBars?.isAppearanceLightStatusBars ?: light
+            bars.isAppearanceLightNavigationBars = if (bottomAttached) light else hostBars?.isAppearanceLightNavigationBars ?: light
+        }
+        onDispose { /* This separate dialog window is destroyed on close. */ }
+    }
     val notify by rememberUpdatedState(onBlurEnabled)
     SideEffect { notify(enabled) }
 }

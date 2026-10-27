@@ -41,8 +41,9 @@ import kotlinx.coroutines.withContext
         title = if (selected == null) "鸣谢与许可证" else selected.orEmpty(),
         onDismiss = { if (selected != null) selected = null else onDismiss() },
         back = selected != null,
+        backDescription = "返回许可证列表",
     ) {
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 560.dp), contentPadding = PaddingValues(bottom = 24.dp),
+        LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
             if (selected == null) {
@@ -60,9 +61,7 @@ import kotlinx.coroutines.withContext
                 if (text == null && error == null) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 text?.let { content -> item { Text(content, style = MaterialTheme.typography.bodySmall) } }
             }
-            item { FilewayTextButton(onClick = { if (selected == null) onDismiss() else selected = null }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text(if (selected == null) "返回关于" else "返回许可证列表")
-            } }
+
         }
     }
 }

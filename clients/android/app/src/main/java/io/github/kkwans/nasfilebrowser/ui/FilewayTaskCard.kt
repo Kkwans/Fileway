@@ -43,6 +43,7 @@ internal fun FilewayTaskCard(
     onLongClick: (() -> Unit)? = null,
     onDoubleClick: (() -> Unit)? = null,
     selected: Boolean = false,
+    longClickLabel: String = "多选任务",
     body: @Composable ColumnScope.() -> Unit = {},
 ) {
     val shape = RoundedCornerShape(12.dp)
@@ -63,7 +64,7 @@ internal fun FilewayTaskCard(
     val click = onClick ?: titleAction
     Surface(modifier = modifier.fillMaxWidth().clip(shape).then(if (click != null || onLongClick != null)
         Modifier.combinedClickable(onClick = { click?.invoke() }, onLongClick = onLongClick, onDoubleClick = onDoubleClick,
-            onLongClickLabel = if (onLongClick != null) "多选任务" else null) else Modifier).semantics { this.selected = selected
+            onLongClickLabel = if (onLongClick != null) longClickLabel else null) else Modifier).semantics { this.selected = selected
             if (onDoubleClick != null) customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("打开") { onDoubleClick(); true })
         },
         shape = shape, color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,

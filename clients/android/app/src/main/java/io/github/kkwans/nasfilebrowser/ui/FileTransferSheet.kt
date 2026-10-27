@@ -40,9 +40,9 @@ import io.github.kkwans.nasfilebrowser.data.*
     val replaces = draft.choices.values.any { it == FileConflictChoice.REPLACE }
     if (!sources) FileOperationSheet("${draft.action.label}到服务器目录", model.fileOperations::closeTransfer,
         canDismiss = !state.changing, footer = {
-            FilewayTextButton(model.fileOperations::closeTransfer, enabled = !state.changing, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (draft.unknownSubmission) "稍后核对" else "取消") }
+            FilewayOutlinedButton(model.fileOperations::closeTransfer, enabled = !state.changing, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text(if (draft.unknownSubmission) "稍后核对" else "取消") }
             key(draft.reviewed, state.changing) { FilewayButton({ model.fileOperations.submitTransfer(replaceConfirmed) }, enabled = !busy && !draft.unknownSubmission && entryError == null &&
-                selected > 0 && (!replaces || replaceConfirmed), modifier = Modifier.heightIn(min = 48.dp)) {
+                selected > 0 && (!replaces || replaceConfirmed), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
                 Text(if (state.changing) "正在处理" else if (draft.reviewed) "${draft.action.label} $selected 项" else "检查此目录")
             } }
         }) {
@@ -89,11 +89,10 @@ import io.github.kkwans.nasfilebrowser.data.*
                             resourceWireContains(taskResourceTarget(source.path, source.wirePath, allowOpaque = true).wirePath,
                                 taskResourceTarget(folder.path, folder.wirePath, allowOpaque = true).wirePath)
                         }.getOrDefault(true) }
-                        ListItem(headlineContent = { Text(folder.name) }, leadingContent = { FilewayIcon(R.drawable.ic_folder, null) },
-                            supportingContent = if (excluded) ({ Text("源目录内，不能作为目标") }) else null,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = !busy && !excluded) {
-                                model.fileOperations.readTransferDirectory(DirectoryCrumb(folder.name, folder.path, folder.wirePath))
-                            }.semantics { contentDescription = "目标目录：${folder.name}" }, colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface))
+                        FilewayDirectoryRow(folder.name, enabled = !busy && !excluded,
+                            reason = if (excluded) "源目录内，不能作为目标" else null) {
+                            model.fileOperations.readTransferDirectory(DirectoryCrumb(folder.name, folder.path, folder.wirePath))
+                        }
                     }
                 }
             }
@@ -105,7 +104,9 @@ import io.github.kkwans.nasfilebrowser.data.*
             }
     }
     if (sources) FileOperationSheet("${draft.action.label} ${draft.files.size} 项", { sources = false }, footer = {
-        FilewayTextButton({ sources = false }, modifier = Modifier.heightIn(min = 48.dp)) { Text("返回目标选择") }
+        FilewayOutlinedButton({ sources = false }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            FilewayIcon(R.drawable.ic_folder, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("返回目标选择")
+        }
     }) {
         LazyColumn(Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(draft.files, key = { it.mediaKey }) { file -> Column {

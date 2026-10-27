@@ -17,6 +17,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,7 +54,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 
-/** Compact content bar. The screen's root scaffold owns all system insets. */
+/** The route owns vertical insets; the shared bar also protects landscape cutouts.
+ * Consumed insets from a parent are automatically excluded here. */
 @Composable
 fun FilewayTopAppBar(
     title: String,
@@ -60,7 +66,7 @@ fun FilewayTopAppBar(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
-        Modifier.fillMaxWidth().height(FilewaySpace.appBar)
+        Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).height(FilewaySpace.appBar)
             .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = FilewaySpace.tiny),
         verticalAlignment = Alignment.CenterVertically,
