@@ -50,55 +50,58 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
         onDispose { registerDarkCanvas(canvasOwner, false) }
     }
     BackHandler(enabled = menu == null) { model.leavePlayer() }
-    Column(Modifier.fillMaxSize().background(media.mediaCanvas).safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            FilewayIconButton(model::leavePlayer, Modifier.size(48.dp)) { FilewayIcon(R.drawable.ic_arrow_back, "关闭音频", tint = media.mediaContent) }
-            Text("正在播放", Modifier.weight(1f), color = media.mediaContent, style = MaterialTheme.typography.titleMedium)
-            FilewayIconButton({ menu = "queue" }, Modifier.size(48.dp), enabled = queue != null) {
-                FilewayIcon(R.drawable.ic_playlist_play, "音频播放列表", tint = media.mediaContent)
+    Scaffold(containerColor = media.mediaCanvas, contentColor = media.mediaContent, topBar = {
+        Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
+            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar("音频播放", leadingIcon = R.drawable.ic_arrow_back,
+                leadingDescription = "关闭音频", onLeadingClick = model::leavePlayer, actions = {
+                FilewayIconButton({ menu = "queue" }, enabled = queue != null) { FilewayIcon(R.drawable.ic_playlist_play, "音频播放列表") }
+            })
+        }
+    }) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {
+            Column(Modifier.widthIn(max = 600.dp).fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(Modifier.size(64.dp), shape = MaterialTheme.shapes.medium, color = media.mediaSurface) {
+                        Box(contentAlignment = Alignment.Center) { FilewayIcon(R.drawable.ic_audio, null, Modifier.size(32.dp), tint = colors.primary) }
+                    }
+                    Text(file.name, Modifier.weight(1f), color = media.mediaContent, style = MaterialTheme.typography.titleMedium)
+                }
+                if (client.busy || state.waitingForBuffer) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator(Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
+                    Text(if (client.busy) client.stage else "正在缓冲…", color = media.mediaSecondary, style = MaterialTheme.typography.bodyMedium)
+                }
+                (client.error ?: state.error)?.let { message ->
+                    Text(message, color = colors.error); FilewayOutlinedButton(model::retryPlayback, Modifier.fillMaxWidth()) { Text("重试播放") }
+                }
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    PlayerSlider(dragging ?: state.positionMs.toFloat(), state.durationMs.coerceAtLeast(1).toFloat(), "音频播放进度", !client.busy && state.seekable,
+                        { dragging = it }, { dragging?.let { model.player.seek(it.toLong()) }; dragging = null },
+                        description = "${audioTime(state.positionMs)} / ${audioTime(state.durationMs)}", bufferedValue = state.bufferedPositionMs.toFloat())
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(audioTime(dragging?.toLong() ?: state.positionMs), color = media.mediaSecondary, style = FilewayTheme.text.clock)
+                        Text(audioTime(state.durationMs), color = media.mediaSecondary, style = FilewayTheme.text.clock)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                    FilewayIconButton(model::previousMedia, Modifier.size(48.dp), enabled = queue?.hasPrevious == true) { FilewayIcon(R.drawable.ic_skip_previous, "上一首") }
+                    FilledIconButton({ model.player.toggle() }, Modifier.size(64.dp), enabled = !client.busy && state.error == null,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = colors.primary, contentColor = colors.onPrimary)) {
+                        FilewayIcon(if (state.playing) R.drawable.art_pause else R.drawable.art_play, if (state.playing) "暂停音频" else "播放音频", Modifier.size(28.dp))
+                    }
+                    FilewayIconButton(model::nextMedia, Modifier.size(48.dp), enabled = queue?.hasNext == true) { FilewayIcon(R.drawable.ic_skip_next, "下一首") }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FilewayOutlinedButton({ menu = "speed" }, Modifier.weight(1f)) { Text("${state.rate}× 倍速") }
+                    FilewayOutlinedButton({ menu = "audio" }, Modifier.weight(1f), enabled = state.audio.any { it.id >= 0 }) {
+                        FilewayIcon(R.drawable.ic_audio, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("音轨")
+                    }
+                }
             }
         }
-        Box(Modifier.size(112.dp).background(media.mediaSurface, CircleShape), contentAlignment = Alignment.Center) {
-            FilewayIcon(R.drawable.ic_audio, null, Modifier.size(52.dp), tint = colors.primary)
-        }
-        Text(file.name, color = media.mediaContent, style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
-        if (client.busy || state.waitingForBuffer) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            CircularProgressIndicator(Modifier.size(20.dp), color = colors.primary, strokeWidth = 2.dp)
-            Text(if (client.busy) client.stage else "正在缓冲 ${state.buffering.toInt()}%", color = media.mediaContent)
-        }
-        (client.error ?: state.error)?.let { message ->
-            Text(message, color = colors.error); FilewayOutlinedButton(model::retryPlayback) { Text("重试播放") }
-        }
-        Column(Modifier.fillMaxWidth()) {
-            PlayerSlider(dragging ?: state.positionMs.toFloat(), state.durationMs.coerceAtLeast(1).toFloat(), "音频播放进度", !client.busy && state.seekable,
-                { dragging = it }, { dragging?.let { model.player.seek(it.toLong()) }; dragging = null },
-                description = "${audioTime(state.positionMs)} / ${audioTime(state.durationMs)}", bufferedValue = state.bufferedPositionMs.toFloat())
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(audioTime(dragging?.toLong() ?: state.positionMs), color = media.mediaContent, style = FilewayTheme.text.clock)
-                Text(audioTime(state.durationMs), color = media.mediaSecondary, style = FilewayTheme.text.clock)
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            FilewayIconButton(model::previousMedia, Modifier.size(56.dp), enabled = queue?.hasPrevious == true) {
-                FilewayIcon(R.drawable.ic_skip_previous, "上一首")
-            }
-            FilledIconButton({ model.player.toggle() }, Modifier.size(72.dp), enabled = !client.busy && state.error == null,
-                colors = IconButtonDefaults.filledIconButtonColors(containerColor = colors.primary, contentColor = colors.onPrimary)) {
-                FilewayIcon(if (state.playing) R.drawable.art_pause else R.drawable.art_play, if (state.playing) "暂停音频" else "播放音频", Modifier.size(36.dp))
-            }
-            FilewayIconButton(model::nextMedia, Modifier.size(56.dp), enabled = queue?.hasNext == true) {
-                FilewayIcon(R.drawable.ic_skip_next, "下一首")
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            FilewayTextButton({ menu = "speed" }) { Text("${state.rate}× 倍速") }
-            FilewayTextButton({ menu = "audio" }, enabled = state.audio.any { it.id >= 0 }) { Text("音轨") }
-        }
-        Text("离开应用时暂停播放", color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
     }
     if (menu != null) FileOperationSheet(title = when (menu) { "queue" -> "播放列表 · ${queue?.items?.size ?: 0} 首"; "speed" -> "播放速度"; else -> "音轨" },
-        onDismiss = { menu = null }, footer = { FilewayTextButton({ menu = null }) { Text("关闭") } }) {
+        onDismiss = { menu = null }) {
         state.operationError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.error) }
         when (menu) {
             "queue" -> LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {
