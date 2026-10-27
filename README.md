@@ -6,7 +6,7 @@
 
 连接自己的服务器，在浏览器或 Android 手机上管理文件、欣赏媒体、整理资料。
 
-[Android 1.1.1 正式版](https://github.com/Kkwans/Fileway/releases/tag/android-1.1.1) · [下载 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.1.1/fileway-android-1.1.1.apk) · [部署服务端](#快速开始) · [English](README_EN.md)
+[Android 1.2.0 正式版](https://github.com/Kkwans/Fileway/releases/tag/android-1.2.0) · [下载 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.2.0/fileway-android-1.2.0.apk) · [部署服务端](#快速开始) · [English](README_EN.md)
 
 </div>
 
@@ -46,7 +46,7 @@ Android 1.1 加入系统画中画、流动封面氛围、统一播放器反馈�
 
 ### 2. 连接 Android
 
-[下载 Android 正式版 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.1.1/fileway-android-1.1.1.apk)，安装后填写自己的服务器地址并登录。
+[下载 Android 正式版 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.2.0/fileway-android-1.2.0.apk)，安装后填写自己的服务器地址并登录。
 
 - Android **10 及以上**；安装包包含 **arm64-v8a、x86_64**。
 - 覆盖安装沿用原包名和签名，保留账户、任务记录及本机设置；无需卸载旧版。
