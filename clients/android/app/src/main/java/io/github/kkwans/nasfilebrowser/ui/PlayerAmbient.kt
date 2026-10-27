@@ -61,7 +61,7 @@ import kotlinx.coroutines.CancellationException
         Text("视频信息", style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             PlayerInformationField("分辨率", if (state.width > 0 && state.height > 0) "${state.width} × ${state.height}" else "—", Modifier.weight(1f))
-            PlayerInformationField("时长", if (state.durationMs > 0) clock(state.durationMs) else "—", Modifier.weight(1f))
+            PlayerInformationField("时长", informationDuration(state.durationMs), Modifier.weight(1f))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             PlayerInformationField("文件大小", if (metadata.size > 0) readableSize(metadata.size) else if (failed) "未获取 · 重试" else "—",
@@ -112,4 +112,16 @@ import kotlinx.coroutines.CancellationException
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyLarge)
     }
+}
+
+/** Human-readable metadata; the seek timeline keeps its independent clock format. */
+private fun informationDuration(millis: Long): String {
+    if (millis <= 0) return "—"
+    val seconds = millis / 1000
+    if (seconds == 0L) return "<1s"
+    return buildList {
+        if (seconds >= 3600) add("${seconds / 3600}h")
+        if (seconds >= 60) add("${seconds / 60 % 60}m")
+        add("${seconds % 60}s")
+    }.joinToString(" ")
 }
