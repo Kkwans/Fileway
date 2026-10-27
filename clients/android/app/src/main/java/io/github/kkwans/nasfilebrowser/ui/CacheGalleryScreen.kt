@@ -51,8 +51,9 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
     var images by remember { mutableStateOf(emptyList<CachedImage>()) }
     var order by remember { mutableStateOf(CacheImageOrder.NEWEST) }
     var sorting by remember { mutableStateOf(false) }
-    var selecting by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf(emptySet<String>()) }
+    val selection = rememberFilewayTaskSelection("cached-images", images.map { it.key })
+    val selecting = selection.active
+    val selected = selection.ids
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -64,7 +65,7 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
         try {
             model.cache.awaitReady()
             val loaded = model.cache.cachedImages()
-            images = loaded; selected = selected.intersect(loaded.map { it.key }.toSet())
+            images = loaded; selection.retain(loaded.map { it.key }.toSet())
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { error = "无法读取本机缓存，请刷新" }
         finally { busy = false }
@@ -79,43 +80,40 @@ private enum class CacheImageOrder(val label: String) { NEWEST("时间：新到�
         CachedImageViewer(model, snapshot, initialPage) { viewing = null }
         return
     }
-    BackHandler(selecting) { selecting = false; selected = emptySet() }
+    fun deleteSelected() {
+        val targets = images.filter { it.key in selected }
+        if (targets.isEmpty() || busy) return
+        busy = true
+        scope.launch {
+            try {
+                model.cache.removeImages(targets)
+                selection.clear(); refresh++; toast("已删除 ${targets.size} 张缓存图片")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { error = "删除未完成，请刷新后核对"; busy = false }
+        }
+    }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         FilewayRefresh(busy, { if (!busy) refresh++ }, Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
-Column(Modifier.fillMaxSize()) {
-            FilewayTopAppBar(if (selecting) "已选 ${selected.size} 张" else "图片缓存", leadingIcon = R.drawable.ic_arrow_back,
-                leadingDescription = "返回我的", onLeadingClick = { model.back() }, actions = {
-                    if (selecting) {
-                        FilewayIconButton({ selected = if (selected.size == images.size) emptySet() else images.map { it.key }.toSet() }, enabled = !busy) {
-                            FilewayIcon(R.drawable.ic_check, "全选或取消全选", Modifier.size(22.dp))
-                        }
-                        FilewayIconButton({
-                            val targets = images.filter { it.key in selected }
-                            if (targets.isNotEmpty()) {
-                                busy = true
-                                scope.launch {
-                                    try {
-                                        model.cache.removeImages(targets)
-                                        selected = emptySet(); selecting = false; refresh++; toast("已删除 ${targets.size} 张缓存图片")
-                                    } catch (cancelled: CancellationException) { throw cancelled }
-                                    catch (_: Exception) { error = "删除未完成，请刷新后核对"; busy = false }
-                                }
-                            }
-                        }, enabled = !busy && selected.isNotEmpty()) { FilewayIcon(R.drawable.ic_trash, "删除选中缓存", tint = MaterialTheme.colorScheme.error) }
-                        FilewayIconButton({ selecting = false; selected = emptySet() }, enabled = !busy) { FilewayIcon(R.drawable.ic_close, "退出多选") }
-                    } else {
-                        Box {
-                            FilewayIconButton({ sorting = true }) { FilewayIcon(R.drawable.ic_sort, "缓存排序") }
-                            FilewayMenu(sorting, { sorting = false }, items = CacheImageOrder.entries.map {
-                                FilewayMenuEntry(it.name, it.label, selected = it == order)
-                            }, selection = FilewayMenuSelection.Single, onItemClick = { item ->
-                                CacheImageOrder.entries.firstOrNull { it.name == item.key }?.let { order = it }
-                                sorting = false
-                            })
-                        }
-                        FilewayIconButton({ selecting = true }, enabled = !busy && images.isNotEmpty()) { FilewayIcon(R.drawable.ic_check, "多选缓存图片") }
+            Column(Modifier.fillMaxSize()) {
+                FilewayTopAppBar("图片缓存", leadingIcon = R.drawable.ic_arrow_back,
+                    leadingDescription = "返回我的", onLeadingClick = { model.back() }, actions = {
+                    Box {
+                        FilewayIconButton({ sorting = true }) { FilewayIcon(R.drawable.ic_sort, "缓存排序") }
+                        FilewayMenu(sorting, { sorting = false }, items = CacheImageOrder.entries.map {
+                            FilewayMenuEntry(it.name, it.label, selected = it == order)
+                        }, selection = FilewayMenuSelection.Single, onItemClick = { item ->
+                            CacheImageOrder.entries.firstOrNull { it.name == item.key }?.let { order = it }
+                            sorting = false
+                        })
                     }
+                    FilewaySelectionToggle(selection, "多选缓存图片", !busy && images.isNotEmpty())
                 })
+                if (selecting) FilewayTaskSelectionBar(selection, !busy,
+                    onSelectAll = { if (selected.size == images.size) selection.clear() else selection.select(images.map { it.key }) }) {
+                    FilewayIconButton(::deleteSelected, enabled = !busy && selected.isNotEmpty()) {
+                        FilewayIcon(R.drawable.ic_trash, "删除选中缓存", tint = MaterialTheme.colorScheme.error)
+                    }
+                }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             error?.let { Text(it, Modifier.padding(16.dp), color = MaterialTheme.colorScheme.error) }
             if (ordered.isEmpty() && !busy) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -129,9 +127,9 @@ Column(Modifier.fillMaxSize()) {
                         .then(if (image.key in selected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.medium) else Modifier)
                         .semantics { this.selected = isSelected; contentDescription = image.name }
                         .combinedClickable(enabled = !busy, role = if (selecting) Role.Checkbox else Role.Button, onClick = {
-                            if (selecting) selected = if (image.key in selected) selected - image.key else selected + image.key
+                            if (selecting) selection.toggle(image.key)
                             else { initialPage = ordered.indexOfFirst { it.key == image.key }; viewing = ordered.toList() }
-                        }, onLongClick = { selecting = true; selected = selected + image.key })) {
+                        }, onLongClick = { selection.start(image.key) })) {
                         CachedImageContent(model, image, image.account, viewer = false)
                     }
                 }
