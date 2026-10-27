@@ -16,25 +16,25 @@ import androidx.core.view.WindowCompat
  * The player's Surface remains untouched.
  */
 @Composable internal fun rememberPlayerPanelBlur(
-    window: Window?, landscape: Boolean, width: Int, height: Int, right: Int, top: Int,
+    window: Window?, landscape: Boolean, width: Int, right: Int, top: Int,
 ): Boolean {
     SideEffect {
         window?.let {
             WindowCompat.setDecorFitsSystemWindows(it, false)
-            it.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
             val attributes = it.attributes
             attributes.flags = attributes.flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
             // Keep the bounded floating window, but remove WindowManager's separate
             // system-bar fitting. The panel body already owns its one safe inset.
-            if (android.os.Build.VERSION.SDK_INT >= 30) attributes.setFitInsetsTypes(0)
+            attributes.fitFilewayKeyboard(edgeToEdge = true)
             attributes.gravity = if (landscape) Gravity.TOP or Gravity.END else Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             attributes.x = if (landscape) right else 0
-            // Floating windows' parent frame already excludes the IME. Adding
-            // its height here would move the editor upward a second time.
-            attributes.y = if (landscape) top else 0
+            // Modern native fitting owns status/cutout/IME bounds; only legacy
+            // windows still need the caller's top offset.
+            attributes.y = if (landscape && android.os.Build.VERSION.SDK_INT < 30) top else 0
             attributes.width = width
-            attributes.height = if (landscape) height else WindowManager.LayoutParams.WRAP_CONTENT
+            // Let the fitted parent constrain the Compose panel when IME opens.
+            attributes.height = WindowManager.LayoutParams.WRAP_CONTENT
             it.attributes = attributes
         }
     }

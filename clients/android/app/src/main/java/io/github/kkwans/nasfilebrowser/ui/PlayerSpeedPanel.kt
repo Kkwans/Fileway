@@ -79,39 +79,33 @@ private data class SpeedPresetDraft(val id: Int, val text: String)
     } }
     val parsed = rows.map { parsePlaybackRate(it.text) }
     val valid = rows.isNotEmpty() && parsed.all { it != null }
-    Column(Modifier.fillMaxWidth()) {
-        LazyColumn(Modifier.weight(1f, fill = false), contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(rows, key = { it.id }) { row ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(row.text, { value ->
-                        val index = rows.indexOfFirst { it.id == row.id }
-                        if (index >= 0) rows[index] = row.copy(text = value)
-                    }, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
-                        singleLine = true, enabled = !saving,
-                        isError = parsePlaybackRate(row.text) == null,
-                        label = { Text("倍速") },
-                        suffix = { Text("×") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    FilewayIconButton(onClick = { rows.removeAll { it.id == row.id } }, enabled = !saving,
-                        modifier = Modifier.size(48.dp)) {
-                        FilewayIcon(R.drawable.ic_trash, "移除此倍速预设", Modifier.size(22.dp))
-                    }
-                }
-            }
-            item {
-                FilewayOutlinedButton(onClick = { rows.add(SpeedPresetDraft(nextId++, "")) }, enabled = !saving,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                    FilewayIcon(R.drawable.ic_add, null, Modifier.size(20.dp))
-                    Spacer(Modifier.width(8.dp)); Text("添加倍速")
+    LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(rows, key = { it.id }) { row ->
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(row.text, { value ->
+                    val index = rows.indexOfFirst { it.id == row.id }
+                    if (index >= 0) rows[index] = row.copy(text = value)
+                }, modifier = Modifier.weight(1f), shape = MaterialTheme.shapes.medium,
+                    singleLine = true, enabled = !saving, isError = parsePlaybackRate(row.text) == null,
+                    label = { Text("倍速") }, suffix = { Text("×") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                FilewayIconButton(onClick = { rows.removeAll { it.id == row.id } }, enabled = !saving, modifier = Modifier.size(48.dp)) {
+                    FilewayIcon(R.drawable.ic_trash, "移除此倍速预设", Modifier.size(22.dp))
                 }
             }
         }
-        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item {
+            FilewayOutlinedButton(onClick = { rows.add(SpeedPresetDraft(nextId++, "")) }, enabled = !saving,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                FilewayIcon(R.drawable.ic_add, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("添加倍速")
+            }
+        }
+        item {
             Text(saveError ?: if (rows.isEmpty()) "至少保留一个预设" else if (!valid) "请输入 0.1–5 之间的倍速" else "保存到本机 · 按倍速排序，重复项合并",
                 style = FilewayTheme.text.metadata,
                 color = if (saveError != null || !valid) MaterialTheme.colorScheme.error else FilewayTheme.status.mediaSecondary)
+        }
+        item {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilewayOutlinedButton(onClick = {
                     rows.clear()
@@ -135,7 +129,7 @@ private data class SpeedPresetDraft(val id: Int, val text: String)
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     Column(
-        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp),
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         OutlinedTextField(

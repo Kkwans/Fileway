@@ -83,7 +83,6 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     val safeRight = safeDrawing.getRight(density, layoutDirection)
     val safeTop = safeDrawing.getTop(density)
     val safeBottom = safeDrawing.getBottom(density)
-    val imeBottom = WindowInsets.ime.getBottom(density)
     val hostWidth = hostSize.width.takeIf { it > 0 } ?: with(density) { configuration.screenWidthDp.dp.roundToPx() }
     val hostHeight = hostSize.height.takeIf { it > 0 } ?: with(density) { configuration.screenHeightDp.dp.roundToPx() }
     val horizontalMargin = with(density) { if (sheet) 0.dp.roundToPx() else 24.dp.roundToPx() }
@@ -93,7 +92,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
         .coerceAtMost(maxWidth)
     // Attached sheets paint the gesture area themselves; floating dialogs stay in
     // the safe rectangle. The footer owns the one navigation inset below its actions.
-    val surfaceHeight = (hostHeight - safeTop - if (sheet) imeBottom else maxOf(safeBottom, imeBottom)).coerceAtLeast(1)
+    val surfaceHeight = (hostHeight - safeTop - if (sheet) 0 else safeBottom).coerceAtLeast(1)
     val surfaceWidthDp = with(density) { surfaceWidth.toDp() }
     val surfaceHeightDp = with(density) { surfaceHeight.toDp() }
     // Freeze the first complete framework measurement, not the eventual network result.
@@ -118,8 +117,8 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
                 if (sheet) {
                     attributes.flags = attributes.flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
-                    if (android.os.Build.VERSION.SDK_INT >= 30) attributes.setFitInsetsTypes(0)
                 }
+                attributes.fitFilewayKeyboard(edgeToEdge = sheet)
                 attributes.gravity = if (sheet) Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL else Gravity.CENTER
                 attributes.x = 0
                 // The parent frame is already inset by the IME. Adding imeBottom
@@ -134,8 +133,8 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
             }
         }
         val localNavigation = WindowInsets.navigationBars.getBottom(density)
-        val footerBottom = with(density) { if (sheet && imeBottom == 0) maxOf(safeBottom, localNavigation).toDp() else 0.dp }
         val imeVisible = WindowInsets.isImeVisible
+        val footerBottom = with(density) { if (sheet && !imeVisible) maxOf(safeBottom, localNavigation).toDp() else 0.dp }
         var imeDismissRequested by remember { mutableStateOf(false) }
         LaunchedEffect(imeVisible) {
             if (imeVisible && ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true)

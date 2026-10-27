@@ -56,6 +56,7 @@ internal fun FilewayAlertDialog(
         properties = properties,
         confirmButton = {
             FilewayDialogGlass { blurred = it }
+            FilewayDialogKeyboardFit()
             confirmButton()
         },
     )
@@ -87,6 +88,7 @@ internal fun FilewayDatePickerDialog(
         properties = properties,
         confirmButton = {
             FilewayDialogGlass { blurred = it }
+            FilewayDialogKeyboardFit()
             confirmButton()
         },
         content = content,

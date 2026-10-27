@@ -1044,8 +1044,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val direction = LocalLayoutDirection.current
     val viewport = LocalWindowInfo.current.containerSize
     val configuration = LocalConfiguration.current
-    // Read the activity's insets before entering the bounded dialog. Insets from
-    // a window already moved above the IME would make its position oscillate.
+    // Only stable viewport/system-bar geometry comes from the Activity.
+    // The focused native dialog fits its own IME; do not subtract an Activity IME snapshot.
     val panelInsets = if (immersive)
         WindowInsets.displayCutout.union(WindowInsets.navigationBarsIgnoringVisibility).union(WindowInsets.captionBar)
         else WindowInsets.safeDrawing
@@ -1053,14 +1053,15 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     val right = panelInsets.getRight(density, direction)
     val top = panelInsets.getTop(density)
     val bottom = panelInsets.getBottom(density)
-    val imeBottom = WindowInsets.ime.getBottom(density)
     val viewportWidth = viewport.width.takeIf { it > 0 } ?: with(density) { configuration.screenWidthDp.dp.roundToPx() }
     val viewportHeight = viewport.height.takeIf { it > 0 } ?: with(density) { configuration.screenHeightDp.dp.roundToPx() }
+    val panelRight = if (android.os.Build.VERSION.SDK_INT >= 30)
+        (right - WindowInsets.displayCutout.getRight(density, direction)).coerceAtLeast(0) else right
     val panelWidth = (viewportWidth - left - right).coerceAtLeast(1).let {
         if (landscape) minOf(it, with(density) { 360.dp.roundToPx() }) else it
     }
-    val availableHeight = (viewportHeight - top - imeBottom).coerceAtLeast(1)
-    val panelHeight = if (landscape || imeBottom > 0 || back != null) availableHeight else (availableHeight * .85f).roundToInt()
+    val availableHeight = (viewportHeight - top).coerceAtLeast(1)
+    val panelHeight = if (landscape || back != null) availableHeight else (availableHeight * .85f).roundToInt()
     // A floating native window is required for region-bounded background blur.
     // The material helper then explicitly applies edge-to-edge and panel gravity.
     Dialog(onDismissRequest = dismiss, properties = DialogProperties(dismissOnBackPress = false, usePlatformDefaultWidth = false, decorFitsSystemWindows = true)) {
@@ -1093,7 +1094,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             else (back ?: dismiss)()
         }
         val panelWindow = (LocalView.current.parent as? DialogWindowProvider)?.window
-        val panelBlurred = rememberPlayerPanelBlur(panelWindow, landscape, panelWidth, panelHeight, right, top)
+        val panelBlurred = rememberPlayerPanelBlur(panelWindow, landscape, panelWidth, panelRight, top)
         PlayerWindowBars(panelWindow, immersive, FilewayTheme.status.mediaSurface.luminance() < .5f)
         SideEffect {
             @Suppress("DEPRECATION")
@@ -1110,7 +1111,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             Column(panel.clip(panelShape).background(FilewayTheme.status.mediaSurface)
                 .border(1.dp, Brush.verticalGradient(listOf(Color.White.copy(alpha = .18f), Color.White.copy(alpha = .04f))), panelShape)
                 .pointerInput(Unit) { detectTapGestures(onTap = {}) }
-                .padding(bottom = with(density) { (if (imeBottom > 0) 0 else bottom).toDp() }), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                .padding(bottom = with(density) { (if (imeVisible) 0 else bottom).toDp() }), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth().padding(start = if (back != null) 4.dp else 24.dp, end = 4.dp, top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (back != null) PlayerIcon(R.drawable.ic_arrow_back, backLabel, back)
                     Text(title, style = FilewayTheme.text.appBar, modifier = Modifier.weight(1f))
@@ -1127,7 +1128,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             // so failed track requests remain visible and accessible above it.
             SnackbarHost(feedback, Modifier.align(if (landscape) Alignment.BottomEnd else Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(bottom = with(density) { (if (imeBottom > 0) 0 else bottom).toDp() })
+                .padding(bottom = with(density) { (if (imeVisible) 0 else bottom).toDp() })
                 .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = feedbackBottomInset + 16.dp))
         }
     }
