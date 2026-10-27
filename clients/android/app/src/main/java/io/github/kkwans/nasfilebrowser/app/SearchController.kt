@@ -18,11 +18,16 @@ data class SearchState(
     val items: List<SearchResult> = emptyList(), val running: Boolean = false,
     val category: FileCategory = FileCategory.ALL, val categories: Set<FileCategory> = emptySet(),
     val ending: SearchEnding? = null, val message: String? = null, val openingPath: String? = null,
+    val order: FileOrder = FileOrder.NAME,
 ) {
     // Keep the entry directory so changing scope never loses the browser context.
     val resultBasePath: String get() = if (scope == SearchScope.GLOBAL) "/" else basePath
     val resultBaseWirePath: String get() = if (scope == SearchScope.GLOBAL) "/" else baseWirePath
-    val visibleItems: List<SearchResult> get() = items.filter { file -> val selected = categories.ifEmpty { if (category == FileCategory.ALL) emptySet() else setOf(category) }; selected.isEmpty() || selected.any { it.matches(file.name, file.directory) } }
+    val visibleItems: List<SearchResult> get() {
+        val selected = categories.ifEmpty { if (category == FileCategory.ALL) emptySet() else setOf(category) }
+        val filtered = items.filter { file -> selected.isEmpty() || selected.any { it.matches(file.name, file.directory) } }
+        return orderFileMetadata(filtered, order, { it.name }, { it.directory }, { it.size }, { it.modified }, { it.relativePath })
+    }
 }
 
 /** All entry points and state updates run on the owning ViewModel's main scope. */
@@ -42,11 +47,13 @@ class SearchController(private val scope: CoroutineScope, private val isCurrent:
     fun category(value: FileCategory) = categories(if (value == FileCategory.ALL) emptySet() else setOf(value))
     fun categories(values: Set<FileCategory>) { val selected = values - FileCategory.ALL; mutable.value = mutable.value.copy(category = selected.singleOrNull() ?: FileCategory.ALL, categories = selected) }
 
-    fun open(context: SessionContext, path: String, wirePath: String) {
+    fun order(value: FileOrder) { if (mutable.value.open) mutable.value = mutable.value.copy(order = value) }
+
+    fun open(context: SessionContext, path: String, wirePath: String, order: FileOrder = FileOrder.NAME) {
         close()
         if (!isCurrent(context)) return
         bound = context
-        mutable.value = SearchState(open = true, basePath = path, baseWirePath = wirePath)
+        mutable.value = SearchState(open = true, basePath = path, baseWirePath = wirePath, order = order)
     }
 
     fun query(value: String) {

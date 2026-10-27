@@ -43,7 +43,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 @Composable internal fun SearchScreen(model: ClientModel, client: ClientState) {
     val state by model.search.state.collectAsStateWithLifecycle()
-    val displayed = remember(state.items, state.category, state.categories) { state.visibleItems }
+    val displayed = remember(state.items, state.category, state.categories, state.order) { state.visibleItems }
     val selection = rememberFilewayTaskSelection(listOf(client.previewScope, state.resultBaseWirePath, state.query, state.scope), displayed.map { it.relativePath })
     val chosen = displayed.filter { it.relativePath in selection.ids }.mapNotNull { it.resource(state.resultBasePath, state.resultBaseWirePath) }
     val trash by model.trash.state.collectAsStateWithLifecycle()
@@ -79,11 +79,12 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                         FileCategoryMenu(state.categories.ifEmpty { if (state.category == FileCategory.ALL) emptySet() else setOf(state.category) }, !client.busy, model.search::categories)
                         Spacer(Modifier.weight(1f))
+                        FileOrderMenu(state.order, enabled = !client.busy, select = model.search::order)
                         FileLayoutMenu(client.fileLayout, enabled = !client.busy, compactGridSize = client.compactGridSize,
                             onCompactGridSize = model::compactGridSize, select = model::fileLayout)
                     }
                     FileCollection(displayed, client.fileLayout, Modifier.weight(1f), "搜索结果",
-                        resetKey = listOf(client.previewScope, state.resultBaseWirePath, state.query, state.scope, state.categories, state.category), keyOf = { it.relativePath }, compactGridSize = client.compactGridSize, header = {
+                        resetKey = listOf(client.previewScope, state.resultBaseWirePath, state.query, state.scope, state.categories, state.category, state.order), keyOf = { it.relativePath }, compactGridSize = client.compactGridSize, header = {
                         Column {
                         Column {
                             Row(Modifier.fillMaxWidth().padding(top = 4.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

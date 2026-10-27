@@ -9,6 +9,7 @@ enum class FileCategory(val label: String, private val extensions: Set<String> =
     IMAGE("图片", setOf("jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif")),
     VIDEO("视频", setOf("mp4", "mkv", "avi", "mov", "webm", "m4v", "ts")),
     AUDIO("音频", setOf("mp3", "m4a", "aac", "flac", "wav", "ogg", "opus")),
+    ARCHIVE("压缩包", setOf("zip", "rar", "7z", "tar", "gz", "bz2", "xz", "zst", "zstd", "tgz", "tbz", "tbz2", "txz", "tzst")),
     PDF("PDF", setOf("pdf")), MARKDOWN("Markdown", setOf("md", "markdown", "mdown", "mkd")),
     CONFIG("配置文件", setOf("json", "json5", "yaml", "yml", "toml", "ini", "conf", "config", "env", "xml", "properties")),
     CODE("代码", setOf("java", "py", "go", "js", "jsx", "ts", "tsx", "vue", "rs", "c", "h", "cpp", "hpp", "cs", "php", "rb", "kt", "kts", "swift", "sh", "ps1", "sql",
@@ -28,15 +29,24 @@ enum class FileOrder(val label: String) {
 
 fun presentFiles(files: List<ResourceRef>, category: FileCategory, order: FileOrder): List<ResourceRef> {
     val filtered = files.filter { category.matches(it.name, it.directory) }
+    return orderFileMetadata(filtered, order, { it.name }, { it.directory }, { it.size }, { it.modified }, { it.mediaKey })
+}
+
+/** Compare display metadata without reconstructing or dropping an item's original identity. */
+internal fun <T> orderFileMetadata(items: List<T>, order: FileOrder, name: (T) -> String,
+    directory: (T) -> Boolean, size: (T) -> Long, modified: (T) -> String, identity: (T) -> String): List<T> {
+    val names = items.associateWith { name(it).lowercase(Locale.ROOT) }
     val dates = if (order == FileOrder.NEWEST || order == FileOrder.OLDEST)
-        filtered.associateWith { runCatching { Instant.parse(it.modified).toEpochMilli() }.getOrNull() } else emptyMap()
-    return filtered.sortedWith { a, b ->
-        if (a.directory != b.directory) return@sortedWith if (a.directory) -1 else 1
+        items.associateWith { runCatching { Instant.parse(modified(it)).toEpochMilli() }.getOrNull() } else emptyMap()
+    return items.sortedWith { a, b ->
+        if (directory(a) != directory(b)) return@sortedWith if (directory(a)) -1 else 1
+        val firstName = names.getValue(a)
+        val secondName = names.getValue(b)
         val value = when (order) {
-            FileOrder.NAME -> a.name.lowercase(Locale.ROOT).compareTo(b.name.lowercase(Locale.ROOT))
-            FileOrder.NAME_REVERSE -> b.name.lowercase(Locale.ROOT).compareTo(a.name.lowercase(Locale.ROOT))
-            FileOrder.LARGEST -> b.size.compareTo(a.size)
-            FileOrder.SMALLEST -> a.size.compareTo(b.size)
+            FileOrder.NAME -> firstName.compareTo(secondName)
+            FileOrder.NAME_REVERSE -> secondName.compareTo(firstName)
+            FileOrder.LARGEST -> size(b).compareTo(size(a))
+            FileOrder.SMALLEST -> size(a).compareTo(size(b))
             FileOrder.NEWEST, FileOrder.OLDEST -> {
                 val first = dates[a]; val second = dates[b]
                 when {
@@ -48,7 +58,7 @@ fun presentFiles(files: List<ResourceRef>, category: FileCategory, order: FileOr
                 }
             }
         }
-        if (value != 0) value else compareValuesBy(a, b, { it.name.lowercase(Locale.ROOT) }, { it.mediaKey })
+        if (value != 0) value else firstName.compareTo(secondName).takeIf { it != 0 } ?: identity(a).compareTo(identity(b))
     }
 }
 

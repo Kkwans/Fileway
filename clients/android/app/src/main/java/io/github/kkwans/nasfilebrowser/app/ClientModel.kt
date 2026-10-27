@@ -1062,7 +1062,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     fun openSearch() {
         val bound = context ?: return
         if (!mutable.value.busy && mutable.value.selected == null) {
-            search.open(bound, mutable.value.path, mutable.value.wirePath)
+            search.open(bound, mutable.value.path, mutable.value.wirePath, mutable.value.fileOrder)
             mutable.value = mutable.value.copy(searchDisplayed = true)
         }
     }
