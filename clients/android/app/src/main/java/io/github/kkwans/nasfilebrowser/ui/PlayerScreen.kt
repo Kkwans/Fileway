@@ -675,8 +675,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                         MediaThumbnail(model, next, Modifier.width(80.dp).aspectRatio(16f / 9f), showStatusText = false)
-                                        Text(next.name, Modifier.weight(1f), style = FilewayTheme.text.fileName,
-                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        PlayerFileName(next.name, style = FilewayTheme.text.fileName,
+                                            color = FilewayTheme.status.mediaContent, modifier = Modifier.weight(1f))
                                     }
                                 }
                             }

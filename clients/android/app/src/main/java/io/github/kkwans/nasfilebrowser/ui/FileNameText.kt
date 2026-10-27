@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
@@ -42,4 +43,14 @@ import androidx.compose.ui.unit.Constraints
                 maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = alignment)
         }
     }
+}
+
+/** A file name is not a prose paragraph: fill the available line before wrapping.
+ * Accessibility retains the original name without invisible display break hints. */
+@Composable internal fun PlayerFileName(name: String, style: TextStyle, color: Color,
+    modifier: Modifier = Modifier, maxLines: Int = 2) {
+    val display = remember(name) { fileNameBreakHints(name) }
+    Text(display, modifier.fillMaxWidth().clearAndSetSemantics { text = AnnotatedString(name) },
+        style = style.copy(lineBreak = LineBreak.Simple), color = color,
+        maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 }

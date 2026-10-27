@@ -59,3 +59,12 @@ internal fun extensionOrphanBreak(name: String, secondLineStart: Int, fits: (Str
     }
     return null
 }
+
+/** Greedy filename layout may wrap at metadata punctuation instead of moving an
+ * entire CJK-tail/Latin suffix to the next line. The resource name stays intact. */
+internal fun fileNameBreakHints(name: String): String = buildString(name.length) {
+    name.forEachIndexed { index, character ->
+        append(character)
+        if (character in "._-]）)" && index < name.lastIndex && !name[index + 1].isWhitespace() && name[index + 1] != '\u200B') append('\u200B')
+    }
+}

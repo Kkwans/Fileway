@@ -104,10 +104,10 @@ internal fun PlayerQueuePanel(
                                 maxLines = 1, overflow = TextOverflow.Clip)
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(file.name, color = if (current) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent,
-                                fontSize = 14.sp, lineHeight = 20.sp,
-                                fontWeight = if (current) FontWeight.Medium else FontWeight.Normal,
-                                maxLines = if (expandedName) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+                            PlayerFileName(file.name, color = if (current) FilewayTheme.colors.primary else FilewayTheme.status.mediaContent,
+                                style = FilewayTheme.text.fileName.copy(fontSize = 14.sp, lineHeight = 20.sp,
+                                    fontWeight = if (current) FontWeight.Medium else FontWeight.Normal),
+                                maxLines = if (expandedName) Int.MAX_VALUE else 2)
                             Row(verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("${index + 1}", color = FilewayTheme.status.mediaSecondary, fontSize = 12.sp,
