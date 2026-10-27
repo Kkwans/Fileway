@@ -67,12 +67,41 @@ internal class ArchiveUiTest : LibraryUiHarness() {
         try {
             main { controller.bind(context); controller.setVisible(true); controller.open(ResourceRef("/owned.zip", "/owned.zip", "owned.zip", false, "blob", 123), api.id) }
             withTimeout(5000) { controller.state.first { it.listing != null && !it.loading } }
+            // Native safe areas are part of the route, not an assumption from a
+            // passing extraction request. The primary action must remain above navigation.
+            var top = 0; var bottom = 0; var height = 0
+            activity.scenario.onActivity { host ->
+                val insets = androidx.core.view.ViewCompat.getRootWindowInsets(host.window.decorView)
+                    ?.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+                top = insets?.top ?: 0; bottom = insets?.bottom ?: 0; height = host.window.decorView.height
+            }
+            assertTrue(action("返回文件").visibleBounds.top >= top)
+            assertTrue(text("解压全部").visibleBounds.bottom <= height - bottom)
+            action("多选包内文件").click()
+            action("全选当前结果").click()
+            assertTrue(controller.state.value.selectedEntries.isNotEmpty())
+            action("反选当前结果").click()
+            assertTrue(controller.state.value.selected.isEmpty())
+            action("刷新压缩包")
+            action("更多压缩包操作")
+            action("退出多选").click()
             text("中文").click()
+            text("包内条目详情")
+            action("进入文件夹").click()
             text("file.txt").click()
+            text("包内条目详情")
+            action("关闭包内条目详情").click()
+            var row = text("file.txt")
+            while (!row.isLongClickable) row = row.parent ?: error("Archive row has no long-click owner")
+            row.longClick()
+            action("退出多选")
             text("解压所选项目").click()
+            text("确认解压")
+            text("开始解压").click()
             withTimeout(5000) { controller.state.first { it.report != null } }
+            text("解压任务").click()
             text("解压任务 · 已完成")
-            text("打开解压目标目录").click()
+            action("所在目录").click()
             main { assertEquals("/", opened?.wirePath) }
             assertEquals(1, posts)
         } finally { scope.cancel() }

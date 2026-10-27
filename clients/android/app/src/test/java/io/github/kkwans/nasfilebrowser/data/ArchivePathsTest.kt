@@ -42,4 +42,35 @@ class ArchivePathsTest {
         for (name in listOf("a.iso", "a.7z.001", "a.gz")) assertFalse(isBrowsableArchive(ResourceRef("/$name", "/$name", name, false, "", 0)))
         assertFalse(isBrowsableArchive(ResourceRef("/a.zip", "/a.zip", "a.zip", true, "", 0)))
     }
+    @Test fun deselectingInheritedChildPreservesSiblingsAndOpaqueDirectoryIdentity() {
+        val one = ArchiveEntry("中文/one.txt", "%D6%D0%CE%C4/one.txt", "one.txt", false, 11, 1)
+        val two = ArchiveEntry("中文/two.txt", "%D6%D0%CE%C4/two.txt", "two.txt", false, 22, 2)
+        val other = ArchiveEntry("中文/other.txt", "%E4%B8%AD%E6%96%87/other.txt", "other.txt", false, 33, 3)
+        val value = listing(listOf(one, two, other))
+        val result = archiveSelectRows(value, setOf("."), listOf(one), invert = true)
+        assertFalse(archiveSelectionContains(result, one.wirePath))
+        assertTrue(archiveSelectionContains(result, two.wirePath))
+        assertTrue(archiveSelectionContains(result, other.wirePath))
+        assertEquals(setOf(two, other), archiveSelectedEntries(value, result).toSet())
+    }
+
+    @Test fun filteredAllAndInvertDoNotAlterChoicesOutsideCurrentResults() {
+        val one = ArchiveEntry("folder/one.txt", "folder/one.txt", "one.txt", false, 11, 1)
+        val two = ArchiveEntry("folder/two.txt", "folder/two.txt", "two.txt", false, 22, 2)
+        val other = ArchiveEntry("other.txt", "other.txt", "other.txt", false, 33, 3)
+        val value = listing(listOf(one, two, other))
+        assertEquals(setOf(one.wirePath, other.wirePath), archiveSelectRows(value, setOf(other.wirePath), listOf(one)))
+        assertEquals(setOf(two.wirePath, other.wirePath), archiveSelectRows(value, setOf(one.wirePath, other.wirePath), listOf(one, two), invert = true))
+        val folder = archiveChildren(value, "", "").first { it.isDir }
+        assertEquals(setOf(folder.wirePath), archiveSelectRows(value, setOf(one.wirePath), listOf(folder, one)))
+    }
+
+    @Test fun selectionLimitRejectsExcessRootsWithoutChangingPriorChoices() {
+        val entries = (0..500).map { ArchiveEntry("$it.txt", "$it.txt", "$it.txt", false, 1, 1) }
+        val prior = setOf("0.txt")
+        assertTrue(runCatching { archiveSelectRows(listing(entries), prior, entries) }.isFailure)
+        assertEquals(setOf("0.txt"), prior)
+        assertEquals(emptySet<String>(), archiveSelectRows(listing(entries), setOf("."), entries, invert = true))
+    }
+
 }

@@ -134,3 +134,41 @@ fun archiveExtractionBody(listing: ArchiveListing, directory: DirectoryCrumb, se
     val destination = archiveAbsoluteWire(directory.path, requireNotNull(directory.wirePath) { "目标目录原始路径无法确认" })
     return JSONObject().put("archiveWirePath", listing.archiveWirePath).put("destinationWirePath", destination).put("selectedWirePaths", JSONArray(selected.toList()))
 }
+
+/** Select disjoint visible roots. Removing an inherited choice splits only its ancestor
+ * branch, so deselecting one child never silently clears siblings in another directory. */
+fun archiveSelectRows(listing: ArchiveListing, selected: Set<String>, rows: List<ArchiveEntry>, invert: Boolean = false): Set<String> {
+    val roots = mutableListOf<ArchiveEntry>()
+    val rootWires = mutableSetOf<String>()
+    for (row in rows.sortedBy { it.wirePath.count { c -> c == '/' } }) {
+        var ancestor = row.wirePath
+        var covered = false
+        while (ancestor.isNotEmpty()) {
+            if (ancestor in rootWires) { covered = true; break }
+            ancestor = ancestor.substringBeforeLast('/', "")
+        }
+        if (!covered) { roots.add(row); rootWires.add(row.wirePath) }
+    }
+    val result = selected.toMutableSet()
+    for (row in roots) {
+        val wire = row.wirePath
+        if (invert && archiveSelectionContains(selected, wire)) {
+            val ancestor = result.firstOrNull { it == "." || it == wire || wire.startsWith(it + "/") }
+            if (ancestor != null) {
+                result.remove(ancestor)
+                var prefix = if (ancestor == ".") "" else ancestor
+                while (prefix != wire && (prefix.isEmpty() || wire.startsWith(prefix + "/"))) {
+                    val branch = if (prefix.isEmpty()) wire.substringBefore('/') else prefix + "/" + wire.removePrefix(prefix + "/").substringBefore('/')
+                    archiveChildren(listing, prefix, "").filterNot { it.wirePath == branch }.forEach { result.add(it.wirePath) }
+                    prefix = branch
+                }
+            }
+            result.removeAll { it == wire || it.startsWith(wire + "/") }
+        } else if (!archiveSelectionContains(result, wire)) {
+            result.removeAll { it.startsWith(wire + "/") }
+            result.add(wire)
+        }
+    }
+    require(result.size <= ARCHIVE_MAX_SELECTED) { "一次最多选择 500 个独立条目，可选择上层目录合并范围" }
+    return result
+}

@@ -94,6 +94,12 @@ class ArchiveController(private val scope: CoroutineScope, private val isCurrent
         if (!entry.isDir || before.submitting || before.rows.none { it.wirePath == entry.wirePath }) return
         mutable.value = before.copy(prefix = entry.wirePath, query = "")
     }
+    fun navigate(prefix: String) {
+        val before = mutable.value
+        if (before.submitting) return
+        if (prefix.isNotEmpty() && before.listing?.entries?.none { it.wirePath == prefix && it.isDir || it.wirePath.startsWith(prefix + "/") } != false) return
+        mutable.value = before.copy(prefix = prefix, query = "")
+    }
     fun up() {
         val before = mutable.value
         if (!before.submitting) mutable.value = before.copy(prefix = before.prefix.substringBeforeLast('/', ""), query = "")
@@ -102,15 +108,19 @@ class ArchiveController(private val scope: CoroutineScope, private val isCurrent
     fun toggle(entry: ArchiveEntry) {
         val before = mutable.value
         if (before.submitting || before.rows.none { it.wirePath == entry.wirePath }) return
-        val selected = before.selected.toMutableSet()
-        if (entry.wirePath in selected) selected.remove(entry.wirePath)
-        else {
-            if (archiveSelectionContains(selected, entry.wirePath)) return
-            selected.removeAll { it.startsWith(entry.wirePath + "/") }
-            if (selected.size >= ARCHIVE_MAX_SELECTED) { mutable.value = before.copy(error = "一次最多选择 500 个独立条目，可选择上层目录合并范围"); return }
-            selected.add(entry.wirePath)
+        updateSelection(before, listOf(entry), invert = true)
+    }
+    fun selectRows(invert: Boolean = false) {
+        val before = mutable.value
+        if (!before.submitting) updateSelection(before, before.rows, invert)
+    }
+    private fun updateSelection(before: ArchiveState, rows: List<ArchiveEntry>, invert: Boolean) {
+        val listing = before.listing ?: return
+        try {
+            mutable.value = before.copy(selected = archiveSelectRows(listing, before.selected, rows, invert), error = null)
+        } catch (error: IllegalArgumentException) {
+            mutable.value = before.copy(error = error.message)
         }
-        mutable.value = before.copy(selected = selected, error = null)
     }
     fun selectDirectory() {
         if (!mutable.value.submitting) mutable.value = mutable.value.copy(selected = setOf(mutable.value.prefix.ifEmpty { "." }), error = null)
