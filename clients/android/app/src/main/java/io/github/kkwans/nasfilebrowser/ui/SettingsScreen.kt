@@ -9,6 +9,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +17,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalDensity
@@ -113,16 +116,21 @@ import kotlinx.coroutines.launch
                     }
                 }
                 if (supportsPictureInPicture) item { SettingsGroup("视频播放") {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+                    Row(Modifier.fillMaxWidth().toggleable(value = autoPip, role = Role.Switch, onValueChange = { enabled ->
+                        preferenceScope.launch { try { model.playbackPreferences.saveAutoPictureInPicture(enabled) }
+                            catch (error: Exception) { if (error is kotlinx.coroutines.CancellationException) throw error
+                                android.widget.Toast.makeText(context, "无法保存画中画设置，请重试", android.widget.Toast.LENGTH_SHORT).show() } }
+                    }).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        FilewayIcon(R.drawable.ic_pip, null, Modifier.size(24.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("离开应用时自动画中画", style = MaterialTheme.typography.bodyLarge)
+                        FilewayIcon(R.drawable.ic_pip, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("离开应用时自动画中画", style = MaterialTheme.typography.bodyMedium)
                             Text("仅在视频正在播放时开启", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        Switch(autoPip, { enabled -> preferenceScope.launch { try { model.playbackPreferences.saveAutoPictureInPicture(enabled) }
-                            catch (error: Exception) { if (error is kotlinx.coroutines.CancellationException) throw error
-                                android.widget.Toast.makeText(context, "无法保存画中画设置，请重试", android.widget.Toast.LENGTH_SHORT).show() } } })
+                        // The whole56dp row is the switch target; only its visual scales down.
+                        Box(Modifier.size(width = 48.dp, height = 40.dp), contentAlignment = Alignment.Center) {
+                            Switch(autoPip, onCheckedChange = null, modifier = Modifier.scale(.8f).clearAndSetSemantics {})
+                        }
                     }
                 } }
                 item { CacheSettingsPanel(model) { message ->
