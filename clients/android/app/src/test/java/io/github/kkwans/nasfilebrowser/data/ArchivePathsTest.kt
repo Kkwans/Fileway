@@ -73,4 +73,15 @@ class ArchivePathsTest {
         assertEquals(emptySet<String>(), archiveSelectRows(listing(entries), setOf("."), entries, invert = true))
     }
 
+    @Test fun wholeLargeDirectoryUsesOneWireAndRetainsOtherDirectoryChoices() {
+        val entries = (0..600).map { ArchiveEntry("folder/$it.txt", "folder/$it.txt", "$it.txt", false, 1, 1) } +
+            ArchiveEntry("outside.txt", "outside.txt", "outside.txt", false, 1, 1)
+        val value = listing(entries)
+        val folder = archiveChildren(value, "", "").first { it.wirePath == "folder" }
+        val chosen = archiveSelectRows(value, setOf("outside.txt"), listOf(folder))
+        assertEquals(setOf("folder", "outside.txt"), chosen)
+        assertEquals(entries.size, archiveSelectedEntries(value, chosen).size)
+        assertEquals(entries.size, archiveSelectedEntries(value, setOf(".")).size)
+    }
+
 }

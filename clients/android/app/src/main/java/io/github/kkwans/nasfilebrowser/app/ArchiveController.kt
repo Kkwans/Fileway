@@ -112,7 +112,16 @@ class ArchiveController(private val scope: CoroutineScope, private val isCurrent
     }
     fun selectRows(invert: Boolean = false) {
         val before = mutable.value
-        if (!before.submitting) updateSelection(before, before.rows, invert)
+        if (before.submitting) return
+        if (!invert && before.query.isBlank()) {
+            // A complete directory is one wire selection, even when it contains
+            // more than500 direct children. Keep choices outside that directory.
+            if (before.prefix.isEmpty()) { selectDirectory(); return }
+            val entry = before.listing?.let { archiveChildren(it, before.prefix.substringBeforeLast('/', ""), "") }
+                ?.firstOrNull { it.wirePath == before.prefix }
+            if (entry != null) { updateSelection(before, listOf(entry), invert = false); return }
+        }
+        updateSelection(before, before.rows, invert)
     }
     private fun updateSelection(before: ArchiveState, rows: List<ArchiveEntry>, invert: Boolean) {
         val listing = before.listing ?: return

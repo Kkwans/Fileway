@@ -33,7 +33,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     val busy = state.loading || state.submitting
     val list = rememberLazyListState()
     LaunchedEffect(state.prefix, state.query) { list.scrollToItem(0) }
-    LaunchedEffect(state.task?.id) { if (state.task != null) review = false }
+    LaunchedEffect(state.task?.id) {
+        if (state.task != null) { review = false; if (!selecting) controller.clearSelection() }
+    }
     fun leaveSelection() { selecting = false; controller.clearSelection() }
     fun back() {
         when {
@@ -143,7 +145,10 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     details?.let { entry -> ArchiveEntryDetails(entry, state, { details = null },
         open = if (entry.isDir) ({ details = null; controller.enter(entry) }) else onOpenEntry?.let { callback -> { details = null; callback(entry) } },
         extract = { details = null; extract(entry) }) }
-    if (review && !state.pickingDestination) ArchiveExtractSheet(controller, { review = false }, onOpenTasks)
+    if (review && !state.pickingDestination) ArchiveExtractSheet(controller, {
+        review = false
+        if (!selecting) controller.clearSelection()
+    }, onOpenTasks)
     if (state.pickingDestination) ArchiveDestinationPicker(controller)
     when (panel) {
         "info" -> ArchiveInformation(state, { panel = null }, onOpenDirectory)
