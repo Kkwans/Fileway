@@ -42,6 +42,7 @@ type Session struct {
 }
 
 type Lease struct {
+	hlsRoot   string
 	upload    *uploadCapability
 	telemetry leaseTelemetry
 	cacheKey  string
@@ -278,6 +279,7 @@ func (b *Broker) lease(id, endpoint string, media bool, upload *uploadCapability
 
 func (b *Broker) Revoke(value string) {
 	key := strings.TrimPrefix(value, "http://"+b.listener.Addr().String()+"/stream/")
+	key, _, _ = strings.Cut(key, "/")
 	b.mu.Lock()
 	l := b.leases[key]
 	delete(b.leases, key)
@@ -349,11 +351,23 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid host", http.StatusBadRequest)
 		return
 	}
+	key, asset, collection := strings.Cut(strings.TrimPrefix(r.URL.Path, "/stream/"), "/")
 	b.mu.RLock()
-	l := b.leases[strings.TrimPrefix(r.URL.Path, "/stream/")]
+	l := b.leases[key]
 	b.mu.RUnlock()
 	if l == nil || l.ctx.Err() != nil {
 		http.Error(w, "stream closed", http.StatusGone)
+		return
+	}
+	endpoint := l.endpoint
+	if l.hlsRoot != "" {
+		if !collection || !validHLSAsset(asset) {
+			http.Error(w, "unknown asset", http.StatusNotFound)
+			return
+		}
+		endpoint = l.hlsRoot + asset
+	} else if collection {
+		http.Error(w, "unknown stream", http.StatusNotFound)
 		return
 	}
 	if l.upload != nil {
@@ -381,12 +395,16 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodHead {
 		headers.Set("Range", "bytes=0-0")
 	}
-	res, err := l.session.do(ctx, http.MethodGet, l.endpoint, nil, headers)
+	res, err := l.session.do(ctx, http.MethodGet, endpoint, nil, headers)
 	if err != nil {
 		http.Error(w, "source unavailable", http.StatusBadGateway)
 		return
 	}
 	defer res.Body.Close()
+	if l.hlsRoot != "" && strings.HasSuffix(asset, ".m3u8") && res.StatusCode == http.StatusOK {
+		b.serveHLSManifest(w, r, res, l, key, endpoint)
+		return
+	}
 	if r.Method == http.MethodGet && (res.StatusCode == http.StatusOK || res.StatusCode == http.StatusPartialContent) {
 		l.telemetry.total(requestID, res.ContentLength)
 		res.Body = measuredBody{ReadCloser: res.Body, stats: &l.telemetry}

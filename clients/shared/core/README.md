@@ -48,3 +48,25 @@ Upload-Length/Offset/Content-Type、固定长度与64MiB块上限检查位于写
 
 当前服务端TUS仍有临时片段过期和完成后HEAD语义限制。核心兼容不等于App上传
 队列、持久续传或真机/NAS验收已完成；后端行为不得通过伪造成功/版本头掩盖。
+
+## TV / direct-only builds and HLS assets
+
+`-tags=fileway_direct` builds the same broker and control protocol without the
+embedded network dependency. Embedded requests are rejected explicitly. Default
+builds retain the existing Tailscale implementation. The Android native builder
+in `clients/shared/android/build-native.py` isolates generated output by API,
+network mode and ABI and checks that direct builds contain no Tailscale imports.
+
+`hls_lease` accepts an immutable session and a 64-character playback task ID in
+`path`. It returns a token-free loopback manifest URL. All playlist and segment
+requests remain inside that task and original account; relative/same-task absolute
+links are normalized to the loopback lease. Cross-origin links, other jobs,
+queries and traversal are rejected. Revoking the manifest lease revokes every
+child resource. Existing single-resource leases and HTTP Range behavior remain.
+
+Run both protocol variants when changing this boundary:
+
+```sh
+go test ./bridge ./transport
+go test -tags fileway_direct ./bridge ./transport
+```

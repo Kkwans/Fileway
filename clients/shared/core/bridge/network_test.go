@@ -1,3 +1,5 @@
+//go:build !fileway_direct
+
 package bridge
 
 import (

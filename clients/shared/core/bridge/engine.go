@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Kkwans/nas-file-browser-client/core/tailnet"
 	"github.com/Kkwans/nas-file-browser-client/core/transport"
 )
 
@@ -42,7 +41,7 @@ type Command struct {
 	Search          string                  `json:"search"`
 	RawCommand      string                  `json:"command"`
 	CommandHandle   string                  `json:"commandHandle"`
-	PlatformNetwork tailnet.PlatformNetwork `json:"platformNetwork"`
+	PlatformNetwork platformNetwork         `json:"platformNetwork"`
 	Upload          transport.UploadOptions `json:"upload"`
 }
 
@@ -57,7 +56,7 @@ type Engine struct {
 	broker       *transport.Broker
 	pending      map[string]context.CancelFunc
 	cancelled    map[string]time.Time
-	node         *tailnet.Node
+	node         *networkNode
 	embedded     map[string]bool
 	networkEpoch uint64
 }
@@ -152,7 +151,7 @@ func (e *Engine) execute(c Command) (any, error) {
 	case "init":
 		return map[string]int{"protocol": 1}, nil
 	case "network_platform":
-		if err := tailnet.UpdatePlatformNetwork(c.PlatformNetwork); err != nil {
+		if err := updatePlatformNetwork(c.PlatformNetwork); err != nil {
 			return nil, err
 		}
 		e.mu.Lock()
@@ -201,7 +200,7 @@ func (e *Engine) execute(c Command) (any, error) {
 		if e.node != nil {
 			return nil, errors.New("embedded network already configured")
 		}
-		n, err := tailnet.NewNode(c.StateDir, c.Hostname, key)
+		n, err := newNetworkNode(c.StateDir, c.Hostname, key)
 		if err != nil {
 			return nil, err
 		}
@@ -214,7 +213,7 @@ func (e *Engine) execute(c Command) (any, error) {
 		e.mu.Unlock()
 		if n == nil {
 			if c.Op == "network_status" {
-				return tailnet.Status{State: "Unconfigured"}, nil
+				return networkStatus{State: "Unconfigured"}, nil
 			}
 			return nil, errors.New("embedded network is not configured")
 		}
@@ -288,6 +287,8 @@ func (e *Engine) execute(c Command) (any, error) {
 		return b.Lease(c.Session, endpoint, true)
 	case "asset":
 		return b.Lease(c.Session, c.Endpoint, false)
+	case "hls_lease":
+		return b.HLSLease(c.Session, c.Path)
 	case "preview":
 		endpoint, err := transport.PreviewEndpoint(c.Path, c.WirePath)
 		if err != nil {

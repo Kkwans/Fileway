@@ -33,3 +33,11 @@ jobs:
             go test -race ./...
             go vet ./...
           fi
+      - name: Direct-only TV core contracts
+        run: |
+          CGO_ENABLED=0 go test -tags fileway_direct ./transport ./bridge
+          CGO_ENABLED=0 go vet -tags fileway_direct ./transport ./bridge
+          if go list -tags fileway_direct -deps ./bridge | grep -E '(^tailscale.com/|/core/tailnet$)'; then
+            echo "Direct build unexpectedly contains an embedded network dependency"
+            exit 1
+          fi
