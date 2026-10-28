@@ -102,8 +102,8 @@ func (service *mediaAssetService) prepare(ctx context.Context, key string, limit
 	if err != nil {
 		return nil, err
 	}
-	defer os.Remove(file.Name())
-	defer file.Close()
+	defer func() { _ = os.Remove(file.Name()) }()
+	defer func() { _ = file.Close() }()
 	work, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	writer := &boundedAssetWriter{file: file, remaining: limit, cancel: cancel}
@@ -196,7 +196,7 @@ func servePreparedSourceAsset(w http.ResponseWriter, r *http.Request, d *data, f
 	if err != nil {
 		return http.StatusServiceUnavailable, fmt.Errorf("暂时无法提取源媒体资源，请重试")
 	}
-	defer asset.Close()
+	defer func() { _ = asset.Close() }()
 	// A replaced source must never receive assets cached for its old identity.
 	current, err := files.NewFileInfo(&files.FileOptions{Fs: d.user.Fs, Path: file.Path, Checker: d})
 	if err != nil {

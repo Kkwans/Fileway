@@ -42,7 +42,7 @@ func TestOwnedLANAdvertisementRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer publisher.Close()
+	defer func() { _ = publisher.Close() }()
 	port := listener.Addr().(*net.TCPAddr).Port
 	entries := make(chan *mdns.ServiceEntry, 32)
 	done := make(chan error, 1)

@@ -28,7 +28,7 @@ func TestSourceAssetCacheDeduplicatesAndRejectsPartialOutputs(t *testing.T) {
 				t.Error(err)
 				return
 			}
-			defer file.Close()
+			defer func() { _ = file.Close() }()
 			b, _ := io.ReadAll(file)
 			if string(b) != "complete subtitle" {
 				t.Error("partial cache hit")
@@ -41,7 +41,9 @@ func TestSourceAssetCacheDeduplicatesAndRejectsPartialOutputs(t *testing.T) {
 	}
 	bad := strings.Repeat("b", 64)
 	if f, err := service.prepare(context.Background(), bad, 3, func(_ context.Context, w io.Writer) error { _, err := io.WriteString(w, "oversize"); return err }); err == nil {
-		f.Close()
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
 		t.Fatal("oversized asset accepted")
 	}
 	entries, _ := os.ReadDir(service.directory)
