@@ -45,8 +45,10 @@ type userInfo struct {
 }
 
 type authToken struct {
-	User     userInfo     `json:"user"`
-	Instance instanceInfo `json:"instance"`
+	User          userInfo     `json:"user"`
+	Instance      instanceInfo `json:"instance"`
+	DeviceSession string       `json:"sid,omitempty"`
+	Scope         string       `json:"scope,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -98,15 +100,36 @@ func renewableErr(err error, d *data) bool {
 
 func withUser(fn handleFunc) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
-		keyFunc := func(_ *jwt.Token) (interface{}, error) {
+		keyFunc := func(token *jwt.Token) (interface{}, error) {
+			if token.Header["kid"] == "fileway.device.v1" {
+				if d.store.Devices == nil {
+					return nil, fmt.Errorf("设备授权不可用")
+				}
+				return d.store.Devices.SigningKey()
+			}
+			if _, present := token.Header["kid"]; present {
+				return nil, fmt.Errorf("未知签名密钥")
+			}
 			return d.settings.Key, nil
 		}
 
 		var tk authToken
 		p := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
 		token, err := request.ParseFromRequest(r, &extractor{}, keyFunc, request.WithClaims(&tk), request.WithParser(p))
-		if (err != nil || !token.Valid) && !renewableErr(err, d) {
+		if (err != nil || !token.Valid) && !(token != nil && token.Header["kid"] == nil && renewableErr(err, d)) {
 			return http.StatusUnauthorized, fmt.Errorf("未授权，请重新登录")
+		}
+		if tk.DeviceSession != "" || token.Header["kid"] == "fileway.device.v1" {
+			if token.Header["kid"] != "fileway.device.v1" || tk.DeviceSession == "" || tk.Scope != "media" || d.store.Devices == nil {
+				return http.StatusUnauthorized, fmt.Errorf("设备凭据无效")
+			}
+			if _, err := d.store.Devices.Validate(tk.DeviceSession, tk.User.ID); err != nil {
+				return http.StatusUnauthorized, fmt.Errorf("设备登录已撤销或过期")
+			}
+			if !deviceMediaRoute(r, tk.User.ID) {
+				return http.StatusForbidden, fmt.Errorf("TV设备仅允许媒体浏览与播放")
+			}
+			d.deviceSession = tk.DeviceSession
 		}
 
 		// JWT timestamps have second precision. Every authenticated business call
@@ -121,6 +144,17 @@ func withUser(fn handleFunc) handleFunc {
 		d.user, err = d.store.Users.Get(d.server.Root, tk.User.ID)
 		if err != nil {
 			return http.StatusInternalServerError, err
+		}
+		if d.deviceSession != "" {
+			copy := *d.user
+			copy.Perm.Admin = false
+			copy.Perm.Execute = false
+			copy.Perm.Create = false
+			copy.Perm.Delete = false
+			copy.Perm.Modify = false
+			copy.Perm.Rename = false
+			copy.Commands = []string{}
+			d.user = &copy
 		}
 		return fn(w, r, d)
 	}
@@ -276,7 +310,8 @@ func printToken(w http.ResponseWriter, _ *http.Request, d *data, user *users.Use
 			ListingPreferences:    user.ListingPreferences,
 			PlayerPreferences:     user.PlayerPreferences,
 		},
-		Instance: instanceInfo{Hostname: currentHostname()},
+		Instance:      instanceInfo{Hostname: currentHostname()},
+		DeviceSession: d.deviceSession,
 		RegisteredClaims: jwt.RegisteredClaims{
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(tokenExpirationTime)),
@@ -285,7 +320,25 @@ func printToken(w http.ResponseWriter, _ *http.Request, d *data, user *users.Use
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signed, err := token.SignedString(d.settings.Key)
+	key := d.settings.Key
+	if d.deviceSession != "" {
+		claims.Scope = "media"
+		claims.Issuer = "Fileway device"
+		claims.User.Perm.Admin = false
+		claims.User.Perm.Execute = false
+		claims.User.Perm.Create = false
+		claims.User.Perm.Delete = false
+		claims.User.Perm.Modify = false
+		claims.User.Perm.Rename = false
+		claims.User.Commands = []string{}
+		var err error
+		key, err = d.store.Devices.SigningKey()
+		if err != nil {
+			return http.StatusInternalServerError, err
+		}
+		token.Header["kid"] = "fileway.device.v1"
+	}
+	signed, err := token.SignedString(key)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}

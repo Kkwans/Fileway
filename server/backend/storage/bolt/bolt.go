@@ -6,6 +6,7 @@ import (
 	"github.com/asdine/storm/v3"
 
 	"github.com/Kkwans/nas-file-browser/backend/auth"
+	"github.com/Kkwans/nas-file-browser/backend/deviceauth"
 	"github.com/Kkwans/nas-file-browser/backend/favorites"
 	"github.com/Kkwans/nas-file-browser/backend/history"
 	"github.com/Kkwans/nas-file-browser/backend/playback"
@@ -44,13 +45,18 @@ func NewStorage(db *storm.DB) (*storage.Storage, error) {
 	transferStore := transfers.NewStorage(transferBackend{db: db})
 	trashStore := trash.NewStorage(trashBackend{db: db})
 	uploadStore := uploads.NewStorage(uploadBackend{db: db})
+	deviceStore, err := deviceauth.New(deviceAuthorizationBackend{db: db})
+	if err != nil {
+		return nil, err
+	}
 
-	err := save(db, "version", 9)
+	err = save(db, "version", 9)
 	if err != nil {
 		return nil, err
 	}
 
 	return &storage.Storage{
+		Devices:   deviceStore,
 		Auth:      authStore,
 		Users:     userStore,
 		Share:     shareStore,

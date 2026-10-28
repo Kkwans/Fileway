@@ -26,11 +26,12 @@ type data struct {
 	fileCache   FileCache
 	mediaAssets *mediaAssetService
 	*runner.Runner
-	settings *settings.Settings
-	server   *settings.Server
-	store    *storage.Storage
-	user     *users.User
-	raw      interface{}
+	settings      *settings.Settings
+	server        *settings.Server
+	store         *storage.Storage
+	user          *users.User
+	deviceSession string
+	raw           interface{}
 }
 
 // Check implements rules.Checker.

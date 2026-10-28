@@ -2,6 +2,7 @@ package storage
 
 import (
 	"github.com/Kkwans/nas-file-browser/backend/auth"
+	"github.com/Kkwans/nas-file-browser/backend/deviceauth"
 	"github.com/Kkwans/nas-file-browser/backend/favorites"
 	"github.com/Kkwans/nas-file-browser/backend/history"
 	"github.com/Kkwans/nas-file-browser/backend/playback"
@@ -19,6 +20,7 @@ import (
 // Storage is a storage powered by a Backend which makes the necessary
 // verifications when fetching and saving data to ensure consistency.
 type Storage struct {
+	Devices   *deviceauth.Service
 	Users     users.Store
 	Share     *share.Storage
 	Auth      *auth.Storage
