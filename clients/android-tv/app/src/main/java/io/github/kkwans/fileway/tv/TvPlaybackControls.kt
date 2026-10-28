@@ -3,6 +3,7 @@ package io.github.kkwans.fileway.tv
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -29,17 +30,18 @@ import io.github.kkwans.fileway.design.R as Art
     previous: Boolean, next: Boolean, position: Long, duration: Long, buffered: Long,cachedRanges:List<TvCachedRange>,
     playFocus: FocusRequester, settingsFocus: FocusRequester,
     actions: MutableMap<String, FocusRequester>,
-    onToggle: () -> Unit, onSeek: (Long) -> Unit, onPrevious: () -> Unit,
-    onNext: () -> Unit, onPanel: (String) -> Unit, modifier: Modifier = Modifier,
+    onToggle: () -> Unit, onSeek: (Long) -> Unit, onSeekTo: (Long) -> Unit, onPrevious: () -> Unit,
+    onNext: () -> Unit, onExit: () -> Unit, onPanel: (String) -> Unit, modifier: Modifier = Modifier,
 ) {
     val gradient = remember { Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha=.22f), Color.Black.copy(alpha=.76f))) }
     Column(modifier.fillMaxWidth().background(gradient).padding(start=48.dp,end=48.dp,top=42.dp,bottom=24.dp),
         verticalArrangement=Arrangement.spacedBy(4.dp)) {
         if(title.isNotBlank())Text(title,style=MaterialTheme.typography.titleLarge.copy(fontSize=26.sp,lineHeight=34.sp),maxLines=1,overflow=TextOverflow.Ellipsis,color=Color.White)
         subtitle?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=Color.White.copy(alpha=.72f),maxLines=1,overflow=TextOverflow.Ellipsis) }
-        TvTimeline(position,duration,buffered,onSeek,Modifier.fillMaxWidth().focusProperties{down=playFocus},cachedRanges)
+        TvTimeline(position,duration,buffered,onSeek,Modifier.fillMaxWidth().focusProperties{down=playFocus},cachedRanges,onSeekTo)
         Box(Modifier.fillMaxWidth().height(72.dp)) {
             Row(Modifier.align(Alignment.CenterStart).focusGroup(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                TvPlaybackAction("返回文件",Art.drawable.fileway_ic_arrow_back,onExit)
                 actions["设置"]=settingsFocus
                 TvPlaybackAction("设置",Art.drawable.fileway_ic_settings,{onPanel("设置")},Modifier.focusRequester(settingsFocus))
                 val queueFocus=remember{FocusRequester()};actions["队列"]=queueFocus
@@ -64,9 +66,10 @@ import io.github.kkwans.fileway.design.R as Art
 
 @Composable internal fun TvPlaybackAction(label:String,icon:Int,onClick:()->Unit,modifier:Modifier=Modifier,enabled:Boolean=true,primary:Boolean=false) {
     var focused by remember{mutableStateOf(false)}
+    val interaction=remember{MutableInteractionSource()}
     val shape=if(primary)CircleShape else RoundedCornerShape(12.dp)
     Column(modifier.width(48.dp).onFocusChanged{focused=it.hasFocus},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        Button(onClick=onClick,enabled=enabled,modifier=Modifier.size(48.dp).semantics{contentDescription=label},
+        Button(onClick=onClick,enabled=enabled,interactionSource=interaction,modifier=Modifier.size(48.dp).tvTouch(onClick,enabled,interaction).semantics{contentDescription=label},
             contentPadding=PaddingValues(10.dp),shape=ButtonDefaults.shape(shape),scale=ButtonDefaults.scale(focusedScale=1f),
             colors=ButtonDefaults.colors(containerColor=Color.White.copy(alpha=if(primary).14f else .04f),contentColor=Color.White,
                 focusedContainerColor=if(primary)Color.White else Color.White.copy(alpha=.18f),focusedContentColor=if(primary)Color(0xFF10161F) else Color.White,

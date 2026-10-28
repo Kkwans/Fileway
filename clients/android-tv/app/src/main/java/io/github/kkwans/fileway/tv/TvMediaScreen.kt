@@ -8,6 +8,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -22,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.*
@@ -94,6 +96,13 @@ import kotlinx.coroutines.*
                 else -> false
             }
         }
+    }.pointerInput(file.mediaKey) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (event.changes.any { it.pressed }) pulse++
+            }
+        }
     }.focusable()) {
         if(!audio) AndroidView(factory={context->PlayerViewport(context).also(model.media.player::attach)},modifier=Modifier.fillMaxSize(),onRelease={model.media.player.detach(it)})
         else Row(Modifier.fillMaxSize().padding(start=48.dp,end=48.dp,top=80.dp,bottom=190.dp),horizontalArrangement=Arrangement.spacedBy(32.dp),verticalAlignment=Alignment.CenterVertically) {
@@ -105,6 +114,9 @@ import kotlinx.coroutines.*
 
             }
         }
+        Box(Modifier.matchParentSize().pointerInput(file.mediaKey) {
+            detectTapGestures(onTap = { controls = !controls; pulse++ }, onDoubleTap = { model.media.player.toggle(); pulse++ })
+        })
         TvPlaybackTelemetry(interfaceState.clockAlways||controls,!audio&&(interfaceState.speedAlways||controls),cache.bytesPerSecond)
         if(controls && state.error==null && player.error==null) {
             TvPlaybackControls(
@@ -115,6 +127,7 @@ import kotlinx.coroutines.*
                 position=seekTarget?:model.media.sourcePosition(),duration=state.sourceDurationMs,
                 buffered=player.bufferedPositionMs+state.sourceOffsetMs,cachedRanges=cache.ranges,playFocus=play,settingsFocus=options,
                 actions=actions,onToggle={model.media.player.toggle();pulse++},onSeek=requestSeek,
+                onSeekTo={target->seekTarget=target.coerceIn(0,state.sourceDurationMs.coerceAtLeast(0));seekPulse++;pulse++},onExit=model.media::close,
                 onPrevious={model.media.navigateQueue(-1)},onNext={model.media.navigateQueue(1)},onPanel=showPanel,
                 modifier=Modifier.align(Alignment.BottomCenter),
             )
@@ -160,21 +173,30 @@ import kotlinx.coroutines.*
     } }
 }
 
-@Composable internal fun TvTimeline(position:Long,duration:Long,buffered:Long,onSeekBy:(Long)->Unit,modifier:Modifier=Modifier,cachedRanges:List<TvCachedRange> = emptyList()) {
+@Composable internal fun TvTimeline(position:Long,duration:Long,buffered:Long,onSeekBy:(Long)->Unit,modifier:Modifier=Modifier,cachedRanges:List<TvCachedRange> = emptyList(),onSeekTo:(Long)->Unit={onSeekBy(it-position)}) {
     var focused by remember{mutableStateOf(false)}
+    var dragPosition by remember(duration){mutableStateOf<Long?>(null)}
+    val seekTo by rememberUpdatedState(onSeekTo)
+    val displayPosition=dragPosition?:position
     val accent=MaterialTheme.colorScheme.primary
     Column(modifier,verticalArrangement=Arrangement.spacedBy(2.dp)) {
-        Canvas(Modifier.fillMaxWidth().height(22.dp).onFocusChanged{focused=it.isFocused}.onPreviewKeyEvent{
+        Canvas(Modifier.fillMaxWidth().height(40.dp).onFocusChanged{focused=it.isFocused}
+            .pointerInput(duration) { if(duration>0)detectTapGestures { point -> seekTo((duration*(point.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)).toLong()) } }
+            .pointerInput(duration) { if(duration>0)detectHorizontalDragGestures(
+                onDragStart={point->dragPosition=(duration*(point.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)).toLong()},
+                onHorizontalDrag={change,_->change.consume();dragPosition=(duration*(change.position.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)).toLong()},
+                onDragEnd={dragPosition?.let(seekTo);dragPosition=null},onDragCancel={dragPosition=null}) }
+            .onPreviewKeyEvent{
             if(it.type==KeyEventType.KeyDown&&it.nativeKeyEvent.keyCode==AndroidKey.KEYCODE_DPAD_LEFT){onSeekBy(-10_000);true}
             else if(it.type==KeyEventType.KeyDown&&it.nativeKeyEvent.keyCode==AndroidKey.KEYCODE_DPAD_RIGHT){onSeekBy(10_000);true}else false
-        }.semantics{contentDescription="播放进度 ${tvTime(position)}，总时长 ${tvTime(duration)}";progressBarRangeInfo=ProgressBarRangeInfo(if(duration>0)(position.toFloat()/duration).coerceIn(0f,1f)else 0f,0f..1f)}.focusable()) {
+        }.semantics{contentDescription="播放进度 ${tvTime(displayPosition)}，总时长 ${tvTime(duration)}";progressBarRangeInfo=ProgressBarRangeInfo(if(duration>0)(displayPosition.toFloat()/duration).coerceIn(0f,1f)else 0f,0f..1f);setProgress{value->if(duration>0){seekTo((duration*value.coerceIn(0f,1f)).toLong());true}else false}}.focusable()) {
             val y=size.height/2;val width=if(focused)4.dp.toPx()else 2.dp.toPx()
             drawLine(Color.White.copy(alpha=.2f),Offset(0f,y),Offset(size.width,y),width)
             if(duration>0){
                 for(range in cachedRanges)drawLine(Color.White.copy(alpha=.42f),Offset(size.width*(range.startMs.toFloat()/duration).coerceIn(0f,1f),y),Offset(size.width*(range.endMs.toFloat()/duration).coerceIn(0f,1f),y),width)
-                drawLine(Color.White.copy(alpha=.35f),Offset(0f,y),Offset(size.width*(buffered.toFloat()/duration).coerceIn(0f,1f),y),width);val x=size.width*(position.toFloat()/duration).coerceIn(0f,1f);drawLine(accent,Offset(0f,y),Offset(x,y),width);drawCircle(accent,if(focused)6.dp.toPx()else 4.dp.toPx(),Offset(x,y))}
+                drawLine(Color.White.copy(alpha=.35f),Offset(0f,y),Offset(size.width*(buffered.toFloat()/duration).coerceIn(0f,1f),y),width);val x=size.width*(displayPosition.toFloat()/duration).coerceIn(0f,1f);drawLine(accent,Offset(0f,y),Offset(x,y),width);drawCircle(accent,if(focused||dragPosition!=null)6.dp.toPx()else 4.dp.toPx(),Offset(x,y))}
         }
-        Row(Modifier.fillMaxWidth()){Text(tvTime(position),style=MaterialTheme.typography.bodySmall);Spacer(Modifier.weight(1f));Text(tvTime(duration),style=MaterialTheme.typography.bodySmall)}
+        Row(Modifier.fillMaxWidth()){Text(tvTime(displayPosition),style=MaterialTheme.typography.bodySmall);Spacer(Modifier.weight(1f));Text(tvTime(duration),style=MaterialTheme.typography.bodySmall)}
     }
 }
 
@@ -257,6 +279,42 @@ fun tvOutputSignal(player:PlayerState):String {
         }
     } .focusable()) {
         request?.let{imageRequest->AsyncImage(model=imageRequest,imageLoader=model.imageLoader,onSuccess={val image=it.result.image;if(image.height>0)aspect=image.width.toFloat()/image.height},onError={model.media.imageFailed(file.mediaKey)},contentDescription=file.name,contentScale=ContentScale.Fit,modifier=Modifier.fillMaxSize().graphicsLayer{scaleX=zoom;scaleY=zoom;translationX=x.coerceIn(-maxPanX,maxPanX);translationY=y.coerceIn(-maxPanY,maxPanY)})}
+        Box(Modifier.matchParentSize()
+            .pointerInput(file.mediaKey) {
+                detectTapGestures(onTap={controls=!controls},onDoubleTap={
+                    if(zoom==1f){model.media.requestOriginalImage();zoom=2f}else{zoom=1f;x=0f;y=0f}
+                    controls=false
+                })
+            }
+            .pointerInput(file.mediaKey,viewportWidth,viewportHeight,aspect) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed=false)
+                    var pan=Offset.Zero
+                    var multiple=false
+                    var moved=false
+                    do {
+                        val event=awaitPointerEvent()
+                        multiple=multiple||event.changes.count{it.pressed}>1
+                        val delta=event.calculatePan();pan+=delta
+                        val scale=event.calculateZoom()
+                        if(moved||(multiple&&scale!=1f)||pan.getDistance()>viewConfiguration.touchSlop) {
+                            moved=true
+                            if(multiple||zoom>1f) {
+                                if(zoom==1f&&scale>1f)model.media.requestOriginalImage()
+                                zoom=(zoom*scale).coerceIn(1f,3f)
+                                val boundX=((baseWidth*zoom-viewportWidth)/2).coerceAtLeast(0f)
+                                val boundY=((baseHeight*zoom-viewportHeight)/2).coerceAtLeast(0f)
+                                x=(x+delta.x).coerceIn(-boundX,boundX);y=(y+delta.y).coerceIn(-boundY,boundY)
+                            }
+                            event.changes.forEach{it.consume()}
+                        }
+                    }while(event.changes.any{it.pressed})
+                    if(moved) {
+                        controls=false
+                        if(!multiple&&zoom==1f&&kotlin.math.abs(pan.x)>maxOf(viewConfiguration.touchSlop*3,viewportWidth*.12f)&&kotlin.math.abs(pan.x)>kotlin.math.abs(pan.y))model.media.navigateQueue(if(pan.x<0)1 else -1)
+                    }
+                }
+            })
         if(delayedBusy(state.busy))Text("正在读取图片…",Modifier.align(Alignment.Center))
         state.error?.let{Text(it,Modifier.align(Alignment.Center),color=MaterialTheme.colorScheme.error)}
         if(controls)Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
@@ -264,6 +322,8 @@ fun tvOutputSignal(player:PlayerState):String {
             .padding(start=48.dp,end=48.dp,top=36.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text(file.name,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
+                TvPlaybackAction("返回文件",Art.drawable.fileway_ic_arrow_back,model.media::close)
+                Spacer(Modifier.width(12.dp))
                 TvPlaybackAction("上一张",Art.drawable.fileway_ic_skip_previous,{model.media.navigateQueue(-1)},if(state.queue?.hasPrevious==true)Modifier.focusRequester(imageAction)else Modifier,enabled=state.queue?.hasPrevious==true)
                 Spacer(Modifier.width(12.dp))
                 TvPlaybackAction("下一张",Art.drawable.fileway_ic_skip_next,{model.media.navigateQueue(1)},if(state.queue?.hasPrevious!=true&&state.queue?.hasNext==true)Modifier.focusRequester(imageAction)else Modifier,enabled=state.queue?.hasNext==true)

@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -54,7 +55,7 @@ import kotlinx.coroutines.*
     val bodyFocus = remember { FocusRequester() }
     val drawer=rememberDrawerState(DrawerValue.Closed)
     val scope=rememberCoroutineScope()
-    val selectRoute:(TvRoute)->Unit={route->model.navigate(route);scope.launch{withFrameNanos{};bodyFocus.requestFocus()}}
+    val selectRoute:(TvRoute)->Unit={route->model.navigate(route);drawer.setValue(DrawerValue.Closed);scope.launch{withFrameNanos{};bodyFocus.requestFocus()}}
     LaunchedEffect(Unit) { withFrameNanos {}; bodyFocus.requestFocus() }
     BackHandler {
         if (model.backDirectory()) Unit
@@ -77,8 +78,9 @@ import kotlinx.coroutines.*
                     }
                     Spacer(Modifier.height(12.dp))
                     routes.filter{it!=TvRoute.SETTINGS}.forEach{route->
-                        NavigationDrawerItem(selected=state.route==route,onClick={selectRoute(route)},
-                            modifier=Modifier.fillMaxWidth().focusRequester(nav.getValue(route)).semantics{contentDescription=route.title},
+                        val interaction=remember(route){MutableInteractionSource()}
+                        NavigationDrawerItem(selected=state.route==route,onClick={selectRoute(route)},interactionSource=interaction,
+                            modifier=Modifier.fillMaxWidth().tvTouch({selectRoute(route)},interaction=interaction).focusRequester(nav.getValue(route)).semantics{contentDescription=route.title},
                             leadingContent={Icon(painterResource(routeIcon(route)),null,Modifier.size(22.dp))},
                             shape=NavigationDrawerItemDefaults.shape(shape=RoundedCornerShape(12.dp)),
                             scale=NavigationDrawerItemDefaults.scale(focusedScale=1f),
@@ -87,8 +89,9 @@ import kotlinx.coroutines.*
                         }
                     }
                     Spacer(Modifier.weight(1f))
-                    NavigationDrawerItem(selected=state.route==TvRoute.SETTINGS,onClick={selectRoute(TvRoute.SETTINGS)},
-                        modifier=Modifier.fillMaxWidth().focusRequester(nav.getValue(TvRoute.SETTINGS)).semantics{contentDescription="设置"},
+                    val settingsInteraction=remember{MutableInteractionSource()}
+                    NavigationDrawerItem(selected=state.route==TvRoute.SETTINGS,onClick={selectRoute(TvRoute.SETTINGS)},interactionSource=settingsInteraction,
+                        modifier=Modifier.fillMaxWidth().tvTouch({selectRoute(TvRoute.SETTINGS)},interaction=settingsInteraction).focusRequester(nav.getValue(TvRoute.SETTINGS)).semantics{contentDescription="设置"},
                         leadingContent={Icon(painterResource(Art.drawable.fileway_ic_settings),null,Modifier.size(22.dp))},
                         shape=NavigationDrawerItemDefaults.shape(shape=RoundedCornerShape(12.dp)),
                         scale=NavigationDrawerItemDefaults.scale(focusedScale=1f),
@@ -266,7 +269,8 @@ private fun routeIcon(route: TvRoute) = when (route) {
 
 @Composable private fun TvFileCard(model: TvModel,file:ResourceRef,onClick:()->Unit,modifier:Modifier=Modifier,enabled:Boolean=true,sourceIdentity:String=file.modified) {
     var focused by remember{mutableStateOf(false)}
-    Button(onClick=onClick,enabled=enabled,modifier=modifier.onFocusChanged{focused=it.isFocused},
+    val interaction=remember{MutableInteractionSource()}
+    Button(onClick=onClick,enabled=enabled,interactionSource=interaction,modifier=modifier.tvTouch(onClick,enabled,interaction).onFocusChanged{focused=it.isFocused},
         contentPadding=PaddingValues(2.dp),shape=ButtonDefaults.shape(RoundedCornerShape(12.dp)),scale=ButtonDefaults.scale(focusedScale=1f),
         colors=ButtonDefaults.colors(containerColor=Color.Transparent,contentColor=MaterialTheme.colorScheme.onSurface,
             focusedContainerColor=Color.Transparent,focusedContentColor=MaterialTheme.colorScheme.onSurface)) {

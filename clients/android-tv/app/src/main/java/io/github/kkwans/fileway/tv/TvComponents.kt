@@ -6,6 +6,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.composed
@@ -16,6 +19,9 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -46,7 +52,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(12.dp)
     val colors = MaterialTheme.colorScheme
-    Button(onClick = onClick, enabled = enabled, modifier = modifier.semantics { this.selected = selected }.onFocusChanged { focused = it.isFocused }
+    val interaction = remember { MutableInteractionSource() }
+    Button(onClick = onClick, enabled = enabled, interactionSource = interaction, modifier = modifier.tvTouch(onClick, enabled, interaction).semantics { this.selected = selected }.onFocusChanged { focused = it.isFocused }
         .border(2.dp, if (focused) colors.primary else Color.Transparent, shape),
         shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
         colors = ButtonDefaults.colors(containerColor = if (selected) colors.primary.copy(alpha = .18f) else colors.surface,
@@ -112,6 +119,26 @@ fun Modifier.tvRemoteKeys(onDown: (androidx.compose.ui.input.key.KeyEvent) -> Bo
     }
 }
 
+/** TV Material 1.1.0 provides D-pad/semantics actions without pointer clicks.
+ * Add pointer handling only, keeping its existing focus and key semantics.
+ * A scroll cancels the press; lifting after a scroll never opens a card. */
+fun Modifier.tvTouch(onClick: () -> Unit, enabled: Boolean = true, interaction: MutableInteractionSource? = null): Modifier = composed {
+    val click by rememberUpdatedState(onClick)
+    val focus = remember { FocusRequester() }
+    this.focusRequester(focus).pointerInput(enabled, interaction) {
+        if (enabled) detectTapGestures(
+            onPress = { point ->
+                focus.requestFocus()
+                val press = PressInteraction.Press(point)
+                interaction?.emit(press)
+                if (tryAwaitRelease()) interaction?.emit(PressInteraction.Release(press))
+                else interaction?.emit(PressInteraction.Cancel(press))
+            },
+            onTap = { click() },
+        )
+    }
+}
+
 @Composable fun delayedBusy(busy: Boolean): Boolean {
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(busy) { if (busy) { kotlinx.coroutines.delay(200); visible = true } else visible = false }
@@ -127,8 +154,9 @@ internal fun tvDate(value:String):String=runCatching {
 @Composable internal fun TvToolbarAction(label:String,icon:Int,onClick:()->Unit,modifier:Modifier=Modifier,enabled:Boolean=true) {
     var focused by remember{mutableStateOf(false)}
     val colors=MaterialTheme.colorScheme
+    val interaction=remember{MutableInteractionSource()}
     Column(modifier.width(44.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-        Button(onClick=onClick,enabled=enabled,modifier=Modifier.size(44.dp).semantics{contentDescription=label}.onFocusChanged{focused=it.isFocused},
+        Button(onClick=onClick,enabled=enabled,interactionSource=interaction,modifier=Modifier.size(44.dp).tvTouch(onClick,enabled,interaction).semantics{contentDescription=label}.onFocusChanged{focused=it.isFocused},
             shape=ButtonDefaults.shape(RoundedCornerShape(12.dp)),scale=ButtonDefaults.scale(focusedScale=1f),contentPadding=PaddingValues(10.dp),
             colors=ButtonDefaults.colors(containerColor=Color.Transparent,contentColor=colors.onSurface.copy(alpha=.7f),focusedContainerColor=colors.primary.copy(alpha=.18f),focusedContentColor=colors.onSurface)) {
             Icon(androidx.compose.ui.res.painterResource(icon),null,Modifier.size(24.dp))
@@ -137,7 +165,8 @@ internal fun tvDate(value:String):String=runCatching {
     }
 }
 @Composable internal fun TvQuietAction(label:String,onClick:()->Unit) {
-    Button(onClick=onClick,shape=ButtonDefaults.shape(RoundedCornerShape(12.dp)),scale=ButtonDefaults.scale(focusedScale=1f),
+    val interaction=remember{MutableInteractionSource()}
+    Button(onClick=onClick,interactionSource=interaction,modifier=Modifier.tvTouch(onClick,interaction=interaction),shape=ButtonDefaults.shape(RoundedCornerShape(12.dp)),scale=ButtonDefaults.scale(focusedScale=1f),
         contentPadding=PaddingValues(horizontal=10.dp,vertical=6.dp),colors=ButtonDefaults.colors(containerColor=Color.Transparent,contentColor=MaterialTheme.colorScheme.onSurface.copy(alpha=.65f),focusedContainerColor=MaterialTheme.colorScheme.primary.copy(alpha=.18f),focusedContentColor=MaterialTheme.colorScheme.onSurface)) {
         Text(label,style=MaterialTheme.typography.bodySmall)
     }
