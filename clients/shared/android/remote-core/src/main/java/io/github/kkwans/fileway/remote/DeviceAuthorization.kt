@@ -1,6 +1,7 @@
 package io.github.kkwans.fileway.remote
 
 import android.content.Context
+import androidx.room.withTransaction
 import io.github.kkwans.nasfilebrowser.core.NativeTransport
 import io.github.kkwans.nasfilebrowser.data.NasSession
 import io.github.kkwans.nasfilebrowser.data.ServerProfile
@@ -87,13 +88,14 @@ class DeviceAuthorization(context:Context,private val store:RemoteStore=RemoteSt
         val row=StoredDeviceGrant(credential.getString("serverId"),principal.id,profile.address,profile.id,credential.getString("sessionId"),ref,"PREPARED",System.currentTimeMillis())
         store.dao.saveGrant(row);row
     }
-    suspend fun refresh(profileId:String):JSONObject?{
-        val row=store.dao.profileGrant(profileId)?:return null
+    suspend fun refresh(profile:ServerProfile,userId:Long):JSONObject?{
+        val row=store.dao.profileGrant(profile.id,userId)?:return null
+        if(row.origin!=profile.address)return null
         val credential=withContext(Dispatchers.IO){JSONObject((store.vault.read(row.credentialRef)?:error("设备凭据读取失败，请在手机重新授权")).toString(Charsets.UTF_8))}
         val nonce=credential.optString("pendingRefreshNonce").ifBlank{authNonce().also{credential.put("pendingRefreshNonce",it)}}
         // Persist intent before rotating remotely. A process death can repeat
         // exactly this nonce rather than stranding the previous refresh token.
-        withContext(Dispatchers.IO){store.vault.write(row.credentialRef,credential.toString().toByteArray(Charsets.UTF_8))}
+        saveCurrent(row,credential)
         return source(row.origin){session->
             verifyInstance(session,credential.getJSONObject("instance"))
             val secret=credential.getString("refresh")
@@ -101,8 +103,24 @@ class DeviceAuthorization(context:Context,private val store:RemoteStore=RemoteSt
             val next=post(session,"/api/device-auth/refresh",JSONObject().put("id",row.sessionId).put("refresh",secret).put("nonce",nonce).put("proof",proof))
             check(next.getString("serverId")==row.serverId&&next.getLong("userId")==row.userId&&next.getString("sessionId")==row.sessionId){"设备续期身份不匹配"}
             next.put("instance",credential.getJSONObject("instance")).put("origin",row.origin)
-            withContext(Dispatchers.IO){store.vault.write(row.credentialRef,next.toString().toByteArray(Charsets.UTF_8))}
+            saveCurrent(row,next)
             next
+        }
+    }
+    private suspend fun saveCurrent(row:StoredDeviceGrant,value:JSONObject)=withContext(Dispatchers.IO){
+        store.database.withTransaction{
+            val current=store.dao.grant(row.serverId,row.userId)
+            check(current!=null&&current.sessionId==row.sessionId&&current.credentialRef==row.credentialRef&&current.origin==row.origin&&current.profileId==row.profileId){"设备登录来源已变化"}
+            store.vault.write(row.credentialRef,value.toString().toByteArray(Charsets.UTF_8))
+        }
+    }
+    suspend fun forget(profile:ServerProfile,userId:Long,sessionId:String)=withContext(Dispatchers.IO){
+        if(sessionId.isBlank())return@withContext
+        store.database.withTransaction{
+            val row=store.dao.profileGrant(profile.id,userId)?:return@withTransaction
+            if(row.origin!=profile.address||row.sessionId!=sessionId)return@withTransaction
+            store.vault.remove(row.credentialRef)
+            store.dao.removeGrant(row.serverId,row.userId,row.sessionId)
         }
     }
 }

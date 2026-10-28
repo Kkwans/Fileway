@@ -19,7 +19,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-data class AccountIdentity(val id: Long, val username: String, val hostname: String, val permissions: ServerPermissions = ServerPermissions())
+data class AccountIdentity(val id: Long, val username: String, val hostname: String, val permissions: ServerPermissions = ServerPermissions(),val deviceSessionId:String="")
 class ServiceException(val status: Int, message: String) : Exception(message)
 
 enum class SessionHealthCode { RENEWAL_FAILED, EXPIRED, TOKEN_STORAGE_FAILED, ACCOUNT_CHANGED }
@@ -297,7 +297,7 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
                 return AccountIdentity(id, name, payload.optJSONObject("instance")?.optString("hostname").orEmpty(),
                     ServerPermissions(perm != null, perm?.optBoolean("admin") == true, perm?.optBoolean("create") == true,
                         perm?.optBoolean("delete") == true, perm?.optBoolean("modify") == true, perm?.optBoolean("download") == true,
-                        perm?.optBoolean("rename") == true, perm?.optBoolean("execute") == true))
+                        perm?.optBoolean("rename") == true, perm?.optBoolean("execute") == true),payload.optString("sid"))
             } catch (_: Exception) { error("服务器返回了不支持的账号格式") }
         }
         suspend fun login(profile: ServerProfile, username: String, password: String,

@@ -55,8 +55,9 @@ data class StoredDeviceGrant(
     @Upsert suspend fun saveController(value: TrustedController)
     @Query("DELETE FROM trusted_controllers WHERE id=:id") suspend fun removeController(id: String)
     @Query("SELECT * FROM device_grants WHERE serverId=:serverId AND userId=:userId") suspend fun grant(serverId: String, userId: Long): StoredDeviceGrant?
-    @Query("SELECT * FROM device_grants WHERE profileId=:profileId ORDER BY updatedAt DESC LIMIT 1") suspend fun profileGrant(profileId: String): StoredDeviceGrant?
+    @Query("SELECT * FROM device_grants WHERE profileId=:profileId AND userId=:userId ORDER BY updatedAt DESC LIMIT 1") suspend fun profileGrant(profileId: String,userId:Long): StoredDeviceGrant?
     @Upsert suspend fun saveGrant(value: StoredDeviceGrant)
+    @Query("DELETE FROM device_grants WHERE serverId=:serverId AND userId=:userId AND sessionId=:sessionId") suspend fun removeGrant(serverId:String,userId:Long,sessionId:String)
 }
 
 @Database(entities = [PairedTv::class, TrustedController::class, StoredDeviceGrant::class], version = 1, exportSchema = true)
