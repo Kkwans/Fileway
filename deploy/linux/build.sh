@@ -37,7 +37,15 @@ if [[ -n "${FILEWAY_BINARY_DIR:-}" ]]; then
   done
   shopt -u dotglob nullglob
   metadata=$(go version -m "$binary_dir/fileway-server")
-  grep -Fq "CommitSHA=$revision" <<< "$metadata" || { echo '二进制源提交不匹配' >&2; exit 1; }
+  if ! grep -Fq "CommitSHA=$revision" <<< "$metadata"; then
+    # Go 1.26 omits linker flags from trimpath build metadata. For a native
+    # artifact, verify the pinned version command instead of dropping the gate.
+    host_arch=$(uname -m)
+    case "$host_arch" in aarch64) host_arch=arm64 ;; x86_64) host_arch=amd64 ;; esac
+    [[ "$platform" == "linux/$host_arch" ]] || { echo '无法核实跨架构二进制的源提交' >&2; exit 1; }
+    reported=$("$binary_dir/fileway-server" version)
+    [[ "$reported" == "File Browser v$tag/$revision" ]] || { echo '二进制源提交不匹配' >&2; exit 1; }
+  fi
   grep -Eq 'build[[:space:]]+GOOS=linux$' <<< "$metadata" || { echo '二进制不是 Linux 程序' >&2; exit 1; }
   grep -Eq "build[[:space:]]+GOARCH=${platform#linux/}$" <<< "$metadata" || { echo '二进制架构不匹配' >&2; exit 1; }
   grep -Eq 'build[[:space:]]+CGO_ENABLED=0$' <<< "$metadata" || { echo '需要已验证的静态 Linux 程序' >&2; exit 1; }
