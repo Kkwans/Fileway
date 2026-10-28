@@ -36,11 +36,62 @@ func (b *Broker) SessionState(id string) (SessionState, error) {
 }
 
 type sessionClaims struct {
-	IssuedAt  int64 `json:"iat"`
-	ExpiresAt int64 `json:"exp"`
-	User      struct {
+	DeviceSession string `json:"sid"`
+	Scope         string `json:"scope"`
+	IssuedAt      int64  `json:"iat"`
+	ExpiresAt     int64  `json:"exp"`
+	User          struct {
 		ID json.Number `json:"id"`
 	} `json:"user"`
+}
+
+// AdoptDeviceToken refreshes an already-bound device session without replacing
+// its Range/media leases. A token is verified by the same origin before use;
+// it can never change the account, session ID or media-only authority.
+func (b *Broker) AdoptDeviceToken(ctx context.Context, id string, expectedUser int64, candidate string) (SessionState, error) {
+	s, err := b.session(id)
+	if err != nil {
+		return SessionState{}, err
+	}
+	previous := s.currentToken()
+	old, valid := tokenClaims(previous)
+	fresh, newValid := tokenClaims(candidate)
+	if !valid || !newValid || expectedUser < 0 || old.User.ID.String() != strconv.FormatInt(expectedUser, 10) || old.User.ID != fresh.User.ID || old.DeviceSession == "" || old.DeviceSession != fresh.DeviceSession || old.Scope != "media" || fresh.Scope != "media" {
+		return SessionState{}, errors.New("device account or session changed")
+	}
+	call, done := combined(ctx, s.ctx)
+	defer done()
+	verifier := &Session{base: s.base, client: s.client, ctx: s.ctx, token: candidate}
+	response, err := verifier.do(call, http.MethodGet, "/api/client-capabilities", nil, nil)
+	if err != nil {
+		return SessionState{}, err
+	}
+	result, err := readResponse(response)
+	if err != nil {
+		return SessionState{}, err
+	}
+	if result.Status != http.StatusOK {
+		return SessionState{}, errors.New("device credential rejected")
+	}
+	next := verifier.currentToken()
+	confirmed, ok := tokenClaims(next)
+	if !ok || confirmed.User.ID != old.User.ID || confirmed.DeviceSession != old.DeviceSession || confirmed.Scope != "media" {
+		return SessionState{}, errors.New("device credential identity changed")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err = call.Err(); err != nil {
+		return SessionState{}, err
+	}
+	current, ok := tokenClaims(s.token)
+	if !ok || current.DeviceSession != old.DeviceSession || current.User.ID != old.User.ID {
+		return SessionState{}, errors.New("device session changed")
+	}
+	if s.token == previous || confirmed.IssuedAt >= current.IssuedAt {
+		s.token = next
+	}
+	s.health = ""
+	return SessionState{Token: s.token, Health: s.health, BusinessRevision: s.businessRevision}, nil
 }
 
 func tokenClaims(token string) (sessionClaims, bool) {

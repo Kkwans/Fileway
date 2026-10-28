@@ -17,6 +17,66 @@ func activityToken(id int, issued, expires int64) string {
 	return "owned." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"user":{"id":%d},"iat":%d,"exp":%d}`, id, issued, expires))) + ".signature"
 }
 
+func TestDeviceTokenRecoveryPreservesLeasesAndRejectsAccountOrSessionSwitch(t *testing.T) {
+	makeToken := func(user int, sid string) string {
+		return "owned." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"user":{"id":%d},"sid":%q,"scope":"media","iat":%d,"exp":%d}`, user, sid, time.Now().Unix(), time.Now().Add(time.Hour).Unix()))) + ".signature"
+	}
+	old := makeToken(7, "owned-device-session")
+	fresh := old + "-new"
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Renew-Token", "false")
+		if r.URL.Path == "/api/client-capabilities" {
+			if r.Header.Get("X-Auth") != fresh {
+				w.WriteHeader(401)
+				return
+			}
+			_, _ = w.Write([]byte(`{}`))
+			return
+		}
+		if r.URL.Path == "/api/raw/movie" {
+			if r.Header.Get("X-Auth") != fresh {
+				w.WriteHeader(401)
+				return
+			}
+			_, _ = w.Write([]byte("owned media"))
+			return
+		}
+		w.WriteHeader(404)
+	}))
+	defer source.Close()
+	b, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = b.Close() }()
+	id, err := b.Open(source.URL, old, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range []string{makeToken(8, "owned-device-session"), makeToken(7, "different-device-session"), activityToken(7, 1, 2)} {
+		if _, err = b.AdoptDeviceToken(context.Background(), id, 7, candidate); err == nil {
+			t.Fatal("changed authority adopted")
+		}
+	}
+	// Obtain a lease before recovery; the same URL must keep working afterward.
+	lease, err := b.Lease(id, "/api/raw/movie", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = b.AdoptDeviceToken(context.Background(), id, 7, fresh); err != nil {
+		t.Fatal(err)
+	}
+	response, err := http.Get(lease)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, _ := io.ReadAll(response.Body)
+	if response.StatusCode != 200 || string(body) != "owned media" {
+		t.Fatal("existing lease lost on device refresh", response.StatusCode, string(body))
+	}
+}
+
 type renewalWaitContext struct {
 	context.Context
 	joined chan struct{}

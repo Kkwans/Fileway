@@ -10,39 +10,48 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Kkwans/nas-file-browser-client/core/remote"
 	"github.com/Kkwans/nas-file-browser-client/core/transport"
 )
 
 type Command struct {
-	CacheConfig     transport.CacheConfig   `json:"cacheConfig"`
-	CacheKey        string                  `json:"cacheKey"`
-	Clear           bool                    `json:"clear"`
-	Op              string                  `json:"op"`
-	RequestID       string                  `json:"requestId"`
-	Session         string                  `json:"session"`
-	BaseURL         string                  `json:"baseUrl"`
-	Token           string                  `json:"token"`
-	ExpectedUser    int64                   `json:"expectedUser"`
-	Username        string                  `json:"username"`
-	Password        string                  `json:"password"`
-	Method          string                  `json:"method"`
-	Endpoint        string                  `json:"endpoint"`
-	Body            json.RawMessage         `json:"body"`
-	BodyBase64      *string                 `json:"bodyBase64,omitempty"`
-	Path            string                  `json:"path"`
-	WirePath        string                  `json:"wirePath"`
-	URL             string                  `json:"url"`
-	Network         string                  `json:"network"`
-	StateDir        string                  `json:"stateDir"`
-	Hostname        string                  `json:"hostname"`
-	StorageKey      string                  `json:"storageKey"`
-	Query           string                  `json:"query"`
-	Scope           string                  `json:"scope"`
-	Search          string                  `json:"search"`
-	RawCommand      string                  `json:"command"`
-	CommandHandle   string                  `json:"commandHandle"`
-	PlatformNetwork platformNetwork         `json:"platformNetwork"`
-	Upload          transport.UploadOptions `json:"upload"`
+	RemoteHandle        string                  `json:"remoteHandle"`
+	RemoteConfig        *remote.Config          `json:"remoteConfig"`
+	RemoteState         *remote.State           `json:"remoteState"`
+	RemoteResult        *remote.Result          `json:"remoteResult"`
+	RemoteConnectionID  string                  `json:"remoteConnectionId"`
+	RemoteControllerID  string                  `json:"remoteControllerId"`
+	RemotePairRequestID string                  `json:"remotePairRequestId"`
+	RemoteSaved         bool                    `json:"remoteSaved"`
+	CacheConfig         transport.CacheConfig   `json:"cacheConfig"`
+	CacheKey            string                  `json:"cacheKey"`
+	Clear               bool                    `json:"clear"`
+	Op                  string                  `json:"op"`
+	RequestID           string                  `json:"requestId"`
+	Session             string                  `json:"session"`
+	BaseURL             string                  `json:"baseUrl"`
+	Token               string                  `json:"token"`
+	ExpectedUser        int64                   `json:"expectedUser"`
+	Username            string                  `json:"username"`
+	Password            string                  `json:"password"`
+	Method              string                  `json:"method"`
+	Endpoint            string                  `json:"endpoint"`
+	Body                json.RawMessage         `json:"body"`
+	BodyBase64          *string                 `json:"bodyBase64,omitempty"`
+	Path                string                  `json:"path"`
+	WirePath            string                  `json:"wirePath"`
+	URL                 string                  `json:"url"`
+	Network             string                  `json:"network"`
+	StateDir            string                  `json:"stateDir"`
+	Hostname            string                  `json:"hostname"`
+	StorageKey          string                  `json:"storageKey"`
+	Query               string                  `json:"query"`
+	Scope               string                  `json:"scope"`
+	Search              string                  `json:"search"`
+	RawCommand          string                  `json:"command"`
+	CommandHandle       string                  `json:"commandHandle"`
+	PlatformNetwork     platformNetwork         `json:"platformNetwork"`
+	Upload              transport.UploadOptions `json:"upload"`
 }
 
 type Envelope struct {
@@ -56,6 +65,9 @@ type Engine struct {
 	broker       *transport.Broker
 	pending      map[string]context.CancelFunc
 	cancelled    map[string]time.Time
+	remote       *remote.Host
+	remoteHandle string
+	remoteEpoch  uint64
 	node         *networkNode
 	embedded     map[string]bool
 	networkEpoch uint64
@@ -148,6 +160,8 @@ func (e *Engine) execute(c Command) (any, error) {
 		defer func() { e.mu.Lock(); delete(e.pending, c.RequestID); e.mu.Unlock() }()
 	}
 	switch c.Op {
+	case "remote_identity", "remote_start", "remote_descriptor", "remote_invite", "remote_wait", "remote_pair_complete", "remote_publish", "remote_reply", "remote_revoke", "remote_stop", "remote_connection":
+		return e.executeRemote(ctx, c)
 	case "init":
 		return map[string]int{"protocol": 1}, nil
 	case "network_platform":
@@ -262,6 +276,8 @@ func (e *Engine) execute(c Command) (any, error) {
 		return b.RenewSession(ctx, c.Session)
 	case "recover_session":
 		return b.RecoverSession(ctx, c.Session, c.ExpectedUser, c.Username, c.Password)
+	case "recover_device_session":
+		return b.AdoptDeviceToken(ctx, c.Session, c.ExpectedUser, c.Token)
 	case "session_state":
 		return b.SessionState(c.Session)
 	case "token":
@@ -317,11 +333,18 @@ func (e *Engine) execute(c Command) (any, error) {
 		}
 		n := e.node
 		e.node = nil
+		remoteHost := e.remote
+		e.remote = nil
+		e.remoteHandle = ""
+		e.remoteEpoch++
 		e.networkEpoch++
 		e.embedded = make(map[string]bool)
 		e.mu.Unlock()
 		if n != nil {
 			_ = n.Close()
+		}
+		if remoteHost != nil {
+			_ = remoteHost.Close()
 		}
 		return nil, b.Close()
 	default:
