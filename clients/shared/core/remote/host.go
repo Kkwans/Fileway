@@ -234,7 +234,9 @@ func (h *Host) Publish(state State) error {
 	active := h.active
 	h.mu.Unlock()
 	if active != nil {
-		return h.sendState(active)
+		if err := h.sendState(active); err != nil {
+			h.disconnectPeer(active)
+		}
 	}
 	return nil
 }
@@ -243,7 +245,7 @@ func (h *Host) Reply(connectionID, controllerID string, result Result) error {
 	if result.Status != "COMPLETED" && result.Status != "REJECTED" && result.Status != "UNKNOWN" {
 		return errors.New("invalid command result")
 	}
-	if len(result.Code) > 96 || len(result.Payload) > 16<<10 || (len(result.Payload) > 0 && !jsonObject(result.Payload)) {
+	if len(result.Code) > 96 || len(result.Payload) > 32<<10 || (len(result.Payload) > 0 && !jsonObject(result.Payload)) {
 		return errors.New("invalid command result payload")
 	}
 	h.mu.Lock()
@@ -260,9 +262,20 @@ func (h *Host) Reply(connectionID, controllerID string, result Result) error {
 	active := h.active
 	h.mu.Unlock()
 	if active != nil && active.id == connectionID {
-		return h.send(active, result)
+		if err := h.send(active, result); err != nil {
+			h.disconnectPeer(active)
+		}
 	}
 	return nil
+}
+
+func (h *Host) disconnectPeer(active *peer) {
+	h.mu.Lock()
+	if h.active == active {
+		h.active = nil
+	}
+	h.mu.Unlock()
+	_ = active.socket.CloseNow()
 }
 
 func (h *Host) Close() error {
