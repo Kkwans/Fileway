@@ -5,6 +5,8 @@ dependencyResolutionManagement {
 }
 rootProject.name = "FilewayAndroidTv"
 include(":app")
+include(":remote-core")
+project(":remote-core").projectDir = file("../shared/android/remote-core")
 include(":client-core")
 project(":client-core").projectDir = file("../shared/android/client-core")
 include(":media-core")

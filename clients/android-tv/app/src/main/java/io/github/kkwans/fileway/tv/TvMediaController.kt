@@ -39,6 +39,7 @@ class TvMediaController(
     private val mutable = MutableStateFlow(TvMediaState(mode = TvHdrMode.entries.firstOrNull { it.name == prefs.getString("hdr_mode", "AUTO") } ?: TvHdrMode.AUTO))
     val state = mutable.asStateFlow()
     private var epoch = 0L
+    val controlEpoch:Long get()=epoch
     private var sequence = 0L
     private var operation: Job? = null
     private var subtitleJob: Job? = null

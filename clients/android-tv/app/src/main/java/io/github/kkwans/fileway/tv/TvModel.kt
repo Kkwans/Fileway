@@ -10,6 +10,7 @@ import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import org.json.JSONObject
+import io.github.kkwans.fileway.remote.*
 
 enum class TvRoute(val title: String) { HOME("首页"), FILES("文件"), VIDEO("视频"), MUSIC("音乐"), IMAGES("图片"), FAVORITES("收藏"), RECENT("最近"), SETTINGS("设置") }
 data class TvAnchor(val key: String = "", val index: Int = 0, val offset: Int = 0, val ascending: Boolean = true, val grid: Boolean = true)
@@ -52,6 +53,9 @@ class TvModel(application: Application) : AndroidViewModel(application) {
     val recentAccess = RecentAccessController(viewModelScope) { context === it }
     val media = TvMediaController(application, viewModelScope, history) { context }
     val imageLoader = ImageLoader.Builder(application).memoryCache { MemoryCache.Builder().maxSizeBytes(16L * 1024 * 1024).build() }.build()
+    val remoteGateway = TvRemoteGateway(this, application)
+    val remote = TvRemoteHost(application, viewModelScope, remoteGateway::execute, remoteGateway::snapshot)
+    val sessionEpoch:Long get()=(context?.generation ?: generation).toLong()
 
     init { restoreLogin() }
 
@@ -66,7 +70,14 @@ class TvModel(application: Application) : AndroidViewModel(application) {
                     if(generation!=expected)return@launch
                     mutable.update{it.copy(savedLogin=true,profile=profile)}
                     require(profile.network == ConnectionMode.DIRECT) { "TV 只支持直接连接" }
-                    val restored = restoreSavedSession(store, profile, account)
+                    val device = DeviceAuthorization(getApplication()).refresh(profile,account.userId)
+                    val restored = if(device==null) restoreSavedSession(store, profile, account) else {
+                        val token=device.getString("token")
+                        check(store.refreshToken(profile,account,token)){"设备登录来源已变化"}
+                        val session=NasSession.restore(profile,token,account.userId)
+                        try { SavedSession(session,session.request("GET","/api/resources/")) }
+                        catch(error:Exception){withContext(NonCancellable){session.close()};throw error}
+                    }
                     candidate=restored.api
                     if(generation!=expected)return@launch
                     bind(profile, account, restored.api,restored.verification);candidate=null
@@ -108,15 +119,19 @@ class TvModel(application: Application) : AndroidViewModel(application) {
 
     private suspend fun bind(profile: ServerProfile, account: AccountRecord, api: NasSession,root:JSONObject) {
         val old = context
+        val bound = SessionContext(profile, account, api, generation)
+        // Persist the new owner before releasing the old source. Validation or
+        // storage failure before this point leaves the old player/session usable.
+        store.activate(profile, account, bound.owner)
+        if(generation!=bound.generation){store.deactivate(account,bound.owner);throw CancellationException("登录来源已变化")}
         mutable.update { it.copy(connected = false, restoring = true, files = emptyList(), recentPlayback = emptyList(), health = null) }
         context = null
         imageLoader.memoryCache?.clear()
         media.closeAndSave()
-        old?.api?.close()
+        runCatching { old?.api?.close() }
+        if(generation!=bound.generation){store.deactivate(account,bound.owner);throw CancellationException("登录来源已变化")}
         sessionJob?.cancel(); recentJob?.cancel(); navigationJob?.cancel();sessionRecoveryJob?.cancel();recoveryRevision=-1
-        val bound = SessionContext(profile, account, api, generation)
         context = bound
-        store.activate(profile, account, bound.owner)
         api.persistTokens { token -> check(store.refreshToken(profile, account, token)) { "登录来源已变化" } }
         favorites.bind(bound); recentAccess.bind(bound)
         stack.clear(); anchors.clear();directoryOrigin=null
@@ -128,6 +143,33 @@ class TvModel(application: Application) : AndroidViewModel(application) {
             if (context === bound) mutable.update { it.copy(recentPlayback = (local + it.recentPlayback).distinctBy { row -> row.resourceKey }.sortedByDescending { row -> row.updatedAt }.take(100)) }
         } }
         favorites.refresh(); refreshRecent()
+    }
+
+    suspend fun adoptDeviceCredential(credential:JSONObject,authorized:suspend ()->Boolean) {
+        val principal=NasSession.parseIdentity(credential.getString("token"))
+        check(principal.id==credential.getLong("userId")){"TV授权账号不一致"}
+        val origin=credential.getString("origin")
+        val originId=java.security.MessageDigest.getInstance("SHA-256").digest(origin.toByteArray(Charsets.UTF_8)).take(8).joinToString(""){"%02x".format(it)}
+        val profile=ServerProfile(id="tv-device-${credential.getString("serverId")}-${principal.id}-$originId",name="Fileway",address=origin,network=ConnectionMode.DIRECT)
+        var candidate:NasSession?=NasSession.restore(profile,credential.getString("token"),principal.id)
+        try {
+            val root=candidate!!.request("GET","/api/resources/")
+            check(authorized()){"TV登录或控制授权已变化"}
+            val saved=store.save(profile)
+            val account=store.saveLogin(saved,principal.id,principal.username,credential.getString("token"))
+            val verified=candidate!!
+            candidate=NasSession.restore(saved,credential.getString("token"),principal.id)
+            withContext(NonCancellable){verified.close()}
+            val authorizer=DeviceAuthorization(getApplication(),remote.store)
+            val grant=authorizer.save(saved,credential)
+            withContext(NonCancellable) {
+                check(authorized()){"TV登录或控制授权已变化"}
+                authenticationJob?.cancel();generation++
+                bind(saved,account,candidate!!,root);candidate=null
+                try {remote.store.dao.saveGrant(grant.copy(phase="ACTIVE",updatedAt=System.currentTimeMillis()))}
+                catch(_:Exception){mutable.update{it.copy(notice="TV已独立登录，授权记录状态稍后恢复")}}
+            }
+        } finally {withContext(NonCancellable){candidate?.close()}}
     }
 
     fun refreshRecent() {
@@ -283,7 +325,12 @@ class TvModel(application: Application) : AndroidViewModel(application) {
         mutable.update { TvState(restoring = false, dark = it.dark, safePercent = it.safePercent, grid = it.grid,gridColumns=it.gridColumns,clockAlways=it.clockAlways,speedAlways=it.speedAlways) }
         viewModelScope.launch {
             media.closeAndSave()
-            if (bound != null) { store.signOut(bound.account, bound.owner); bound.api.close() }
+            if (bound != null) {
+                val deviceSession=bound.api.identity.deviceSessionId
+                store.signOut(bound.account, bound.owner)
+                DeviceAuthorization(getApplication(),remote.store).forget(bound.profile,bound.account.userId,deviceSession)
+                bound.api.close()
+            }
         }
     }
 
@@ -293,7 +340,11 @@ class TvModel(application: Application) : AndroidViewModel(application) {
         recoveryRevision=bound.api.businessRevision
         sessionRecoveryJob=viewModelScope.launch {
             try {
-                val restored=recoverBoundSession(store,bound.profile,bound.account,bound.api)
+                val device=DeviceAuthorization(getApplication(),remote.store).refresh(bound.profile,bound.account.userId)
+                val restored=if(device!=null){
+                    if(context!==bound)return@launch
+                    bound.api.recoverDeviceAuthentication(device.getString("token"));true
+                }else recoverBoundSession(store,bound.profile,bound.account,bound.api)
                 if(context===bound) {
                     if(restored){mutable.update{it.copy(health=null)};if(media.state.value.file==null)refresh() else if(media.player.state.value.error!=null)media.retry()}
                     else mutable.update{it.copy(error="保存的登录已失效，请重新登录")}
@@ -302,9 +353,9 @@ class TvModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun reconnect(){context?.let{recoverSession(it,true)}?:restoreLogin()}
-    fun pause() {inForeground=false; media.pause();media.cache.background() }
-    fun foreground() {inForeground=true;media.cache.foreground();context?.takeIf{it.api.sessionHealth.value?.code==SessionHealthCode.EXPIRED}?.let{recoverSession(it)}}
-    override fun onCleared() { media.release(); imageLoader.shutdown(); val bound = context; CoroutineScope(Dispatchers.IO).launch { bound?.api?.close() } }
+    fun pause() {inForeground=false;remote.stop(); media.pause();media.cache.background() }
+    fun foreground() {inForeground=true;remote.start();media.cache.foreground();context?.takeIf{it.api.sessionHealth.value?.code==SessionHealthCode.EXPIRED}?.let{recoverSession(it)}}
+    override fun onCleared() {remote.stop(); media.release(); imageLoader.shutdown(); val bound = context; CoroutineScope(Dispatchers.IO).launch { bound?.api?.close() } }
 
     companion object {
         fun directoryFiles(value: JSONObject): List<ResourceRef> {

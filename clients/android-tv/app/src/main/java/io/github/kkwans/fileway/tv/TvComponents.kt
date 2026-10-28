@@ -30,8 +30,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.platform.LocalView
+import android.os.SystemClock
+import android.view.KeyEvent
 import androidx.tv.material3.*
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
+
+val LocalTvRemoteGateway=staticCompositionLocalOf<TvRemoteGateway?>{null}
 
 @Composable fun TvTheme(dark: Boolean, media: Boolean = false, content: @Composable () -> Unit) {
     val base = if (dark) darkColorScheme(primary = FilewayPalette.darkAccent, onPrimary = FilewayPalette.darkCanvas,
@@ -69,10 +74,14 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 @Composable fun TvField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier,
     password: Boolean = false, options: KeyboardOptions = KeyboardOptions.Default) {
     var focused by remember { mutableStateOf(false) }
+    val gateway=LocalTvRemoteGateway.current
+    val latest by rememberUpdatedState(onValueChange)
+    val receiver=remember { {text:String->latest(text)} }
+    DisposableEffect(gateway){onDispose{if(gateway?.input===receiver)gateway.input=null}}
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f))
         BasicTextField(value, onValueChange, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
-            .semantics { contentDescription = label }.onFocusChanged { focused = it.isFocused }.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+            .semantics { contentDescription = label }.onFocusChanged { focused = it.isFocused;if(it.isFocused)gateway?.input=receiver else if(gateway?.input===receiver)gateway.input=null }.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
             .border(2.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .2f), RoundedCornerShape(12.dp))
             .padding(12.dp), singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
@@ -83,6 +92,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 
 @Composable fun TvPanel(title: String, onDismiss: () -> Unit, onBack: () -> Unit = onDismiss, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
+        TvRemoteDialogKeys(onBack)
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .16f))) {
             Column(Modifier.align(Alignment.CenterEnd).width((maxWidth * .46f).coerceIn(320.dp, 460.dp)).fillMaxHeight()
                 .background(MaterialTheme.colorScheme.surface.copy(alpha=.94f), RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -93,6 +103,21 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
                 content()
             }
         }
+    }
+}
+
+/** Dialogs own a separate Android Window; dispatch to that actual focus tree. */
+@Composable fun TvRemoteDialogKeys(onBack:()->Unit){
+    val gateway=LocalTvRemoteGateway.current;val view=LocalView.current
+    val latestBack by rememberUpdatedState(onBack)
+    DisposableEffect(gateway,view){
+        val previousKey=gateway?.key;val previousBack=gateway?.back
+        val receiver:(Int)->Unit={code->val time=SystemClock.uptimeMillis();view.rootView.dispatchKeyEvent(KeyEvent(time,time,KeyEvent.ACTION_DOWN,code,0));view.rootView.dispatchKeyEvent(KeyEvent(time,time,KeyEvent.ACTION_UP,code,0));Unit}
+        val goBack:()->Unit={
+            if(androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())==true)view.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(view.windowToken,0)
+            else latestBack()
+        };gateway?.key=receiver;gateway?.back=goBack
+        onDispose{if(gateway?.key===receiver)gateway.key=previousKey;if(gateway?.back===goBack)gateway.back=previousBack}
     }
 }
 

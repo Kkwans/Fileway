@@ -267,6 +267,8 @@ fun tvOutputSignal(player:PlayerState):String {
         val viewportWidth=constraints.maxWidth.toFloat();val viewportHeight=constraints.maxHeight.toFloat()
         val baseWidth=minOf(viewportWidth,viewportHeight*aspect);val baseHeight=minOf(viewportHeight,viewportWidth/aspect)
         val maxPanX=((baseWidth*zoom-viewportWidth)/2).coerceAtLeast(0f);val maxPanY=((baseHeight*zoom-viewportHeight)/2).coerceAtLeast(0f)
+        val remoteTransform by model.remoteGateway.imageTransform.collectAsStateWithLifecycle()
+        LaunchedEffect(remoteTransform){if(remoteTransform.has("scale")){zoom=remoteTransform.getDouble("scale").toFloat();x=remoteTransform.optDouble("x").toFloat()*((baseWidth*zoom-viewportWidth)/2).coerceAtLeast(0f);y=remoteTransform.optDouble("y").toFloat()*((baseHeight*zoom-viewportHeight)/2).coerceAtLeast(0f)}}
         val stepX=viewportWidth*.05f;val stepY=viewportHeight*.05f
         Box(Modifier.fillMaxSize().focusRequester(focus).tvRemoteKeys{event->
         when(event.nativeKeyEvent.keyCode){

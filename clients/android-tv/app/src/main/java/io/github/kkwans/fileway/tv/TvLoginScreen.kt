@@ -38,7 +38,7 @@ import io.github.kkwans.nasfilebrowser.data.*
     var username by remember{mutableStateOf("")};var password by remember{mutableStateOf("")}
     var showPassword by remember{mutableStateOf(false)};var selected by remember{mutableStateOf<ServerProfile?>(null)}
     var permitted by remember{mutableStateOf(Build.VERSION.SDK_INT<37 || context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK)==PackageManager.PERMISSION_GRANTED)}
-    val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){permitted=it;if(it){scan++;model.restoreLogin()}}
+    val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){permitted=it;if(it){scan++;model.remote.start();model.restoreLogin()}}
     LaunchedEffect(Unit){if(!permitted)permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)}
     LaunchedEffect(scan,permitted,page,state.restoring) {
         if(permitted && page=="servers" && !state.restoring) lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -53,6 +53,7 @@ import io.github.kkwans.nasfilebrowser.data.*
                 Text("栖卷",style=MaterialTheme.typography.titleLarge)
                 Spacer(Modifier.width(10.dp));Text("TV",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.weight(1f))
+                TvButton("手机登录",model.remote::requestPairing)
                 if(page!="servers")TvButton("更换服务器",{page="servers"})
             }
             if(state.restoring) {

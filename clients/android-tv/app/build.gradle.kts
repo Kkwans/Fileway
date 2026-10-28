@@ -52,8 +52,8 @@ android {
         applicationId = "io.github.kkwans.fileway.tv"
         minSdk = 28
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.1.2"
+        versionCode = 4
+        versionName = "0.2.0"
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += providers.gradleProperty("filewayTvAbis").orElse("armeabi-v7a,arm64-v8a").get().split(',') }
@@ -86,6 +86,7 @@ android {
 }
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 dependencies {
+    implementation(project(":remote-core"))
     if (tvAudioFromSource) implementation(project(":tv-audio")) else verifiedTvAudio?.let { implementation(files(it)) }
     implementation(project(":client-core"))
     implementation(project(":media-core"))

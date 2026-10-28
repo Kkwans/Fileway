@@ -21,12 +21,16 @@ import kotlinx.coroutines.*
 
 @Composable fun TvSettingsScreen(model: TvModel) {
     val state by model.state.collectAsStateWithLifecycle()
+    val controllers by remember(model){model.remote.store.dao.controllers()}.collectAsStateWithLifecycle(initialValue=emptyList())
     var deviceOpen by remember{mutableStateOf(false)}
     LaunchedEffect(Unit){model.media.cache.inspect()}
     val cache by model.media.cache.state.collectAsStateWithLifecycle()
     var cacheInput by remember{mutableStateOf((cache.limitBytes/1048576).toString())}
     val decoder by model.media.playbackPreferences.videoDecodePolicy.collectAsStateWithLifecycle()
     LazyColumn(verticalArrangement=Arrangement.spacedBy(14.dp),contentPadding=PaddingValues(bottom=16.dp)) {
+        item{TvSectionTitle("手机遥控")}
+        item{TvButton("连接手机",model.remote::requestPairing,Modifier.fillMaxWidth())}
+        items(controllers.size){index->val controller=controllers[index];TvButton("解除 ${controller.name} 的配对",{model.remote.revokeController(controller.id)},Modifier.fillMaxWidth())}
         item{TvSectionTitle("界面")}
         item{Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){TvButton("深色",{model.setDark(true)},selected=state.dark);TvButton("浅色",{model.setDark(false)},selected=!state.dark)}}
         item{TvSectionTitle("文件布局")}
