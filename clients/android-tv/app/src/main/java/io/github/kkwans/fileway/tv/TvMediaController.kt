@@ -24,6 +24,7 @@ data class TvMediaState(
     val sourceSubtitles: Boolean = false, val selectedSourceSubtitle: Int = -1, val sourceAudioOff: Boolean = false, val selectedSourceAudio: Int? = null,
     val sourceAudio: List<TvSourceTrack> = emptyList(), val sourceText: List<TvSourceTrack> = emptyList(),
     val sidecars: List<ResourceRef> = emptyList(),
+    val sdrAvailable: Boolean = false,
 )
 
 /** Owns media resources independently of the TV's composition and focus tree. */
@@ -72,6 +73,7 @@ class TvMediaController(
         mutable.value = TvMediaState(file = file, queue = queue, mode = mode, busy = true)
         operation = scope.launch {
             lock.withLock {
+                var openingStage = "准备媒体"
                 try {
                     disposeBinding()
                     if (!accepts(owner, expected)) return@withLock
@@ -83,10 +85,13 @@ class TvMediaController(
                         return@withLock
                     }
                     val query = sourceQuery(file)
+                    openingStage = "读取媒体信息"
                     val info = owner.api.request("GET", "/api/media/info?$query")
+                    openingStage = "读取续播进度"
                     val remote = history.remote(owner.api, file.path, file.wirePath)
                     val local = history.local(owner.account, file.mediaKey, remote.identity)
                     val start = PlaybackHistory.resume(local, remote)
+                    openingStage = "读取服务端能力"
                     val capabilities = try { owner.api.request("GET", "/api/client-capabilities") }
                         catch (error: ServiceException) { if (error.status == 404) JSONObject() else throw error }
                     if (!accepts(owner, expected)) return@withLock
@@ -103,10 +108,15 @@ class TvMediaController(
                     sourceSubtitle = -1; userSelectedSubtitle = false; external = null; lastSaved = null; autoFallback = false
                     val audio = tracks(info, "audioTracks"); val text = tracks(info, "subtitleTracks")
                     val sourceTextAvailable = capabilities.optBoolean("sourceSubtitles")
-                    mutable.update { it.copy(info = info, sourceAudio = audio, sourceText = text, sourceSubtitles = sourceTextAvailable,
+                    openingStage = "准备播放资源"
+                    mutable.update { it.copy(info = info, sourceAudio = audio, sourceText = text, sourceSubtitles = sourceTextAvailable, sdrAvailable = capabilities.optBoolean("sdrCompatibility"),
                         sourceDurationMs = (info.optDouble("duration", remote.durationMs / 1000.0) * 1000).toLong(),
                         selectedSourceAudio = audio.firstOrNull { track -> track.preferred }?.index ?: audio.firstOrNull()?.index) }
-                    val useSdr = mode == TvHdrMode.SDR || mode == TvHdrMode.AUTO && definitelyUnsupportedHdr(info)
+                    val sdrAvailable = capabilities.optBoolean("sdrCompatibility")
+                    check(mode != TvHdrMode.SDR || sdrAvailable) { "当前服务端不支持 SDR 兼容，请选择原生播放" }
+                    val wantsAutoSdr = mode == TvHdrMode.AUTO && definitelyUnsupportedHdr(info)
+                    val useSdr = mode == TvHdrMode.SDR || wantsAutoSdr && sdrAvailable
+                    if (wantsAutoSdr && !sdrAvailable) mutable.update { it.copy(notice = "服务端暂不支持 SDR 兼容，当前使用原生播放") }
                     val lease = if (useSdr && file.mediaKind() == MediaKind.VIDEO) {
                         check(capabilities.optBoolean("sdrCompatibility")) { "服务器尚未提供 SDR 兼容播放，请升级服务端" }
                         val prepared = prepareWindow(owner, file, remote.identity, start, expected)
@@ -130,7 +140,7 @@ class TvMediaController(
                     loadSidecars(owner, file, expected)
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
-                    if (accepts(owner, expected)) mutable.update { it.copy(busy = false, error = error.message ?: "无法打开媒体，请重试") }
+                    if (accepts(owner, expected)) mutable.update { it.copy(busy = false, error = "$openingStage 失败：${error.message ?: "请重试"}") }
                 }
             }
         }
@@ -141,7 +151,12 @@ class TvMediaController(
         return PreviewLease(url, owner.api.id) { NativeTransport.call(JSONObject().put("op", "revoke").put("url", url)); Unit }
     }
     private fun accepts(owner: SessionContext, expected: Long) = current() === owner && epoch == expected
-    private fun sourceQuery(file: ResourceRef) = "wirePath=" + encode(file.wirePath.ifEmpty { SearchResult.encodePath(file.path) })
+    private fun sourceQuery(file: ResourceRef): String {
+        val wire = file.wirePath.ifEmpty { SearchResult.encodePath(file.path) }
+        // Old servers require path; new servers prefer the original wirePath.
+        // Both names are supplied without lossy decoding or double escaping.
+        return "path=${wireQueryPath(file.path, wire)}&wirePath=${encode(wire)}"
+    }
     private fun encode(value: String) = URLEncoder.encode(value, "UTF-8")
     private fun definitelyUnsupportedHdr(info: JSONObject): Boolean {
         val range = info.optString("dynamicRange", if (info.optBoolean("hdr")) "pq" else "unknown")
@@ -211,7 +226,7 @@ class TvMediaController(
                     }
                     if (value.ended) advanceWindow(owner, expected)
                 }
-                if (value.error != null && mutable.value.mode == TvHdrMode.AUTO && !mutable.value.compatible && !autoFallback && mutable.value.file?.mediaKind() == MediaKind.VIDEO) {
+                if (value.error != null && mutable.value.sdrAvailable && mutable.value.mode == TvHdrMode.AUTO && !mutable.value.compatible && !autoFallback && mutable.value.file?.mediaKind() == MediaKind.VIDEO) {
                     autoFallback = true
                     mutable.update { it.copy(notice = "原生播放失败，正在尝试 SDR 兼容") }
                     switchMode(TvHdrMode.AUTO, forceSdr = true)
@@ -247,14 +262,25 @@ class TvMediaController(
     }
 
     fun switchMode(mode: TvHdrMode, forceSdr: Boolean = false, targetMs: Long? = null) {
-        val source = binding ?: return
+        val source = binding
+        if (source == null) {
+            val previous = mutable.value
+            val file = previous.file ?: return
+            mutable.update { it.copy(mode = mode) }
+            open(file, previous.queue?.items ?: listOf(file))
+            return
+        }
         val expected = epoch
-        operation?.cancel(); prefetch?.cancel(); prefetch = null
         val previous = mutable.value
         val native = player.decoderRestoreSnapshot()
         val position = targetMs ?: sourcePosition()
         val wantsPlay = native?.wantsPlay ?: true
-        val useSdr = forceSdr || mode == TvHdrMode.SDR || mode == TvHdrMode.AUTO && previous.info?.let(::definitelyUnsupportedHdr) == true
+        val useSdr = forceSdr || mode == TvHdrMode.SDR || mode == TvHdrMode.AUTO && previous.sdrAvailable && previous.info?.let(::definitelyUnsupportedHdr) == true
+        if ((forceSdr || mode == TvHdrMode.SDR) && !previous.sdrAvailable) {
+            mutable.update { it.copy(notice = "当前服务端不支持 SDR 兼容，请选择原生播放") }
+            return
+        }
+        operation?.cancel(); prefetch?.cancel(); prefetch = null
         val oldLease = playbackLease
         val oldWindow = window
         val transition = ++presentationRevision

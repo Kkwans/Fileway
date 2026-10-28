@@ -138,7 +138,7 @@ import kotlinx.coroutines.*
         if((player.error!=null||state.error!=null)&&!state.busy)Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.78f),RoundedCornerShape(12.dp)).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             LaunchedEffect(state.error,player.error) { withFrameNanos {}; retry.requestFocus() }
             Text(state.error?:player.error.orEmpty(),color=MaterialTheme.colorScheme.error)
-            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){TvButton("重试",model.media::retry,Modifier.focusRequester(retry));TvButton("SDR 兼容",{model.media.switchMode(TvHdrMode.SDR)});TvButton("返回",model.media::close)}
+            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){TvButton("重试",model.media::retry,Modifier.focusRequester(retry));TvButton("原生播放",{model.media.switchMode(TvHdrMode.NATIVE)});if(state.sdrAvailable)TvButton("SDR 兼容",{model.media.switchMode(TvHdrMode.SDR)});TvButton("返回",model.media::close)}
         }
         seekTarget?.let{target->if(!controls)Text("跳转到 ${tvTime(target)}",Modifier.align(Alignment.BottomCenter).padding(30.dp).background(Color(0xE614181E),RoundedCornerShape(12.dp)).padding(14.dp),style=MaterialTheme.typography.titleMedium)}
     }
@@ -159,7 +159,7 @@ import kotlinx.coroutines.*
             }
             "倍速" -> TvSpeedPanel(model,player.rate)
             "HDR" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                items(TvHdrMode.entries){mode->TvButton(mode.title,{model.media.switchMode(mode)},Modifier.fillMaxWidth(),selected=state.mode==mode,enabled=!state.busy)}
+                items(TvHdrMode.entries){mode->TvButton(mode.title,{model.media.switchMode(mode)},Modifier.fillMaxWidth(),selected=state.mode==mode,enabled=!state.busy&&(mode!=TvHdrMode.SDR||state.sdrAvailable))}
                 item{Text("当前路径：${if(state.compatible)"SDR 兼容" else "原生"}\n片源：${state.info?.optString("dynamicRange","未知")}\n输出信号：${tvOutputSignal(player)}",style=MaterialTheme.typography.bodySmall)}
             }
             "队列" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) { val queue=state.queue; if(queue!=null)items(queue.items.size){index->TvButton(queue.items[index].name,{model.media.navigateQueue(index-queue.index)},Modifier.fillMaxWidth(),selected=index==queue.index)} }

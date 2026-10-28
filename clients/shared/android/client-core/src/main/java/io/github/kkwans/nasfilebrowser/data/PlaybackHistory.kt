@@ -1,7 +1,6 @@
 package io.github.kkwans.nasfilebrowser.data
 
 import org.json.JSONObject
-import java.net.URLEncoder
 
 data class RemotePlayback(val identity: String, val positionMs: Long, val durationMs: Long, val updatedAt: Long, val exists: Boolean)
 
@@ -26,7 +25,7 @@ class PlaybackHistory(private val dao: PlaybackDao) {
         dao.save(snapshot.copy(positionMs = if (snapshot.durationMs > 0) snapshot.positionMs.coerceAtMost(snapshot.durationMs) else snapshot.positionMs))
     }
     suspend fun remote(api: NasSession, path: String, wirePath: String): RemotePlayback {
-        val encoded = if (wirePath.isNotEmpty()) wirePath.replace("+", "%2B") else URLEncoder.encode(path, "UTF-8")
+        val encoded = wireQueryPath(path, wirePath)
         return parse(api.request("GET", "/api/media/playback?path=$encoded"))
     }
     suspend fun synchronize(api: NasSession, snapshot: PlaybackSnapshot): PlaybackSnapshot {
