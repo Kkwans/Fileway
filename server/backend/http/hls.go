@@ -25,6 +25,7 @@ import (
 
 type mediaHLSStartRequest struct {
 	Path                string  `json:"path"`
+	WirePath            string  `json:"wirePath,omitempty"`
 	Format              string  `json:"format,omitempty"`
 	Quality             string  `json:"quality,omitempty"`
 	SubtitleStreamIndex *int    `json:"subtitleStreamIndex,omitempty"`
@@ -57,6 +58,7 @@ type mediaHLSResponse struct {
 	SubtitleStreamIndex   *int          `json:"subtitleStreamIndex,omitempty"`
 	AudioStreamIndex      *int          `json:"audioStreamIndex,omitempty"`
 	HDRToneMapped         bool          `json:"hdrToneMapped,omitempty"`
+	OutputDynamicRange    string        `json:"outputDynamicRange,omitempty"`
 	State                 hls.State     `json:"state"`
 	Error                 string        `json:"error,omitempty"`
 	UpdatedAt             int64         `json:"updatedAt"`
@@ -104,6 +106,13 @@ func mediaHLSStartHandler(service *hls.Service, runtime *tasks.Runtime) handleFu
 		request.Quality = strings.ToLower(strings.TrimSpace(request.Quality))
 		if !mediaHLSQualityAllowed(request.Quality) {
 			return http.StatusBadRequest, fmt.Errorf("不支持的兼容播放画质")
+		}
+		if request.WirePath != "" {
+			decoded, err := decodeResourceWirePath(request.WirePath)
+			if err != nil {
+				return http.StatusBadRequest, err
+			}
+			request.Path = decoded
 		}
 		input, status, err := mediaHLSInputWithContext(r.Context(), d, d.user, request.Path, true)
 		if err != nil {
@@ -316,7 +325,8 @@ func mediaHLSInputWithContext(ctx context.Context, d *data, owner *users.User, v
 		cancel()
 		if probeErr == nil {
 			input.VideoCodec = probe.VideoCodec
-			input.HDR = probe.VideoTransfer == "smpte2084"
+			input.DynamicRange = mediaDynamicRange(probe)
+			input.HDR = probe.VideoTransfer == "smpte2084" || probe.VideoTransfer == "arib-std-b67"
 			input.AudioCodec = probe.AudioCodec
 			input.VideoPixelFormat = probe.VideoPixelFormat
 			input.VideoProfile = probe.VideoProfile
@@ -431,6 +441,7 @@ func mediaHLSStatusResponse(baseURL string, status hls.Status) mediaHLSResponse 
 		SubtitleStreamIndex: status.SubtitleStream,
 		AudioStreamIndex:    status.AudioStream,
 		HDRToneMapped:       status.HDR,
+		OutputDynamicRange:  status.OutputDynamicRange,
 		Error:               status.Error, UpdatedAt: status.UpdatedAt,
 		LastAccessAt: status.LastAccessAt, SizeBytes: status.SizeBytes,
 		ProcessedSeconds:      status.ProcessedSeconds,

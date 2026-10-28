@@ -45,6 +45,7 @@ func NewHandler(
 		return nil, fmt.Errorf("HLS compatibility playback service is not configured")
 	}
 	server.Clean()
+	mediaAssets := newMediaAssetService(hlsService.SourceAssetDirectory())
 	taskRuntime, err := tasks.NewRuntime(store.Tasks)
 	if err != nil {
 		return nil, err
@@ -71,6 +72,7 @@ func NewHandler(
 		return handle(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 			d.taskRuntime = taskRuntime
 			d.fileCache = fileCache
+			d.mediaAssets = mediaAssets
 			return fn(w, r, d)
 		}, prefix, store, server)
 	}
@@ -157,6 +159,7 @@ func NewHandler(
 	api.Handle("/media/playback/recent", monkey(playbackRecentHandler, "")).Methods("GET")
 	api.Handle("/media/playback", monkey(playbackPutHandler, "")).Methods("PUT")
 	api.Handle("/media/playback", monkey(playbackDeleteHandler, "")).Methods("DELETE")
+	api.Handle("/media/attachments/{id}", monkey(mediaAttachmentHandler, "")).Methods("GET")
 	api.Handle("/media/info", monkey(mediaInfoHandler(defaultMediaProbe), "")).Methods("GET")
 	api.Handle("/media/transcodes", monkey(mediaTranscodesHandler(hlsService, taskRuntime), "")).Methods("POST")
 	api.Handle("/media/transcodes/{id}/playback", monkey(mediaTranscodePlaybackHandler(hlsService), "")).Methods("GET")

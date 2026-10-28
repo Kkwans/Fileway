@@ -46,9 +46,13 @@
           <span>视频编码</span>
           <strong>{{ info.videoCodec.toUpperCase() }}</strong>
         </div>
-        <div v-if="info?.hdr">
+        <div
+          v-if="
+            info?.hdr || (info?.dynamicRange && info.dynamicRange !== 'unknown')
+          "
+        >
           <span>动态范围</span>
-          <strong>HDR10 · 兼容播放映射为 SDR</strong>
+          <strong>{{ dynamicRangeLabel }}</strong>
         </div>
         <div v-if="info?.audioCodec">
           <span>音频编码</span>
@@ -187,6 +191,20 @@ const bitRateLabel = computed(() => {
   return bitRate >= 1_000_000
     ? `${(bitRate / 1_000_000).toFixed(2)} Mbps`
     : `${Math.round(bitRate / 1000)} kbps`;
+});
+const dynamicRangeLabel = computed(() => {
+  const range = info.value?.dynamicRange;
+  const labels: Record<string, string> = {
+    sdr: "SDR",
+    pq: "HDR10 / PQ",
+    hlg: "HLG",
+    "dolby-vision": "Dolby Vision",
+  };
+  return range && labels[range]
+    ? labels[range]
+    : info.value?.hdr
+      ? "HDR"
+      : "未知";
 });
 const metadata = computed(() =>
   [

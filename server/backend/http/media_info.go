@@ -16,7 +16,18 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/pathmeta"
 )
 
+type mediaAttachment struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Mime string `json:"mime"`
+}
+
 type mediaInfoResponse struct {
+	Identity       string                 `json:"identity"`
+	WirePath       string                 `json:"wirePath"`
+	DynamicRange   string                 `json:"dynamicRange"`
+	VideoTransfer  string                 `json:"videoTransfer,omitempty"`
+	Attachments    []mediaAttachment      `json:"attachments,omitempty"`
 	Path           string                 `json:"path"`
 	Name           string                 `json:"name"`
 	Type           string                 `json:"type"`
@@ -57,6 +68,8 @@ type mediaProbeResult struct {
 	Duration         float64
 	BitRate          int64
 	VideoCodec       string
+	Attachments      []mediaAttachment
+	DolbyVision      bool
 	VideoTransfer    string
 	AudioCodec       string
 	AudioTracks      []mediaTrack
@@ -83,6 +96,13 @@ func mediaInfoHandler(probe mediaProbe) handleFunc {
 			return http.StatusForbidden, fmt.Errorf("没有读取媒体信息的权限")
 		}
 		value := r.URL.Query().Get("path")
+		if wire := r.URL.Query().Get("wirePath"); wire != "" {
+			decoded, err := decodeResourceWirePath(wire)
+			if err != nil {
+				return http.StatusBadRequest, err
+			}
+			value = decoded
+		}
 		if value == "" {
 			return http.StatusBadRequest, fmt.Errorf("媒体路径不能为空")
 		}
@@ -101,6 +121,7 @@ func mediaInfoHandler(probe mediaProbe) handleFunc {
 		}
 
 		response := mediaInfoResponse{
+			Identity: mediaSourceIdentity(file), WirePath: files.EncodeWirePath(file.Path), DynamicRange: "unknown",
 			Path: file.Path, Name: file.Name, Type: file.Type,
 			Extension: file.Extension, Size: file.Size, Modified: file.ModTime,
 			Resolution: file.Resolution,
@@ -136,7 +157,10 @@ func (response *mediaInfoResponse) applyProbe(probe mediaProbeResult, includeLoc
 			response.VideoBitDepth = 8
 		}
 	}
-	response.HDR = probe.VideoTransfer == "smpte2084"
+	response.DynamicRange = mediaDynamicRange(probe)
+	response.VideoTransfer = probe.VideoTransfer
+	response.HDR = response.DynamicRange != "sdr" && response.DynamicRange != "unknown"
+	response.Attachments = probe.Attachments
 	response.AudioCodec = probe.AudioCodec
 	response.AudioTracks = probe.AudioTracks
 	response.SubtitleTracks = probe.SubtitleTracks
@@ -167,7 +191,11 @@ type ffprobeStream struct {
 	Channels         int               `json:"channels"`
 	SampleRate       string            `json:"sample_rate"`
 	Tags             map[string]string `json:"tags"`
-	Disposition      struct {
+	SideData         []struct {
+		Type         string `json:"side_data_type"`
+		DolbyProfile int    `json:"dv_profile"`
+	} `json:"side_data_list"`
+	Disposition struct {
 		Default int `json:"default"`
 		Forced  int `json:"forced"`
 	} `json:"disposition"`
@@ -188,10 +216,10 @@ func defaultMediaProbe(ctx context.Context, path string, includeLocation bool) (
 	if err != nil {
 		return mediaProbeResult{}, fmt.Errorf("FFprobe 不可用: %w", err)
 	}
-	entries := "format=format_name,duration,bit_rate:format_tags=title,artist,album,date:stream=index,codec_type,codec_name,pix_fmt,color_transfer,profile,bits_per_raw_sample,width,height,channels,sample_rate:stream_tags=language,title:stream_disposition=default,forced"
+	entries := "format=format_name,duration,bit_rate:format_tags=title,artist,album,date:stream=index,codec_type,codec_name,pix_fmt,color_transfer,profile,bits_per_raw_sample,width,height,channels,sample_rate:stream_tags=language,title,filename,mimetype:stream_disposition=default,forced:stream_side_data=side_data_type,dv_profile"
 	if includeLocation {
 		// Location is deliberately requested only after an explicit user action.
-		entries = "format:stream=index,codec_type,codec_name,pix_fmt,color_transfer,profile,bits_per_raw_sample,width,height,channels,sample_rate:stream_tags=language,title:stream_disposition=default,forced"
+		entries = "format:stream=index,codec_type,codec_name,pix_fmt,color_transfer,profile,bits_per_raw_sample,width,height,channels,sample_rate:stream_tags=language,title,filename,mimetype:stream_disposition=default,forced:stream_side_data=side_data_type,dv_profile"
 	}
 	command := exec.CommandContext(ctx, ffprobePath,
 		"-v", "error",
@@ -243,6 +271,11 @@ func summarizeFFprobe(document ffprobeDocument, includeLocation bool) mediaProbe
 			if result.VideoCodec == "" {
 				result.VideoCodec = stream.CodecName
 				result.VideoTransfer = stream.ColorTransfer
+				for _, side := range stream.SideData {
+					if side.DolbyProfile > 0 {
+						result.DolbyVision = true
+					}
+				}
 				result.VideoPixelFormat = stream.PixelFormat
 				result.VideoProfile = stream.Profile
 				result.VideoBitDepth, _ = strconv.Atoi(stream.BitsPerRawSample)
@@ -258,6 +291,11 @@ func summarizeFFprobe(document ffprobeDocument, includeLocation bool) mediaProbe
 			}
 		case "subtitle":
 			result.SubtitleTracks = append(result.SubtitleTracks, track)
+		case "attachment":
+			mime := tagValue(stream.Tags, "mimetype")
+			if sourceFontAllowed(stream.CodecName, mime) && len(result.Attachments) < 64 {
+				result.Attachments = append(result.Attachments, mediaAttachment{ID: "f" + strconv.Itoa(stream.Index), Name: tagValue(stream.Tags, "filename"), Mime: mime})
+			}
 		}
 	}
 	return result
@@ -279,4 +317,27 @@ func tagValue(tags map[string]string, key string) string {
 		}
 	}
 	return ""
+}
+
+// Source identity is identical to the existing playback-progress contract.
+func mediaSourceIdentity(file *files.FileInfo) string {
+	return "v1:" + strconv.FormatInt(file.Size, 10) + ":" + strconv.FormatInt(file.ModTime.UnixNano(), 10)
+}
+func mediaDynamicRange(probe mediaProbeResult) string {
+	if probe.DolbyVision {
+		return "dolby-vision"
+	}
+	switch probe.VideoTransfer {
+	case "smpte2084":
+		return "pq"
+	case "arib-std-b67":
+		return "hlg"
+	case "bt709", "smpte170m", "smpte240m", "gamma22", "gamma28", "iec61966-2-1":
+		return "sdr"
+	default:
+		return "unknown"
+	}
+}
+func sourceFontAllowed(codec, mime string) bool {
+	return (codec == "ttf" || codec == "otf") && (mime == "application/x-truetype-font" || mime == "application/x-font-ttf" || mime == "application/vnd.ms-opentype" || mime == "font/ttf" || mime == "font/otf")
 }

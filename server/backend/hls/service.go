@@ -82,6 +82,7 @@ type Input struct {
 	VideoWidth       int
 	VideoHeight      int
 	HDR              bool
+	DynamicRange     string
 	SubtitleStreams  []SubtitleStream
 	SubtitleStream   *int
 	AudioStreams     []AudioStream
@@ -213,19 +214,20 @@ func CanCopyWebMMedia(videoCodec, audioCodec string) bool {
 }
 
 type Status struct {
-	ID             string `json:"id"`
-	TaskID         string `json:"taskId,omitempty"`
-	Path           string `json:"path"`
-	Identity       string `json:"identity"`
-	Profile        string `json:"profile"`
-	SubtitleStream *int   `json:"subtitleStreamIndex,omitempty"`
-	AudioStream    *int   `json:"audioStreamIndex,omitempty"`
-	HDR            bool   `json:"hdrToneMapped,omitempty"`
-	State          State  `json:"state"`
-	Error          string `json:"error,omitempty"`
-	UpdatedAt      int64  `json:"updatedAt"`
-	LastAccessAt   int64  `json:"lastAccessAt,omitempty"`
-	SizeBytes      int64  `json:"sizeBytes,omitempty"`
+	ID                 string `json:"id"`
+	TaskID             string `json:"taskId,omitempty"`
+	Path               string `json:"path"`
+	Identity           string `json:"identity"`
+	Profile            string `json:"profile"`
+	SubtitleStream     *int   `json:"subtitleStreamIndex,omitempty"`
+	AudioStream        *int   `json:"audioStreamIndex,omitempty"`
+	HDR                bool   `json:"hdrToneMapped,omitempty"`
+	OutputDynamicRange string `json:"outputDynamicRange,omitempty"`
+	State              State  `json:"state"`
+	Error              string `json:"error,omitempty"`
+	UpdatedAt          int64  `json:"updatedAt"`
+	LastAccessAt       int64  `json:"lastAccessAt,omitempty"`
+	SizeBytes          int64  `json:"sizeBytes,omitempty"`
 	// ProcessedSeconds is reported for compatibility transcodes that cannot
 	// expose a playable artifact until the complete file is ready.  It is
 	// deliberately a duration, not a guessed percentage.
@@ -481,6 +483,16 @@ func (service *Service) reserve(input Input, profile string, start StartFunc) (S
 	if start == nil {
 		return Status{}, false, fmt.Errorf("HLS task starter is required")
 	}
+	// Input-side stream copy starts at the preceding keyframe. A bounded
+	// nonzero playback window promises source-time alignment, so decode/discard
+	// to the requested start instead of reporting a misleading requested offset.
+	if input.HDR || input.WindowSeconds > 0 && input.StartSeconds > 0 {
+		if IsWebMCopyProfile(profile) {
+			profile = WebMProfileForDimensions("source", input.VideoWidth, input.VideoHeight)
+		} else if IsCopyProfile(profile) || IsMP4CopyProfile(profile) {
+			profile = ProfileForDimensions("source", input.VideoWidth, input.VideoHeight)
+		}
+	}
 	cacheIdentity := input.Identity
 	if input.WindowSeconds > 0 {
 		cacheIdentity += fmt.Sprintf("\x00window-v1:%.3f:%.3f:%s", input.StartSeconds, input.WindowSeconds, input.SessionID)
@@ -522,6 +534,13 @@ func (service *Service) reserve(input Input, profile string, start StartFunc) (S
 			current.State == StateStreamable || current.State == StateCompleted) {
 		return current.Status, false, nil
 	}
+	outputRange := input.DynamicRange
+	if input.HDR && !IsCopyProfile(profile) && !IsMP4CopyProfile(profile) && !IsWebMCopyProfile(profile) {
+		outputRange = "sdr"
+	}
+	if outputRange == "" {
+		outputRange = "unknown"
+	}
 	now := time.Now().UnixMilli()
 	current := &entry{Status: Status{
 		ID: job.ID, UserID: job.UserID, Path: job.Path, Identity: job.Identity,
@@ -533,6 +552,7 @@ func (service *Service) reserve(input Input, profile string, start StartFunc) (S
 		SubtitleStream:        job.SubtitleStream,
 		AudioStream:           job.AudioStream,
 		HDR:                   job.HDR,
+		OutputDynamicRange:    outputRange,
 	}, sourcePath: job.SourcePath}
 	service.entries[job.ID] = current
 	taskID, err := start(job)
@@ -1210,4 +1230,9 @@ func directorySize(directory string) (int64, error) {
 		return nil
 	})
 	return total, err
+}
+
+// SourceAssetDirectory keeps auxiliary media assets in the configured private cache.
+func (service *Service) SourceAssetDirectory() string {
+	return filepath.Join(service.cacheDir, "source-assets")
 }

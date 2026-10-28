@@ -79,3 +79,23 @@ func TestSoftwareThreadsBoundDecodeFiltersAndEncodeWithoutChangingCopy(t *testin
 		t.Fatal("stream copy must stay unchanged")
 	}
 }
+
+func TestNonzeroPlaybackWindowCannotCopyPrecedingKeyframe(t *testing.T) {
+	service := newFakeService(t, 1, DefaultMaxBytes, 0)
+	input := Input{UserID: 1, Path: "/owned.mp4", SourcePath: "/source.mp4", Identity: "owned", VideoCodec: "h264", VideoWidth: 1920, VideoHeight: 1080, DurationSeconds: 600, StartSeconds: 121, WindowSeconds: 120, SessionID: "aligned"}
+	for _, profile := range []string{DefaultCopyProfile, DefaultAudioHLSProfile, DefaultMP4CopyProfile, DefaultMP4AudioProfile, DefaultWebMCopyProfile} {
+		var job Job
+		_, _, err := service.reserve(input, profile, func(candidate Job) (string, error) { job = candidate; return "aligned", nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		if IsCopyProfile(job.Profile) || IsMP4CopyProfile(job.Profile) || IsWebMCopyProfile(job.Profile) {
+			t.Fatalf("nonzero window retained copy profile %s", job.Profile)
+		}
+		if job.StartSeconds != 121 {
+			t.Fatalf("source offset changed: %+v", job)
+		}
+		// Distinct sessions prevent reuse from hiding the requested profile.
+		input.SessionID += "x"
+	}
+}

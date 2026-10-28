@@ -61,6 +61,8 @@ export interface MediaInformation {
   videoCodec?: string;
   videoBitDepth?: number;
   hdr?: boolean;
+  dynamicRange?: "sdr" | "pq" | "hlg" | "dolby-vision" | "unknown";
+  colorTransfer?: string;
   audioCodec?: string;
   audioTracks?: MediaTrack[];
   subtitleTracks?: MediaTrack[];

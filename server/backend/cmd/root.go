@@ -24,6 +24,7 @@ import (
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 
 	"github.com/Kkwans/nas-file-browser/backend/auth"
+	"github.com/Kkwans/nas-file-browser/backend/discovery"
 	"github.com/Kkwans/nas-file-browser/backend/diskcache"
 	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/Kkwans/nas-file-browser/backend/frontend"
@@ -100,6 +101,8 @@ func init() {
 	flags.Uint64("hlsCacheMaxBytes", uint64(hls.DefaultMaxBytes), "HLS compatibility playback cache limit in bytes")
 	flags.Int("hlsProcessors", 1, "FFmpeg HLS compatibility playback processors count (1-2)")
 	flags.Int("hlsEncodeThreads", 4, "FFmpeg software decoding/encoding threads per job (1-4)")
+	flags.Bool("disableDiscovery", false, "disable LAN Fileway DNS-SD discovery")
+	flags.String("discoveryURL", "", "LAN reachable URL for discovery behind a reverse proxy or port mapping")
 	flags.String("hlsAccelerator", "software", "video accelerator: software or rkmpp (requires Rockchip FFmpeg and devices)")
 	addServerFlags(flags)
 }
@@ -292,6 +295,14 @@ user created with the credentials from options "username" and "password".`,
 
 		defer func() { _ = listener.Close() }()
 
+		if !v.GetBool("disableDiscovery") {
+			advertisement, discoveryErr := discovery.Start(listener, discovery.Options{BasePath: server.BaseURL, TLS: server.TLSKey != "" && server.TLSCert != "", PublicURL: v.GetString("discoveryURL")})
+			if discoveryErr != nil {
+				log.Printf("LAN discovery unavailable: %v", discoveryErr)
+			} else {
+				defer advertisement.Close()
+			}
+		}
 		log.Println("Listening on", listener.Addr().String())
 		srv := &http.Server{
 			Handler:           handler,

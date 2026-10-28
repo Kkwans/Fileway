@@ -19,6 +19,9 @@ import (
 
 var subtitleHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 	if !d.user.Perm.Download {
+		if r.URL.Query().Get("format") == "source" {
+			return http.StatusForbidden, fmt.Errorf("没有读取字幕的权限")
+		}
 		return http.StatusAccepted, nil
 	}
 
@@ -52,6 +55,9 @@ var subtitleHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *d
 		if probeErr != nil {
 			return http.StatusInternalServerError, probeErr
 		}
+		if r.URL.Query().Get("format") == "source" {
+			return serveSourceSubtitle(w, r, d, file, probe, index)
+		}
 		if !validEmbeddedTextSubtitleStream(probe.SubtitleTracks, index) {
 			return http.StatusBadRequest, fmt.Errorf("所选内挂文本字幕不可用")
 		}
@@ -68,6 +74,9 @@ var subtitleHandler = withUser(func(w http.ResponseWriter, r *http.Request, d *d
 		return 0, nil
 	}
 
+	if r.URL.Query().Get("format") == "source" {
+		return http.StatusBadRequest, fmt.Errorf("源字幕提取需要内挂轨道")
+	}
 	return subtitleFileHandler(w, r, file)
 })
 

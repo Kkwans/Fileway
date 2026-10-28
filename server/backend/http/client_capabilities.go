@@ -11,5 +11,9 @@ var clientCapabilitiesHandler = withUser(func(w http.ResponseWriter, r *http.Req
 		MinimumPasswordLength  uint   `json:"minimumPasswordLength"`
 		ConditionalTextSave    bool   `json:"conditionalTextSave"`
 		ResourceWireOperations bool   `json:"resourceWireOperations"`
-	}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true})
+		MediaPlaybackVersion   int    `json:"mediaPlaybackVersion"`
+		SourceSubtitles        bool   `json:"sourceSubtitles"`
+		SubtitleAttachments    bool   `json:"subtitleAttachments"`
+		SDRCompatibility       bool   `json:"sdrCompatibility"`
+	}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, 1, true, true, true})
 })
