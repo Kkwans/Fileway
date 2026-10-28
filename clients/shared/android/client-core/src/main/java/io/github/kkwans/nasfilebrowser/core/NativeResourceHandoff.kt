@@ -26,6 +26,7 @@ fun CancellableContinuation<Any?>.resumeNativeResult(
         "lease", "asset", "preview", "upload_lease", "hls_lease" -> NativeResourceCleanup("revoke", "url", resource)
         "search_start" -> NativeResourceCleanup("search_cancel", "search", resource, session)
         "command_start" -> NativeResourceCleanup("command_cancel", "commandHandle", resource, session)
+        "remote_start" -> NativeResourceCleanup("remote_stop", "remoteHandle", resource)
         else -> null
     }
     // This is the single cleanup source for an undelivered response. Once the

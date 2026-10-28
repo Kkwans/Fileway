@@ -79,6 +79,11 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
         if (result.getInt("status") != 200) throw ServiceException(result.getInt("status"), "保存的登录无法恢复，请重新输入账号密码")
         tokenWrites.withLock { transportHealth(""); acceptToken(result.getString("body")) }
     }
+    suspend fun recoverDeviceAuthentication(token:String){
+        check(parseIdentity(token).id==userId){"设备账号不一致"}
+        val state=native(JSONObject().put("op","recover_device_session").put("session",id).put("expectedUser",userId).put("token",token)) as JSONObject
+        tokenWrites.withLock{transportHealth(state.optString("health"));acceptToken(state.getString("token"))}
+    }
     /** One collector belongs to the bound lifecycle/account context and is canceled with it. */
     fun observeSessionState(): Flow<SessionHealth?> = flow {
         while (currentCoroutineContext().isActive) {
