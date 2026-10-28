@@ -21,7 +21,7 @@ class PlaybackWriterTest {
             val profile = ServerProfile(name = "Fixture", address = "http://fixture.example.test")
             val account = AccountRecord("${profile.id}/0/7", profile.id, 0, 7, "viewer", "fixture-ref", 0)
             database.profiles().saveProfile(profile); database.profiles().saveAccount(account)
-            val history = PlaybackHistory(database)
+            val history = PlaybackHistory(database.playback())
             val payload = JSONObject().put("user", JSONObject().put("id", 7).put("username", "viewer"))
             val token = "header." + Base64.encodeToString(payload.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) + ".signature"
             val started = CompletableDeferred<Unit>()

@@ -2,7 +2,7 @@ name: Android
 on:
   push:
     branches: [main]
-    paths: ['clients/android/**', 'clients/shared/core/**', '.github/workflows/android.yml']
+    paths: ['clients/android/**', 'clients/shared/core/**', 'clients/shared/android/client-core/**', 'clients/shared/android/media-core/**', 'clients/shared/android/design-foundation/**', '.github/workflows/android.yml']
   workflow_dispatch:
     inputs:
       test_methods:

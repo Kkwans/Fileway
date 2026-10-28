@@ -102,8 +102,8 @@ class DownloadDataSource(private val context: Context, private val database: Cli
             }
         }
     }
-    class Factory(private val context: Context, private val networkAllowed: Boolean = true) : DataSource.Factory {
-        internal fun errorPolicy() = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(Int.MAX_VALUE) {
+    class Factory(private val context: Context, private val networkAllowed: Boolean = true) : io.github.kkwans.nasfilebrowser.player.PlaybackDataSourceFactory {
+        override fun errorPolicy() = object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy(Int.MAX_VALUE) {
             override fun getRetryDelayMsFor(info: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo): Long {
                 if (generateSequence<Throwable>(info.exception) { it.cause }.take(12).any { it is DownloadPendingException }) return 500
                 return if (info.errorCount > DEFAULT_MIN_LOADABLE_RETRY_COUNT) C.TIME_UNSET else super.getRetryDelayMsFor(info)

@@ -246,7 +246,7 @@ class NativePlaybackTest {
             checking = "pause and remote checkpoint"
             waitUntil { !model.player.state.value.playing && source.position >= 6.5 }
             val account = storage.accounts(profile).single()
-            val history = PlaybackHistory(ClientDatabase.get(instrumentation.targetContext))
+            val history = PlaybackHistory(ClientDatabase.get(instrumentation.targetContext).playback())
             val saved = withTimeout(10_000) { history.recent(account).first { entries -> entries.any { it.positionMs >= 6500 && it.sync == ProgressSync.SYNCED } }.first() }
             assertEquals("fixture-v1", saved.identity)
             assertTrue(source.rawRequests.get() > 0)

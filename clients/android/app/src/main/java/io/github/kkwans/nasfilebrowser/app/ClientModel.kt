@@ -52,7 +52,6 @@ enum class TaskCenterSection(val route: String, val label: String) {
 }
 enum class LibrarySection(val label: String, val title: String) { FAVORITES("收藏", "收藏夹"), TAGS("标签", "标签"), TRASH("回收站", "回收站"), TASKS("任务", "任务中心"), TOOLS("工具", "存储工具") }
 
-data class ResourceRef(val path: String, val wirePath: String, val name: String, val directory: Boolean, val type: String, val size: Long, val modified: String = "", val downloadId: String = "", val previewWidth: Int = 0, val previewHeight: Int = 0, val created: String = "")
 data class ClientState(
     val startupPending: Boolean = false,
     val connected: Boolean = false, val busy: Boolean = false, val stage: String = "",
@@ -72,7 +71,6 @@ data class ClientState(
     val progressStatus: String? = null, val tab: String = "files", val previewScope: String = "", val fileLayout: FileLayout = FileLayout.COVER,
     val searchDisplayed: Boolean = false, val compactGridSize: CompactGridSize = CompactGridSize.MEDIUM,
 )
-data class SessionContext(val profile: ServerProfile, val account: AccountRecord, val api: NasSession, val generation: Int, val owner: String = java.util.UUID.randomUUID().toString())
 private data class PlaybackBinding(val context: SessionContext, val file: ResourceRef, val identity: String, val writer: PlaybackWriter)
 private data class TemporaryMediaBinding(val context: SessionContext, val file: ResourceRef, val asset: PreviewLease)
 private sealed interface DecoderSubtitleSource {
@@ -102,7 +100,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private val store = ProfileStore(ClientDatabase.get(application), CredentialVault(application))
     private val appearanceStore = AppearanceStore(ClientDatabase.get(application))
     val appearance = AppearanceController(viewModelScope, { appearanceStore.theme.first() }, appearanceStore::save)
-    private val history = PlaybackHistory(ClientDatabase.get(application))
+    private val history = PlaybackHistory(ClientDatabase.get(application).playback())
     private val recentMutable = MutableStateFlow<List<PlaybackSnapshot>>(emptyList())
     val recent = recentMutable.asStateFlow()
     private var recentLocalEntries = emptyList<PlaybackSnapshot>()

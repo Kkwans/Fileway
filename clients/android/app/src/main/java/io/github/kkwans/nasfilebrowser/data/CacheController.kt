@@ -21,7 +21,6 @@ import java.io.File
 import java.security.MessageDigest
 
 const val CACHE_MB = 1024L * 1024
-enum class ImageQuality(val label: String, val pixels: Int?) { ORIGINAL("原图", null), HIGH("高", 2560), MEDIUM("中", 1080), LOW("低", 512) }
 data class CacheSettings(val thumbnailMB: Long = 500, val playbackMB: Long = 1024, val cleanupHours: Int = 24,
     val imageMB: Long = 1024, val imageQuality: ImageQuality = ImageQuality.ORIGINAL) {
     fun validate() { require(thumbnailMB in 0..10240 && playbackMB in 0..10240 && imageMB in 0..51200 && cleanupHours in 1..720) }

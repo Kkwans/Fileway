@@ -36,12 +36,7 @@ internal fun taggedResourceMatches(file: ResourceRef, refs: List<TagPathRef>, gl
     return taggedPathMatches(target, refs.mapNotNull { it.identity }, global)
 }
 
-/** NAS path comparison: preserve case, Unicode and legal filename spaces. */
-fun collectionPath(path: String): String {
-    val segments = ArrayDeque<String>()
-    path.split('/').forEach { when (it) { "", "." -> Unit; ".." -> if (segments.isNotEmpty()) segments.removeLast(); else -> segments.add(it) } }
-    return "/" + segments.joinToString("/")
-}
+
 fun taggedPathMatches(path: String, marked: Collection<String>, global: Boolean): Boolean {
     val target = collectionPath(path)
     return marked.any {

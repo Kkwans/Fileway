@@ -9,6 +9,8 @@ import androidx.compose.ui.window.DialogWindowProvider
 
 /** Fit the focused window against IME insets in WindowManager. Unlike an Activity
  * snapshot, this follows the dialog's keyboard without a resize/offset feedback loop. */
+// MASK_ADJUST is a clearing mask, not the resulting @SoftInputMode flag.
+@android.annotation.SuppressLint("WrongConstant")
 internal fun WindowManager.LayoutParams.fitFilewayKeyboard(edgeToEdge: Boolean) {
     @Suppress("DEPRECATION")
     val adjustment = if (Build.VERSION.SDK_INT <= 30) WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE

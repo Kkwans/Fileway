@@ -55,7 +55,7 @@ class RecentScreenTest {
                 PlaybackSnapshot(account.key, wire, "movie-v1", "/$longName", wire, longName, 1234000, 9813824, 30, ProgressSync.SYNCED),
                 PlaybackSnapshot(account.key, "/changed.mkv", "old-movie", "/changed.mkv", "/changed.mkv", "已替换的影片.mkv", 3000, 12000, 20, ProgressSync.IDENTITY_CHANGED),
                 PlaybackSnapshot(account.key, "/unknown.mkv", "unknown", "/unknown.mkv", "/unknown.mkv", "时长未确认.mkv", 3000, 0, 10, ProgressSync.UNSUPPORTED))
-            entries.forEach { PlaybackHistory(db).save(it) }
+            entries.forEach { PlaybackHistory(db.playback()).save(it) }
             withTimeout(5000) { model.recent.first { it.size == 3 } }
             main { model.tab("recent") }
             text("继续观看"); text("3 项"); text("20:34 / 2:43:33"); text("已同步")

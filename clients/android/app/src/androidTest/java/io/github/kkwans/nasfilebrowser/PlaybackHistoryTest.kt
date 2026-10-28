@@ -22,7 +22,7 @@ class PlaybackHistoryTest {
             val one = AccountRecord("${profile.id}/0/1", profile.id, 0, 1, "one", "ref-one", 0)
             val two = one.copy(key = "${profile.id}/0/2", userId = 2, username = "two", credentialRef = "ref-two")
             database.profiles().saveAccount(one); database.profiles().saveAccount(two)
-            val history = PlaybackHistory(database)
+            val history = PlaybackHistory(database.playback())
             val snapshot = PlaybackSnapshot(one.key, "/video.mkv", "version-a", "/video.mkv", "/video.mkv", "Video", 5000, 10_000, 20, ProgressSync.PENDING)
             history.save(snapshot)
             assertNull(history.local(two, snapshot.resourceKey, snapshot.identity))
@@ -44,7 +44,7 @@ class PlaybackHistoryTest {
             val profile = ServerProfile(name = "Fixture", address = "http://fixture.example.test")
             val account = AccountRecord("${profile.id}/0/7", profile.id, 0, 7, "viewer", "fixture-ref", 0)
             database.profiles().saveProfile(profile); database.profiles().saveAccount(account)
-            val history = PlaybackHistory(database)
+            val history = PlaybackHistory(database.playback())
             val payload = JSONObject().put("user", JSONObject().put("id", 7).put("username", "viewer"))
             val token = "header." + Base64.encodeToString(payload.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) + ".signature"
             val waiting = CompletableDeferred<Unit>(); val finish = CompletableDeferred<Unit>()
