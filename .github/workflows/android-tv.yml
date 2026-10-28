@@ -1,0 +1,156 @@
+name: Android TV
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clients/android-tv/**'
+      - 'clients/shared/android/**'
+      - 'clients/shared/core/**'
+      - 'clients/android/app/src/main/cpp/**'
+      - 'clients/android/scripts/prepare-ffmpeg-probe.py'
+      - 'clients/android/ffmpeg-probe/CMakeLists.txt'
+      - '.github/workflows/android-tv.yml'
+  workflow_dispatch:
+concurrency:
+  group: android-tv-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  audio-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: clients/android-tv
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Provision owned SDK and build paths
+        run: |
+          export ANDROID_HOME="$RUNNER_TEMP/fileway-tv-sdk"
+          export ANDROID_USER_HOME="$RUNNER_TEMP/fileway-tv-android-user"
+          export TMPDIR="$RUNNER_TEMP/fileway-tv-tmp"
+          mkdir -p "$ANDROID_HOME/cmdline-tools" "$ANDROID_USER_HOME" "$TMPDIR"
+          curl --fail --location --retry 2 'https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip' -o "$RUNNER_TEMP/sdk-tools.zip"
+          echo 'e025545c62a8e64c7559119566a569fb1dec5f60  '"$RUNNER_TEMP/sdk-tools.zip" | sha1sum --check
+          unzip -q "$RUNNER_TEMP/sdk-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          python3 ../shared/android/install-sdk.py --sdk "$ANDROID_HOME" platforms/android-37.0 build-tools/36.0.0 ndk/28.2.13676358 cmake/3.22.1
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_USER_HOME=$ANDROID_USER_HOME" >> "$GITHUB_ENV"
+          echo "TMPDIR=$TMPDIR" >> "$GITHUB_ENV"
+          echo "GRADLE_USER_HOME=$RUNNER_TEMP/fileway-tv-gradle" >> "$GITHUB_ENV"
+          echo "TV_AUDIO_WORK=$RUNNER_TEMP/fileway-tv-audio-work" >> "$GITHUB_ENV"
+          echo "TV_AUDIO_OUTPUT=$RUNNER_TEMP/fileway-tv-audio-output" >> "$GITHUB_ENV"
+      - name: Verify ELF32 and ELF64 admission rules
+        run: python3 -m unittest discover -s ../shared/android/tests -p 'test_native_package.py' -v
+      - name: Build pinned API28 audio codecs
+        run: |
+          python3 ../shared/android/build-tv-audio.py --work-root "$TV_AUDIO_WORK" --ndk "$ANDROID_HOME/ndk/28.2.13676358" --jobs 3
+          ./gradlew :tv-audio:assembleRelease :tv-audio:lintRelease -PfilewayTvFfmpegWorkDir="$TV_AUDIO_WORK" --no-daemon --max-workers=1 --console=plain
+          python3 ../shared/android/package-tv-audio.py --work-root "$TV_AUDIO_WORK" --ndk "$ANDROID_HOME/ndk/28.2.13676358" --aar ../shared/android/audio-codecs/build/outputs/aar/tv-audio-release.aar --output-dir "$TV_AUDIO_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: tv-audio-${{ github.sha }}
+          path: ${{ runner.temp }}/fileway-tv-audio-output/
+          if-no-files-found: error
+  native-ui:
+    needs: audio-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: clients/android-tv
+    env:
+      ORG_GRADLE_PROJECT_filewayTvFfmpegManifest: ${{ github.workspace }}/tv-audio/tv-audio.json
+      ORG_GRADLE_PROJECT_filewaySourceRevision: ${{ github.sha }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: tv-audio-${{ github.sha }}
+          path: tv-audio
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - name: Install Android build inputs
+        run: |
+          export ANDROID_HOME="$RUNNER_TEMP/fileway-tv-sdk"
+          export ANDROID_USER_HOME="$RUNNER_TEMP/fileway-tv-android-user"
+          mkdir -p "$ANDROID_HOME/cmdline-tools" "$ANDROID_USER_HOME"
+          curl --fail --location --retry 2 'https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip' -o "$RUNNER_TEMP/sdk-tools.zip"
+          echo 'e025545c62a8e64c7559119566a569fb1dec5f60  '"$RUNNER_TEMP/sdk-tools.zip" | sha1sum --check
+          unzip -q "$RUNNER_TEMP/sdk-tools.zip" -d "$ANDROID_HOME/cmdline-tools"
+          mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
+          python3 ../shared/android/install-sdk.py --sdk "$ANDROID_HOME" platforms/android-37.0 build-tools/36.0.0 ndk/28.2.13676358 cmake/3.22.1
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_USER_HOME=$ANDROID_USER_HOME" >> "$GITHUB_ENV"
+          echo "GRADLE_USER_HOME=$RUNNER_TEMP/fileway-tv-gradle" >> "$GITHUB_ENV"
+      - name: Build direct JNI and complete candidate
+        run: |
+          python3 ../shared/android/build-native.py --ndk "$ANDROID_HOME/ndk/28.2.13676358" --api 28 --mode direct --abis armeabi-v7a,arm64-v8a,x86,x86_64
+          ./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest :app:assembleDebugAndroidTest -PfilewayTvAbis=armeabi-v7a,arm64-v8a,x86,x86_64 --no-daemon --max-workers=1 --console=plain
+          ./gradlew :app:assembleRelease --no-daemon --max-workers=1 --console=plain
+      - name: Start isolated real backend
+        run: |
+          command -v ffmpeg
+          command -v ffprobe
+          mkdir -p "$RUNNER_TEMP/fileway-tv-server" "$RUNNER_TEMP/fileway-tv-go-tmp"
+          export GOCACHE="$RUNNER_TEMP/fileway-tv-go-cache"
+          export GOMODCACHE="$RUNNER_TEMP/fileway-tv-go-mod"
+          export GOTMPDIR="$RUNNER_TEMP/fileway-tv-go-tmp"
+          (cd ../../server/backend && go build -trimpath -o "$RUNNER_TEMP/fileway-tv-server/fileway" .)
+          python3 scripts/start-fixture-server.py --server "$RUNNER_TEMP/fileway-tv-server/fileway" --work-root "$RUNNER_TEMP/fileway-tv-server/fixture" --client-host 10.0.2.2 > "$RUNNER_TEMP/fileway-tv-server/launcher.log" 2>&1 &
+          FIXTURE_PID=$!
+          echo "$FIXTURE_PID" > "$RUNNER_TEMP/fileway-tv-server/launcher.pid"
+          for attempt in $(seq 1 100); do
+            kill -0 "$FIXTURE_PID"
+            if test -f "$RUNNER_TEMP/fileway-tv-server/fixture/connection.json"; then break; fi
+            sleep 1
+          done
+          test -f "$RUNNER_TEMP/fileway-tv-server/fixture/connection.json"
+      - name: Allow KVM in ephemeral runner
+        run: |
+          test -c /dev/kvm
+          sudo chmod 666 /dev/kvm
+      - name: Android 9 TV native journeys
+        uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808
+        with:
+          api-level: '28'
+          target: android-tv
+          arch: x86
+          profile: tv_1080p
+          avd-name: fileway-tv-api28
+          ram-size: 1536M
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-snapshot -no-boot-anim
+          disable-animations: true
+          script: cd clients/android-tv && python3 scripts/run-tv-checks.py --serial "$(adb get-serialno)" --connection-file "$RUNNER_TEMP/fileway-tv-server/fixture/connection.json" --output-dir "$GITHUB_WORKSPACE/clients/android-tv/app/build/acceptance"
+      - name: Stop owned fixture launcher and child
+        if: always()
+        run: |
+          RECEIPT="$RUNNER_TEMP/fileway-tv-server/launcher.pid"
+          if test -f "$RECEIPT"; then
+            PID="$(cat "$RECEIPT")"
+            if test -r "/proc/$PID/cmdline" && tr '\0' ' ' < "/proc/$PID/cmdline" | grep -q 'scripts/start-fixture-server.py'; then kill -TERM "$PID"; fi
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: android-tv-candidate-${{ github.sha }}
+          path: |
+            clients/android-tv/app/build/outputs/apk/
+            clients/android-tv/app/build/reports/
+            clients/android-tv/app/build/acceptance/
+          if-no-files-found: warn

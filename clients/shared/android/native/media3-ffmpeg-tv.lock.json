@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "purpose": "Fileway TV Media3 FFmpeg audio extension, Android API28 and ARM32/ARM64",
+  "media3": {
+    "version": "1.11.1",
+    "commit": "8c6678b657ede1e7883fc164ef73ed483c7796c3",
+    "license": "Apache-2.0",
+    "files": [
+      {
+        "url": "https://raw.githubusercontent.com/androidx/media/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/decoder_ffmpeg/src/main/java/androidx/media3/decoder/ffmpeg/FfmpegAudioDecoder.java",
+        "path": "media3/java/androidx/media3/decoder/ffmpeg/FfmpegAudioDecoder.java",
+        "sha256": "64b5ff45fd9f60b6775d542bda141698e5d32cacdd04ddd96141e86f2c0a51f8"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/androidx/media/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/decoder_ffmpeg/src/main/java/androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.java",
+        "path": "media3/java/androidx/media3/decoder/ffmpeg/FfmpegAudioRenderer.java",
+        "sha256": "230bcaef26ddd233f7f2ac0cdd7a5896d98e7d8dd8d4c9b2ea1942c483b05c48"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/androidx/media/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/decoder_ffmpeg/src/main/java/androidx/media3/decoder/ffmpeg/FfmpegDecoderException.java",
+        "path": "media3/java/androidx/media3/decoder/ffmpeg/FfmpegDecoderException.java",
+        "sha256": "9e73968d0802b2d7f8add911ec4dc5a6e621777e997eca74332e173c5463ad7a"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/androidx/media/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/decoder_ffmpeg/src/main/java/androidx/media3/decoder/ffmpeg/FfmpegLibrary.java",
+        "path": "media3/java/androidx/media3/decoder/ffmpeg/FfmpegLibrary.java",
+        "sha256": "a0843232be53210aefe97d8bc0a0268ac781cc7ce72e2d47bf42cd07f8048880"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/androidx/media/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/decoder_ffmpeg/src/main/java/androidx/media3/decoder/ffmpeg/package-info.java",
+        "path": "media3/java/androidx/media3/decoder/ffmpeg/package-info.java",
+        "sha256": "1d75d02151fcec7a1c0036ee4a216e885ae91e1f85e8c9ddfbd72b4def6709be"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/androidx/media/8c6678b657ede1e7883fc164ef73ed483c7796c3/libraries/decoder_ffmpeg/src/main/jni/ffmpeg_jni.cc",
+        "path": "media3/jni/ffmpeg_jni.cc",
+        "sha256": "68e6919f91cf810a86ee44ca8d045e60df2e45b31a75ed2985b8100043e4ad4b"
+      },
+      {
+        "url": "https://raw.githubusercontent.com/androidx/media/8c6678b657ede1e7883fc164ef73ed483c7796c3/LICENSE",
+        "path": "licenses/media3-APACHE-2.0.txt",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    ]
+  },
+  "ffmpeg": {
+    "version": "9.0.2",
+    "url": "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz",
+    "sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e",
+    "archiveRoot": "ffmpeg-9.0.2",
+    "license": "LGPL-2.1-or-later with GPL/version3/nonfree components disabled"
+  },
+  "android": {
+    "ndk": "28.2.13676358",
+    "minSdk": 28,
+    "abis": [
+      "armeabi-v7a",
+      "arm64-v8a",
+      "x86",
+      "x86_64"
+    ],
+    "pageSize": 16384
+  },
+  "decoders": [
+    "truehd",
+    "mlp",
+    "aac",
+    "flac",
+    "opus",
+    "vorbis",
+    "ac3",
+    "eac3",
+    "dca",
+    "mp3",
+    "mp3float"
+  ]
+}

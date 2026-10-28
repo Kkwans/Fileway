@@ -1,0 +1,2 @@
+-keep class io.github.kkwans.nasfilebrowser.core.NativeTransport { *; }
+-keep class androidx.media3.decoder.ffmpeg.** { *; }
