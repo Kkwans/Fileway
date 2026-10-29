@@ -282,7 +282,7 @@ components:
 - [ ] PDF 查看器尚未套用查看器外壳。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。
-- [ ] 主浏览窗口的紧凑网格/无界网格尚未逐项截图复核。
+- [x] 紧凑网格已实机复核（2026-10-29，`screens/ui-layouts/compact-grid.png`），容器状态正常；无界网格仍待复核（自动化点击未生效）。
 - [ ] 拖到文件夹移动需真实鼠标验收；拖出到资源管理器未开始。
 - [ ] 深色/浅色/高对比度三套主题尚未逐屏走查。
 - [ ] 桌面拖放（拖入上传、拖到文件夹移动、拖出）尚未设计交互细节。
