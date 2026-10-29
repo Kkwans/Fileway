@@ -431,6 +431,16 @@
     <Setter Property="ctl:DialogOrdering.Enable" Value="True" />
   </Style>
 
+  <!-- Expander: uses the same surface card language as the rest of the app. -->
+  <Style TargetType="Expander">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+
   <!-- CheckBox: 20px rounded box with the app accent, matching the self-drawn controls. -->
   <Style TargetType="CheckBox">
     <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
