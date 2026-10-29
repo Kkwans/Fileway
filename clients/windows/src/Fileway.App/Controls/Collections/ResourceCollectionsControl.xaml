@@ -1,8 +1,13 @@
-﻿<UserControl x:Class="Fileway.App.Controls.Collections.ResourceCollectionsControl" xmlns:ui="using:Fileway.App.Controls"
+<UserControl x:Class="Fileway.App.Controls.Collections.ResourceCollectionsControl" xmlns:ui="using:Fileway.App.Controls"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App.Controls.Collections">
  <UserControl.Resources>
   <DataTemplate x:Key="TagColorTemplate"><StackPanel Orientation="Horizontal" Spacing="10"><Ellipse Width="14" Height="14" Fill="{Binding Brush}"/><TextBlock Text="{Binding Name}" VerticalAlignment="Center"/></StackPanel></DataTemplate>
-  <DataTemplate x:Key="CollectionTemplate" x:DataType="local:CollectionRow">
+  <Style x:Key="FwCollectionListItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}">
+  <Setter Property="Padding" Value="0"/>
+  <Setter Property="Margin" Value="0,0,0,6"/>
+  <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+ </Style>
+ <DataTemplate x:Key="CollectionTemplate" x:DataType="local:CollectionRow">
    <Grid Padding="10,8" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <ui:LucideIcon IconName="file" Width="22" Height="22" VerticalAlignment="Center" Visibility="{x:Bind IconVisibility}"/>
     <Ellipse Width="12" Height="12" Fill="{x:Bind TagColorBrush}" Visibility="{x:Bind TagColorVisibility}" VerticalAlignment="Center"/>
@@ -35,13 +40,13 @@
    </StackPanel>
   </Grid>
   <Grid Grid.Row="2" RowSpacing="8"><Grid.RowDefinitions><RowDefinition x:Name="RecordsRow" Height="*"/><RowDefinition x:Name="TagResourcesRow" Height="0"/></Grid.RowDefinitions>
-   <ListView x:Name="Records" ItemTemplate="{StaticResource CollectionTemplate}" SelectionMode="Single" HorizontalContentAlignment="Stretch" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" KeyDown="Records_KeyDown" AutomationProperties.Name="收藏或标签列表">
+   <ListView x:Name="Records" ItemTemplate="{StaticResource CollectionTemplate}" SelectionMode="Single" HorizontalContentAlignment="Stretch" ItemContainerStyle="{StaticResource FwCollectionListItemStyle}" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" KeyDown="Records_KeyDown" AutomationProperties.Name="收藏或标签列表">
     <ListView.ContextFlyout><MenuFlyout><MenuFlyoutItem x:Name="ContextOpen" Text="打开选中资源" Click="Open_Click"/><MenuFlyoutItem x:Name="ContextEdit" Text="编辑选中记录" Click="Edit_Click"/><MenuFlyoutItem x:Name="ContextRemove" Text="移除选中记录" Click="Remove_Click"/></MenuFlyout></ListView.ContextFlyout>
    </ListView>
-   <StackPanel x:Name="EmptyHost" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="560" Margin="16"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="heart" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="EmptyText" Text="暂无记录" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource FwTextPrimaryBrush}"/></StackPanel>
+   <StackPanel x:Name="EmptyHost" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="560" Margin="16"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="heart" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="EmptyTitle" Text="暂无记录" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource FwTextPrimaryBrush}"/><TextBlock x:Name="EmptyText" Text="添加收藏或标签后会显示在这里。" FontSize="13" LineHeight="20" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource FwTextSecondaryBrush}"/></StackPanel>
    <Grid x:Name="TagResourcesArea" Grid.Row="1" Visibility="Collapsed">
-    <ListView x:Name="TagResources" ItemTemplate="{StaticResource CollectionTemplate}" SelectionMode="Single" HorizontalContentAlignment="Stretch" SelectionChanged="TagResource_Changed" DoubleTapped="TagResources_DoubleTapped" KeyDown="TagResources_KeyDown" AutomationProperties.Name="标签关联资源"/>
-    <StackPanel x:Name="TagEmptyHost" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="560" Margin="16"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="tag" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="TagEmptyText" Text="选择标签以查看关联资源" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource FwTextPrimaryBrush}"/></StackPanel>
+    <ListView x:Name="TagResources" ItemTemplate="{StaticResource CollectionTemplate}" SelectionMode="Single" HorizontalContentAlignment="Stretch" ItemContainerStyle="{StaticResource FwCollectionListItemStyle}" SelectionChanged="TagResource_Changed" DoubleTapped="TagResources_DoubleTapped" KeyDown="TagResources_KeyDown" AutomationProperties.Name="标签关联资源"/>
+    <StackPanel x:Name="TagEmptyHost" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="560" Margin="16"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="tag" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="TagEmptyTitle" Text="选择标签" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource FwTextPrimaryBrush}"/><TextBlock x:Name="TagEmptyText" Text="选择标签以查看关联资源。" FontSize="13" LineHeight="20" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource FwTextSecondaryBrush}"/></StackPanel>
    </Grid>
   </Grid>
   <InfoBar x:Name="Status" IsOpen="False" IsClosable="True"/>

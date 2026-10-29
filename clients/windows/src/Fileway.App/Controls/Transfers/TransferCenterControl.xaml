@@ -16,7 +16,7 @@
   <StackPanel Grid.Row="2" Spacing="8"><TextBlock x:Name="HintText" Visibility="Collapsed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><InfoBar x:Name="LoadError" IsOpen="False" IsClosable="True" Severity="Warning" Title="记录未能加载"><InfoBar.ActionButton><Button Content="重试" Click="More_Click" Style="{StaticResource FwSecondaryButtonStyle}"/></InfoBar.ActionButton></InfoBar></StackPanel>
   <Grid Grid.Row="3">
    <ListView x:Name="Records" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="Record_Click" KeyDown="Records_KeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="传输记录，选择一项查看详情">
-    <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,8"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListView.ItemContainerStyle>
+    <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,8"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListView.ItemContainerStyle>
     <ListView.ItemTemplate><DataTemplate x:DataType="local:TransferCenterRow">
      <Grid AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}" Margin="{x:Bind RowMargin}">
       <Grid Visibility="{x:Bind HeaderVisibility}" Padding="16,14" ColumnSpacing="14" Background="{ThemeResource FwSurfaceRaisedBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1" CornerRadius="12">

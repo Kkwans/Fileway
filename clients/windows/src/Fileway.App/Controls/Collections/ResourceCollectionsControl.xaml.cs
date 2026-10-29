@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -89,7 +89,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         if (_currentResource != nextResource) { ++_resourceGeneration; ++_openGeneration; }
         _currentResource = nextResource;
         if (_browseTagId is null) CurrentResourceText.Text = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "从文件列表选择一个项目，可在这里收藏或设置标签。";
-        EmptyText.Text = session is null ? "请先连接服务器。" : "暂无记录。";
+        EmptyTitle.Text = session is null ? "尚未连接" : "暂无记录"; EmptyText.Text = session is null ? "连接服务器后可在这里管理收藏与标签。" : "添加收藏或标签后会显示在这里。";
         UpdateCommands();
     }
 
@@ -163,7 +163,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             TagResourcesArea.Visibility = TagMode ? Visibility.Visible : Visibility.Collapsed;
             TagResourcesRow.Height = new GridLength(TagMode ? 1 : 0, TagMode ? GridUnitType.Star : GridUnitType.Pixel);
             EmptyHost.Visibility = _records.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyText.Text = TagMode ? "暂无标签。新建标签后，可绑定选中资源。" : "此分组暂无收藏。可从文件列表选择资源后添加。";
+            EmptyTitle.Text = TagMode ? "暂无标签" : "此分组暂无收藏"; EmptyText.Text = TagMode ? "新建标签后，可绑定选中资源。" : "可从文件列表选择资源后添加。";
             RenderTagResources();
             ApplyPurpose();
         }
@@ -200,12 +200,12 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     {
         _resources.Clear();
         TagEmptyHost.Visibility = Visibility.Visible;
-        TagEmptyText.Text = "选择标签以查看关联资源。";
+        TagEmptyTitle.Text = "选择标签"; TagEmptyText.Text = "选择标签以查看关联资源。";
         if (Selected?.Tag is not { } tag) return;
         var index = 0;
         foreach (var reference in tag.Resources)
             _resources.Add(new CollectionRow($"{tag.Id}:{index++}", reference.DisplayPath.TrimEnd('/').Split('/').LastOrDefault() is { Length: > 0 } name ? name : "/", reference.DisplayPath, IdentityState(reference), reference, Tag: tag));
-        TagEmptyText.Text = "此标签暂无关联资源。可用“设置资源标签”绑定当前选中资源。";
+        TagEmptyTitle.Text = "此标签暂无关联资源"; TagEmptyText.Text = "可用“设置资源标签”绑定当前选中资源。";
         TagEmptyHost.Visibility = _resources.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
     private static string IdentityState(CollectionResource reference) => reference.Resource is null ? "历史记录，资源身份暂不可用" : "";
