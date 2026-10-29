@@ -26,3 +26,8 @@
 - PDF 沉浸式外壳的原生堆破坏未修复；真正内容级模糊需 Composition/Win2D。
 
 本包为本地未签名候选，未合并 main、未打 tag、未发布公开 Release。
+
+## 补验（2026-10-30）
+
+- 使用历史测试数据根 `20261027-candidate081/data/native-drop` 的真实上传记录实拍传输中心上传页（4 条，选中首行）：行卡片描边、选中强调底 + 左侧 3px 标记、双色焦点环均正常（`20261031-ui0844/screens/batch-uploads.png`）。
+- 该库 3 条带 `batch_id` 的记录其 `record_json.Plan` 均不含 `Batch` 属性（早于 `UploadBatchInfo` 持久化），因此按单文件显示是预期的兼容回退；0.8.15 之后新提交的文件夹批次才会渲染批次卡。
