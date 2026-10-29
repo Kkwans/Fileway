@@ -31,6 +31,7 @@ type data struct {
 	store         *storage.Storage
 	user          *users.User
 	deviceSession string
+	apiPath       string
 	raw           interface{}
 }
 
@@ -81,6 +82,7 @@ func handle(fn handleFunc, prefix string, store *storage.Storage, server *settin
 			store:    store,
 			settings: settings,
 			server:   server,
+			apiPath:  canonicalHandlerPath(prefix, r.URL.Path),
 		})
 
 		if status >= 400 || err != nil {

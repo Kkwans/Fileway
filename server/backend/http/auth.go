@@ -126,7 +126,11 @@ func withUser(fn handleFunc) handleFunc {
 			if _, err := d.store.Devices.Validate(tk.DeviceSession, tk.User.ID); err != nil {
 				return http.StatusUnauthorized, fmt.Errorf("设备登录已撤销或过期")
 			}
-			if !deviceMediaRoute(r, tk.User.ID) {
+			path := d.apiPath
+			if path == "" {
+				path = r.URL.Path
+			}
+			if !deviceMediaRoute(r.Method, path, tk.User.ID) {
 				return http.StatusForbidden, fmt.Errorf("TV设备仅允许媒体浏览与播放")
 			}
 			d.deviceSession = tk.DeviceSession

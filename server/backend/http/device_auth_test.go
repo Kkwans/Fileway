@@ -61,9 +61,36 @@ func TestDeviceJWTMediaScopeRenewAndLegacyRollback(t *testing.T) {
 	if response := call(probe, "GET", "/api/resources/", signed); response.Code != 204 {
 		t.Fatalf("media rejected: %d %s", response.Code, response.Body)
 	}
-	for _, path := range []string{"/api/settings", "/api/users", "/api/device-sessions"} {
+	request := httptest.NewRequest(http.MethodGet, "/api/resources/", nil)
+	request.Header.Set("X-Auth", signed)
+	listing := httptest.NewRecorder()
+	handle(resourceGetHandler, "/api/resources", h.storage, h.server).ServeHTTP(listing, request)
+	if listing.Code != http.StatusOK {
+		t.Fatalf("real resource listing rejected: %d %s", listing.Code, listing.Body)
+	}
+	// Match the real resource route's strip-prefix/authentication order. The
+	// original bug only appeared here, not in a direct withUser probe.
+	for _, prefix := range []string{"/api/resources", "/api/raw", "/api/preview/thumb", "/api/subtitle", "/api/search"} {
+		req := httptest.NewRequest("GET", prefix+"/owned", nil)
+		req.Header.Set("X-Auth", signed)
+		response := httptest.NewRecorder()
+		handle(probe, prefix, h.storage, h.server).ServeHTTP(response, req)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("stripped media route %s rejected: %d %s", prefix, response.Code, response.Body)
+		}
+	}
+	for _, path := range []string{"/api/settings", "/api/users", "/api/device-sessions", "/api/tasks/owned"} {
 		if response := call(probe, "GET", path, signed); response.Code != 403 {
 			t.Fatal("privileged route accepted", path, response.Code)
+		}
+	}
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(method, "/api/resources/owned", nil)
+		req.Header.Set("X-Auth", signed)
+		response := httptest.NewRecorder()
+		handle(probe, "/api/resources", h.storage, h.server).ServeHTTP(response, req)
+		if response.Code != http.StatusForbidden {
+			t.Fatal("stripped resource mutation accepted", method, response.Code)
 		}
 	}
 	if response := call(probe, "DELETE", "/api/resources/movie.mkv", signed); response.Code != 403 {

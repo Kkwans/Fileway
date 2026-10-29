@@ -13,37 +13,46 @@ import (
 	"github.com/gorilla/mux"
 )
 
-func deviceMediaRoute(r *http.Request, user uint) bool {
-	p := strings.TrimPrefix(r.URL.Path, "/api/")
-	if r.Method == http.MethodGet || r.Method == http.MethodHead {
-		for _, prefix := range []string{"resources", "preview", "raw", "download", "media/", "subtitle", "search", "favorites", "recent", "playback", "tasks/"} {
+// Resource handlers receive a stripped file path; authorization must use the
+// API operation selected by the router, before that internal transformation.
+func canonicalHandlerPath(prefix, path string) string {
+	if prefix != "" && prefix != "/" {
+		return prefix + path
+	}
+	return path
+}
+
+func deviceMediaRoute(method, path string, user uint) bool {
+	p := strings.TrimPrefix(path, "/api/")
+	if method == http.MethodGet || method == http.MethodHead {
+		for _, prefix := range []string{"resources", "preview", "raw", "download", "media/", "subtitle", "search", "favorites", "recent", "playback"} {
 			if p == prefix || strings.HasPrefix(p, prefix+"/") || strings.HasSuffix(prefix, "/") && strings.HasPrefix(p, prefix) {
 				return true
 			}
 		}
 		return p == "client-capabilities" || p == "instance" || p == "users/"+strconv.FormatUint(uint64(user), 10)
 	}
-	if p == "renew" && r.Method == http.MethodPost {
+	if p == "renew" && method == http.MethodPost {
 		return true
 	}
-	if p == "media/hls" && r.Method == http.MethodPost {
+	if p == "media/hls" && method == http.MethodPost {
 		return true
 	}
-	if p == "media/playback" && (r.Method == http.MethodPut || r.Method == http.MethodDelete) {
+	if p == "media/playback" && (method == http.MethodPut || method == http.MethodDelete) {
 		return true
 	}
-	if p == "media/playback/delete" && r.Method == http.MethodPost {
+	if p == "media/playback/delete" && method == http.MethodPost {
 		return true
 	}
-	if p == "media/playback/recent" && r.Method == http.MethodDelete {
+	if p == "media/playback/recent" && method == http.MethodDelete {
 		return true
 	}
-	if p == "resources/batch" && r.Method == http.MethodPost {
+	if p == "resources/batch" && method == http.MethodPost {
 		return true
 	}
 	for _, prefix := range []string{"playback", "recent", "favorites"} {
 		if p == prefix || strings.HasPrefix(p, prefix+"/") {
-			return r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete
+			return method == http.MethodPost || method == http.MethodPut || method == http.MethodDelete
 		}
 	}
 	return false
