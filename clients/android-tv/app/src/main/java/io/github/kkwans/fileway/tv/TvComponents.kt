@@ -19,11 +19,17 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.res.painterResource
+import io.github.kkwans.nasfilebrowser.ui.designsystem.filewayTextStyle
+import io.github.kkwans.fileway.design.R as Art
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -36,34 +42,73 @@ import android.view.KeyEvent
 import androidx.tv.material3.*
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 
+internal val LocalTvInteractive = staticCompositionLocalOf { true }
+internal val LocalTvCompact = staticCompositionLocalOf { false }
+
 val LocalTvRemoteGateway=staticCompositionLocalOf<TvRemoteGateway?>{null}
 
+@Immutable internal data class TvSurfaceRoles(
+    val chrome: Color, val raised: Color, val secondaryText: Color, val outline: Color,
+)
+internal val LocalTvSurfaces = staticCompositionLocalOf { TvSurfaceRoles(
+    Color(0xFF20262F), Color(0xFF35404D), Color(0xFFBCC7D7), Color(0xFF4E5B6D),
+) }
+internal val TvShape = RoundedCornerShape(12.dp)
+
+private val TvTypography = Typography(
+    displayLarge = filewayTextStyle(36, 44, FontWeight.SemiBold),
+    displayMedium = filewayTextStyle(32, 40, FontWeight.SemiBold),
+    displaySmall = filewayTextStyle(28, 36, FontWeight.SemiBold),
+    headlineLarge = filewayTextStyle(28, 36, FontWeight.SemiBold),
+    headlineMedium = filewayTextStyle(26, 34, FontWeight.SemiBold),
+    headlineSmall = filewayTextStyle(24, 32, FontWeight.Medium),
+    titleLarge = filewayTextStyle(26, 34, FontWeight.SemiBold),
+    titleMedium = filewayTextStyle(20, 28, FontWeight.Medium),
+    titleSmall = filewayTextStyle(18, 26, FontWeight.Medium),
+    bodyLarge = filewayTextStyle(18, 26), bodyMedium = filewayTextStyle(17, 24),
+    bodySmall = filewayTextStyle(16, 22),
+    labelLarge = filewayTextStyle(18, 24, FontWeight.Medium),
+    labelMedium = filewayTextStyle(16, 22, FontWeight.Medium),
+    labelSmall = filewayTextStyle(14, 20, FontWeight.Medium),
+)
+
 @Composable fun TvTheme(dark: Boolean, media: Boolean = false, content: @Composable () -> Unit) {
-    val base = if (dark) darkColorScheme(primary = FilewayPalette.darkAccent, onPrimary = FilewayPalette.darkCanvas,
-        secondary=FilewayPalette.darkAccent, secondaryContainer=Color(0xFF44474F),onSecondaryContainer=Color(0xFFE9EAEC),
-        background = Color(0xFF292A2F), onBackground = Color(0xFFE9EAEC), surface = Color(0xFF33343A), onSurface = Color(0xFFE9EAEC))
-    else lightColorScheme(primary = FilewayPalette.blue, onPrimary = Color.White, background = FilewayPalette.lightCanvas,
-        onBackground = FilewayPalette.lightText,secondary=FilewayPalette.blue,secondaryContainer=Color(0xFFE5EAF1),onSecondaryContainer=FilewayPalette.lightText, surface = FilewayPalette.lightSurface, onSurface = FilewayPalette.lightText)
-    val colors = if (media) base.copy(background = FilewayPalette.playerCanvas, surface = FilewayPalette.playerSurface) else base
-    MaterialTheme(colorScheme = colors, typography = Typography(
-        titleLarge = TextStyle(fontSize = 28.sp, lineHeight = 36.sp), titleMedium = TextStyle(fontSize = 20.sp, lineHeight = 28.sp),
-        bodyLarge = TextStyle(fontSize = 18.sp, lineHeight = 26.sp), bodyMedium = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
-        bodySmall = TextStyle(fontSize = 14.sp, lineHeight = 20.sp), labelLarge = TextStyle(fontSize = 18.sp, lineHeight = 24.sp),
-    )) { CompositionLocalProvider(LocalContentColor provides colors.onBackground, content = content) }
+    // Raised, quiet neutral layers for projection; blue belongs to actions and
+    // focus. Video and image canvases retain their own black surface.
+    val colors = if (dark) darkColorScheme(
+        primary = FilewayPalette.darkAccent, onPrimary = FilewayPalette.darkCanvas,
+        secondary = FilewayPalette.darkAccent, secondaryContainer = Color(0xFF35404D),
+        onSecondaryContainer = Color(0xFFF0F4FA),
+        background = if (media) FilewayPalette.playerCanvas else Color(0xFF282F39),
+        surface = if (media) FilewayPalette.playerSurface else Color(0xFF303946),
+        onBackground = Color(0xFFF0F4FA), onSurface = Color(0xFFF0F4FA),
+    ) else lightColorScheme(
+        primary = FilewayPalette.blue, onPrimary = Color.White,
+        secondary = FilewayPalette.blue, secondaryContainer = Color(0xFFE6EDF8),
+        onSecondaryContainer = FilewayPalette.lightText,
+        background = FilewayPalette.lightCanvas, surface = FilewayPalette.lightSurface,
+        onBackground = FilewayPalette.lightText, onSurface = FilewayPalette.lightText,
+    )
+    val surfaces = if (dark) TvSurfaceRoles(Color(0xFF222933), Color(0xFF3A4655), Color(0xFFBCC7D7), Color(0xFF536175))
+        else TvSurfaceRoles(Color(0xFFEDF1F6), Color(0xFFE6EDF6), FilewayPalette.lightSecondary, Color(0xFFB2BFCE))
+    MaterialTheme(colorScheme = colors, typography = TvTypography) {
+        CompositionLocalProvider(LocalContentColor provides colors.onBackground, LocalTvSurfaces provides surfaces, content = content)
+    }
 }
 
 @Composable fun TvButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, selected: Boolean = false, enabled: Boolean = true,
     icon: Int? = null, content: (@Composable RowScope.() -> Unit)? = null) {
+    val interactive = LocalTvInteractive.current
     var focused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(12.dp)
+    val shape = TvShape
     val colors = MaterialTheme.colorScheme
     val interaction = remember { MutableInteractionSource() }
-    Button(onClick = onClick, enabled = enabled, interactionSource = interaction, modifier = modifier.tvTouch(onClick, enabled, interaction).semantics { this.selected = selected }.onFocusChanged { focused = it.isFocused }
+    Button(onClick = onClick, enabled = enabled && interactive, interactionSource = interaction, modifier = modifier.heightIn(min = 48.dp).tvTouch(onClick, enabled && interactive, interaction).focusProperties { canFocus=interactive }.semantics { this.selected = selected }.onFocusChanged { focused = it.isFocused }
         .border(2.dp, if (focused) colors.primary else Color.Transparent, shape),
         shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
         colors = ButtonDefaults.colors(containerColor = if (selected) colors.primary.copy(alpha = .18f) else colors.surface,
-            contentColor = colors.onSurface, focusedContainerColor = colors.primary.copy(alpha = .22f), focusedContentColor = colors.onSurface),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)) {
+            contentColor = if (selected) colors.primary else colors.onSurface, focusedContainerColor = LocalTvSurfaces.current.raised, focusedContentColor = colors.onSurface),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
         if (content != null) content() else {
             if (icon != null) { Icon(androidx.compose.ui.res.painterResource(icon), null, Modifier.size(22.dp)); Spacer(Modifier.width(10.dp)) }
             Text(label, style = MaterialTheme.typography.labelLarge)
@@ -75,14 +120,15 @@ val LocalTvRemoteGateway=staticCompositionLocalOf<TvRemoteGateway?>{null}
     password: Boolean = false, options: KeyboardOptions = KeyboardOptions.Default) {
     var focused by remember { mutableStateOf(false) }
     val gateway=LocalTvRemoteGateway.current
+    val interactive=LocalTvInteractive.current
     val latest by rememberUpdatedState(onValueChange)
     val receiver=remember { {text:String->latest(text)} }
     DisposableEffect(gateway){onDispose{if(gateway?.input===receiver)gateway.input=null}}
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .7f))
-        BasicTextField(value, onValueChange, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+        Text(label, style = MaterialTheme.typography.bodySmall, color = LocalTvSurfaces.current.secondaryText)
+        BasicTextField(value, onValueChange, enabled=interactive, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .semantics { contentDescription = label }.onFocusChanged { focused = it.isFocused;if(it.isFocused)gateway?.input=receiver else if(gateway?.input===receiver)gateway.input=null }.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-            .border(2.dp, if (focused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = .2f), RoundedCornerShape(12.dp))
+            .border(2.dp, if (focused) MaterialTheme.colorScheme.primary else LocalTvSurfaces.current.outline, TvShape)
             .padding(12.dp), singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
@@ -156,7 +202,8 @@ fun Modifier.tvTouch(onClick: () -> Unit, enabled: Boolean = true, interaction: 
                 focus.requestFocus()
                 val press = PressInteraction.Press(point)
                 interaction?.emit(press)
-                if (tryAwaitRelease()) interaction?.emit(PressInteraction.Release(press))
+                val released=tryAwaitRelease()
+                if (released) interaction?.emit(PressInteraction.Release(press))
                 else interaction?.emit(PressInteraction.Cancel(press))
             },
             onTap = { click() },
@@ -177,22 +224,65 @@ internal fun tvDate(value:String):String=runCatching {
 
 
 @Composable internal fun TvToolbarAction(label:String,icon:Int,onClick:()->Unit,modifier:Modifier=Modifier,enabled:Boolean=true) {
-    var focused by remember{mutableStateOf(false)}
-    val colors=MaterialTheme.colorScheme
-    val interaction=remember{MutableInteractionSource()}
-    Column(modifier.width(44.dp),horizontalAlignment=Alignment.CenterHorizontally) {
-        Button(onClick=onClick,enabled=enabled,interactionSource=interaction,modifier=Modifier.size(44.dp).tvTouch(onClick,enabled,interaction).semantics{contentDescription=label}.onFocusChanged{focused=it.isFocused},
-            shape=ButtonDefaults.shape(RoundedCornerShape(12.dp)),scale=ButtonDefaults.scale(focusedScale=1f),contentPadding=PaddingValues(10.dp),
-            colors=ButtonDefaults.colors(containerColor=Color.Transparent,contentColor=colors.onSurface.copy(alpha=.7f),focusedContainerColor=colors.primary.copy(alpha=.18f),focusedContentColor=colors.onSurface)) {
-            Icon(androidx.compose.ui.res.painterResource(icon),null,Modifier.size(24.dp))
-        }
-        Text(if(focused)label else "",style=MaterialTheme.typography.bodySmall.copy(fontSize=12.sp,lineHeight=16.sp),maxLines=1)
+    val interactive=LocalTvInteractive.current
+    var focused by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    val interaction = remember { MutableInteractionSource() }
+    Button(onClick=onClick, enabled=enabled && interactive, interactionSource=interaction,
+        modifier=modifier.size(48.dp).tvTouch(onClick,enabled && interactive,interaction).focusProperties { canFocus=interactive }.semantics { contentDescription=label }
+            .onFocusChanged { focused=it.isFocused }.border(2.dp,if(focused)colors.primary else Color.Transparent,TvShape),
+        shape=ButtonDefaults.shape(TvShape), scale=ButtonDefaults.scale(focusedScale=1f), contentPadding=PaddingValues(12.dp),
+        colors=ButtonDefaults.colors(containerColor=Color.Transparent,contentColor=LocalTvSurfaces.current.secondaryText,
+            focusedContainerColor=LocalTvSurfaces.current.raised,focusedContentColor=colors.onSurface)) {
+        Icon(painterResource(icon),null,Modifier.size(24.dp))
     }
 }
+
+/** A current value and keyboard focus are different states. The fixed check
+ * slot keeps labels aligned when a different row receives focus. */
+@Composable internal fun TvOptionRow(
+    title:String, onClick:()->Unit, modifier:Modifier=Modifier, supporting:String?=null,
+    selected:Boolean=false, enabled:Boolean=true, icon:Int?=null, value:String?=null, destination:Boolean=false,
+    showSelection:Boolean=true, leading:(@Composable ()->Unit)?=null,
+) {
+    val interactive=LocalTvInteractive.current
+    val colors=MaterialTheme.colorScheme
+    var focused by remember { mutableStateOf(false) }
+    val interaction=remember { MutableInteractionSource() }
+    Button(onClick=onClick,enabled=enabled && interactive,interactionSource=interaction,
+        modifier=modifier.fillMaxWidth().heightIn(min=52.dp).tvTouch(onClick,enabled && interactive,interaction).focusProperties { canFocus=interactive }
+            .semantics { this.selected=selected }.onFocusChanged { focused=it.isFocused }
+            .border(2.dp,if(focused)colors.primary else Color.Transparent,TvShape),
+        shape=ButtonDefaults.shape(TvShape),scale=ButtonDefaults.scale(focusedScale=1f),
+        contentPadding=PaddingValues(horizontal=14.dp,vertical=10.dp),
+        colors=ButtonDefaults.colors(containerColor=if(selected)colors.primary.copy(alpha=.12f)else Color.Transparent,
+            contentColor=colors.onSurface,focusedContainerColor=LocalTvSurfaces.current.raised,focusedContentColor=colors.onSurface)) {
+        if(leading!=null) { leading();Spacer(Modifier.width(14.dp)) }
+        else if(icon!=null) { Icon(painterResource(icon),null,Modifier.size(24.dp),tint=if(selected)colors.primary else LocalTvSurfaces.current.secondaryText);Spacer(Modifier.width(14.dp)) }
+        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)) {
+            Text(title,style=MaterialTheme.typography.bodyLarge,maxLines=2,overflow=TextOverflow.Ellipsis)
+            supporting?.takeIf { it.isNotBlank() }?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=LocalTvSurfaces.current.secondaryText,maxLines=2,overflow=TextOverflow.Ellipsis) }
+        }
+        value?.let { Spacer(Modifier.width(12.dp));Text(it,style=MaterialTheme.typography.labelMedium,color=LocalTvSurfaces.current.secondaryText) }
+        if(destination) { Spacer(Modifier.width(12.dp));Icon(painterResource(Art.drawable.fileway_ic_arrow_forward),null,Modifier.size(22.dp),tint=LocalTvSurfaces.current.secondaryText) }
+        else if(showSelection) { Spacer(Modifier.width(12.dp));Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
+            if(selected)Icon(painterResource(Art.drawable.fileway_ic_check),null,Modifier.size(22.dp),tint=colors.primary)
+        } }
+    }
+}
+
 @Composable internal fun TvQuietAction(label:String,onClick:()->Unit) {
-    val interaction=remember{MutableInteractionSource()}
-    Button(onClick=onClick,interactionSource=interaction,modifier=Modifier.tvTouch(onClick,interaction=interaction),shape=ButtonDefaults.shape(RoundedCornerShape(12.dp)),scale=ButtonDefaults.scale(focusedScale=1f),
-        contentPadding=PaddingValues(horizontal=10.dp,vertical=6.dp),colors=ButtonDefaults.colors(containerColor=Color.Transparent,contentColor=MaterialTheme.colorScheme.onSurface.copy(alpha=.65f),focusedContainerColor=MaterialTheme.colorScheme.primary.copy(alpha=.18f),focusedContentColor=MaterialTheme.colorScheme.onSurface)) {
-        Text(label,style=MaterialTheme.typography.bodySmall)
+    val interactive=LocalTvInteractive.current
+    var focused by remember { mutableStateOf(false) }
+    val interaction=remember { MutableInteractionSource() }
+    val colors=MaterialTheme.colorScheme
+    Button(onClick=onClick,enabled=interactive,interactionSource=interaction,
+        modifier=Modifier.heightIn(min=48.dp).tvTouch(onClick,enabled=interactive,interaction=interaction).focusProperties { canFocus=interactive }
+            .onFocusChanged { focused=it.isFocused }.border(2.dp,if(focused)colors.primary else Color.Transparent,TvShape),
+        shape=ButtonDefaults.shape(TvShape),scale=ButtonDefaults.scale(focusedScale=1f),
+        contentPadding=PaddingValues(horizontal=12.dp,vertical=8.dp),
+        colors=ButtonDefaults.colors(containerColor=Color.Transparent,contentColor=LocalTvSurfaces.current.secondaryText,
+            focusedContainerColor=LocalTvSurfaces.current.raised,focusedContentColor=colors.onSurface)) {
+        Text(label,style=MaterialTheme.typography.labelMedium)
     }
 }

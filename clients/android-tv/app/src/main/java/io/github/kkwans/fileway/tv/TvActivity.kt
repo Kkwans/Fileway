@@ -37,12 +37,16 @@ class TvActivity : ComponentActivity() {
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
             val media by model.media.state.collectAsStateWithLifecycle()
-            TvTheme(if(media.file!=null)true else state.dark, media = media.file != null) {
+            TvTheme(state.dark) {
                 CompositionLocalProvider(LocalTvRemoteGateway provides model.remoteGateway) {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-                    when { !state.connected -> TvLoginScreen(model)
-                        media.file != null -> TvMediaScreen(model)
-                        else -> TvBrowseScreen(model, ::finish)
+                    if (!state.connected) TvLoginScreen(model)
+                    else {
+                        // Keep the library and its actual lazy-list/focus state
+                        // attached below the player. Returning no longer builds
+                        // a new library under a different global theme.
+                        TvBrowseScreen(model, ::finish, active = media.file == null)
+                        if (media.file != null) TvTheme(dark = true, media = true) { TvMediaScreen(model) }
                     }
                     TvPairingScreen(model)
                 }

@@ -2,10 +2,10 @@
 
 Mode: Operate / Experience. Extend the existing Fileway visual identity.
 
-- Consume the shared FilewayPalette and vector resources. Dark default with soft graphite canvas (#292A2F) and surface (#33343A), using Wholphin Blue/BoldBlue dark surface-container levels for projection rather than its near-black base; Fileway blue is an accent, not a blue wash. Optional light palette. Keep image canvas black.
+- Consume the shared FilewayPalette and vector resources. Dark default with soft graphite canvas (#282F39), surface (#303946), navigation chrome (#222933) and focused surface (#3A4655), using Wholphin Blue/BoldBlue dark surface-container levels for projection rather than its near-black base; Fileway blue is an accent, not a blue wash. Optional light palette. Keep image canvas black.
 - Use TV Material interaction primitives with explicitly themed 12dp shapes. No phone bottom navigation or touch-only affordance.
-- Reference canvas: 960×540dp; safe content gutters default to 5%, independently adjustable. Titles 26–28sp, primary labels 18–20sp, secondary labels 14–16sp. Native sans with stable CJK baselines.
-- Fixed left navigation; one readable page header and action row; content uses lazy regular grids (four columns by default, configurable 2–6) or lists. File names use 16sp for this denser projection layout. Home shows actual resume/recent entries. File cards reserve stable artwork/name slots.
+- Reference canvas: 960×540dp; safe content gutters default to 5%, independently adjustable. Titles 26–28sp, primary labels 18–20sp, secondary labels 14–16sp. Phone and TV share `filewayTextStyle` from design-foundation: explicit SansSerif, no font padding, centered untrimmed line height. TV owns all fifteen Material typography roles; phone sizes are preserved.
+- A 56dp left rail; expanded width is measured from the real labels and brand plus their icon/padding slots. It overlays content without moving the grid; a lazy navigation region and a separate settings slot fit short windows. One readable directory/page header and action row; content uses lazy regular grids (four columns by default, configurable 2–6) or lists. File names use 17sp/24sp with two reserved lines; secondary information uses 16sp/22sp. Home shows actual resume/recent entries. File cards reserve stable artwork/name slots.
 - Focus has a 2dp blue outline and contrasting surface; selection uses a persistent tonal fill. Never move layout geometry when focus changes. Restore focus by resource identity and scrolling position.
 - Modals and right panels contain focus, scroll when required and return it to their trigger. All operations work with directions, OK and Back. Root Back exits without confirmation.
 - Video surface remains attached while HUD/panels appear. Keep timeline, primary playback action and options on clear axes; reserve legible subtitle space. Hide controls only when idle and no modal/edit state is active.
@@ -49,3 +49,23 @@ Published screenshots were located, but the web reader did not render the upstre
 All three reference repositories were shallow-cloned outside Fileway source and pinned in the private research receipt. Wholphin HEAD `6d029086e9e1c4b45a48bffaac9b39b8767f3b27`: inspected local Theme.kt, BlueThemeColors.kt, BoldBlueThemeColors.kt, GridCard.kt, NavDrawer.kt, PlaybackOverlay.kt and transport/controller components. Jellyfin Android TV HEAD `e3f2cc02dbe484a1afde85bfce52a98d55267a2b`: read its packaged home/player/detail screenshots directly as images, plus current video control source. Packaged screenshots are project reference assets and do not establish current upstream runtime behavior. Official tv-samples HEAD recorded in the research receipt; JetStream screenshot collage was visually inspected. No cloned repository is vendored into Fileway and no upstream movie art is packaged.
 
 For this projection-oriented build, use the reference's raised neutral surface levels as the normal canvas rather than an OLED-style near-black canvas. Player and image canvases retain media-appropriate black.
+
+## 0.3.0 browser and pairing implementation
+
+- Browse owns its ordinary theme below a separately themed player; its lazy lists and focus anchors remain composed while playback is active. Inactive browse actions are disabled and its semantics/dialogs are hidden. This removes the former whole-library/theme replacement; actual return motion remains a device acceptance item.
+- Card artwork and the focus ring share exactly the same 12dp bounds, with no inner card inset. The title slot is stable; list rows share the same aligned option component as settings.
+- Settings use measured category navigation plus a separate options column for interface, playback, cache, phone control, device information and login. Cache/account/decoder operations retain their existing implementations.
+- Current directory heading stays separate from the parent path; the location action exposes the complete directory name/path. File details expose full names and paths.
+- A pairing request immediately owns a visible page. Startup, QR generation, errors, retry, cancellation and expiry are explicit; absence of an invitation is a state to display rather than a reason to hide the page. A request waits for the real foreground host and cannot publish an invitation from an older host or a dismissed request.
+- Player HUD, measured media panels and the revised seek/back contract are the next implementation slice; the browser migration alone is not the 0.3.0 release.
+
+### Dense browser and inactive focus
+
+Directory actions share the title toolbar instead of a second full-height row.
+Grid gutters use 8dp; ordinary TV artwork stays 16:9, while windows shorter than
+480dp use a 2.2:1 slot so two rows fit without reducing filename type. Images
+remain aspect-fit within the slot. Settings category navigation uses tonal
+selection without the option check column and measures only its real slots;
+choice lists retain the aligned check column. Theme choices use content width.
+TV Material disabled surfaces remain focusable by design, so inactive browse
+actions also set `canFocus=false`; disabling clicks alone is insufficient.

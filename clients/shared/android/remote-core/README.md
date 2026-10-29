@@ -28,3 +28,15 @@ transport. Native control uses the existing Go core, separate from media leases.
 
 Protocol and threat boundaries: `clients/shared/core/remote/README.md`.
 Server contract: `server/docs/device-authorization.md`.
+
+A TV pairing request opens its UI immediately, independently of invitation
+availability. `TvHostState.phase` describes the foreground host; `pairingOpen`,
+`pairingBusy` and `pairingError` describe the explicit invitation operation.
+Startup errors, expiry and a lost host retain an actionable page instead of
+hiding it. Dismissal invalidates pending presentation results; an invitation
+from a replaced host is never published to the UI.
+
+The host observes non-VPN Wi-Fi/Ethernet networks, including link-address
+changes. Network + local address is the restart identity. Registering a callback
+also reports existing networks; that initial notification and VPN-only changes
+must not restart an unchanged LAN host or discard its invitation.

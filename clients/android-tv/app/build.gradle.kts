@@ -64,8 +64,8 @@ android {
         applicationId = "io.github.kkwans.fileway.tv"
         minSdk = 28
         targetSdk = 37
-        versionCode = 5
-        versionName = "0.2.1"
+        versionCode = 6
+        versionName = "0.3.0"
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         buildConfigField("boolean", "HAS_FFMPEG_AUDIO", hasFfmpegAudio.toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -89,7 +89,7 @@ android {
         }
     }
     buildTypes {
-        debug { privateTvSigning?.let { signingConfig = it } }
+        debug { versionNameSuffix = "-dev"; privateTvSigning?.let { signingConfig = it } }
         release {
             privateTvSigning?.let { signingConfig = it }
             isMinifyEnabled = true; isShrinkResources = true

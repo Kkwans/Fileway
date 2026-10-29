@@ -16,11 +16,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -93,39 +90,32 @@ internal val FilewayPlayerColors = BlueDarkColors.copy(
     tertiaryContainer = BlueDarkColors.primaryContainer, onTertiaryContainer = BlueDarkColors.onPrimaryContainer,
 )
 
-private fun text(size: Int, height: Int, weight: FontWeight = FontWeight.Normal, mono: Boolean = false) = TextStyle(
-    fontFamily = if (mono) FontFamily.Monospace else FontFamily.SansSerif,
-    fontWeight = weight, fontSize = size.sp, lineHeight = height.sp,
-    platformStyle = PlatformTextStyle(includeFontPadding = false),
-    lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
-)
-
 private val FilewayTypography = Typography(
-    displayLarge = text(36, 44, FontWeight.SemiBold),
-    displayMedium = text(32, 40, FontWeight.SemiBold),
-    displaySmall = text(28, 36, FontWeight.SemiBold),
-    headlineLarge = text(26, 34, FontWeight.SemiBold),
-    headlineMedium = text(24, 32, FontWeight.SemiBold),
-    headlineSmall = text(22, 30, FontWeight.SemiBold),
-    titleLarge = text(20, 28, FontWeight.SemiBold),
-    titleMedium = text(15, 22, FontWeight.SemiBold),
-    titleSmall = text(14, 20, FontWeight.Medium),
-    bodyLarge = text(17, 28),
-    bodyMedium = text(15, 22),
-    bodySmall = text(12, 18),
-    labelLarge = text(14, 20, FontWeight.Medium),
-    labelMedium = text(12, 16, FontWeight.Medium),
-    labelSmall = text(11, 16, FontWeight.Medium),
+    displayLarge = filewayTextStyle(36, 44, FontWeight.SemiBold),
+    displayMedium = filewayTextStyle(32, 40, FontWeight.SemiBold),
+    displaySmall = filewayTextStyle(28, 36, FontWeight.SemiBold),
+    headlineLarge = filewayTextStyle(26, 34, FontWeight.SemiBold),
+    headlineMedium = filewayTextStyle(24, 32, FontWeight.SemiBold),
+    headlineSmall = filewayTextStyle(22, 30, FontWeight.SemiBold),
+    titleLarge = filewayTextStyle(20, 28, FontWeight.SemiBold),
+    titleMedium = filewayTextStyle(15, 22, FontWeight.SemiBold),
+    titleSmall = filewayTextStyle(14, 20, FontWeight.Medium),
+    bodyLarge = filewayTextStyle(17, 28),
+    bodyMedium = filewayTextStyle(15, 22),
+    bodySmall = filewayTextStyle(12, 18),
+    labelLarge = filewayTextStyle(14, 20, FontWeight.Medium),
+    labelMedium = filewayTextStyle(12, 16, FontWeight.Medium),
+    labelSmall = filewayTextStyle(11, 16, FontWeight.Medium),
 )
 
 @Immutable data class FilewayTextRoles(
-    val appBar: TextStyle = text(18, 26, FontWeight.SemiBold),
-    val fileName: TextStyle = text(15, 22, FontWeight.Medium),
-    val compactName: TextStyle = text(14, 20, FontWeight.Medium),
-    val metadata: TextStyle = text(12, 18),
-    val technical: TextStyle = text(12, 18, mono = true),
-    val clock: TextStyle = text(13, 18, mono = true),
-    val reading: TextStyle = text(17, 28),
+    val appBar: TextStyle = filewayTextStyle(18, 26, FontWeight.SemiBold),
+    val fileName: TextStyle = filewayTextStyle(15, 22, FontWeight.Medium),
+    val compactName: TextStyle = filewayTextStyle(14, 20, FontWeight.Medium),
+    val metadata: TextStyle = filewayTextStyle(12, 18),
+    val technical: TextStyle = filewayTextStyle(12, 18, mono = true),
+    val clock: TextStyle = filewayTextStyle(13, 18, mono = true),
+    val reading: TextStyle = filewayTextStyle(17, 28),
 )
 
 @Immutable data class FilewayStatusColors(

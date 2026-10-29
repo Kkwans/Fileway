@@ -8,4 +8,5 @@ android {
 dependencies {
     api(platform("androidx.compose:compose-bom:2026.09.00"))
     api("androidx.compose.ui:ui-graphics")
+    api("androidx.compose.ui:ui-text")
 }
