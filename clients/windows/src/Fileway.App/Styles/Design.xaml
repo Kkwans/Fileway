@@ -676,6 +676,8 @@
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                               AutomationProperties.AccessibilityView="Raw" />
+            <Border BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
             <Border x:Name="SelectionBar" Width="3" Height="28" CornerRadius="2" Margin="6,0,0,0"
                     HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"
                     Background="{ThemeResource AccentFillColorDefaultBrush}" IsHitTestVisible="False" />
