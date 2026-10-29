@@ -55,6 +55,8 @@ data class PlayerState(
     val decoderRecovery: String? = null,
     /** Engine confirmed this position; a requested/buffering seek is not a checkpoint. */
     val canSavePosition: Boolean = false, val ended: Boolean = false,
+    /** Renderer buffers delivered to the audio sink; not proof of audible output. */
+    val audioRenderedBuffers: Int = 0, val audioSkippedBuffers: Int = 0,
 )
 
 /** Main-thread session facade. Track/rate/subtitle commands never reopen the media or rebind video. */
@@ -365,6 +367,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         if (previous.playing != player.isPlaying) trace.record(if (player.isPlaying) PlaybackTraceAction.PLAYING else PlaybackTraceAction.PAUSED)
         val format = player.videoFormat
         val colors = format?.colorInfo
+        val audioCounters = player.audioDecoderCounters?.also { it.ensureUpdated() }
         mutable.value = previous.copy(
             phase = when {
                 player.playbackState == Player.STATE_ENDED -> "播放完毕"
@@ -380,6 +383,8 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             waitingForBuffer = player.playWhenReady && player.playbackState == Player.STATE_BUFFERING,
             buffering = if (player.playbackState == Player.STATE_READY) 100f else (loadControl?.percent ?: 0).coerceAtMost(99).toFloat(),
             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0),
+            audioRenderedBuffers = audioCounters?.renderedOutputBufferCount ?: 0,
+            audioSkippedBuffers = audioCounters?.skippedOutputBufferCount ?: 0,
             width = player.videoSize.width, height = player.videoSize.height, rate = player.playbackParameters.speed, volume = (player.volume * 100).toInt(),
             sourceVideoCodec = format?.codecs ?: format?.sampleMimeType ?: "未知",
             sourceDynamicRange = sourceDynamicRange(format?.sampleMimeType, format?.codecs, colors?.colorTransfer),

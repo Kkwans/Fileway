@@ -42,6 +42,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         content.put("playback",JSONObject().put("playing",player.playing).put("positionMs",model.media.sourcePosition()).put("durationMs",media.sourceDurationMs)
             .put("bufferedMs",player.bufferedPositionMs+media.sourceOffsetMs).put("volume",player.volume).put("rate",player.rate).put("seekable",player.seekable)
             .put("firstFrameRendered",player.firstFrameRendered).put("audioDecoder",player.audioDecoder.take(120)).put("subtitleLoading",player.subtitleLoading).put("waitingForBuffer",player.waitingForBuffer)
+            .put("audioRenderedBuffers",player.audioRenderedBuffers).put("audioSkippedBuffers",player.audioSkippedBuffers)
             .put("hdrMode",media.mode.name).put("sdrAvailable",media.sdrAvailable).put("subtitleDelayMs",player.subtitleDelayMs)
             .put("audio",JSONArray(if(media.compatible)media.sourceAudio.take(16).map{JSONObject().put("id",it.index).put("title",it.title.take(120)).put("codec",it.codec.take(40)).put("language",it.language.take(40)).put("source",true)} else player.audio.take(16).map{JSONObject().put("id",it.id).put("title",it.title.take(120)).put("codec",it.codec.take(40)).put("language",it.language.take(40)).put("source",false)}))
             .put("subtitles",JSONArray(player.subtitles.take(16).map{JSONObject().put("id",it.id).put("title",it.title.take(120))}))

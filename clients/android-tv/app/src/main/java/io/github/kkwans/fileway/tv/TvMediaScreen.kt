@@ -167,7 +167,7 @@ import kotlinx.coroutines.*
                 item{Text(file.name,style=MaterialTheme.typography.titleMedium)}
                 item{Text(file.path,style=MaterialTheme.typography.bodyMedium)}
                 item{Text("视频缓存 ${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}${cache.error?.let{failure->"\n$failure"}.orEmpty()}",style=MaterialTheme.typography.bodyMedium)}
-                item{Text("片源动态范围：${state.info?.optString("dynamicRange","未知")}\n请求模式：${state.mode.title}\n实际路径：${if(state.compatible)"SDR 兼容" else "原文件"}\n视频输出：${tvOutputSignal(player)}\n解码器：${player.videoDecoder}\n解码类型：${player.videoDecoderKind}\n视频画面：${player.width} × ${player.height}\n音频解码器：${player.audioDecoder}",style=MaterialTheme.typography.bodyMedium)}
+                item{Text("片源动态范围：${state.info?.optString("dynamicRange","未知")}\n请求模式：${state.mode.title}\n实际路径：${if(state.compatible)"SDR 兼容" else "原文件"}\n视频输出：${tvOutputSignal(player)}\n解码器：${player.videoDecoder}\n解码类型：${player.videoDecoderKind}\n视频画面：${player.width} × ${player.height}\n音频解码器：${player.audioDecoder}\n音频输出缓冲：${player.audioRenderedBuffers}\n音频跳过缓冲：${player.audioSkippedBuffers}",style=MaterialTheme.typography.bodyMedium)}
             }
         }
     } }
