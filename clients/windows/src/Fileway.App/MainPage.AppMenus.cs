@@ -12,7 +12,7 @@ namespace Fileway.App;
 public sealed partial class MainPage
 {
     private WindowTitleBar? _applicationTitleBar;
-    private ElementTheme _applicationTheme = ElementTheme.Default;
+    private ElementTheme _applicationTheme = UiPreferences.LoadTheme();
     private bool _applicationMenusReady;
     private readonly List<(UIElement Element, long Token)> _applicationMenuViews = [];
 
@@ -136,6 +136,7 @@ public sealed partial class MainPage
         if (sender is not RadioMenuFlyoutItem { Tag: string value } || !Enum.TryParse<ElementTheme>(value, out var theme)) return;
         _applicationTheme = theme;
         ApplyTheme();
+        UiPreferences.SaveTheme(theme);
     }
 
     private async void KeyboardHelp_Click(object sender, RoutedEventArgs args)

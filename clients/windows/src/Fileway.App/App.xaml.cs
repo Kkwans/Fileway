@@ -1,4 +1,4 @@
-﻿using Fileway.App.MediaSurfaces;
+using Fileway.App.MediaSurfaces;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Fileway.Infrastructure.Ipc;
@@ -43,6 +43,7 @@ public partial class App : Application, IAsyncDisposable
     {
         try
         {
+            UiPreferences.Configure(DataDirectory());
             _window = new MainWindow();
             _window.CloseRequested += MainWindow_CloseRequested;
             _window.ExitRequested += (_, _) => RequestExit();
