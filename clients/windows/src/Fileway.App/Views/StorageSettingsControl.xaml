@@ -15,10 +15,10 @@
                 <TextBlock Text="清理仅移除已识别且未使用的缓存，保留活跃播放缓存、下载文件和未知文件。" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <InfoBar x:Name="CacheNotice" IsOpen="False" IsClosable="False" Severity="Informational"/>
                 <ContentControl x:Name="CacheActions" IsEnabled="False" HorizontalContentAlignment="Stretch">
-                    <CommandBar Background="Transparent" DefaultLabelPosition="Right" IsDynamicOverflowEnabled="False">
-                        <AppBarButton Label="刷新" Click="RefreshCache_Click" AutomationProperties.Name="刷新缓存占用"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrows-clockwise"/></AppBarButton.Icon></AppBarButton>
-                        <AppBarButton Label="清理未使用缓存" Click="ClearCache_Click" AutomationProperties.Name="清理未使用缓存"><AppBarButton.Icon><ui:LucideActionIcon IconName="trash"/></AppBarButton.Icon></AppBarButton>
-                    </CommandBar>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <Button Click="RefreshCache_Click" AutomationProperties.Name="刷新缓存占用" Style="{StaticResource FwTextIconButtonStyle}"><StackPanel Orientation="Horizontal" Spacing="8"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/><TextBlock Text="刷新"/></StackPanel></Button>
+                        <Button Click="ClearCache_Click" AutomationProperties.Name="清理未使用缓存" Style="{StaticResource FwTextIconButtonStyle}"><StackPanel Orientation="Horizontal" Spacing="8"><ui:LucideIcon IconName="trash" Width="16" Height="16"/><TextBlock Text="清理未使用缓存"/></StackPanel></Button>
+                    </StackPanel>
                 </ContentControl>
             </StackPanel>
             <ContentControl x:Name="SettingsFields" IsEnabled="False" HorizontalContentAlignment="Stretch">

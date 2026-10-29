@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Fileway.App.Views;
 using Fileway.App.Branding;
@@ -613,8 +613,8 @@ public sealed partial class MainPage : Page, IDisposable
         if (NewButton is not null) { ToolTipService.SetToolTip(NewButton, T("新建")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NewButton, T("新建")); }
         if (UploadFileButton is not null) { ToolTipService.SetToolTip(UploadFileButton, T("上传文件")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UploadFileButton, T("上传文件")); }
         if (DownloadFileButton is not null) { ToolTipService.SetToolTip(DownloadFileButton, T("下载")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DownloadFileButton, T("下载")); }
-        if (DownloadHistoryButton is not null) DownloadHistoryButton.Label = T("下载记录");
-        if (UploadHistoryButton is not null) UploadHistoryButton.Label = T("上传记录");
+        if (DownloadHistoryButton is not null) DownloadHistoryButton.Text = T("下载记录");
+        if (UploadHistoryButton is not null) UploadHistoryButton.Text = T("上传记录");
         if (LogoutButton is not null) LogoutButton.Text = T("退出登录");
         if (MenuTrashPageItem is not null) MenuTrashPageItem.Text = T("回收站");
         if (CollectionsButton is not null) CollectionsButton.Text = T("管理收藏与标签…");
@@ -624,8 +624,8 @@ public sealed partial class MainPage : Page, IDisposable
         if (MenuServerSearchItem is not null) MenuServerSearchItem.Text = T("服务器搜索");
         if (MenuNasTasksItem is not null) MenuNasTasksItem.Text = T("文件任务");
         if (ChangePasswordButton is not null) ChangePasswordButton.Text = T("修改密码…");
-        if (FavoriteActionButton is not null) FavoriteActionButton.Label = T("收藏");
-        if (TagActionButton is not null) TagActionButton.Label = T("标记");
+        if (FavoriteActionButton is not null) FavoriteActionButton.Text = T("收藏");
+        if (TagActionButton is not null) TagActionButton.Text = T("标记");
         Localization.CultureChanged -= ApplyLocalization;
         Localization.CultureChanged += ApplyLocalization;
     }
@@ -738,7 +738,7 @@ public sealed partial class MainPage : Page, IDisposable
         SidebarCollections.IsEnabled = !_disposed && !_connecting && CollectionsPanel.CanNavigate;
         FavoriteActionButton.IsEnabled = TagActionButton.IsEnabled = DetailsFavoriteButton.IsEnabled = DetailsTagButton.IsEnabled = enabled;
         var favorite = CollectionsPanel.IsCurrentResourceFavorite;
-        FavoriteActionButton.Label = favorite ? "取消收藏" : "收藏";
+        FavoriteActionButton.Text = favorite ? "取消收藏" : "收藏";
         ToolTipService.SetToolTip(DetailsFavoriteButton, favorite ? "取消收藏" : "收藏");
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DetailsFavoriteButton, favorite ? "取消收藏" : "收藏");
     }
