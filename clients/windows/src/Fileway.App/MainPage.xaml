@@ -255,7 +255,7 @@
      </Grid>
     </Border>
    </Grid>
-   <Grid Grid.Row="3" Height="28"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Text="尚未连接" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/><Button x:Name="CancelButton" Grid.Column="1" Content="取消加载" Style="{StaticResource SubtleButtonStyle}" FontSize="12" Height="24" MinHeight="24" Padding="8,0" Visibility="Collapsed" Click="Cancel_Click"/></Grid>
+   <Grid Grid.Row="3" Height="28"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Text="尚未连接" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextTrimming="CharacterEllipsis"/><Button x:Name="CancelButton" Grid.Column="1" Content="取消加载" Style="{StaticResource FwTextIconButtonStyle}" FontSize="12" Height="24" MinHeight="24" Padding="8,0" Visibility="Collapsed" Click="Cancel_Click"/></Grid>
   </Grid>
   <recent:RecentAccessControl x:Name="RecentPane" Visibility="Collapsed"/>
   <search:SearchResultsControl x:Name="SearchPane" Visibility="Collapsed"/>
@@ -294,7 +294,7 @@
     <Grid MaxWidth="560" HorizontalAlignment="Center" RowSpacing="8"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <StackPanel Spacing="2"><CheckBox x:Name="KeepSignedInBox" Content="保持登录" IsChecked="True"/><TextBlock x:Name="RetentionDescription" Text="勾选后在当前 Windows 用户下加密保存密码和会话，用于自动恢复；退出登录或忘记连接会删除。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
      <Button x:Name="ConnectButton" Grid.Row="1" Content="连接并浏览" Style="{StaticResource FwPrimaryButtonStyle}" Click="Connect_Click" IsEnabled="False" HorizontalAlignment="Stretch"/>
-     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8"><Button x:Name="CancelConnectionButton" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click"/><Button x:Name="DismissConnection" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click"/></StackPanel>
+     <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8"><Button x:Name="CancelConnectionButton" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="DismissConnection" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}"/></StackPanel>
     </Grid>
    </Border>
   </Grid>
