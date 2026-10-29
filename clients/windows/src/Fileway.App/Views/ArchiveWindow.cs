@@ -351,7 +351,6 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             leaf = DownloadPresentationPolicy.IsSafeLocalName(leaf) ? leaf : "archive";
             string target = state.Active.DownloadDirectory.TrimEnd('\\') + "\\archive-extract\\" + leaf;
             var panel = new StackPanel { Spacing = 10, MinWidth = 340, MaxWidth = 460 };
-            panel.Children.Add(new TextBlock { Text = all ? "解压全部文件" : "解压选中条目", FontSize = 20, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
             panel.Children.Add(new TextBlock { Text = $"解压 {indexes.Count} 个文件到：", TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(new TextBlock { Text = target, TextWrapping = TextWrapping.Wrap, FontSize = 12, IsTextSelectionEnabled = true });
             panel.Children.Add(new TextBlock { Text = "已存在的同名文件将跳过且不覆盖；解压结果逐条列明。", FontSize = 12, Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
@@ -359,8 +358,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             {
                 XamlRoot = _root.XamlRoot,
                 RequestedTheme = _theme,
-                FlowDirection = FlowDirection.RightToLeft,
-                Content = new Border { FlowDirection = FlowDirection.LeftToRight, Child = panel },
+                Title = all ? "解压全部文件" : "解压选中条目",
+                Content = panel,
                 PrimaryButtonText = "开始解压",
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,

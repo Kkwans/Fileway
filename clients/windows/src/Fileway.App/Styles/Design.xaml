@@ -1,7 +1,8 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctl="using:Fileway.App.Controls">
 
   <ResourceDictionary.ThemeDictionaries>
     <ResourceDictionary x:Key="Default">
@@ -424,5 +425,6 @@
     <Setter Property="PrimaryButtonStyle" Value="{StaticResource FwPrimaryButtonStyle}" />
     <Setter Property="CloseButtonStyle" Value="{StaticResource FwSecondaryButtonStyle}" />
     <Setter Property="SecondaryButtonStyle" Value="{StaticResource FwSecondaryButtonStyle}" />
+    <Setter Property="ctl:DialogOrdering.Enable" Value="True" />
   </Style>
 </ResourceDictionary>
