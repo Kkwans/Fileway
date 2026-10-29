@@ -1,4 +1,4 @@
-using Fileway.App.MediaSurfaces;
+﻿using Fileway.App.MediaSurfaces;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Fileway.Infrastructure.Ipc;
@@ -294,7 +294,7 @@ public partial class App : Application, IAsyncDisposable
         _lifetime.Dispose();
     }
 
-    private static string DataDirectory() => Environment.GetEnvironmentVariable("FILEWAY_WINDOWS_DATA_ROOT")
+    internal static string DataDirectory() => Environment.GetEnvironmentVariable("FILEWAY_WINDOWS_DATA_ROOT")
         ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Fileway", "Preview");
 
     private static string DefaultDownloadDirectory()

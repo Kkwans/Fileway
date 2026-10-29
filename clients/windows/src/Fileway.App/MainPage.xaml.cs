@@ -632,6 +632,11 @@ public sealed partial class MainPage : Page, IDisposable
         if (row.File.IsDirectory) { _history.Push(_trail.ToArray()); _trail.Add(row.File.Resource); await LoadAsync(row.File.Resource); return; }
         try
         {
+            if (CategoryOf(row) is { } openCategory && OpenWith.For(openCategory) == OpenPreference.SystemDefault)
+            {
+                await OpenWithSystemAsync(row);
+                return;
+            }
             if (row.IsImage && _images is not null)
             {
                 var window = new ImageWindow(_images, row.File.Resource, images, _files as IRecentAccessService); _imageWindows.Add(window);

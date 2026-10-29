@@ -84,7 +84,7 @@
     <MenuFlyoutSubItem Text="界面主题"><RadioMenuFlyoutItem x:Name="MenuSystemThemeItem" Text="跟随系统" Tag="Default" GroupName="ApplicationTheme" IsChecked="True" Click="ApplicationTheme_Click"/><RadioMenuFlyoutItem x:Name="MenuLightThemeItem" Text="浅色" Tag="Light" GroupName="ApplicationTheme" Click="ApplicationTheme_Click"/><RadioMenuFlyoutItem x:Name="MenuDarkThemeItem" Text="深色" Tag="Dark" GroupName="ApplicationTheme" Click="ApplicationTheme_Click"/></MenuFlyoutSubItem>
    </MenuBarItem>
    <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="工具" AccessKey="T">
-    <MenuFlyoutItem Text="外观与交互…" Click="PresentationSettings_Click"/><ToggleMenuFlyoutItem x:Name="MenuCloseToTrayItem" Text="关闭窗口后保留在托盘" IsChecked="True" Click="CloseToTray_Click"/>
+    <MenuFlyoutItem Text="外观与交互…" Click="PresentationSettings_Click"/><MenuFlyoutItem Text="打开方式…" Click="OpenWithSettings_Click"/><ToggleMenuFlyoutItem x:Name="MenuCloseToTrayItem" Text="关闭窗口后保留在托盘" IsChecked="True" Click="CloseToTray_Click"/>
     <MenuFlyoutSeparator/>
     <MenuFlyoutItem x:Name="MenuServerSearchItem" Text="搜索文件…" Click="ServerSearch_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuRecentItem" Text="最近访问" Click="RecentAccess_Click" IsEnabled="False"/>
