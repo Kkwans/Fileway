@@ -89,17 +89,30 @@ class TvSubtitleCompanionProbeTest {
             command("playback.seekTo", JSONObject().put("positionMs", 2000))
             state { it.content.getJSONObject("playback").optLong("positionMs") in 1800..2300 }
             delay(800)
-            fun capture(name: String) {
+            fun capture(name: String): Pair<Int, Int> {
                 val bitmap = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
                 File(context.getExternalFilesDir(null), name).outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                var red = 0; var blue = 0
+                // The authored fixture has a black canvas. Only its attached
+                // ASS font and vector event contribute these saturated colors.
+                for (y in 0 until bitmap.height * 2 / 5 step 4) for (x in 0 until bitmap.width step 4) {
+                    val pixel = bitmap.getPixel(x, y)
+                    val r = android.graphics.Color.red(pixel); val g = android.graphics.Color.green(pixel); val b = android.graphics.Color.blue(pixel)
+                    if (r > 220 && g < 30 && b < 30) red++
+                    if (b > 220 && r < 30 && g < 30) blue++
+                }
                 bitmap.recycle()
+                return red to blue
             }
-            capture("tv-subtitle-ass.png")
+            val visible = capture("tv-subtitle-ass.png")
+            assertTrue("Attached ASS font must actually render: $visible", visible.first > 100)
+            assertTrue("ASS vector must actually render: $visible", visible.second > 100)
             records.put(JSONObject().put("stage", "source-ass-font").put("playback", client.state.value.snapshot!!.content.getJSONObject("playback")))
             command("subtitle.disable")
             state { it.content.getJSONObject("playback").optInt("selectedSubtitle", -1) == -1 }
             delay(400)
-            capture("tv-subtitle-off.png")
+            val cleared = capture("tv-subtitle-off.png")
+            assertEquals("ASS glyphs must clear", 0 to 0, cleared)
             command("playback.stop")
             state { it.scene == "BROWSE" }
             val video = find(config.getString("videoName")) ?: error("Owned timeline fixture unavailable")
