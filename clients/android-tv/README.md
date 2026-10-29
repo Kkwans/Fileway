@@ -3,6 +3,10 @@
 独立 Android TV / 横屏投影仪客户端。最低 Android 9（API28），发布 ABI 为
 `armeabi-v7a` 与 `arm64-v8a`，与手机应用使用不同包名和私有数据。
 
+[下载 TV 0.2.0](https://github.com/Kkwans/Fileway/releases/tag/android-tv-0.2.0) · [配套手机端 1.2.2](https://github.com/Kkwans/Fileway/releases/tag/android-1.2.2)
+
+本次可侧载包为同签名 debug APK，未做 release 压缩；TV 尚未包含 FFmpeg 音频扩展。
+
 ## 构建
 
 使用手机端相同的锁定 JDK17、SDK37、NDK28.2、CMake3.22.1 和 Gradle wrapper。

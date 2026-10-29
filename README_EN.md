@@ -6,7 +6,7 @@
 
 Connect to your server from a browser or an Android phone to manage files, enjoy media and organize your library.
 
-[Android 1.2.1 stable](https://github.com/Kkwans/Fileway/releases/tag/android-1.2.1) · [Download APK](https://github.com/Kkwans/Fileway/releases/download/android-1.2.1/fileway-android-1.2.1.apk) · [Set up a server](#get-started) · [简体中文](README.md)
+[Android 1.2.2 stable](https://github.com/Kkwans/Fileway/releases/tag/android-1.2.2) · [Download APK](https://github.com/Kkwans/Fileway/releases/download/android-1.2.2/fileway-android-1.2.2.apk) · [Set up a server](#get-started) · [简体中文](README.md)
 
 </div>
 
@@ -46,7 +46,7 @@ The server includes the Web interface. Open your instance address in a browser o
 
 ### 2. Connect Android
 
-[Download the stable Android APK](https://github.com/Kkwans/Fileway/releases/download/android-1.2.1/fileway-android-1.2.1.apk), install it, enter your own server address and sign in.
+[Download the stable Android APK](https://github.com/Kkwans/Fileway/releases/download/android-1.2.2/fileway-android-1.2.2.apk), install it, enter your own server address and sign in.
 
 - Android **10 or later**, with **arm64-v8a and x86_64** in one APK.
 - Install over the existing app to retain accounts, transfer records and settings; the package and signing identity are preserved.

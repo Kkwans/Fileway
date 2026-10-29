@@ -6,9 +6,11 @@ A native Android file and media client for your own Fileway server. Android **10
 
 ## Install and update
 
-[Download Android 1.2.1 stable](https://github.com/Kkwans/Fileway/releases/download/android-1.2.1/fileway-android-1.2.1.apk) · [Release notes](docs/release-1.2.1.md) · [All releases](https://github.com/Kkwans/Fileway/releases)
+[Download Android 1.2.2 stable](https://github.com/Kkwans/Fileway/releases/download/android-1.2.2/fileway-android-1.2.2.apk) · [Release notes](docs/release-1.2.2.md) · [All releases](https://github.com/Kkwans/Fileway/releases)
 
-The current stable release is **1.2.1**. Upgrade over the existing app to preserve the package, signing identity and local state. Uninstalling or clearing data is not part of an ordinary upgrade.
+The current stable release is **1.2.2**. Upgrade over the existing app to preserve the package, signing identity and local state. Uninstalling or clearing data is not part of an ordinary upgrade.
+
+Use “连接 TV” in the phone drawer to pair with TV 0.2.0 and authorize its independent account. See [companion control](docs/tv-control.md). This download is an original-signed debug APK without release shrinking.
 
 ## Screenshots
 

@@ -6,9 +6,11 @@
 
 ## 安装与更新
 
-[下载 1.2.1 正式版 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.2.1/fileway-android-1.2.1.apk) · [发布说明](docs/release-1.2.1.md) · [全部版本](https://github.com/Kkwans/Fileway/releases)
+[下载 1.2.2 正式版 APK](https://github.com/Kkwans/Fileway/releases/download/android-1.2.2/fileway-android-1.2.2.apk) · [发布说明](docs/release-1.2.2.md) · [全部版本](https://github.com/Kkwans/Fileway/releases)
 
-当前正式版为 **1.2.1**。覆盖安装保留原包名、签名和本机数据；不要通过卸载或清空数据解决普通升级问题。
+当前正式版为 **1.2.2**。覆盖安装保留原包名、签名和本机数据；不要通过卸载或清空数据解决普通升级问题。
+
+手机侧栏的「连接 TV」可配对 TV 0.2.0 并独立授权账号；见[手机遥控](docs/tv-control.md)。本次下载为原签名 debug APK，未做 release 压缩。
 
 ## 界面预览
 
