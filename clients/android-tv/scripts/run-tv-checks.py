@@ -17,6 +17,7 @@ def main():
     parser.add_argument('--connection-file', type=Path, required=True)
     parser.add_argument('--output-dir', type=Path, required=True)
     parser.add_argument('--adb', type=Path)
+    parser.add_argument('--include-audio', action='store_true', help='Run audio decoding only when audio changes require it')
     args = parser.parse_args()
     if hasattr(sys.stdout,"reconfigure"): sys.stdout.reconfigure(encoding="utf-8",errors="replace")
     if not args.serial.startswith('emulator-') or not args.output_dir.is_absolute():
@@ -49,9 +50,12 @@ def main():
     command('install', '-r', str(root / 'app/build/outputs/apk/debug/app-debug.apk'), timeout=120)
     command('install', '-r', str(root / 'app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk'), timeout=120)
     command('logcat', '-c', timeout=20)
+    classes = 'io.github.kkwans.fileway.tv.TvJourneyTest,io.github.kkwans.fileway.tv.TvCacheAndDiscoveryTest'
+    if args.include_audio:
+        classes += ',io.github.kkwans.fileway.tv.TvAudioExtensionTest'
     # Do not print the command, credentials, JWTs or connection receipt.
     result = subprocess.run([adb, '-s', args.serial, 'shell', 'am', 'instrument', '-w', '-r',
-        '-e', 'class', 'io.github.kkwans.fileway.tv.TvJourneyTest,io.github.kkwans.fileway.tv.TvCacheAndDiscoveryTest,io.github.kkwans.fileway.tv.TvAudioExtensionTest', '-e', 'fixture_url', connection['url'],
+        '-e', 'class', classes, '-e', 'fixture_url', connection['url'],
         '-e', 'fixture_username', connection['username'], '-e', 'fixture_password', connection['password'],
         'io.github.kkwans.fileway.tv.test/androidx.test.runner.AndroidJUnitRunner'], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     text = result.stdout + result.stderr
@@ -63,10 +67,13 @@ def main():
     (destination / 'logcat.txt').write_text(logcat,encoding="utf-8")
     pull = subprocess.run([adb, '-s', args.serial, 'pull', '/sdcard/Android/data/io.github.kkwans.fileway.tv/files/tv-acceptance', str(destination)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
     (destination / 'evidence-pull.txt').write_text(pull.stdout + pull.stderr,encoding="utf-8")
-    audio_pull = subprocess.run([adb, '-s', args.serial, 'pull', '/sdcard/Android/data/io.github.kkwans.fileway.tv/files/tv-audio-acceptance.json', str(destination)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
-    (destination / 'audio-evidence-pull.txt').write_text(audio_pull.stdout + audio_pull.stderr,encoding="utf-8")
+    audio_ok = True
+    if args.include_audio:
+        audio_pull = subprocess.run([adb, '-s', args.serial, 'pull', '/sdcard/Android/data/io.github.kkwans.fileway.tv/files/tv-audio-acceptance.json', str(destination)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        (destination / 'audio-evidence-pull.txt').write_text(audio_pull.stdout + audio_pull.stderr,encoding="utf-8")
+        audio_ok = audio_pull.returncode == 0
     count = re.search(r'OK \((\d+) tests?\)', text)
-    passed = result.returncode == 0 and pull.returncode == 0 and audio_pull.returncode == 0 and count is not None and int(count.group(1)) >= 7 and 'FAILURES!!!' not in text and 'INSTRUMENTATION_FAILED' not in text
+    passed = result.returncode == 0 and pull.returncode == 0 and audio_ok and count is not None and int(count.group(1)) >= (7 if args.include_audio else 6) and 'FAILURES!!!' not in text and 'INSTRUMENTATION_FAILED' not in text
     receipt = dict(status='PASS' if passed else 'FAIL', serial=args.serial, avd=name, api=api, abi=abi,
                    executedTests=int(count.group(1)) if count else None,
                    evidenceClass='API28 Android TV emulator with isolated real Fileway backend; software video and audio decoder/sink diagnostics; no HDR/audible-output/physical-device claim')

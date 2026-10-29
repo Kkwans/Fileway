@@ -26,6 +26,8 @@ trust and epochs before calling the real model/player on Main. The UI projects
 public state snapshots instead of serializing internal session objects. Browse
 items use opaque resource IDs; only the TV resolves them against its own state.
 
+Playback snapshots also expose optional `positionLocalMs`, `sourceOffsetMs` and
+`sdrActive` diagnostics; `positionMs` always refers to the original source timeline.
 Playback snapshots optionally report `audioDecoder`, `audioRenderedBuffers` and
 `audioSkippedBuffers` for diagnostics. Counts belong to the current audio renderer
 and may reset when it changes; they are buffers, not PCM frames or elapsed time.

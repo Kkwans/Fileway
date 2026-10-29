@@ -138,7 +138,7 @@ class TvJourneyTest {
         scenario.onActivity { model.media.switchMode(TvHdrMode.SDR) }
         waitFor("real compatibility window decoded", 90_000) { !model.media.state.value.busy && model.media.state.value.compatible && model.media.player.state.value.firstFrameRendered }
         assertTrue("source offset is retained", model.media.state.value.sourceOffsetMs >= 120_000)
-        assertTrue("position is original time, never segment zero", model.media.sourcePosition() in 120_000..124_000)
+        assertTrue("position is original time: source=${model.media.sourcePosition()} local=${model.media.player.state.value.positionMs} offset=${model.media.state.value.sourceOffsetMs}", model.media.sourcePosition() in 120_000..124_000)
         assertFalse("pause intent survives source switching", model.media.player.wantsPlay)
         assertTrue("source subtitle restored", model.media.player.state.value.selectedSubtitle >= 0)
         capture("sdr-source-timeline.png")

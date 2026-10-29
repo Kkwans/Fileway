@@ -71,7 +71,8 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
                     val device = TvDescriptor.from(call("remote_descriptor") as JSONObject)
                     mutable.value = TvHostState(device)
                     registration = advertise(device)
-                    if (controllers.isEmpty()) showPairing()
+                    // Pairing is opened by the TV entry or a discovered phone's
+                    // request, so an unpaired installation remains usable by remote.
                     publish()
                     coroutineScope {
                         launch { while (isActive) { delay(1000); publish() } }

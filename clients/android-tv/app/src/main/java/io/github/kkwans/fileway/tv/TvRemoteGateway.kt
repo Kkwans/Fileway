@@ -40,6 +40,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         model.context?.let{content.put("session",JSONObject().put("origin",it.profile.address.take(512)).put("username",it.api.identity.username.take(120)))}
         media.file?.let{content.put("media",fileJson(it))}
         content.put("playback",JSONObject().put("playing",player.playing).put("positionMs",model.media.sourcePosition()).put("durationMs",media.sourceDurationMs)
+            .put("positionLocalMs",player.positionMs).put("sourceOffsetMs",media.sourceOffsetMs).put("sdrActive",media.compatible)
             .put("bufferedMs",player.bufferedPositionMs+media.sourceOffsetMs).put("volume",player.volume).put("rate",player.rate).put("seekable",player.seekable)
             .put("firstFrameRendered",player.firstFrameRendered).put("audioDecoder",player.audioDecoder.take(120)).put("subtitleLoading",player.subtitleLoading).put("waitingForBuffer",player.waitingForBuffer)
             .put("audioRenderedBuffers",player.audioRenderedBuffers).put("audioSkippedBuffers",player.audioSkippedBuffers)
