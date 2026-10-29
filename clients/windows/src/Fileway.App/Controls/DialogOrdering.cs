@@ -44,14 +44,15 @@ public static class DialogOrdering
         {
             var primaryColumn = Grid.GetColumn(primary);
             var closeColumn = Grid.GetColumn(close);
-            if (primaryColumn == closeColumn) return false;
+            if (primaryColumn == closeColumn || primaryColumn > closeColumn) return false;
             Grid.SetColumn(primary, closeColumn);
             Grid.SetColumn(close, primaryColumn);
             return true;
         }
         // Fallback for stack-based templates: move the primary button to the container end.
         var index = container.Children.IndexOf(primary);
-        if (index < 0 || index == container.Children.Count - 1) return false;
+        var closeIndex = container.Children.IndexOf(close);
+        if (index < 0 || closeIndex < 0 || index > closeIndex) return false;
         container.Children.RemoveAt(index);
         container.Children.Add(primary);
         return true;
