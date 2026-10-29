@@ -175,7 +175,10 @@ public sealed partial class FileUploadRunner
     {
         long length = state.Record.Checkpoint.Source?.Length ?? throw Safe(ErrorCode.InvalidRequest);
         var request = new UploadLeaseRequest(state.Target, length, state.Run.Task.Id,
-            Overwrite: state.Record.Plan.Conflict == FileConflictPolicy.Replace, Resume: resume);
+            Overwrite: state.Record.Plan.Conflict == FileConflictPolicy.Replace, Resume: resume,
+            Batch: state.Record.Plan.Batch is { } batch
+                ? new UploadBatchMetadata(batch.Id, batch.Name, batch.ItemCount, batch.TotalBytes, batch.IsFolder)
+                : null);
         var lease = await AcquireOwnedAsync(token => _leases.AcquireUploadAsync(request, token), state.Execution.Stop.Token).ConfigureAwait(false);
         if (lease.TransferId == request.TransferId && lease.Length == length && lease.IsResume == resume &&
             lease.Resource.Account == state.Target.Account && lease.Resource.WirePath == state.Target.WirePath && ValidAddress(lease.Address))

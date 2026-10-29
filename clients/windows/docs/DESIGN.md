@@ -288,6 +288,6 @@ components:
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。
 - [x] 紧凑网格已实机复核（2026-10-29，`screens/ui-layouts/compact-grid.png`），容器状态正常；无界网格仍待复核（自动化点击未生效）。
 - [ ] 拖到文件夹移动需真实鼠标验收；拖出到资源管理器未开始。
-- [ ] 文件夹“整组上传”尚未实现：提交端按文件创建任务并带 `BatchId`/`Ordinal` 持久化，但 `UploadLeaseRequest.Batch` 无调用方，服务器收不到 `X-Upload-Batch`/`X-Upload-Folder`，传输中心也只能逐文件展示。补齐需要批次名称/文件数/总字节的持久化与协议透传，不能只改 UI 文案。
+- [~] 文件夹“整组上传”（0.8.15 部分完成）：`UploadBatchInfo` 已随任务持久化并透传为 `X-Upload-Batch-*`/`X-Upload-Folder`；仍缺 ① 真人端到端验收（文件夹选择器无法自动化），② 传输中心按批次聚合展示。不能只改 UI 文案就算完成。
 - [ ] 深色/浅色/高对比度三套主题尚未逐屏走查。
 - [ ] 桌面拖放（拖入上传、拖到文件夹移动、拖出）尚未设计交互细节。

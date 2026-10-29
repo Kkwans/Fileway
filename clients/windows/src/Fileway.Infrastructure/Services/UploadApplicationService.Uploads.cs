@@ -66,7 +66,7 @@ public sealed partial class UploadApplicationService
         string display = (submission.Parent.DisplayPath == "/" ? "" : submission.Parent.DisplayPath) + "/" + name;
         var target = new RemoteResourceRef(submission.Context.Account, wire, name, display);
         return TransferTaskValidation.Plan(new(new(submission.Context.Account, submission.RequestId), TransferDirection.Upload,
-            target, path, FileConflictPolicy.Fail, AutomaticResume: false, submission.BatchId, submission.Ordinal));
+            target, path, FileConflictPolicy.Fail, AutomaticResume: false, submission.BatchId, submission.Ordinal, submission.Batch));
     }
 
     public async Task<RemoteResourceRef> EnsureRemoteTreeAsync(UploadContext context, RemoteResourceRef parent,

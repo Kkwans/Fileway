@@ -5,10 +5,16 @@ namespace Fileway.Core.Contracts;
 /// <summary>Presentation authority for one verified application upload activation.</summary>
 public readonly record struct UploadContext(AccountKey Account, Guid SessionId, Guid ActivationId);
 
+/// <summary>Folder-level facts of one tree upload; sent to the server so it can track the batch as a folder.</summary>
+public sealed record UploadBatchInfo(Guid Id, string Name, long ItemCount, long TotalBytes, bool IsFolder = false)
+{
+    public override string ToString() => "UploadBatchInfo (private name redacted)";
+}
+
 /// <summary>An explicitly confirmed local file and original destination. RequestId prevents duplicate task creation;
 /// the optional batch identity groups tree uploads into the same durable (batch, ordinal) slot.</summary>
 public sealed record UploadSubmission(Guid RequestId, UploadContext Context, RemoteResourceRef Parent, string LocalPath,
-    Guid? BatchId = null, int Ordinal = 0)
+    Guid? BatchId = null, int Ordinal = 0, UploadBatchInfo? Batch = null)
 {
     public override string ToString() => "UploadSubmission (private locations redacted)";
 }

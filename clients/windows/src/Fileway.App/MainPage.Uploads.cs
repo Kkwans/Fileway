@@ -194,6 +194,8 @@ public sealed partial class MainPage
             _uploadErrorTitle = _uploadErrorMessage = null;
             _uploadCommandBusy = true; UpdateUploadContext();
             var batchId = Guid.NewGuid();
+            var batchLabel = string.IsNullOrWhiteSpace(folderLabel) ? "文件夹" : folderLabel;
+            var batch = new UploadBatchInfo(batchId, batchLabel, files.Count, total, IsFolder: true);
             var parents = new Dictionary<string, RemoteResourceRef>(StringComparer.OrdinalIgnoreCase) { [""] = parent };
             var deadDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int added = 0, unconfirmed = 0, ordinal = 0;
@@ -212,7 +214,7 @@ public sealed partial class MainPage
                         parents[relativeDirectory] = targetParent;
                     }
                     if (!CurrentDestination()) break;
-                    var item = await service.SubmitAsync(new UploadSubmission(Guid.NewGuid(), context, targetParent, path, batchId, ordinal++), _lifetime.Token);
+                    var item = await service.SubmitAsync(new UploadSubmission(Guid.NewGuid(), context, targetParent, path, batchId, ordinal++, batch), _lifetime.Token);
                     if (IsCurrentUploadContext(context))
                     {
                         _uploadOrigins[item.Snapshot.Task] = new UploadOrigin(session, parent, generation);

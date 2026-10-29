@@ -20,7 +20,7 @@ public readonly record struct TransferRunToken(TransferTaskRef Task, Guid Id, lo
 /// <summary>Immutable file plan. Remote is the upload target or download source; LocalPath has the opposite role.</summary>
 public sealed record TransferPlan(TransferTaskRef Reference, TransferDirection Direction, RemoteResourceRef Remote,
     string LocalPath, FileConflictPolicy Conflict = FileConflictPolicy.Fail, bool AutomaticResume = false,
-    Guid? BatchId = null, int Ordinal = 0)
+    Guid? BatchId = null, int Ordinal = 0, UploadBatchInfo? Batch = null)
 {
     public override string ToString() => "TransferPlan (private locations redacted)";
 }

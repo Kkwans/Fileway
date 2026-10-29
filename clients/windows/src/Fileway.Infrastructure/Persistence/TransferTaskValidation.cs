@@ -43,6 +43,11 @@ internal static class TransferTaskValidation
         Text(plan.Remote.DisplayName, 16384, allowControls: true, required: true);
         Text(plan.Remote.DisplayPath, 65536, allowControls: true, required: true);
         Text(plan.Remote.SourceVersion, 4096);
+        if (plan.Batch is { } batch)
+        {
+            if (batch.Id == Guid.Empty || batch.ItemCount <= 0 || batch.TotalBytes < 0) throw Invalid();
+            Text(batch.Name, 1024, required: true);
+        }
         _ = WireIdentity(plan.Remote.WirePath);
         _ = LocalFilePath(plan.LocalPath);
         return plan;
