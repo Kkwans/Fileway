@@ -15,6 +15,13 @@ import com.google.zxing.common.HybridBinarizer
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
+/** QR detection already handles sensor orientation. PlanarYUVLuminanceSource
+ * does not support rotateCounterClockwise; camera rotation is for preview only. */
+internal fun decodeTvQrLuma(data:ByteArray,width:Int,height:Int,reader:MultiFormatReader):String {
+    val source=PlanarYUVLuminanceSource(data,width,height,0,0,width,height,false)
+    return reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text
+}
+
 /** One analyzer, latest frame only, no image storage or camera on the TV. */
 @Composable internal fun TvQrScanner(modifier:Modifier=Modifier,onCode:(String)->Unit,onError:(String)->Unit){
     val context=LocalContext.current;val lifecycle=LocalLifecycleOwner.current
@@ -39,9 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean
                             val plane=image.planes[0];val buffer=plane.buffer.duplicate();val offset=buffer.position()
                             val data=ByteArray(image.width*image.height)
                             for(y in 0 until image.height)for(x in 0 until image.width)data[y*image.width+x]=buffer.get(offset+y*plane.rowStride+x*plane.pixelStride)
-                            var luminance:LuminanceSource=PlanarYUVLuminanceSource(data,image.width,image.height,0,0,image.width,image.height,false)
-                            repeat(((360-image.imageInfo.rotationDegrees)%360)/90){luminance=luminance.rotateCounterClockwise()}
-                            val text=reader.decodeWithState(BinaryBitmap(HybridBinarizer(luminance))).text
+                            val text=decodeTvQrLuma(data,image.width,image.height,reader)
                             if(text.startsWith("fileway://tv/pair?")&&found.compareAndSet(false,true))main.execute{if(active.get())currentCode(text)}
                         }
                     }catch(_:NotFoundException){}catch(_:ReaderException){}catch(_:Exception){}
