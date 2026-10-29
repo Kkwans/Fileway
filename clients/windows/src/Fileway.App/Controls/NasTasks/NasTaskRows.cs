@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Globalization;
 using Fileway.Core.Contracts;
 
@@ -17,7 +17,7 @@ public sealed class NasTaskRow : INotifyPropertyChanged
     public double Progress => (NasTaskPresentationPolicy.ProgressFraction(Task) ?? 0) * 100;
     public bool Indeterminate => NasTaskPresentationPolicy.ProgressFraction(Task) is null &&
         Task.Status is ServerTaskStatus.Queued or ServerTaskStatus.Running;
-    public string Glyph => Task.RawType switch { "file.move" => "\uE8DE", "file.copy" => "\uE8C8", _ => "\uE9D9" };
+    public string IconName => Task.RawType switch { "file.move" => "scissors", "file.copy" => "copy", _ => "file" };
     public string AccessibleName => $"{Name}，{Kind}，{Status}，{ProgressText}，按 Enter 刷新详情";
     public override string ToString() => Name;
 
