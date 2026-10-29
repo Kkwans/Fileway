@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using Fileway.Core.Contracts;
 
 namespace Fileway.App;
@@ -28,10 +28,19 @@ public sealed class RecentAccessRow
     public string AccessedTime { get; }
     public string IdentityHint => Entry.PathConfidence switch
     {
-        RecentAccessPathConfidence.ServerWire when CanOpen => "服务器路径 · " + Entry.Resource!.WirePath,
-        RecentAccessPathConfidence.LegacyUtf8 when CanOpen => "兼容路径 · " + Entry.Resource!.WirePath,
+        RecentAccessPathConfidence.ServerWire when CanOpen => Hint("服务器路径", Decode(Entry.Resource!.WirePath)),
+        RecentAccessPathConfidence.LegacyUtf8 when CanOpen => Hint("兼容路径", Decode(Entry.Resource!.WirePath)),
         _ => "路径待确认",
     };
+
+    private string Hint(string label, string path) =>
+        string.Equals(path, Entry.DisplayPath, StringComparison.Ordinal) ? "" : label + " · " + path;
+
+    private static string Decode(string wirePath)
+    {
+        try { return Uri.UnescapeDataString(wirePath); }
+        catch (Exception) { return wirePath; }
+    }
     public string AccessibleName => $"{Name}，{DisplayPath}，{AccessedTime}，{IdentityHint}";
     public bool CanOpen => HasTrustedResource(Entry);
 

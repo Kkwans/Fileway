@@ -1,8 +1,9 @@
-using Fileway.Core.Contracts;
+﻿using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace Fileway.App.Controls.StorageTools;
 
@@ -37,7 +38,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
     private readonly Dictionary<string, List<RadioButton>> _keepChoices = [];
     private IAdminUserService? _adminUsers;
     private bool _isAdmin;
-    private readonly RadioButton _adminTabButton = new() { Content = "用户管理", Visibility = Visibility.Collapsed };
+    private readonly ToggleButton _adminTabButton = new() { Content = "用户管理", Visibility = Visibility.Collapsed, Width = 120, HorizontalContentAlignment = HorizontalAlignment.Center };
     private readonly Grid _adminHost = new();
     private readonly StackPanel _adminRoot = new() { Spacing = 12 };
     private readonly InfoBar _adminNotice = new() { IsOpen = false, IsClosable = true, Title = "服务器用户管理" };
@@ -48,8 +49,8 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
     private readonly Button _adminToggleLock = new() { Content = "切换密码锁定", IsEnabled = false };
     private readonly Button _adminDelete = new() { Content = "删除用户…", IsEnabled = false };
     private List<AdminUser> _adminUsersCache = [];
-    private readonly RadioButton _analysisTabButton = new() { Content = "容量分析" };
-    private readonly RadioButton _duplicatesTabButton = new() { Content = "重复文件" };
+    private readonly ToggleButton _analysisTabButton = new() { Content = "容量分析", Width = 120, HorizontalContentAlignment = HorizontalAlignment.Center };
+    private readonly ToggleButton _duplicatesTabButton = new() { Content = "重复文件", Width = 120, HorizontalContentAlignment = HorizontalAlignment.Center };
 
     public StorageAnalysisControl()
     {
@@ -65,8 +66,20 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
             (_adminPassword, "StorageAdminPassword"), (_adminToggleAdmin, "StorageAdminToggleAdmin"),
             (_adminToggleLock, "StorageAdminToggleLock"), (_adminDelete, "StorageAdminDelete") })
             AutomationProperties.SetAutomationId(element, id);
+        var resources = Application.Current.Resources;
+        _start.Style = (Style)resources["FwPrimaryButtonStyle"];
+        _duplicateStart.Style = (Style)resources["FwPrimaryButtonStyle"];
+        _scopeBox.Style = (Style)resources["FwTextBoxStyle"];
+        _scopeBox.MinWidth = 480;
+        _scopeBox.MaxWidth = 720;
+        _scopeBox.HorizontalAlignment = HorizontalAlignment.Left;
+        _duplicateScopeBox.Style = (Style)resources["FwTextBoxStyle"];
+        _duplicateScopeBox.MinWidth = 480;
+        _duplicateScopeBox.MaxWidth = 720;
+        _duplicateScopeBox.HorizontalAlignment = HorizontalAlignment.Left;
+        var secondaryText = (Microsoft.UI.Xaml.Media.Brush)resources["FwTextSecondaryBrush"];
         var analysisRoot = new StackPanel { Spacing = 12 };
-        analysisRoot.Children.Add(new TextBlock { Text = "由服务器统计范围内的文件数、目录数与总大小，并列出最大的文件与目录；分析在服务器后台执行，客户端只呈现服务器给出的数字。", TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) });
+        analysisRoot.Children.Add(new TextBlock { Text = "由服务器统计范围内的文件数、目录数与总大小，并列出最大的文件与目录；分析在服务器后台执行，客户端只呈现服务器给出的数字。", TextWrapping = TextWrapping.Wrap, Foreground = secondaryText });
         analysisRoot.Children.Add(_scopeBox);
         _start.Click += async (_, _) => await StartAsync();
         analysisRoot.Children.Add(_start);
@@ -75,7 +88,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         analysisRoot.Children.Add(_results);
 
         _duplicateStart.Click += async (_, _) => await StartDuplicateScanAsync();
-        _duplicatesRoot.Children.Add(new TextBlock { Text = "服务器按内容找出重复文件并给出保留建议；勾选每组要保留的副本后提交，其余副本移入回收站（可恢复）。绝不直接删除，也不会改动组外文件。", TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) });
+        _duplicatesRoot.Children.Add(new TextBlock { Text = "服务器按内容找出重复文件并给出保留建议；勾选每组要保留的副本后提交，其余副本移入回收站（可恢复）。绝不直接删除，也不会改动组外文件。", TextWrapping = TextWrapping.Wrap, Foreground = secondaryText });
         _duplicatesRoot.Children.Add(_duplicateScopeBox);
         _duplicatesRoot.Children.Add(_duplicateStart);
         _duplicatesRoot.Children.Add(_duplicateNotice);
@@ -90,24 +103,33 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         BuildAdminRoot();
         adminHost.Children.Add(_adminRoot);
 
-        var root = new StackPanel { Spacing = 12, Padding = new Thickness(24, 18, 24, 24), MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Stretch };
-        root.Children.Add(new TextBlock { Text = "存储工具", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var tabs = new RadioButtons { SelectedIndex = 0 };
-        tabs.Items.Add(_analysisTabButton);
-        tabs.Items.Add(_duplicatesTabButton);
-        tabs.Items.Add(_adminTabButton);
-        tabs.SelectionChanged += (_, _) =>
+        var root = new StackPanel { Spacing = 12, Padding = new Thickness(20, 12, 20, 12) };
+        var header = new StackPanel { Spacing = 4 };
+        header.Children.Add(new TextBlock { Text = "存储工具", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        header.Children.Add(new TextBlock { Text = "服务器端统计与清理辅助工具；分析在服务器后台执行。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = secondaryText });
+        root.Children.Add(header);
+        void SelectTab(int selected)
         {
-            int selected = tabs.SelectedIndex;
             analysisHost.Visibility = selected == 0 ? Visibility.Visible : Visibility.Collapsed;
             duplicatesHost.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
             adminHost.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
+            _analysisTabButton.IsChecked = selected == 0;
+            _duplicatesTabButton.IsChecked = selected == 1;
+            _adminTabButton.IsChecked = selected == 2;
             if (selected == 2) _ = RefreshAdminAsync();
-        };
+        }
+        var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
+        foreach (var (button, index) in new[] { (_analysisTabButton, 0), (_duplicatesTabButton, 1), (_adminTabButton, 2) })
+        {
+            button.Style = (Style)resources["LayoutChoiceStyle"];
+            button.Click += (_, _) => SelectTab(index);
+            tabs.Children.Add(button);
+        }
         root.Children.Add(tabs);
         root.Children.Add(analysisHost);
         root.Children.Add(duplicatesHost);
         root.Children.Add(adminHost);
+        SelectTab(0);
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
 
@@ -192,7 +214,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
             (report.Truncated ? "（结果被服务器截断）" : "") + (report.SkippedCount > 0 ? $" · {report.SkippedCount} 项跳过" : ""),
             report.DuplicateGroups > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
         if (report.Groups.Count == 0) return;
-        var submit = new Button { Content = "提交清理（移入回收站）", HorizontalAlignment = HorizontalAlignment.Left };
+        var submit = new Button { Content = "提交清理（移入回收站）", HorizontalAlignment = HorizontalAlignment.Left, Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"] };
         AutomationProperties.SetAutomationId(submit, "StorageDuplicateCleanupTop");
         submit.Click += async (_, _) => await SubmitCleanupAsync(report);
         _duplicateResults.Children.Add(submit);
@@ -229,7 +251,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
                 Child = card,
             });
         }
-        var confirmBar = new Button { Content = "提交清理（移入回收站）", HorizontalAlignment = HorizontalAlignment.Left };
+        var confirmBar = new Button { Content = "提交清理（移入回收站）", HorizontalAlignment = HorizontalAlignment.Left, Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"] };
         AutomationProperties.SetAutomationId(confirmBar, "StorageDuplicateCleanupBottom");
         confirmBar.Click += async (_, _) => await SubmitCleanupAsync(report);
         _duplicateResults.Children.Add(confirmBar);
@@ -311,7 +333,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
 
     private void BuildAdminRoot()
     {
-        _adminRoot.Children.Add(new TextBlock { Text = "服务器用户管理：列表、创建、重置密码、权限与删除。每次改动需要输入管理员（当前账户）密码以确认身份；所有操作由服务器校验权限。", TextWrapping = TextWrapping.Wrap, Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray) });
+        _adminRoot.Children.Add(new TextBlock { Text = "服务器用户管理：列表、创建、重置密码、权限与删除。每次改动需要输入管理员（当前账户）密码以确认身份；所有操作由服务器校验权限。", TextWrapping = TextWrapping.Wrap, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FwTextSecondaryBrush"] });
         _adminRoot.Children.Add(_adminNotice);
         Fileway.App.Controls.FloatingNotice.Attach(_adminNotice);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
