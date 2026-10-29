@@ -12,7 +12,7 @@
 
 - Release x64 + Publish：0 警告、0 错误（FileVersion 0.8.44.0）。
 - 两次冒烟 `GATE=PASS`（pwsh 7，15 秒与 20 秒，独立数据目录，无 startup.log）。
-- 实机截图：`screens/focus-ring.png`（44 条搜索结果，键盘焦点选中行）。
+- 实机截图：`screens/focus-ring.png`（44 条搜索结果，键盘焦点选中行）、`screens/dark-search-focus.png`（深色下同一选中态与卡片描边）。
 - 产物：`.../20261031-ui0844/dist/Fileway-0.8.44-win-x64-unsigned-setup.exe`，SHA-256 `ec3de60e…65eaa5c`，与回执一致。
 
 ## 未完成
