@@ -250,6 +250,23 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async void Connect_Click(object sender, RoutedEventArgs e) => await ConnectFromFormAsync();
 
+    private void ConnectionPanel_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (ConnectionBrand is null || ConnectionBrandColumn is null || ConnectionCardColumn is null) return;
+        var wide = args.NewSize.Width >= 1000;
+        ConnectionBrand.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionBrandColumn.Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        ConnectionCardColumn.Width = new GridLength(wide ? 440 : Math.Clamp(args.NewSize.Width - 96, 300, 440));
+    }
+
+    private void ConnectionField_KeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key != VirtualKey.Enter) return;
+        args.Handled = true;
+        if (ConnectionPanel.Visibility == Visibility.Visible && ConnectButton.IsEnabled)
+            Connect_Click(ConnectButton, new RoutedEventArgs());
+    }
+
     private async Task ConnectFromFormAsync()
     {
         if (_connection is null || _files is null || _connecting) return;
@@ -816,6 +833,7 @@ public sealed partial class MainPage : Page, IDisposable
         if (control && e.Key == VirtualKey.A) { e.Handled = true; ActiveFiles.SelectAll(); return; }
         if (e.Key == VirtualKey.F2) { e.Handled = true; Rename_Click(sender, e); return; }
         if (e.Key == VirtualKey.Delete) { e.Handled = true; Trash_Click(sender, e); return; }
+        if (e.Key == VirtualKey.Back) { e.Handled = true; Up_Click(sender, e); return; }
         if (e.Key == VirtualKey.Escape && _detailsVisible) { e.Handled = true; SetDetailsVisible(false); }
     }
     private void Details_Click(object sender, RoutedEventArgs e) { SetDetailsVisible(!_detailsVisible); UpdateSelection(); }

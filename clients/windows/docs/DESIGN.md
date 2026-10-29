@@ -194,7 +194,7 @@ components:
 - 详情面板：宽 420px，高 480px，内边距 20/16；操作区固定两组（传输、管理），每组 4 列等宽。
 - 查看器：顶部信息条 60px，底部浮动胶囊距底 22px；左右翻页按钮 44px 圆形，距边缘 14px。
 - 任何工具条都不得改变内容尺寸；内容永远是画布，工具条是覆盖层。
-- 连接页：表单放在居中卡片内（最大宽 560，16px 圆角、24px 内边距），输入控件只设最小高度 34，**不得对带 Header 的输入框设置固定 Height**（会把标题与输入框一起裁切）；底部操作区固定，使用主题表面 + 1px 上边线，内容宽度与卡片对齐。
+- 连接页：未连接时隐藏导航侧栏，整窗为欢迎页。内容为一组最大宽 1120、水平居中的两栏：左侧品牌栏（应用标识、34px 标题、说明、三行带图标的能力说明），右侧 440px 表单卡片（18px 圆角、26px 内边距）。窗口宽度 < 1000 时隐藏品牌栏、卡片占满。操作区（保持登录、主按钮、取消/返回）全部位于卡片内，**不得再使用与卡片不同宽度的独立底栏**（会造成左右边缘不齐）；下拉与输入框统一左对齐。输入控件只设最小高度 34，**不得对带 Header 的输入框设置固定 Height**（会把标题与输入框一起裁切）。
 
 ## Elevation & Depth
 
@@ -275,15 +275,17 @@ components:
 - 令牌与控件样式：`clients/windows/src/Fileway.App/Styles/Design.xaml`（`FwCanvasBrush`、`FwSurfaceBrush`、`FwGlassBrush`、`FwPrimaryButtonStyle`、`FwIconButtonStyle`、`FwActionTileStyle`、`FwPillStyle` 等）。
 - 查看器外壳：`Controls/ViewerChrome.cs`（顶部条、底部胶囊、自动隐藏、加载/错误层）。
 - 对话框排序：`Controls/DialogOrdering.cs`，由 ContentDialog 隐式样式自动启用。
-- 已知尚未迁移：主浏览窗口工具栏、PDF 查看器、部分弹层仍使用旧样式，按本契约逐步替换。
+- 已知尚未迁移：部分弹层仍使用旧样式，按本契约逐步替换。
+- PDF 查看器：工具栏使用底部浮动玻璃药丸（`FwPillStyle` + `FwIconButtonStyle` + `FwTextIconButtonStyle`，左/右方向键翻页，适应窗口按视口宽度计算缩放）。
 
 ## Known Gaps
 
-- [ ] 主浏览窗口（工具栏、筛选、布局切换）尚未按本契约重排。
-- [ ] PDF 查看器尚未套用查看器外壳。
+- [x] 主浏览窗口工具栏/筛选/布局切换已按本契约重排（0.8.10，`screens/ui-browser/`）。
+- [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。
 - [x] 紧凑网格已实机复核（2026-10-29，`screens/ui-layouts/compact-grid.png`），容器状态正常；无界网格仍待复核（自动化点击未生效）。
 - [ ] 拖到文件夹移动需真实鼠标验收；拖出到资源管理器未开始。
+- [ ] 文件夹“整组上传”尚未实现：提交端按文件创建任务并带 `BatchId`/`Ordinal` 持久化，但 `UploadLeaseRequest.Batch` 无调用方，服务器收不到 `X-Upload-Batch`/`X-Upload-Folder`，传输中心也只能逐文件展示。补齐需要批次名称/文件数/总字节的持久化与协议透传，不能只改 UI 文案。
 - [ ] 深色/浅色/高对比度三套主题尚未逐屏走查。
 - [ ] 桌面拖放（拖入上传、拖到文件夹移动、拖出）尚未设计交互细节。

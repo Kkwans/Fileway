@@ -684,6 +684,8 @@
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
     <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="TextAlignment" Value="Left" />
   </Style>
   <Style x:Key="FwPasswordBoxStyle" TargetType="PasswordBox">
     <Setter Property="CornerRadius" Value="10" />
@@ -694,5 +696,6 @@
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
     <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
   </Style>
 </ResourceDictionary>

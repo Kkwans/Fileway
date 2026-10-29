@@ -25,6 +25,16 @@ public sealed partial class MainPage
         // depend on an opaque login panel to conceal an active file list or its empty state.
         Workspace.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
         ConnectionPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        if (visible)
+        {
+            // The welcome page owns the whole window; an empty navigation rail would only
+            // duplicate the form's own account context.
+            SidebarColumn.Width = new GridLength(0);
+            Sidebar.Visibility = Visibility.Collapsed;
+            SidebarResize.Visibility = Visibility.Collapsed;
+            SidebarDismiss.Visibility = Visibility.Collapsed;
+        }
+        else UpdateSidebarLayout();
         UpdateSelection();
         UpdateThumbnailContext();
         UpdateApplicationMenus();
@@ -90,7 +100,15 @@ public sealed partial class MainPage
 
     private void UpdateSidebarLayout()
     {
-        if (SidebarColumn is null) return;
+        if (SidebarColumn is null || Sidebar is null) return;
+        if (ConnectionPanel is { Visibility: Visibility.Visible })
+        {
+            SidebarColumn.Width = new GridLength(0);
+            Sidebar.Visibility = Visibility.Collapsed;
+            SidebarResize.Visibility = Visibility.Collapsed;
+            SidebarDismiss.Visibility = Visibility.Collapsed;
+            return;
+        }
         var rail = !_sidebarOverlay && _sidebarCollapsed;
         var width = rail ? 72 : Math.Clamp(_sidebarWidth, 192, Math.Min(320, Math.Max(192, ActualWidth - 480)));
         SidebarColumn.Width = new GridLength(_sidebarOverlay ? 0 : width);
@@ -118,7 +136,7 @@ public sealed partial class MainPage
 
     private void Pane_Click(object sender, RoutedEventArgs args)
     {
-        if (_disposed) return;
+        if (_disposed || ConnectionPanel is { Visibility: Visibility.Visible }) return;
         if (_sidebarOverlay) _sidebarOpen = !_sidebarOpen;
         else _sidebarCollapsed = !_sidebarCollapsed;
         UpdateSidebarLayout();

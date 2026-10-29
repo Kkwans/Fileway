@@ -3,11 +3,14 @@ using Fileway.App.Controls;
 using Fileway.App.Windowing;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Data.Pdf;
 using Windows.Storage.Streams;
+using Windows.System;
 
 namespace Fileway.App.Views;
 
@@ -36,6 +39,8 @@ public sealed class PdfWindow : Window, IAsyncDisposable
     private readonly InfoBar _notice = new() { IsOpen = true, IsClosable = false, Message = "正在打开 PDF…" };
     private readonly ProgressRing _progress = new() { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _pageLabel = new() { FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
+    private Button? _previousButton;
+    private Button? _nextButton;
     private PdfDocument? _document;
     private uint _index;
     private bool _closed;
@@ -51,35 +56,30 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 760));
 
-        var commands = new CommandBar { DefaultLabelPosition = CommandBarDefaultLabelPosition.Right, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-        var previous = new AppBarButton { Label = "上一页", Icon = new SymbolIcon(Symbol.Back) };
-        var next = new AppBarButton { Label = "下一页", Icon = new SymbolIcon(Symbol.Forward) };
-        var fit = new AppBarButton { Label = "适应窗口", Icon = new SymbolIcon(Symbol.FourBars) };
-        var actual = new AppBarButton { Label = "100%", Icon = new SymbolIcon(Symbol.Zoom) };
-        previous.Click += (_, _) => _ = NavigateAsync(_index > 0 ? _index - 1 : _index);
-        next.Click += (_, _) => _ = NavigateAsync(_document is { } document && _index + 1 < document.PageCount ? _index + 1 : _index);
-        fit.Click += (_, _) => _scroll.ChangeView(0, 0, 1);
-        actual.Click += (_, _) => _scroll.ChangeView(0, 0, 1);
-        commands.PrimaryCommands.Add(previous);
-        commands.PrimaryCommands.Add(next);
-        commands.PrimaryCommands.Add(new AppBarButton { Label = "页码" });
-        commands.PrimaryCommands.Add(fit);
-        commands.PrimaryCommands.Add(actual);
-        // Replace the inert 页码 button with the live label in the same slot.
-        commands.PrimaryCommands[^2] = new AppBarButton { IsEnabled = false, Content = _pageLabel };
+        _pageLabel.MinWidth = 96;
+        _pageLabel.TextAlignment = TextAlignment.Center;
+        _pageLabel.Foreground = (Brush)Application.Current.Resources["FwTextPrimaryBrush"];
+        _page.Margin = new Thickness(24);
 
-        var root = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), Padding = new Thickness(20), RowSpacing = 12 };
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var root = new Grid { Padding = new Thickness(20, 12, 20, 20), RowSpacing = 12 };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition());
-        root.Children.Add(commands);
-        Grid.SetRow(_notice, 1);
         root.Children.Add(_notice);
-        var surface = new Grid();
-        Grid.SetRow(surface, 2);
+
+        var surfaceGrid = new Grid();
         _scroll.Content = _page;
-        surface.Children.Add(_scroll);
-        surface.Children.Add(_progress);
+        surfaceGrid.Children.Add(_scroll);
+        surfaceGrid.Children.Add(_progress);
+        surfaceGrid.Children.Add(BuildToolbar());
+        var surface = new Border
+        {
+            CornerRadius = new CornerRadius(12),
+            Background = (Brush)Application.Current.Resources["FwCanvasBrush"],
+            BorderBrush = (Brush)Application.Current.Resources["FwStrokeBrush"],
+            BorderThickness = new Thickness(1),
+            Child = surfaceGrid,
+        };
+        Grid.SetRow(surface, 1);
         root.Children.Add(surface);
 
         var windowRoot = new Grid();
@@ -88,6 +88,8 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         windowRoot.Children.Add(_titleBar);
         Grid.SetRow(root, 1);
         windowRoot.Children.Add(root);
+        AddNavigationAccelerator(windowRoot, VirtualKey.Left, -1);
+        AddNavigationAccelerator(windowRoot, VirtualKey.Right, +1);
         Content = windowRoot;
         _chrome = new FramelessWindowChrome(this, _titleBar);
         root.Loaded += async (_, _) => { if (_started) return; _started = true; await LoadAsync(); };
@@ -109,6 +111,94 @@ public sealed class PdfWindow : Window, IAsyncDisposable
     public void SetTheme(ElementTheme theme)
     {
         if (!_closed && Content is FrameworkElement root) root.RequestedTheme = theme;
+    }
+
+    private Border BuildToolbar()
+    {
+        var previous = _previousButton = ToolbarIcon("arrow-left", "上一页", false, () => _ = NavigateAsync(_index > 0 ? _index - 1 : _index));
+        var next = _nextButton = ToolbarIcon("arrow-left", "下一页", true,
+            () => _ = NavigateAsync(_document is { } document && _index + 1 < document.PageCount ? _index + 1 : _index));
+        previous.IsEnabled = next.IsEnabled = false;
+        var bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        bar.Children.Add(previous);
+        bar.Children.Add(_pageLabel);
+        bar.Children.Add(next);
+        bar.Children.Add(new Border
+        {
+            Width = 1, Height = 18, Margin = new Thickness(6, 0, 6, 0),
+            Background = (Brush)Application.Current.Resources["FwStrokeBrush"],
+        });
+        bar.Children.Add(ToolbarText("适应窗口", "缩放至适应窗口宽度", FitWidth));
+        bar.Children.Add(ToolbarText("100%", "原始大小", () => _scroll.ChangeView(null, null, 1)));
+        var pill = new Border
+        {
+            Style = (Style)Application.Current.Resources["FwPillStyle"],
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 0, 16),
+            Child = bar,
+        };
+        Canvas.SetZIndex(pill, 10);
+        return pill;
+    }
+
+    private void FitWidth()
+    {
+        if (_page.Source is not BitmapImage { PixelWidth: > 0 } bitmap)
+        {
+            _scroll.ChangeView(null, null, 1);
+            return;
+        }
+        var width = Math.Max(0, _scroll.ViewportWidth - _page.Margin.Left - _page.Margin.Right);
+        var zoom = width > 0 ? width / bitmap.PixelWidth : 1;
+        _scroll.ChangeView(null, null, (float)Math.Clamp(zoom, _scroll.MinZoomFactor, _scroll.MaxZoomFactor), true);
+    }
+
+    private void AddNavigationAccelerator(UIElement host, VirtualKey key, int delta)
+    {
+        var accelerator = new KeyboardAccelerator { Key = key };
+        accelerator.Invoked += (sender, args) =>
+        {
+            args.Handled = true;
+            if (_document is not { } document) return;
+            var target = (long)_index + delta;
+            if (target < 0 || target >= document.PageCount) return;
+            _ = NavigateAsync((uint)target);
+        };
+        host.KeyboardAccelerators.Add(accelerator);
+    }
+
+    private static Button ToolbarIcon(string icon, string tooltip, bool mirror, Action click)
+    {
+        var glyph = new LucideIcon
+        {
+            IconName = icon, Width = 18, Height = 18,
+            Foreground = (Brush)Application.Current.Resources["FwTextPrimaryBrush"],
+        };
+        if (mirror) glyph.RenderTransform = new RotateTransform { Angle = 180, CenterX = 9, CenterY = 9 };
+        var button = new Button
+        {
+            Style = (Style)Application.Current.Resources["FwIconButtonStyle"],
+            Width = 34, Height = 34, Content = glyph,
+        };
+        ToolTipService.SetToolTip(button, tooltip);
+        AutomationProperties.SetName(button, tooltip);
+        button.Click += (_, _) => click();
+        return button;
+    }
+
+    private static Button ToolbarText(string text, string tooltip, Action click)
+    {
+        var button = new Button
+        {
+            Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
+            Foreground = (Brush)Application.Current.Resources["FwTextPrimaryBrush"],
+            Content = new TextBlock { Text = text, FontSize = 13 },
+        };
+        ToolTipService.SetToolTip(button, tooltip);
+        AutomationProperties.SetName(button, tooltip);
+        button.Click += (_, _) => click();
+        return button;
     }
 
     private async Task LoadAsync()
@@ -144,6 +234,8 @@ public sealed class PdfWindow : Window, IAsyncDisposable
             }
             _notice.IsOpen = false;
             await RenderAsync(0);
+            // Fit after the first page has been laid out so the viewport width is real.
+            DispatcherQueue.TryEnqueue(() => { if (!_closed) FitWidth(); });
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
@@ -167,6 +259,8 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         _rendering = true;
         _index = index;
         _pageLabel.Text = $"第 {index + 1} / {document.PageCount} 页";
+        if (_previousButton is not null) _previousButton.IsEnabled = index > 0;
+        if (_nextButton is not null) _nextButton.IsEnabled = index + 1 < document.PageCount;
         _progress.IsActive = true;
         _progress.Visibility = Visibility.Visible;
         try
