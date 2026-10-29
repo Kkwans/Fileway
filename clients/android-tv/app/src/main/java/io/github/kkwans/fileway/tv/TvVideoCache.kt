@@ -80,12 +80,17 @@ internal class TvVideoCache(context:Context,private val scope:CoroutineScope) {
             mutable.update{it.copy(error="视频缓存不可用：${error.message}",bytesPerSecond=0,ranges=emptyList())};return network
         }
         val reading=Reading(++revision,url,key,job!=null,fileBytes,offset,duration,ready,playbackPosition)
-        val factory=CacheDataSource.Factory().setCache(disk).setUpstreamDataSourceFactory(network)
+        fun cacheFactory(flags:Int)=CacheDataSource.Factory().setCache(disk).setUpstreamDataSourceFactory(network)
             .setCacheKeyFactory{spec->cacheKey(reading,spec.uri)}
             .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(disk).setFragmentSize(2L*1024*1024))
-            .setFlags(CacheDataSource.FLAG_BLOCK_ON_CACHE or CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+            .setFlags(flags)
+        // A prefetch writer can hold a hole across a large read-ahead window.
+        // Foreground seek/playback must read upstream rather than wait for that
+        // writer. Background readers still coordinate their writes with cache.
+        val factory=cacheFactory(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         evictor.protect(disk)
-        reading.factory=factory;reading.network=network;current=reading
+        reading.factory=cacheFactory(CacheDataSource.FLAG_BLOCK_ON_CACHE or CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        reading.network=network;current=reading
         mutable.update{it.copy(bytesPerSecond=0,ranges=emptyList(),error=null)}
         start(reading)
         return object:PlaybackDataSourceFactory {
