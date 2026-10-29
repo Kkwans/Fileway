@@ -210,7 +210,6 @@ public sealed class TextWindow : Window, IAsyncDisposable
         {
             if (_started) return;
             _started = true;
-            ApplyTheme(_root.ActualTheme);
             await LoadAsync();
         };
     }
@@ -238,14 +237,16 @@ public sealed class TextWindow : Window, IAsyncDisposable
     public void SetTheme(ElementTheme theme)
     {
         if (_closed) return;
-        _theme = theme;
-        if (Content is FrameworkElement root) root.RequestedTheme = theme;
-        ApplyTheme(theme);
+        // The reader uses the dark editorial palette in both app themes; the light
+        // variant proved unreadable when the rest of the shell was dark.
+        _theme = ElementTheme.Dark;
+        if (Content is FrameworkElement root) root.RequestedTheme = ElementTheme.Dark;
+        ApplyTheme(ElementTheme.Dark);
     }
 
     private Brush ThemeBrush(string key)
     {
-        var name = _theme == ElementTheme.Light ? "Light" : "Default";
+        var name = "Default";
         if (Application.Current.Resources.ThemeDictionaries.TryGetValue(name, out var dictionary) &&
             dictionary is ResourceDictionary resources && resources.TryGetValue(key, out var value) && value is Brush brush)
             return brush;
@@ -256,22 +257,31 @@ public sealed class TextWindow : Window, IAsyncDisposable
 
     private void ApplyTheme(ElementTheme theme)
     {
-        _theme = theme;
-        var canvas = ThemeBrush("FwCanvasBrush");
+        // The reader is intentionally a dark editorial surface; explicit colors keep it
+        // readable even when the host window's theme or resource lookup lags behind.
+        _theme = ElementTheme.Dark;
+        if (Content is FrameworkElement rootContent) rootContent.RequestedTheme = ElementTheme.Dark;
+        var canvas = Brush(11, 12, 15);
         _root.Background = canvas;
         _windowRoot.Background = canvas;
-        _title.Foreground = ThemeBrush("FwTextPrimaryBrush");
-        _summary.Foreground = ThemeBrush("FwTextSecondaryBrush");
-        _status.Foreground = ThemeBrush("FwTextSecondaryBrush");
-        _bannerText.Foreground = ThemeBrush("FwTextPrimaryBrush");
-        _banner.Background = ThemeBrush("FwSurfaceRaisedBrush");
-        _banner.BorderBrush = ThemeBrush("FwStrokeBrush");
-        _textFrame.Background = ThemeBrush("FwSurfaceBrush");
-        _textFrame.BorderBrush = ThemeBrush("FwStrokeBrush");
-        _text.Foreground = ThemeBrush("FwTextPrimaryBrush");
-        _toolbar.Background = ThemeBrush("FwSurfaceBrush");
-        _toolbar.BorderBrush = ThemeBrush("FwStrokeBrush");
+        _title.Foreground = Brush(244, 246, 248);
+        _summary.Foreground = Brush(168, 174, 184);
+        _status.Foreground = Brush(168, 174, 184);
+        _bannerText.Foreground = Brush(244, 246, 248);
+        _banner.Background = Brush(31, 34, 40);
+        _banner.BorderBrush = Brush(255, 255, 255, 31);
+        _textFrame.Background = Brush(23, 25, 29);
+        _textFrame.BorderBrush = Brush(255, 255, 255, 31);
+        _text.Foreground = Brush(244, 246, 248);
+        _toolbar.Background = Brush(23, 25, 29);
+        _toolbar.BorderBrush = Brush(255, 255, 255, 31);
+        _titleBar.RequestedTheme = ElementTheme.Dark;
+        foreach (var action in new[] { _renderButton, _tableButton, _wrapButton, _copyButton, _editButton })
+            action.Foreground = Brush(244, 246, 248);
     }
+
+    private static SolidColorBrush Brush(byte red, byte green, byte blue, byte alpha = 255)
+        => new(Windows.UI.Color.FromArgb(alpha, red, green, blue));
 
     private void ShowBanner(string message, bool error)
     {

@@ -160,6 +160,7 @@ internal static partial class MarkdownBlockRenderer
             FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
             TextWrapping = TextWrapping.NoWrap,
             FontSize = 13,
+            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 244, 246, 248)),
             LineHeight = 21,
             IsTextSelectionEnabled = true,
         };
@@ -174,8 +175,8 @@ internal static partial class MarkdownBlockRenderer
         };
         return new Border
         {
-            Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["LayerFillColorDefaultBrush"],
-            BorderBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["CardStrokeColorDefaultBrush"],
+            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 31, 34, 40)),
+            BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(31, 255, 255, 255)),
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(16, 12, 16, 12),
@@ -211,7 +212,7 @@ internal static partial class MarkdownBlockRenderer
                     {
                         FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
                         FontSize = 13.5,
-                        Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
+                        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 105, 168, 255)),
                         Inlines = { new Run { Text = text[(next + 1)..end] } },
                     });
                     consumed = end + 1;
