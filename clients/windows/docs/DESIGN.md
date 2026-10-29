@@ -277,6 +277,7 @@ components:
 - 对话框排序：`Controls/DialogOrdering.cs`，由 ContentDialog 隐式样式自动启用。
 - 工具栏选择器：排序/类型/视图统一使用 `DropDownButton` + `FilewaySelectorButtonStyle`（左对齐、12px 内边距），菜单项用 `LayoutChoiceStyle`；单选项选中后收起菜单。不要再让原生 `ComboBox` 承载工具栏选择器（其选中文本带原生内缩）。
 - 空状态：居中 72px 圆角图标容器（`FwSurfaceBrush` + 1px `FwStrokeBrush`）、20px 标题、13px/20 行高说明；兜底“重新加载”使用 `FwSecondaryButtonStyle`，不得使用系统默认按钮。空列表同时隐藏列头。
+- 传输中心：文件夹批次以批次卡片成组（32px 文件夹图标底、批次名、聚合进度、“x/y 已完成”、文件数与总大小），组内文件行左缩进 24px 且仍可点开单个任务详情；批次行只做汇总，不承载暂停/删除等任务操作。
 - 共享控件样式（`LayoutChoiceStyle` 等）必须放在应用级 `Styles/Design.xaml`；页面级资源无法被独立 `UserControl` 解析，会在启动时抛 XAML 异常。
 - 已知尚未迁移：部分弹层仍使用旧样式，按本契约逐步替换。
 - PDF 查看器：工具栏使用底部浮动玻璃药丸（`FwPillStyle` + `FwIconButtonStyle` + `FwTextIconButtonStyle`，左/右方向键翻页，适应窗口按视口宽度计算缩放）。
@@ -289,6 +290,6 @@ components:
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。
 - [x] 紧凑网格已实机复核（2026-10-29，`screens/ui-layouts/compact-grid.png`），容器状态正常；无界网格已复核（2026-10-29，`20261029-ui0815/screens/ui-grid/unbounded-grid-161844.png`），菜单选中态已改为半透明强调底。
 - [ ] 拖到文件夹移动需真实鼠标验收；拖出到资源管理器未开始。
-- [~] 文件夹“整组上传”（0.8.15 部分完成）：`UploadBatchInfo` 已随任务持久化并透传为 `X-Upload-Batch-*`/`X-Upload-Folder`；仍缺 ① 真人端到端验收（文件夹选择器无法自动化），② 传输中心按批次聚合展示。不能只改 UI 文案就算完成。
+- [~] 文件夹“整组上传”（0.8.15 部分完成）：`UploadBatchInfo` 已随任务持久化并透传为 `X-Upload-Batch-*`/`X-Upload-Folder`，0.8.30 起传输中心按批次聚合展示；仍缺真人端到端验收（文件夹选择器无法自动化）。不能只改 UI 文案就算完成。
 - [~] 主题走查：浅色已全量截图；深色已复核连接页、主界面（`20261029-ui0823/screens/ui-dark/`）、传输中心/回收站/存储工具/最近访问（`screens/ui-dark-panels/`）、搜索/收藏（`screens/ui-dark-search/`）与设置对话框（`20261029-ui0827/screens/ui-dark-dialogs/`）；仅高对比度主题仍待走查。
 - [ ] 桌面拖放（拖入上传、拖到文件夹移动、拖出）尚未设计交互细节。

@@ -13,6 +13,7 @@ public sealed partial class MainPage
     private readonly ObservableCollection<TransferCenterRow> _transferDownloadRows = [];
     private readonly Dictionary<TransferTaskRef, TransferCenterRow> _transferUploadRowIndex = [];
     private readonly Dictionary<TransferTaskRef, TransferCenterRow> _transferDownloadRowIndex = [];
+    private readonly Dictionary<Guid, TransferCenterRow> _transferUploadBatchRows = [];
     private UploadContext? _transferUploadContext;
     private DownloadContext? _transferDownloadContext;
     private readonly HashSet<TransferTaskRef> _removedDownloadTasks = [];
@@ -84,7 +85,7 @@ public sealed partial class MainPage
 
     private void ClearTransferUploadPresentation()
     {
-        _transferUploadContext = null; _transferUploads.Reset(); _transferUploadRows.Clear(); _transferUploadRowIndex.Clear(); RenderTransferCenter();
+        _transferUploadContext = null; _transferUploads.Reset(); _transferUploadRows.Clear(); _transferUploadRowIndex.Clear(); _transferUploadBatchRows.Clear(); RenderTransferCenter();
     }
     private void ClearTransferDownloadPresentation()
     {
@@ -99,7 +100,7 @@ public sealed partial class MainPage
         var changed = _transferUploadContext != upload || _transferDownloadContext != download;
         if (_transferUploadContext != upload)
         {
-            _transferUploadContext = upload; _transferUploads.Reset(); _transferUploadRows.Clear(); _transferUploadRowIndex.Clear();
+            _transferUploadContext = upload; _transferUploads.Reset(); _transferUploadRows.Clear(); _transferUploadRowIndex.Clear(); _transferUploadBatchRows.Clear();
         }
         if (_transferDownloadContext != download)
         {
@@ -171,9 +172,34 @@ public sealed partial class MainPage
 
     private void ApplyTransferUploadRow(UploadItem item)
     {
+        var batch = item.Batch;
+        TransferCenterRow? header = null;
+        if (batch is not null && !_transferUploadBatchRows.TryGetValue(batch.Id, out header))
+        {
+            header = new TransferCenterRow(batch);
+            _transferUploadBatchRows.Add(batch.Id, header);
+            _transferUploadRows.Add(header);
+        }
         if (!_transferUploadRowIndex.TryGetValue(item.Snapshot.Task, out var row))
-        { row = new(item.Snapshot.Task, TransferDirection.Upload); _transferUploadRowIndex.Add(row.Task, row); _transferUploadRows.Add(row); }
+        {
+            row = new(item.Snapshot.Task, TransferDirection.Upload, batch is not null);
+            _transferUploadRowIndex.Add(row.Task, row);
+            if (batch is null) _transferUploadRows.Add(row);
+            else
+            {
+                var last = -1;
+                for (var index = 0; index < _transferUploadRows.Count; index++)
+                    if (!_transferUploadRows[index].IsBatchHeader && _transferUploadRows[index].BatchId == batch.Id) last = index;
+                _transferUploadRows.Insert(last >= 0 ? last + 1 : _transferUploadRows.IndexOf(header!), row);
+            }
+        }
         row.Update(item);
+        if (batch is not null) UpdateUploadBatchHeader(batch);
+    }
+    private void UpdateUploadBatchHeader(UploadBatchInfo batch)
+    {
+        if (!_transferUploadBatchRows.TryGetValue(batch.Id, out var header)) return;
+        header.UpdateBatch(_transferUploadRows.Where(row => !row.IsBatchHeader && row.BatchId == batch.Id).ToArray());
     }
     private void ApplyTransferDownloadRow(DownloadItem item)
     {

@@ -53,11 +53,12 @@ public sealed partial class UploadApplicationService : IConnectionService, IConn
         internal bool DownloadDraining { get; set; }
     }
 
-    private sealed class Presentation(RemoteResourceRef parent, string name, string destination)
+    private sealed class Presentation(RemoteResourceRef parent, string name, string destination, UploadBatchInfo? batch = null)
     {
         internal RemoteResourceRef Parent { get; } = parent;
         internal string Name { get; } = name;
         internal string Destination { get; } = destination;
+        internal UploadBatchInfo? Batch { get; } = batch;
         internal UploadTaskSnapshot? Snapshot { get; set; }
         internal UploadTaskProgress? Progress { get; set; }
         internal bool Scheduled { get; set; }

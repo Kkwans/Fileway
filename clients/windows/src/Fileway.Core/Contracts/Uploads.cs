@@ -28,7 +28,7 @@ public enum UploadStatus
 
 /// <summary>Safe application projection. Parent identity is distinct from display text; no execution plan or capability is exposed.</summary>
 public sealed record UploadItem(UploadContext Context, RemoteResourceRef Parent, string Name, string DestinationDisplayPath,
-    UploadStatus Status, UploadTaskSnapshot Snapshot, UploadTaskProgress? Progress = null)
+    UploadStatus Status, UploadTaskSnapshot Snapshot, UploadTaskProgress? Progress = null, UploadBatchInfo? Batch = null)
 {
     public override string ToString() => "UploadItem (private display locations redacted)";
 }

@@ -18,7 +18,17 @@
    <ListView x:Name="Records" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="Record_Click" KeyDown="Records_KeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="传输记录，选择一项查看详情">
     <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="Padding" Value="0"/><Setter Property="Margin" Value="0,0,0,8"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListView.ItemContainerStyle>
     <ListView.ItemTemplate><DataTemplate x:DataType="local:TransferCenterRow">
-     <Grid Padding="16,14" ColumnSpacing="14" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="10" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
+     <Grid AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}" Margin="{x:Bind RowMargin}">
+      <Grid Visibility="{x:Bind HeaderVisibility}" Padding="16,14" ColumnSpacing="14" Background="{ThemeResource FwSurfaceRaisedBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1" CornerRadius="12">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+       <Border Width="32" Height="32" CornerRadius="9" Background="{ThemeResource FwSelectionBrush}" VerticalAlignment="Top"><ui:LucideIcon IconName="folder" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+       <StackPanel Grid.Column="1" Spacing="8">
+        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"/><TextBlock Grid.Column="1" Text="{x:Bind Stage, Mode=OneWay}" FontSize="12" Margin="12,0,0,0" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Grid>
+        <ProgressBar Minimum="0" Maximum="100" Value="{x:Bind Progress, Mode=OneWay}" IsIndeterminate="{x:Bind Indeterminate, Mode=OneWay}" Height="4" AutomationProperties.Name="{x:Bind ProgressName}"/>
+        <TextBlock Text="{x:Bind Bytes, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+       </StackPanel>
+      </Grid>
+      <Grid Visibility="{x:Bind DetailVisibility}" Padding="16,14" ColumnSpacing="14" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="10">
       <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <ui:LucideIcon IconName="{x:Bind IconName}" Width="28" Height="28" VerticalAlignment="Top" Margin="0,2,0,0"/>
       <StackPanel Grid.Column="1" Spacing="8">
@@ -32,6 +42,7 @@
        <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Pause_Click" IsEnabled="{x:Bind CanTogglePause, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind PauseLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind PauseLabel, Mode=OneWay}"><ui:LucideIcon IconName="{x:Bind PauseIcon, Mode=OneWay}" Width="20" Height="20"/></Button>
        <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Remove_Click" IsEnabled="{x:Bind CanRemove, Mode=OneWay}" ToolTipService.ToolTip="删除任务" AutomationProperties.Name="删除任务"><ui:LucideIcon IconName="trash" Width="20" Height="20"/></Button>
       </StackPanel>
+      </Grid>
      </Grid>
     </DataTemplate></ListView.ItemTemplate>
     <ListView.ItemContainerTransitions><TransitionCollection><EntranceThemeTransition IsStaggeringEnabled="False"/></TransitionCollection></ListView.ItemContainerTransitions>

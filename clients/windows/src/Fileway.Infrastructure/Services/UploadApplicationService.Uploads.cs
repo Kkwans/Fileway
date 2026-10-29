@@ -219,7 +219,7 @@ public sealed partial class UploadApplicationService
                 var parent = originalParent ?? new RemoteResourceRef(binding.Context.Account, wire,
                     display[(display.LastIndexOf('/') + 1)..], display);
                 if (parent.Account != binding.Context.Account) throw Safe(ErrorCode.ProtocolMismatch);
-                binding.Items.Add(record.Plan.Reference, new(parent, target.DisplayName, target.DisplayPath));
+                binding.Items.Add(record.Plan.Reference, new(parent, target.DisplayName, target.DisplayPath, record.Plan.Batch));
             }
             return Observe(binding, Snapshot(record), publish: publish);
         }
@@ -289,7 +289,7 @@ public sealed partial class UploadApplicationService
             TransferPhase.OutcomeUnknown => UploadStatus.OutcomeUnknown,
             _ => UploadStatus.Failed,
         };
-        return new(binding.Context, item.Parent, item.Name, item.Destination, status, snapshot, item.Progress);
+        return new(binding.Context, item.Parent, item.Name, item.Destination, status, snapshot, item.Progress, item.Batch);
     }
 
     private void QueueTaskChanged(object? sender, UploadQueueUpdate update)

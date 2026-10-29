@@ -53,6 +53,7 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
     public void Present(ObservableCollection<TransferCenterRow> rows, bool loading, bool hasLoaded, bool canLoadMore, string? error)
     {
         if (!ReferenceEquals(_rows, rows)) { _rows = rows; Records.ItemsSource = rows; }
+        var count = rows.Count(row => !row.IsBatchHeader);
         HistoryLoadingRing.IsActive = loading;
         RefreshButton.IsEnabled = !loading;
         MoreButton.IsEnabled = !loading;
@@ -63,12 +64,12 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
             if (error is not null) { _noticeTimer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ToastSeconds); _noticeTimer.Start(); }
         }
         LoadError.Message = error;
-        EmptyState.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        EmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
         EmptyTitle.Text = loading ? "正在读取记录" : error is not null ? "记录暂不可用" : !hasLoaded ? "等待加载记录"
             : canLoadMore ? "已加载范围内暂无记录" : "暂无传输记录";
         EmptyText.Text = loading ? "已有任务会继续执行，请稍候。" : error is not null ? "可以重试读取记录，现有任务不会重新提交。"
             : canLoadMore && hasLoaded ? "还有未读取的记录，请选择“加载更多”。" : "从文件列表明确提交上传或下载后，可在这里查看。";
-        LoadedText.Text = rows.Count == 0 ? "仅显示当前账号记录" : $"已显示 {rows.Count} 条记录" + (canLoadMore ? " · 还有更多记录" : "");
+        LoadedText.Text = count == 0 ? "仅显示当前账号记录" : $"已显示 {count} 条记录" + (canLoadMore ? " · 还有更多记录" : "");
     }
 
     public void FocusRecords() => Records.Focus(FocusState.Keyboard);
@@ -85,13 +86,13 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
     }
     private void Record_Click(object sender, ItemClickEventArgs e)
     {
-        if (e.ClickedItem is TransferCenterRow row) DetailsRequested?.Invoke(this, row.Task);
+        if (e.ClickedItem is TransferCenterRow { IsBatchHeader: false } row) DetailsRequested?.Invoke(this, row.Task);
     }
-    private void Pause_Click(object sender, RoutedEventArgs args) { if (sender is FrameworkElement { DataContext: TransferCenterRow row }) PauseRequested?.Invoke(this, row.Task); }
-    private void Remove_Click(object sender, RoutedEventArgs args) { if (sender is FrameworkElement { DataContext: TransferCenterRow row }) RemoveRequested?.Invoke(this, row.Task); }
+    private void Pause_Click(object sender, RoutedEventArgs args) { if (sender is FrameworkElement { DataContext: TransferCenterRow { IsBatchHeader: false } row }) PauseRequested?.Invoke(this, row.Task); }
+    private void Remove_Click(object sender, RoutedEventArgs args) { if (sender is FrameworkElement { DataContext: TransferCenterRow { IsBatchHeader: false } row }) RemoveRequested?.Invoke(this, row.Task); }
     private void Records_KeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (e.Key == VirtualKey.Enter && Records.SelectedItem is TransferCenterRow row)
+        if (e.Key == VirtualKey.Enter && Records.SelectedItem is TransferCenterRow { IsBatchHeader: false } row)
         { e.Handled = true; DetailsRequested?.Invoke(this, row.Task); }
     }
     private void Panel_SizeChanged(object sender, SizeChangedEventArgs e)
@@ -107,12 +108,20 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     public string Glyph { get; }
     public string IconName { get; }
     public string ProgressName { get; }
+    public bool IsBatchHeader { get; }
+    public Guid? BatchId { get; }
+    public Visibility HeaderVisibility { get; }
+    public Visibility DetailVisibility { get; }
+    public Thickness RowMargin { get; }
+    internal UploadStatus Status { get; private set; }
+    private readonly UploadBatchInfo? _batch;
     public string Name { get; private set; } = "";
     public string Stage { get; private set; } = "";
     public string Bytes { get; private set; } = "";
     public string Destination { get; private set; } = "";
     public string Metrics { get; private set; } = "";
-    public string AccessibleName => $"{Name}，{Stage}，{Bytes}，{Metrics}";
+    public string AccessibleName => IsBatchHeader ? $"{Name}，文件夹上传批次，{Stage}，{Bytes}"
+        : $"{Name}，{Stage}，{Bytes}，{Metrics}";
     public double Progress { get; private set; }
     public bool Indeterminate { get; private set; }
     public bool CanTogglePause { get; private set; }
@@ -124,15 +133,46 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     private long _lastBytes, _lastObservation;
     private TimeSpan _lastElapsed;
     private double _rate;
-    internal TransferCenterRow(TransferTaskRef task, TransferDirection direction)
+    internal TransferCenterRow(TransferTaskRef task, TransferDirection direction, bool inBatch = false)
     {
         Task = task; Glyph = direction == TransferDirection.Upload ? "\uE898" : "\uE896";
         IconName = direction == TransferDirection.Upload ? "upload-simple" : "download-simple";
         ProgressName = direction == TransferDirection.Upload ? "服务器确认上传进度" : "下载接收进度";
         ActionsVisibility = direction == TransferDirection.Download ? Visibility.Visible : Visibility.Collapsed;
+        HeaderVisibility = Visibility.Collapsed; DetailVisibility = Visibility.Visible;
+        RowMargin = inBatch ? new Thickness(24, 0, 0, 0) : new Thickness(0);
+    }
+    internal TransferCenterRow(UploadBatchInfo batch)
+    {
+        _batch = batch; BatchId = batch.Id; IsBatchHeader = true;
+        Task = default; Glyph = ""; IconName = "folder"; ProgressName = "文件夹上传总进度";
+        Name = batch.Name; ActionsVisibility = Visibility.Collapsed;
+        HeaderVisibility = Visibility.Visible; DetailVisibility = Visibility.Collapsed;
+        RowMargin = new Thickness(0);
+    }
+    internal void UpdateBatch(IReadOnlyList<TransferCenterRow> children)
+    {
+        if (_batch is null) return;
+        var total = (int)Math.Clamp(_batch.ItemCount, 0, int.MaxValue);
+        var done = children.Count(row => row.Status == UploadStatus.Completed);
+        var failed = children.Count(row => row.Status is UploadStatus.Failed or UploadStatus.OutcomeUnknown
+            or UploadStatus.Conflict or UploadStatus.SourceChanged);
+        var active = children.Count(row => row.Status is UploadStatus.Queued or UploadStatus.Preparing
+            or UploadStatus.Uploading or UploadStatus.Pausing or UploadStatus.Verifying or UploadStatus.Publishing
+            or UploadStatus.Reconciling or UploadStatus.WaitingNetwork or UploadStatus.WaitingAuthentication);
+        var allDone = total > 0 && done >= total;
+        Stage = allDone ? "已完成" : failed > 0 ? $"{done}/{total} 已完成 · {failed} 项需处理"
+            : active > 0 ? $"{done}/{total} 已完成 · 上传中" : $"{done}/{total} 已完成";
+        var progress = children.Count == 0 ? 0 : children.Average(row => row.Progress);
+        Progress = allDone ? 100 : progress;
+        Indeterminate = children.Count > 0 && children.All(row => row.Indeterminate);
+        var size = _batch.TotalBytes > 0 ? "总大小 " + DownloadPresentationPolicy.FormatBytes(_batch.TotalBytes) : "";
+        Bytes = string.Join(" · ", new[] { $"{_batch.ItemCount} 个文件", size }.Where(text => text.Length > 0));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
     }
     internal void Update(UploadItem item)
     {
+        Status = item.Status;
         var p = UploadPresentationPolicy.Progress(item);
         Update(item.Name, UploadPresentationPolicy.UploadItemStatusLabel(item), p.ConfirmedText, item.DestinationDisplayPath, p.Value, p.IsIndeterminate);
     }
