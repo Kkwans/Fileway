@@ -7,6 +7,8 @@ dependencyResolutionManagement {
 }
 rootProject.name = "FilewayAndroid"
 include(":app")
+include(":remote-core")
+project(":remote-core").projectDir = file("../shared/android/remote-core")
 // Native source builds; other hosts consume the verified packaged AAR instead.
 if (providers.gradleProperty("filewayFfmpegWorkDir").isPresent) include(":ffmpeg-probe")
 

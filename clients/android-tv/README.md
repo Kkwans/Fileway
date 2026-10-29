@@ -29,6 +29,14 @@ python3 ../shared/android/build-native.py --ndk "$ANDROID_NDK_HOME" --api 28 --m
 手机和 TV 的矢量图标统一维护在 `clients/shared/android/design-foundation`。
 手机资源别名保留原调用名称，TV 只调整尺寸与遥控焦点反馈。
 
+## 手机遥控
+
+TV 0.2.0 与手机端 1.2.2 引入局域网配对和独立设备登录。
+在现有手机应用侧栏打开「连接 TV」，扫码配对后可发送手机当前账号授权、
+操作导航/输入和媒体控制；TV 不依赖手机持续在线。
+配对与撤销入口位于 TV 设置。首次未配对时也可从登录页连接手机。
+操作及安全边界见[手机遥控说明](../android/docs/tv-control.md)。
+
 ## 验证边界
 
 构建、模拟器交互和物理设备播放分别记录。API28 安装不证明硬件解码、HDR、

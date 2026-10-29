@@ -121,6 +121,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private var transferRefreshPending = false
     private var foreground = false
     private var context: SessionContext? = null
+    fun tvAuthorizationContext(): SessionContext? = context
     private var sessionSyncJob: Job? = null
     private var sessionSyncBound: SessionContext? = null
     private var sessionFlushJob: Job? = null

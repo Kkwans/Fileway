@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
+import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.nasfilebrowser.app.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.data.AppTheme
@@ -51,6 +52,8 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
     val glassStyle = filewayDrawerGlassStyle()
     val gestures = state.destination.main != null && !state.searchDisplayed
     var about by remember { mutableStateOf(false) }
+    var tvControl by remember { mutableStateOf(false) }
+    if (tvControl) TvControlScreen(model) { tvControl=false }
     if (about) FilewayAboutDialog { about = false }
     BackHandler(drawer.isOpen && !about) { scope.launch { drawer.close() } }
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -140,6 +143,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                 if (state.permissions.execute) FilewayDrawerItem("命令", R.drawable.ic_terminal) { navigate(model::openShell) }
                             }
                             HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                            FilewayDrawerItem("连接 TV", Art.drawable.fileway_ic_fit_screen) { navigate { tvControl=true } }
                             FilewayDrawerItem("更新", R.drawable.ic_update) { navigate(model::openUpdates) }
                             FilewayDrawerItem("关于栖卷 · Fileway", R.drawable.ic_info) { about = true }
                         }
