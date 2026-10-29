@@ -51,7 +51,7 @@ def main():
     command('logcat', '-c', timeout=20)
     # Do not print the command, credentials, JWTs or connection receipt.
     result = subprocess.run([adb, '-s', args.serial, 'shell', 'am', 'instrument', '-w', '-r',
-        '-e', 'class', 'io.github.kkwans.fileway.tv.TvJourneyTest,io.github.kkwans.fileway.tv.TvCacheAndDiscoveryTest', '-e', 'fixture_url', connection['url'],
+        '-e', 'class', 'io.github.kkwans.fileway.tv.TvJourneyTest,io.github.kkwans.fileway.tv.TvCacheAndDiscoveryTest,io.github.kkwans.fileway.tv.TvAudioExtensionTest', '-e', 'fixture_url', connection['url'],
         '-e', 'fixture_username', connection['username'], '-e', 'fixture_password', connection['password'],
         'io.github.kkwans.fileway.tv.test/androidx.test.runner.AndroidJUnitRunner'], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
     text = result.stdout + result.stderr
@@ -63,11 +63,13 @@ def main():
     (destination / 'logcat.txt').write_text(logcat,encoding="utf-8")
     pull = subprocess.run([adb, '-s', args.serial, 'pull', '/sdcard/Android/data/io.github.kkwans.fileway.tv/files/tv-acceptance', str(destination)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=120)
     (destination / 'evidence-pull.txt').write_text(pull.stdout + pull.stderr,encoding="utf-8")
+    audio_pull = subprocess.run([adb, '-s', args.serial, 'pull', '/sdcard/Android/data/io.github.kkwans.fileway.tv/files/tv-audio-acceptance.json', str(destination)], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    (destination / 'audio-evidence-pull.txt').write_text(audio_pull.stdout + audio_pull.stderr,encoding="utf-8")
     count = re.search(r'OK \((\d+) tests?\)', text)
-    passed = result.returncode == 0 and pull.returncode == 0 and count is not None and int(count.group(1)) >= 6 and 'FAILURES!!!' not in text and 'INSTRUMENTATION_FAILED' not in text
+    passed = result.returncode == 0 and pull.returncode == 0 and audio_pull.returncode == 0 and count is not None and int(count.group(1)) >= 7 and 'FAILURES!!!' not in text and 'INSTRUMENTATION_FAILED' not in text
     receipt = dict(status='PASS' if passed else 'FAIL', serial=args.serial, avd=name, api=api, abi=abi,
                    executedTests=int(count.group(1)) if count else None,
-                   evidenceClass='API28 Android TV emulator with isolated real Fileway backend; software video diagnostics; no HDR/audio/physical-device claim')
+                   evidenceClass='API28 Android TV emulator with isolated real Fileway backend; software video and audio decoder/sink diagnostics; no HDR/audible-output/physical-device claim')
     (destination / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n',encoding='utf-8')
     print(json.dumps(receipt), flush=True)
     if not passed:

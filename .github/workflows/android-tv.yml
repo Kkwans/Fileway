@@ -109,6 +109,8 @@ jobs:
           ./gradlew :app:assembleRelease --no-daemon --max-workers=1 --console=plain
       - name: Start isolated real backend
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
           command -v ffmpeg
           command -v ffprobe
           mkdir -p "$RUNNER_TEMP/fileway-tv-server" "$RUNNER_TEMP/fileway-tv-go-tmp"

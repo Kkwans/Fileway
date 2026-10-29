@@ -72,5 +72,15 @@ fun tvDeviceInfo(context: Context): String {
     val codecs=MediaCodecList(MediaCodecList.ALL_CODECS).codecInfos.filter{!it.isEncoder&&it.supportedTypes.any{type->type.startsWith("video/")}}
     return "${Build.MANUFACTURER} ${Build.MODEL}\nAndroid ${Build.VERSION.RELEASE} · API ${Build.VERSION.SDK_INT}\n"+
         "ABI：${Build.SUPPORTED_ABIS.joinToString()}\nRAM：${memory.totalMem/1048576} MB\n可用内存：${memory.availMem/1048576} MB\n低内存设备：${if(manager.isLowRamDevice)"是" else "否"}\n"+
-        "逻辑画布：${context.resources.configuration.screenWidthDp} × ${context.resources.configuration.screenHeightDp} dp\n显示 HDR 能力：$types\n\n视频解码器\n${codecs.joinToString("\n"){it.name}}"
+        "逻辑画布：${context.resources.configuration.screenWidthDp} × ${context.resources.configuration.screenHeightDp} dp\n显示 HDR 能力：$types\n音频扩展：${tvAudioExtensionInfo()}\n\n视频解码器\n${codecs.joinToString("\n"){it.name}}"
+}
+
+internal fun tvAudioExtensionInfo(): String {
+    if (!BuildConfig.HAS_FFMPEG_AUDIO) return "未包含，仅使用系统解码器"
+    return runCatching {
+        val library = Class.forName("androidx.media3.decoder.ffmpeg.FfmpegLibrary")
+        if (library.getMethod("isAvailable").invoke(null) == true)
+            "已加载 FFmpeg ${library.getMethod("getVersion").invoke(null)}"
+        else "已包含，原生库加载失败"
+    }.getOrElse { "已包含，加载检查失败" }
 }

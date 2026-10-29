@@ -10,6 +10,8 @@ plugins {
 }
 val tvAudioManifest = providers.gradleProperty("filewayTvFfmpegManifest").orNull
 val tvAudioFromSource = providers.gradleProperty("filewayTvFfmpegWorkDir").isPresent
+val allowSystemAudioOnly = providers.gradleProperty("filewayTvAllowSystemAudioOnly").orElse("false").get()
+require(allowSystemAudioOnly in listOf("true", "false")) { "filewayTvAllowSystemAudioOnly must be true or false" }
 val sourceRevision = providers.gradleProperty("filewaySourceRevision").orElse("uncommitted").get()
 val tvSigningFile = providers.gradleProperty("filewayTvSigningFile").orNull?.let { file(it).canonicalFile }
 val tvSigning = tvSigningFile?.let { input ->
@@ -42,6 +44,16 @@ val verifyReleaseInputs = tasks.register("verifyTvReleaseInputs") {
         require(sourceRevision.matches(Regex("[a-f0-9]{40}"))) { "Release requires an exact validated source SHA" }
     }
 }
+val hasFfmpegAudio = tvAudioFromSource || verifiedTvAudio != null
+val verifyDebugInputs = tasks.register("verifyTvDebugInputs") {
+    doLast {
+        require(hasFfmpegAudio || allowSystemAudioOnly == "true") {
+            "TV requires the verified API28 audio extension: provide filewayTvFfmpegManifest or filewayTvFfmpegWorkDir. " +
+                "For explicit system-codec-only UI diagnostics, set filewayTvAllowSystemAudioOnly=true."
+        }
+    }
+}
+tasks.matching { it.name == "preDebugBuild" }.configureEach { dependsOn(verifyDebugInputs) }
 tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyReleaseInputs) }
 android {
     namespace = "io.github.kkwans.fileway.tv"
@@ -55,6 +67,7 @@ android {
         versionCode = 4
         versionName = "0.2.0"
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
+        buildConfigField("boolean", "HAS_FFMPEG_AUDIO", hasFfmpegAudio.toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += providers.gradleProperty("filewayTvAbis").orElse("armeabi-v7a,arm64-v8a").get().split(',') }
         externalNativeBuild { cmake { arguments += "-DNFB_CORE_DIR=${rootProject.projectDir.resolve("../shared/core/generated/api28-direct").canonicalPath}" } }

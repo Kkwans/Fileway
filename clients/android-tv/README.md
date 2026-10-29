@@ -14,8 +14,12 @@
 
 ```sh
 python3 ../shared/android/build-native.py --ndk "$ANDROID_NDK_HOME" --api 28 --mode direct --abis armeabi-v7a,arm64-v8a
-./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
+./gradlew :app:assembleDebug :app:lintDebug :app:testDebugUnitTest -PfilewayTvFfmpegManifest=/absolute/path/to/tv-audio.json
 ```
+
+音频扩展的构建与检查见[API28 音频扩展](docs/audio-extension.md)。普通候选需要
+经过验证的 API28 音频输入；系统解码器布局诊断包须显式传入
+`-PfilewayTvAllowSystemAudioOnly=true`，release 不接受该豁免。
 
 模拟器可通过 `-PfilewayTvAbis=x86_64` 配置，并构建匹配 ABI 的原生核心。
 直连构建会检查 Go 依赖闭包，拒绝包含 Tailscale 的产物。无 JWT 的撤销式本地
