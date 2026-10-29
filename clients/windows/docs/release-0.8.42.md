@@ -12,7 +12,7 @@
 
 - Release x64 + Publish：0 警告、0 错误（FileVersion 0.8.42.0）。
 - 两次冒烟 `GATE=PASS`（pwsh 7，15 秒与 20 秒，独立数据目录，无 startup.log）。
-- 实机验证：同一数据根内切到“深色”后写入 `{"theme":"Dark"}`，关闭并重启，主界面保持深色；截图 `screens/theme-set-dark.png`、`screens/theme-restart.png`。
+- 实机验证：同一数据根内切到“深色”后写入 `{"theme":"Dark"}`，关闭并重启，主界面保持深色；截图 `screens/theme-set-dark.png`、`screens/theme-restart.png`；重启后在深色下完成 44 条搜索结果与滚动条复核（`screens/dark-search.png`）。
 - 产物：`.../20261031-ui0842/dist/Fileway-0.8.42-win-x64-unsigned-setup.exe`，SHA-256 `15c7683a…52a3b093`，与回执一致。
 
 ## 未完成
