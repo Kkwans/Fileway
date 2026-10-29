@@ -1,4 +1,4 @@
-<UserControl x:Class="Fileway.App.Controls.Collections.ResourceCollectionsControl" xmlns:ui="using:Fileway.App.Controls"
+﻿<UserControl x:Class="Fileway.App.Controls.Collections.ResourceCollectionsControl" xmlns:ui="using:Fileway.App.Controls"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App.Controls.Collections">
  <UserControl.Resources>
   <DataTemplate x:Key="TagColorTemplate"><StackPanel Orientation="Horizontal" Spacing="10"><Ellipse Width="14" Height="14" Fill="{Binding Brush}"/><TextBlock Text="{Binding Name}" VerticalAlignment="Center"/></StackPanel></DataTemplate>
@@ -13,35 +13,35 @@
  <Grid Padding="20,12" RowSpacing="12">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock x:Name="CollectionHeading" Text="收藏与标签" FontSize="20" FontWeight="SemiBold"/><TextBlock x:Name="CurrentResourceText" Text="选择文件后添加收藏或标签" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-   <CommandBar Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center" DefaultLabelPosition="Collapsed" Background="Transparent" MinHeight="40" Height="40">
-    <AppBarButton Label="返回文件" Click="Close_Click" ToolTipService.ToolTip="返回文件"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrow-left"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="RefreshButton" Label="刷新" Click="Refresh_Click" ToolTipService.ToolTip="刷新"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrows-clockwise"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="AddFavoriteButton" Label="收藏选中资源" Click="AddFavorite_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="heart"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="ResourceTagsButton" Label="设置资源标签" Click="ResourceTags_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="tag"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="OpenTagResourceButton" Label="打开资源" Click="OpenTagResource_Click" ToolTipService.ToolTip="打开资源"><AppBarButton.Icon><ui:LucideActionIcon IconName="folder-open"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="UnlinkButton" Label="取消关联" Click="Unlink_Click" ToolTipService.ToolTip="取消关联"><AppBarButton.Icon><ui:LucideActionIcon IconName="x"/></AppBarButton.Icon></AppBarButton>
-    <CommandBar.SecondaryCommands><AppBarButton x:Name="CreateGroupButton" Label="新建分组" Click="CreateGroup_Click"/><AppBarButton x:Name="CreateTagButton" Label="新建标签" Click="CreateTag_Click"/></CommandBar.SecondaryCommands>
-   </CommandBar>
+   <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock x:Name="CollectionHeading" Text="收藏与标签" FontSize="22" FontWeight="SemiBold"/><TextBlock x:Name="CurrentResourceText" Text="选择文件后添加收藏或标签" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+    <Button Click="Close_Click" Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" ToolTipService.ToolTip="返回文件" AutomationProperties.Name="返回文件"><ui:LucideIcon IconName="arrow-left" Width="18" Height="18"/></Button>
+    <Button x:Name="RefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" ToolTipService.ToolTip="刷新" AutomationProperties.Name="刷新"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
+    <Button x:Name="AddFavoriteButton" Click="AddFavorite_Click" Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" ToolTipService.ToolTip="收藏选中资源" AutomationProperties.Name="收藏选中资源"><ui:LucideIcon IconName="heart" Width="18" Height="18"/></Button>
+    <Button x:Name="ResourceTagsButton" Click="ResourceTags_Click" Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" ToolTipService.ToolTip="设置资源标签" AutomationProperties.Name="设置资源标签"><ui:LucideIcon IconName="tag" Width="18" Height="18"/></Button>
+    <Button x:Name="OpenTagResourceButton" Click="OpenTagResource_Click" Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" ToolTipService.ToolTip="打开资源" AutomationProperties.Name="打开资源"><ui:LucideIcon IconName="folder-open" Width="18" Height="18"/></Button>
+    <Button x:Name="UnlinkButton" Click="Unlink_Click" Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" ToolTipService.ToolTip="取消关联" AutomationProperties.Name="取消关联"><ui:LucideIcon IconName="x" Width="18" Height="18"/></Button>
+    <Button Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" ToolTipService.ToolTip="更多" AutomationProperties.Name="更多收藏操作"><ui:LucideIcon IconName="dots-three" Width="18" Height="18"/><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="CreateGroupButton" Text="新建分组" Click="CreateGroup_Click"/><MenuFlyoutItem x:Name="CreateTagButton" Text="新建标签" Click="CreateTag_Click"/></MenuFlyout></Button.Flyout></Button>
+   </StackPanel>
   </Grid>
   <Grid x:Name="ManagementSelection" Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="160"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <ui:ChoiceBox x:Name="ModeBox" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Mode_Changed" AutomationProperties.Name="收藏或标签"><ComboBoxItem Content="收藏"/><ComboBoxItem Content="标签"/></ui:ChoiceBox>
    <ui:ChoiceBox x:Name="GroupBox" Grid.Column="1" Width="200" DisplayMemberPath="Label" HorizontalAlignment="Left" SelectionChanged="Group_Changed" AutomationProperties.Name="收藏分组"/>
-   <CommandBar x:Name="SelectionCommands" Grid.Column="2" MinHeight="36" Height="36" DefaultLabelPosition="Collapsed" Background="Transparent">
-    <AppBarButton x:Name="OpenButton" Label="打开" Click="Open_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="folder-open"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="EditButton" Label="编辑" Click="Edit_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="pencil-simple"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="RemoveButton" Label="移除" Click="Remove_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="trash"/></AppBarButton.Icon></AppBarButton>
-    <CommandBar.SecondaryCommands><AppBarButton x:Name="EditGroupButton" Label="编辑当前分组" Click="EditGroup_Click"/><AppBarButton x:Name="RemoveGroupButton" Label="删除当前分组" Click="RemoveGroup_Click"/></CommandBar.SecondaryCommands>
-   </CommandBar>
+   <StackPanel x:Name="SelectionCommands" Grid.Column="2" Orientation="Horizontal" Spacing="4">
+    <Button x:Name="OpenButton" Click="Open_Click" Style="{StaticResource FwTextIconButtonStyle}"><StackPanel Orientation="Horizontal" Spacing="6"><ui:LucideIcon IconName="folder-open" Width="16" Height="16"/><TextBlock Text="打开" FontSize="13"/></StackPanel></Button>
+    <Button x:Name="EditButton" Click="Edit_Click" Style="{StaticResource FwTextIconButtonStyle}"><StackPanel Orientation="Horizontal" Spacing="6"><ui:LucideIcon IconName="pencil-simple" Width="16" Height="16"/><TextBlock Text="编辑" FontSize="13"/></StackPanel></Button>
+    <Button x:Name="RemoveButton" Click="Remove_Click" Style="{StaticResource FwTextIconButtonStyle}"><StackPanel Orientation="Horizontal" Spacing="6"><ui:LucideIcon IconName="trash" Width="16" Height="16"/><TextBlock Text="移除" FontSize="13"/></StackPanel></Button>
+    <Button Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" ToolTipService.ToolTip="分组操作" AutomationProperties.Name="更多分组操作"><ui:LucideIcon IconName="dots-three" Width="18" Height="18"/><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="EditGroupButton" Text="编辑当前分组" Click="EditGroup_Click"/><MenuFlyoutItem x:Name="RemoveGroupButton" Text="删除当前分组" Click="RemoveGroup_Click"/></MenuFlyout></Button.Flyout></Button>
+   </StackPanel>
   </Grid>
   <Grid Grid.Row="2" RowSpacing="8"><Grid.RowDefinitions><RowDefinition x:Name="RecordsRow" Height="*"/><RowDefinition x:Name="TagResourcesRow" Height="0"/></Grid.RowDefinitions>
    <ListView x:Name="Records" ItemTemplate="{StaticResource CollectionTemplate}" SelectionMode="Single" HorizontalContentAlignment="Stretch" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" KeyDown="Records_KeyDown" AutomationProperties.Name="收藏或标签列表">
     <ListView.ContextFlyout><MenuFlyout><MenuFlyoutItem x:Name="ContextOpen" Text="打开选中资源" Click="Open_Click"/><MenuFlyoutItem x:Name="ContextEdit" Text="编辑选中记录" Click="Edit_Click"/><MenuFlyoutItem x:Name="ContextRemove" Text="移除选中记录" Click="Remove_Click"/></MenuFlyout></ListView.ContextFlyout>
    </ListView>
-   <TextBlock x:Name="EmptyText" Text="暂无记录" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="16"/>
+   <StackPanel x:Name="EmptyHost" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="420" Margin="16"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="heart" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="EmptyText" Text="暂无记录" FontSize="17" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource FwTextPrimaryBrush}"/></StackPanel>
    <Grid x:Name="TagResourcesArea" Grid.Row="1" Visibility="Collapsed">
     <ListView x:Name="TagResources" ItemTemplate="{StaticResource CollectionTemplate}" SelectionMode="Single" HorizontalContentAlignment="Stretch" SelectionChanged="TagResource_Changed" DoubleTapped="TagResources_DoubleTapped" KeyDown="TagResources_KeyDown" AutomationProperties.Name="标签关联资源"/>
-    <TextBlock x:Name="TagEmptyText" Text="选择标签以查看关联资源" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="16"/>
+    <StackPanel x:Name="TagEmptyHost" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14" MaxWidth="420" Margin="16"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="tag" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="TagEmptyText" Text="选择标签以查看关联资源" FontSize="17" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Foreground="{ThemeResource FwTextPrimaryBrush}"/></StackPanel>
    </Grid>
   </Grid>
   <InfoBar x:Name="Status" IsOpen="False" IsClosable="True"/>

@@ -677,8 +677,8 @@
 
   <Style x:Key="FwTextBoxStyle" TargetType="TextBox">
     <Setter Property="CornerRadius" Value="10" />
-    <Setter Property="MinHeight" Value="34" />
-    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="12,7" />
     <Setter Property="FontSize" Value="14" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
@@ -689,8 +689,8 @@
   </Style>
   <Style x:Key="FwPasswordBoxStyle" TargetType="PasswordBox">
     <Setter Property="CornerRadius" Value="10" />
-    <Setter Property="MinHeight" Value="34" />
-    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="12,7" />
     <Setter Property="FontSize" Value="14" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />

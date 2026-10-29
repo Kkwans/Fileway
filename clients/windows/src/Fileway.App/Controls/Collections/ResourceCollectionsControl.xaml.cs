@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -162,7 +162,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             GroupBox.Visibility = TagMode ? Visibility.Collapsed : Visibility.Visible;
             TagResourcesArea.Visibility = TagMode ? Visibility.Visible : Visibility.Collapsed;
             TagResourcesRow.Height = new GridLength(TagMode ? 1 : 0, TagMode ? GridUnitType.Star : GridUnitType.Pixel);
-            EmptyText.Visibility = _records.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            EmptyHost.Visibility = _records.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             EmptyText.Text = TagMode ? "暂无标签。新建标签后，可绑定选中资源。" : "此分组暂无收藏。可从文件列表选择资源后添加。";
             RenderTagResources();
             ApplyPurpose();
@@ -190,7 +190,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         RecordsRow.Height = new GridLength(browse ? 0 : 1, browse ? GridUnitType.Pixel : GridUnitType.Star);
         AddFavoriteButton.Visibility = ResourceTagsButton.Visibility = CreateGroupButton.Visibility = CreateTagButton.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
         if (!browse) return;
-        EmptyText.Visibility = Visibility.Collapsed; TagResourcesArea.Visibility = Visibility.Visible; TagResourcesRow.Height = new GridLength(1, GridUnitType.Star);
+        EmptyHost.Visibility = Visibility.Collapsed; TagResourcesArea.Visibility = Visibility.Visible; TagResourcesRow.Height = new GridLength(1, GridUnitType.Star);
         var tag = Selected?.Tag;
         CollectionHeading.Text = tag is null ? "标签不可用" : tag.Name;
         CurrentResourceText.Text = tag is null ? "此标签已删除或当前账号不可见，请刷新或返回文件。" : $"{tag.Resources.Count} 个项目 · 双击或按 Enter 打开";
@@ -199,14 +199,14 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     private void RenderTagResources()
     {
         _resources.Clear();
-        TagEmptyText.Visibility = Visibility.Visible;
+        TagEmptyHost.Visibility = Visibility.Visible;
         TagEmptyText.Text = "选择标签以查看关联资源。";
         if (Selected?.Tag is not { } tag) return;
         var index = 0;
         foreach (var reference in tag.Resources)
             _resources.Add(new CollectionRow($"{tag.Id}:{index++}", reference.DisplayPath.TrimEnd('/').Split('/').LastOrDefault() is { Length: > 0 } name ? name : "/", reference.DisplayPath, IdentityState(reference), reference, Tag: tag));
         TagEmptyText.Text = "此标签暂无关联资源。可用“设置资源标签”绑定当前选中资源。";
-        TagEmptyText.Visibility = _resources.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        TagEmptyHost.Visibility = _resources.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
     private static string IdentityState(CollectionResource reference) => reference.Resource is null ? "历史记录，资源身份暂不可用" : "";
 
