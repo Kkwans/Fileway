@@ -278,7 +278,7 @@
     <StackPanel x:Name="SavedConnectionsPanel" Spacing="10" Visibility="Collapsed">
      <TextBlock Text="已保存连接" FontSize="13" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
      <ui:ChoiceBox x:Name="SavedConnectionBox" DisplayMemberPath="Label" HorizontalAlignment="Stretch" SelectionChanged="SavedConnection_Changed" AutomationProperties.Name="已保存连接"/>
-     <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Button x:Name="RestoreSavedButton" Content="恢复已保存登录" Click="RestoreSaved_Click" HorizontalAlignment="Stretch" Style="{StaticResource FwPrimaryButtonStyle}"/><Button x:Name="ForgetSavedButton" Grid.Column="1" Content="忘记连接" Click="ForgetSaved_Click" Style="{StaticResource FwSecondaryButtonStyle}"/></Grid>
+     <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button x:Name="ForgetSavedButton" Content="忘记连接" Click="ForgetSaved_Click" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="RestoreSavedButton" Grid.Column="1" Content="恢复已保存登录" Click="RestoreSaved_Click" HorizontalAlignment="Stretch" Style="{StaticResource FwPrimaryButtonStyle}"/></Grid>
     </StackPanel>
     <TextBox x:Name="ServerBox" Header="服务器地址" PlaceholderText="https://your-server" TextChanged="Server_Changed" InputScope="Url" Style="{StaticResource FwTextBoxStyle}"/>
     <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
