@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="Fileway.App.Controls.NasTasks.NasTasksControl" xmlns:ui="using:Fileway.App.Controls"
  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -40,7 +40,7 @@
    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition x:Name="DetailRow" Height="0"/></Grid.RowDefinitions>
    <Grid x:Name="ListArea">
     <ListView x:Name="TaskRecords" SelectionMode="Single" SelectionChanged="Task_Changed" KeyDown="TaskRecords_KeyDown" DoubleTapped="TaskRecords_DoubleTapped" HorizontalContentAlignment="Stretch" AutomationProperties.Name="NAS 服务器文件任务，按 Enter 刷新详情">
-     <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="4"/><Setter Property="Margin" Value="0,0,0,4"/></Style></ListView.ItemContainerStyle>
+     <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="10"/><Setter Property="Margin" Value="0,0,0,6"/></Style></ListView.ItemContainerStyle>
      <ListView.ItemTemplate><DataTemplate x:DataType="local:NasTaskRow">
       <Grid Padding="8" ColumnSpacing="12" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
        <ui:LucideIcon IconName="{x:Bind IconName, Mode=OneWay}" Width="20" Height="20" Foreground="{ThemeResource FwTextSecondaryBrush}" VerticalAlignment="Top" Margin="0,2,0,0"/>
@@ -49,7 +49,7 @@
      </DataTemplate></ListView.ItemTemplate>
     </ListView>
     <ListView x:Name="OperationRecords" Visibility="Collapsed" SelectionMode="Single" SelectionChanged="Operation_Changed" KeyDown="OperationRecords_KeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="任务操作记录，按 Enter 核实选中记录">
-     <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="8"/><Setter Property="Margin" Value="0,0,0,4"/></Style></ListView.ItemContainerStyle>
+     <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="10"/><Setter Property="Margin" Value="0,0,0,6"/></Style></ListView.ItemContainerStyle>
      <ListView.ItemTemplate><DataTemplate x:DataType="local:NasTaskOperationRow"><StackPanel Spacing="4" AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}"><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind Stage, Mode=OneWay}" TextWrapping="Wrap"/><TextBlock Text="{x:Bind When, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></DataTemplate></ListView.ItemTemplate>
     </ListView>
     <StackPanel x:Name="EmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="420" Spacing="14" Margin="12"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="file-code" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="EmptyTitle" Text="暂无 文件任务" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" Foreground="{ThemeResource FwTextPrimaryBrush}"/><TextBlock x:Name="EmptyDescription" FontSize="13" LineHeight="20" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></StackPanel>
@@ -73,7 +73,7 @@
       <StackPanel x:Name="OperationDetails" Spacing="10" Visibility="Collapsed">
        <TextBlock x:Name="OperationStage" TextWrapping="Wrap"/><TextBlock x:Name="OperationExplanation" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
        <TextBlock Text="操作记录逐项确认" FontWeight="SemiBold"/><TextBlock Text="提交记录不代替服务器逐项执行结果；未确认项不会标为成功。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-       <ListView x:Name="OperationItems" Height="220" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch" AutomationProperties.Name="操作记录中的逐项确认">
+       <ListView x:Name="OperationItems" Height="220" SelectionMode="None" IsItemClickEnabled="False" HorizontalContentAlignment="Stretch" AutomationProperties.Name="操作记录中的逐项确认"><ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="10"/><Setter Property="Margin" Value="0,0,0,4"/></Style></ListView.ItemContainerStyle>
         <ListView.ItemTemplate><DataTemplate x:DataType="local:NasTaskOperationItemRow"><StackPanel Padding="4,8" Spacing="3"><TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"/><TextBlock Text="{x:Bind Outcome}" TextWrapping="Wrap"/><TextBlock Text="{x:Bind Source}" FontSize="12" TextWrapping="Wrap" MaxLines="2" ToolTipService.ToolTip="{x:Bind Source}"/><TextBlock Text="{x:Bind Target}" FontSize="12" TextWrapping="Wrap" MaxLines="2" ToolTipService.ToolTip="{x:Bind Target}"/></StackPanel></DataTemplate></ListView.ItemTemplate>
        </ListView>
        <TextBlock x:Name="OperationItemsEmpty" Text="此记录未提供逐项确认。" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

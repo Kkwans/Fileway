@@ -232,7 +232,7 @@ components:
 
 - 行高 40，图标 20，名称 13.5，右侧元信息 12/muted。
 - 表头使用 `surface-raised`，单元格 220px 起，允许横向滚动；不截断到无法阅读。
-- 选中态使用 `surface-hover`，不使用系统蓝色高亮块。
+- 选中态使用 `surface-hover`，不使用系统蓝色高亮块；可选择的列表一律以 `FwListViewItemStyle` 为基底，选中时使用半透明 `FwSelectionBrush` + 左侧 3px 强调标记。
 
 ### Viewers
 
