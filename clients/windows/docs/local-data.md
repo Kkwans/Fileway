@@ -15,7 +15,7 @@ SQLite 工作在后台执行并串行访问，锁等待有界；连接启用 WAL
 
 `client.db` 用 SQLite `user_version` 管理版本。`saved_connections` 以 profile UUID 为主键，
 保存 source revision、名称、服务器地址、网络/代理策略、认证方式、用户名、服务端 userId、
-保持登录开关和最后连接时间；不保存密码或 JWT。
+保持登录开关和最后连接时间；密码与会话令牌不写入 SQLite，另存于独立的 DPAPI 凭据库，见“凭据与恢复”。
 
 `pending_logouts` 以 `(profileId, sourceRevision, serverUserId)` 为复合主键。
 注销意图事务先关闭对应账号的保持登录标记，再收回会话和媒体租约，删除加密凭据后完成清理。
