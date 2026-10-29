@@ -53,6 +53,16 @@
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="MinHeight" Value="36" />
       </Style>
+      <Style x:Key="FilewaySearchBoxStyle" TargetType="AutoSuggestBox">
+        <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="12,0" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="MinHeight" Value="36" />
+      </Style>
       <Style x:Key="FilewaySelectorButtonStyle" TargetType="DropDownButton">
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Height" Value="34" />

@@ -153,7 +153,11 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
-    public void SetTheme(ElementTheme theme) => ApplyTheme(theme);
+    public void SetTheme(ElementTheme theme)
+    {
+        if (_closed) return;
+        ApplyTheme(ElementTheme.Dark);
+    }
 
     private Brush ThemeBrush(string key)
     {
@@ -168,23 +172,29 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void ApplyTheme(ElementTheme theme)
     {
-        _theme = theme;
-        if (Content is FrameworkElement root) root.RequestedTheme = theme;
-        var canvas = ThemeBrush("FwCanvasBrush");
+        // Same explicit dark editorial palette as the text reader; the archive is a
+        // utility surface and must stay readable under any host theme.
+        _theme = ElementTheme.Dark;
+        if (Content is FrameworkElement root) root.RequestedTheme = ElementTheme.Dark;
+        var canvas = Brush(23, 25, 29);
         _root.Background = canvas;
         _windowRoot.Background = canvas;
-        _toolbar.Background = ThemeBrush("FwSurfaceBrush");
-        _toolbar.BorderBrush = ThemeBrush("FwStrokeBrush");
-        _crumbBar.Background = ThemeBrush("FwSurfaceBrush");
-        _crumbBar.BorderBrush = ThemeBrush("FwStrokeBrush");
-        _statusBar.BorderBrush = ThemeBrush("FwStrokeBrush");
-        _title.Foreground = ThemeBrush("FwTextPrimaryBrush");
-        _summary.Foreground = ThemeBrush("FwTextSecondaryBrush");
-        _status.Foreground = ThemeBrush("FwTextSecondaryBrush");
-        _bannerText.Foreground = ThemeBrush("FwTextPrimaryBrush");
-        _banner.Background = ThemeBrush("FwSurfaceRaisedBrush");
-        _banner.BorderBrush = ThemeBrush("FwStrokeBrush");
+        _toolbar.Background = Brush(31, 34, 40);
+        _toolbar.BorderBrush = Brush(255, 255, 255, 31);
+        _crumbBar.Background = Brush(31, 34, 40);
+        _crumbBar.BorderBrush = Brush(255, 255, 255, 31);
+        _statusBar.BorderBrush = Brush(255, 255, 255, 31);
+        _title.Foreground = Brush(244, 246, 248);
+        _summary.Foreground = Brush(168, 174, 184);
+        _status.Foreground = Brush(168, 174, 184);
+        _bannerText.Foreground = Brush(244, 246, 248);
+        _banner.Background = Brush(31, 34, 40);
+        _banner.BorderBrush = Brush(255, 255, 255, 31);
+        _titleBar.RequestedTheme = ElementTheme.Dark;
     }
+
+    private static SolidColorBrush Brush(byte red, byte green, byte blue, byte alpha = 255)
+        => new(Windows.UI.Color.FromArgb(alpha, red, green, blue));
 
     private async Task LoadAsync()
     {
