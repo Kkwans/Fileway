@@ -34,6 +34,7 @@ jobs:
       - name: Provision owned SDK and build paths
         run: |
           export ANDROID_HOME="$RUNNER_TEMP/fileway-tv-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
           export ANDROID_USER_HOME="$RUNNER_TEMP/fileway-tv-android-user"
           export TMPDIR="$RUNNER_TEMP/fileway-tv-tmp"
           mkdir -p "$ANDROID_HOME/cmdline-tools" "$ANDROID_USER_HOME" "$TMPDIR"
@@ -43,6 +44,7 @@ jobs:
           mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
           python3 ../shared/android/install-sdk.py --sdk "$ANDROID_HOME" platforms/android-37.0 build-tools/36.0.0 ndk/28.2.13676358 cmake/3.22.1
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_USER_HOME=$ANDROID_USER_HOME" >> "$GITHUB_ENV"
           echo "TMPDIR=$TMPDIR" >> "$GITHUB_ENV"
           echo "GRADLE_USER_HOME=$RUNNER_TEMP/fileway-tv-gradle" >> "$GITHUB_ENV"
@@ -88,6 +90,7 @@ jobs:
       - name: Install Android build inputs
         run: |
           export ANDROID_HOME="$RUNNER_TEMP/fileway-tv-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
           export ANDROID_USER_HOME="$RUNNER_TEMP/fileway-tv-android-user"
           mkdir -p "$ANDROID_HOME/cmdline-tools" "$ANDROID_USER_HOME"
           curl --fail --location --retry 2 'https://dl.google.com/android/repository/commandlinetools-linux-16111833_latest.zip' -o "$RUNNER_TEMP/sdk-tools.zip"
@@ -96,6 +99,7 @@ jobs:
           mv "$ANDROID_HOME/cmdline-tools/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
           python3 ../shared/android/install-sdk.py --sdk "$ANDROID_HOME" platforms/android-37.0 build-tools/36.0.0 ndk/28.2.13676358 cmake/3.22.1
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_USER_HOME=$ANDROID_USER_HOME" >> "$GITHUB_ENV"
           echo "GRADLE_USER_HOME=$RUNNER_TEMP/fileway-tv-gradle" >> "$GITHUB_ENV"
       - name: Build direct JNI and complete candidate
