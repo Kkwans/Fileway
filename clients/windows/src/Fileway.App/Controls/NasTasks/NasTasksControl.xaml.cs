@@ -149,9 +149,9 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             OperationRecords.Visibility = _historyMode ? Visibility.Visible : Visibility.Collapsed;
             Filters.Visibility = _historyMode ? Visibility.Collapsed : Visibility.Visible;
             LoadingRing.IsActive = Busy;
-            RefreshButton.Label = _historyMode ? "刷新记录" : "刷新任务";
+            RefreshLabel.Text = _historyMode ? "刷新记录" : "刷新任务";
             DetailRefreshButton.Visibility = TaskActionSeparator.Visibility = CancelTaskButton.Visibility =
-                RetryTaskButton.Visibility = ArchiveTaskButton.Visibility = UnarchiveTaskButton.Visibility =
+                RetryTaskButton.Visibility = MoreCommandsButton.Visibility = ArchiveTaskButton.Visibility = UnarchiveTaskButton.Visibility =
                     _historyMode ? Visibility.Collapsed : Visibility.Visible;
             ReconcileButton.Visibility = _historyMode ? Visibility.Visible : Visibility.Collapsed;
             RefreshButton.IsEnabled = Active && !Busy;

@@ -14,18 +14,15 @@
    <ProgressRing x:Name="LoadingRing" Grid.Column="1" Width="20" Height="20" IsActive="False" AutomationProperties.Name="正在读取 NAS 任务或核实操作记录"/>
   </Grid>
   <StackPanel Grid.Row="2" Spacing="8">
-   <CommandBar x:Name="Commands" HorizontalAlignment="Left" MinHeight="40" Height="40" DefaultLabelPosition="Right" Background="Transparent" IsDynamicOverflowEnabled="True">
-    <AppBarButton x:Name="RefreshButton" Label="刷新任务" Click="Refresh_Click" ToolTipService.ToolTip="刷新 (F5)"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrows-clockwise"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="DetailRefreshButton" Label="刷新详情" Click="DetailRefresh_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="eye"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="ReconcileButton" Label="核实记录" Click="Reconcile_Click" Visibility="Collapsed"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrows-clockwise"/></AppBarButton.Icon></AppBarButton>
-    <AppBarSeparator x:Name="TaskActionSeparator"/>
-    <AppBarButton x:Name="CancelTaskButton" Label="请求取消" Click="CancelTask_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="x"/></AppBarButton.Icon></AppBarButton>
-    <AppBarButton x:Name="RetryTaskButton" Label="重试" Click="RetryTask_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrows-clockwise"/></AppBarButton.Icon></AppBarButton>
-    <CommandBar.SecondaryCommands>
-     <AppBarButton x:Name="ArchiveTaskButton" Label="归档记录" Click="ArchiveTask_Click"><AppBarButton.Icon><FontIcon Glyph="&#xE7B8;"/></AppBarButton.Icon></AppBarButton>
-     <AppBarButton x:Name="UnarchiveTaskButton" Label="移出归档" Click="UnarchiveTask_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="arrow-counter-clockwise"/></AppBarButton.Icon></AppBarButton>
-    </CommandBar.SecondaryCommands>
-   </CommandBar>
+   <StackPanel x:Name="Commands" Orientation="Horizontal" Spacing="2" MinHeight="40">
+    <Button x:Name="RefreshButton" Click="Refresh_Click" Style="{StaticResource FwTextIconButtonStyle}" ToolTipService.ToolTip="刷新 (F5)" AutomationProperties.Name="刷新任务"><StackPanel Orientation="Horizontal" Spacing="8"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/><TextBlock x:Name="RefreshLabel" Text="刷新任务"/></StackPanel></Button>
+    <Button x:Name="DetailRefreshButton" Click="DetailRefresh_Click" Style="{StaticResource FwTextIconButtonStyle}" ToolTipService.ToolTip="刷新详情" AutomationProperties.Name="刷新详情"><StackPanel Orientation="Horizontal" Spacing="8"><ui:LucideIcon IconName="eye" Width="16" Height="16"/><TextBlock Text="刷新详情"/></StackPanel></Button>
+    <Button x:Name="ReconcileButton" Click="Reconcile_Click" Visibility="Collapsed" Style="{StaticResource FwTextIconButtonStyle}" ToolTipService.ToolTip="核实选中记录" AutomationProperties.Name="核实记录"><StackPanel Orientation="Horizontal" Spacing="8"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/><TextBlock Text="核实记录"/></StackPanel></Button>
+    <Border x:Name="TaskActionSeparator" Width="1" Height="18" Margin="8,0" VerticalAlignment="Center" Background="{ThemeResource FwStrokeBrush}"/>
+    <Button x:Name="CancelTaskButton" Click="CancelTask_Click" Style="{StaticResource FwTextIconButtonStyle}" ToolTipService.ToolTip="请求取消任务" AutomationProperties.Name="请求取消"><StackPanel Orientation="Horizontal" Spacing="8"><ui:LucideIcon IconName="x" Width="16" Height="16"/><TextBlock Text="请求取消"/></StackPanel></Button>
+    <Button x:Name="RetryTaskButton" Click="RetryTask_Click" Style="{StaticResource FwTextIconButtonStyle}" ToolTipService.ToolTip="重试任务" AutomationProperties.Name="重试"><StackPanel Orientation="Horizontal" Spacing="8"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/><TextBlock Text="重试"/></StackPanel></Button>
+    <Button x:Name="MoreCommandsButton" Style="{StaticResource FwIconButtonStyle}" Width="34" Height="34" VerticalAlignment="Center" ToolTipService.ToolTip="更多任务操作" AutomationProperties.Name="更多任务操作"><ui:LucideIcon IconName="dots-three" Width="16" Height="16"/><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="ArchiveTaskButton" Text="归档记录" Click="ArchiveTask_Click"><MenuFlyoutItem.Icon><ui:LucideActionIcon IconName="clipboard"/></MenuFlyoutItem.Icon></MenuFlyoutItem><MenuFlyoutItem x:Name="UnarchiveTaskButton" Text="移出归档" Click="UnarchiveTask_Click"><MenuFlyoutItem.Icon><ui:LucideActionIcon IconName="arrow-counter-clockwise"/></MenuFlyoutItem.Icon></MenuFlyoutItem></MenuFlyout></Button.Flyout></Button>
+   </StackPanel>
    <Grid x:Name="Filters" ColumnSpacing="8" RowSpacing="8" HorizontalAlignment="Left"><Grid.ColumnDefinitions><ColumnDefinition Width="380"/><ColumnDefinition Width="140"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
     <ui:ChoiceBox x:Name="StatusFilter" Header="任务状态" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed" AutomationProperties.Name="筛选 文件任务状态">
      <ComboBoxItem Content="全部状态"/><ComboBoxItem Content="进行中"/><ComboBoxItem Content="需要处理"/><ComboBoxItem Content="已完成"/><ComboBoxItem Content="已取消"/>
