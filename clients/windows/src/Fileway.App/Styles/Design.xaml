@@ -666,6 +666,9 @@
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
                     </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
               </VisualStateGroup>
@@ -681,8 +684,10 @@
             <Border x:Name="SelectionBar" Width="3" Height="28" CornerRadius="2" Margin="6,0,0,0"
                     HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"
                     Background="{ThemeResource AccentFillColorDefaultBrush}" IsHitTestVisible="False" />
-            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FocusStrokeColorOuterBrush}"
-                    CornerRadius="{TemplateBinding CornerRadius}" Margin="1" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
           </Grid>
         </ControlTemplate>
       </Setter.Value>
