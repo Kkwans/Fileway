@@ -277,7 +277,8 @@
    <ScrollViewer x:Name="ConnectionFormScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid MaxWidth="1120" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="56,40" ColumnSpacing="64">
      <Grid.ColumnDefinitions><ColumnDefinition x:Name="ConnectionBrandColumn" Width="*" MinWidth="0"/><ColumnDefinition x:Name="ConnectionCardColumn" Width="440"/></Grid.ColumnDefinitions>
-     <StackPanel x:Name="ConnectionBrand" Spacing="18" VerticalAlignment="Center" MaxWidth="440" HorizontalAlignment="Left">
+     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+     <StackPanel x:Name="ConnectionBrand" Grid.RowSpan="2" Spacing="18" VerticalAlignment="Center" MaxWidth="440" HorizontalAlignment="Left">
       <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
        <Border Width="44" Height="44" CornerRadius="12" Background="{ThemeResource FwSurfaceRaisedBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1">
         <Image Source="ms-appx:///Assets/Square44x44Logo.scale-200.png" Width="28" Height="28" Stretch="Uniform"/>
@@ -319,7 +320,10 @@
        </Grid>
        <Grid x:Name="CredentialFields" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel Spacing="6"><TextBlock Text="用户名" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/><TextBox x:Name="UsernameBox" Height="36" PlaceholderText="服务器用户名" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}"/></StackPanel><StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="密码" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/><PasswordBox x:Name="PasswordBox" Height="36" PlaceholderText="输入密码" PasswordRevealMode="Peek" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwPasswordBoxStyle}"/></StackPanel></Grid>
        <InfoBar x:Name="LoginNotice" IsOpen="True" IsClosable="False" Severity="Informational" Message="正在准备本地核心服务…"/>
-       <Border Height="1" Background="{ThemeResource FwStrokeBrush}"/>
+      </StackPanel>
+     </Border>
+     <Border Grid.Row="1" Grid.Column="1" Margin="0,12,0,0" Padding="26,14,26,20" CornerRadius="16" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1">
+      <StackPanel Spacing="10">
        <StackPanel Spacing="2"><CheckBox x:Name="KeepSignedInBox" Content="保持登录" IsChecked="True"/><TextBlock x:Name="RetentionDescription" Text="勾选后在当前 Windows 用户下加密保存密码和会话，用于自动恢复；退出登录或忘记连接会删除。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
        <Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource FwPrimaryButtonStyle}" Click="Connect_Click" IsEnabled="False" HorizontalAlignment="Stretch"/>
        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8"><Button x:Name="CancelConnectionButton" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="DismissConnection" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}"/></StackPanel>
