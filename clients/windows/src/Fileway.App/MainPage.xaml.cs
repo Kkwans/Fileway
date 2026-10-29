@@ -328,7 +328,7 @@ public sealed partial class MainPage : Page, IDisposable
                 _trail.Clear(); _trail.Add(_root);
                 await LoadAsync(_root);
             }
-            try { await RefreshSavedConnectionsAsync(); }
+            try { await RefreshSavedConnectionsAsync(selectMostRecent: true); }
             catch (Exception exception) when (exception is not OperationCanceledException)
             { SetNotice("已连接，列表更新失败", ErrorMessage(exception), InfoBarSeverity.Warning); }
         }
