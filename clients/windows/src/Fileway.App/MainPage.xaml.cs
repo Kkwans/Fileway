@@ -139,20 +139,12 @@ public sealed partial class MainPage : Page, IDisposable
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot, Title = "缓存与存储", Content = control,
-            PrimaryButtonText = "保存", CloseButtonText = "关闭", IsPrimaryButtonEnabled = false,
             RequestedTheme = Shell.RequestedTheme,
         };
         _storageDialog = dialog; _storageControl = control;
         dialog.Closed += (_, _) => control.Dispose();
-        void StateChanged(object? source, EventArgs eventArgs) { if (!_disposed) dialog.IsPrimaryButtonEnabled = control.CanSave; }
-        control.StateChanged += StateChanged;
-        dialog.PrimaryButtonClick += async (_, click) =>
-        {
-            click.Cancel = true;
-            var deferral = click.GetDeferral();
-            try { await control.SaveAsync(); }
-            finally { deferral.Complete(); }
-        };
+        control.CloseRequested += (_, _) => dialog.Hide();
+        control.SaveRequested += async (_, _) => { try { await control.SaveAsync(); } catch (OperationCanceledException) { } };
         try
         {
             var completion = dialog.ShowAsync();
@@ -163,7 +155,6 @@ public sealed partial class MainPage : Page, IDisposable
         catch (Exception) { if (!_disposed) SetNotice("存储设置未能打开", "请关闭其他对话框后重试。", InfoBarSeverity.Error); }
         finally
         {
-            control.StateChanged -= StateChanged;
             if (ReferenceEquals(_storageDialog, dialog)) { _storageDialog = null; _storageControl = null; }
         }
         async Task LoadStorageControlAsync()

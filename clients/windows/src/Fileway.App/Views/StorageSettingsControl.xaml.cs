@@ -1,4 +1,4 @@
-using Fileway.Core.Contracts;
+﻿using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.Storage.Pickers;
@@ -27,6 +27,8 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
     }
 
     public event EventHandler? StateChanged;
+    public event EventHandler? SaveRequested;
+    public event EventHandler? CloseRequested;
     public bool CanSave => _ready && !_busy && !_disposed && !_lifetime.IsCancellationRequested;
     private bool CanUpdate => !_disposed && !_lifetime.IsCancellationRequested;
 
@@ -235,8 +237,13 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
         _busy = busy;
         SettingsFields.IsEnabled = _ready && !busy;
         CacheActions.IsEnabled = _ready && !busy && _settings is ILocalCacheManagementService;
+        SaveButton.IsEnabled = CanSave;
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    private void Save_Click(object sender, RoutedEventArgs args) => SaveRequested?.Invoke(this, EventArgs.Empty);
+
+    private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
 
     private void ShowStatus(string message, InfoBarSeverity severity)
     {

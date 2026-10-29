@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
@@ -19,32 +19,42 @@ public static class DialogOrdering
     private static void OnEnableChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)
     {
         if (element is not ContentDialog dialog || args.NewValue is not true) return;
-        dialog.Opened += (_, _) => Reorder(dialog);
+        dialog.Opened += (_, _) => ScheduleReorder(dialog);
     }
 
-    private static void Reorder(ContentDialog dialog)
+    private static void ScheduleReorder(ContentDialog dialog)
+    {
+        if (Reorder(dialog)) return;
+        // Dialogs opened from a menu can raise Opened before the button panel is realized.
+        dialog.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!Reorder(dialog))
+                dialog.DispatcherQueue.TryEnqueue(() => Reorder(dialog));
+        });
+    }
+
+    private static bool Reorder(ContentDialog dialog)
     {
         var primary = Find(dialog, "PrimaryButton");
         var secondary = Find(dialog, "SecondaryButton");
         var close = Find(dialog, "CloseButton");
-        if (primary is null || close is null) return;
-        if (primary.Parent is not Panel container || close.Parent != container) return;
+        if (primary is null || close is null) return false;
+        if (primary.Parent is not Panel container || close.Parent != container) return false;
         if (container is Grid grid && grid.ColumnDefinitions.Count >= 3)
         {
             var primaryColumn = Grid.GetColumn(primary);
             var closeColumn = Grid.GetColumn(close);
-            if (primaryColumn == closeColumn) return;
+            if (primaryColumn == closeColumn) return false;
             Grid.SetColumn(primary, closeColumn);
             Grid.SetColumn(close, primaryColumn);
-            return;
+            return true;
         }
         // Fallback for stack-based templates: move the primary button to the container end.
         var index = container.Children.IndexOf(primary);
-        if (index >= 0 && index != container.Children.Count - 1)
-        {
-            container.Children.RemoveAt(index);
-            container.Children.Add(primary);
-        }
+        if (index < 0 || index == container.Children.Count - 1) return false;
+        container.Children.RemoveAt(index);
+        container.Children.Add(primary);
+        return true;
     }
 
     private static FrameworkElement? Find(DependencyObject root, string name)
