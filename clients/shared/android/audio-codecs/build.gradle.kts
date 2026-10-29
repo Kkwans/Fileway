@@ -1,7 +1,7 @@
 plugins { id("com.android.library") }
 val nativeRoot = file(providers.gradleProperty("filewayTvFfmpegWorkDir").get()).canonicalFile
 require(nativeRoot.resolve("input-lock.json").readText() == file("../native/media3-ffmpeg-tv.lock.json").readText()) { "TV FFmpeg source lock mismatch" }
-android {
+extensions.configure<com.android.build.api.dsl.LibraryExtension>("android") {
     namespace = "androidx.media3.decoder.ffmpeg"
     compileSdk = 37
     buildToolsVersion = "36.0.0"
