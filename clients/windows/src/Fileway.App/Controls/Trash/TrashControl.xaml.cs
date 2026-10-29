@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -89,7 +89,8 @@ public sealed partial class TrashControl : UserControl, IDisposable
             Notice.Title = error is null ? "操作结果" : "回收站需要处理";
             Notice.Message = message;
             Notice.Severity = error is null ? InfoBarSeverity.Informational : InfoBarSeverity.Warning;
-            Empty.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            EmptyHost.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            HeaderRow.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             Empty.Text = _controller.IsLoading ? "正在读取回收站…" : _session is null ? "连接后查看回收站" : "暂无回收站项目";
             BusyRing.IsActive = Busy;
             RefreshButton.IsEnabled = _session is not null && !Busy;
