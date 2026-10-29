@@ -625,6 +625,19 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             Regex("(?:^|[^a-z])(?:eng|en)(?:$|[^a-z])").containsMatchIn(label)
         return if (bilingual) 2 else 1
     }
+    /** Reselect a renderer-accepted single-track source without downloading or
+     * parsing it again. The caller must bind sourceKey to an immutable resource
+     * identity. Both identity maps are cleared when this media generation ends.
+     * Multi-track sources still require an explicit track selection. */
+    fun selectImportedSubtitle(sourceKey: String): Boolean {
+        if (released || engine == null) return false
+        val id = externalIdentities.entries.singleOrNull {
+            it.value.sourceKey == sourceKey && it.key in external
+        }?.key ?: return false
+        subtitle(id)
+        return selectedExternal == id
+    }
+
     fun subtitle(id: Int, automatic: Boolean = false) {
         if (engine == null) return
         if (id != -1 && id !in external && choices[id]?.type != C.TRACK_TYPE_TEXT) {

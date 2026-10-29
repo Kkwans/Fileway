@@ -397,7 +397,13 @@ class TvMediaController(
     private suspend fun importSourceSubtitle(index: Int) {
         val source = binding ?: return
         val expected = epoch
+        if (!accepts(source.owner, expected)) return
         val track = mutable.value.sourceText.firstOrNull { it.index == index } ?: error("字幕轨道已变化")
+        val sourceKey = "source:${source.identity}:$index"
+        if (player.selectImportedSubtitle(sourceKey)) {
+            mutable.update { it.copy(selectedSourceSubtitle = index) }
+            return
+        }
         val ext = when (track.codec) { "ass", "ssa" -> "ass"; "hdmv_pgs_subtitle" -> "sup"; "subrip" -> "srt"; else -> "vtt" }
         val endpoint = "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}"
         val lease = source.owner.api.assetLease(endpoint)
@@ -405,7 +411,7 @@ class TvMediaController(
         try {
             if (ext == "ass") loadFonts(source, expected)
             withTimeout(15_000) { while (!player.canAddExternalSubtitle) delay(100) }
-            check(player.importSubtitle(lease.url, "${track.title}.$ext", "source:$index", true)) { "字幕未能完整载入" }
+            check(player.importSubtitle(lease.url, "${track.title}.$ext", sourceKey, true)) { "字幕未能完整载入" }
             if (accepts(source.owner, expected)) { leases += lease; mutable.update { it.copy(selectedSourceSubtitle = index) } } else lease.release()
         } catch (error: Exception) { lease.release(); throw error }
     }
