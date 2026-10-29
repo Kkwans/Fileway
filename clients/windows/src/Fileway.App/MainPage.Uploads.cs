@@ -1,4 +1,4 @@
-﻿using Fileway.Core.Contracts;
+using Fileway.Core.Contracts;
 using static Fileway.App.UploadPresentationPolicy;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -15,6 +15,7 @@ public sealed partial class MainPage
     private readonly Dictionary<TransferTaskRef, UploadItem> _uploadItems = [];
     private readonly Dictionary<TransferTaskRef, UploadOrigin> _uploadOrigins = [];
     private readonly HashSet<TransferTaskRef> _uploadRefreshes = [];
+    private readonly HashSet<Guid> _uploadBatchRefreshes = [];
     private UploadItem? _latestUpload;
     private ContentDialog? _uploadDialog;
     private UploadDetailsView? _uploadDetails;
@@ -66,7 +67,7 @@ public sealed partial class MainPage
         _uploadDialog = null; _uploadDetails = null; _uploadDetailTask = null;
         _uploadContext = null; _latestUpload = null;
         _uploadErrorTitle = _uploadErrorMessage = null;
-        _uploadItems.Clear(); _uploadOrigins.Clear(); _uploadRefreshes.Clear();
+        _uploadItems.Clear(); _uploadOrigins.Clear(); _uploadRefreshes.Clear(); _uploadBatchRefreshes.Clear();
         if (UploadNotice is not null) UploadNotice.IsOpen = false;
         ClearTransferUploadPresentation();
     }
@@ -425,12 +426,23 @@ public sealed partial class MainPage
 
     private void TryRefreshCompletedUpload(UploadItem item)
     {
-        if (item.Status == UploadStatus.Completed && item.Snapshot.RemotePublished
-            && _uploadOrigins.TryGetValue(item.Snapshot.Task, out var origin)
-            && SameBrowser(origin.Session, origin.Parent, origin.Generation)
-            && _uploadRefreshes.Add(item.Snapshot.Task))
-            _ = RefreshCompletedUploadAsync(item, origin);
+        if (item.Status != UploadStatus.Completed || !item.Snapshot.RemotePublished) return;
+        if (!_uploadOrigins.TryGetValue(item.Snapshot.Task, out var origin)
+            || !SameBrowser(origin.Session, origin.Parent, origin.Generation)) return;
+        // A folder batch only needs one refresh: wait until no member is still uploading,
+        // so a large tree does not reload the directory once per file.
+        if (item.Batch is { } batch)
+        {
+            if (!BatchSettled(batch.Id) || !_uploadBatchRefreshes.Add(batch.Id)) return;
+        }
+        if (!_uploadRefreshes.Add(item.Snapshot.Task)) return;
+        _ = RefreshCompletedUploadAsync(item, origin);
     }
+
+    private bool BatchSettled(Guid batchId) => !_uploadItems.Values.Any(item => item.Batch?.Id == batchId
+        && item.Status is UploadStatus.Queued or UploadStatus.Preparing or UploadStatus.Uploading or UploadStatus.Pausing
+            or UploadStatus.Canceling or UploadStatus.Verifying or UploadStatus.Publishing or UploadStatus.Reconciling
+            or UploadStatus.WaitingNetwork or UploadStatus.WaitingAuthentication);
 
     private async Task RefreshCompletedUploadAsync(UploadItem item, UploadOrigin origin)
     {
