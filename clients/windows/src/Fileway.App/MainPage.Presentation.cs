@@ -1,4 +1,4 @@
-using Fileway.App.MediaSurfaces;
+﻿using Fileway.App.MediaSurfaces;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -20,11 +20,10 @@ public sealed partial class MainPage
     private void InitializePresentation()
     {
         BrowserBody.Children.Remove(DetailsPanel);
-        DetailsPanel.Width = 520;
-        DetailsPanel.Height = 520;
+        DetailsPanel.Width = 420;
+        DetailsPanel.Height = 480;
         DetailsPanel.MaxHeight = 560;
-        DetailsPanel.Padding = new Thickness(20);
-        DetailsPanel.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        DetailsPanel.Padding = new Thickness(20, 16, 20, 18);
         DetailsPanel.BorderThickness = new Thickness(0);
         Notice.IsOpen = false;
         LoginNotice.IsClosable = true;

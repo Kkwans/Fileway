@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Fileway.App.Views;
 using Fileway.App.Branding;
@@ -829,7 +829,9 @@ public sealed partial class MainPage : Page, IDisposable
         var row = count == 1 ? ActiveFiles.SelectedItem as FileRow : null;
         StatusText.Text = LoadingRing.IsActive ? $"正在加载目录… · {_rows.Count} 个项目" : $"{_rows.Count} 个项目 · 已选择 {count} 个 · 双击或按 Enter 打开";
         DetailsName.Text = row?.Name ?? (count > 1 ? $"已选择 {count} 个项目" : "选择一个项目");
-        DetailsMetadata.Text = row is not null ? $"类型：{row.Kind}\n大小：{row.Size}\n修改时间：{row.Modified}" : "选择单个文件或目录，查看详细信息。";
+        DetailsKindText.Text = row?.Kind ?? (count > 1 ? $"{count} 个项目" : "—");
+        DetailsSizeText.Text = row?.Size ?? "—";
+        DetailsModifiedText.Text = row?.Modified ?? "—";
         DetailsPath.Text = row?.File.Resource.DisplayPath ?? "";
         DetailsOpenButton.IsEnabled = row is not null && !_connecting;
         DetailsFileIcon.IconName = row?.IconName ?? "file";

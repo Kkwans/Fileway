@@ -1,4 +1,4 @@
-using Fileway.Core.Contracts;
+﻿using Fileway.Core.Contracts;
 using static Fileway.App.UploadPresentationPolicy;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -229,7 +229,12 @@ public sealed partial class MainPage
                 }
             }
             if (IsCurrentUploadContext(context))
+            {
+                // The remote folder tree exists as soon as the first file is accepted;
+                // refresh once so the new folder appears without waiting for every file.
+                if (SameBrowser(session, parent, generation)) await RefreshOriginAsync(session, parent, generation);
                 SetNotice("文件夹上传", $"已提交 {added} 个文件。" + (unconfirmed > 0 ? $"{unconfirmed} 个文件因目录冲突或未确认未提交，请到传输中心核实，勿重复提交。" : ""), unconfirmed > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+            }
         }
         catch (OperationCanceledException) { }
         catch (Exception error)

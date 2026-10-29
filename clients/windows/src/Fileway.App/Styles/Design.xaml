@@ -1,0 +1,428 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Default">
+      <SolidColorBrush x:Key="FwCanvasBrush" Color="#FF0B0C0F" />
+      <SolidColorBrush x:Key="FwSurfaceBrush" Color="#FF17191D" />
+      <SolidColorBrush x:Key="FwSurfaceRaisedBrush" Color="#FF1F2228" />
+      <SolidColorBrush x:Key="FwSurfaceHoverBrush" Color="#FF2A2E36" />
+      <SolidColorBrush x:Key="FwStrokeBrush" Color="#1FFFFFFF" />
+      <SolidColorBrush x:Key="FwStrokeStrongBrush" Color="#33FFFFFF" />
+      <SolidColorBrush x:Key="FwTextPrimaryBrush" Color="#FFF4F6F8" />
+      <SolidColorBrush x:Key="FwTextSecondaryBrush" Color="#FFA8AEB8" />
+      <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF757C87" />
+      <SolidColorBrush x:Key="FwScrimTextBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="FwScrimMutedBrush" Color="#FFC9CED6" />
+      <SolidColorBrush x:Key="FwDangerBrush" Color="#FFFF6B6B" />
+      <SolidColorBrush x:Key="FwShadowBrush" Color="#66000000" />
+      <AcrylicBrush x:Key="FwChromeBrush" TintColor="#14161A" TintOpacity="0.55" TintLuminosityOpacity="0.72" FallbackColor="#E614161A" />
+      <AcrylicBrush x:Key="FwPanelBrush" TintColor="#1B1E23" TintOpacity="0.72" TintLuminosityOpacity="0.82" FallbackColor="#F21B1E23" />
+      <AcrylicBrush x:Key="FwScrimBrush" TintColor="#0E1013" TintOpacity="0.72" TintLuminosityOpacity="0.78" FallbackColor="#E60E1013" />
+      <SolidColorBrush x:Key="FwGlassBrush" Color="#B3121519" />
+      <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#26FFFFFF" />
+      <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#33FFFFFF" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="FwCanvasBrush" Color="#FFF3F4F6" />
+      <SolidColorBrush x:Key="FwSurfaceBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="FwSurfaceRaisedBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="FwSurfaceHoverBrush" Color="#FFF0F2F6" />
+      <SolidColorBrush x:Key="FwStrokeBrush" Color="#14000000" />
+      <SolidColorBrush x:Key="FwStrokeStrongBrush" Color="#29000000" />
+      <SolidColorBrush x:Key="FwTextPrimaryBrush" Color="#FF1B1F24" />
+      <SolidColorBrush x:Key="FwTextSecondaryBrush" Color="#FF5C6470" />
+      <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF8A929E" />
+      <SolidColorBrush x:Key="FwScrimTextBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="FwScrimMutedBrush" Color="#FFD5DAE1" />
+      <SolidColorBrush x:Key="FwDangerBrush" Color="#FFC42B1C" />
+      <SolidColorBrush x:Key="FwShadowBrush" Color="#33000000" />
+      <AcrylicBrush x:Key="FwChromeBrush" TintColor="#F7F8FA" TintOpacity="0.62" TintLuminosityOpacity="0.85" FallbackColor="#E6F7F8FA" />
+      <AcrylicBrush x:Key="FwPanelBrush" TintColor="#FBFCFD" TintOpacity="0.80" TintLuminosityOpacity="0.90" FallbackColor="#F2FBFCFD" />
+      <AcrylicBrush x:Key="FwScrimBrush" TintColor="#F2F4F7" TintOpacity="0.70" TintLuminosityOpacity="0.86" FallbackColor="#E6F2F4F7" />
+      <SolidColorBrush x:Key="FwGlassBrush" Color="#CCF7F8FA" />
+      <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#1A000000" />
+      <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#22000000" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="HighContrast">
+      <StaticResource x:Key="FwCanvasBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwSurfaceBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwSurfaceRaisedBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwSurfaceHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="FwStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwStrokeStrongBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwTextPrimaryBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwTextSecondaryBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwTextTertiaryBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwScrimTextBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwScrimMutedBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwDangerBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwShadowBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwChromeBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwPanelBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwScrimBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwGlassBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwGlassStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwGlassHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+
+  <!-- ===== Typography ===== -->
+  <Style x:Key="FwDisplayTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="28" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwTitleTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwSubtitleTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwBodyTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="LineHeight" Value="22" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwCaptionTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextSecondaryBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+
+  <!-- ===== Buttons ===== -->
+  <Style x:Key="FwPrimaryButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
+    <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="18,0" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource AccentFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource AccentFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.4" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwSecondaryButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="16,0" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ControlFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ControlFillColorQuaternaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.4" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwIconButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Width" Value="36" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.35" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwScrimIconButtonStyle" TargetType="Button" BasedOn="{StaticResource FwIconButtonStyle}">
+    <Setter Property="Foreground" Value="{ThemeResource FwScrimTextBrush}" />
+    <Setter Property="Width" Value="40" />
+    <Setter Property="Height" Value="40" />
+    <Setter Property="CornerRadius" Value="12" />
+  </Style>
+
+  <Style x:Key="FwTextIconButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Height" Value="34" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="10,0" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.35" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ===== Viewer chrome surfaces ===== -->
+  <Style x:Key="FwChromeBarStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwScrimBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <Style x:Key="FwPillStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwGlassBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwGlassStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="Padding" Value="6" />
+  </Style>
+  <Style x:Key="FwToastStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwScrimBrush}" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="14,8" />
+  </Style>
+  <Style x:Key="FwErrorCardStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwPanelBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="22,18" />
+  </Style>
+  <Style x:Key="FwScrimTitleTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{ThemeResource FwScrimTextBrush}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style x:Key="FwScrimMutedTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{ThemeResource FwScrimMutedBrush}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style x:Key="FwScrimBodyTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{ThemeResource FwScrimTextBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwNavButtonStyle" TargetType="Button" BasedOn="{StaticResource FwScrimIconButtonStyle}">
+    <Setter Property="Width" Value="44" />
+    <Setter Property="Height" Value="44" />
+    <Setter Property="CornerRadius" Value="22" />
+    <Setter Property="Background" Value="{ThemeResource FwGlassBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwGlassStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <Style x:Key="FwActionTileStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Height" Value="62" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.35" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Dialogs: frosted surface, generous radius and app-wide button styles. -->
+  <Style TargetType="ContentDialog" BasedOn="{StaticResource DefaultContentDialogStyle}">
+    <Setter Property="Background" Value="{ThemeResource FwPanelBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="18" />
+    <Setter Property="Padding" Value="24,20,24,16" />
+    <Setter Property="PrimaryButtonStyle" Value="{StaticResource FwPrimaryButtonStyle}" />
+    <Setter Property="CloseButtonStyle" Value="{StaticResource FwSecondaryButtonStyle}" />
+    <Setter Property="SecondaryButtonStyle" Value="{StaticResource FwSecondaryButtonStyle}" />
+  </Style>
+</ResourceDictionary>

@@ -111,27 +111,34 @@ internal static partial class MarkdownBlockRenderer
 
     private static TextBlock HeadingBlock(int level, string text)
     {
-        double size = level switch { 1 => 26, 2 => 22, 3 => 19, 4 => 17, 5 => 15, _ => 14 };
-        var block = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = size, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, level <= 2 ? 10 : 6, 0, 4) };
+        double size = level switch { 1 => 30, 2 => 24, 3 => 20, 4 => 17.5, 5 => 15.5, _ => 14.5 };
+        var block = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            FontSize = size,
+            FontWeight = level <= 2 ? FontWeights.Bold : FontWeights.SemiBold,
+            LineHeight = size * 1.35,
+            Margin = new Thickness(0, level == 1 ? 6 : level == 2 ? 22 : 16, 0, level <= 2 ? 10 : 6),
+        };
         ApplyInline(block.Inlines, text);
         return block;
     }
 
     private static TextBlock ParagraphBlock(string text)
     {
-        var block = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8), LineHeight = 22 };
+        var block = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 14), LineHeight = 26, FontSize = 15 };
         ApplyInline(block.Inlines, text);
         return block;
     }
 
     private static StackPanel ListBlock(List<(bool Ordered, string Text)> items)
     {
-        var panel = new StackPanel { Spacing = 3, Margin = new Thickness(18, 0, 0, 8) };
+        var panel = new StackPanel { Spacing = 7, Margin = new Thickness(22, 2, 0, 16) };
         for (int index = 0; index < items.Count; index++)
         {
             var (_, text) = items[index];
-            var line = new TextBlock { TextWrapping = TextWrapping.Wrap };
-            line.Inlines.Add(new Run { Text = (items[index].Ordered ? (index + 1) + ". " : "• ") });
+            var line = new TextBlock { TextWrapping = TextWrapping.Wrap, LineHeight = 24, FontSize = 15 };
+            line.Inlines.Add(new Run { Text = (items[index].Ordered ? (index + 1) + ". " : "• "), Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["TextFillColorSecondaryBrush"] });
             ApplyInline(line.Inlines, text);
             panel.Children.Add(line);
         }
@@ -151,19 +158,29 @@ internal static partial class MarkdownBlockRenderer
         var block = new TextBlock
         {
             FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
-            TextWrapping = TextWrapping.Wrap,
+            TextWrapping = TextWrapping.NoWrap,
+            FontSize = 13,
+            LineHeight = 21,
             IsTextSelectionEnabled = true,
         };
         block.Inlines.Add(new Run { Text = code.Length == 0 ? " " : code });
+        var scroll = new ScrollViewer
+        {
+            Content = block,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            HorizontalScrollMode = ScrollMode.Enabled,
+            VerticalScrollMode = ScrollMode.Disabled,
+        };
         return new Border
         {
             Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["LayerFillColorDefaultBrush"],
             BorderBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["CardStrokeColorDefaultBrush"],
             BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(10, 8, 10, 8),
-            Margin = new Thickness(0, 0, 0, 8),
-            Child = block,
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(16, 12, 16, 12),
+            Margin = new Thickness(0, 4, 0, 16),
+            Child = scroll,
         };
     }
 
@@ -193,6 +210,8 @@ internal static partial class MarkdownBlockRenderer
                     target.Add(new Span
                     {
                         FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
+                        FontSize = 13.5,
+                        Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["AccentTextFillColorPrimaryBrush"],
                         Inlines = { new Run { Text = text[(next + 1)..end] } },
                     });
                     consumed = end + 1;

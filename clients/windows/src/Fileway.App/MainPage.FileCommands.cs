@@ -1,4 +1,4 @@
-using Fileway.Core.Contracts;
+﻿using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -15,6 +15,7 @@ public sealed partial class MainPage
     private readonly Dictionary<AccountKey, List<OperationRef>> _pendingWrites = [];
     private readonly HashSet<AccountKey> _untrackedUnknownWrites = [];
     private readonly Dictionary<AccountKey, ServerTaskRef> _submittedTasks = [];
+    private readonly HashSet<ServerTaskRef> _transferPolls = [];
     private readonly Dictionary<AccountKey, (string Label, FileOperationResult Result)> _fileResults = [];
     private readonly Dictionary<AccountKey, HashSet<string>> _receiptWarnings = [];
     private ServerTaskRef? SubmittedTask => _session is { } session && _submittedTasks.TryGetValue(session.Account, out var task) ? task : null;
@@ -355,7 +356,11 @@ public sealed partial class MainPage
             catch { if (clipboard is not null) _remoteClipboard.Clear(); throw; }
             if (clipboard is not null && result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown) _remoteClipboard.Clear();
             ConsumeReceipt(session.Account, result.Receipt);
-            if (result.Outcome == ServerTaskSubmissionOutcome.Accepted && result.AcceptedTask is { } accepted) _submittedTasks[session.Account] = accepted.Reference;
+            if (result.Outcome == ServerTaskSubmissionOutcome.Accepted && result.AcceptedTask is { } accepted)
+            {
+                _submittedTasks[session.Account] = accepted.Reference;
+                if (_transferPolls.Add(accepted.Reference)) _ = PollTransferAsync(session, directory, generation, accepted.Reference);
+            }
             if (result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown) TrackUnknown(session.Account, result.Receipt is { } receipt ? [new OperationRef(session.Account, receipt.OperationId)] : []);
             if (!SameBrowser(session, directory, generation)) return;
             if (result.Outcome == ServerTaskSubmissionOutcome.Accepted && result.AcceptedTask is { } task)
@@ -367,6 +372,38 @@ public sealed partial class MainPage
         }
         catch (Exception error) { PresentWriteException(session, directory, generation, action == FileTransferAction.Copy ? "复制" : "移动", error); }
         finally { _fileWriteBusy = false; UpdateBrowserCommands(); }
+    }
+
+    /// <summary>Server copy/move runs asynchronously; refresh the origin as soon as it completes instead of asking the user to poll.</summary>
+    private async Task PollTransferAsync(ConnectionSession session, RemoteResourceRef origin, long generation, ServerTaskRef task)
+    {
+        if (_files is not IServerTaskService tasks) return;
+        try
+        {
+            for (var attempt = 0; attempt < 480 && !_disposed; attempt++)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(1500), _lifetime.Token);
+                if (_disposed || _session?.Account != session.Account) return;
+                ServerTask state;
+                try { state = await tasks.GetTaskAsync(task, _lifetime.Token); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception) { return; }
+                if (state.Status is ServerTaskStatus.Queued or ServerTaskStatus.Running) continue;
+                if (SameBrowser(session, origin, generation))
+                {
+                    await RefreshOriginAsync(session, origin, generation);
+                    if (state.Status == ServerTaskStatus.Completed)
+                        SetNotice("服务器任务", $"{TaskStatusLabel(state.Status)} · 已刷新当前目录。", InfoBarSeverity.Success);
+                    else
+                        SetNotice("服务器任务", $"{TaskStatusLabel(state.Status)} · {state.ProcessedItems}/{state.TotalItems} 项" + (state.Error is null ? "" : Environment.NewLine + state.Error.Message), InfoBarSeverity.Warning);
+                    UpdateOperationAction();
+                }
+                return;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { }
+        finally { _transferPolls.Remove(task); }
     }
 
     private void ResetOperationContext() { OperationActionButton.Visibility = Visibility.Collapsed; UpdateReceiptWarning(); }

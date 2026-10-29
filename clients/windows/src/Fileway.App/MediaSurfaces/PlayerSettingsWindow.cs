@@ -1,7 +1,8 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using Fileway.App.Branding;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Composition;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
@@ -30,6 +31,11 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private bool _closing;
     private bool _closed;
     private bool _released;
+    private bool _moveArmed;
+    private Point _moveStart;
+    private NativeVideoWindow.NativePoint _moveStartScreen;
+    private NativePlayerOverlay.Rect _moveStartRect;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _moveWatch;
     private readonly bool _lightDismiss;
     private readonly bool _movable;
     private readonly nint _owner;
@@ -90,7 +96,9 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
                 _root.Background = new SolidColorBrush(fallback);
             }
             _root.AddHandler(UIElement.KeyDownEvent, _keyHandler, true);
-            _root.PointerPressed += Root_PointerPressed;
+            _root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(Root_PointerPressed), true);
+            _root.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(Root_PointerReleased), true);
+            _root.PointerCaptureLost += Root_PointerCaptureLost;
             Activated += Window_Activated;
             Closed += Window_Closed;
         }
@@ -124,14 +132,46 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
 
     private void Root_PointerPressed(object sender, PointerRoutedEventArgs args)
     {
-        if (!_movable || args.Handled || !args.GetCurrentPoint(_root).Properties.IsLeftButtonPressed || args.GetCurrentPoint(_root).Position.Y > 56) return;
+        _moveArmed = false;
+        if (!_movable || !args.GetCurrentPoint(_root).Properties.IsLeftButtonPressed || args.GetCurrentPoint(_root).Position.Y > 56) return;
         for (DependencyObject? current = args.OriginalSource as DependencyObject; current is not null && current != _root; current = VisualTreeHelper.GetParent(current))
-            if (current is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase or TextBox) return;
-        var point = args.GetCurrentPoint(_root).Position; var scale = _root.XamlRoot?.RasterizationScale ?? 1;
-        var screen = new NativeVideoWindow.NativePoint { X=(int)(point.X*scale), Y=(int)(point.Y*scale) };
-        if (!ClientToScreen(_window,ref screen)) return;
-        args.Handled = true; _=NativeVideoWindow.ReleaseCapture();
-        _=NativePlayerOverlay.PostMessageW(_window,0x00a1,2,(nint)unchecked((int)((screen.Y&0xffff)<<16|(screen.X&0xffff))));
+            if (current is Microsoft.UI.Xaml.Controls.Primitives.ButtonBase or TextBox or AutoSuggestBox or ScrollViewer) return;
+        if (!GetCursorPos(out _moveStartScreen)) return;
+        if (!NativePlayerOverlay.GetWindowRect(_window, out _moveStartRect)) return;
+        _moveStart = args.GetCurrentPoint(_root).Position;
+        _moveArmed = true;
+        _moveWatch ??= DispatcherQueue.CreateTimer();
+        _moveWatch.Stop();
+        _moveWatch.Interval = TimeSpan.FromMilliseconds(16);
+        _moveWatch.IsRepeating = true;
+        _moveWatch.Tick -= MoveWatch_Tick;
+        _moveWatch.Tick += MoveWatch_Tick;
+        _moveWatch.Start();
+    }
+
+    private void MoveWatch_Tick(object? sender, object args)
+    {
+        if (!_moveArmed) { _moveWatch?.Stop(); return; }
+        if ((GetAsyncKeyState(0x01) & 0x8000) == 0) { _moveArmed = false; _moveWatch?.Stop(); _ = NativePlayerOverlay.SetCursor(NativePlayerOverlay.LoadCursorW(0, (nint)32512)); return; }
+        if (!GetCursorPos(out var current)) return;
+        var dx = current.X - _moveStartScreen.X;
+        var dy = current.Y - _moveStartScreen.Y;
+        if (Math.Abs(dx) < 4 && Math.Abs(dy) < 4) return;
+        _ = NativePlayerOverlay.SetCursor(NativePlayerOverlay.LoadCursorW(0, (nint)32644));
+        NativeVideoWindow.SetWindowPos(_window, 0, _moveStartRect.Left + dx, _moveStartRect.Top + dy, 0, 0, 0x0015);
+    }
+
+    private void Root_PointerReleased(object sender, PointerRoutedEventArgs args)
+    {
+        if (_moveArmed) _ = NativePlayerOverlay.SetCursor(NativePlayerOverlay.LoadCursorW(0, (nint)32512));
+        _moveArmed = false;
+        _moveWatch?.Stop();
+    }
+
+    private void Root_PointerCaptureLost(object sender, PointerRoutedEventArgs args)
+    {
+        _moveArmed = false;
+        _moveWatch?.Stop();
     }
 
     internal void ShowAt(FrameworkElement anchor, bool preferBelow = false)
@@ -293,7 +333,10 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         if (_released) return;
         _released = true;
         _root.RemoveHandler(UIElement.KeyDownEvent, _keyHandler);
-        _root.PointerPressed -= Root_PointerPressed;
+        _root.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(Root_PointerPressed));
+        _root.RemoveHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(Root_PointerReleased));
+        _root.PointerCaptureLost -= Root_PointerCaptureLost;
+        if (_moveWatch is not null) { _moveWatch.Stop(); _moveWatch.Tick -= MoveWatch_Tick; _moveWatch = null; }
         Activated -= Window_Activated;
         Closed -= Window_Closed;
         if (_subclassed)
@@ -418,6 +461,11 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool ClientToScreen(nint window, ref NativeVideoWindow.NativePoint point);
+    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetCursorPos(out NativeVideoWindow.NativePoint point);
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern short GetAsyncKeyState(int key);
     [DllImport("user32.dll", ExactSpelling = true)]
     private static extern nint MonitorFromPoint(NativeVideoWindow.NativePoint point, uint flags);
     [DllImport("user32.dll", ExactSpelling = true)]

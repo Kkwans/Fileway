@@ -2,7 +2,9 @@ using Fileway.App.Branding;
 using Fileway.App.Controls;
 using Fileway.App.Windowing;
 using Fileway.Core.Contracts;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
@@ -31,24 +33,38 @@ public sealed class TextWindow : Window, IAsyncDisposable
     {
         IsReadOnly = true, AcceptsReturn = true, TextWrapping = TextWrapping.NoWrap,
         FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
+        FontSize = 13.5,
         IsSpellCheckEnabled = false, IsTextPredictionEnabled = false,
         HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch,
+        Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+        BorderThickness = new Thickness(0), Padding = new Thickness(20, 16, 20, 24),
     };
-    private readonly InfoBar _notice = new() { IsOpen = true, IsClosable = false, Message = "正在加载文本…" };
-    private readonly TextBlock _summary = new() { FontSize = 12, Opacity = 0.7 };
-    private readonly ScrollViewer _renderScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Padding = new Thickness(4, 0, 8, 0) };
-    private readonly StackPanel _renderHost = new() { Spacing = 2 };
+    private readonly TextBlock _title = new() { FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
+    private readonly TextBlock _summary = new() { FontSize = 12 };
+    private readonly TextBlock _status = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+    private readonly ScrollViewer _renderScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    private readonly StackPanel _renderHost = new() { Spacing = 0 };
     private readonly ScrollViewer _tableScroll = new()
     {
         VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
         Visibility = Visibility.Collapsed,
     };
-    private readonly Grid _editor = new() { MinHeight = 200 };
-    private AppBarButton? _editButton;
-    private AppBarButton? _saveButton;
-    private AppBarButton? _discardButton;
-    private AppBarToggleButton? _renderToggle;
-    private AppBarToggleButton? _tableToggle;
+    private readonly Grid _editor = new();
+    private readonly Grid _content = new();
+    private readonly Border _textFrame;
+    private readonly ProgressRing _loading = new() { IsActive = false, Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
+    private readonly Border _toolbar;
+    private readonly Border _banner;
+    private readonly TextBlock _bannerText;
+    private readonly Button _renderButton;
+    private readonly Button _tableButton;
+    private readonly Button _wrapButton;
+    private readonly Button _copyButton;
+    private readonly Button _editButton;
+    private readonly Button _saveButton;
+    private readonly Button _discardButton;
+    private readonly Grid _root;
+    private readonly Grid _windowRoot;
     private bool _editing;
     private bool _dirty;
     private bool _loaded;
@@ -67,99 +83,109 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private bool _closed;
     private bool _started;
     private bool _wrapped;
+    private ElementTheme _theme = ElementTheme.Dark;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _bannerTimer;
 
     public TextWindow(ITextContentService service, RemoteResourceRef resource)
     {
         _service = service;
         _resource = resource;
         Title = _titleBar.Caption = resource.DisplayName + " · " + AppBranding.DisplayName;
-        SystemBackdrop = new MicaBackdrop();
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1000, 760));
+        AppWindow.Resize(new Windows.Graphics.SizeInt32(1080, 800));
 
-        var commands = new CommandBar { DefaultLabelPosition = CommandBarDefaultLabelPosition.Right, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-        var edit = new AppBarButton { Label = "编辑", IsEnabled = false };
-        var save = new AppBarButton { Label = "保存", IsEnabled = false };
-        var discard = new AppBarButton { Label = "放弃修改", IsEnabled = false };
-        var renderToggle = new AppBarToggleButton { Label = "渲染视图" };
-        var wrap = new AppBarButton { Label = "自动换行", Icon = new FontIcon { Glyph = "" } };
-        var copy = new AppBarButton { Label = "复制全文", Icon = new SymbolIcon(Symbol.Copy) };
-        wrap.Click += (_, _) =>
-        {
-            _wrapped = !_wrapped;
-            _text.TextWrapping = _wrapped ? TextWrapping.Wrap : TextWrapping.NoWrap;
-            ToolTipService.SetToolTip(wrap, _wrapped ? "当前：自动换行" : "当前：不换行");
-        };
-        copy.Click += async (_, _) =>
-        {
-            try
-            {
-                var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
-                package.SetText(_text.Text);
-                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
-            }
-            catch (Exception) { _notice.Severity = InfoBarSeverity.Warning; _notice.Message = "复制未能完成，请重试。"; _notice.IsOpen = true; }
-        };
-        var tableToggle = new AppBarToggleButton { Label = "表格视图" };
-        tableToggle.Click += (_, _) =>
-        {
-            _showTable = tableToggle.IsChecked == true;
-            ApplyViewMode();
-        };
-        tableToggle.Visibility = Visibility.Collapsed;
-        _tableToggle = tableToggle;
-        commands.PrimaryCommands.Add(edit);
-        commands.PrimaryCommands.Add(save);
-        commands.PrimaryCommands.Add(discard);
-        commands.PrimaryCommands.Add(renderToggle);
-        commands.PrimaryCommands.Add(tableToggle);
-        commands.PrimaryCommands.Add(wrap);
-        _editButton = edit; _saveButton = save; _discardButton = discard;
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(_text, "TextEditor");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(_text, "文本内容");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(edit, "EditTextButton");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(save, "SaveTextButton");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(discard, "DiscardTextButton");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(renderToggle, "RenderTextToggle");
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(tableToggle, "TableTextToggle");
-        edit.Click += (_, _) => EnterEditMode();
-        save.Click += (_, _) => _ = SaveAsync();
-        discard.Click += (_, _) => DiscardEdit();
-        commands.PrimaryCommands.Add(copy);
-        renderToggle.Click += (_, _) =>
-        {
-            _showRendered = renderToggle.IsChecked == true;
-            ApplyViewMode();
-        };
-        renderToggle.Visibility = Visibility.Collapsed;
-        _renderToggle = renderToggle;
+        _root = new Grid();
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _root.RowDefinitions.Add(new RowDefinition());
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var root = new Grid { Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), Padding = new Thickness(16, 12, 16, 16), RowSpacing = 10 };
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        root.RowDefinitions.Add(new RowDefinition());
-        root.Children.Add(commands);
-        Grid.SetRow(_notice, 1);
-        root.Children.Add(_notice);
-        Grid.SetRow(_summary, 2);
-        root.Children.Add(_summary);
-        Grid.SetRow(_editor, 3);
-        _editor.Children.Add(_text);
-        _renderScroll.Content = _renderHost;
+        _title.Text = resource.DisplayName;
+        var titleStack = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        titleStack.Children.Add(_title);
+        titleStack.Children.Add(_summary);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+
+        _renderButton = TextAction("源码", "切换渲染与源码", ToggleRendered);
+        _tableButton = TextAction("纯文本", "切换表格与纯文本", ToggleTable);
+        _wrapButton = TextAction("换行", "切换自动换行", ToggleWrap);
+        _copyButton = TextAction("复制", "复制全文", CopyAll);
+        _editButton = TextAction("编辑", "编辑文本", EnterEditMode);
+        _saveButton = new Button { Content = "保存", Style = (Style)Application.Current.Resources["FwPrimaryButtonStyle"], Height = 32, MinHeight = 32, Padding = new Thickness(16, 0, 16, 0), Visibility = Visibility.Collapsed };
+        _discardButton = new Button { Content = "放弃", Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"], Height = 32, MinHeight = 32, Padding = new Thickness(14, 0, 14, 0), Visibility = Visibility.Collapsed };
+        _saveButton.Click += (_, _) => _ = SaveAsync();
+        _discardButton.Click += (_, _) => DiscardEdit();
+        AutomationProperties.SetAutomationId(_editButton, "EditTextButton");
+        AutomationProperties.SetAutomationId(_saveButton, "SaveTextButton");
+        AutomationProperties.SetAutomationId(_discardButton, "DiscardTextButton");
+        AutomationProperties.SetAutomationId(_renderButton, "RenderTextToggle");
+        AutomationProperties.SetAutomationId(_tableButton, "TableTextToggle");
+        AutomationProperties.SetAutomationId(_text, "TextEditor");
+        AutomationProperties.SetName(_text, "文本内容");
+        actions.Children.Add(_renderButton);
+        actions.Children.Add(_tableButton);
+        actions.Children.Add(_wrapButton);
+        actions.Children.Add(_copyButton);
+        actions.Children.Add(_discardButton);
+        actions.Children.Add(_saveButton);
+        actions.Children.Add(_editButton);
+
+        var toolbarGrid = new Grid { Padding = new Thickness(20, 0, 16, 0), Height = 58 };
+        toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        toolbarGrid.Children.Add(titleStack);
+        Grid.SetColumn(actions, 1);
+        toolbarGrid.Children.Add(actions);
+        _toolbar = new Border { Child = toolbarGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
+        _root.Children.Add(_toolbar);
+
+        _bannerText = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        _banner = new Border
+        {
+            Visibility = Visibility.Collapsed,
+            Padding = new Thickness(20, 10, 16, 10),
+            BorderThickness = new Thickness(0, 0, 0, 1),
+            Child = _bannerText,
+        };
+        Grid.SetRow(_banner, 1);
+        _root.Children.Add(_banner);
+
+        _textFrame = new Border
+        {
+            Margin = new Thickness(20, 16, 20, 16),
+            CornerRadius = new CornerRadius(12),
+            BorderThickness = new Thickness(1),
+            Child = _text,
+        };
+        _editor.Children.Add(_textFrame);
+        var renderColumn = new Grid { MaxWidth = 780, HorizontalAlignment = HorizontalAlignment.Center, Padding = new Thickness(48, 36, 48, 64) };
+        _renderScroll.Content = renderColumn;
+        renderColumn.Children.Add(_renderHost);
         _editor.Children.Add(_renderScroll);
         _editor.Children.Add(_tableScroll);
-        root.Children.Add(_editor);
+        _editor.Children.Add(_loading);
+        Grid.SetRow(_editor, 2);
+        _root.Children.Add(_editor);
 
-        var windowRoot = new Grid();
-        windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        windowRoot.RowDefinitions.Add(new RowDefinition());
-        windowRoot.Children.Add(_titleBar);
-        Grid.SetRow(root, 1);
-        windowRoot.Children.Add(root);
-        Content = windowRoot;
+        var statusBar = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(20, 0, 20, 0), Height = 30 };
+        var statusGrid = new Grid();
+        statusGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        statusGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        statusGrid.Children.Add(_status);
+        statusBar.Child = statusGrid;
+        Grid.SetRow(statusBar, 3);
+        _root.Children.Add(statusBar);
+
+        _windowRoot = new Grid();
+        _windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _windowRoot.RowDefinitions.Add(new RowDefinition());
+        _windowRoot.Children.Add(_titleBar);
+        Grid.SetRow(_root, 1);
+        _windowRoot.Children.Add(_root);
+        Content = _windowRoot;
         _chrome = new FramelessWindowChrome(this, _titleBar);
-        root.Loaded += async (_, _) => { if (_started) return; _started = true; await LoadAsync(); };
+        ApplyTheme(_theme);
+        root_Loaded();
         AppWindow.Closing += (window, closingArgs) =>
         {
             if (_saving) { closingArgs.Cancel = true; return; }
@@ -170,10 +196,36 @@ public sealed class TextWindow : Window, IAsyncDisposable
         Closed += (_, _) =>
         {
             _closed = true;
+            _bannerTimer?.Stop();
             _lifetime.Cancel();
             _chrome.Dispose();
             _lifetime.Dispose();
         };
+        UpdateCommands();
+    }
+
+    private async void root_Loaded()
+    {
+        _root.Loaded += async (_, _) =>
+        {
+            if (_started) return;
+            _started = true;
+            ApplyTheme(_root.ActualTheme);
+            await LoadAsync();
+        };
+    }
+
+    private static Button TextAction(string text, string tooltip, Action click)
+    {
+        var button = new Button
+        {
+            Content = new TextBlock { Text = text, FontSize = 13 },
+            Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
+        };
+        ToolTipService.SetToolTip(button, tooltip);
+        AutomationProperties.SetName(button, tooltip);
+        button.Click += (_, _) => click();
+        return button;
     }
 
     public ValueTask DisposeAsync()
@@ -183,35 +235,138 @@ public sealed class TextWindow : Window, IAsyncDisposable
         return ValueTask.CompletedTask;
     }
 
+    public void SetTheme(ElementTheme theme)
+    {
+        if (_closed) return;
+        _theme = theme;
+        if (Content is FrameworkElement root) root.RequestedTheme = theme;
+        ApplyTheme(theme);
+    }
+
+    private Brush ThemeBrush(string key)
+    {
+        var name = _theme == ElementTheme.Light ? "Light" : "Default";
+        if (Application.Current.Resources.ThemeDictionaries.TryGetValue(name, out var dictionary) &&
+            dictionary is ResourceDictionary resources && resources.TryGetValue(key, out var value) && value is Brush brush)
+            return brush;
+        return Application.Current.Resources.TryGetValue(key, out var fallback) && fallback is Brush brushValue
+            ? brushValue
+            : new SolidColorBrush(_theme == ElementTheme.Light ? Windows.UI.Color.FromArgb(255, 243, 244, 246) : Windows.UI.Color.FromArgb(255, 23, 25, 29));
+    }
+
+    private void ApplyTheme(ElementTheme theme)
+    {
+        _theme = theme;
+        var canvas = ThemeBrush("FwCanvasBrush");
+        _root.Background = canvas;
+        _windowRoot.Background = canvas;
+        _title.Foreground = ThemeBrush("FwTextPrimaryBrush");
+        _summary.Foreground = ThemeBrush("FwTextSecondaryBrush");
+        _status.Foreground = ThemeBrush("FwTextSecondaryBrush");
+        _bannerText.Foreground = ThemeBrush("FwTextPrimaryBrush");
+        _banner.Background = ThemeBrush("FwSurfaceRaisedBrush");
+        _banner.BorderBrush = ThemeBrush("FwStrokeBrush");
+        _textFrame.Background = ThemeBrush("FwSurfaceBrush");
+        _textFrame.BorderBrush = ThemeBrush("FwStrokeBrush");
+        _text.Foreground = ThemeBrush("FwTextPrimaryBrush");
+        _toolbar.Background = ThemeBrush("FwSurfaceBrush");
+        _toolbar.BorderBrush = ThemeBrush("FwStrokeBrush");
+    }
+
+    private void ShowBanner(string message, bool error)
+    {
+        _bannerText.Text = message;
+        _banner.BorderBrush = error ? ThemeBrush("FwDangerBrush") : ThemeBrush("FwStrokeBrush");
+        _banner.Visibility = Visibility.Visible;
+        _bannerTimer?.Stop();
+        if (error) return;
+        _bannerTimer ??= DispatcherQueue.CreateTimer();
+        _bannerTimer.IsRepeating = false;
+        _bannerTimer.Interval = TimeSpan.FromSeconds(4);
+        _bannerTimer.Tick -= BannerTimer_Tick;
+        _bannerTimer.Tick += BannerTimer_Tick;
+        _bannerTimer.Start();
+    }
+
+    private void BannerTimer_Tick(object? sender, object args)
+    {
+        _bannerTimer?.Stop();
+        _banner.Visibility = Visibility.Collapsed;
+    }
+
+    private void CopyAll()
+    {
+        try
+        {
+            var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            package.SetText(_rawText);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+            ShowBanner("已复制全文。", error: false);
+        }
+        catch (Exception) { ShowBanner("复制未能完成，请重试。", error: true); }
+    }
+
+    private void ToggleRendered()
+    {
+        _showRendered = !_showRendered;
+        _renderButton.Content = new TextBlock { Text = _showRendered ? "源码" : "渲染", FontSize = 13 };
+        ApplyViewMode();
+    }
+
+    private void ToggleTable()
+    {
+        _showTable = !_showTable;
+        _tableButton.Content = new TextBlock { Text = _showTable ? "纯文本" : "表格", FontSize = 13 };
+        ApplyViewMode();
+    }
+
+    private void ToggleWrap()
+    {
+        _wrapped = !_wrapped;
+        _text.TextWrapping = _wrapped ? TextWrapping.Wrap : TextWrapping.NoWrap;
+        _wrapButton.Content = new TextBlock { Text = _wrapped ? "不换行" : "换行", FontSize = 13 };
+    }
+
     private async Task ConfirmDiscardAndCloseAsync()
     {
         _confirmingClose = true;
-        UpdateEditCommands();
+        UpdateCommands();
         try
         {
             var confirm = new ContentDialog { XamlRoot = _text.XamlRoot, RequestedTheme = _text.ActualTheme, Title = "有未保存的修改", Content = "关闭将放弃本次编辑，且不会写入服务器。", PrimaryButtonText = "放弃并关闭", CloseButtonText = "返回编辑", DefaultButton = ContentDialogButton.Close };
             var choice = await confirm.ShowAsync();
             if (!_closed && choice == ContentDialogResult.Primary) { _editing = false; Close(); }
         }
-        catch (Exception) { if (!_closed) { _notice.Severity = InfoBarSeverity.Warning; _notice.Message = "确认窗口未能打开，请关闭其他对话框后重试。"; _notice.IsOpen = true; } }
-        finally { _confirmingClose = false; if (!_closed) UpdateEditCommands(); }
+        catch (Exception) { if (!_closed) ShowBanner("确认窗口未能打开，请关闭其他对话框后重试。", error: true); }
+        finally { _confirmingClose = false; if (!_closed) UpdateCommands(); }
     }
 
-    public void SetTheme(ElementTheme theme)
+    private void UpdateCommands()
     {
-        if (!_closed && Content is FrameworkElement root) root.RequestedTheme = theme;
+        var ready = _loaded && !_closed && !_saving && !_confirmingClose;
+        _renderButton.Visibility = _isMarkdown && !_editing ? Visibility.Visible : Visibility.Collapsed;
+        _renderButton.IsEnabled = ready;
+        _tableButton.Visibility = _grid is not null && !_editing ? Visibility.Visible : Visibility.Collapsed;
+        _tableButton.IsEnabled = ready;
+        _wrapButton.Visibility = (!_isMarkdown || !_showRendered) && !_editing ? Visibility.Visible : Visibility.Collapsed;
+        _wrapButton.IsEnabled = ready;
+        _copyButton.Visibility = !_editing ? Visibility.Visible : Visibility.Collapsed;
+        _copyButton.IsEnabled = ready;
+        _editButton.Visibility = !_editing ? Visibility.Visible : Visibility.Collapsed;
+        _editButton.IsEnabled = ready && _expectation is not null;
+        _saveButton.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
+        _saveButton.IsEnabled = ready && _dirty && _expectation is not null;
+        _discardButton.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
+        _discardButton.IsEnabled = ready;
+        var mode = _editing ? (_dirty ? "编辑中 · 未保存" : "编辑中") : (_expectation is null ? "只读" : "可编辑");
+        _summary.Text = $"{_encodingName} · {DownloadPresentationPolicy.FormatBytes(_contentLength)} · {mode}";
+        _status.Text = _isMarkdown ? (_showRendered ? "Markdown 渲染视图" : "源码视图") : _isTable ? (_showTable ? "表格视图" : "纯文本视图") : "纯文本";
+        _status.Text += _wrapped ? " · 自动换行" : "";
     }
 
     private void UpdateEditCommands()
     {
-        var ready = _loaded && !_closed && !_saving && !_confirmingClose;
-        if (_editButton is { } edit) edit.IsEnabled = ready && !_editing && _expectation is not null;
-        if (_saveButton is { } save) save.IsEnabled = ready && _editing && _dirty && _expectation is not null;
-        if (_discardButton is { } discard) { discard.IsEnabled = ready && _editing; discard.Label = _dirty ? "放弃修改" : "结束编辑"; }
-        if (_renderToggle is { } render) render.IsEnabled = ready && !_editing;
-        if (_tableToggle is { } table) table.IsEnabled = ready && !_editing;
-        var mode = _editing ? (_dirty ? "编辑中 · 未保存" : "编辑中") : (_expectation is null ? "只读预览" : "可编辑预览");
-        if (_loaded) _summary.Text = $"{_encodingName} · {DownloadPresentationPolicy.FormatBytes(_contentLength)} · {mode}";
+        if (_loaded) UpdateCommands();
     }
 
     private void EnterEditMode()
@@ -219,19 +374,17 @@ public sealed class TextWindow : Window, IAsyncDisposable
         if (!_loaded || _editing || _closed || _saving || _confirmingClose) return;
         if (_expectation is null)
         {
-            _notice.Severity = InfoBarSeverity.Informational;
-            _notice.Message = "此文件暂不可编辑（服务器状态未取得或读取期间已变化），请重新打开。";
-            _notice.IsOpen = true;
+            ShowBanner("此文件暂不可编辑（服务器状态未取得或读取期间已变化），请重新打开。", error: true);
             return;
         }
         _editing = true;
         _dirty = false;
         _text.IsReadOnly = false;
         // Editing happens in plain text; rendering/table projections are suspended.
-        _text.Visibility = Visibility.Visible;
+        _textFrame.Visibility = Visibility.Visible;
         _renderScroll.Visibility = Visibility.Collapsed;
         _tableScroll.Visibility = Visibility.Collapsed;
-        UpdateEditCommands();
+        UpdateCommands();
         _text.Focus(FocusState.Programmatic);
     }
 
@@ -243,8 +396,8 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _dirty = false;
         _text.Text = _rawText;
         ApplyViewMode();
-        UpdateEditCommands();
-        _notice.IsOpen = false;
+        UpdateCommands();
+        _banner.Visibility = Visibility.Collapsed;
     }
 
     private bool ContentEncodingIsLegacy() => _encodingName is not ("UTF-8" or "UTF-8 BOM");
@@ -257,7 +410,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         if (!_loaded || !_editing || !_dirty || _expectation is not { } expected || _closed || _saving || _confirmingClose) return;
         _saving = true;
         _text.IsReadOnly = true;
-        UpdateEditCommands();
+        UpdateCommands();
         try
         {
             bool reencode = ContentEncodingIsLegacy();
@@ -267,9 +420,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
             var confirm = new ContentDialog { XamlRoot = _text.XamlRoot, RequestedTheme = _text.ActualTheme, Title = "保存修改", Content = panel, PrimaryButtonText = "保存", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
             var choice = await confirm.ShowAsync();
             if (choice != ContentDialogResult.Primary || !_editing || _closed) return;
-            _notice.Severity = InfoBarSeverity.Informational;
-            _notice.Message = "正在保存…";
-            _notice.IsOpen = true;
+            ShowBanner("正在保存…", error: false);
             // WinUI TextBox normalizes edited line breaks to CR. Keep the file's line format
             // instead of sending CR-only text to the server or the Markdown/CSV projections.
             var editedText = NormalizeLineEndings(_text.Text);
@@ -283,9 +434,8 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _text.IsReadOnly = true;
             _editing = false;
             ApplyViewMode();
-            UpdateEditCommands();
-            _notice.Severity = InfoBarSeverity.Success;
-            _notice.Message = "修改已保存。";
+            UpdateCommands();
+            ShowBanner("修改已保存。", error: false);
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
@@ -293,14 +443,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
             if (_closed) return;
             if (error is FilewayException { Error.Code: ErrorCode.SourceChanged or ErrorCode.OutcomeUnknown }) _expectation = null;
             var message = error is FilewayException fileway ? fileway.Error.Message : "保存未能完成，请检查连接后重试。";
-            _notice.Severity = InfoBarSeverity.Error;
-            _notice.Message = message;
-            UpdateEditCommands();
+            ShowBanner(message, error: true);
+            UpdateCommands();
         }
         finally
         {
             _saving = false;
-            if (!_closed) { _text.IsReadOnly = !_editing; UpdateEditCommands(); }
+            if (!_closed) { _text.IsReadOnly = !_editing; UpdateCommands(); }
         }
     }
 
@@ -310,7 +459,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         if (_editing) return;
         if (_isTable && _showTable && _grid is { } grid)
         {
-            _text.Visibility = Visibility.Collapsed;
+            _textFrame.Visibility = Visibility.Collapsed;
             _renderScroll.Visibility = Visibility.Collapsed;
             _tableScroll.Visibility = Visibility.Visible;
             BuildTable(grid);
@@ -318,12 +467,12 @@ public sealed class TextWindow : Window, IAsyncDisposable
         }
         if (!_isMarkdown || !_showRendered)
         {
-            _text.Visibility = Visibility.Visible;
+            _textFrame.Visibility = Visibility.Visible;
             _renderScroll.Visibility = Visibility.Collapsed;
             _tableScroll.Visibility = Visibility.Collapsed;
             return;
         }
-        _text.Visibility = Visibility.Collapsed;
+        _textFrame.Visibility = Visibility.Collapsed;
         _renderScroll.Visibility = Visibility.Visible;
         _renderHost.Children.Clear();
         try
@@ -334,59 +483,64 @@ public sealed class TextWindow : Window, IAsyncDisposable
         catch (Exception)
         {
             // Rendering is a presentation aid; any fault falls back to the plain text.
-            _text.Visibility = Visibility.Visible;
+            _textFrame.Visibility = Visibility.Visible;
             _renderScroll.Visibility = Visibility.Collapsed;
             _tableScroll.Visibility = Visibility.Collapsed;
-            if (_renderToggle is { } toggle) toggle.IsChecked = false;
+            _showRendered = false;
         }
     }
 
     private void BuildTable(CsvGridParser.Grid grid)
     {
         if (_tableScroll.Content is Grid built) { _tableScroll.Content = null; built.Children.Clear(); }
-        var layout = new Grid { ColumnSpacing = 0 };
-        for (int column = 0; column < grid.TotalColumns; column++)
-            layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(200) });
+        var layout = new Grid { Margin = new Thickness(20, 16, 20, 20), RowSpacing = 0 };
         var header = new StackPanel { Orientation = Orientation.Horizontal };
         for (int column = 0; column < grid.TotalColumns; column++)
         {
             header.Children.Add(new TextBlock
             {
                 Text = column < grid.Rows[0].Length ? grid.Rows[0][column] : "",
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                FontWeight = FontWeights.SemiBold,
+                FontSize = 13,
                 TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
-                Width = 200, Padding = new Thickness(8, 6, 8, 6),
+                Width = 220, Padding = new Thickness(12, 8, 12, 8),
             });
         }
         var rows = new List<string[]>();
         for (int index = 1; index < grid.Rows.Count; index++) rows.Add(grid.Rows[index]);
-        // WinUI 3 has no per-container hook; a generated DataTemplate binds each column by index
-        // and ListView virtualization keeps bounded rows cheap.
         var cells = new System.Text.StringBuilder();
         for (int column = 0; column < grid.TotalColumns; column++)
-            cells.Append("<TextBlock Text=\"{Binding [").Append(column).Append("]}\" Width=\"200\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Padding=\"8,4\"/>");
+            cells.Append("<TextBlock Text=\"{Binding [").Append(column).Append("]}\" Width=\"220\" FontSize=\"13\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Padding=\"12,6\"/>");
         string templateXaml = "<DataTemplate" +
             " xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">" +
             "<StackPanel Orientation=\"Horizontal\">" + cells + "</StackPanel></DataTemplate>";
-        var list = new ListView { ItemsSource = rows, ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(templateXaml) };
+        var list = new ListView
+        {
+            ItemsSource = rows,
+            ItemTemplate = (DataTemplate)Microsoft.UI.Xaml.Markup.XamlReader.Load(templateXaml),
+            SelectionMode = ListViewSelectionMode.None,
+            IsItemClickEnabled = false,
+        };
         var table = new StackPanel { Spacing = 0 };
         table.Children.Add(new Border
         {
-            Background = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["LayerFillColorDefaultBrush"],
+            Background = (Brush)Application.Current.Resources["LayerFillColorDefaultBrush"],
+            CornerRadius = new CornerRadius(10, 10, 0, 0),
             Child = header,
         });
         table.Children.Add(list);
         string note = (grid.RowsTruncated ? $"已截取前 {grid.Rows.Count} 行；" : "") +
             (grid.TotalColumns >= CsvGridParser.MaximumColumns ? $"仅显示前 {grid.TotalColumns} 列；" : "") +
             $"共 {grid.TotalRows} 行 × 至少 {grid.TotalColumns} 列";
-        table.Children.Add(new TextBlock { Text = note, FontSize = 12, Opacity = 0.7, Margin = new Thickness(8, 6, 0, 6) });
-        Grid.SetColumnSpan(table, grid.TotalColumns);
+        table.Children.Add(new TextBlock { Text = note, FontSize = 12, Opacity = 0.7, Margin = new Thickness(12, 8, 0, 6) });
         layout.Children.Add(table);
         _tableScroll.Content = layout;
     }
 
     private async Task LoadAsync()
     {
+        _loading.Visibility = Visibility.Visible;
+        _loading.IsActive = true;
         try
         {
             var content = await _service.OpenAsync(_resource, _lifetime.Token);
@@ -407,15 +561,11 @@ public sealed class TextWindow : Window, IAsyncDisposable
                 char delimiter = CsvGridParser.DetectDelimiter(content.Text, _resource.DisplayName);
                 _grid = CsvGridParser.Parse(content.Text, delimiter);
             }
-            if (_renderToggle is { } toggle) toggle.Visibility = _isMarkdown ? Visibility.Visible : Visibility.Collapsed;
             _expectation = content.Edit;
             _encodingName = content.EncodingName;
-            UpdateEditCommands();
-            _text.TextChanged += (_, _) => { if (_editing && !_saving) { _dirty = !string.Equals(NormalizeLineEndings(_text.Text), NormalizeLineEndings(_rawText), StringComparison.Ordinal); UpdateEditCommands(); } };
-            if (_tableToggle is { } tableButton) tableButton.Visibility = _grid is not null ? Visibility.Visible : Visibility.Collapsed;
-            if (_renderToggle is { } render) render.IsChecked = _showRendered;
-            if (_tableToggle is { } table) table.IsChecked = _showTable;
-            _notice.IsOpen = false;
+            UpdateCommands();
+            _text.TextChanged += (_, _) => { if (_editing && !_saving) { _dirty = !string.Equals(NormalizeLineEndings(_text.Text), NormalizeLineEndings(_rawText), StringComparison.Ordinal); UpdateCommands(); } };
+            _banner.Visibility = Visibility.Collapsed;
             ApplyViewMode();
         }
         catch (OperationCanceledException) { }
@@ -423,8 +573,12 @@ public sealed class TextWindow : Window, IAsyncDisposable
         {
             if (_closed) return;
             var message = error is FilewayException fileway ? fileway.Error.Message : "文本未能加载，请检查连接后重试。";
-            _notice.Severity = InfoBarSeverity.Error;
-            _notice.Message = message;
+            ShowBanner(message, error: true);
+        }
+        finally
+        {
+            _loading.IsActive = false;
+            _loading.Visibility = Visibility.Collapsed;
         }
     }
 }
