@@ -10,8 +10,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,18 +23,6 @@ const sourceTextLimit int64 = 16 << 20
 const sourceFontLimit int64 = 8 << 20
 const sourcePGSLimit int64 = 500 << 20
 const sourceAssetCacheLimit int64 = 1 << 30
-
-// A single bounded extraction lane deduplicates identical requests by checking
-// the identity-keyed disk cache after acquiring the lane. No full PGS file is
-// retained in the server heap. Requests waiting for the lane remain cancellable.
-type mediaAssetService struct {
-	directory string
-	lane      chan struct{}
-}
-
-func newMediaAssetService(directory string) *mediaAssetService {
-	return &mediaAssetService{directory: directory, lane: make(chan struct{}, 1)}
-}
 
 type boundedAssetWriter struct {
 	file      *os.File
@@ -52,77 +38,6 @@ func (w *boundedAssetWriter) Write(value []byte) (int, error) {
 	n, err := w.file.Write(value)
 	w.remaining -= int64(n)
 	return n, err
-}
-
-func (service *mediaAssetService) prepare(ctx context.Context, key string, limit int64, run func(context.Context, io.Writer) error) (*os.File, error) {
-	select {
-	case service.lane <- struct{}{}:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	defer func() { <-service.lane }()
-	if err := os.MkdirAll(service.directory, 0o700); err != nil {
-		return nil, err
-	}
-	name := filepath.Join(service.directory, key)
-	if info, err := os.Lstat(name); err == nil && info.Mode().IsRegular() && info.Size() > 0 && info.Size() <= limit {
-		_ = os.Chtimes(name, time.Now(), time.Now())
-		return os.Open(name)
-	}
-	entries, err := os.ReadDir(service.directory)
-	if err != nil {
-		return nil, err
-	}
-	var cached []os.FileInfo
-	var total int64
-	for _, entry := range entries {
-		if !hlsAssetKey(entry.Name()) {
-			continue
-		}
-		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		cached = append(cached, info)
-		total += info.Size()
-	}
-	sort.Slice(cached, func(i, j int) bool { return cached[i].ModTime().Before(cached[j].ModTime()) })
-	for _, info := range cached {
-		if total+limit <= sourceAssetCacheLimit && time.Since(info.ModTime()) < 24*time.Hour {
-			break
-		}
-		if err := os.Remove(filepath.Join(service.directory, info.Name())); err == nil {
-			total -= info.Size()
-		}
-	}
-	if total+limit > sourceAssetCacheLimit {
-		return nil, errors.New("source asset cache is busy")
-	}
-	file, err := os.CreateTemp(service.directory, ".extract-")
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = os.Remove(file.Name()) }()
-	defer func() { _ = file.Close() }()
-	work, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	writer := &boundedAssetWriter{file: file, remaining: limit, cancel: cancel}
-	if err := run(work, writer); err != nil {
-		return nil, err
-	}
-	if writer.remaining == limit {
-		return nil, errors.New("source asset is empty")
-	}
-	if err := file.Sync(); err != nil {
-		return nil, err
-	}
-	if err := file.Close(); err != nil {
-		return nil, err
-	}
-	if err := os.Rename(file.Name(), name); err != nil {
-		return nil, err
-	}
-	return os.Open(name)
 }
 
 func hlsAssetKey(value string) bool {
@@ -190,7 +105,11 @@ func servePreparedSourceAsset(w http.ResponseWriter, r *http.Request, d *data, f
 		return http.StatusServiceUnavailable, fmt.Errorf("源媒体资源服务不可用")
 	}
 	key := sourceAssetKey(d, file, identity, format, index)
-	asset, err := d.mediaAssets.prepare(r.Context(), key, limit, func(ctx context.Context, out io.Writer) error {
+	prepare := d.mediaAssets.prepare
+	if format == "font" {
+		prepare = d.mediaAssets.prepareFont
+	}
+	asset, err := prepare(r.Context(), key, limit, func(ctx context.Context, out io.Writer) error {
 		return runSourceAsset(ctx, file.RealPath(), index, format, out)
 	})
 	if err != nil {

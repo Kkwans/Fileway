@@ -8,7 +8,85 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
+
+func TestSourceAssetHotCacheBypassesColdExtraction(t *testing.T) {
+	service := newMediaAssetService(t.TempDir())
+	key := strings.Repeat("a", 64)
+	file, err := service.prepare(context.Background(), key, 32, func(_ context.Context, w io.Writer) error {
+		_, err := io.WriteString(w, "cached subtitle")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		file, err := service.prepare(context.Background(), strings.Repeat("b", 64), 32, func(_ context.Context, w io.Writer) error {
+			close(started)
+			<-release
+			_, err := io.WriteString(w, "cold subtitle")
+			return err
+		})
+		if file != nil {
+			_ = file.Close()
+		}
+		finished <- err
+	}()
+	<-started
+	defer func() {
+		close(release)
+		if err := <-finished; err != nil {
+			t.Error(err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	file, err = service.prepare(ctx, key, 32, func(context.Context, io.Writer) error {
+		t.Error("hot subtitle was extracted again")
+		return nil
+	})
+	if err != nil {
+		t.Fatal("cached subtitle waited behind cold extraction:", err)
+	}
+	_ = file.Close()
+}
+
+func TestSourceFontDoesNotWaitForWholeSubtitleScan(t *testing.T) {
+	service := newMediaAssetService(t.TempDir())
+	started, release, finished := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		file, err := service.prepare(context.Background(), strings.Repeat("c", 64), 32, func(_ context.Context, w io.Writer) error {
+			close(started)
+			<-release
+			_, err := io.WriteString(w, "subtitle")
+			return err
+		})
+		if file != nil {
+			_ = file.Close()
+		}
+		finished <- err
+	}()
+	<-started
+	defer func() {
+		close(release)
+		if err := <-finished; err != nil {
+			t.Error(err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	file, err := service.prepareFont(ctx, strings.Repeat("d", 64), 32, func(_ context.Context, w io.Writer) error {
+		_, err := io.WriteString(w, "font")
+		return err
+	})
+	if err != nil {
+		t.Fatal("font waited behind subtitle scan:", err)
+	}
+	_ = file.Close()
+}
 
 func TestSourceAssetCacheDeduplicatesAndRejectsPartialOutputs(t *testing.T) {
 	service := newMediaAssetService(t.TempDir())
