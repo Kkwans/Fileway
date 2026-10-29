@@ -31,14 +31,14 @@
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <TextBox x:Name="CacheDirectoryBox" Header="缓存根目录" IsReadOnly="True" AutomationProperties.Name="缓存根目录"/>
-                    <Button Grid.Column="1" Content="选择…" Click="ChooseCache_Click" VerticalAlignment="Bottom" AutomationProperties.Name="选择缓存根目录"/>
+                    <Button Grid.Column="1" Content="选择…" Click="ChooseCache_Click" VerticalAlignment="Bottom" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="选择缓存根目录"/>
                 </Grid>
                 <NumberBox x:Name="MaximumCacheGbBox" Header="磁盘缓存总容量（GB）" Minimum="0" Value="5" SmallChange="1" SpinButtonPlacementMode="Compact" AutomationProperties.Name="磁盘缓存总容量，单位GB"/>
                 <TextBlock Text="默认 5 GB；1 GB = 1,000,000,000 字节。设为 0 关闭磁盘缓存，不影响播放器内存预加载。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <TextBox x:Name="DownloadDirectoryBox" Header="默认下载目录" IsReadOnly="True" AutomationProperties.Name="默认下载目录"/>
-                    <Button Grid.Column="1" Content="选择…" Click="ChooseDownload_Click" VerticalAlignment="Bottom" AutomationProperties.Name="选择默认下载目录"/>
+                    <Button Grid.Column="1" Content="选择…" Click="ChooseDownload_Click" VerticalAlignment="Bottom" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="选择默认下载目录"/>
                 </Grid>
                 <TextBlock Text="单文件下载使用已生效的默认目录，开始前会显示实际保存位置。目录变更在重启后生效；下载文件独立于缓存，不参与缓存清理。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <ToggleSwitch x:Name="AutoResumeBox" Header="连接后自动继续未完成的下载" OffContent="手动继续" OnContent="自动继续" AutomationProperties.Name="连接后自动继续未完成的下载"/>

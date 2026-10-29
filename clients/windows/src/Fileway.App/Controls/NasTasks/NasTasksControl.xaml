@@ -7,7 +7,7 @@
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Spacing="4"><TextBlock Text="文件任务" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="服务器端复制/移动任务与操作记录。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-   <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" AutomationProperties.Name="离开 文件任务，返回文件"/>
+   <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开 文件任务，返回文件"/>
   </Grid>
   <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Orientation="Horizontal" Spacing="8"><ToggleButton x:Name="TasksTab" Content="服务器任务" Width="140" IsChecked="True" Click="TasksTab_Click" Style="{StaticResource LayoutChoiceStyle}" HorizontalContentAlignment="Center"/><ToggleButton x:Name="HistoryTab" Content="操作记录与核实" Width="160" Click="HistoryTab_Click" Style="{StaticResource LayoutChoiceStyle}" HorizontalContentAlignment="Center"/></StackPanel>
@@ -35,7 +35,7 @@
    </Grid>
   </StackPanel>
   <StackPanel Grid.Row="3" Spacing="8">
-   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="False" Severity="Informational" Title="任务状态"><InfoBar.ActionButton><Button x:Name="NoticeHistoryButton" Content="查看操作记录" Click="HistoryTab_Click"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="False" Severity="Informational" Title="任务状态"><InfoBar.ActionButton><Button x:Name="NoticeHistoryButton" Content="查看操作记录" Click="HistoryTab_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
    <TextBlock x:Name="AuthorityHint" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
   </StackPanel>
   <Grid x:Name="Body" Grid.Row="4" ColumnSpacing="16" RowSpacing="12">
@@ -69,8 +69,8 @@
        <TextBlock x:Name="DetailPaths" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
        <TextBlock x:Name="DetailError" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
        <TextBlock Text="服务器未提供逐项执行结果。已处理数量不能说明哪些文件已成功。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-       <Button x:Name="RelatedHistoryButton" Content="查看关联操作记录" Click="RelatedHistory_Click" HorizontalAlignment="Left"/>
-       <Button x:Name="NewRetryButton" Content="查看新重试任务" Click="NewRetry_Click" HorizontalAlignment="Left" Visibility="Collapsed"/>
+       <Button x:Name="RelatedHistoryButton" Content="查看关联操作记录" Click="RelatedHistory_Click" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}"/>
+       <Button x:Name="NewRetryButton" Content="查看新重试任务" Click="NewRetry_Click" HorizontalAlignment="Left" Visibility="Collapsed" Style="{StaticResource FwSecondaryButtonStyle}"/>
        <Expander Header="任务编号" HorizontalAlignment="Stretch"><TextBlock x:Name="DetailTaskId" TextWrapping="Wrap" IsTextSelectionEnabled="True"/></Expander>
       </StackPanel>
       <StackPanel x:Name="OperationDetails" Spacing="10" Visibility="Collapsed">
@@ -86,6 +86,6 @@
     </ScrollViewer>
    </Border>
   </Grid>
-  <Grid Grid.Row="5" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="LoadedText" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/><Button x:Name="MoreButton" Grid.Column="1" Content="加载更多" Click="More_Click" Visibility="Collapsed"/></Grid>
+  <Grid Grid.Row="5" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="LoadedText" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/><Button x:Name="MoreButton" Grid.Column="1" Content="加载更多" Click="More_Click" Visibility="Collapsed" Style="{StaticResource FwSecondaryButtonStyle}"/></Grid>
  </Grid>
 </UserControl>

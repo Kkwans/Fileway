@@ -338,10 +338,10 @@
    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16"><ProgressRing IsActive="True" Width="32" Height="32"/><TextBlock Text="正在准备文件空间…" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
   </Grid>
   <StackPanel x:Name="ToastHost" Grid.ColumnSpan="2" Grid.RowSpan="2" Spacing="8" Margin="16" MaxWidth="420" HorizontalAlignment="Right" VerticalAlignment="Bottom" Canvas.ZIndex="100">
-   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="True"><InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="True"><InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
    <InfoBar x:Name="ReceiptWarning" IsOpen="False" IsClosable="True" Severity="Warning" Title="本机操作记录提示"/>
-   <InfoBar x:Name="UploadNotice" IsOpen="False" IsClosable="True" Title="文件上传"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="查看上传" Click="UploadDetails_Click"/></InfoBar.ActionButton></InfoBar>
-   <InfoBar x:Name="DownloadNotice" IsOpen="False" IsClosable="True" Title="文件下载"><InfoBar.ActionButton><Button x:Name="DownloadDetailsButton" Content="查看下载" Click="DownloadDetails_Click"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="UploadNotice" IsOpen="False" IsClosable="True" Title="文件上传"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="查看上传" Click="UploadDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="DownloadNotice" IsOpen="False" IsClosable="True" Title="文件下载"><InfoBar.ActionButton><Button x:Name="DownloadDetailsButton" Content="查看下载" Click="DownloadDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
   </StackPanel>
  </Grid>
 </Page>
