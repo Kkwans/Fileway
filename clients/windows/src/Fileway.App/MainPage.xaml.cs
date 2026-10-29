@@ -599,9 +599,9 @@ public sealed partial class MainPage : Page, IDisposable
     private void ApplyLocalization()
     {
         string T(string key) => Localization.T(key);
-        if (NewButton is not null) NewButton.Label = T("新建");
-        if (UploadFileButton is not null) UploadFileButton.Label = T("上传文件");
-        if (DownloadFileButton is not null) DownloadFileButton.Label = T("下载");
+        if (NewButton is not null) { ToolTipService.SetToolTip(NewButton, T("新建")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NewButton, T("新建")); }
+        if (UploadFileButton is not null) { ToolTipService.SetToolTip(UploadFileButton, T("上传文件")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UploadFileButton, T("上传文件")); }
+        if (DownloadFileButton is not null) { ToolTipService.SetToolTip(DownloadFileButton, T("下载")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DownloadFileButton, T("下载")); }
         if (DownloadHistoryButton is not null) DownloadHistoryButton.Label = T("下载记录");
         if (UploadHistoryButton is not null) UploadHistoryButton.Label = T("上传记录");
         if (LogoutButton is not null) LogoutButton.Text = T("退出登录");

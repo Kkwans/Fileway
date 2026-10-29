@@ -146,6 +146,7 @@
   <Grid>
   <Grid x:Name="Workspace" Visibility="Collapsed" Padding="16,0,16,0" RowSpacing="0" SizeChanged="Workspace_SizeChanged">
    <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="28"/></Grid.RowDefinitions>
+   <Grid>
    <CommandBar x:Name="BrowserCommands" Height="44" DefaultLabelPosition="Collapsed" Background="Transparent" HorizontalContentAlignment="Stretch">
     <CommandBar.Content><StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
      <ui:ChoiceBox x:Name="SortBox" SelectedIndex="0" Width="140" Height="36" MinHeight="36" SelectionChanged="Sort_Changed" AutomationProperties.Name="文件排序"><ComboBoxItem Content="名称 ↑"/><ComboBoxItem Content="名称 ↓"/><ComboBoxItem Content="修改时间 ↑"/><ComboBoxItem Content="修改时间 ↓"/><ComboBoxItem Content="大小 ↑"/><ComboBoxItem Content="大小 ↓"/><ComboBoxItem Content="类型 ↑"/><ComboBoxItem Content="类型 ↓"/></ui:ChoiceBox>
@@ -173,11 +174,14 @@
       </StackPanel>
      </StackPanel></Flyout></DropDownButton.Flyout></DropDownButton>
     </StackPanel></CommandBar.Content>
-    <AppBarButton x:Name="NewButton" Label="新建" Height="40" IsEnabled="False" ToolTipService.ToolTip="新建"><AppBarButton.Icon><ui:LucideActionIcon IconName="plus"/></AppBarButton.Icon><AppBarButton.Flyout><MenuFlyout><MenuFlyoutItem Text="文件夹" Click="CreateDirectory_Click"/><MenuFlyoutItem x:Name="NewFileMenuItem" Text="空文件" Click="CreateEmptyFile_Click"/></MenuFlyout></AppBarButton.Flyout></AppBarButton>
-    <AppBarButton x:Name="UploadFileButton" Label="上传文件" Height="40" IsEnabled="False" ToolTipService.ToolTip="上传本地文件或整个文件夹到当前目录"><AppBarButton.Icon><ui:LucideActionIcon IconName="upload-simple"/></AppBarButton.Icon><AppBarButton.Flyout><MenuFlyout><MenuFlyoutItem Text="选择文件…" Click="UploadFile_Click"/><MenuFlyoutItem Text="选择文件夹…" Click="UploadFolder_Click"/></MenuFlyout></AppBarButton.Flyout></AppBarButton>
-    <AppBarButton x:Name="DownloadFileButton" Label="下载" Height="40" IsEnabled="False" Click="DownloadFile_Click" ToolTipService.ToolTip="下载选中的文件到已生效的默认下载目录"><AppBarButton.Icon><ui:LucideActionIcon IconName="download-simple"/></AppBarButton.Icon></AppBarButton>
     <CommandBar.SecondaryCommands><AppBarButton x:Name="DownloadHistoryButton" Label="下载记录" Click="DownloadHistory_Click" IsEnabled="False"><AppBarButton.Icon><ui:LucideActionIcon IconName="clock"/></AppBarButton.Icon></AppBarButton><AppBarButton x:Name="UploadHistoryButton" Label="上传记录" Click="UploadHistory_Click" IsEnabled="False"><AppBarButton.Icon><ui:LucideActionIcon IconName="clock"/></AppBarButton.Icon></AppBarButton><AppBarButton Label="详细信息" Click="Details_Click"><AppBarButton.Icon><ui:LucideActionIcon IconName="eye"/></AppBarButton.Icon></AppBarButton><AppBarButton x:Name="FavoriteActionButton" Label="收藏" Click="FavoriteResource_Click" IsEnabled="False"><AppBarButton.Icon><ui:LucideActionIcon IconName="heart"/></AppBarButton.Icon></AppBarButton><AppBarButton x:Name="TagActionButton" Label="标记" Click="TagResource_Click" IsEnabled="False"><AppBarButton.Icon><ui:LucideActionIcon IconName="tag"/></AppBarButton.Icon></AppBarButton><AppBarButton x:Name="LastResultsButton" Label="上次操作的完整结果" Click="ResultDetails_Click" IsEnabled="False"/></CommandBar.SecondaryCommands>
    </CommandBar>
+   <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4" Margin="0,0,48,0">
+    <Button x:Name="NewButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" ToolTipService.ToolTip="新建" AutomationProperties.Name="新建"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="文件夹" Click="CreateDirectory_Click"/><MenuFlyoutItem x:Name="NewFileMenuItem" Text="空文件" Click="CreateEmptyFile_Click"/></MenuFlyout></Button.Flyout><ui:LucideIcon IconName="plus" Width="18" Height="18"/></Button>
+    <Button x:Name="UploadFileButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" ToolTipService.ToolTip="上传文件或文件夹" AutomationProperties.Name="上传文件"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="选择文件…" Click="UploadFile_Click"/><MenuFlyoutItem Text="选择文件夹…" Click="UploadFolder_Click"/></MenuFlyout></Button.Flyout><ui:LucideIcon IconName="upload-simple" Width="18" Height="18"/></Button>
+    <Button x:Name="DownloadFileButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" Click="DownloadFile_Click" ToolTipService.ToolTip="下载到默认目录" AutomationProperties.Name="下载"><ui:LucideIcon IconName="download-simple" Width="18" Height="18"/></Button>
+   </StackPanel>
+   </Grid>
 
    <Grid x:Name="BrowserBody" Grid.Row="2" SizeChanged="BrowserBody_SizeChanged">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="DetailsColumn" Width="0"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition x:Name="DetailsRow" Height="0"/></Grid.RowDefinitions>
