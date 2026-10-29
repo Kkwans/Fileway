@@ -15,7 +15,7 @@
 
 - Release x64 + Publish：0 警告、0 错误（FileVersion 0.8.40.0）。
 - 两次冒烟 `GATE=PASS`（pwsh 7，15 秒与 20 秒，独立数据目录，无 startup.log）。
-- 实机截图：`screens/checkbox-checked.png`、`screens/checkbox-unchecked.png`、`screens/nas-filters.png`（文件任务筛选区“只看归档”未选中态，确认全局样式无回归）。
+- 实机截图：`screens/checkbox-checked.png`、`screens/checkbox-unchecked.png`、`screens/nas-filters.png`（文件任务筛选区“只看归档”未选中态，确认全局样式无回归）、`screens/checkbox-dark-checked.png`、`screens/checkbox-dark-unchecked.png`（深色主题）。
 - 产物：`.../20261030-ui0840/dist/Fileway-0.8.40-win-x64-unsigned-setup.exe`，SHA-256 `4fd5cc11…c776ccd`，与回执一致。
 
 ## 未完成
