@@ -15,6 +15,7 @@ public sealed partial class MainPage
     private bool _typeFiltersEdited;
     private PlayerSettingsWindow? _detailsPopup;
     private StackPanel? _typeFilterOptions;
+    private StackPanel? _sortOptions;
     private readonly Dictionary<InfoBar, (DispatcherQueueTimer Timer, string Key)> _toasts = [];
 
     private void InitializePresentation()
@@ -35,6 +36,9 @@ public sealed partial class MainPage
         AttachChoices(ViewOptionsButton);
         _typeFilterOptions = (TypeFilterBox.Flyout as Flyout)?.Content as StackPanel;
         AttachChoices(TypeFilterBox);
+        _sortOptions = (SortBox.Flyout as Flyout)?.Content as StackPanel;
+        AttachChoices(SortBox);
+        UpdateSortMenu();
     }
 
     private void AttachChoices(DropDownButton button)

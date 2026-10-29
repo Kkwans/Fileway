@@ -313,6 +313,9 @@ public sealed partial class MainPage : Page, IDisposable
                 ClearActiveWorkspace();
             }
             _session = await connect(token);
+            // The login notice is reparented into the floating notice host while connecting;
+            // close it explicitly or it keeps reporting progress on an already connected page.
+            LoginNotice.IsOpen = false;
             PasswordBox.Password = "";
             _sessionPasswordMinimum = Math.Clamp(_session.Capabilities.MinimumPasswordLength, 1, 128);
             _root = await _files.GetRootAsync(_session, token);
@@ -795,11 +798,42 @@ public sealed partial class MainPage : Page, IDisposable
     private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); SetConnectionView(true); }
     private void DismissConnection_Click(object sender, RoutedEventArgs e) => SetConnectionView(false);
     private void Search_Changed(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) { if (FileList is not null) ApplyFilter(); }
-    private void Sort_Changed(object sender, SelectionChangedEventArgs e)
+    private void Sort_Click(object sender, RoutedEventArgs args)
     {
-        if (_applyingPreferences || FileList is null) return;
-        var sort = (SortBox.SelectedIndex / 2) switch { 1 => FileSortField.Modified, 2 => FileSortField.Size, 3 => FileSortField.Type, _ => FileSortField.Name };
-        ChangeBrowserPreferences(_browserPreferences with { SortBy = sort, Descending = SortBox.SelectedIndex % 2 == 1 });
+        if (_applyingPreferences || FileList is null || sender is not ToggleButton { Tag: string tag }) return;
+        var (field, descending) = tag switch
+        {
+            "ModifiedAsc" => (FileSortField.Modified, false),
+            "ModifiedDesc" => (FileSortField.Modified, true),
+            "SizeAsc" => (FileSortField.Size, false),
+            "SizeDesc" => (FileSortField.Size, true),
+            "TypeAsc" => (FileSortField.Type, false),
+            "TypeDesc" => (FileSortField.Type, true),
+            "NameDesc" => (FileSortField.Name, true),
+            _ => (FileSortField.Name, false),
+        };
+        ChangeBrowserPreferences(_browserPreferences with { SortBy = field, Descending = descending });
+        UpdateSortMenu();
+        if (SortBox.Flyout is Flyout flyout) flyout.Hide();
+    }
+
+    private void UpdateSortMenu()
+    {
+        var (label, key) = _browserPreferences.SortBy switch
+        {
+            FileSortField.Modified => ("修改时间", _browserPreferences.Descending ? "ModifiedDesc" : "ModifiedAsc"),
+            FileSortField.Size => ("大小", _browserPreferences.Descending ? "SizeDesc" : "SizeAsc"),
+            FileSortField.Type => ("类型", _browserPreferences.Descending ? "TypeDesc" : "TypeAsc"),
+            _ => ("名称", _browserPreferences.Descending ? "NameDesc" : "NameAsc"),
+        };
+        if (SortBox is not null)
+        {
+            SortBox.Content = label + (_browserPreferences.Descending ? " ↓" : " ↑");
+            ToolTipService.SetToolTip(SortBox, $"排序：{label}{(_browserPreferences.Descending ? "降序" : "升序")}");
+        }
+        if (_sortOptions is null) return;
+        foreach (var choice in _sortOptions.Children.OfType<ToggleButton>())
+            choice.IsChecked = (choice.Tag as string) == key;
     }
     private async void Refresh_Click(object sender, RoutedEventArgs e)
     {
@@ -902,7 +936,7 @@ public sealed partial class MainPage : Page, IDisposable
             SmallIconItem.IsChecked = size == BrowserIconSize.Small; MediumIconItem.IsChecked = size == BrowserIconSize.Medium; LargeIconItem.IsChecked = size == BrowserIconSize.Large; ExtraLargeIconItem.IsChecked = size == BrowserIconSize.ExtraLarge;
             UpdateTypeFilterMenu();
             ViewOptionsButton.Content = mode switch { BrowserViewMode.Mosaic => "详细网格", BrowserViewMode.CompactGrid => "紧凑网格", BrowserViewMode.WindowsIcons => "无界网格", BrowserViewMode.CompactList => "紧凑列表", _ => "详细列表" };
-            SortBox.SelectedIndex = (_browserPreferences.SortBy switch { FileSortField.Modified => 1, FileSortField.Size => 2, FileSortField.Type => 3, _ => 0 }) * 2 + (_browserPreferences.Descending ? 1 : 0);
+            UpdateSortMenu();
             ActiveFiles.SelectedItems.Clear();
             foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource))) ActiveFiles.SelectedItems.Add(row);
         }

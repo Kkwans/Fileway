@@ -149,7 +149,16 @@
    <Grid>
    <CommandBar x:Name="BrowserCommands" Height="44" DefaultLabelPosition="Collapsed" Background="Transparent" HorizontalContentAlignment="Stretch">
     <CommandBar.Content><StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-     <ui:ChoiceBox x:Name="SortBox" SelectedIndex="0" Width="140" Height="36" MinHeight="36" SelectionChanged="Sort_Changed" AutomationProperties.Name="文件排序"><ComboBoxItem Content="名称 ↑"/><ComboBoxItem Content="名称 ↓"/><ComboBoxItem Content="修改时间 ↑"/><ComboBoxItem Content="修改时间 ↓"/><ComboBoxItem Content="大小 ↑"/><ComboBoxItem Content="大小 ↓"/><ComboBoxItem Content="类型 ↑"/><ComboBoxItem Content="类型 ↓"/></ui:ChoiceBox>
+     <DropDownButton x:Name="SortBox" Style="{StaticResource FilewaySelectorButtonStyle}" Content="名称 ↑" Width="140" Height="36" AutomationProperties.Name="文件排序"><DropDownButton.Flyout><Flyout Placement="BottomEdgeAlignedLeft"><StackPanel Spacing="4"><TextBlock Text="排序" Margin="12,4,0,8" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+ <ToggleButton Content="名称 ↑" Tag="NameAsc" IsChecked="True" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
+ <ToggleButton Content="名称 ↓" Tag="NameDesc" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
+ <ToggleButton Content="修改时间 ↑" Tag="ModifiedAsc" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
+ <ToggleButton Content="修改时间 ↓" Tag="ModifiedDesc" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
+ <ToggleButton Content="大小 ↑" Tag="SizeAsc" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
+ <ToggleButton Content="大小 ↓" Tag="SizeDesc" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
+ <ToggleButton Content="类型 ↑" Tag="TypeAsc" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
+ <ToggleButton Content="类型 ↓" Tag="TypeDesc" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
+</StackPanel></Flyout></DropDownButton.Flyout></DropDownButton>
      <DropDownButton x:Name="TypeFilterBox" Style="{StaticResource FilewaySelectorButtonStyle}" Content="全部类型" Width="148" Height="36" AutomationProperties.Name="文件类型筛选，可多选"><DropDownButton.Flyout><Flyout Placement="BottomEdgeAlignedLeft"><StackPanel Width="224" Spacing="4"><TextBlock Text="文件类型 · 可多选" Margin="12,4,0,8" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
       <ToggleButton Content="全部类型" Tag="All" IsChecked="True" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
       <ToggleButton Content="图片" Tag="Image" Style="{StaticResource LayoutChoiceStyle}" Click="TypeFilter_Click"/>
