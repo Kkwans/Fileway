@@ -12,7 +12,7 @@
 
 - Release x64 + Publish：0 警告、0 错误（FileVersion 0.8.43.0）。
 - 两次冒烟 `GATE=PASS`（pwsh 7，15 秒与 20 秒，独立数据目录，无 startup.log）。
-- 实机截图：`screens/nas-cards-light.png`、`screens/nas-cards-dark.png`（文件任务列表卡片轮廓）。
+- 实机截图：`screens/nas-cards-light.png`、`screens/nas-cards-dark.png`（文件任务列表卡片轮廓）、`screens/search-cards.png`（44 条搜索结果行描边）。
 - 产物：`.../20261031-ui0843/dist/Fileway-0.8.43-win-x64-unsigned-setup.exe`，SHA-256 `3631b511…5f42e1e`，与回执一致。
 
 ## 未完成
