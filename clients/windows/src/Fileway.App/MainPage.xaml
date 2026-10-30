@@ -214,9 +214,12 @@
     <Border x:Name="DetailsPanel" Visibility="Collapsed" Padding="20,16,20,18" Background="{ThemeResource FwGlassBrush}" KeyDown="DetailsPanel_KeyDown">
      <Grid RowSpacing="14">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-      <Grid Height="34">
+      <Grid Height="34" ToolTipService.ToolTip="按住标题区域拖动移动窗口">
        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <TextBlock Text="文件详情" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+       <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsHitTestVisible="False">
+        <ui:LucideIcon IconName="dots-three" Width="16" Height="16" Foreground="{ThemeResource FwTextTertiaryBrush}"/>
+        <TextBlock Text="文件详情" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+       </StackPanel>
        <Button Grid.Column="1" Click="CloseDetails_Click" Style="{StaticResource FwIconButtonStyle}" Width="30" Height="30" AutomationProperties.Name="关闭详细信息" ToolTipService.ToolTip="关闭"><ui:LucideIcon IconName="x" Width="17" Height="17"/></Button>
       </Grid>
       <Grid Grid.Row="1" ColumnSpacing="14">

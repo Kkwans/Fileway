@@ -153,8 +153,10 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
                         var group = snapshot.FavoriteGroups.FirstOrDefault(item => item.Id == favorite.GroupId);
                         var missing = !string.IsNullOrEmpty(favorite.GroupId) && group is null;
                         if (filter != "*" && !(filter == "?" ? missing : filter == "" ? string.IsNullOrEmpty(favorite.GroupId) : favorite.GroupId == filter)) continue;
+                        var groupName = missing ? "分组不可用" : group?.Name ?? "未分组";
+                        var identity = IdentityState(favorite.Reference);
                         _records.Add(new CollectionRow(favorite.Id, favorite.Name, favorite.Reference.DisplayPath,
-                            $"{(missing ? "分组不可用" : group?.Name ?? "未分组")} · {IdentityState(favorite.Reference)}", favorite.Reference, favorite));
+                            identity.Length == 0 ? groupName : $"{groupName} · {identity}", favorite.Reference, favorite));
                     }
                 }
             }

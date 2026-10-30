@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using Fileway.App.Branding;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Composition;
@@ -289,6 +289,24 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
     {
         if (message is 0x0083 or 0x0085) return 0; // Exact client bounds; no classic nonclient frame.
+        if (message == 0x0084 && _movable && _shown)
+        {
+            // Native caption hit-testing moves the borderless surface through the
+            // system drag loop; this is more reliable than polling the pointer.
+            var lp = lParam.ToInt64();
+            var screenX = unchecked((short)(lp & 0xFFFF));
+            var screenY = unchecked((short)((lp >> 16) & 0xFFFF));
+            if (NativePlayerOverlay.GetWindowRect(window, out var frame))
+            {
+                var scale = NativeVideoWindow.GetDpiForWindow(window) / 96d;
+                var header = (int)Math.Ceiling(56 * scale);
+                var reserved = (int)Math.Ceiling(56 * scale);
+                var clientX = screenX - frame.Left;
+                var clientY = screenY - frame.Top;
+                if (clientX >= 0 && clientY >= 0 && clientY < header && clientX < frame.Right - frame.Left - reserved)
+                    return 1; // HTCAPTION
+            }
+        }
         if (message == 0x0086) return NativeVideoWindow.DefSubclassProc(window, message, wParam, -1);
         if (message == 0x0010 && !_closing)
         {
