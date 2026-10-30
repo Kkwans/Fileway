@@ -12,7 +12,7 @@
 
 - Release x64 + Publish：0 警告、0 错误（FileVersion 0.8.50.0）。
 - 两次冒烟 `GATE=PASS`（pwsh 7，15 秒与 20 秒，独立数据目录，无 startup.log）。
-- 实机截图：`screens/dialog-tab-focus.png`（对话框 Tab 焦点）；另回归连接页，确认主按钮/输入区布局未受全局按钮模板改动影响：`screens/connection.png`。
+- 实机截图：`screens/dialog-tab-focus.png`（Tab 聚焦“取消”）、`screens/dialog-primary-focus.png`（再按 Tab 聚焦主按钮）；另回归连接页，确认主按钮/输入区布局未受全局按钮模板改动影响：`screens/connection.png`。
 - 产物：`.../20261031-ui0850/dist/Fileway-0.8.50-win-x64-unsigned-setup.exe`，SHA-256 `71aec4a0…73c10baf`，与回执一致。
 
 ## 未完成
