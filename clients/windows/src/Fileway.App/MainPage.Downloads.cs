@@ -94,7 +94,7 @@ public sealed partial class MainPage
         var panel = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
         panel.Children.Add(new TextBlock { Text = $"将 {selection.Length} 个项目打包为：{name}", TextWrapping = TextWrapping.Wrap, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         panel.Children.Add(new TextBlock { Text = "由服务器实时生成 ZIP 并流式保存到已生效的默认下载目录。\n打包内容动态生成：不支持断点续传，也不会显示总大小；同名本地文件会直接失败。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-        var confirm = new ContentDialog { Title = "下载为 ZIP", Content = panel, PrimaryButtonText = "开始下载", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
+        var confirm = new ContentDialog { Title = "下载为 ZIP", Content = panel, PrimaryButtonText = "开始下载", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         _downloadDialog = confirm;
         ContentDialogResult choice;
         try { choice = await ShowBrowserDialogAsync(confirm); }
@@ -188,7 +188,7 @@ public sealed partial class MainPage
             content.Children.Add(new TextBlock { Text = $"大小：{DownloadPolicy.FormatBytes(preview.TotalBytes)}", TextWrapping = TextWrapping.Wrap });
             content.Children.Add(new TextBlock { Text = $"保存到：{preview.DestinationDisplayPath}", TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
             content.Children.Add(new TextBlock { Text = "使用已生效的默认下载目录。仅下载这个文件；同名文件会保留并报告冲突。", FontSize = 12, TextWrapping = TextWrapping.Wrap });
-            var confirm = new ContentDialog { Title = "确认下载位置", Content = new ScrollViewer { Content = content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, PrimaryButtonText = "开始下载", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
+            var confirm = new ContentDialog { Title = "确认下载位置", Content = new ScrollViewer { Content = content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, PrimaryButtonText = "开始下载", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
             _downloadDialog = confirm;
             ContentDialogResult result;
             try { result = await ShowBrowserDialogAsync(confirm); }
@@ -250,7 +250,7 @@ public sealed partial class MainPage
             {
                 Title = "下载另存为", Content = new ScrollViewer { Content = content, MaxHeight = 400,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled },
-                PrimaryButtonText = "核对保存位置", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close,
+                PrimaryButtonText = "核对保存位置", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None,
             };
             void Render()
             {
@@ -389,7 +389,7 @@ public sealed partial class MainPage
         DownloadDetailsView view;
         try { view = new DownloadDetailsView(); }
         catch (Exception error) { ShowDownloadError("下载详情未能打开", error); return; }
-        var dialog = new ContentDialog { Title = "文件下载", Content = new ScrollViewer { Content = view.Content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.Close };
+        var dialog = new ContentDialog { Title = "文件下载", Content = new ScrollViewer { Content = view.Content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None };
         _downloadDialog = dialog; _downloadDetails = view; _downloadDetailTask = task;
         view.Cancel.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Visible; view.Cancel.IsEnabled = false; };
         view.Keep.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Collapsed; RenderDownloadDetails(); };

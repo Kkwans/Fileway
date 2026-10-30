@@ -36,7 +36,7 @@ public sealed partial class MainPage
         var panel = new StackPanel { Spacing = 16, MaxWidth = 420 };
         panel.Children.Add(new TextBlock { Text = item.Name + "\n\n" + (item.Status == DownloadStatus.Completed ? "默认只移除任务记录，本地文件保留。" : "将停止此任务并清理其临时文件。") + "\n不会删除 NAS 原文件。", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(local);
-        if (await ShowBrowserDialogAsync(new ContentDialog { Title = "删除下载任务？", Content = panel, PrimaryButtonText = "删除任务", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close }) != ContentDialogResult.Primary || !IsCurrentDownloadContext(item.Context)) return;
+        if (await ShowBrowserDialogAsync(new ContentDialog { Title = "删除下载任务？", Content = panel, PrimaryButtonText = "删除任务", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None }) != ContentDialogResult.Primary || !IsCurrentDownloadContext(item.Context)) return;
         _downloadOperationBusy = true;
         try
         {

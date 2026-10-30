@@ -343,7 +343,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         UpdateCommands();
         try
         {
-            var confirm = new ContentDialog { XamlRoot = _text.XamlRoot, RequestedTheme = _text.ActualTheme, Title = "有未保存的修改", Content = "关闭将放弃本次编辑，且不会写入服务器。", PrimaryButtonText = "放弃并关闭", CloseButtonText = "返回编辑", DefaultButton = ContentDialogButton.Close };
+            var confirm = new ContentDialog { XamlRoot = _text.XamlRoot, RequestedTheme = _text.ActualTheme, Title = "有未保存的修改", Content = "关闭将放弃本次编辑，且不会写入服务器。", PrimaryButtonText = "放弃并关闭", CloseButtonText = "返回编辑", DefaultButton = ContentDialogButton.None };
             var choice = await confirm.ShowAsync();
             if (!_closed && choice == ContentDialogResult.Primary) { _editing = false; Close(); }
         }

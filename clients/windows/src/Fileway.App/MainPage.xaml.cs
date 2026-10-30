@@ -436,7 +436,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void ForgetSaved_Click(object sender, RoutedEventArgs args)
     {
         if (_catalog is null || SavedConnectionBox.SelectedItem is not ConnectionChoice choice || _connecting) return;
-        var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "忘记这个连接？", Content = "将移除本机连接档案与保存的会话。服务器上的文件不会删除。", PrimaryButtonText = "忘记连接", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
+        var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "忘记这个连接？", Content = "将移除本机连接档案与保存的会话。服务器上的文件不会删除。", PrimaryButtonText = "忘记连接", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
         try
         {

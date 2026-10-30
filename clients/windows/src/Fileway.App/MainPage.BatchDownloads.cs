@@ -112,7 +112,7 @@ public sealed partial class MainPage
             foreach (var failure in failures.Take(12))
                 panel.Children.Add(new TextBlock { Text = failure, TextWrapping = TextWrapping.Wrap, FontSize = 12 });
             if (failures.Count > 12) panel.Children.Add(new TextBlock { Text = $"另有 {failures.Count - 12} 条失败/跳过项未列出。", FontSize = 12 });
-            var confirm = new ContentDialog { Title = "确认批量下载", PrimaryButtonText = "添加到下载队列", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close,
+            var confirm = new ContentDialog { Title = "确认批量下载", PrimaryButtonText = "添加到下载队列", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None,
                 IsPrimaryButtonEnabled = addable > 0, Content = new ScrollViewer { Content = panel, MaxHeight = 400, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
             _downloadDialog = confirm;
             ContentDialogResult choice;

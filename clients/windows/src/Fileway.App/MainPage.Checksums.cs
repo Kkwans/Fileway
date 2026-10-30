@@ -69,7 +69,7 @@ public sealed partial class MainPage
         {
             Title = "文件校验和", Content = new ScrollViewer { Content = content, MaxHeight = 400,
                 VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled },
-            PrimaryButtonText = "计算校验和", CloseButtonText = "关闭", DefaultButton = ContentDialogButton.Close,
+            PrimaryButtonText = "计算校验和", CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None,
         };
         ChecksumAlgorithm SelectedAlgorithm() => (ChecksumAlgorithm)algorithm.SelectedIndex;
         void Render()

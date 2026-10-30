@@ -102,7 +102,7 @@ public sealed partial class MainPage
             content.Children.Add(new TextBlock { Text = name, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
             content.Children.Add(new TextBlock { Text = $"上传到：{parent.DisplayPath}", TextWrapping = TextWrapping.Wrap });
             content.Children.Add(new TextBlock { Text = "仅上传这个文件。遇到同名项目会停止并报告冲突，不覆盖现有文件。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-            var confirm = new ContentDialog { Title = "确认上传目标", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
+            var confirm = new ContentDialog { Title = "确认上传目标", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
             _uploadDialog = confirm;
             ContentDialogResult confirmed;
             try { confirmed = await ShowBrowserDialogAsync(confirm); }
@@ -185,7 +185,7 @@ public sealed partial class MainPage
             foreach (var failure in failures.Take(8))
                 content.Children.Add(new TextBlock { Text = failure + "：无法读取，该子目录未包含。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
             if (failures.Count > 8) content.Children.Add(new TextBlock { Text = $"另有 {failures.Count - 8} 个无法读取的子目录。", FontSize = 12 });
-            var confirm = new ContentDialog { Title = "确认上传文件夹", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close,
+            var confirm = new ContentDialog { Title = "确认上传文件夹", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None,
                 IsPrimaryButtonEnabled = files.Count > 0 };
             _uploadDialog = confirm;
             ContentDialogResult confirmed;
@@ -368,7 +368,7 @@ public sealed partial class MainPage
             content.Children.Add(new TextBlock { Text = Path.GetFileName(path) + " · " + DownloadPresentationPolicy.FormatBytes(bytes), TextWrapping = TextWrapping.Wrap, FontSize = 12 });
         }
         if (files.Count > 12) content.Children.Add(new TextBlock { Text = $"其余 {files.Count - 12} 个文件略。", FontSize = 12 });
-        var confirm = new ContentDialog { Title = "确认上传拖入的文件", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close,
+        var confirm = new ContentDialog { Title = "确认上传拖入的文件", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None,
             IsPrimaryButtonEnabled = files.Count > 0 };
         _uploadDialog = confirm;
         ContentDialogResult confirmed;
@@ -493,7 +493,7 @@ public sealed partial class MainPage
         UploadDetailsView view;
         try { view = new UploadDetailsView(); }
         catch (Exception error) { ShowUploadError("上传详情未能打开", error); return; }
-        var dialog = new ContentDialog { Title = "文件上传", Content = view.Content, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.Close };
+        var dialog = new ContentDialog { Title = "文件上传", Content = view.Content, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None };
         _uploadDialog = dialog; _uploadDetails = view; _uploadDetailTask = task;
         view.Cancel.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Visible; view.Cancel.IsEnabled = false; };
         view.Keep.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Collapsed; RenderUploadDetails(); };

@@ -285,7 +285,7 @@ components:
 - 工具栏选择器：排序/类型/视图统一使用 `DropDownButton` + `FilewaySelectorButtonStyle`（左对齐、12px 内边距），菜单项用 `LayoutChoiceStyle`；单选项选中后收起菜单。不要再让原生 `ComboBox` 承载工具栏选择器（其选中文本带原生内缩）。
 - 空状态：居中 72px 圆角图标容器（`FwSurfaceBrush` + 1px `FwStrokeBrush`）、20px 标题、13px/20 行高说明；兜底“重新加载”使用 `FwSecondaryButtonStyle`，不得使用系统默认按钮。空列表同时隐藏列头。
 - 回收站等可移动详情浮窗同样使用三点手柄 + 原生 caption 拖动；关闭/恢复/删除使用自研图标按钮，不得使用系统默认按钮。
-- 非破坏性确认框默认操作使用 `DefaultButton=Primary`，并显式指定主/次按钮样式，确保“取消”为白底描边次级按钮、主操作是唯一蓝色按钮；破坏性确认仍默认取消。
+- 非破坏性确认框默认操作使用 `DefaultButton=Primary`；禁止用 `DefaultButton=Close`（WinUI 会给默认按钮套强调色，造成双蓝按钮），需要安全默认时用 `None`。`DialogOrdering` 在打开时统一把主按钮归一为 `FwPrimaryButtonStyle`、关闭/次要按钮归一为 `FwSecondaryButtonStyle`，确保“取消”为白底描边、主操作唯一蓝色。
 - 收藏/标签：行状态仅在确有附加信息时拼接“ · ”，不得出现“未分组 ·”这类尾部分隔符。
 - 传输中心：文件夹批次以批次卡片成组（32px 文件夹图标底、批次名、聚合进度、“x/y 已完成”、文件数与总大小），组内文件行左缩进 24px 且仍可点开单个任务详情；批次行只做汇总，不承载暂停/删除等任务操作。
 - 弹层：菜单/Flyout 使用亚克力背景（App.xaml 的 `FlyoutBackground`/`MenuFlyoutPresenterBackground`），ContentDialog 与 ToolTip 使用 `FwPanelBrush` + 1px `FwStrokeStrongBrush`；ToolTip 圆角 8、内边距 10×6、12px 字号、最大宽度 360，与菜单保持同一套浮层语言。

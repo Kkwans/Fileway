@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
@@ -38,6 +38,8 @@ public static class DialogOrdering
         var primary = Find(dialog, "PrimaryButton");
         var secondary = Find(dialog, "SecondaryButton");
         var close = Find(dialog, "CloseButton");
+        if (primary is Button primaryButton && close is Button closeButton)
+            ApplyButtonStyles(primaryButton, secondary as Button, closeButton);
         if (primary is null || close is null) return false;
         if (primary.Parent is not Panel container || close.Parent != container) return false;
         if (container is Grid grid && grid.ColumnDefinitions.Count >= 3)
@@ -56,6 +58,19 @@ public static class DialogOrdering
         container.Children.RemoveAt(index);
         container.Children.Add(primary);
         return true;
+    }
+
+    private static void ApplyButtonStyles(Button primary, Button? secondary, Button close)
+    {
+        // The SDK template accents whichever button is the dialog default, so a
+        // DefaultButton=Close dialog otherwise shows two filled primary actions.
+        var resources = Application.Current.Resources;
+        if (resources["FwPrimaryButtonStyle"] is Style primaryStyle) primary.Style = primaryStyle;
+        if (resources["FwSecondaryButtonStyle"] is Style secondaryStyle)
+        {
+            close.Style = secondaryStyle;
+            if (secondary is not null) secondary.Style = secondaryStyle;
+        }
     }
 
     private static FrameworkElement? Find(DependencyObject root, string name)

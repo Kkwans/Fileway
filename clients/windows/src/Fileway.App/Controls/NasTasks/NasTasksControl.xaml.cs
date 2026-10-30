@@ -365,7 +365,7 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
         {
             XamlRoot = XamlRoot, RequestedTheme = ActualTheme, Title = title,
             Content = new TextBlock { Text = new NasTaskRow(task).Name + "\n\n" + message, TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
-            PrimaryButtonText = primary, CloseButtonText = "返回", DefaultButton = ContentDialogButton.Close,
+            PrimaryButtonText = primary, CloseButtonText = "返回", DefaultButton = ContentDialogButton.None,
         };
         _confirmation = dialog; Render(synchronizeRows: false);
         try { return await dialog.ShowAsync() == ContentDialogResult.Primary; }

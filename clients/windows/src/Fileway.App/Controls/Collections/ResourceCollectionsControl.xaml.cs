@@ -365,7 +365,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         if (await ShowDialogAsync(scope, dialog) != ContentDialogResult.Primary || !Current(scope)) return null;
         return (name.Text.Trim(), groups is null ? groupId : (groups.SelectedItem as GroupChoice)?.Id, colors is null ? color : (colors.SelectedItem as ColorChoice)?.Value);
     }
-    private async Task<bool> ConfirmAsync(Scope scope, string title, string message) => await ShowDialogAsync(scope, new ContentDialog { Title = title, Content = message, PrimaryButtonText = "确认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close }) == ContentDialogResult.Primary && Current(scope);
+    private async Task<bool> ConfirmAsync(Scope scope, string title, string message) => await ShowDialogAsync(scope, new ContentDialog { Title = title, Content = message, PrimaryButtonText = "确认", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None }) == ContentDialogResult.Primary && Current(scope);
 
     private async void AddFavorite_Click(object sender, RoutedEventArgs args) => await AddCurrentFavoriteAsync();
     public async Task ToggleCurrentFavoriteAsync()
