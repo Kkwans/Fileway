@@ -6,7 +6,7 @@
 
 - 详情/回收站的可移动浮窗改用原生 `WM_NCHITTEST`：标题区（顶部 56 DIP，右侧预留 56 DIP 给关闭按钮）返回 `HTCAPTION`，由 Windows 系统拖动循环移动窗口，不再依赖轮询鼠标按键。
 - 详情浮窗标题栏新增三点拖动手柄与“按住标题区域拖动移动窗口”提示，明确可拖动区域。
-- 实测（浅色与深色各一次）：登录后选中目录并打开“详细信息”，合成鼠标从标题区拖动，窗口从 (965,404) 移动到 (1085,484)，`MOVED=True`；截图 `screens/details-drag.png`、`screens/details-drag-dark.png` 显示拖动后的浮窗、手柄与标题。
+- 实测（浅色与深色各一次）：登录后选中目录并打开“详细信息”，合成鼠标从标题区拖动，窗口从 (965,404) 移动到 (1085,484)，`MOVED=True`；从三点手柄处起拖同样生效；拖动后点击关闭按钮，详情窗口数量归零（关闭不受 caption 命中影响）。截图 `screens/details-drag.png`、`screens/details-drag-dark.png`、`screens/details-grip.png`。
 - 收藏/标签管理：删除“未分组 ·”这类尾部分隔符——仅在资源身份不可用等确有附加信息时才拼接分隔符。
 - 用测试账号真实新增一条收藏，实拍收藏列表行选中态、描边与路径信息（`screens/collections-row.png`）。
 
