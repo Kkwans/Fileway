@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -112,7 +112,9 @@ public sealed partial class TrashControl : UserControl, IDisposable
         panel.Children.Add(new TextBlock { Text = row.Name + "\n\n恢复到：" + row.Path, TextWrapping = TextWrapping.Wrap }); panel.Children.Add(choice);
         var dialog = new ContentDialog { XamlRoot = XamlRoot, RequestedTheme = ActualTheme,
             Title = "恢复此项目？", Content = panel,
-            PrimaryButtonText = "恢复", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Close };
+            PrimaryButtonText = "恢复", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary,
+            PrimaryButtonStyle = Application.Current.Resources["FwPrimaryButtonStyle"] as Style,
+            CloseButtonStyle = Application.Current.Resources["FwSecondaryButtonStyle"] as Style };
         choice.SelectionChanged += (_, _) => { dialog.PrimaryButtonText = choice.SelectedIndex == 2 ? "覆盖并恢复" : "恢复"; dialog.IsPrimaryButtonEnabled = _controller.CanRestore(row.Item, (FileConflictPolicy)choice.SelectedIndex); };
         _dialog = dialog; Render(synchronize: false);
         bool confirmed = false;
@@ -168,15 +170,24 @@ public sealed partial class TrashControl : UserControl, IDisposable
         _detailsPopup?.Dispose();
         var root = new StackPanel { Width = 480, Padding = new Thickness(20), Spacing = 16 };
         var header = new Grid { Height = 32 }; header.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) }); header.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-        header.Children.Add(new TextBlock { Text = "回收站项目详情", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var close = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "x", Width = 20, Height = 20 }, Padding = new Thickness(6) }; Grid.SetColumn(close,1); header.Children.Add(close); root.Children.Add(header);
+        Microsoft.UI.Xaml.Controls.ToolTipService.SetToolTip(header, "按住标题区域拖动移动窗口");
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center };
+        title.Children.Add(new Fileway.App.Controls.LucideIcon { IconName = "dots-three", Width = 16, Height = 16 });
+        title.Children.Add(new TextBlock { Text = "回收站项目详情", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        header.Children.Add(title);
+        var close = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "x", Width = 18, Height = 18 }, Width = 32, Height = 32, Padding = new Thickness(0), Style = Application.Current.Resources["FwIconButtonStyle"] as Style };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(close, "关闭回收站详情");
+        ToolTipService.SetToolTip(close, "关闭");
+        Grid.SetColumn(close,1); header.Children.Add(close); root.Children.Add(header);
         root.Children.Add(new Fileway.App.Controls.LucideIcon { IconName = row.IconName, Width = 48, Height = 48, HorizontalAlignment = HorizontalAlignment.Left });
         root.Children.Add(new TextBlock { Text = row.Name, TextWrapping = TextWrapping.Wrap, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, IsTextSelectionEnabled = true });
         root.Children.Add(new TextBlock { Text = "原位置\n" + row.Path + "\n\n大小：" + row.Size + "\n删除时间：" + row.Deleted + "\n状态：" + row.Status, LineHeight = 25, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        var restore = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "arrow-counter-clockwise", Width = 20, Height = 20 }, IsEnabled = _controller.CanRestore(row.Item, Conflict) };
+        var restore = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "arrow-counter-clockwise", Width = 20, Height = 20 }, IsEnabled = _controller.CanRestore(row.Item, Conflict), Style = Application.Current.Resources["FwIconButtonStyle"] as Style, Width = 34, Height = 34, Padding = new Thickness(0) };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(restore, "恢复项目");
         ToolTipService.SetToolTip(restore,"恢复"); restore.Click += (_, _) => { _detailsPopup?.Dispose(); Records.SelectedItem = row; Restore_Click(this,new()); };
-        var delete = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "trash", Width = 20, Height = 20 }, IsEnabled = _controller.CanDelete(row.Item) };
+        var delete = new Button { Content = new Fileway.App.Controls.LucideIcon { IconName = "trash", Width = 20, Height = 20 }, IsEnabled = _controller.CanDelete(row.Item), Style = Application.Current.Resources["FwIconButtonStyle"] as Style, Width = 34, Height = 34, Padding = new Thickness(0) };
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(delete, "永久删除项目");
         ToolTipService.SetToolTip(delete,"永久删除"); delete.Click += (_, _) => { _detailsPopup?.Dispose(); DeleteRow(row); };
         actions.Children.Add(restore); actions.Children.Add(delete); root.Children.Add(actions);
         var owner = Microsoft.UI.Win32Interop.GetWindowFromWindowId(XamlRoot.ContentIslandEnvironment.AppWindowId);
