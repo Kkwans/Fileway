@@ -5,7 +5,7 @@
 ## 本版完成
 
 - `FwPrimaryButtonStyle` 的 PointerOver / Pressed 从 `FwSelectionBrush`（半透明）改为 `AccentFillColorSecondaryBrush` / `AccentFillColorTertiaryBrush`，悬停仍是实心蓝、按下更深，白字不失去可读性。
-- 实测：文件列表“移入回收站”确认框，鼠标悬停主按钮后截图 `screens/primary-hover.png`；随后点击取消，未移动任何文件，测试账号状态未变。
+- 实测：文件列表“移入回收站”确认框，浅色与深色下鼠标悬停主按钮均保持实心强调色、文字可读（`screens/primary-hover.png`、`screens/primary-hover-dark.png`）；随后点击取消，未移动任何文件，测试账号状态未变。
 
 ## 构建与冒烟
 
