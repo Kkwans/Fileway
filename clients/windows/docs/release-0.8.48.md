@@ -8,6 +8,7 @@
 - 全局把 21 处 `DefaultButton = ContentDialogButton.Close` 改为 `None`：Enter 不再自动触发取消或主操作，破坏性确认更安全；主操作保持唯一蓝色。
 - `DialogOrdering` 在对话框打开时统一把主按钮重置为 `FwPrimaryButtonStyle`、关闭/次要按钮重置为 `FwSecondaryButtonStyle`，并保留主按钮右置的幂等换列。
 - 实测（真实下载记录）：“删除下载任务？”现在“取消”为白底描边、“删除任务”为唯一蓝色按钮；点击取消不删除任何任务，测试账号状态未变。截图：`screens/delete-download-dialog-2.png`（修复后）、`screens/delete-download-dialog.png`（修复前双蓝对照）。
+- 二次抽验：文件列表“移入回收站”确认框同样只有一个蓝色主按钮，取消后未移动任何文件：`screens/trash-confirm-dialog.png`。
 - 0.8.47 的恢复确认框同样保持“取消”次级、“恢复”唯一主按钮。
 
 ## 构建与冒烟
