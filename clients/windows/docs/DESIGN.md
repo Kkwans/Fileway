@@ -242,6 +242,7 @@ components:
 - 行高 40，图标 20，名称 13.5，右侧元信息 12/muted。
 - 表头使用 `surface-raised`，单元格 220px 起，允许横向滚动；不截断到无法阅读。
 - 选中态使用 `surface-hover`，不使用系统蓝色高亮块；可选择的列表一律以 `FwListViewItemStyle` 为基底（含文件任务、搜索、最近访问、传输中心、收藏/标签），行卡片使用 `FwSurfaceBrush` + 1px `FwStrokeBrush` 描边（浅色下白卡不再与页面同色），选中时使用半透明 `FwSelectionBrush` + 左侧 3px 强调标记，并关闭系统方形焦点框、只保留自研双色圆角焦点环（外层 `FwCanvasBrush` 2px 光晕 + 内层 `FwTextPrimaryBrush` 2px 环）。
+- 文本型列表（最近访问/搜索/文件任务/操作记录）统一扫描路径：左 22px 类型图标，中间名称/路径/附加说明，右侧时间或“类型/大小 · 修改时间”摘要右对齐；时间使用 tabular numerals。页面级操作收拢到工具区右侧，不在列表上方留下孤立按钮。
 
 ### Viewers
 
@@ -299,6 +300,7 @@ components:
 ## Known Gaps
 
 - [x] 主浏览窗口工具栏/筛选/布局切换已按本契约重排（0.8.10，`screens/ui-browser/`）。
+- [x] 文本列表排版已收敛（0.8.52）：最近访问/搜索/文件任务/操作记录统一左图标、中主信息、右时间/摘要；浅色与深色截图见 `20261031-ui0852/screens/`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
