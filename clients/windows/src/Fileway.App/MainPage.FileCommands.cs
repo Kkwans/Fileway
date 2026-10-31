@@ -137,12 +137,12 @@ public sealed partial class MainPage
         catch (Exception) { if (!_disposed) SetNotice("对话框未能打开", "请关闭其他对话框后重试。", InfoBarSeverity.Warning); return ContentDialogResult.None; }
         finally { if (ReferenceEquals(_browserDialog, dialog)) _browserDialog = null; }
     }
-    private async Task<string?> AskNameAsync(string title, string initial = "")
+    private async Task<string?> AskNameAsync(string title, string initial = "", string primaryText = "确定")
     {
-        var name = new TextBox { Header = "名称", Text = initial, MinWidth = 320, MaxLength = 255 };
-        var hint = new TextBlock { Text = "不能包含 /、\\、控制字符，或仅使用 .、..。同名项目会报告冲突。", TextWrapping = TextWrapping.Wrap, MaxWidth = 420 };
+        var name = new TextBox { Header = "名称", Text = initial, MinWidth = 320, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
+        var hint = new TextBlock { Text = "不能包含 /、\\、控制字符，或仅使用 .、..。同名项目会报告冲突。", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, FontSize = 12, Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"] };
         var content = new StackPanel { Spacing = 12 }; content.Children.Add(name); content.Children.Add(hint);
-        var dialog = new ContentDialog { Title = title, Content = content, PrimaryButtonText = "确定", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = ValidNewName(initial) };
+        var dialog = new ContentDialog { Title = title, Content = content, PrimaryButtonText = primaryText, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = ValidNewName(initial) };
         name.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = ValidNewName(name.Text);
         dialog.Opened += (_, _) => { name.Focus(FocusState.Keyboard); name.SelectAll(); };
         return await ShowBrowserDialogAsync(dialog) == ContentDialogResult.Primary ? name.Text : null;
@@ -154,7 +154,7 @@ public sealed partial class MainPage
     {
         if (!CanWrite(p => p.Create) || _session is not { } session || _directory is not { } directory || _files is null || emptyFile && FileManagement is null) return;
         var generation = _generation;
-        var name = await AskNameAsync(emptyFile ? "新建空文件" : "新建文件夹");
+        var name = await AskNameAsync(emptyFile ? "新建空文件" : "新建文件夹", primaryText: "创建");
         if (name is null || !SameBrowser(session, directory, generation) || !CanWrite(p => p.Create)) return;
         await RunFileWriteAsync(session, directory, emptyFile ? "新建空文件" : "新建文件夹", () => emptyFile
             ? FileManagement!.CreateEmptyFileAsync(directory, name, _lifetime.Token)
@@ -167,7 +167,7 @@ public sealed partial class MainPage
         if (rows.Length == 0) return;
         if (rows.Length > 1) { await RenameBatchAsync(rows, session, directory, generation); return; }
         var resource = rows[0].File.Resource;
-        var name = await AskNameAsync("重命名", resource.DisplayName);
+        var name = await AskNameAsync("重命名", resource.DisplayName, "重命名");
         if (name is null || !SameBrowser(session, directory, generation) || !CanWrite(p => p.Rename)) return;
         await RunFileWriteAsync(session, directory, "重命名", () => _files.RenameAsync(resource, name, _lifetime.Token));
     }
@@ -175,9 +175,11 @@ public sealed partial class MainPage
     private async Task RenameBatchAsync(FileRow[] rows, ConnectionSession session, RemoteResourceRef directory, long generation)
     {
         if (FileManagement is not { } management || rows.Length > 500) { SetNotice("无法批量重命名", "一次最多选择 500 个同目录项目。", InfoBarSeverity.Warning); return; }
-        var fields = rows.Select(row => new TextBox { Header = row.Name, Text = row.Name, MinWidth = 360, MaxLength = 255 }).ToArray();
-        var names = new StackPanel { Spacing = 12 }; foreach (var field in fields) names.Children.Add(field);
-        var edit = new ContentDialog { Title = $"批量重命名 {rows.Length} 个项目", Content = new ScrollViewer { Content = names, MaxHeight = 360, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, PrimaryButtonText = "预览", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
+        var secondary = (Brush)Application.Current.Resources["FwTextSecondaryBrush"];
+        var fields = rows.Select(row => new TextBox { Header = row.Name, Text = row.Name, MinWidth = 360, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] }).ToArray();
+        var hint = new TextBlock { Text = "可直接修改原名称；命名规则与单个重命名一致，提交前会先预览冲突。", FontSize = 12, Foreground = secondary, TextWrapping = TextWrapping.Wrap };
+        var names = new StackPanel { Spacing = 12 }; names.Children.Add(hint); foreach (var field in fields) names.Children.Add(field);
+        var edit = new ContentDialog { Title = $"批量重命名 {rows.Length} 个项目", Content = new ScrollViewer { Content = names, MaxHeight = Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 360), VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, PrimaryButtonText = "预览", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         foreach (var field in fields) field.TextChanged += (_, _) => edit.IsPrimaryButtonEnabled = fields.All(f => ValidNewName(f.Text));
         if (await ShowBrowserDialogAsync(edit) != ContentDialogResult.Primary || !SameBrowser(session, directory, generation) || !CanWrite(p => p.Rename)) return;
         _fileWriteBusy = true; UpdateBrowserCommands();
@@ -186,8 +188,8 @@ public sealed partial class MainPage
             var draft = new BatchRenameDraft(Guid.NewGuid(), rows.Select((row, index) => new BatchRenameItem(row.File.Resource, fields[index].Text)).ToArray());
             var preview = await management.PreviewBatchRenameAsync(draft, _lifetime.Token);
             if (!SameBrowser(session, directory, generation)) return;
-            var summary = new TextBlock { Text = string.Join("\n", preview.Items.Select(item => $"{item.Source.DisplayName} → {item.Target.DisplayName}" + (item.Valid ? "" : $"\n  {item.Error?.Message ?? item.Status ?? "无效"}"))), TextWrapping = TextWrapping.Wrap, MaxWidth = 480 };
-            var confirm = new ContentDialog { Title = preview.Valid ? "确认批量重命名" : "请修改命名冲突", Content = new ScrollViewer { Content = summary, MaxHeight = 360 }, PrimaryButtonText = "执行重命名", IsPrimaryButtonEnabled = preview.Valid && preview.Executable is not null, CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
+            var summary = new TextBlock { Text = string.Join("\n", preview.Items.Select(item => $"{item.Source.DisplayName} → {item.Target.DisplayName}" + (item.Valid ? "" : $"\n  {item.Error?.Message ?? item.Status ?? "无效"}"))), FontSize = 13, TextWrapping = TextWrapping.Wrap, MaxWidth = 480 };
+            var confirm = new ContentDialog { Title = preview.Valid ? "确认批量重命名" : "请修改命名冲突", Content = new ScrollViewer { Content = summary, MaxHeight = Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 360), VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, PrimaryButtonText = "执行重命名", IsPrimaryButtonEnabled = preview.Valid && preview.Executable is not null, CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
             if (await ShowBrowserDialogAsync(confirm) != ContentDialogResult.Primary || preview.Executable is not { } executable || !SameBrowser(session, directory, generation) || _session?.Permissions.Rename != true || HasUnresolvedWrite) return;
             var result = await management.ExecuteBatchRenameAsync(executable, _lifetime.Token);
             var items = result.Items.Select(item => new FileOperationItemResult(item.Source, result.Executed && item.Status == "completed" ? FileOperationItemOutcome.Confirmed : result.Outcome == OperationOutcome.OutcomeUnknown ? FileOperationItemOutcome.OutcomeUnknown : item.Error is not null ? FileOperationItemOutcome.Failed : FileOperationItemOutcome.NotAttempted, item.Error, result.Receipt)).ToArray();
@@ -304,13 +306,20 @@ public sealed partial class MainPage
         bool ClipboardCurrent() => clipboard is null || _remoteClipboard.IsCurrent(clipboard, _session);
         if (!ClipboardCurrent()) return;
         if (resources.Length == 0) return;
-        var path = new TextBox { Header = "目标文件夹的原始路径", Text = directory.WirePath, MinWidth = 360 };
+        var secondary = (Brush)Application.Current.Resources["FwTextSecondaryBrush"];
+        var path = new TextBox { Header = "目标文件夹的原始路径", Text = directory.WirePath, MinWidth = 360, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
         if (clipboard is not null) path.Visibility = Visibility.Collapsed;
         var conflicts = new Fileway.App.Controls.ChoiceBox { Header = "同名项目", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
         foreach (var label in new[] { "保留两者（自动改名）", "遇到冲突停止", "跳过同名项目", "替换同名项目" }) conflicts.Items.Add(label);
-        var explanation = new TextBlock { Text = $"已选择 {resources.Length} 项。目标会在提交前向服务器核实。复制或移动由服务器任务执行，提交接受不表示完成。", TextWrapping = TextWrapping.Wrap, MaxWidth = 460 };
+        var explanation = new TextBlock { Text = $"已选择 {resources.Length} 项。目标会在提交前向服务器核实。复制或移动由服务器任务执行，提交接受不表示完成。", FontSize = 12, Foreground = secondary, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 };
         var content = new StackPanel { Spacing = 16 }; content.Children.Add(path); content.Children.Add(conflicts); content.Children.Add(explanation);
-        if (clipboard is not null) content.Children.Insert(0, new TextBlock { Text = "粘贴到：" + directory.DisplayPath, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 });
+        if (clipboard is not null)
+        {
+            var pasteTarget = new StackPanel { Spacing = 2 };
+            pasteTarget.Children.Add(new TextBlock { Text = "粘贴到", FontSize = 12, Foreground = secondary });
+            pasteTarget.Children.Add(new TextBlock { Text = directory.DisplayPath, FontSize = 13, TextWrapping = TextWrapping.Wrap });
+            content.Children.Insert(0, pasteTarget);
+        }
         var dialog = new ContentDialog { Title = action == FileTransferAction.Copy ? "复制到" : "移动到", Content = content, PrimaryButtonText = "提交任务", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         if (await ShowBrowserDialogAsync(dialog) != ContentDialogResult.Primary || !SameBrowser(session, directory, generation) || !CanWrite(Allowed) || !ClipboardCurrent()) return;
         if (!IsValidRawPath(path.Text)) { SetNotice("目标路径无效", "请输入绝对原始路径并保留百分号编码。", InfoBarSeverity.Warning); return; }
