@@ -214,7 +214,7 @@ components:
 - 图标容器使用圆角方形（16px），不得用圆形裁切图标。
 - 文件网格与列表中的类型图标使用 `FwTextSecondaryBrush`，不得用主文字色绘制大尺寸图标。
 - `ItemsWrapGrid.ItemWidth` 必须扣除 `GridViewItem` 的 4px 左右外边距；否则列数整除时会挤出最后一列。
-- 主/次按钮与图标/文字图标按钮统一使用自研双色圆角焦点环（`UseSystemFocusVisuals=False`，外层 `FwCanvasBrush` 2px + 内层 `FwTextPrimaryBrush`/前景色 2px）；图标/文字图标按钮的内层环取 `Foreground`，以适配视频遮罩等深色表面。
+- 主/次按钮、图标/文字图标按钮与分段/选项按钮统一使用自研双色圆角焦点环（`UseSystemFocusVisuals=False`，外层 `FwCanvasBrush` 2px + 内层 `FwTextPrimaryBrush`/前景色 2px）；图标/文字图标按钮的内层环取 `Foreground`，以适配视频遮罩等深色表面。
 - 主按钮悬停/按下必须使用 `AccentFillColorSecondaryBrush`/`AccentFillColorTertiaryBrush` 保持实心强调色，禁止用半透明 `FwSelectionBrush` 替换背景（白字会失去对比度）。
 - 复选框使用自研模板：20px 方框、6px 圆角、选中填充强调色并显示自绘勾线；不得直接使用系统 CheckBox 外观。
 - 展开面板统一 `FwSurfaceBrush` + 1px `FwStrokeBrush` + 10px 圆角；滚动条使用 App.xaml 的 `ScrollBarThumbFill`/`ScrollBarTrackFill` 令牌（透明轨道、分级半透明滑块），高对比度走系统色。

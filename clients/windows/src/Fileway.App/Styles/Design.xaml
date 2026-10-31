@@ -896,7 +896,7 @@
    <Setter Property="Background" Value="Transparent"/>
    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}"/>
    <Setter Property="FontSize" Value="13"/>
-   <Setter Property="UseSystemFocusVisuals" Value="True"/>
+   <Setter Property="UseSystemFocusVisuals" Value="False"/>
    <Setter Property="Template">
     <Setter.Value>
      <ControlTemplate TargetType="ToggleButton">
@@ -913,9 +913,18 @@
          <VisualState x:Name="Checked"><Storyboard><ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background"><DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}"/></ObjectAnimationUsingKeyFrames></Storyboard></VisualState>
          <VisualState x:Name="Indeterminate"/>
         </VisualStateGroup>
+        <VisualStateGroup x:Name="FocusStates">
+         <VisualState x:Name="Unfocused"/>
+         <VisualState x:Name="PointerFocused"/>
+         <VisualState x:Name="Focused"><Storyboard><ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility"><DiscreteObjectKeyFrame KeyTime="0" Value="Visible"/></ObjectAnimationUsingKeyFrames><ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility"><DiscreteObjectKeyFrame KeyTime="0" Value="Visible"/></ObjectAnimationUsingKeyFrames></Storyboard></VisualState>
+        </VisualStateGroup>
        </VisualStateManager.VisualStateGroups>
        <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
                          Padding="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+       <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+               CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+       <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{TemplateBinding Foreground}"
+               CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
       </Grid>
      </ControlTemplate>
     </Setter.Value>
