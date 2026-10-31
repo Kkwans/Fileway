@@ -59,20 +59,20 @@
     <MenuFlyoutItem Text="退出" Click="ApplicationExit_Click"/>
    </MenuBarItem>
    <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="编辑" AccessKey="E">
-    <MenuFlyoutItem x:Name="MenuClipboardCopyItem" Text="复制" Click="CopyClipboard_Click" IsEnabled="False"/>
-    <MenuFlyoutItem x:Name="MenuClipboardCutItem" Text="剪切" Click="CutClipboard_Click" IsEnabled="False"/>
-    <MenuFlyoutItem x:Name="MenuClipboardPasteItem" Text="粘贴" Click="PasteClipboard_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuClipboardCopyItem" Text="复制" Click="CopyClipboard_Click" KeyboardAcceleratorTextOverride="Ctrl+C" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuClipboardCutItem" Text="剪切" Click="CutClipboard_Click" KeyboardAcceleratorTextOverride="Ctrl+X" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuClipboardPasteItem" Text="粘贴" Click="PasteClipboard_Click" KeyboardAcceleratorTextOverride="Ctrl+V" IsEnabled="False"/>
     <MenuFlyoutSeparator/>
-    <MenuFlyoutItem x:Name="MenuRenameItem" Text="重命名…" Click="Rename_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuRenameItem" Text="重命名…" Click="Rename_Click" KeyboardAcceleratorTextOverride="F2" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuCopyItem" Text="复制到…" Click="CopySelection_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuMoveItem" Text="移动到…" Click="MoveSelection_Click" IsEnabled="False"/>
-    <MenuFlyoutItem x:Name="MenuTrashItem" Text="移入回收站…" Click="Trash_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuTrashItem" Text="移入回收站…" Click="Trash_Click" KeyboardAcceleratorTextOverride="Delete" IsEnabled="False"/>
     <MenuFlyoutSeparator/>
-    <MenuFlyoutItem x:Name="MenuSelectAllItem" Text="全选" Click="SelectAll_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuSelectAllItem" Text="全选" Click="SelectAll_Click" KeyboardAcceleratorTextOverride="Ctrl+A" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuClearSelectionItem" Text="取消选择" Click="ClearSelection_Click" IsEnabled="False"/>
    </MenuBarItem>
    <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="视图" AccessKey="V">
-    <MenuFlyoutItem x:Name="MenuRefreshItem" Text="刷新" Click="Refresh_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuRefreshItem" Text="刷新" Click="Refresh_Click" KeyboardAcceleratorTextOverride="F5" IsEnabled="False"/>
     <ToggleMenuFlyoutItem x:Name="MenuDetailsItem" Text="详细信息" Click="Details_Click" IsEnabled="False"/>
     <MenuFlyoutSeparator/>
     <MenuFlyoutSubItem x:Name="MenuLayoutItem" Text="文件布局" IsEnabled="False">
@@ -87,7 +87,7 @@
    <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="工具" AccessKey="T">
     <MenuFlyoutItem Text="外观与交互…" Click="PresentationSettings_Click"/><MenuFlyoutItem Text="打开方式…" Click="OpenWithSettings_Click"/><ToggleMenuFlyoutItem x:Name="MenuCloseToTrayItem" Text="关闭窗口后保留在托盘" IsChecked="True" Click="CloseToTray_Click"/>
     <MenuFlyoutSeparator/>
-    <MenuFlyoutItem x:Name="MenuServerSearchItem" Text="搜索文件…" Click="ServerSearch_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuServerSearchItem" Text="搜索文件…" Click="ServerSearch_Click" KeyboardAcceleratorTextOverride="Ctrl+F" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuRecentItem" Text="最近访问" Click="RecentAccess_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuTransfersItem" Text="传输中心" Click="TransferCenter_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuNasTasksItem" Text="文件任务" Click="NasTasks_Click" IsEnabled="False"/>
