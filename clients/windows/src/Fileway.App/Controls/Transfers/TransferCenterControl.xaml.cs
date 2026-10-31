@@ -212,7 +212,11 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
         var remaining = Math.Max(0, (item.Snapshot.TotalBytes ?? 0) - (item.Progress?.ReceivedBytes ?? item.Snapshot.ConfirmedOffset ?? 0));
         var eta = speed > 0 ? Duration(TimeSpan.FromSeconds(Math.Min(remaining / speed, TimeSpan.MaxValue.TotalSeconds / 2))) : "—";
         var rate = speed > 0 ? DownloadPresentationPolicy.FormatBytes((long)speed) + "/s" : "0 KB/s";
-        var metrics = item.Status == DownloadStatus.Completed ? "总耗时 " + Duration(elapsed) : $"{rate}  ·  剩余 {eta}  ·  已用 {Duration(elapsed)}";
+        var showMetrics = item.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Completed
+            or DownloadStatus.Failed or DownloadStatus.Canceled;
+        var metrics = !showMetrics ? "" : item.Status == DownloadStatus.Completed
+            ? "总耗时 " + Duration(elapsed)
+            : $"{rate}  ·  剩余 {eta}  ·  已用 {Duration(elapsed)}";
         if (Metrics == metrics) return; Metrics = metrics; PropertyChanged?.Invoke(this, new(nameof(Metrics))); PropertyChanged?.Invoke(this, new(nameof(MetricsVisibility)));
     }
     private static string Duration(TimeSpan value) => value < TimeSpan.Zero ? "0:00" : value.TotalHours >= 1 ? $"{(int)value.TotalHours}:{value.Minutes:00}:{value.Seconds:00}" : $"{(int)value.TotalMinutes}:{value.Seconds:00}";

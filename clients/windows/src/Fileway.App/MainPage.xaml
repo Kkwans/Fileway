@@ -232,7 +232,7 @@
         <TextBlock x:Name="DetailsName" Text="选择一个项目" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" MaxLines="2" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
         <TextBlock x:Name="DetailsKindText" Text="—" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
        </StackPanel>
-       <Button x:Name="DetailsOpenButton" Grid.Column="2" Content="打开" Click="DetailsOpen_Click" Style="{StaticResource FwPrimaryButtonStyle}" Height="34" MinHeight="34" Padding="16,0" VerticalAlignment="Center" AutomationProperties.Name="打开"/>
+       <Button x:Name="DetailsOpenButton" Grid.Column="2" Content="打开" Click="DetailsOpen_Click" Style="{StaticResource FwPrimaryButtonStyle}" Height="36" MinHeight="36" Padding="16,0" VerticalAlignment="Center" AutomationProperties.Name="打开"/>
       </Grid>
       <ScrollViewer Grid.Row="2" HorizontalScrollMode="Disabled" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
        <StackPanel Spacing="14">
