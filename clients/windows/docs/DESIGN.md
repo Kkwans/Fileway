@@ -297,7 +297,7 @@ components:
 - CSV 表格视图：列宽按查看器内容宽度除以列数自适应，限制 140–220 DIP；表头与数据行共用列宽。小表不得因固定 220 DIP 列宽横向溢出而裁掉末列，宽表仍允许横向滚动。
 - 压缩包查看器：列表上方必须有 12px 次要色“名称 / 大小”列头，名称左内边距 58 DIP、大小右内边距 25 DIP，与条目列对齐；空目录隐藏列头。
 - 文本查看器空文件：内容长度为 0 且非编辑时显示居中空状态（72px 圆角图标容器 + 20px 标题 + 13px/20 说明），不得只显示一块空白编辑框；进入编辑后隐藏，保存或取消后按内容重新判断。
-- 设置类对话框：内容滚动区高度必须给对话框上下留出边距（1200×900 下缓存与存储用 360 DIP），不得让对话框贴住窗口边缘或被裁切；关闭/保存按钮固定底部。高内容弹窗用 `DialogOrdering.ContentMaxHeight(anchor, preferred)` 按窗口高度自适应（预留 240 DIP，下限 240 DIP），不要写死超过窗口可用高度的值。
+- 设置类对话框：内容滚动区高度必须给对话框上下留出边距（缓存与存储使用 `DialogOrdering.ContentMaxHeight(this, 520)`，1200×900 下约 360 DIP），不得让对话框贴住窗口边缘或被裁切；关闭/保存按钮固定底部。高内容弹窗用同一助手按窗口高度自适应（预留 240 DIP，下限 240 DIP），不要写死超过窗口可用高度的值。
 - 弹层：菜单/Flyout 使用亚克力背景（App.xaml 的 `FlyoutBackground`/`MenuFlyoutPresenterBackground`），ContentDialog 使用 `FwPanelBrush` + 1px `FwStrokeStrongBrush`；ToolTip 圆角 8、内边距 10×6、12px 字号、最大宽度 360，与菜单保持同一套浮层语言。ToolTip 的三色使用应用自有可变画刷（`FwToolTipBackgroundBrush`/`FwToolTipBorderBrush`/`FwToolTipForegroundBrush`，`StaticResource` 注入，运行时随应用主题更新），因为 ToolTip 的 popup 会按系统主题解析 `ThemeResource`，不能直接用它取 `FwPanelBrush`。
 - 工具栏不保留原生 `CommandBar` 容器、溢出菜单或 `AppBarButton`：主浏览筛选栏使用 `ContentControl` + `StackPanel`，更多操作一律使用自绘图标按钮 + `MenuFlyout`，与文件任务、文件浏览、缓存设置保持一致。
 - 共享控件样式（`LayoutChoiceStyle` 等）必须放在应用级 `Styles/Design.xaml`；页面级资源无法被独立 `UserControl` 解析，会在启动时抛 XAML 异常。

@@ -136,6 +136,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed || _storageSettings is null || _storageOwnerHwnd == 0 || _storageDialog is not null) return;
         using var control = new StorageSettingsControl(_storageSettings, _storageOwnerHwnd, _lifetime.Token);
+        control.SetMaxContentHeight(Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 520));
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot, Title = "缓存与存储", Content = control,

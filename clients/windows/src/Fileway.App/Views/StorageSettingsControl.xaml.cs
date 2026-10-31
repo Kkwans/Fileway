@@ -257,4 +257,5 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
     }
 
     internal void FocusInitial() => CloseButton.Focus(FocusState.Programmatic);
+    internal void SetMaxContentHeight(double value) => BodyScroll.MaxHeight = value;
 }
