@@ -77,13 +77,22 @@ public sealed partial class MainPage
     private async void OpenWithSettings_Click(object sender, RoutedEventArgs args)
     {
         var preferences = OpenWith;
-        var panel = new StackPanel { Spacing = 12, MinWidth = 380, MaxWidth = 460 };
+        var panel = new StackPanel { Spacing = 12, MinWidth = 520, MaxWidth = 560 };
         panel.Children.Add(new TextBlock
         {
             Text = "内置查看器保留在应用内；选择“系统默认应用”时，会先把文件下载到默认下载目录，再交给 Windows 打开（例如 Typora 打开 Markdown）。",
             TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.75,
         });
+        var columns = new Grid { ColumnSpacing = 24, RowSpacing = 0 };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var left = new StackPanel { Spacing = 12 };
+        var right = new StackPanel { Spacing = 12 };
+        columns.Children.Add(left); columns.Children.Add(right);
+        Grid.SetColumn(right, 1);
+        panel.Children.Add(columns);
         var choices = new List<(OpenWithCategory Category, ChoiceBox Box)>();
+        var index = 0;
         foreach (var category in Enum.GetValues<OpenWithCategory>())
         {
             var box = new ChoiceBox
@@ -94,7 +103,7 @@ public sealed partial class MainPage
             };
             box.Items.Add("内置查看器");
             box.Items.Add("系统默认应用");
-            panel.Children.Add(box);
+            (index++ < 4 ? left : right).Children.Add(box);
             choices.Add((category, box));
         }
         var dialog = new ContentDialog
