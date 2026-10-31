@@ -302,7 +302,7 @@ components:
 - 非破坏性确认框默认操作使用 `DefaultButton=Primary`；禁止用 `DefaultButton=Close`（WinUI 会给默认按钮套强调色，造成双蓝按钮），需要安全默认时用 `None`。`DialogOrdering` 在打开时统一把主按钮归一为 `FwPrimaryButtonStyle`、关闭/次要按钮归一为 `FwSecondaryButtonStyle`，确保“取消”为白底描边、主操作唯一蓝色。
 - 传输任务详情（文件下载/文件上传）：操作按钮必须与应用一致——次按钮用 `FwSecondaryButtonStyle`（36 DIP、圆角），取消确认中的主操作用 `FwPrimaryButtonStyle`；状态卡与取消确认卡用 `FwSurfaceBrush` + 1px `FwStrokeBrush` + 10 DIP 圆角，不得沿用系统默认按钮与描边。经 `XamlReader.Load` 构造的 XAML 字符串内写 `Style="{StaticResource ...}"` 不可靠，必须在视图构造函数中用 `Application.Current.Resources` 按资源键赋样式（0.8.91 实拍验证）。
 - 收藏/标签：行状态仅在确有附加信息时拼接“ · ”，不得出现“未分组 ·”这类尾部分隔符。
-- 传输中心：文件夹批次以批次卡片成组（32px 文件夹图标底、批次名、聚合进度、“x/y 已完成”、文件数与总大小），组内文件行左缩进 24px 且仍可点开单个任务详情；批次行只做汇总，不承载暂停/删除等任务操作。行内指标（速度/剩余/耗时）为空时必须折叠该行，不得为上传等无指标任务预留空白行。
+- 传输中心：文件夹批次以批次卡片成组（32px 文件夹图标底、批次名、聚合进度、“x/y 已完成”、文件数与总大小），组内文件行左缩进 24px 且仍可点开单个任务详情；批次行只做汇总，不承载暂停/删除等任务操作。行内指标（速度/剩余/耗时）为空时必须折叠该行，不得为上传等无指标任务预留空白行。进度条必须放在 6 DIP 圆角中性轨道内（`FwStrokeBrush`），进度控件背景透明、指示条 4 DIP 居中；等待状态要显示完整空轨道，不得让 0% 只剩 1–2px 低对比度细线、100% 却变成文件名下方的强调色长线（0.8.95 修复）。
 - CSV 表格视图：列宽按查看器内容宽度除以列数自适应，限制 140–220 DIP；表头与数据行共用列宽。小表不得因固定 220 DIP 列宽横向溢出而裁掉末列，宽表仍允许横向滚动。
 - 压缩包查看器：列表上方必须有 12px 次要色“名称 / 大小”列头，名称左内边距 58 DIP、大小右内边距 25 DIP，与条目列对齐；空目录隐藏列头。
 - 文本查看器空文件：内容长度为 0 且非编辑时显示居中空状态（72px 圆角图标容器 + 20px 标题 + 13px/20 说明），不得只显示一块空白编辑框；进入编辑后隐藏，保存或取消后按内容重新判断。
@@ -335,6 +335,7 @@ components:
 - [x] 分段选择器选中态已收敛（0.8.92）：`LayoutChoiceStyle` 改为独立 `SelectionFill` + `IsChecked` 绑定，修复切换后旧项残留蓝底与悬停盖住选中色；存储工具/传输中心/文件任务实拍与 UIA `ToggleState` 复核见 `20261031-ui0892/screens/final-tabs2/`，修复前对照见 `20261031-ui0891/screens/audit-0892/`。
 - [x] 存储工具表单已卡片化（0.8.93）：三个子页说明与表单收进 `FwFormCardStyle` 卡片，说明 13px 次级、最大 720 DIP；结果/用户列表保持全宽。浅/深色实拍 `20261031-ui0893/screens/final2-light/`、`final2-dark/`；同批补验 0.8.92 分段选择器深色正常。
 - [x] 网格卡片名称垂直对齐已收敛（0.8.94）：名称在 40 DIP 两行预留区内居中，单行名称不再贴顶；UIA 名称矩形 60→30px 高、y=393→408，元数据位置不变。浅/深色实拍 `20261031-ui0894/screens/after-light/`、`after-dark/`，修复前 `20261031-ui0893/screens/before-0894-light/`、`before-0894-dark/`。
+- [x] 传输行进度条已收敛（0.8.95）：6 DIP 圆角中性轨道 + 4 DIP 指示条，等待状态显示空轨道、完成状态指示条嵌在轨道内；浅/深色实拍 `20261031-ui0895/screens/after-light/`、`after-dark/`，修复前 `20261031-ui0894/screens/before-0895-light/`、`before-0895-dark/`。不确定进度的动画未单独截图。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
