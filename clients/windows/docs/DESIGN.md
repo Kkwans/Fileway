@@ -298,6 +298,7 @@ components:
 - 共享控件样式（`LayoutChoiceStyle` 等）必须放在应用级 `Styles/Design.xaml`；页面级资源无法被独立 `UserControl` 解析，会在启动时抛 XAML 异常。
 - 密码输入框不得呈现 WinUI 原生下划线外观：`FwPasswordBoxStyle` 作为 PasswordBox 隐式样式全局生效（10px 圆角、1px 描边、`MinHeight 36`、`Padding 12,7`）。对话框内的密码字段横向拉伸，与说明文字同宽左对齐，不设置固定宽度。
 - 主浏览页搜索框：`AutoSuggestBox` 通过 `TextBoxStyle` 注入 `FwSearchTextBoxStyle`（基于 `AutoSuggestBoxTextBoxStyle`，10px 圆角、1px 描边、14px 字号），保留模板自带查询与清除按钮；高度 40，与路径栏、返回/上级/刷新按钮同基线。直接给 `AutoSuggestBox` 设置边框/圆角不会作用到内部 TextBox，禁止用这种方式“修样式”。
+- 主浏览顶部工具行：返回/上级/刷新使用 `BrowserToolbarButtonStyle`（40×40、10px 圆角），与 40px 路径栏、搜索框同高；路径栏内部的编辑按钮保持 32px 内嵌尺寸，不要为了对齐把它放大到超出 32px 列。
 - 自研双色焦点环覆盖主/次/图标/文字图标/分段选项/侧栏导航按钮/详情动作磁贴与 CheckBox；这些控件一律 `UseSystemFocusVisuals=False`，由模板 `FocusStates` 显示光晕 + 内环。动作磁贴必须 `HorizontalAlignment=Stretch` 填满所在栅格列，不能按内容宽度收缩；CheckBox 焦点环画在内容外侧，避免压住 20px 勾选框与文字。
 - 已知尚未迁移：部分弹层仍使用旧样式，按本契约逐步替换。
 - PDF 查看器：工具栏使用底部浮动玻璃药丸（`FwPillStyle` + `FwIconButtonStyle` + `FwTextIconButtonStyle`，左/右方向键翻页，适应窗口按视口宽度计算缩放）。
