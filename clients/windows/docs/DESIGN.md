@@ -213,7 +213,9 @@ components:
 - 同类控件必须使用同一圆角：所有按钮 10，所有对话框 18，所有浮层 14，所有圆形按钮 full。
 - 图标容器使用圆角方形（16px），不得用圆形裁切图标。
 - 文件网格与列表中的类型图标使用 `FwTextSecondaryBrush`，不得用主文字色绘制大尺寸图标。
-- `ItemsWrapGrid.ItemWidth` 必须扣除 `GridViewItem` 的 4px 左右外边距；否则列数整除时会挤出最后一列。
+- 网格列宽按可用宽度分配（含紧凑列表的两列布局）：以偏好卡片宽为下限计算列数，再令 `ItemsWrapGrid.ItemWidth = 可用宽度 / 列数`。`ItemWidth` 是包含 `GridViewItem` 4px 左右外边距的槽位，不得再扣减 8；否则每列少 8 DIP，右端会累积明显尾隙（0.8.83 实测 1200 DIP 窗口尾隙约 100px）。
+- 主浏览页筛选栏右侧的图标动作组与搜索框、状态栏使用同一右边界，不得额外内缩；左端与筛选按钮同左边界。
+- 详细列表右列“大小 / 修改时间”（含列头）必须在 130 DIP 列内右对齐，与最近访问/搜索/文件任务的时间列一致。
 - 主/次按钮、图标/文字图标按钮与分段/选项按钮统一使用自研双色圆角焦点环（`UseSystemFocusVisuals=False`，外层 `FwCanvasBrush` 2px + 内层 `FwTextPrimaryBrush`/前景色 2px）；图标/文字图标按钮的内层环取 `Foreground`，以适配视频遮罩等深色表面。
 - 主按钮悬停/按下必须使用 `AccentFillColorSecondaryBrush`/`AccentFillColorTertiaryBrush` 保持实心强调色，禁止用半透明 `FwSelectionBrush` 替换背景（白字会失去对比度）。
 - 复选框使用自研模板：20px 方框、6px 圆角、选中填充强调色并显示自绘勾线；不得直接使用系统 CheckBox 外观。
@@ -314,6 +316,7 @@ components:
 
 - [x] 主浏览窗口工具栏/筛选/布局切换已按本契约重排（0.8.10，`screens/ui-browser/`）。
 - [x] 文本列表排版已收敛（0.8.52）：最近访问/搜索/文件任务/操作记录统一左图标、中主信息、右时间/摘要；浅色与深色截图见 `20261031-ui0852/screens/`。
+- [x] 网格铺满与工具区右边界已收敛（0.8.83）：五种布局按可用宽度分配列宽；1200/1500/1800/2400 实拍与 UIA 边界见 `20261031-ui0883/screens/after/`、`screens/layouts/`；卡片左右外边距各 4 DIP。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

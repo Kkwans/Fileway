@@ -961,11 +961,22 @@ public sealed partial class MainPage : Page, IDisposable
         var mode = _browserPreferences.ViewMode;
         var size = mode == BrowserViewMode.WindowsIcons ? _browserPreferences.WindowsIconSize : _browserPreferences.CompactGridSize;
         var visual = FileRow.IconSize(mode, size);
-        // GridViewItem carries 4px margins on each side; ItemsWrapGrid only counts
-        // ItemWidth when deciding columns, so leave that margin out of the slot to
-        // prevent the last column from overflowing the viewport.
-        var itemWidth = mode == BrowserViewMode.CompactList ? Math.Max(240, (FilesArea.ActualWidth - 24) / (FilesArea.ActualWidth >= 650 ? 2 : 1)) : mode == BrowserViewMode.Mosaic ? 180 : mode == BrowserViewMode.WindowsIcons ? size switch { BrowserIconSize.Small => 112, BrowserIconSize.Large => 224, BrowserIconSize.ExtraLarge => 288, _ => 160 } : size switch { BrowserIconSize.Small => 100, BrowserIconSize.Large => 168, BrowserIconSize.ExtraLarge => 228, _ => 124 };
-        panel.ItemWidth = Math.Max(1, itemWidth - 8);
+        // GridViewItem keeps its 4px side margins inside the ItemsWrapGrid slot, so
+        // the slot pitch equals ItemWidth. Splitting the viewport exactly by the
+        // column count keeps the outer margins symmetric and leaves no trailing strip.
+        var available = FilesArea.ActualWidth;
+        if (mode == BrowserViewMode.CompactList)
+        {
+            var columns = available >= 650 ? 2 : 1;
+            panel.ItemWidth = Math.Max(1, available / columns);
+        }
+        else
+        {
+            var preferred = mode == BrowserViewMode.Mosaic ? 180 : mode == BrowserViewMode.WindowsIcons ? size switch { BrowserIconSize.Small => 112, BrowserIconSize.Large => 224, BrowserIconSize.ExtraLarge => 288, _ => 160 } : size switch { BrowserIconSize.Small => 100, BrowserIconSize.Large => 168, BrowserIconSize.ExtraLarge => 228, _ => 124 };
+            if (available <= 0) return;
+            var columns = Math.Max(1, (int)(available / preferred));
+            panel.ItemWidth = Math.Max(1, available / columns);
+        }
         panel.ItemHeight = mode == BrowserViewMode.CompactList ? 64 : mode == BrowserViewMode.Mosaic ? 216 : visual + 96;
     }
     private void RebuildPresentation()
