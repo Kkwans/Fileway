@@ -526,7 +526,7 @@ public sealed partial class MainPage
         catch (Exception error) { ShowUploadError("上传详情未能打开", error); return; }
         var dialog = new ContentDialog { Title = "文件上传", Content = view.Content, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None };
         _uploadDialog = dialog; _uploadDetails = view; _uploadDetailTask = task;
-        view.Cancel.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Visible; view.Cancel.IsEnabled = false; };
+        view.Cancel.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Visible; view.Cancel.IsEnabled = false; RenderUploadDetails(); };
         view.Keep.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Collapsed; RenderUploadDetails(); };
         view.ConfirmCancel.Click += async (_, _) => await RunUploadCommandAsync(task, UploadCommand.Cancel);
         dialog.PrimaryButtonClick += async (_, click) =>
@@ -560,12 +560,13 @@ public sealed partial class MainPage
         view.Progress.IsIndeterminate = progress.IsIndeterminate;
         view.Progress.Value = progress.Value;
         view.Detail.Text = _uploadErrorMessage ?? UploadDetailLabel(item);
-        dialog.PrimaryButtonText = PrimaryButtonLabel(item);
-        dialog.IsPrimaryButtonEnabled = !_uploadCommandBusy && CanUsePrimary(item, _session?.Permissions.Create == true);
         view.Cancel.Visibility = CanCancelUpload(item.Status) ? Visibility.Visible : Visibility.Collapsed;
-        view.Cancel.IsEnabled = CanCancelUpload(item.Status) && !_uploadCommandBusy && view.CancelConfirmation.Visibility != Visibility.Visible;
         view.ConfirmCancel.IsEnabled = CanCancelUpload(item.Status) && !_uploadCommandBusy;
         if (!CanCancelUpload(item.Status)) view.CancelConfirmation.Visibility = Visibility.Collapsed;
+        var confirmingCancel = view.CancelConfirmation.Visibility == Visibility.Visible;
+        view.Cancel.IsEnabled = CanCancelUpload(item.Status) && !_uploadCommandBusy && !confirmingCancel;
+        dialog.PrimaryButtonText = confirmingCancel ? string.Empty : PrimaryButtonLabel(item);
+        dialog.IsPrimaryButtonEnabled = !confirmingCancel && !_uploadCommandBusy && CanUsePrimary(item, _session?.Permissions.Create == true);
     }
 
     private async Task RunUploadCommandAsync(TransferTaskRef task, UploadCommand command)

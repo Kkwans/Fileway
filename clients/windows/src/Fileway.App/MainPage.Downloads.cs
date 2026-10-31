@@ -413,7 +413,7 @@ public sealed partial class MainPage
         catch (Exception error) { ShowDownloadError("下载详情未能打开", error); return; }
         var dialog = new ContentDialog { Title = "文件下载", Content = new ScrollViewer { Content = view.Content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None };
         _downloadDialog = dialog; _downloadDetails = view; _downloadDetailTask = task;
-        view.Cancel.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Visible; view.Cancel.IsEnabled = false; };
+        view.Cancel.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Visible; view.Cancel.IsEnabled = false; RenderDownloadDetails(); };
         view.Keep.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Collapsed; RenderDownloadDetails(); };
         view.ConfirmCancel.Click += async (_, _) => await RunDownloadControlAsync(task, cancel: true);
         view.Play.Click += async (_, _) => await PlayDownloadAsync(task);
@@ -448,13 +448,14 @@ public sealed partial class MainPage
         view.Play.IsEnabled = !_downloadPlaybackOpening && !_downloadOperationBusy;
         view.Retry.Visibility = DownloadPolicy.CanRetryFresh(item) ? Visibility.Visible : Visibility.Collapsed;
         view.Retry.IsEnabled = !_downloadOperationBusy;
-        dialog.PrimaryButtonText = DownloadPolicy.PrimaryLabel(item);
-        dialog.IsPrimaryButtonEnabled = !_downloadOperationBusy && DownloadPolicy.CanReconcile(item);
         var cancel = DownloadPolicy.CanCancel(item);
         view.Cancel.Visibility = cancel ? Visibility.Visible : Visibility.Collapsed;
-        view.Cancel.IsEnabled = cancel && !_downloadOperationBusy && view.CancelConfirmation.Visibility != Visibility.Visible;
         view.ConfirmCancel.IsEnabled = cancel && !_downloadOperationBusy;
         if (!cancel) view.CancelConfirmation.Visibility = Visibility.Collapsed;
+        var confirmingCancel = view.CancelConfirmation.Visibility == Visibility.Visible;
+        view.Cancel.IsEnabled = cancel && !_downloadOperationBusy && !confirmingCancel;
+        dialog.PrimaryButtonText = confirmingCancel ? string.Empty : DownloadPolicy.PrimaryLabel(item);
+        dialog.IsPrimaryButtonEnabled = !confirmingCancel && !_downloadOperationBusy && DownloadPolicy.CanReconcile(item);
     }
 
     private async Task RunDownloadControlAsync(TransferTaskRef task, bool cancel)
