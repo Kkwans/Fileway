@@ -306,7 +306,7 @@ components:
 - CSV 表格视图：列宽按查看器内容宽度除以列数自适应，限制 140–220 DIP；表头与数据行共用列宽。小表不得因固定 220 DIP 列宽横向溢出而裁掉末列，宽表仍允许横向滚动。
 - 压缩包查看器：列表上方必须有 12px 次要色“名称 / 大小”列头，名称左内边距 58 DIP、大小右内边距 25 DIP，与条目列对齐；空目录隐藏列头。
 - 文本查看器空文件：内容长度为 0 且非编辑时显示居中空状态（72px 圆角图标容器 + 20px 标题 + 13px/20 说明），不得只显示一块空白编辑框；进入编辑后隐藏，保存或取消后按内容重新判断。
-- 设置类对话框：内容滚动区高度必须给对话框上下留出边距（缓存与存储使用 `DialogOrdering.ContentMaxHeight(this, 520)`，1200×900 下约 360 DIP），不得让对话框贴住窗口边缘或被裁切；关闭/保存按钮固定底部。高内容弹窗用同一助手按窗口高度自适应（预留 240 DIP，下限 240 DIP），不要写死超过窗口可用高度的值。可编辑设置必须排在只读诊断之前，保证 900px 高窗口打开即可修改缓存根目录/容量/下载目录。
+- 设置类对话框：内容滚动区高度必须给对话框上下留出边距（缓存与存储使用 `DialogOrdering.ContentMaxHeight(this, 560)`，仍按窗口高度−240 自适应），不得让对话框贴住窗口边缘或被裁切；关闭/保存按钮固定底部。高内容弹窗用同一助手按窗口高度自适应（预留 240 DIP，下限 240 DIP），不要写死超过窗口可用高度的值。可编辑设置必须排在只读诊断之前，保证 900px 高窗口打开即可修改缓存根目录/容量/下载目录。“当前生效”摘要必须使用 12px 次级标签 + 13px 值的标签/值行（缓存目录、容量、下载目录、自动继续），不得用一段混排长路径的文本；区块标题 15px SemiBold；滚动内容底部留 16 DIP，按钮行上方加 1px `FwStrokeBrush` 分隔线，避免滚动边界像内容被按钮遮住（0.8.96）。
 - 存储工具/设置类页面表单：说明 + 输入 + 主操作使用 `FwFormCardStyle`（`FwSurfaceBrush` + 1px `FwStrokeBrush` + 10px 圆角 + 16px 内边距）卡片，卡片最大 720 DIP、左侧对齐；说明文字 13px 次级色，路径输入框在卡内横向填充，分析结果与用户列表保留在卡外全宽。主题画刷不得在构造函数里用 `Application.Current.Resources[...]` 取值（会拿到浅色实例，深色下出现白卡、白字输入框不可见）；必须通过 XAML 样式中的 `ThemeResource` 声明（0.8.93 实测浅/深色）。
 - 弹层：菜单/Flyout 使用亚克力背景（App.xaml 的 `FlyoutBackground`/`MenuFlyoutPresenterBackground`），ContentDialog 使用 `FwPanelBrush` + 1px `FwStrokeStrongBrush`；ToolTip 圆角 8、内边距 10×6、12px 字号、最大宽度 360，与菜单保持同一套浮层语言。ToolTip 的三色使用应用自有可变画刷（`FwToolTipBackgroundBrush`/`FwToolTipBorderBrush`/`FwToolTipForegroundBrush`，`StaticResource` 注入，运行时随应用主题更新），因为 ToolTip 的 popup 会按系统主题解析 `ThemeResource`，不能直接用它取 `FwPanelBrush`。
 - 工具栏不保留原生 `CommandBar` 容器、溢出菜单或 `AppBarButton`：主浏览筛选栏使用 `ContentControl` + `StackPanel`，更多操作一律使用自绘图标按钮 + `MenuFlyout`，与文件任务、文件浏览、缓存设置保持一致。
@@ -336,6 +336,7 @@ components:
 - [x] 存储工具表单已卡片化（0.8.93）：三个子页说明与表单收进 `FwFormCardStyle` 卡片，说明 13px 次级、最大 720 DIP；结果/用户列表保持全宽。浅/深色实拍 `20261031-ui0893/screens/final2-light/`、`final2-dark/`；同批补验 0.8.92 分段选择器深色正常。
 - [x] 网格卡片名称垂直对齐已收敛（0.8.94）：名称在 40 DIP 两行预留区内居中，单行名称不再贴顶；UIA 名称矩形 60→30px 高、y=393→408，元数据位置不变。浅/深色实拍 `20261031-ui0894/screens/after-light/`、`after-dark/`，修复前 `20261031-ui0893/screens/before-0894-light/`、`before-0894-dark/`。
 - [x] 传输行进度条已收敛（0.8.95）：6 DIP 圆角中性轨道 + 4 DIP 指示条，等待状态显示空轨道、完成状态指示条嵌在轨道内；浅/深色实拍 `20261031-ui0895/screens/after-light/`、`after-dark/`，修复前 `20261031-ui0894/screens/before-0895-light/`、`before-0895-dark/`。不确定进度的动画未单独截图。
+- [x] 缓存与存储对话框已收敛（0.8.96）：“当前生效”改为标签/值四行，区块标题 15px，按钮行补分隔线，首选内容高度 560 DIP；默认下载目录帮助文字不再半行裁切。浅/深色实拍 `20261031-ui0896/screens/final2-light/`、`final2-dark/`，修复前 `20261031-ui0895/screens/settings-audit/`、`settings-audit-dark/`。更小高度窗口仍需滚动查看“缓存占用”，未加常驻滚动条。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

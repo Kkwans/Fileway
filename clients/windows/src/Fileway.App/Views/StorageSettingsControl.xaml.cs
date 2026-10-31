@@ -94,11 +94,29 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
         DownloadDirectoryBox.Text = state.Pending.DownloadDirectory;
         MaximumCacheGbBox.Value = state.Pending.MaximumCacheBytes / BytesPerGb;
         AutoResumeBox.IsOn = state.Pending.AutoResumeDownloads;
-        ActiveSettingsText.Text = $"缓存：{state.Active.CacheDirectory}\n容量：{state.Active.MaximumCacheBytes / BytesPerGb:0.##} GB\n下载：{state.Active.DownloadDirectory}\n自动继续未完成下载：{(state.Active.AutoResumeDownloads ? "开" : "关")}";
+        ActiveSettingsPanel.Children.Clear();
+        AddActiveRow("缓存目录", state.Active.CacheDirectory);
+        AddActiveRow("容量", $"{state.Active.MaximumCacheBytes / BytesPerGb:0.##} GB");
+        AddActiveRow("下载目录", state.Active.DownloadDirectory);
+        AddActiveRow("自动继续", state.Active.AutoResumeDownloads ? "开" : "关");
         PendingSettingsText.Text = state.RestartRequired
             ? $"已保存待生效\n缓存：{state.Pending.CacheDirectory}\n容量：{state.Pending.MaximumCacheBytes / BytesPerGb:0.##} GB\n下载：{state.Pending.DownloadDirectory}\n本次编辑请点击保存。"
             : "当前无待生效配置。本次编辑请点击保存。";
         if (state.RestartRequired) ShowStatus("存在待生效配置，将在下次启动后使用。", InfoBarSeverity.Informational);
+    }
+
+    private void AddActiveRow(string label, string value)
+    {
+        var row = new Grid { ColumnSpacing = 12 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(72) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var labelBlock = new TextBlock { Text = label };
+        labelBlock.Style = (Style)Application.Current.Resources["FwCaptionTextStyle"];
+        var valueBlock = new TextBlock { Text = value, FontSize = 13, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+        Grid.SetColumn(valueBlock, 1);
+        row.Children.Add(labelBlock);
+        row.Children.Add(valueBlock);
+        ActiveSettingsPanel.Children.Add(row);
     }
 
     private async void RefreshCache_Click(object sender, RoutedEventArgs args)
