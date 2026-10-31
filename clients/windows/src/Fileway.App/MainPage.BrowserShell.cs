@@ -52,6 +52,7 @@ public sealed partial class MainPage
 
     private void InitializeBrowserShell()
     {
+        _sidebarCollapsed = UiPreferences.LoadSidebarCollapsed();
         AddNavigationAccelerators(this);
         KeyDown += Overlay_KeyDown;
         UpdateSidebarLayout();
@@ -139,7 +140,11 @@ public sealed partial class MainPage
     {
         if (_disposed || ConnectionPanel is { Visibility: Visibility.Visible }) return;
         if (_sidebarOverlay) _sidebarOpen = !_sidebarOpen;
-        else _sidebarCollapsed = !_sidebarCollapsed;
+        else
+        {
+            _sidebarCollapsed = !_sidebarCollapsed;
+            UiPreferences.SaveSidebarCollapsed(_sidebarCollapsed);
+        }
         UpdateSidebarLayout();
     }
     private void PaneDismiss_Click(object sender, RoutedEventArgs args) => CloseSidebarOverlay();

@@ -21,6 +21,7 @@ internal static class UiPreferences
         public string? Theme { get; set; }
         public WindowBounds? Window { get; set; }
         public bool Maximized { get; set; }
+        public bool SidebarCollapsed { get; set; }
     }
 
     internal static void Configure(string dataDirectory) =>
@@ -43,6 +44,15 @@ internal static class UiPreferences
     {
         var preferences = Read();
         return new WindowState(preferences.Window, preferences.Maximized);
+    }
+
+    internal static bool LoadSidebarCollapsed() => Read().SidebarCollapsed;
+
+    internal static void SaveSidebarCollapsed(bool collapsed)
+    {
+        var preferences = Read();
+        preferences.SidebarCollapsed = collapsed;
+        Write(preferences);
     }
 
     internal static void SaveWindowState(WindowBounds? bounds, bool maximized)
