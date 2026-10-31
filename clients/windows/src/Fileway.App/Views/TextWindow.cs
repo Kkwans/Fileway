@@ -504,6 +504,9 @@ public sealed class TextWindow : Window, IAsyncDisposable
     {
         if (_tableScroll.Content is Grid built) { _tableScroll.Content = null; built.Children.Clear(); }
         var layout = new Grid { Margin = new Thickness(20, 16, 20, 20), RowSpacing = 0 };
+        var viewport = _tableScroll.ActualWidth > 0 ? _tableScroll.ActualWidth : _textFrame.ActualWidth;
+        var columnWidth = grid.TotalColumns == 0 ? 220 : Math.Clamp((viewport - 40) / grid.TotalColumns, 140, 220);
+        var columnWidthText = columnWidth.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
         var header = new StackPanel { Orientation = Orientation.Horizontal };
         for (int column = 0; column < grid.TotalColumns; column++)
         {
@@ -513,14 +516,14 @@ public sealed class TextWindow : Window, IAsyncDisposable
                 FontWeight = FontWeights.SemiBold,
                 FontSize = 13,
                 TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis,
-                Width = 220, Padding = new Thickness(12, 8, 12, 8),
+                Width = columnWidth, Padding = new Thickness(12, 8, 12, 8),
             });
         }
         var rows = new List<string[]>();
         for (int index = 1; index < grid.Rows.Count; index++) rows.Add(grid.Rows[index]);
         var cells = new System.Text.StringBuilder();
         for (int column = 0; column < grid.TotalColumns; column++)
-            cells.Append("<TextBlock Text=\"{Binding [").Append(column).Append("]}\" Width=\"220\" FontSize=\"13\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Padding=\"12,6\"/>");
+            cells.Append("<TextBlock Text=\"{Binding [").Append(column).Append("]}\" Width=\"").Append(columnWidthText).Append("\" FontSize=\"13\" TextWrapping=\"NoWrap\" TextTrimming=\"CharacterEllipsis\" Padding=\"12,6\"/>");
         string templateXaml = "<DataTemplate" +
             " xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">" +
             "<StackPanel Orientation=\"Horizontal\">" + cells + "</StackPanel></DataTemplate>";
