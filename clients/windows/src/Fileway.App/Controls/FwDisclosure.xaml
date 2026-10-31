@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="Fileway.App.Controls.FwDisclosure"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="using:Fileway.App.Controls">
+    <StackPanel>
+        <ToggleButton x:Name="HeaderToggle" Style="{StaticResource LayoutChoiceStyle}"
+                      HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                      AutomationProperties.Name="{x:Bind Header, Mode=OneWay}"
+                      Checked="HeaderToggle_Changed" Unchecked="HeaderToggle_Changed">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <ui:LucideIcon x:Name="Chevron" IconName="caret-down" Width="14" Height="14" RenderTransformOrigin="0.5,0.5">
+                    <ui:LucideIcon.RenderTransform>
+                        <RotateTransform x:Name="ChevronRotation" Angle="-90" />
+                    </ui:LucideIcon.RenderTransform>
+                </ui:LucideIcon>
+                <TextBlock Text="{x:Bind Header, Mode=OneWay}" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
+            </StackPanel>
+        </ToggleButton>
+        <Border x:Name="Body" Visibility="Collapsed" Padding="12,4,12,10">
+            <ContentPresenter Content="{x:Bind SectionContent, Mode=OneWay}" />
+        </Border>
+    </StackPanel>
+</UserControl>
