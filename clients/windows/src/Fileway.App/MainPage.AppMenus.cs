@@ -142,25 +142,12 @@ public sealed partial class MainPage
     private async void KeyboardHelp_Click(object sender, RoutedEventArgs args)
     {
         if (_disposed) return;
-        var rows = new Grid { ColumnSpacing = 24, RowSpacing = 12, MinWidth = 320 };
-        rows.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        rows.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        foreach (var (key, action) in new[]
+        await ShowBrowserDialogAsync(new ContentDialog
         {
-            ("Alt + Left", "返回上一位置"), ("Alt + Up", "打开上一级目录"), ("Ctrl + L", "编辑原始路径"),
-            ("F5", "刷新当前视图"), ("Ctrl + F", "搜索当前目录与子目录"), ("Ctrl + B", "展开或折叠导航侧栏"), ("Enter", "打开选中的文件或文件夹"), ("Ctrl + A", "全选当前文件"),
-            ("F2", "重命名选中项目"), ("Delete", "将选中项目移入回收站"), ("Escape", "取消路径编辑或关闭详情 / 临时侧栏"),
-            ("Ctrl + C / X / V", "复制 / 剪切 / 粘贴服务器文件；文本输入保留系统行为"),
-        })
-        {
-            var row = rows.RowDefinitions.Count;
-            rows.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var shortcut = new TextBlock { Text = key, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
-            var description = new TextBlock { Text = action, TextWrapping = TextWrapping.Wrap };
-            Grid.SetRow(shortcut, row); Grid.SetRow(description, row); Grid.SetColumn(description, 1);
-            rows.Children.Add(shortcut); rows.Children.Add(description);
-        }
-        await ShowBrowserDialogAsync(new ContentDialog { Title = "键盘快捷键", Content = new ScrollViewer { Content = rows, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, CloseButtonText = "关闭" });
+            Title = "键盘快捷键",
+            Content = new Fileway.App.Controls.KeyboardShortcutsContent(),
+            CloseButtonText = "关闭",
+        });
     }
 
     private async void AboutApplication_Click(object sender, RoutedEventArgs args)
