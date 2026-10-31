@@ -73,6 +73,12 @@
     </ResourceDictionary>
   </ResourceDictionary.ThemeDictionaries>
 
+  <!-- ToolTips render in a popup that resolves ThemeResource against the system theme;
+       these shared brushes are updated from the app theme at runtime instead. -->
+  <SolidColorBrush x:Key="FwToolTipBackgroundBrush" Color="#F2FBFCFD" />
+  <SolidColorBrush x:Key="FwToolTipBorderBrush" Color="#29000000" />
+  <SolidColorBrush x:Key="FwToolTipForegroundBrush" Color="#FF1B1F24" />
+
   <!-- ===== Typography ===== -->
   <Style x:Key="FwDisplayTextStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="28" />
@@ -640,13 +646,13 @@
 
   <!-- Tooltips share the frosted popup language with dialogs and menus. -->
   <Style TargetType="ToolTip">
-    <Setter Property="Background" Value="{ThemeResource FwPanelBrush}" />
-    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="Background" Value="{StaticResource FwToolTipBackgroundBrush}" />
+    <Setter Property="BorderBrush" Value="{StaticResource FwToolTipBorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="8" />
     <Setter Property="Padding" Value="10,6" />
     <Setter Property="FontSize" Value="12" />
-    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="Foreground" Value="{StaticResource FwToolTipForegroundBrush}" />
     <Setter Property="MaxWidth" Value="360" />
   </Style>
 

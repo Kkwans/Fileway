@@ -43,6 +43,34 @@ public sealed partial class MainWindow
         MainRoot.Background = material == 0 ? new SolidColorBrush(contrast
             ? new Windows.UI.ViewManagement.UISettings().GetColorValue(Windows.UI.ViewManagement.UIColorType.Background)
             : dark ? dim : light) : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        ApplyToolTipPalette(dark, contrast);
+    }
+    private static void ApplyToolTipPalette(bool dark, bool contrast)
+    {
+        var background = dark ? Windows.UI.Color.FromArgb(0xF2, 0x1B, 0x1E, 0x23) : Windows.UI.Color.FromArgb(0xF2, 0xFB, 0xFC, 0xFD);
+        var border = dark ? Windows.UI.Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF) : Windows.UI.Color.FromArgb(0x29, 0x00, 0x00, 0x00);
+        var foreground = dark ? Windows.UI.Color.FromArgb(0xFF, 0xF4, 0xF6, 0xF8) : Windows.UI.Color.FromArgb(0xFF, 0x1B, 0x1F, 0x24);
+        if (contrast)
+        {
+            var settings = new Windows.UI.ViewManagement.UISettings();
+            background = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
+            foreground = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Foreground);
+            border = foreground;
+        }
+        SetBrushColor("FwToolTipBackgroundBrush", background);
+        SetBrushColor("FwToolTipBorderBrush", border);
+        SetBrushColor("FwToolTipForegroundBrush", foreground);
+    }
+    private static void SetBrushColor(string key, Windows.UI.Color color)
+    {
+        if (FindResource(Application.Current.Resources, key) is SolidColorBrush brush) brush.Color = color;
+    }
+    private static object? FindResource(ResourceDictionary resources, string key)
+    {
+        if (resources.TryGetValue(key, out var value)) return value;
+        foreach (var merged in resources.MergedDictionaries)
+            if (FindResource(merged, key) is { } found) return found;
+        return null;
     }
     private void DisposeAppearance()
     {
