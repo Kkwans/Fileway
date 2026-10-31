@@ -134,7 +134,7 @@ public sealed partial class MainPage
 
     private void PresentationSettings_Click(object sender, RoutedEventArgs args)
     {
-        var panel = new StackPanel { Spacing = 16, Width = 320, Margin = new Thickness(16) };
+        var panel = new StackPanel { Spacing = 16, Width = 480, Margin = new Thickness(16) };
         TextBlock Heading(string text) => new()
         {
             Text = text,
@@ -150,19 +150,30 @@ public sealed partial class MainPage
         var tone = new Controls.ChoiceBox { Header = "中性底色配色", HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var label in new[] { "雾灰", "暖灰", "冷灰", "自定义取色" }) tone.Items.Add(label);
         tone.SelectedIndex = PresentationPreferences.ShellTone; tone.IsEnabled = material.SelectedIndex == 0;
-        var color = new ColorPicker { Color = PresentationPreferences.ShellTint, IsAlphaEnabled = false, IsHexInputVisible = true, IsMoreButtonVisible = false, IsColorSliderVisible = true, Width = 268, Visibility = material.SelectedIndex == 0 && tone.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed };
+        var color = new ColorPicker { Color = PresentationPreferences.ShellTint, IsAlphaEnabled = false, IsHexInputVisible = true, IsMoreButtonVisible = false, IsColorSliderVisible = true, Width = 228, Visibility = material.SelectedIndex == 0 && tone.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed };
         color.ColorChanged += (_, args) => Save(() => PresentationPreferences.ShellTint = args.NewColor);
         material.SelectionChanged += (_, _) => { tone.IsEnabled = material.SelectedIndex == 0; color.Visibility = material.SelectedIndex == 0 && tone.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed; Save(() => PresentationPreferences.ShellMaterial = material.SelectedIndex); };
         tone.SelectionChanged += (_, _) => { color.Visibility = material.SelectedIndex == 0 && tone.SelectedIndex == 3 ? Visibility.Visible : Visibility.Collapsed; Save(() => PresentationPreferences.ShellTone = tone.SelectedIndex); };
         remember.Toggled += (_, _) => Save(() => PresentationPreferences.RememberPlayerSize = remember.IsOn);
         toast.ValueChanged += (_, _) => Save(() => PresentationPreferences.ToastSeconds = (int)toast.Value);
         controls.ValueChanged += (_, _) => Save(() => PresentationPreferences.ControlsHideSeconds = (int)controls.Value);
-        panel.Children.Add(Heading("提示与播放"));
-        panel.Children.Add(toast); panel.Children.Add(controls);
-        panel.Children.Add(remember);
-        panel.Children.Add(Heading("界面背景"));
-        panel.Children.Add(material); panel.Children.Add(tone);
-        panel.Children.Add(color);
+        var playback = new StackPanel { Spacing = 12 };
+        playback.Children.Add(Heading("提示与播放"));
+        playback.Children.Add(toast);
+        playback.Children.Add(controls);
+        playback.Children.Add(remember);
+        var appearance = new StackPanel { Spacing = 12 };
+        appearance.Children.Add(Heading("界面背景"));
+        appearance.Children.Add(material);
+        appearance.Children.Add(tone);
+        appearance.Children.Add(color);
+        var columns = new Grid { ColumnSpacing = 24 };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        columns.Children.Add(playback);
+        Grid.SetColumn(appearance, 1);
+        columns.Children.Add(appearance);
+        panel.Children.Add(columns);
         panel.Children.Add(new TextBlock { Text = "自定义取色会自动生成可读的浅色与深色底色。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
         panel.Children.Add(new TextBlock { Text = "修改会立即保存。", FontSize = 12, Opacity = 0.7 });
         var dialog = new ContentDialog { Title = "交互与外观", CloseButtonText = "完成", Content = new ScrollViewer { Content = panel, MaxHeight = Controls.DialogOrdering.ContentMaxHeight(this, 520), HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
