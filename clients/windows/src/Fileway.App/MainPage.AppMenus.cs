@@ -155,11 +155,11 @@ public sealed partial class MainPage
         if (_disposed) return;
         var version = typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
             ?? typeof(App).Assembly.GetName().Version?.ToString() ?? "未知";
-        var content = new StackPanel { Spacing = 12, MinWidth = 320 };
-        content.Children.Add(new TextBlock { Text = "Windows 原生文件客户端", FontSize = 16 });
-        content.Children.Add(new TextBlock { Text = "版本 " + version });
-        content.Children.Add(new HyperlinkButton { Content = "项目主页与源代码", NavigateUri = new Uri("https://github.com/Kkwans/Fileway"), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left });
-        content.Children.Add(new HyperlinkButton { Content = "许可证", NavigateUri = new Uri("https://github.com/Kkwans/Fileway/blob/codex/windows-native-client/clients/windows/LICENSE"), Padding = new Thickness(0), HorizontalAlignment = HorizontalAlignment.Left });
-        await ShowBrowserDialogAsync(new ContentDialog { Title = AppBranding.DisplayName, Content = content, CloseButtonText = "关闭" });
+        await ShowBrowserDialogAsync(new ContentDialog
+        {
+            Title = "关于栖卷",
+            Content = new Fileway.App.Controls.AboutContent(version),
+            CloseButtonText = "关闭",
+        });
     }
 }
