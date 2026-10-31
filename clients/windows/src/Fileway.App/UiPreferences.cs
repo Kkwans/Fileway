@@ -5,6 +5,8 @@ namespace Fileway.App;
 
 internal readonly record struct WindowBounds(int X, int Y, int Width, int Height);
 
+internal readonly record struct WindowState(WindowBounds? Bounds, bool Maximized);
+
 internal static class UiPreferences
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -18,6 +20,7 @@ internal static class UiPreferences
     {
         public string? Theme { get; set; }
         public WindowBounds? Window { get; set; }
+        public bool Maximized { get; set; }
     }
 
     internal static void Configure(string dataDirectory) =>
@@ -36,12 +39,17 @@ internal static class UiPreferences
         Write(preferences);
     }
 
-    internal static WindowBounds? LoadWindowBounds() => Read().Window;
-
-    internal static void SaveWindowBounds(WindowBounds bounds)
+    internal static WindowState LoadWindowState()
     {
         var preferences = Read();
-        preferences.Window = bounds;
+        return new WindowState(preferences.Window, preferences.Maximized);
+    }
+
+    internal static void SaveWindowState(WindowBounds? bounds, bool maximized)
+    {
+        var preferences = Read();
+        if (bounds is { } saved) preferences.Window = saved;
+        preferences.Maximized = maximized;
         Write(preferences);
     }
 

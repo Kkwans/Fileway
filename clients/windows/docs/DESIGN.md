@@ -315,7 +315,7 @@ components:
 - 共享控件样式（`LayoutChoiceStyle` 等）必须放在应用级 `Styles/Design.xaml`；页面级资源无法被独立 `UserControl` 解析，会在启动时抛 XAML 异常。
 - 密码输入框不得呈现 WinUI 原生下划线外观：`FwPasswordBoxStyle` 作为 PasswordBox 隐式样式全局生效（10px 圆角、1px 描边、`MinHeight 36`、`Padding 12,7`）。对话框内的密码字段横向拉伸，与说明文字同宽左对齐，不设置固定宽度。
 - 主浏览页搜索框：`AutoSuggestBox` 通过 `TextBoxStyle` 注入 `FwSearchTextBoxStyle`（基于 `AutoSuggestBoxTextBoxStyle`，10px 圆角、1px 描边、14px 字号），保留模板自带查询与清除按钮；高度 40，与路径栏、返回/上级/刷新按钮同基线。直接给 `AutoSuggestBox` 设置边框/圆角不会作用到内部 TextBox，禁止用这种方式“修样式”。
-- 窗口状态：主窗口正常状态的大小/位置写入数据根 `ui-preferences.json` 的 `window` 字段（camelCase，大小写不敏感，兼容旧 `theme` 文件），启动时按保存点所在显示器 `WorkArea` 钳制，越界坐标必须回到可见区；最大化状态不覆盖正常尺寸。首次启动默认 1120×760 居中（0.8.100）。
+- 窗口状态：主窗口正常状态的大小/位置与 `maximized` 标记写入数据根 `ui-preferences.json`（camelCase，大小写不敏感，兼容旧 `theme` 文件），启动时按保存点所在显示器 `WorkArea` 钳制，越界坐标必须回到可见区；最大化关闭只更新标记、不覆盖正常 bounds，启动恢复 bounds 后再最大化（0.8.100/0.8.101）。首次启动默认 1120×760 居中。
 - 主浏览顶部工具行：返回/上级/刷新使用 `BrowserToolbarButtonStyle`（40×40、10px 圆角），与 40px 路径栏、搜索框同高；路径栏内部的编辑按钮保持 32px 内嵌尺寸，不要为了对齐把它放大到超出 32px 列。
 - 自研双色焦点环覆盖主/次/图标/文字图标/分段选项/侧栏导航按钮/详情动作磁贴与 CheckBox；这些控件一律 `UseSystemFocusVisuals=False`，由模板 `FocusStates` 显示光晕 + 内环。动作磁贴必须 `HorizontalAlignment=Stretch` 填满所在栅格列，不能按内容宽度收缩；CheckBox 焦点环画在内容外侧，避免压住 20px 勾选框与文字。菜单项键盘焦点使用应用双色（`FocusVisualPrimaryBrush`=文字色、`FocusVisualSecondaryBrush`=画布色，内缩 2 DIP），但形状仍由 WinUI 内部模板绘制为矩形。任务详情与回收站的展开面板使用 `FwDisclosure`（`LayoutChoiceStyle` 开关头 + 旋转箭头 + 自研焦点环），不再使用 WinUI Expander；开关头必须把标题绑定到 `AutomationProperties.Name`。
 - 菜单快捷键：只对真实存在的快捷键设置 `KeyboardAcceleratorTextOverride`（复制 Ctrl+C、剪切 Ctrl+X、粘贴 Ctrl+V、重命名 F2、移入回收站 Delete、全选 Ctrl+A、刷新 F5、搜索 Ctrl+F），不得虚构未接入的组合键；标签由系统菜单模板右对齐渲染。
@@ -343,7 +343,8 @@ components:
 - [x] 上传选择器与详情进度已收敛（0.8.97）：WinRT picker + `InitializeWithWindow` 修复 `COMException` 导致的选择器不可用；真实 29 B/37 B 上传完成并由服务器确认，文件夹选择器可打开；上传/下载详情进度条接入 6 DIP 轨道。证据 `20261031-ui0897/screens/upload/upload-details.png`、`screens/folder-picker/folder-picker.png`、`screens/download-details/download-details.png`；根因日志见非交付构建 `20261031-ui0897-diag/probe-diag.log`。整棵文件夹树提交仍待真人验收。
 - [x] 上传确认框层级已收敛（0.8.98）：目标路径改为 12px 次级标签 + 13px 值，说明 12px 次级；上传详情目标可选中、进度条有读屏名。前后实拍 `20261031-ui0897/screens/upload-confirm/`、`20261031-ui0898/screens/upload-confirm/`。文件夹选择器可打开并导航到测试目录，但内嵌 picker 的“选择文件夹”提交无法通过 UIA/鼠标可靠触发，整棵文件夹树上传与批次卡仍待真人验收。
 - [x] 小窗口布局已复核（0.8.99）：1000×700 DIP 下主浏览路径栏/搜索/四列网格、传输中心行、连接页双栏均无溢出；连接页隐藏无效侧栏切换按钮，连接后恢复并可折叠为图标栏。证据 `20261031-ui0898/screens/narrow/`、`20261031-ui0899/screens/narrow/`、`narrow-connected/`。
-- [x] 主窗口位置已保持（0.8.100）：正常窗口大小/位置写入 `ui-preferences.json`，重启恢复并按显示器 WorkArea 钳制；实测 1500×1050@40,20 恢复一致，深色主题保留，越界坐标钳制到 1060,478。证据 `20261031-ui08100/screens/bounds-theme2/`、`bounds3/`、`bounds-theme3/`、`offscreen/`。最大化状态未持久化。
+- [x] 主窗口位置已保持（0.8.100）：正常窗口大小/位置写入 `ui-preferences.json`，重启恢复并按显示器 WorkArea 钳制；实测 1500×1050@40,20 恢复一致，深色主题保留，越界坐标钳制到 1060,478。证据 `20261031-ui08100/screens/bounds-theme2/`、`bounds3/`、`bounds-theme3/`、`offscreen/`。
+- [x] 最大化状态已保持（0.8.101）：最大化关闭只写 `maximized=true` 并保留正常 bounds，重启直接最大化，取消最大化回到 1500×1050@40,20；再最大化关闭后 prefs 与主题保持正确。证据 `20261031-ui08101/probe-max.log`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

@@ -29,7 +29,8 @@ public sealed partial class MainWindow : Window, IDisposable
         var y = work.Y + (work.Height - defaultHeight) / 2;
         var width = defaultWidth;
         var height = defaultHeight;
-        var bounds = UiPreferences.LoadWindowBounds();
+        var windowState = UiPreferences.LoadWindowState();
+        var bounds = windowState.Bounds;
         if (bounds is { Width: >= 800, Height: >= 600 } saved)
         {
             try
@@ -49,6 +50,10 @@ public sealed partial class MainWindow : Window, IDisposable
             }
         }
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, width, height));
+        if (windowState.Maximized && AppWindow.Presenter is OverlappedPresenter presenter)
+        {
+            try { presenter.Maximize(); } catch (Exception) { }
+        }
         RootFrame.Navigate(typeof(MainPage));
         ((MainPage)RootFrame.Content).AttachTitleBar(AppTitleBar);
         InitializeAppearance();
@@ -86,11 +91,17 @@ public sealed partial class MainWindow : Window, IDisposable
     {
         try
         {
-            if (AppWindow.Presenter is not OverlappedPresenter { State: OverlappedPresenterState.Restored }) return;
+            if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
+            if (presenter.State == OverlappedPresenterState.Maximized)
+            {
+                UiPreferences.SaveWindowState(null, maximized: true);
+                return;
+            }
+            if (presenter.State != OverlappedPresenterState.Restored) return;
             var size = AppWindow.Size;
             if (size.Width < 800 || size.Height < 600) return;
             var position = AppWindow.Position;
-            UiPreferences.SaveWindowBounds(new WindowBounds(position.X, position.Y, size.Width, size.Height));
+            UiPreferences.SaveWindowState(new WindowBounds(position.X, position.Y, size.Width, size.Height), maximized: false);
         }
         catch (Exception) { }
     }
