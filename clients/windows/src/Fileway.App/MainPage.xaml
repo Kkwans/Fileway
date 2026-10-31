@@ -279,7 +279,7 @@
   <collections:ResourceCollectionsControl x:Name="CollectionsPanel" Visibility="Collapsed"/>
   <Grid x:Name="ConnectionPanel" Background="Transparent" Visibility="Collapsed" SizeChanged="ConnectionPanel_SizeChanged">
    <ScrollViewer x:Name="ConnectionFormScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid MaxWidth="1120" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="56,40" ColumnSpacing="64">
+    <Grid x:Name="ConnectionFormGrid" MaxWidth="1120" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="56,40" ColumnSpacing="64">
      <Grid.ColumnDefinitions><ColumnDefinition x:Name="ConnectionBrandColumn" Width="*" MinWidth="0"/><ColumnDefinition x:Name="ConnectionCardColumn" Width="440"/></Grid.ColumnDefinitions>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
      <StackPanel x:Name="ConnectionBrand" Grid.RowSpan="2" Spacing="18" VerticalAlignment="Center" MaxWidth="440" HorizontalAlignment="Left">

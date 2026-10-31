@@ -250,6 +250,7 @@ public sealed partial class MainPage : Page, IDisposable
         ConnectionBrand.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
         ConnectionBrandColumn.Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         ConnectionCardColumn.Width = new GridLength(wide ? 440 : Math.Clamp(args.NewSize.Width - 96, 300, 440));
+        ConnectionFormGrid.ColumnSpacing = wide ? 64 : 0;
     }
 
     private void ConnectionField_KeyDown(object sender, KeyRoutedEventArgs args)
