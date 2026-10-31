@@ -210,7 +210,7 @@ components:
 ## Shapes
 
 - 圆角尺度：6（小标签）/8（输入与下拉）/10（按钮与磁贴）/14（面板与浮层）/18（对话框）/full（圆形翻页按钮）。
-- 同类控件必须使用同一圆角：所有按钮 10，所有对话框 18，所有浮层 14，所有圆形按钮 full。
+- 同类控件必须使用同一圆角：所有按钮 10，所有对话框 18，所有浮层 14，所有圆形按钮 full。工具栏 Flyout、右键/更多菜单、任务/回收站/收藏菜单与播放器菜单统一 14 + 1px 应用描边；WinUI 不应用应用级 `FlyoutPresenter` 隐式样式，`Opening` 设置 presenter style 也会被模板时序覆盖，必须用 `SurfaceStyles.Attach` 在 `Opened` 后从 `XamlRoot` 的打开弹层中定位同内容的 `FlyoutPresenter` 直接设置属性；`MenuBar` 菜单保留系统外观。
 - 图标容器使用圆角方形（16px），不得用圆形裁切图标。
 - 文件网格与列表中的类型图标使用 `FwTextSecondaryBrush`，不得用主文字色绘制大尺寸图标。
 - 网格列宽按可用宽度分配（含紧凑列表的两列布局）：以偏好卡片宽为下限计算列数，再令 `ItemsWrapGrid.ItemWidth = 可用宽度 / 列数`。`ItemWidth` 是包含 `GridViewItem` 4px 左右外边距的槽位，不得再扣减 8；否则每列少 8 DIP，右端会累积明显尾隙（0.8.83 实测 1200 DIP 窗口尾隙约 100px）。
@@ -322,6 +322,7 @@ components:
 - [x] 回收站列表与列头已收敛（0.8.84）：真实移入/恢复流程截图见 `20261031-ui0884/screens/trash-selected.png`、`trash-empty-after.png`；列头与行内容盒左缘差 1px、日期右缘同为 1741px；主浏览详细列表列头同步左移 9px 对齐。
 - [x] 批量下载确认框已收敛（0.8.85）：`20261031-ui0885/screens/after/` 的 1800×1250 与 1200×900 实拍显示主/次信息分层、分组与按钮完整；`正在核对下载目标` 浮条不再盖在模态框后。
 - [x] 播放器 HUD 对比度已收敛（0.8.86）：真实彩条短片全屏前后帧见 `20261031-ui0886/screens/player-fullscreen.png`、`screens/after/player-fullscreen.png`；普通窗口 HUD 无回归。
+- [x] 弹层圆角与主题已收敛（0.8.87）：浅色/深色工具区 Flyout 与右键菜单见 `20261031-ui0887/screens/final-light/`、`final-dark/`；修复前对照为同目录 `flyout-sort.png`、`context-menu.png`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

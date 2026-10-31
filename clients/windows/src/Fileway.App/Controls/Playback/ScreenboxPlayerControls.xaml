@@ -67,7 +67,7 @@
                 <Setter Property="RequestedTheme" Value="Dark" />
                 <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
-                <Setter Property="CornerRadius" Value="8" /><Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="14" /><Setter Property="Padding" Value="0" />
                 <Setter Property="MaxWidth" Value="420" /><Setter Property="MaxHeight" Value="600" />
                 <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
             </Style>
@@ -77,7 +77,7 @@
                 <Setter Property="Background" Value="{ThemeResource AcrylicInAppFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource SurfaceStrokeColorDefaultBrush}" />
                 <Setter Property="Padding" Value="{StaticResource MenuFlyoutPresenterThemePadding}" />
-                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="CornerRadius" Value="14" />
                 <Setter Property="MinWidth" Value="280" /><Setter Property="MaxWidth" Value="420" />
             </Style>
             <!-- Enable only with the native acrylic backdrop supplied by the

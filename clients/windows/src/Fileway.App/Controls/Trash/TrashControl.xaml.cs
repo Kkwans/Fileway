@@ -151,6 +151,7 @@ public sealed partial class TrashControl : UserControl, IDisposable
         if (source is not ListViewItem { Content: TrashRow row }) return;
         Records.SelectedItem = row;
         var menu = new MenuFlyout();
+        Fileway.App.Controls.SurfaceStyles.Attach(menu);
         void Add(string text, string icon, Action action, bool enabled)
         {
             var item = new MenuFlyoutItem { Text = text, Icon = Fileway.App.Controls.LucideIcon.Action(icon), IsEnabled = enabled };

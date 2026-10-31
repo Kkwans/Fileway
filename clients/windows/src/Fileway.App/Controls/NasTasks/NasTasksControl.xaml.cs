@@ -43,6 +43,7 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
     public NasTasksControl()
     {
         InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(Notice);
+        Fileway.App.Controls.SurfaceStyles.Attach(MoreCommandsButton.Flyout);
         TaskRecords.ItemsSource = _tasks; OperationRecords.ItemsSource = _operations; OperationItems.ItemsSource = _operationItems;
         _visibilityCallback = RegisterPropertyChangedCallback(VisibilityProperty, (_, _) =>
         { if (Visibility != Visibility.Visible) SuspendView(); });

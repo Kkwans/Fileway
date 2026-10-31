@@ -54,6 +54,9 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     public ResourceCollectionsControl()
     {
         InitializeComponent();
+        Fileway.App.Controls.SurfaceStyles.Attach(CollectionsMoreButton.Flyout);
+        Fileway.App.Controls.SurfaceStyles.Attach(GroupMoreButton.Flyout);
+        if (Records.ContextFlyout is not null) Fileway.App.Controls.SurfaceStyles.Attach(Records.ContextFlyout);
         if (Content is Grid host) host.Children.Add(_receiptWarningBar);
         Fileway.App.Controls.FloatingNotice.Attach(Status);
         Fileway.App.Controls.FloatingNotice.Attach(_receiptWarningBar);

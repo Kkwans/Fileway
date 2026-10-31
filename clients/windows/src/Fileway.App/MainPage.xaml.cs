@@ -76,6 +76,10 @@ public sealed partial class MainPage : Page, IDisposable
     {
         Localization.ApplyCulture();
         InitializeComponent();
+        ConfigurePopupMaterial(SortBox.Flyout);
+        ConfigurePopupMaterial(TypeFilterBox.Flyout);
+        ConfigurePopupMaterial(ViewOptionsButton.Flyout);
+        ConfigurePopupMaterial(MoreBrowserActionsButton.Flyout);
         ApplyLocalization();
         InitializePresentation();
         _thumbnailController = new BrowserThumbnailController(_lifetime.Token, FileList, FileGrid);

@@ -54,7 +54,7 @@ public sealed partial class MainPage
         };
     }
 
-    private void ConfigurePopupMaterial(FlyoutBase flyout) => Controls.SurfaceStyles.Apply(flyout, ActualTheme);
+    private static void ConfigurePopupMaterial(FlyoutBase flyout) => Controls.SurfaceStyles.Attach(flyout);
     private void ShowToast(InfoBar bar, string key, bool repeat = false)
     {
         if (_disposed) return;
