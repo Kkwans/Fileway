@@ -73,7 +73,7 @@ public sealed class SidebarCollectionsControl : UserControl
             button.Click += (_, _) => { if (generation == _generation && _account == tag.Account) TagRequested?.Invoke(this, tag); };
             _tags.Children.Add(button);
         }
-        if (snapshot.Tags.Count == 0) _tags.Children.Add(Empty("尚无标签。可直接标记选中资源。"));
+        if (snapshot.Tags.Count == 0) _tags.Children.Add(Empty("尚无标签。\n选中资源后可直接标记。"));
     }
 
     private static Expander FavoriteGroup(string name, int count, UIElement content, bool expanded)
