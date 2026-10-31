@@ -27,11 +27,11 @@
                            Foreground="{ThemeResource FwTextSecondaryBrush}" />
             </Grid>
         </Border>
-        <StackPanel Spacing="8">
+        <StackPanel Orientation="Horizontal" Spacing="8">
             <Button Content="项目主页与源代码" Click="OpenSource_Click" Style="{StaticResource FwSecondaryButtonStyle}"
-                    HorizontalAlignment="Left" Height="32" Padding="12,0" FontSize="13" />
+                    Height="32" Padding="12,0" FontSize="13" />
             <Button Content="许可证" Click="OpenLicense_Click" Style="{StaticResource FwSecondaryButtonStyle}"
-                    HorizontalAlignment="Left" Height="32" Padding="12,0" FontSize="13" />
+                    Height="32" Padding="12,0" FontSize="13" />
         </StackPanel>
         <TextBlock Text="文件浏览、预览与传输均在本机完成；登录凭据保存在当前 Windows 用户下。"
                    FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource FwTextSecondaryBrush}" />
