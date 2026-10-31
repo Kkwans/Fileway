@@ -25,6 +25,7 @@ public sealed partial class MainPage
         // depend on an opaque login panel to conceal an active file list or its empty state.
         Workspace.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
         ConnectionPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        PaneButton.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
         if (visible)
         {
             // The welcome page owns the whole window; an empty navigation rail would only
