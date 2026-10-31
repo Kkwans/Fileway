@@ -166,9 +166,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         var opening = _controller.IsOpening;
         var end = _controller.End;
         var error = _presentationError ?? _controller.Error;
-        ConfirmedQueryText.Visibility = _lastQuery is null ? Visibility.Collapsed : Visibility.Visible;
-        ConfirmedQueryText.Text = _lastQuery is null ? "" : "搜索条件：" + _lastQuery;
-        ToolTipService.SetToolTip(ConfirmedQueryText, _lastQuery);
+        UpdateConfirmedQuery();
         SearchActivityRing.IsActive = searching || opening;
         SearchActivityRing.Visibility = searching || opening ? Visibility.Visible : Visibility.Collapsed;
         SearchActivityText.Text = opening ? "正在核对资源…" : searching ? "正在搜索…" : "";
@@ -303,7 +301,14 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
     private async void Retry_Click(object sender, RoutedEventArgs args) => await RefreshAsync();
     private void Cancel_Click(object sender, RoutedEventArgs args) => CancelSearch();
     private async void Open_Click(object sender, RoutedEventArgs args) => await OpenSelectedAsync();
-    private void Query_Changed(object sender, TextChangedEventArgs args) => UpdateCommands();
+    private void Query_Changed(object sender, TextChangedEventArgs args) { UpdateConfirmedQuery(); UpdateCommands(); }
+    private void UpdateConfirmedQuery()
+    {
+        var show = _lastQuery is not null && !string.Equals(_lastQuery, QueryBox.Text, StringComparison.Ordinal);
+        ConfirmedQueryText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        ConfirmedQueryText.Text = show ? "搜索条件：" + _lastQuery : "";
+        ToolTipService.SetToolTip(ConfirmedQueryText, show ? _lastQuery : null);
+    }
     private void Scope_Changed(object sender, SelectionChangedEventArgs args) => UpdateCommands();
     private void Record_Changed(object sender, SelectionChangedEventArgs args) { if (!_rendering) UpdateCommands(); }
     private async void Query_KeyDown(object sender, KeyRoutedEventArgs args)

@@ -4,17 +4,19 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="using:Fileway.App">
  <Grid Padding="20,12,20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged">
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Spacing="4"><TextBlock Text="最近访问" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="当前账号的服务器记录，最多保留 100 条" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开最近访问，返回文件"/>
   </Grid>
-  <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <TextBlock Text="选中记录后按 Enter 打开" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><Button x:Name="OpenSelectedButton" Content="打开" IsEnabled="False" Click="Open_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="打开选中资源 (Enter)" AutomationProperties.Name="打开选中的最近访问资源"/><ProgressRing x:Name="RecentLoadingRing" Width="20" Height="20" IsActive="False" AutomationProperties.Name="正在读取最近访问"/><Button x:Name="RecentRefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" AutomationProperties.Name="刷新最近访问" ToolTipService.ToolTip="刷新最近访问 (F5)"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/></Button></StackPanel>
-  </Grid>
-  <StackPanel Grid.Row="2" Spacing="8"><TextBlock Visibility="Collapsed" Text="记录保留服务器顺序和访问时间。历史路径不保证文件仍存在；明确打开时会先核对当前资源。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><InfoBar x:Name="RecentError" IsOpen="False" IsClosable="False" Severity="Warning" Title="最近访问需要处理"/></StackPanel>
-  <Grid Grid.Row="3">
+  <StackPanel Grid.Row="1" Spacing="8">
+   <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <TextBlock Text="选中记录后按 Enter 打开" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><Button x:Name="OpenSelectedButton" Content="打开" IsEnabled="False" Click="Open_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="打开选中资源 (Enter)" AutomationProperties.Name="打开选中的最近访问资源"/><ProgressRing x:Name="RecentLoadingRing" Width="20" Height="20" IsActive="False" AutomationProperties.Name="正在读取最近访问"/><Button x:Name="RecentRefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" AutomationProperties.Name="刷新最近访问" ToolTipService.ToolTip="刷新最近访问 (F5)"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/></Button></StackPanel>
+   </Grid>
+   <StackPanel x:Name="RecentErrorPanel" Spacing="8" Visibility="Collapsed"><InfoBar x:Name="RecentError" IsOpen="False" IsClosable="False" Severity="Warning" Title="最近访问需要处理"/></StackPanel>
+  </StackPanel>
+  <Grid Grid.Row="2">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
    <Grid x:Name="RecentHeaders" Padding="10,0,10,6" ColumnSpacing="12" MinHeight="24">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -27,6 +29,6 @@
    </ListView>
    <StackPanel x:Name="RecentEmptyState" Grid.RowSpan="2" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Spacing="14" Margin="12"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="clock" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="RecentEmptyTitle" Text="暂无最近访问" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" Foreground="{ThemeResource FwTextPrimaryBrush}"/><TextBlock x:Name="RecentEmptyText" Text="成功打开远端图片或视频后，可刷新查看服务器记录。" FontSize="13" LineHeight="20" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></StackPanel>
   </Grid>
-  <TextBlock x:Name="RecentCount" Grid.Row="4" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+  <TextBlock x:Name="RecentCount" Grid.Row="3" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
  </Grid>
 </UserControl>

@@ -968,7 +968,11 @@ public sealed partial class MainPage : Page, IDisposable
         // GridViewItem keeps its 4px side margins inside the ItemsWrapGrid slot, so
         // the slot pitch equals ItemWidth. Splitting the viewport exactly by the
         // column count keeps the outer margins symmetric and leaves no trailing strip.
-        var available = FilesArea.ActualWidth;
+        if (FilesArea.ActualWidth <= 0) return;
+        // The GridView viewport loses this strip to its vertical scrollbar once
+        // content overflows; excluding it keeps the last column from wrapping.
+        const double scrollbarAllowance = 10;
+        var available = Math.Max(1, FilesArea.ActualWidth - scrollbarAllowance);
         if (mode == BrowserViewMode.CompactList)
         {
             var columns = available >= 650 ? 2 : 1;
@@ -977,7 +981,6 @@ public sealed partial class MainPage : Page, IDisposable
         else
         {
             var preferred = mode == BrowserViewMode.Mosaic ? 180 : mode == BrowserViewMode.WindowsIcons ? size switch { BrowserIconSize.Small => 112, BrowserIconSize.Large => 224, BrowserIconSize.ExtraLarge => 288, _ => 160 } : size switch { BrowserIconSize.Small => 100, BrowserIconSize.Large => 168, BrowserIconSize.ExtraLarge => 228, _ => 124 };
-            if (available <= 0) return;
             var columns = Math.Max(1, (int)(available / preferred));
             panel.ItemWidth = Math.Max(1, available / columns);
         }
