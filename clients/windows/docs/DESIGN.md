@@ -214,6 +214,7 @@ components:
 - 图标容器使用圆角方形（16px），不得用圆形裁切图标。
 - 文件网格与列表中的类型图标使用 `FwTextSecondaryBrush`，不得用主文字色绘制大尺寸图标。
 - 网格列宽按可用宽度分配（含紧凑列表的两列布局）：以偏好卡片宽为下限计算列数，再令 `ItemsWrapGrid.ItemWidth = 可用宽度 / 列数`。`ItemWidth` 是包含 `GridViewItem` 4px 左右外边距的槽位，不得再扣减 8；否则每列少 8 DIP，右端会累积明显尾隙（0.8.83 实测 1200 DIP 窗口尾隙约 100px）。
+- 网格卡片名称：占 40 DIP 两行预留区，单行名称必须在该区内垂直居中；不得把 `MinHeight=40` 直接放在 `TextBlock` 上让单行文字贴顶，否则名称下方会出现约 20 DIP 的空洞再接下一条元数据（0.8.94 用外层 `Grid MinHeight=40` + 内层 `VerticalAlignment=Center` 修复，UIA 名称矩形 60→30px 高）。
 - 主浏览页筛选栏右侧的图标动作组与搜索框、状态栏使用同一右边界，不得额外内缩；左端与筛选按钮同左边界。
 - 详细列表右列“大小 / 修改时间”（含列头）必须在 130 DIP 列内右对齐，与最近访问/搜索/文件任务的时间列一致。
 - 主/次按钮、图标/文字图标按钮与分段/选项按钮统一使用自研双色圆角焦点环（`UseSystemFocusVisuals=False`，外层 `FwCanvasBrush` 2px + 内层 `FwTextPrimaryBrush`/前景色 2px）；图标/文字图标按钮的内层环取 `Foreground`，以适配视频遮罩等深色表面。
@@ -333,6 +334,7 @@ components:
 - [x] 传输任务详情已收敛（0.8.91）：真实下载记录打开“文件下载”详情，操作按钮改为应用次按钮、确认取消为主按钮，状态卡/确认卡改用应用表面与描边；前后实拍 `20261031-ui0891/screens/before/`、`screens/after2/`。上传详情同构修复，因夹具无真实上传记录未单独截图。
 - [x] 分段选择器选中态已收敛（0.8.92）：`LayoutChoiceStyle` 改为独立 `SelectionFill` + `IsChecked` 绑定，修复切换后旧项残留蓝底与悬停盖住选中色；存储工具/传输中心/文件任务实拍与 UIA `ToggleState` 复核见 `20261031-ui0892/screens/final-tabs2/`，修复前对照见 `20261031-ui0891/screens/audit-0892/`。
 - [x] 存储工具表单已卡片化（0.8.93）：三个子页说明与表单收进 `FwFormCardStyle` 卡片，说明 13px 次级、最大 720 DIP；结果/用户列表保持全宽。浅/深色实拍 `20261031-ui0893/screens/final2-light/`、`final2-dark/`；同批补验 0.8.92 分段选择器深色正常。
+- [x] 网格卡片名称垂直对齐已收敛（0.8.94）：名称在 40 DIP 两行预留区内居中，单行名称不再贴顶；UIA 名称矩形 60→30px 高、y=393→408，元数据位置不变。浅/深色实拍 `20261031-ui0894/screens/after-light/`、`after-dark/`，修复前 `20261031-ui0893/screens/before-0894-light/`、`before-0894-dark/`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
