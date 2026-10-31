@@ -40,6 +40,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private readonly StackPanel _breadcrumb = new() { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
     private readonly Border _banner;
     private readonly TextBlock _bannerText;
+    private readonly Grid _listHeader;
     private readonly Button _extractSelected;
     private readonly Button _extractAll;
     private readonly TextBlock _empty;
@@ -95,6 +96,13 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
         _bannerText = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         _banner = new Border { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 10, 16, 10), BorderThickness = new Thickness(0, 0, 0, 1), Child = _bannerText };
+        _listHeader = new Grid { Padding = new Thickness(58, 8, 25, 6) };
+        _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        _listHeader.Children.Add(new TextBlock { Text = "名称", FontSize = 12, Opacity = 0.65 });
+        var sizeHeader = new TextBlock { Text = "大小", FontSize = 12, Opacity = 0.65, HorizontalAlignment = HorizontalAlignment.Right };
+        Grid.SetColumn(sizeHeader, 1);
+        _listHeader.Children.Add(sizeHeader);
 
         _list.DoubleTapped += List_DoubleTapped;
         _list.SelectionChanged += (_, _) => UpdateCommands();
@@ -112,13 +120,15 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition());
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.Children.Add(_toolbar);
         Grid.SetRow(_crumbBar, 1); _root.Children.Add(_crumbBar);
         Grid.SetRow(_banner, 2); _root.Children.Add(_banner);
-        Grid.SetRow(listHost, 3); _root.Children.Add(listHost);
-        Grid.SetRow(_statusBar, 4); _root.Children.Add(_statusBar);
+        Grid.SetRow(_listHeader, 3); _root.Children.Add(_listHeader);
+        Grid.SetRow(listHost, 4); _root.Children.Add(listHost);
+        Grid.SetRow(_statusBar, 5); _root.Children.Add(_statusBar);
 
         _windowRoot = new Grid();
         _windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -258,6 +268,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         foreach (var row in sorted) _list.Items.Add(BuildRow(row));
         _empty.Visibility = sorted.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         RenderBreadcrumb();
+        _listHeader.Visibility = sorted.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         _status.Text = $"{sorted.Length} 个条目" + (prefix.Length == 0 ? " · 根目录" : " · " + prefix);
         UpdateCommands();
     }
