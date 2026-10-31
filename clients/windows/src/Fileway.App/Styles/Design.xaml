@@ -887,6 +887,16 @@
     <Setter Property="HorizontalContentAlignment" Value="Left" />
   </Style>
   <Style TargetType="PasswordBox" BasedOn="{StaticResource FwPasswordBoxStyle}" />
+  <Style x:Key="FwSearchTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AutoSuggestBoxTextBoxStyle}">
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="12,7" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+  </Style>
   <Style x:Key="LayoutChoiceStyle" TargetType="ToggleButton">
    <Setter Property="HorizontalAlignment" Value="Stretch"/>
    <Setter Property="HorizontalContentAlignment" Value="Left"/>
