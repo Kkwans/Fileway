@@ -297,7 +297,7 @@ components:
 - 工具栏选择器：排序/类型/视图统一使用 `DropDownButton` + `FilewaySelectorButtonStyle`（左对齐、12px 内边距），菜单项用 `LayoutChoiceStyle`；单选项选中后收起菜单。不要再让原生 `ComboBox` 承载工具栏选择器（其选中文本带原生内缩）。选择器必须使用自研完整模板：36 DIP 高、1px `FwStrokeBrush`、10 DIP 圆角、`UseSystemFocusVisuals=False` + 双色圆角焦点环、Lucide `caret-down` 12 DIP 箭头，不得沿用系统模板的黑色焦点矩形。按下态不得引用 `ControlFillColorQuaternaryBrush`（应用主题没有该键，会抛启动 `XamlParseException`），统一用 `SubtleFillColorTertiaryBrush`（0.8.112）。
 - 分段选择器（`LayoutChoiceStyle`）：选中态必须画在独立的 `SelectionFill` 层，并通过 `FwBoolToVisibilityConverter` 绑定 `IsChecked` 控制显隐；不得在 `Checked` 视觉状态里改写 `Root.Background`。同一属性同时承载选中与悬停会出现两个缺陷：取消选中后旧项残留选中底色（UIA `ToggleState` 已为 Off 仍显示蓝底），以及悬停时选中色被盖住（0.8.92 实拍复核）。
 - 侧栏空提示使用完整短句；文案换行后不得只剩 1–2 个字（标签空提示主动断为“尚无标签。/ 选中资源后可直接标记。”两行）。
-- 空状态：居中 72px 圆角图标容器（`FwSurfaceBrush` + 1px `FwStrokeBrush`）、20px 标题、13px/20 行高说明；兜底“重新加载”使用 `FwSecondaryButtonStyle`，不得使用系统默认按钮。空列表同时隐藏列头。所有页面空状态必须有标题 + 说明两层，文案不得出现“暂无 文件任务”这类多余空格。回收站空状态必须覆盖文件和文件夹（“删除的文件和文件夹会先出现在这里，可在彻底删除前恢复”），不得只写“删除的文件”（0.8.105）。
+- 空状态：居中 72px 圆角图标容器（`FwSurfaceBrush` + 1px `FwStrokeBrush`）、20px 标题、13px/20 行高说明；兜底“重新加载”使用 `FwSecondaryButtonStyle`，不得使用系统默认按钮。空列表同时隐藏列头。所有页面空状态必须有标题 + 说明两层，文案不得出现“暂无 文件任务”这类多余空格。回收站空状态必须覆盖文件和文件夹（“删除的文件和文件夹会先出现在这里，可在彻底删除前恢复”），不得只写“删除的文件”（0.8.105）。空文件夹/空收藏标签的底部状态栏只显示“0 个项目”，不得继续提示“已选择 0 个 · 双击或按 Enter 打开”（0.8.114）。
 - 页面头部操作：标题右侧的图标按钮统一 36×36（回收站恢复/刷新、最近访问刷新、传输中心刷新、收藏与标签的返回/刷新/收藏/标签/更多等），不得使用 34 或其他零散尺寸；标题 22px、说明 12px、标题块间距 4。文件详情浮窗的“打开”主按钮与文件任务的“更多任务操作”也统一 36 DIP（0.8.113）。
 - 文件任务窄布局（内容宽度 < 880 DIP）：选中任务/操作记录后隐藏列表，详情占满内容区，标题行右侧显示“返回列表”；宽布局保留右侧 340 DIP 详情栏且隐藏返回按钮。
 - 回收站等可移动详情浮窗同样使用三点手柄 + 原生 caption 拖动；关闭/恢复/删除使用自研图标按钮，不得使用系统默认按钮。回收站详情需与文件详情一致：56px 图标磁贴 + 17px 名称 + 12px 类型，信息区用 12px 次级标签 + 13px 值，大小/删除时间两列排布，动作按钮 36×36。
@@ -362,6 +362,7 @@ components:
 - [x] 文件任务与传输完成态已收敛（0.8.111）：任务详情满格蓝色长线改为 6 DIP 轨道并在 100% 时隐藏；传输中心已完成记录隐藏进度条与暂停按钮，批次头同步；任务页去掉空提示行双倍间距，“更多任务操作”无选中时禁用。真实 7 条服务器任务与 4 条历史下载实拍 `20261031-ui08111/screens/` 与 `screens/final/`。
 - [x] 工具栏选择器与其余布局已收敛（0.8.112）：排序/类型/布局选择器改为自研 DropDownButton 模板（双色焦点环 + Lucide 箭头），修复 `ControlFillColorQuaternaryBrush` 缺失导致的启动崩溃；紧凑网格 6 列、无界网格 5 列、详细列表、紧凑列表 2 列在 1600×1000 均铺满。前后实拍 `20261031-ui08112/screens/`、`screens/after/`，焦点环对比 `before-selector-crop.png`、`after-selector-crop.png`。
 - [x] 等待传输指标与深色详情已收敛（0.8.113）：等待/冲突行折叠 0 KB/s 指标，详情“打开”与任务“更多任务操作”统一 36 DIP；深色网格、选择器焦点环、详情浮窗实拍 `20261031-ui08113/screens/browser-dark.png`、`selector-focus-dark.png`、`screens/details-after/`，前后传输对照 `20261031-ui08111/screens/final/transfer.png` → `20261031-ui08113/screens/transfer-after/transfer.png`。
+- [x] 空目录状态栏已收敛（0.8.114）：0 个项目只显示计数，不再提示双击/Enter；真实空目录 `20261031-ui08114/screens/empty-folder.png` → `screens/after/empty-folder.png`。收藏页同分支已改，菜单自动化未取到截图。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

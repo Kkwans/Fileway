@@ -882,7 +882,9 @@ public sealed partial class MainPage : Page, IDisposable
         if (DetailsName is null) return;
         var count = ActiveFiles.SelectedItems.Count;
         var row = count == 1 ? ActiveFiles.SelectedItem as FileRow : null;
-        StatusText.Text = LoadingRing.IsActive ? $"正在加载目录… · {_rows.Count} 个项目" : $"{_rows.Count} 个项目 · 已选择 {count} 个 · 双击或按 Enter 打开";
+        StatusText.Text = LoadingRing.IsActive ? $"正在加载目录… · {_rows.Count} 个项目"
+            : _rows.Count == 0 ? "0 个项目"
+            : $"{_rows.Count} 个项目 · 已选择 {count} 个 · 双击或按 Enter 打开";
         DetailsName.Text = row?.Name ?? (count > 1 ? $"已选择 {count} 个项目" : "选择一个项目");
         DetailsKindText.Text = row?.Kind ?? (count > 1 ? $"{count} 个项目" : "—");
         DetailsSizeText.Text = row?.Size ?? "—";

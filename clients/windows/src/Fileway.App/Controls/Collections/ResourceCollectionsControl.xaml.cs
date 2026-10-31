@@ -198,7 +198,9 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         EmptyHost.Visibility = Visibility.Collapsed; TagResourcesArea.Visibility = Visibility.Visible; TagResourcesRow.Height = new GridLength(1, GridUnitType.Star);
         var tag = Selected?.Tag;
         CollectionHeading.Text = tag is null ? "标签不可用" : tag.Name;
-        CurrentResourceText.Text = tag is null ? "此标签已删除或当前账号不可见，请刷新或返回文件。" : $"{tag.Resources.Count} 个项目 · 双击或按 Enter 打开";
+        CurrentResourceText.Text = tag is null ? "此标签已删除或当前账号不可见，请刷新或返回文件。"
+            : tag.Resources.Count == 0 ? "0 个项目"
+            : $"{tag.Resources.Count} 个项目 · 双击或按 Enter 打开";
     }
 
     private void RenderTagResources()
