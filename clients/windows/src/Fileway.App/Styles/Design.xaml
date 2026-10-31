@@ -886,6 +886,7 @@
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="HorizontalContentAlignment" Value="Left" />
   </Style>
+  <Style TargetType="PasswordBox" BasedOn="{StaticResource FwPasswordBoxStyle}" />
   <Style x:Key="LayoutChoiceStyle" TargetType="ToggleButton">
    <Setter Property="HorizontalAlignment" Value="Stretch"/>
    <Setter Property="HorizontalContentAlignment" Value="Left"/>

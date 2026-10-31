@@ -142,6 +142,7 @@ public sealed partial class MainPage : Page, IDisposable
             RequestedTheme = Shell.RequestedTheme,
         };
         _storageDialog = dialog; _storageControl = control;
+        dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(control.FocusInitial);
         dialog.Closed += (_, _) => control.Dispose();
         control.CloseRequested += (_, _) => dialog.Hide();
         control.SaveRequested += async (_, _) => { try { await control.SaveAsync(); } catch (OperationCanceledException) { } };
@@ -691,9 +692,9 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed || _connecting || _session is not { } session || _accountSecurity is not { } service) return;
         var account = session.Account;
-        var current = new PasswordBox { Header = "当前密码", Width = 320 };
-        var next = new PasswordBox { Header = "新密码（至少 " + _sessionPasswordMinimum + " 位）", Width = 320 };
-        var again = new PasswordBox { Header = "确认新密码", Width = 320 };
+        var current = new PasswordBox { Header = "当前密码" };
+        var next = new PasswordBox { Header = "新密码（至少 " + _sessionPasswordMinimum + " 位）" };
+        var again = new PasswordBox { Header = "确认新密码" };
         var panel = new StackPanel { Spacing = 12, MinWidth = 320 };
         panel.Children.Add(new TextBlock { Text = "修改当前连接账户（" + session.DisplayName + "）的登录密码。修改后需要用新密码重新登录其他设备。", TextWrapping = TextWrapping.Wrap });
         panel.Children.Add(current); panel.Children.Add(next); panel.Children.Add(again);

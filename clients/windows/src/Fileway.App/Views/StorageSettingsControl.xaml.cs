@@ -255,4 +255,6 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
         if (_disposed) return;
         _disposed = true; _lifetime.Cancel(); _lifetime.Dispose();
     }
+
+    internal void FocusInitial() => CloseButton.Focus(FocusState.Programmatic);
 }
