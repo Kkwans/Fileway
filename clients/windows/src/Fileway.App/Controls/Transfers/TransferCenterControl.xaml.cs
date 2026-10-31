@@ -125,7 +125,9 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
         : string.Join("，", new[] { Name, Stage, Bytes, Metrics }.Where(text => text.Length > 0));
     public double Progress { get; private set; }
     public bool Indeterminate { get; private set; }
+    public Visibility ProgressVisibility { get; private set; } = Visibility.Visible;
     public bool CanTogglePause { get; private set; }
+    public Visibility PauseVisibility => CanTogglePause ? Visibility.Visible : Visibility.Collapsed;
     public bool CanRemove { get; private set; }
     public string PauseIcon { get; private set; } = "pause";
     public string PauseLabel { get; private set; } = "暂停下载";
@@ -166,6 +168,7 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
             : active > 0 ? $"{done}/{total} 已完成 · 上传中" : $"{done}/{total} 已完成";
         var progress = children.Count == 0 ? 0 : children.Average(row => row.Progress);
         Progress = allDone ? 100 : progress;
+        ProgressVisibility = allDone ? Visibility.Collapsed : Visibility.Visible;
         Indeterminate = children.Count > 0 && children.All(row => row.Indeterminate);
         var size = _batch.TotalBytes > 0 ? "总大小 " + DownloadPresentationPolicy.FormatBytes(_batch.TotalBytes) : "";
         Bytes = string.Join(" · ", new[] { $"{_batch.ItemCount} 个文件", size }.Where(text => text.Length > 0));
@@ -174,6 +177,7 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     internal void Update(UploadItem item)
     {
         Status = item.Status;
+        ProgressVisibility = item.Status == UploadStatus.Completed ? Visibility.Collapsed : Visibility.Visible;
         var p = UploadPresentationPolicy.Progress(item);
         Update(item.Name, UploadPresentationPolicy.UploadItemStatusLabel(item), p.ConfirmedText, item.DestinationDisplayPath, p.Value, p.IsIndeterminate);
     }
@@ -192,6 +196,7 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
             _lastBytes = progress.ReceivedBytes; _lastElapsed = progress.Elapsed; _lastObservation = TimeProvider.System.GetTimestamp();
         }
         if (item.Status != DownloadStatus.Downloading) _rate = 0;
+        ProgressVisibility = item.Status == DownloadStatus.Completed ? Visibility.Collapsed : Visibility.Visible;
         CanTogglePause = item.CanPause || item.CanResume;
         CanRemove = item.Snapshot.Uncertainty == TransferUncertainty.None && item.Status is not (DownloadStatus.Publishing or DownloadStatus.Reconciling or DownloadStatus.Canceling or DownloadStatus.OutcomeUnknown);
         PauseIcon = item.CanResume ? "play" : "pause"; PauseLabel = item.CanResume ? "继续下载" : "暂停下载";

@@ -24,7 +24,7 @@
        <Border Width="32" Height="32" CornerRadius="9" Background="{ThemeResource FwSelectionBrush}" VerticalAlignment="Top"><ui:LucideIcon IconName="folder" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
        <StackPanel Grid.Column="1" Spacing="8">
         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"/><TextBlock Grid.Column="1" Text="{x:Bind Stage, Mode=OneWay}" FontSize="12" Margin="12,0,0,0" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Grid>
-        <Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}">
+        <Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}" Visibility="{x:Bind ProgressVisibility, Mode=OneWay}">
          <ProgressBar Minimum="0" Maximum="100" Value="{x:Bind Progress, Mode=OneWay}" IsIndeterminate="{x:Bind Indeterminate, Mode=OneWay}" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="{x:Bind ProgressName}"/>
         </Border>
         <TextBlock Text="{x:Bind Bytes, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
@@ -35,7 +35,7 @@
       <ui:LucideIcon IconName="{x:Bind IconName}" Width="28" Height="28" VerticalAlignment="Top" Margin="0,2,0,0"/>
       <StackPanel Grid.Column="1" Spacing="8">
        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"/><TextBlock Grid.Column="1" Text="{x:Bind Stage, Mode=OneWay}" FontSize="12" Margin="12,0,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></Grid>
-       <Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}">
+       <Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}" Visibility="{x:Bind ProgressVisibility, Mode=OneWay}">
         <ProgressBar Minimum="0" Maximum="100" Value="{x:Bind Progress, Mode=OneWay}" IsIndeterminate="{x:Bind Indeterminate, Mode=OneWay}" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="{x:Bind ProgressName}"/>
        </Border>
        <TextBlock Text="{x:Bind Bytes, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -43,7 +43,7 @@
        <TextBlock Text="{x:Bind Destination, Mode=OneWay}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorTertiaryBrush}" ToolTipService.ToolTip="{x:Bind Destination, Mode=OneWay}"/>
       </StackPanel>
       <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Visibility="{x:Bind ActionsVisibility}">
-       <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Pause_Click" IsEnabled="{x:Bind CanTogglePause, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind PauseLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind PauseLabel, Mode=OneWay}"><ui:LucideIcon IconName="{x:Bind PauseIcon, Mode=OneWay}" Width="20" Height="20"/></Button>
+       <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Pause_Click" Visibility="{x:Bind PauseVisibility, Mode=OneWay}" IsEnabled="{x:Bind CanTogglePause, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind PauseLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind PauseLabel, Mode=OneWay}"><ui:LucideIcon IconName="{x:Bind PauseIcon, Mode=OneWay}" Width="20" Height="20"/></Button>
        <Button Width="32" Height="32" Padding="0" Style="{StaticResource SubtleButtonStyle}" Click="Remove_Click" IsEnabled="{x:Bind CanRemove, Mode=OneWay}" ToolTipService.ToolTip="删除任务" AutomationProperties.Name="删除任务"><ui:LucideIcon IconName="trash" Width="20" Height="20"/></Button>
       </StackPanel>
       </Grid>

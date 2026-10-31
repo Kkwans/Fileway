@@ -181,6 +181,8 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
                 !_controller.HasVerifiedOperations ? "操作记录尚未完整核实，任务动作已暂停。刷新任务可重新核实。" :
                 _historyMode ? "核实只读取原操作证据，不会重新提交。仅观察任务状态时，原操作结果可能仍未知。" :
                     "取消表示请求已接受，最终状态以服务器为准。归档只整理任务记录，不删除文件。";
+            NoticePanel.Visibility = Notice.IsOpen || AuthorityHint.Visibility == Visibility.Visible
+                ? Visibility.Visible : Visibility.Collapsed;
         }
         finally { _rendering = false; }
     }
@@ -260,7 +262,7 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             DetailStatus.Text = NasTaskPresentationPolicy.StatusText(task);
             var fraction = NasTaskPresentationPolicy.ProgressFraction(task);
             bool active = task.Status is ServerTaskStatus.Queued or ServerTaskStatus.Running;
-            DetailProgress.Visibility = fraction is not null || active ? Visibility.Visible : Visibility.Collapsed;
+            DetailProgressTrack.Visibility = fraction is < 1 || active ? Visibility.Visible : Visibility.Collapsed;
             DetailProgress.Value = (fraction ?? 0) * 100;
             DetailProgress.IsIndeterminate = fraction is null && active;
             DetailProgressText.Text = NasTaskPresentationPolicy.ProgressText(task);
@@ -296,6 +298,7 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
         var task = DetailTask;
         bool available = Active && !HasOpenDialog && !_historyMode && task is not null;
         DetailRefreshButton.IsEnabled = available && !Busy;
+        MoreCommandsButton.IsEnabled = available;
         CancelTaskButton.IsEnabled = available && _controller.CanAct(task!, ServerTaskActionKind.CancellationRequested);
         RetryTaskButton.IsEnabled = available && _controller.CanAct(task!, ServerTaskActionKind.RetryAccepted);
         ArchiveTaskButton.IsEnabled = available && _controller.CanAct(task!, ServerTaskActionKind.Archived);

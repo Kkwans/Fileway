@@ -4,7 +4,7 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="using:Fileway.App.Controls.NasTasks" KeyDown="Panel_KeyDown">
  <Grid x:Name="PanelRoot" Padding="20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged">
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Spacing="4"><TextBlock Text="文件任务" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="服务器端复制/移动任务与操作记录。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开 文件任务，返回文件"/>
@@ -30,12 +30,12 @@
     <ui:ChoiceBox x:Name="TypeFilter" Grid.Column="1" Header="任务类型" SelectedIndex="0" HorizontalAlignment="Stretch" SelectionChanged="Filter_Changed"><ComboBoxItem Content="全部类型"/><ComboBoxItem Content="复制"/><ComboBoxItem Content="移动"/></ui:ChoiceBox>
     <CheckBox x:Name="ArchivedFilter" Grid.Column="2" Content="已归档" VerticalAlignment="Bottom" Checked="Archived_Changed" Unchecked="Archived_Changed"/>
    </Grid>
+   <StackPanel x:Name="NoticePanel" Spacing="8" Visibility="Collapsed">
+    <InfoBar x:Name="Notice" IsOpen="False" IsClosable="False" Severity="Informational" Title="任务状态"><InfoBar.ActionButton><Button x:Name="NoticeHistoryButton" Content="查看操作记录" Click="HistoryTab_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
+    <TextBlock x:Name="AuthorityHint" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+   </StackPanel>
   </StackPanel>
-  <StackPanel Grid.Row="3" Spacing="8">
-   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="False" Severity="Informational" Title="任务状态"><InfoBar.ActionButton><Button x:Name="NoticeHistoryButton" Content="查看操作记录" Click="HistoryTab_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
-   <TextBlock x:Name="AuthorityHint" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-  </StackPanel>
-  <Grid x:Name="Body" Grid.Row="4" ColumnSpacing="16" RowSpacing="12">
+  <Grid x:Name="Body" Grid.Row="3" ColumnSpacing="16" RowSpacing="12">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="DetailColumn" Width="360"/></Grid.ColumnDefinitions>
    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition x:Name="DetailRow" Height="0"/></Grid.RowDefinitions>
    <Grid x:Name="ListArea">
@@ -68,7 +68,7 @@
       <TextBlock x:Name="DetailPlaceholder" Text="选中任务查看服务器状态、进度与可用操作。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
       <StackPanel x:Name="TaskDetails" Spacing="10" Visibility="Collapsed">
        <TextBlock x:Name="DetailStatus" FontWeight="SemiBold" TextWrapping="Wrap"/>
-       <ProgressBar x:Name="DetailProgress" Minimum="0" Maximum="100" Height="4" AutomationProperties.Name="服务器任务进度"/>
+       <Border x:Name="DetailProgressTrack" Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="DetailProgress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="服务器任务进度"/></Border>
        <TextBlock x:Name="DetailProgressText" TextWrapping="Wrap"/><TextBlock x:Name="DetailTimes" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
        <TextBlock x:Name="DetailPaths" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
        <TextBlock x:Name="DetailError" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -90,6 +90,6 @@
     </ScrollViewer>
    </Border>
   </Grid>
-  <Grid Grid.Row="5" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="LoadedText" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/><Button x:Name="MoreButton" Grid.Column="1" Content="加载更多" Click="More_Click" Visibility="Collapsed" Style="{StaticResource FwSecondaryButtonStyle}"/></Grid>
+  <Grid Grid.Row="4" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="LoadedText" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/><Button x:Name="MoreButton" Grid.Column="1" Content="加载更多" Click="More_Click" Visibility="Collapsed" Style="{StaticResource FwSecondaryButtonStyle}"/></Grid>
  </Grid>
 </UserControl>
