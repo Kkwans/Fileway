@@ -67,6 +67,7 @@ public sealed partial class RecentAccessControl : UserControl, IDisposable
         RecentRefreshButton.IsEnabled = !_controller.IsLoading;
         RecentError.IsOpen = _controller.Error is not null;
         RecentError.Message = _controller.Error;
+        RecentHeaders.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         RecentEmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RecentEmptyTitle.Text = _controller.IsLoading ? "正在读取最近访问" : _controller.Error is not null ? "记录暂不可用" : "暂无最近访问";
         RecentEmptyText.Text = _controller.Error is not null ? "可以刷新重试，未确认的资源不会被打开。" : "成功打开远端图片或视频后，可刷新查看服务器记录。";

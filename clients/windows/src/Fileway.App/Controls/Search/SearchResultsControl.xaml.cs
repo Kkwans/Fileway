@@ -201,6 +201,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
             ? InfoBarSeverity.Warning : end?.Reason == SearchEndReason.Completed && !_suspended
                 ? InfoBarSeverity.Success : InfoBarSeverity.Informational;
 
+        SearchHeaders.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         SearchEmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         SearchEmptyTitle.Text = !HasContext ? "连接服务器后搜索" : searching ? "正在搜索服务器"
             : error is not null ? "搜索需要处理" : end?.Reason == SearchEndReason.Completed ? "没有找到匹配项"
