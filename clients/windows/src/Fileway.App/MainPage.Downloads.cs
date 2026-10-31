@@ -547,13 +547,23 @@ public sealed partial class MainPage
         public StackPanel Content { get; } = (StackPanel)XamlReader.Load("""
             <StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Spacing="16" MinWidth="320" MaxWidth="440">
               <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-              <Border Padding="16" CornerRadius="8" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" AutomationProperties.Name="下载接收活动进度，完成还需校验与保存"/><TextBlock x:Name="Activity" FontSize="12" TextWrapping="Wrap"/><TextBlock x:Name="Flushed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
+              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" AutomationProperties.Name="下载接收活动进度，完成还需校验与保存"/><TextBlock x:Name="Activity" FontSize="12" TextWrapping="Wrap"/><TextBlock x:Name="Flushed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
               <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-               <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/><Button x:Name="OpenLocal" Content="打开文件" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="用系统默认应用打开已下载的文件" ToolTipService.ToolTip="先核实本地文件身份，再交给系统默认应用打开；不会改动 NAS 原文件。"/><Button x:Name="Retry" Content="重新下载（新任务）" HorizontalAlignment="Left" Visibility="Collapsed" AutomationProperties.Name="重新下载并创建新任务"/></StackPanel>
-              <Button x:Name="Cancel" Content="取消下载…" HorizontalAlignment="Left"/>
-              <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"><StackPanel Spacing="10"><TextBlock Text="确认取消当前下载？只会清理本任务拥有的未发布临时文件，已经保存的文件会保留。" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Keep" Content="返回"/><Button x:Name="ConfirmCancel" Content="确认取消"/></StackPanel></StackPanel></Border>
+               <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/><Button x:Name="OpenLocal" Content="打开文件" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="用系统默认应用打开已下载的文件" ToolTipService.ToolTip="先核实本地文件身份，再交给系统默认应用打开；不会改动 NAS 原文件。"/><Button x:Name="Retry" Content="重新下载（新任务）" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="重新下载并创建新任务"/></StackPanel>
+              <Button x:Name="Cancel" Content="取消下载…" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}"/>
+              <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"><StackPanel Spacing="10"><TextBlock Text="确认取消当前下载？只会清理本任务拥有的未发布临时文件，已经保存的文件会保留。" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Keep" Content="返回" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="ConfirmCancel" Content="确认取消" Style="{StaticResource FwPrimaryButtonStyle}"/></StackPanel></StackPanel></Border>
             </StackPanel>
             """);
+        public DownloadDetailsView()
+        {
+            var resources = Application.Current.Resources;
+            if (resources["FwSecondaryButtonStyle"] is Style secondary)
+            {
+                Play.Style = secondary; OpenLocal.Style = secondary; Retry.Style = secondary;
+                Cancel.Style = secondary; Keep.Style = secondary;
+            }
+            if (resources["FwPrimaryButtonStyle"] is Style primary) ConfirmCancel.Style = primary;
+        }
         public TextBlock Name => (TextBlock)Content.FindName("Name");
         public TextBlock Destination => (TextBlock)Content.FindName("Destination");
         public TextBlock Stage => (TextBlock)Content.FindName("Stage");

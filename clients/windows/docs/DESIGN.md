@@ -298,6 +298,7 @@ components:
 - 文件任务窄布局（内容宽度 < 880 DIP）：选中任务/操作记录后隐藏列表，详情占满内容区，标题行右侧显示“返回列表”；宽布局保留右侧 340 DIP 详情栏且隐藏返回按钮。
 - 回收站等可移动详情浮窗同样使用三点手柄 + 原生 caption 拖动；关闭/恢复/删除使用自研图标按钮，不得使用系统默认按钮。回收站详情需与文件详情一致：56px 图标磁贴 + 17px 名称 + 12px 类型，信息区用 12px 次级标签 + 13px 值，大小/删除时间两列排布，动作按钮 36×36。
 - 非破坏性确认框默认操作使用 `DefaultButton=Primary`；禁止用 `DefaultButton=Close`（WinUI 会给默认按钮套强调色，造成双蓝按钮），需要安全默认时用 `None`。`DialogOrdering` 在打开时统一把主按钮归一为 `FwPrimaryButtonStyle`、关闭/次要按钮归一为 `FwSecondaryButtonStyle`，确保“取消”为白底描边、主操作唯一蓝色。
+- 传输任务详情（文件下载/文件上传）：操作按钮必须与应用一致——次按钮用 `FwSecondaryButtonStyle`（36 DIP、圆角），取消确认中的主操作用 `FwPrimaryButtonStyle`；状态卡与取消确认卡用 `FwSurfaceBrush` + 1px `FwStrokeBrush` + 10 DIP 圆角，不得沿用系统默认按钮与描边。经 `XamlReader.Load` 构造的 XAML 字符串内写 `Style="{StaticResource ...}"` 不可靠，必须在视图构造函数中用 `Application.Current.Resources` 按资源键赋样式（0.8.91 实拍验证）。
 - 收藏/标签：行状态仅在确有附加信息时拼接“ · ”，不得出现“未分组 ·”这类尾部分隔符。
 - 传输中心：文件夹批次以批次卡片成组（32px 文件夹图标底、批次名、聚合进度、“x/y 已完成”、文件数与总大小），组内文件行左缩进 24px 且仍可点开单个任务详情；批次行只做汇总，不承载暂停/删除等任务操作。行内指标（速度/剩余/耗时）为空时必须折叠该行，不得为上传等无指标任务预留空白行。
 - CSV 表格视图：列宽按查看器内容宽度除以列数自适应，限制 140–220 DIP；表头与数据行共用列宽。小表不得因固定 220 DIP 列宽横向溢出而裁掉末列，宽表仍允许横向滚动。
@@ -327,6 +328,7 @@ components:
 - [x] 下载另存为已收敛（0.8.88）：主按钮右置、输入框自研样式与预览卡层级修复前后见 `20261031-ui0888/screens/before/`、`screens/final2/`；`DialogOrdering` 已改为在 `CommandSpace` 内解析动作按钮。
 - [x] 文件写入类对话框已收敛（0.8.89）：新建/重命名（`20261031-ui0889/screens/before/`、`after/`）、批量重命名与“移动到”同目录实拍；输入框/说明/主按钮文案统一。
 - [x] 回收站详情浮窗已收敛（0.8.90）：真实移入/详情/恢复流程；前后实拍 `20261031-ui0890/screens/trash-before/`、`trash-after/`，浮窗高度 588→528 物理像素，信息层级与文件详情一致。
+- [x] 传输任务详情已收敛（0.8.91）：真实下载记录打开“文件下载”详情，操作按钮改为应用次按钮、确认取消为主按钮，状态卡/确认卡改用应用表面与描边；前后实拍 `20261031-ui0891/screens/before/`、`screens/after2/`。上传详情同构修复，因夹具无真实上传记录未单独截图。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

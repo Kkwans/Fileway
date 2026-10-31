@@ -580,12 +580,18 @@ public sealed partial class MainPage
         public StackPanel Content { get; } = (StackPanel)XamlReader.Load("""
             <StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Spacing="16" MinWidth="320" MaxWidth="440">
               <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-              <Border Padding="16" CornerRadius="8" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4"/><TextBlock x:Name="Confirmed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
+              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4"/><TextBlock x:Name="Confirmed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
               <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-              <Button x:Name="Cancel" Content="取消上传…" HorizontalAlignment="Left"/>
-              <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"><StackPanel Spacing="10"><TextBlock Text="确认取消这个上传？已传输的数据需要由服务器核实并清理；取消请求不代表远端已取消。" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Keep" Content="继续上传"/><Button x:Name="ConfirmCancel" Content="确认取消"/></StackPanel></StackPanel></Border>
+              <Button x:Name="Cancel" Content="取消上传…" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}"/>
+              <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"><StackPanel Spacing="10"><TextBlock Text="确认取消这个上传？已传输的数据需要由服务器核实并清理；取消请求不代表远端已取消。" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Keep" Content="继续上传" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="ConfirmCancel" Content="确认取消" Style="{StaticResource FwPrimaryButtonStyle}"/></StackPanel></StackPanel></Border>
             </StackPanel>
             """);
+        public UploadDetailsView()
+        {
+            var resources = Application.Current.Resources;
+            if (resources["FwSecondaryButtonStyle"] is Style secondary) { Cancel.Style = secondary; Keep.Style = secondary; }
+            if (resources["FwPrimaryButtonStyle"] is Style primary) ConfirmCancel.Style = primary;
+        }
         public TextBlock Name => (TextBlock)Content.FindName("Name");
         public TextBlock Destination => (TextBlock)Content.FindName("Destination");
         public TextBlock Stage => (TextBlock)Content.FindName("Stage");
