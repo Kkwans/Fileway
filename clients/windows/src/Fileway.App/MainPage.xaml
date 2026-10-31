@@ -147,8 +147,8 @@
   <Grid x:Name="Workspace" Visibility="Collapsed" Padding="16,0,16,0" RowSpacing="0" SizeChanged="Workspace_SizeChanged">
    <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="28"/></Grid.RowDefinitions>
    <Grid>
-   <CommandBar x:Name="BrowserCommands" Height="44" DefaultLabelPosition="Collapsed" Background="Transparent" HorizontalContentAlignment="Stretch">
-    <CommandBar.Content><StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+   <ContentControl x:Name="BrowserCommands" Height="44" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" IsTabStop="False">
+    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
      <DropDownButton x:Name="SortBox" Style="{StaticResource FilewaySelectorButtonStyle}" Content="名称 ↑" Width="140" Height="36" AutomationProperties.Name="文件排序"><DropDownButton.Flyout><Flyout Placement="BottomEdgeAlignedLeft"><StackPanel Spacing="4"><TextBlock Text="排序" Margin="12,4,0,8" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
  <ToggleButton Content="名称 ↑" Tag="NameAsc" IsChecked="True" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
  <ToggleButton Content="名称 ↓" Tag="NameDesc" Style="{StaticResource LayoutChoiceStyle}" Click="Sort_Click"/>
@@ -183,8 +183,8 @@
       </StackPanel>
      </StackPanel></Flyout></DropDownButton.Flyout></DropDownButton>
      <Button x:Name="MoreBrowserActionsButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" VerticalAlignment="Center" ToolTipService.ToolTip="更多文件操作" AutomationProperties.Name="更多文件操作"><ui:LucideIcon IconName="dots-three" Width="18" Height="18"/><Button.Flyout><MenuFlyout><MenuFlyoutItem x:Name="DownloadHistoryButton" Text="下载记录" Click="DownloadHistory_Click" IsEnabled="False"><MenuFlyoutItem.Icon><ui:LucideActionIcon IconName="clock"/></MenuFlyoutItem.Icon></MenuFlyoutItem><MenuFlyoutItem x:Name="UploadHistoryButton" Text="上传记录" Click="UploadHistory_Click" IsEnabled="False"><MenuFlyoutItem.Icon><ui:LucideActionIcon IconName="clock"/></MenuFlyoutItem.Icon></MenuFlyoutItem><MenuFlyoutItem Text="详细信息" Click="Details_Click"><MenuFlyoutItem.Icon><ui:LucideActionIcon IconName="eye"/></MenuFlyoutItem.Icon></MenuFlyoutItem><MenuFlyoutItem x:Name="FavoriteActionButton" Text="收藏" Click="FavoriteResource_Click" IsEnabled="False"><MenuFlyoutItem.Icon><ui:LucideActionIcon IconName="heart"/></MenuFlyoutItem.Icon></MenuFlyoutItem><MenuFlyoutItem x:Name="TagActionButton" Text="标记" Click="TagResource_Click" IsEnabled="False"><MenuFlyoutItem.Icon><ui:LucideActionIcon IconName="tag"/></MenuFlyoutItem.Icon></MenuFlyoutItem><MenuFlyoutItem x:Name="LastResultsButton" Text="上次操作的完整结果" Click="ResultDetails_Click" IsEnabled="False"/></MenuFlyout></Button.Flyout></Button>
-    </StackPanel></CommandBar.Content>
-   </CommandBar>
+    </StackPanel>
+   </ContentControl>
    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4" Margin="0,0,48,0">
     <Button x:Name="NewButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" ToolTipService.ToolTip="新建" AutomationProperties.Name="新建"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="文件夹" Click="CreateDirectory_Click"/><MenuFlyoutItem x:Name="NewFileMenuItem" Text="空文件" Click="CreateEmptyFile_Click"/></MenuFlyout></Button.Flyout><ui:LucideIcon IconName="plus" Width="18" Height="18"/></Button>
     <Button x:Name="UploadFileButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" ToolTipService.ToolTip="上传文件或文件夹" AutomationProperties.Name="上传文件"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="选择文件…" Click="UploadFile_Click"/><MenuFlyoutItem Text="选择文件夹…" Click="UploadFolder_Click"/></MenuFlyout></Button.Flyout><ui:LucideIcon IconName="upload-simple" Width="18" Height="18"/></Button>
