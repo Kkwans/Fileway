@@ -116,6 +116,7 @@ public sealed partial class MainPage
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary,
         };
+        Fileway.App.Controls.DialogOrdering.FocusCloseButton(dialog);
         if (await ShowBrowserDialogAsync(dialog) != ContentDialogResult.Primary) return;
         var updated = preferences;
         foreach (var (category, box) in choices)

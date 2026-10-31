@@ -73,6 +73,14 @@ public static class DialogOrdering
         }
     }
 
+    internal static void FocusCloseButton(ContentDialog dialog)
+    {
+        dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (Find(dialog, "CloseButton") is Button close) close.Focus(FocusState.Programmatic);
+        });
+    }
+
     private static FrameworkElement? Find(DependencyObject root, string name)
     {
         if (root is FrameworkElement { Name: var elementName } element && elementName == name) return element;

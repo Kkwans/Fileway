@@ -134,7 +134,13 @@ public sealed partial class MainPage
 
     private void PresentationSettings_Click(object sender, RoutedEventArgs args)
     {
-        var panel = new StackPanel { Spacing = 20, Width = 300, Margin = new Thickness(16) };
+        var panel = new StackPanel { Spacing = 16, Width = 320, Margin = new Thickness(16) };
+        TextBlock Heading(string text) => new()
+        {
+            Text = text,
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        };
         var toast = new Slider { Header = "提示自动消失（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ToastSeconds };
         var controls = new Slider { Header = "播放控件自动隐藏（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
         var remember = new ToggleSwitch { Header = "再次打开视频", OnContent = "保留上次窗口大小", OffContent = "按视频比例自动调整", IsOn = PresentationPreferences.RememberPlayerSize };
@@ -151,12 +157,17 @@ public sealed partial class MainPage
         remember.Toggled += (_, _) => Save(() => PresentationPreferences.RememberPlayerSize = remember.IsOn);
         toast.ValueChanged += (_, _) => Save(() => PresentationPreferences.ToastSeconds = (int)toast.Value);
         controls.ValueChanged += (_, _) => Save(() => PresentationPreferences.ControlsHideSeconds = (int)controls.Value);
+        panel.Children.Add(Heading("提示与播放"));
         panel.Children.Add(toast); panel.Children.Add(controls);
         panel.Children.Add(remember);
+        panel.Children.Add(Heading("界面背景"));
         panel.Children.Add(material); panel.Children.Add(tone);
         panel.Children.Add(color);
         panel.Children.Add(new TextBlock { Text = "自定义取色会自动生成可读的浅色与深色底色。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
-        _ = ShowBrowserDialogAsync(new ContentDialog { Title = "交互与外观", CloseButtonText = "完成", Content = new ScrollViewer { Content = panel, MaxHeight = 520, HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } });
+        panel.Children.Add(new TextBlock { Text = "修改会立即保存。", FontSize = 12, Opacity = 0.7 });
+        var dialog = new ContentDialog { Title = "交互与外观", CloseButtonText = "完成", Content = new ScrollViewer { Content = panel, MaxHeight = 520, HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
+        Fileway.App.Controls.DialogOrdering.FocusCloseButton(dialog);
+        _ = ShowBrowserDialogAsync(dialog);
         void Save(Action action) { try { action(); } catch (Exception) { SetNotice("偏好未保存", "请检查当前用户的设置权限。", InfoBarSeverity.Warning); } }
     }
 }
