@@ -80,14 +80,14 @@ public sealed partial class MainPage
         var panel = new StackPanel { Spacing = 12, MinWidth = 520, MaxWidth = 560 };
         panel.Children.Add(new TextBlock
         {
-            Text = "内置查看器保留在应用内；选择“系统默认应用”时，会先把文件下载到默认下载目录，再交给 Windows 打开（例如 Typora 打开 Markdown）。",
+            Text = "系统默认应用会先下载到默认目录，再交给 Windows 打开。",
             TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.75,
         });
         var columns = new Grid { ColumnSpacing = 24, RowSpacing = 0 };
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var left = new StackPanel { Spacing = 12 };
-        var right = new StackPanel { Spacing = 12 };
+        var left = new StackPanel { Spacing = 8 };
+        var right = new StackPanel { Spacing = 8 };
         columns.Children.Add(left); columns.Children.Add(right);
         Grid.SetColumn(right, 1);
         panel.Children.Add(columns);
@@ -111,7 +111,7 @@ public sealed partial class MainPage
             XamlRoot = XamlRoot,
             RequestedTheme = ActualTheme,
             Title = "打开方式",
-            Content = new ScrollViewer { Content = panel, MaxHeight = 520, VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            Content = new ScrollViewer { Content = panel, MaxHeight = DialogOrdering.ContentMaxHeight(this, 520), VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
             PrimaryButtonText = "保存",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary,
