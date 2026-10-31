@@ -24,7 +24,7 @@
    <Grid x:Name="SearchHeaders" Padding="10,0,10,6" ColumnSpacing="12" MinHeight="24">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
     <TextBlock Text="名称" FontSize="12" Margin="40,0,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-    <TextBlock Grid.Column="1" Text="类型 · 修改时间" FontSize="12" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+    <TextBlock Grid.Column="1" Text="大小/类型 · 修改时间" FontSize="12" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
    </Grid>
    <ListView x:Name="SearchRecords" Grid.Row="1" SelectionMode="Single" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" PreviewKeyDown="Records_PreviewKeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="服务器搜索结果，选中后按 Enter 打开">
     <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}"><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="64"/><Setter Property="Margin" Value="0,0,0,6"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListView.ItemContainerStyle>
