@@ -120,8 +120,9 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     public string Bytes { get; private set; } = "";
     public string Destination { get; private set; } = "";
     public string Metrics { get; private set; } = "";
+    public Visibility MetricsVisibility => string.IsNullOrEmpty(Metrics) ? Visibility.Collapsed : Visibility.Visible;
     public string AccessibleName => IsBatchHeader ? $"{Name}，文件夹上传批次，{Stage}，{Bytes}"
-        : $"{Name}，{Stage}，{Bytes}，{Metrics}";
+        : string.Join("，", new[] { Name, Stage, Bytes, Metrics }.Where(text => text.Length > 0));
     public double Progress { get; private set; }
     public bool Indeterminate { get; private set; }
     public bool CanTogglePause { get; private set; }
@@ -207,7 +208,7 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
         var eta = speed > 0 ? Duration(TimeSpan.FromSeconds(Math.Min(remaining / speed, TimeSpan.MaxValue.TotalSeconds / 2))) : "—";
         var rate = speed > 0 ? DownloadPresentationPolicy.FormatBytes((long)speed) + "/s" : "0 KB/s";
         var metrics = item.Status == DownloadStatus.Completed ? "总耗时 " + Duration(elapsed) : $"{rate}  ·  剩余 {eta}  ·  已用 {Duration(elapsed)}";
-        if (Metrics == metrics) return; Metrics = metrics; PropertyChanged?.Invoke(this, new(nameof(Metrics)));
+        if (Metrics == metrics) return; Metrics = metrics; PropertyChanged?.Invoke(this, new(nameof(Metrics))); PropertyChanged?.Invoke(this, new(nameof(MetricsVisibility)));
     }
     private static string Duration(TimeSpan value) => value < TimeSpan.Zero ? "0:00" : value.TotalHours >= 1 ? $"{(int)value.TotalHours}:{value.Minutes:00}:{value.Seconds:00}" : $"{(int)value.TotalMinutes}:{value.Seconds:00}";
     private void Update(string name, string stage, string bytes, string destination, double progress, bool indeterminate)
