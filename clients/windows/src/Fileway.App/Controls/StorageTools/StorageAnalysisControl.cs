@@ -72,25 +72,24 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         _scopeBox.Style = (Style)resources["FwTextBoxStyle"];
         _scopeBox.MinWidth = 480;
         _scopeBox.MaxWidth = 720;
-        _scopeBox.HorizontalAlignment = HorizontalAlignment.Left;
+        _scopeBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         _duplicateScopeBox.Style = (Style)resources["FwTextBoxStyle"];
         _duplicateScopeBox.MinWidth = 480;
         _duplicateScopeBox.MaxWidth = 720;
-        _duplicateScopeBox.HorizontalAlignment = HorizontalAlignment.Left;
-        var secondaryText = (Microsoft.UI.Xaml.Media.Brush)resources["FwTextSecondaryBrush"];
+        _duplicateScopeBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         var analysisRoot = new StackPanel { Spacing = 12 };
-        analysisRoot.Children.Add(new TextBlock { Text = "由服务器统计范围内的文件数、目录数与总大小，并列出最大的文件与目录；分析在服务器后台执行，客户端只呈现服务器给出的数字。", TextWrapping = TextWrapping.Wrap, Foreground = secondaryText });
-        analysisRoot.Children.Add(_scopeBox);
         _start.Click += async (_, _) => await StartAsync();
-        analysisRoot.Children.Add(_start);
+        analysisRoot.Children.Add(FormCard(
+            "由服务器统计范围内的文件数、目录数与总大小，并列出最大的文件与目录；分析在服务器后台执行，客户端只呈现服务器给出的数字。",
+            _scopeBox, _start));
         analysisRoot.Children.Add(_notice);
         analysisRoot.Children.Add(_progress);
         analysisRoot.Children.Add(_results);
 
         _duplicateStart.Click += async (_, _) => await StartDuplicateScanAsync();
-        _duplicatesRoot.Children.Add(new TextBlock { Text = "服务器按内容找出重复文件并给出保留建议；勾选每组要保留的副本后提交，其余副本移入回收站（可恢复）。绝不直接删除，也不会改动组外文件。", TextWrapping = TextWrapping.Wrap, Foreground = secondaryText });
-        _duplicatesRoot.Children.Add(_duplicateScopeBox);
-        _duplicatesRoot.Children.Add(_duplicateStart);
+        _duplicatesRoot.Children.Add(FormCard(
+            "服务器按内容找出重复文件并给出保留建议；勾选每组要保留的副本后提交，其余副本移入回收站（可恢复）。绝不直接删除，也不会改动组外文件。",
+            _duplicateScopeBox, _duplicateStart));
         _duplicatesRoot.Children.Add(_duplicateNotice);
         _duplicateScroll.Content = _duplicateResults;
         _duplicatesRoot.Children.Add(_duplicateScroll);
@@ -106,7 +105,9 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         var root = new StackPanel { Spacing = 12, Padding = new Thickness(20, 12, 20, 12) };
         var header = new StackPanel { Spacing = 4 };
         header.Children.Add(new TextBlock { Text = "存储工具", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        header.Children.Add(new TextBlock { Text = "服务器端统计与清理辅助工具；分析在服务器后台执行。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = secondaryText });
+        var subtitle = new TextBlock { Text = "服务器端统计与清理辅助工具；分析在服务器后台执行。", FontSize = 12 };
+        subtitle.Style = (Style)resources["FwCaptionTextStyle"];
+        header.Children.Add(subtitle);
         root.Children.Add(header);
         void SelectTab(int selected)
         {
@@ -331,11 +332,28 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         _duplicateNotice.IsOpen = true;
     }
 
+    private static Border FormCard(string description, params UIElement[] fields)
+    {
+        var resources = Application.Current.Resources;
+        var content = new StackPanel { Spacing = 12 };
+        var text = new TextBlock { Text = description, FontSize = 13, TextWrapping = TextWrapping.Wrap };
+        text.Style = (Style)resources["FwCaptionTextStyle"];
+        text.FontSize = 13;
+        content.Children.Add(text);
+        foreach (var field in fields) content.Children.Add(field);
+        var card = new Border
+        {
+            Margin = new Thickness(0, 12, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            MaxWidth = 720,
+            Child = content
+        };
+        card.Style = (Style)resources["FwFormCardStyle"];
+        return card;
+    }
+
     private void BuildAdminRoot()
     {
-        _adminRoot.Children.Add(new TextBlock { Text = "服务器用户管理：列表、创建、重置密码、权限与删除。每次改动需要输入管理员（当前账户）密码以确认身份；所有操作由服务器校验权限。", TextWrapping = TextWrapping.Wrap, Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["FwTextSecondaryBrush"] });
-        _adminRoot.Children.Add(_adminNotice);
-        Fileway.App.Controls.FloatingNotice.Attach(_adminNotice);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         _adminCreate.Click += async (_, _) => await CreateAdminUserAsync();
         _adminPassword.Click += async (_, _) => await MutateSelectedAsync(MutationKind.ResetPassword);
@@ -347,8 +365,13 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         actions.Children.Add(_adminToggleAdmin);
         actions.Children.Add(_adminToggleLock);
         actions.Children.Add(_adminDelete);
-        _adminRoot.Children.Add(new ScrollViewer { Content = actions, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollMode = ScrollMode.Disabled });
+        var actionsScroll = new ScrollViewer { Content = actions, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollMode = ScrollMode.Disabled };
+        _adminRoot.Children.Add(FormCard(
+            "服务器用户管理：列表、创建、重置密码、权限与删除。每次改动需要输入管理员（当前账户）密码以确认身份；所有操作由服务器校验权限。",
+            actionsScroll));
+        _adminRoot.Children.Add(_adminNotice);
+        FloatingNotice.Attach(_adminNotice);
         _adminList.SelectionChanged += (_, _) => UpdateAdminButtons();
         _adminRoot.Children.Add(_adminList);
     }

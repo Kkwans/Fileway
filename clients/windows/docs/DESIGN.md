@@ -306,6 +306,7 @@ components:
 - 压缩包查看器：列表上方必须有 12px 次要色“名称 / 大小”列头，名称左内边距 58 DIP、大小右内边距 25 DIP，与条目列对齐；空目录隐藏列头。
 - 文本查看器空文件：内容长度为 0 且非编辑时显示居中空状态（72px 圆角图标容器 + 20px 标题 + 13px/20 说明），不得只显示一块空白编辑框；进入编辑后隐藏，保存或取消后按内容重新判断。
 - 设置类对话框：内容滚动区高度必须给对话框上下留出边距（缓存与存储使用 `DialogOrdering.ContentMaxHeight(this, 520)`，1200×900 下约 360 DIP），不得让对话框贴住窗口边缘或被裁切；关闭/保存按钮固定底部。高内容弹窗用同一助手按窗口高度自适应（预留 240 DIP，下限 240 DIP），不要写死超过窗口可用高度的值。可编辑设置必须排在只读诊断之前，保证 900px 高窗口打开即可修改缓存根目录/容量/下载目录。
+- 存储工具/设置类页面表单：说明 + 输入 + 主操作使用 `FwFormCardStyle`（`FwSurfaceBrush` + 1px `FwStrokeBrush` + 10px 圆角 + 16px 内边距）卡片，卡片最大 720 DIP、左侧对齐；说明文字 13px 次级色，路径输入框在卡内横向填充，分析结果与用户列表保留在卡外全宽。主题画刷不得在构造函数里用 `Application.Current.Resources[...]` 取值（会拿到浅色实例，深色下出现白卡、白字输入框不可见）；必须通过 XAML 样式中的 `ThemeResource` 声明（0.8.93 实测浅/深色）。
 - 弹层：菜单/Flyout 使用亚克力背景（App.xaml 的 `FlyoutBackground`/`MenuFlyoutPresenterBackground`），ContentDialog 使用 `FwPanelBrush` + 1px `FwStrokeStrongBrush`；ToolTip 圆角 8、内边距 10×6、12px 字号、最大宽度 360，与菜单保持同一套浮层语言。ToolTip 的三色使用应用自有可变画刷（`FwToolTipBackgroundBrush`/`FwToolTipBorderBrush`/`FwToolTipForegroundBrush`，`StaticResource` 注入，运行时随应用主题更新），因为 ToolTip 的 popup 会按系统主题解析 `ThemeResource`，不能直接用它取 `FwPanelBrush`。
 - 工具栏不保留原生 `CommandBar` 容器、溢出菜单或 `AppBarButton`：主浏览筛选栏使用 `ContentControl` + `StackPanel`，更多操作一律使用自绘图标按钮 + `MenuFlyout`，与文件任务、文件浏览、缓存设置保持一致。
 - 共享控件样式（`LayoutChoiceStyle` 等）必须放在应用级 `Styles/Design.xaml`；页面级资源无法被独立 `UserControl` 解析，会在启动时抛 XAML 异常。
@@ -331,6 +332,7 @@ components:
 - [x] 回收站详情浮窗已收敛（0.8.90）：真实移入/详情/恢复流程；前后实拍 `20261031-ui0890/screens/trash-before/`、`trash-after/`，浮窗高度 588→528 物理像素，信息层级与文件详情一致。
 - [x] 传输任务详情已收敛（0.8.91）：真实下载记录打开“文件下载”详情，操作按钮改为应用次按钮、确认取消为主按钮，状态卡/确认卡改用应用表面与描边；前后实拍 `20261031-ui0891/screens/before/`、`screens/after2/`。上传详情同构修复，因夹具无真实上传记录未单独截图。
 - [x] 分段选择器选中态已收敛（0.8.92）：`LayoutChoiceStyle` 改为独立 `SelectionFill` + `IsChecked` 绑定，修复切换后旧项残留蓝底与悬停盖住选中色；存储工具/传输中心/文件任务实拍与 UIA `ToggleState` 复核见 `20261031-ui0892/screens/final-tabs2/`，修复前对照见 `20261031-ui0891/screens/audit-0892/`。
+- [x] 存储工具表单已卡片化（0.8.93）：三个子页说明与表单收进 `FwFormCardStyle` 卡片，说明 13px 次级、最大 720 DIP；结果/用户列表保持全宽。浅/深色实拍 `20261031-ui0893/screens/final2-light/`、`final2-dark/`；同批补验 0.8.92 分段选择器深色正常。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
