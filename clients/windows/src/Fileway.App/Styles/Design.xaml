@@ -79,6 +79,8 @@
   <SolidColorBrush x:Key="FwToolTipBorderBrush" Color="#29000000" />
   <SolidColorBrush x:Key="FwToolTipForegroundBrush" Color="#FF1B1F24" />
 
+  <ctl:FwBoolToVisibilityConverter x:Key="FwBoolToVisibilityConverter" />
+
   <!-- ===== Typography ===== -->
   <Style x:Key="FwDisplayTextStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="28" />
@@ -1004,7 +1006,7 @@
         </VisualStateGroup>
         <VisualStateGroup x:Name="CheckStates">
          <VisualState x:Name="Unchecked"/>
-         <VisualState x:Name="Checked"><Storyboard><ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background"><DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}"/></ObjectAnimationUsingKeyFrames></Storyboard></VisualState>
+         <VisualState x:Name="Checked"/>
          <VisualState x:Name="Indeterminate"/>
         </VisualStateGroup>
         <VisualStateGroup x:Name="FocusStates">
@@ -1013,6 +1015,9 @@
          <VisualState x:Name="Focused"><Storyboard><ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility"><DiscreteObjectKeyFrame KeyTime="0" Value="Visible"/></ObjectAnimationUsingKeyFrames><ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility"><DiscreteObjectKeyFrame KeyTime="0" Value="Visible"/></ObjectAnimationUsingKeyFrames></Storyboard></VisualState>
         </VisualStateGroup>
        </VisualStateManager.VisualStateGroups>
+       <Border x:Name="SelectionFill" Background="{ThemeResource FwSelectionBrush}"
+               CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False"
+               Visibility="{Binding IsChecked, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource FwBoolToVisibilityConverter}}" />
        <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
                          Padding="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
        <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"

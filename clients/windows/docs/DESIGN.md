@@ -292,6 +292,7 @@ components:
 - 对话框排序：`Controls/DialogOrdering.cs`，由 ContentDialog 隐式样式自动启用。动作按钮可能被包裹，且对话框内容（如 InfoBar）也可能含同名 `CloseButton`；必须先在 `CommandSpace` 动作面板内解析 Primary/Secondary/Close，再交换共同容器中的直接子元素或 Grid 列，不得按整棵视觉树按名字查找。高内容对话框的滚动区统一 `DialogOrdering.ContentMaxHeight(anchor, preferred)`，不得写死 400/480；批量下载确认框与下载另存为的文件项使用“名称 · 大小”13px 主色 + 目标路径 12px 次级，并按“将添加/未添加”分组，文件项与失败项不得使用同一视觉层级；对话框打开期间收起“正在核对下载目标”浮条。
 - 文件写入类代码对话框（新建文件夹/空文件、单个重命名、批量重命名、移动到/复制到）：输入框统一 `FwTextBoxStyle`，说明/校验统一 12px 次级色；批量重命名给出命名规则提示，列表与确认摘要用 `DialogOrdering.ContentMaxHeight` 自适应；主按钮文案按动作使用“创建/重命名/预览/提交任务”，不得统一成“确定”。
 - 工具栏选择器：排序/类型/视图统一使用 `DropDownButton` + `FilewaySelectorButtonStyle`（左对齐、12px 内边距），菜单项用 `LayoutChoiceStyle`；单选项选中后收起菜单。不要再让原生 `ComboBox` 承载工具栏选择器（其选中文本带原生内缩）。
+- 分段选择器（`LayoutChoiceStyle`）：选中态必须画在独立的 `SelectionFill` 层，并通过 `FwBoolToVisibilityConverter` 绑定 `IsChecked` 控制显隐；不得在 `Checked` 视觉状态里改写 `Root.Background`。同一属性同时承载选中与悬停会出现两个缺陷：取消选中后旧项残留选中底色（UIA `ToggleState` 已为 Off 仍显示蓝底），以及悬停时选中色被盖住（0.8.92 实拍复核）。
 - 侧栏空提示使用完整短句；文案换行后不得只剩 1–2 个字（标签空提示主动断为“尚无标签。/ 选中资源后可直接标记。”两行）。
 - 空状态：居中 72px 圆角图标容器（`FwSurfaceBrush` + 1px `FwStrokeBrush`）、20px 标题、13px/20 行高说明；兜底“重新加载”使用 `FwSecondaryButtonStyle`，不得使用系统默认按钮。空列表同时隐藏列头。所有页面空状态必须有标题 + 说明两层，文案不得出现“暂无 文件任务”这类多余空格。
 - 页面头部操作：标题右侧的图标按钮统一 36×36（回收站恢复/刷新、最近访问刷新、传输中心刷新、收藏与标签的返回/刷新/收藏/标签/更多等），不得使用 34 或其他零散尺寸；标题 22px、说明 12px、标题块间距 4。
@@ -329,6 +330,7 @@ components:
 - [x] 文件写入类对话框已收敛（0.8.89）：新建/重命名（`20261031-ui0889/screens/before/`、`after/`）、批量重命名与“移动到”同目录实拍；输入框/说明/主按钮文案统一。
 - [x] 回收站详情浮窗已收敛（0.8.90）：真实移入/详情/恢复流程；前后实拍 `20261031-ui0890/screens/trash-before/`、`trash-after/`，浮窗高度 588→528 物理像素，信息层级与文件详情一致。
 - [x] 传输任务详情已收敛（0.8.91）：真实下载记录打开“文件下载”详情，操作按钮改为应用次按钮、确认取消为主按钮，状态卡/确认卡改用应用表面与描边；前后实拍 `20261031-ui0891/screens/before/`、`screens/after2/`。上传详情同构修复，因夹具无真实上传记录未单独截图。
+- [x] 分段选择器选中态已收敛（0.8.92）：`LayoutChoiceStyle` 改为独立 `SelectionFill` + `IsChecked` 绑定，修复切换后旧项残留蓝底与悬停盖住选中色；存储工具/传输中心/文件任务实拍与 UIA `ToggleState` 复核见 `20261031-ui0892/screens/final-tabs2/`，修复前对照见 `20261031-ui0891/screens/audit-0892/`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
