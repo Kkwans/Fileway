@@ -161,6 +161,9 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             NoticeHistoryButton.IsEnabled = RelatedHistoryButton.IsEnabled = Active && _historyService is not null && !Busy;
             UpdateCounts(); UpdateNotice(); RenderDetails(); UpdateCommands(); UpdateLayoutState();
             int count = _historyMode ? _operations.Count : _tasks.Count;
+            ListHeaders.Visibility = count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            ListHeaderTitle.Text = _historyMode ? "操作" : "任务";
+            ListHeaderTime.Text = _historyMode ? "时间" : "创建时间";
             EmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
             EmptyTitle.Text = Busy ? "正在读取服务器记录" : !Active ? "连接后查看 文件任务" :
                 _historyMode ? "暂无任务操作记录" : "暂无匹配的 文件任务";
