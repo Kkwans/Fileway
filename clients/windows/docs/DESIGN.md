@@ -296,6 +296,7 @@ components:
 - 传输中心：文件夹批次以批次卡片成组（32px 文件夹图标底、批次名、聚合进度、“x/y 已完成”、文件数与总大小），组内文件行左缩进 24px 且仍可点开单个任务详情；批次行只做汇总，不承载暂停/删除等任务操作。行内指标（速度/剩余/耗时）为空时必须折叠该行，不得为上传等无指标任务预留空白行。
 - CSV 表格视图：列宽按查看器内容宽度除以列数自适应，限制 140–220 DIP；表头与数据行共用列宽。小表不得因固定 220 DIP 列宽横向溢出而裁掉末列，宽表仍允许横向滚动。
 - 压缩包查看器：列表上方必须有 12px 次要色“名称 / 大小”列头，名称左内边距 58 DIP、大小右内边距 25 DIP，与条目列对齐；空目录隐藏列头。
+- 文本查看器空文件：内容长度为 0 且非编辑时显示居中空状态（72px 圆角图标容器 + 20px 标题 + 13px/20 说明），不得只显示一块空白编辑框；进入编辑后隐藏，保存或取消后按内容重新判断。
 - 弹层：菜单/Flyout 使用亚克力背景（App.xaml 的 `FlyoutBackground`/`MenuFlyoutPresenterBackground`），ContentDialog 使用 `FwPanelBrush` + 1px `FwStrokeStrongBrush`；ToolTip 圆角 8、内边距 10×6、12px 字号、最大宽度 360，与菜单保持同一套浮层语言。ToolTip 的三色使用应用自有可变画刷（`FwToolTipBackgroundBrush`/`FwToolTipBorderBrush`/`FwToolTipForegroundBrush`，`StaticResource` 注入，运行时随应用主题更新），因为 ToolTip 的 popup 会按系统主题解析 `ThemeResource`，不能直接用它取 `FwPanelBrush`。
 - 工具栏不保留原生 `CommandBar` 容器、溢出菜单或 `AppBarButton`：主浏览筛选栏使用 `ContentControl` + `StackPanel`，更多操作一律使用自绘图标按钮 + `MenuFlyout`，与文件任务、文件浏览、缓存设置保持一致。
 - 共享控件样式（`LayoutChoiceStyle` 等）必须放在应用级 `Styles/Design.xaml`；页面级资源无法被独立 `UserControl` 解析，会在启动时抛 XAML 异常。

@@ -52,6 +52,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private readonly Grid _editor = new();
     private readonly Grid _content = new();
     private readonly Border _textFrame;
+    private readonly Border _emptyState;
     private readonly ProgressRing _loading = new() { IsActive = false, Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
     private readonly Border _toolbar;
     private readonly Border _banner;
@@ -163,6 +164,17 @@ public sealed class TextWindow : Window, IAsyncDisposable
         renderColumn.Children.Add(_renderHost);
         _editor.Children.Add(_renderScroll);
         _editor.Children.Add(_tableScroll);
+        var emptyPanel = new StackPanel { Spacing = 14, MaxWidth = 420, Margin = new Thickness(12), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        emptyPanel.Children.Add(new Border
+        {
+            Width = 72, Height = 72, CornerRadius = new CornerRadius(20), Background = Brush(31, 33, 38),
+            BorderBrush = Brush(255, 255, 255, 31), BorderThickness = new Thickness(1),
+            Child = new LucideIcon { IconName = "file", Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush(168, 174, 184) },
+        });
+        emptyPanel.Children.Add(new TextBlock { Text = "文件为空", FontSize = 20, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center, Foreground = Brush(238, 240, 243) });
+        emptyPanel.Children.Add(new TextBlock { Text = "这个文件没有可显示的内容。", FontSize = 13, LineHeight = 20, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Foreground = Brush(168, 174, 184) });
+        _emptyState = new Border { Child = emptyPanel, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+        _editor.Children.Add(_emptyState);
         _editor.Children.Add(_loading);
         Grid.SetRow(_editor, 2);
         _root.Children.Add(_editor);
@@ -389,6 +401,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         }
         _editing = true;
         _dirty = false;
+        _emptyState.Visibility = Visibility.Collapsed;
         _text.IsReadOnly = false;
         // Editing happens in plain text; rendering/table projections are suspended.
         _textFrame.Visibility = Visibility.Visible;
@@ -467,6 +480,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private void ApplyViewMode()
     {
         if (_editing) return;
+        _emptyState.Visibility = _rawText.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (_isTable && _showTable && _grid is { } grid)
         {
             _textFrame.Visibility = Visibility.Collapsed;
