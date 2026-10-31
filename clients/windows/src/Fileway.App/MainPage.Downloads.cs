@@ -389,7 +389,7 @@ public sealed partial class MainPage
         if (_latestDownload is not { } item || !IsCurrentDownloadContext(item.Context)) { DownloadNotice.IsOpen = false; return; }
         DownloadNotice.Title = DownloadPolicy.Stage(item);
         ShowToast(DownloadNotice, item.Snapshot.Task.Id.ToString() + DownloadNotice.Title);
-        DownloadNotice.Message = $"{item.Name} · {DownloadPolicy.Progress(item).ActivityText}";
+        DownloadNotice.Message = $"{item.Name}\n{DownloadPolicy.Progress(item).ActivityText}";
         DownloadNotice.Severity = DownloadPolicy.Tone(item) switch
         {
             DownloadPresentationTone.Success => InfoBarSeverity.Success,
@@ -425,9 +425,16 @@ public sealed partial class MainPage
             try { await RunDownloadControlAsync(task, cancel: false); }
             finally { deferral.Complete(); }
         };
-        RenderDownloadDetails();
+        RenderDownloadNotice(); RenderDownloadDetails();
         try { await ShowBrowserDialogAsync(dialog); }
-        finally { if (ReferenceEquals(_downloadDialog, dialog)) { _downloadDialog = null; _downloadDetails = null; _downloadDetailTask = null; } }
+        finally
+        {
+            if (ReferenceEquals(_downloadDialog, dialog))
+            {
+                _downloadDialog = null; _downloadDetails = null; _downloadDetailTask = null;
+                ResetToast(DownloadNotice); RenderDownloadNotice();
+            }
+        }
     }
 
     private void RenderDownloadDetails()
@@ -449,11 +456,12 @@ public sealed partial class MainPage
         view.Retry.Visibility = DownloadPolicy.CanRetryFresh(item) ? Visibility.Visible : Visibility.Collapsed;
         view.Retry.IsEnabled = !_downloadOperationBusy;
         var cancel = DownloadPolicy.CanCancel(item);
-        view.Cancel.Visibility = cancel ? Visibility.Visible : Visibility.Collapsed;
-        view.ConfirmCancel.IsEnabled = cancel && !_downloadOperationBusy;
         if (!cancel) view.CancelConfirmation.Visibility = Visibility.Collapsed;
         var confirmingCancel = view.CancelConfirmation.Visibility == Visibility.Visible;
-        view.Cancel.IsEnabled = cancel && !_downloadOperationBusy && !confirmingCancel;
+        view.Cancel.Visibility = cancel && !confirmingCancel ? Visibility.Visible : Visibility.Collapsed;
+        view.Cancel.IsEnabled = cancel && !_downloadOperationBusy;
+        view.Keep.IsEnabled = !_downloadOperationBusy;
+        view.ConfirmCancel.IsEnabled = cancel && !_downloadOperationBusy;
         dialog.PrimaryButtonText = confirmingCancel ? string.Empty : DownloadPolicy.PrimaryLabel(item);
         dialog.IsPrimaryButtonEnabled = !confirmingCancel && !_downloadOperationBusy && DownloadPolicy.CanReconcile(item);
     }

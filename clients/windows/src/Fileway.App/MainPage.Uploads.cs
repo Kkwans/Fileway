@@ -492,6 +492,7 @@ public sealed partial class MainPage
     private void RenderUploadNotice()
     {
         if (UploadNotice is null) return;
+        if (_uploadDialog is not null) { UploadNotice.IsOpen = false; return; }
         if (_uploadErrorMessage is { } message && ActiveUploadContext is not null)
         {
             UploadNotice.Title = _uploadErrorTitle; UploadNotice.Message = message;
@@ -502,7 +503,7 @@ public sealed partial class MainPage
         if (_latestUpload is not { } item || !IsCurrentUploadContext(item.Context)) { UploadNotice.IsOpen = false; return; }
         UploadNotice.Title = UploadItemStatusLabel(item);
         ShowToast(UploadNotice, item.Snapshot.Task.Id.ToString() + UploadNotice.Title);
-        UploadNotice.Message = $"{item.Name} · {ConfirmedBytesLabel(item)}";
+        UploadNotice.Message = $"{item.Name}\n{ConfirmedBytesLabel(item)}";
         UploadNotice.Severity = Tone(item) switch
         {
             UploadPresentationTone.Success => InfoBarSeverity.Success,
@@ -540,11 +541,15 @@ public sealed partial class MainPage
             }
             finally { deferral.Complete(); }
         };
-        RenderUploadDetails();
+        RenderUploadNotice(); RenderUploadDetails();
         try { await ShowBrowserDialogAsync(dialog); }
         finally
         {
-            if (ReferenceEquals(_uploadDialog, dialog)) { _uploadDialog = null; _uploadDetails = null; _uploadDetailTask = null; }
+            if (ReferenceEquals(_uploadDialog, dialog))
+            {
+                _uploadDialog = null; _uploadDetails = null; _uploadDetailTask = null;
+                ResetToast(UploadNotice); RenderUploadNotice();
+            }
         }
     }
 
@@ -560,11 +565,13 @@ public sealed partial class MainPage
         view.Progress.IsIndeterminate = progress.IsIndeterminate;
         view.Progress.Value = progress.Value;
         view.Detail.Text = _uploadErrorMessage ?? UploadDetailLabel(item);
-        view.Cancel.Visibility = CanCancelUpload(item.Status) ? Visibility.Visible : Visibility.Collapsed;
-        view.ConfirmCancel.IsEnabled = CanCancelUpload(item.Status) && !_uploadCommandBusy;
-        if (!CanCancelUpload(item.Status)) view.CancelConfirmation.Visibility = Visibility.Collapsed;
+        var cancel = CanCancelUpload(item.Status);
+        if (!cancel) view.CancelConfirmation.Visibility = Visibility.Collapsed;
         var confirmingCancel = view.CancelConfirmation.Visibility == Visibility.Visible;
-        view.Cancel.IsEnabled = CanCancelUpload(item.Status) && !_uploadCommandBusy && !confirmingCancel;
+        view.Cancel.Visibility = cancel && !confirmingCancel ? Visibility.Visible : Visibility.Collapsed;
+        view.Cancel.IsEnabled = cancel && !_uploadCommandBusy;
+        view.Keep.IsEnabled = !_uploadCommandBusy;
+        view.ConfirmCancel.IsEnabled = cancel && !_uploadCommandBusy;
         dialog.PrimaryButtonText = confirmingCancel ? string.Empty : PrimaryButtonLabel(item);
         dialog.IsPrimaryButtonEnabled = !confirmingCancel && !_uploadCommandBusy && CanUsePrimary(item, _session?.Permissions.Create == true);
     }

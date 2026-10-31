@@ -78,6 +78,13 @@ public sealed partial class MainPage
         _toasts[bar] = (state.Timer, key);
     }
 
+    private void ResetToast(InfoBar bar)
+    {
+        if (!_toasts.TryGetValue(bar, out var state)) return;
+        state.Timer.Stop();
+        _toasts[bar] = (state.Timer, "");
+    }
+
     private void DisposePresentation()
     {
         _detailsPopup?.Dispose(); _detailsPopup = null;
