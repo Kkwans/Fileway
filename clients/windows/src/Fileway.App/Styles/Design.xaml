@@ -539,7 +539,7 @@
     <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
     <Setter Property="FontSize" Value="14" />
     <Setter Property="MinHeight" Value="32" />
-    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="CheckBox">
@@ -595,6 +595,20 @@
                   </Storyboard>
                 </VisualState>
               </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused" />
+                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
             </VisualStateManager.VisualStateGroups>
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <Grid Width="20" Height="20" VerticalAlignment="Center">
@@ -614,6 +628,10 @@
                                 FontWeight="{TemplateBinding FontWeight}" VerticalAlignment="Center"
                                 AutomationProperties.AccessibilityView="Raw" />
             </StackPanel>
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="6" Margin="-4" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                    CornerRadius="6" Margin="-2" Visibility="Collapsed" IsHitTestVisible="False" />
           </Grid>
         </ControlTemplate>
       </Setter.Value>
