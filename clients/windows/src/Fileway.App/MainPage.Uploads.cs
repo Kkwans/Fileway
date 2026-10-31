@@ -1,9 +1,9 @@
 using Fileway.Core.Contracts;
+using Microsoft.Windows.Storage.Pickers;
 using static Fileway.App.UploadPresentationPolicy;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
-using Microsoft.Windows.Storage.Pickers;
 
 namespace Fileway.App;
 
@@ -89,15 +89,28 @@ public sealed partial class MainPage
         _uploadPickerOpen = true; UpdateUploadContext();
         try
         {
-            var picker = new FileOpenPicker(_uploadOwner)
+            string filePath;
+            try
             {
-                Title = "选择要上传的文件", CommitButtonText = "选择文件",
-                SuggestedStartLocation = PickerLocationId.DocumentsLibrary, ViewMode = PickerViewMode.List,
-            };
-            picker.FileTypeFilter.Add("*");
-            var file = await picker.PickSingleFileAsync().AsTask(_lifetime.Token);
-            if (file is null || !CurrentDestination()) return;
-            var name = Path.GetFileName(file.Path);
+                var picker = new Windows.Storage.Pickers.FileOpenPicker
+                {
+                    CommitButtonText = "选择文件",
+                    SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+                    ViewMode = Windows.Storage.Pickers.PickerViewMode.List,
+                };
+                WinRT.Interop.InitializeWithWindow.Initialize(picker, Microsoft.UI.Win32Interop.GetWindowFromWindowId(_uploadOwner));
+                picker.FileTypeFilter.Add("*");
+                var file = await picker.PickSingleFileAsync().AsTask(_lifetime.Token);
+                if (file is null || !CurrentDestination()) return;
+                filePath = file.Path;
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception)
+            {
+                if (CurrentDestination()) ShowUploadMessage("无法打开文件选择器", "文件选择器未能打开。请重试，或把文件拖入窗口上传。");
+                return;
+            }
+            var name = Path.GetFileName(filePath);
             var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
             content.Children.Add(new TextBlock { Text = name, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
             content.Children.Add(new TextBlock { Text = $"上传到：{parent.DisplayPath}", TextWrapping = TextWrapping.Wrap });
@@ -110,7 +123,7 @@ public sealed partial class MainPage
             if (confirmed != ContentDialogResult.Primary || !CurrentDestination()) return;
             _uploadErrorTitle = _uploadErrorMessage = null;
             _uploadCommandBusy = true; UpdateUploadContext();
-            var item = await service.SubmitAsync(new UploadSubmission(Guid.NewGuid(), context, parent, file.Path), _lifetime.Token);
+            var item = await service.SubmitAsync(new UploadSubmission(Guid.NewGuid(), context, parent, filePath), _lifetime.Token);
             if (!IsCurrentUploadContext(context)) return;
             _uploadOrigins[item.Snapshot.Task] = new UploadOrigin(session, parent, generation);
             AcceptUploadItem(item);
@@ -142,16 +155,29 @@ public sealed partial class MainPage
         _uploadPickerOpen = true; UpdateUploadContext();
         try
         {
-            var picker = new FolderPicker(_uploadOwner)
+            string folderPath;
+            try
             {
-                Title = "选择要上传的文件夹", CommitButtonText = "选择文件夹",
-                SuggestedStartLocation = PickerLocationId.DocumentsLibrary,
-            };
-            var folder = await picker.PickSingleFolderAsync().AsTask(_lifetime.Token);
-            if (folder is null || !CurrentDestination()) return;
-            var (files, failures, truncated) = EnumerateLocalUploadTree(folder.Path, MaximumUploadTreeFiles);
+                var picker = new Windows.Storage.Pickers.FolderPicker
+                {
+                    CommitButtonText = "选择文件夹",
+                    SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.DocumentsLibrary,
+                };
+                WinRT.Interop.InitializeWithWindow.Initialize(picker, Microsoft.UI.Win32Interop.GetWindowFromWindowId(_uploadOwner));
+                picker.FileTypeFilter.Add("*");
+                var folder = await picker.PickSingleFolderAsync().AsTask(_lifetime.Token);
+                if (folder is null || !CurrentDestination()) return;
+                folderPath = folder.Path;
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception)
+            {
+                if (CurrentDestination()) ShowUploadMessage("无法打开文件夹选择器", "文件夹选择器未能打开。请重试，或把文件夹拖入窗口上传。");
+                return;
+            }
+            var (files, failures, truncated) = EnumerateLocalUploadTree(folderPath, MaximumUploadTreeFiles);
             await SubmitUploadTreeAsync(service, context, session, parent, generation, viewGeneration,
-                Path.GetFileName(folder.Path.TrimEnd('\\')), files, failures, truncated);
+                Path.GetFileName(folderPath.TrimEnd('\\')), files, failures, truncated);
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
@@ -572,6 +598,12 @@ public sealed partial class MainPage
         RenderUploadNotice(); RenderUploadDetails();
     }
 
+    private void ShowUploadMessage(string title, string message)
+    {
+        _uploadErrorTitle = title; _uploadErrorMessage = message;
+        RenderUploadNotice(); RenderUploadDetails();
+    }
+
     private sealed record UploadOrigin(ConnectionSession Session, RemoteResourceRef Parent, long Generation);
 
     // Theme resources are resolved by WinUI; the view never controls execution on dismissal.
@@ -580,7 +612,7 @@ public sealed partial class MainPage
         public StackPanel Content { get; } = (StackPanel)XamlReader.Load("""
             <StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Spacing="16" MinWidth="320" MaxWidth="440">
               <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4"/><TextBlock x:Name="Confirmed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
+              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2"/></Border><TextBlock x:Name="Confirmed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
               <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
               <Button x:Name="Cancel" Content="取消上传…" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}"/>
               <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"><StackPanel Spacing="10"><TextBlock Text="确认取消这个上传？已传输的数据需要由服务器核实并清理；取消请求不代表远端已取消。" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Keep" Content="继续上传" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="ConfirmCancel" Content="确认取消" Style="{StaticResource FwPrimaryButtonStyle}"/></StackPanel></StackPanel></Border>
