@@ -349,6 +349,7 @@ public sealed partial class MainPage
     private void RenderDownloadNotice()
     {
         if (DownloadNotice is null) return;
+        if (_downloadDialog is not null) { DownloadNotice.IsOpen = false; return; }
         if (_downloadErrorMessage is { } error && ActiveDownloadContext is not null)
         {
             DownloadNotice.Title = _downloadErrorTitle; DownloadNotice.Message = error;

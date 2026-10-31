@@ -1,6 +1,7 @@
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 
 namespace Fileway.App;
 
@@ -97,24 +98,43 @@ public sealed partial class MainPage
             }
             if (!Current()) return;
             int addable = previews.Count + treeDrafts.Count;
+            var secondary = (Brush)Application.Current.Resources["FwTextSecondaryBrush"];
             var panel = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 480 };
-            panel.Children.Add(new TextBlock { Text = $"可添加 {addable} 个文件 · {DownloadPresentationPolicy.FormatBytes(total)}", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-            panel.Children.Add(new TextBlock { Text = "按顺序下载到已生效的默认目录；同名文件保留并报告冲突。" + (treeDrafts.Count > 0 ? " 目录内容会保留相对结构，非法名称已映射。" : ""), TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-            if (truncated) panel.Children.Add(new TextBlock { Text = "枚举达到上限，仅包含前列条目；请选择更具体的子目录分批下载。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+            var heading = new StackPanel { Spacing = 4 };
+            heading.Children.Add(new TextBlock { Text = $"可添加 {addable} 个文件 · {DownloadPresentationPolicy.FormatBytes(total)}", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            heading.Children.Add(new TextBlock { Text = "按顺序下载到已生效的默认目录；同名文件保留并报告冲突。" + (treeDrafts.Count > 0 ? " 目录内容会保留相对结构，非法名称已映射。" : ""), TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = secondary });
+            panel.Children.Add(heading);
+            if (truncated) panel.Children.Add(new TextBlock { Text = "枚举达到上限，仅包含前列条目；请选择更具体的子目录分批下载。", TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = secondary });
             if (previews.Count + treeDrafts.Count + failures.Count < files.Length + treeEntries.Count)
-                panel.Children.Add(new TextBlock { Text = "另有部分条目未完成预检，本次不会添加。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-            foreach (var preview in previews.Take(12))
-                panel.Children.Add(new TextBlock { Text = preview.Name + " · " + DownloadPresentationPolicy.FormatBytes(preview.TotalBytes) + "\n" + preview.DestinationDisplayPath, TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-            foreach (var preview in treeDrafts.Take(24))
-                panel.Children.Add(new TextBlock { Text = preview.Name + " · " + DownloadPresentationPolicy.FormatBytes(preview.TotalBytes) + "\n" + preview.DestinationDisplayPath, TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-            int hidden = Math.Max(0, previews.Count - 12) + Math.Max(0, treeDrafts.Count - 24);
-            if (hidden > 0) panel.Children.Add(new TextBlock { Text = $"其余 {hidden} 个文件略。", FontSize = 12 });
-            foreach (var failure in failures.Take(12))
-                panel.Children.Add(new TextBlock { Text = failure, TextWrapping = TextWrapping.Wrap, FontSize = 12 });
-            if (failures.Count > 12) panel.Children.Add(new TextBlock { Text = $"另有 {failures.Count - 12} 条失败/跳过项未列出。", FontSize = 12 });
+                panel.Children.Add(new TextBlock { Text = "另有部分条目未完成预检，本次不会添加。", TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = secondary });
+            if (addable > 0)
+            {
+                panel.Children.Add(new TextBlock { Text = $"将添加 {addable} 项", FontSize = 12, Foreground = secondary });
+                var entries = new StackPanel { Spacing = 10 };
+                foreach (var preview in previews.Take(12).Concat(treeDrafts.Take(24)))
+                {
+                    var entry = new StackPanel { Spacing = 2 };
+                    entry.Children.Add(new TextBlock { Text = preview.Name + " · " + DownloadPresentationPolicy.FormatBytes(preview.TotalBytes), FontSize = 13, TextWrapping = TextWrapping.Wrap });
+                    entry.Children.Add(new TextBlock { Text = preview.DestinationDisplayPath, FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = secondary, IsTextSelectionEnabled = true });
+                    entries.Children.Add(entry);
+                }
+                int hidden = Math.Max(0, previews.Count - 12) + Math.Max(0, treeDrafts.Count - 24);
+                if (hidden > 0) entries.Children.Add(new TextBlock { Text = $"其余 {hidden} 个文件略。", FontSize = 12, Foreground = secondary });
+                panel.Children.Add(entries);
+            }
+            if (failures.Count > 0)
+            {
+                panel.Children.Add(new TextBlock { Text = $"未添加 {failures.Count} 项", FontSize = 12, Foreground = secondary });
+                var failuresPanel = new StackPanel { Spacing = 8 };
+                foreach (var failure in failures.Take(12))
+                    failuresPanel.Children.Add(new TextBlock { Text = failure, TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = secondary, IsTextSelectionEnabled = true });
+                if (failures.Count > 12) failuresPanel.Children.Add(new TextBlock { Text = $"另有 {failures.Count - 12} 条失败/跳过项未列出。", FontSize = 12, Foreground = secondary });
+                panel.Children.Add(failuresPanel);
+            }
             var confirm = new ContentDialog { Title = "确认批量下载", PrimaryButtonText = "添加到下载队列", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None,
-                IsPrimaryButtonEnabled = addable > 0, Content = new ScrollViewer { Content = panel, MaxHeight = 400, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
+                IsPrimaryButtonEnabled = addable > 0, Content = new ScrollViewer { Content = panel, MaxHeight = Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 400), VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
             _downloadDialog = confirm;
+            DownloadNotice.IsOpen = false;
             ContentDialogResult choice;
             try { choice = await ShowBrowserDialogAsync(confirm); }
             finally { if (ReferenceEquals(_downloadDialog, confirm)) _downloadDialog = null; }

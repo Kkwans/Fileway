@@ -288,7 +288,7 @@ components:
 
 - 令牌与控件样式：`clients/windows/src/Fileway.App/Styles/Design.xaml`（`FwCanvasBrush`、`FwSurfaceBrush`、`FwGlassBrush`、`FwPrimaryButtonStyle`、`FwIconButtonStyle`、`FwActionTileStyle`、`FwPillStyle` 等）。
 - 查看器外壳：`Controls/ViewerChrome.cs`（顶部条、底部胶囊、自动隐藏、加载/错误层）。
-- 对话框排序：`Controls/DialogOrdering.cs`，由 ContentDialog 隐式样式自动启用。
+- 对话框排序：`Controls/DialogOrdering.cs`，由 ContentDialog 隐式样式自动启用。高内容对话框的滚动区统一 `DialogOrdering.ContentMaxHeight(anchor, preferred)`，不得写死 400/480；批量下载确认框的文件项使用“名称 · 大小”13px 主色 + 目标路径 12px 次级，并按“将添加/未添加”分组，文件项与失败项不得使用同一视觉层级；对话框打开期间收起“正在核对下载目标”浮条。
 - 工具栏选择器：排序/类型/视图统一使用 `DropDownButton` + `FilewaySelectorButtonStyle`（左对齐、12px 内边距），菜单项用 `LayoutChoiceStyle`；单选项选中后收起菜单。不要再让原生 `ComboBox` 承载工具栏选择器（其选中文本带原生内缩）。
 - 侧栏空提示使用完整短句；文案换行后不得只剩 1–2 个字（标签空提示主动断为“尚无标签。/ 选中资源后可直接标记。”两行）。
 - 空状态：居中 72px 圆角图标容器（`FwSurfaceBrush` + 1px `FwStrokeBrush`）、20px 标题、13px/20 行高说明；兜底“重新加载”使用 `FwSecondaryButtonStyle`，不得使用系统默认按钮。空列表同时隐藏列头。所有页面空状态必须有标题 + 说明两层，文案不得出现“暂无 文件任务”这类多余空格。
@@ -319,6 +319,7 @@ components:
 - [x] 文本列表排版已收敛（0.8.52）：最近访问/搜索/文件任务/操作记录统一左图标、中主信息、右时间/摘要；浅色与深色截图见 `20261031-ui0852/screens/`。
 - [x] 网格铺满与工具区右边界已收敛（0.8.83）：五种布局按可用宽度分配列宽；1200/1500/1800/2400 实拍与 UIA 边界见 `20261031-ui0883/screens/after/`、`screens/layouts/`；卡片左右外边距各 4 DIP。
 - [x] 回收站列表与列头已收敛（0.8.84）：真实移入/恢复流程截图见 `20261031-ui0884/screens/trash-selected.png`、`trash-empty-after.png`；列头与行内容盒左缘差 1px、日期右缘同为 1741px；主浏览详细列表列头同步左移 9px 对齐。
+- [x] 批量下载确认框已收敛（0.8.85）：`20261031-ui0885/screens/after/` 的 1800×1250 与 1200×900 实拍显示主/次信息分层、分组与按钮完整；`正在核对下载目标` 浮条不再盖在模态框后。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
