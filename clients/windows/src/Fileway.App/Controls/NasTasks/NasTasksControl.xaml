@@ -64,7 +64,7 @@
    <Border x:Name="DetailsPane" Grid.Column="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1,0,0,0" Padding="16,4,0,4">
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
      <StackPanel Spacing="12">
-      <TextBlock x:Name="DetailTitle" Text="任务详情" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
+      <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock x:Name="DetailTitle" Text="任务详情" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><Button x:Name="BackToTasksButton" Grid.Column="1" Content="返回列表" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" Click="BackToTasks_Click" AutomationProperties.Name="返回任务列表"/></Grid>
       <TextBlock x:Name="DetailPlaceholder" Text="选中任务查看服务器状态、进度与可用操作。" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
       <StackPanel x:Name="TaskDetails" Spacing="10" Visibility="Collapsed">
        <TextBlock x:Name="DetailStatus" FontWeight="SemiBold" TextWrapping="Wrap"/>

@@ -431,13 +431,30 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
     private void UpdateLayoutState()
     {
         bool hasDetail = _historyMode ? OperationRecords.SelectedItem is not null : DetailTask is not null;
+        bool fullDetail = _narrow && hasDetail;
+        ListArea.Visibility = fullDetail ? Visibility.Collapsed : Visibility.Visible;
         DetailColumn.Width = _narrow || !hasDetail ? new GridLength(0) : new GridLength(340);
-        DetailRow.Height = _narrow && hasDetail ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
-        Grid.SetColumn(DetailsPane, _narrow ? 0 : 1); Grid.SetRow(DetailsPane, _narrow ? 1 : 0);
+        DetailRow.Height = new GridLength(0);
+        Grid.SetColumn(DetailsPane, _narrow ? 0 : 1); Grid.SetRow(DetailsPane, 0); Grid.SetRowSpan(DetailsPane, 1);
         Grid.SetColumnSpan(ListArea, _narrow ? 2 : 1); Grid.SetColumnSpan(DetailsPane, _narrow ? 2 : 1);
         DetailsPane.Visibility = hasDetail ? Visibility.Visible : Visibility.Collapsed;
-        DetailsPane.BorderThickness = _narrow ? new Thickness(0, 1, 0, 0) : new Thickness(1, 0, 0, 0);
-        DetailsPane.Padding = _narrow ? new Thickness(0, 12, 0, 0) : new Thickness(16, 4, 0, 4);
+        BackToTasksButton.Visibility = fullDetail ? Visibility.Visible : Visibility.Collapsed;
+        DetailsPane.BorderThickness = _narrow ? new Thickness(0) : new Thickness(1, 0, 0, 0);
+        DetailsPane.Padding = _narrow ? new Thickness(0) : new Thickness(16, 4, 0, 4);
+    }
+
+    private void BackToTasks_Click(object sender, RoutedEventArgs e)
+    {
+        _rendering = true;
+        try
+        {
+            if (_historyMode) OperationRecords.SelectedItem = null;
+            else TaskRecords.SelectedItem = null;
+        }
+        finally { _rendering = false; }
+        _detailReference = null; _standaloneDetail = null;
+        RenderDetails();
+        UpdateLayoutState();
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) { SuspendView(); CloseRequested?.Invoke(this, EventArgs.Empty); }
