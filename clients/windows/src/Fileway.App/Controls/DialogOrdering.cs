@@ -16,6 +16,13 @@ public static class DialogOrdering
     public static void SetEnable(DependencyObject element, bool value) => element.SetValue(EnableProperty, value);
     public static bool GetEnable(DependencyObject element) => (bool)element.GetValue(EnableProperty);
 
+    /// <summary>Keeps tall dialog content inside the window with room for title and action buttons.</summary>
+    public static double ContentMaxHeight(FrameworkElement anchor, double preferred, double reserved = 240, double minimum = 240)
+    {
+        var height = anchor.ActualHeight > 0 ? anchor.ActualHeight : anchor.XamlRoot?.Size.Height ?? 0;
+        return height <= 0 ? preferred : Math.Clamp(height - reserved, minimum, preferred);
+    }
+
     private static void OnEnableChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)
     {
         if (element is not ContentDialog dialog || args.NewValue is not true) return;

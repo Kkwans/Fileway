@@ -6,6 +6,8 @@ namespace Fileway.App.Controls;
 
 public sealed partial class KeyboardShortcutsContent : UserControl
 {
+    internal void SetMaxContentHeight(double value) => BodyScroll.MaxHeight = value;
+
     public KeyboardShortcutsContent()
     {
         InitializeComponent();

@@ -165,7 +165,7 @@ public sealed partial class MainPage
         panel.Children.Add(color);
         panel.Children.Add(new TextBlock { Text = "自定义取色会自动生成可读的浅色与深色底色。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Opacity = 0.7 });
         panel.Children.Add(new TextBlock { Text = "修改会立即保存。", FontSize = 12, Opacity = 0.7 });
-        var dialog = new ContentDialog { Title = "交互与外观", CloseButtonText = "完成", Content = new ScrollViewer { Content = panel, MaxHeight = 520, HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
+        var dialog = new ContentDialog { Title = "交互与外观", CloseButtonText = "完成", Content = new ScrollViewer { Content = panel, MaxHeight = Controls.DialogOrdering.ContentMaxHeight(this, 520), HorizontalScrollMode = ScrollMode.Disabled, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled } };
         Fileway.App.Controls.DialogOrdering.FocusCloseButton(dialog);
         _ = ShowBrowserDialogAsync(dialog);
         void Save(Action action) { try { action(); } catch (Exception) { SetNotice("偏好未保存", "请检查当前用户的设置权限。", InfoBarSeverity.Warning); } }

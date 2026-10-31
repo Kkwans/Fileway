@@ -142,10 +142,12 @@ public sealed partial class MainPage
     private async void KeyboardHelp_Click(object sender, RoutedEventArgs args)
     {
         if (_disposed) return;
+        var shortcuts = new Fileway.App.Controls.KeyboardShortcutsContent();
+        shortcuts.SetMaxContentHeight(Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 440));
         await ShowBrowserDialogAsync(new ContentDialog
         {
             Title = "键盘快捷键",
-            Content = new Fileway.App.Controls.KeyboardShortcutsContent(),
+            Content = shortcuts,
             CloseButtonText = "关闭",
         });
     }
