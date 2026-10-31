@@ -23,9 +23,32 @@ public sealed partial class MainWindow : Window, IDisposable
         var scale = NativeVideoWindow.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)) / 96d;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
         var margin = (int)Math.Round(24 * scale);
-        var width = Math.Min((int)Math.Round(1120 * scale), Math.Max(1, work.Width - margin * 2));
-        var height = Math.Min((int)Math.Round(760 * scale), Math.Max(1, work.Height - margin * 2));
-        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(work.X + (work.Width - width) / 2, work.Y + (work.Height - height) / 2, width, height));
+        var defaultWidth = Math.Min((int)Math.Round(1120 * scale), Math.Max(1, work.Width - margin * 2));
+        var defaultHeight = Math.Min((int)Math.Round(760 * scale), Math.Max(1, work.Height - margin * 2));
+        var x = work.X + (work.Width - defaultWidth) / 2;
+        var y = work.Y + (work.Height - defaultHeight) / 2;
+        var width = defaultWidth;
+        var height = defaultHeight;
+        var bounds = UiPreferences.LoadWindowBounds();
+        if (bounds is { Width: >= 800, Height: >= 600 } saved)
+        {
+            try
+            {
+                var area = DisplayArea.GetFromPoint(new Windows.Graphics.PointInt32(saved.X + saved.Width / 2, saved.Y + saved.Height / 2), DisplayAreaFallback.Primary).WorkArea;
+                width = Math.Min(saved.Width, area.Width);
+                height = Math.Min(saved.Height, area.Height);
+                x = Math.Clamp(saved.X, area.X, area.X + area.Width - width);
+                y = Math.Clamp(saved.Y, area.Y, area.Y + area.Height - height);
+            }
+            catch (Exception)
+            {
+                x = work.X + (work.Width - defaultWidth) / 2;
+                y = work.Y + (work.Height - defaultHeight) / 2;
+                width = defaultWidth;
+                height = defaultHeight;
+            }
+        }
+        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, width, height));
         RootFrame.Navigate(typeof(MainPage));
         ((MainPage)RootFrame.Content).AttachTitleBar(AppTitleBar);
         InitializeAppearance();
@@ -59,11 +82,25 @@ public sealed partial class MainWindow : Window, IDisposable
     public Task WaitForConnectionAsync() => ((MainPage)RootFrame.Content).ConnectionCompletion;
     public void ShowStartupError(string message) => ((MainPage)RootFrame.Content).ShowStartupError(message);
     public void ShowFileOpenError(string name, string message) => ((MainPage)RootFrame.Content).ShowFileOpenError(name, message);
-    private void Chrome_CloseRequested(object? sender, EventArgs args) => CloseRequested?.Invoke(this, args);
+    private void SaveWindowBounds()
+    {
+        try
+        {
+            if (AppWindow.Presenter is not OverlappedPresenter { State: OverlappedPresenterState.Restored }) return;
+            var size = AppWindow.Size;
+            if (size.Width < 800 || size.Height < 600) return;
+            var position = AppWindow.Position;
+            UiPreferences.SaveWindowBounds(new WindowBounds(position.X, position.Y, size.Width, size.Height));
+        }
+        catch (Exception) { }
+    }
+
+    private void Chrome_CloseRequested(object? sender, EventArgs args) { SaveWindowBounds(); CloseRequested?.Invoke(this, args); }
     private void Chrome_ExitRequested(object? sender, EventArgs args) => ExitRequested?.Invoke(this, args);
 
     private void MainWindow_Closed(object sender, WindowEventArgs args)
     {
+        SaveWindowBounds();
         var uiThread = _shutdownDispatcher.HasThreadAccess;
         ShutdownDiagnostics.Record(ShutdownDiagnosticStage.MainWindowClosedEntered, uiThread);
         // All content and native resources are released before Close. The
