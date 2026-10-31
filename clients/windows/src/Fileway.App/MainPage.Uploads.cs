@@ -113,8 +113,13 @@ public sealed partial class MainPage
             var name = Path.GetFileName(filePath);
             var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
             content.Children.Add(new TextBlock { Text = name, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-            content.Children.Add(new TextBlock { Text = $"上传到：{parent.DisplayPath}", TextWrapping = TextWrapping.Wrap });
-            content.Children.Add(new TextBlock { Text = "仅上传这个文件。遇到同名项目会停止并报告冲突，不覆盖现有文件。", TextWrapping = TextWrapping.Wrap, FontSize = 12 });
+            var destinationLabel = new TextBlock { Text = "上传到" };
+            destinationLabel.Style = (Style)Application.Current.Resources["FwCaptionTextStyle"];
+            var destinationPath = new TextBlock { Text = parent.DisplayPath, FontSize = 13, TextWrapping = TextWrapping.Wrap };
+            content.Children.Add(new StackPanel { Spacing = 4, Children = { destinationLabel, destinationPath } });
+            var note = new TextBlock { Text = "仅上传这个文件。遇到同名项目会停止并报告冲突，不覆盖现有文件。" };
+            note.Style = (Style)Application.Current.Resources["FwCaptionTextStyle"];
+            content.Children.Add(note);
             var confirm = new ContentDialog { Title = "确认上传目标", Content = content, PrimaryButtonText = "开始上传", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
             _uploadDialog = confirm;
             ContentDialogResult confirmed;
@@ -611,8 +616,8 @@ public sealed partial class MainPage
     {
         public StackPanel Content { get; } = (StackPanel)XamlReader.Load("""
             <StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Spacing="16" MinWidth="320" MaxWidth="440">
-              <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2"/></Border><TextBlock x:Name="Confirmed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
+              <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="上传接收活动进度，完成还需服务器确认与保存"/></Border><TextBlock x:Name="Confirmed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
               <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
               <Button x:Name="Cancel" Content="取消上传…" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}"/>
               <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"><StackPanel Spacing="10"><TextBlock Text="确认取消这个上传？已传输的数据需要由服务器核实并清理；取消请求不代表远端已取消。" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Keep" Content="继续上传" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="ConfirmCancel" Content="确认取消" Style="{StaticResource FwPrimaryButtonStyle}"/></StackPanel></StackPanel></Border>

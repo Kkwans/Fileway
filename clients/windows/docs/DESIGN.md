@@ -304,6 +304,7 @@ components:
 - 收藏/标签：行状态仅在确有附加信息时拼接“ · ”，不得出现“未分组 ·”这类尾部分隔符。
 - 传输中心：文件夹批次以批次卡片成组（32px 文件夹图标底、批次名、聚合进度、“x/y 已完成”、文件数与总大小），组内文件行左缩进 24px 且仍可点开单个任务详情；批次行只做汇总，不承载暂停/删除等任务操作。行内指标（速度/剩余/耗时）为空时必须折叠该行，不得为上传等无指标任务预留空白行。进度条必须放在 6 DIP 圆角中性轨道内（`FwStrokeBrush`），进度控件背景透明、指示条 4 DIP 居中；等待状态要显示完整空轨道，不得让 0% 只剩 1–2px 低对比度细线、100% 却变成文件名下方的强调色长线（0.8.95 修复）。文件上传/下载详情状态卡中的进度条同样使用该轨道（0.8.97）。
 - 文件与文件夹选择器：未打包 WinUI 3 使用 WinRT `Windows.Storage.Pickers.FileOpenPicker`/`FolderPicker`，并通过 `WinRT.Interop.InitializeWithWindow.Initialize(picker, Microsoft.UI.Win32Interop.GetWindowFromWindowId(windowId))` 绑定主窗口；Windows App SDK 的 `Microsoft.Windows.Storage.Pickers` 版本在本机实测抛 `COMException`（接口已为另一线程整理），不得用于上传选择器。选择器异常必须显示专用提示（如“无法打开文件选择器”），不得归类为服务器连接失败（0.8.97）。
+- 上传确认框：目标路径使用 12px 次级“上传到”标签 + 13px 值，说明文字使用 12px 次级色；不得用 14px 主色单行“上传到：路径”与同色说明竞争层级（0.8.98）。上传详情的目标路径可选中复制，进度条需有读屏名称。
 - CSV 表格视图：列宽按查看器内容宽度除以列数自适应，限制 140–220 DIP；表头与数据行共用列宽。小表不得因固定 220 DIP 列宽横向溢出而裁掉末列，宽表仍允许横向滚动。
 - 压缩包查看器：列表上方必须有 12px 次要色“名称 / 大小”列头，名称左内边距 58 DIP、大小右内边距 25 DIP，与条目列对齐；空目录隐藏列头。
 - 文本查看器空文件：内容长度为 0 且非编辑时显示居中空状态（72px 圆角图标容器 + 20px 标题 + 13px/20 说明），不得只显示一块空白编辑框；进入编辑后隐藏，保存或取消后按内容重新判断。
@@ -339,6 +340,7 @@ components:
 - [x] 传输行进度条已收敛（0.8.95）：6 DIP 圆角中性轨道 + 4 DIP 指示条，等待状态显示空轨道、完成状态指示条嵌在轨道内；浅/深色实拍 `20261031-ui0895/screens/after-light/`、`after-dark/`，修复前 `20261031-ui0894/screens/before-0895-light/`、`before-0895-dark/`。不确定进度的动画未单独截图。
 - [x] 缓存与存储对话框已收敛（0.8.96）：“当前生效”改为标签/值四行，区块标题 15px，按钮行补分隔线，首选内容高度 560 DIP；默认下载目录帮助文字不再半行裁切。浅/深色实拍 `20261031-ui0896/screens/final2-light/`、`final2-dark/`，修复前 `20261031-ui0895/screens/settings-audit/`、`settings-audit-dark/`。更小高度窗口仍需滚动查看“缓存占用”，未加常驻滚动条。
 - [x] 上传选择器与详情进度已收敛（0.8.97）：WinRT picker + `InitializeWithWindow` 修复 `COMException` 导致的选择器不可用；真实 29 B/37 B 上传完成并由服务器确认，文件夹选择器可打开；上传/下载详情进度条接入 6 DIP 轨道。证据 `20261031-ui0897/screens/upload/upload-details.png`、`screens/folder-picker/folder-picker.png`、`screens/download-details/download-details.png`；根因日志见非交付构建 `20261031-ui0897-diag/probe-diag.log`。整棵文件夹树提交仍待真人验收。
+- [x] 上传确认框层级已收敛（0.8.98）：目标路径改为 12px 次级标签 + 13px 值，说明 12px 次级；上传详情目标可选中、进度条有读屏名。前后实拍 `20261031-ui0897/screens/upload-confirm/`、`20261031-ui0898/screens/upload-confirm/`。文件夹选择器可打开并导航到测试目录，但内嵌 picker 的“选择文件夹”提交无法通过 UIA/鼠标可靠触发，整棵文件夹树上传与批次卡仍待真人验收。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
