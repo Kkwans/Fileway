@@ -7,7 +7,7 @@
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Spacing="4"><TextBlock Text="文件任务" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="服务器端复制/移动任务与操作记录。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-   <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开 文件任务，返回文件"/>
+   <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开文件任务，返回文件"/>
   </Grid>
   <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Orientation="Horizontal" Spacing="8"><ToggleButton x:Name="TasksTab" Content="服务器任务" Width="140" IsChecked="True" Click="TasksTab_Click" Style="{StaticResource LayoutChoiceStyle}" HorizontalContentAlignment="Center"/><ToggleButton x:Name="HistoryTab" Content="操作记录与核实" Width="160" Click="HistoryTab_Click" Style="{StaticResource LayoutChoiceStyle}" HorizontalContentAlignment="Center"/></StackPanel>
