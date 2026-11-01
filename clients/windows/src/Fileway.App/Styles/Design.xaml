@@ -107,6 +107,11 @@
     <Setter Property="Foreground" Value="{ThemeResource FwTextSecondaryBrush}" />
     <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
+  <Style x:Key="FwIconTileStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
 
   <!-- ===== Buttons ===== -->
   <Style x:Key="FwPrimaryButtonStyle" TargetType="Button">

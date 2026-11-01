@@ -152,11 +152,11 @@ public sealed partial class MainPage
         var controls = new Slider { Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
         StackPanel SliderField(string label, Slider slider)
         {
+            var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
             var value = new TextBlock
             {
                 Text = $"{(int)slider.Value} 秒",
-                FontSize = 12,
-                Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"],
+                Style = caption,
                 HorizontalAlignment = HorizontalAlignment.Right,
             };
             slider.ValueChanged += (_, args) => value.Text = $"{(int)args.NewValue} 秒";
@@ -164,7 +164,7 @@ public sealed partial class MainPage
             var header = new Grid();
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            header.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"] });
+            header.Children.Add(new TextBlock { Text = label, Style = caption });
             Grid.SetColumn(value, 1); header.Children.Add(value);
             var field = new StackPanel { Spacing = 4 };
             field.Children.Add(header); field.Children.Add(slider);

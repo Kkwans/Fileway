@@ -183,19 +183,18 @@ public sealed partial class TrashControl : UserControl, IDisposable
         var summary = new Grid { ColumnSpacing = 14 };
         summary.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
         summary.ColumnDefinitions.Add(new() { Width = new(1, GridUnitType.Star) });
-        var iconTile = new Border { Width = 56, Height = 56, CornerRadius = new CornerRadius(16), VerticalAlignment = VerticalAlignment.Center, Background = (Brush)Application.Current.Resources["FwSurfaceHoverBrush"], BorderBrush = (Brush)Application.Current.Resources["FwStrokeBrush"], BorderThickness = new Thickness(1) };
+        var iconTile = new Border { Width = 56, Height = 56, CornerRadius = new CornerRadius(16), VerticalAlignment = VerticalAlignment.Center, Style = (Style)Application.Current.Resources["FwIconTileStyle"] };
         iconTile.Child = new Fileway.App.Controls.LucideIcon { IconName = row.IconName, Width = 30, Height = 30, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         summary.Children.Add(iconTile);
         var nameBlock = new StackPanel { Spacing = 3, VerticalAlignment = VerticalAlignment.Center };
         nameBlock.Children.Add(new TextBlock { Text = row.Name, FontSize = 17, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-        nameBlock.Children.Add(new TextBlock { Text = row.Item.IsDirectory ? "文件夹" : "文件", FontSize = 12, Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"] });
+        nameBlock.Children.Add(new TextBlock { Text = row.Item.IsDirectory ? "文件夹" : "文件", Style = (Style)Application.Current.Resources["FwCaptionTextStyle"] });
         Grid.SetColumn(nameBlock, 1); summary.Children.Add(nameBlock);
         root.Children.Add(summary);
-        var secondary = (Brush)Application.Current.Resources["FwTextSecondaryBrush"];
         StackPanel Field(string label, TextBlock value)
         {
             var field = new StackPanel { Spacing = 4 };
-            field.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = secondary });
+            field.Children.Add(new TextBlock { Text = label, Style = (Style)Application.Current.Resources["FwCaptionTextStyle"] });
             field.Children.Add(value);
             return field;
         }
