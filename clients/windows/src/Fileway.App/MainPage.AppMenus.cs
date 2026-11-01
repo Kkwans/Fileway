@@ -50,7 +50,9 @@ public sealed partial class MainPage
         MenuConnectionItem.Text = _session is null ? "连接服务器…" : "切换连接…";
         SidebarConnectionActionLabel.Text = _session is null ? "连接服务器" : "切换连接";
         AutomationProperties.SetName(ConnectionButton, SidebarConnectionActionLabel.Text);
-        ToolTipService.SetToolTip(ConnectionButton, SidebarConnectionActionLabel.Text);
+        var connectionTip = !_sidebarOverlay && _sidebarCollapsed ? SidebarConnectionActionLabel.Text : null;
+        ToolTipService.SetToolTip(ConnectionButton, connectionTip);
+        ToolTipService.SetPlacement(ConnectionButton, connectionTip is null ? Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Top : Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Right);
         MenuConnectionItem.IsEnabled = ConnectionButton.IsEnabled = _connection is not null && !_connecting;
         MenuOpenItem.IsEnabled = browser && selected.Length == 1;
         MenuNewItem.IsEnabled = browser && CanWrite(p => p.Create);
