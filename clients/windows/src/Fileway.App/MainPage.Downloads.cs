@@ -453,6 +453,7 @@ public sealed partial class MainPage
         view.Stage.Text = DownloadPolicy.Stage(item);
         var progress = DownloadPolicy.Progress(item);
         view.Progress.IsIndeterminate = progress.IsIndeterminate; view.Progress.Value = progress.Value;
+        view.ProgressTrack.Visibility = item.Status == DownloadStatus.Completed ? Visibility.Collapsed : Visibility.Visible;
         view.Activity.Text = progress.ActivityText; view.Flushed.Text = progress.FlushedText;
         view.Detail.Text = _downloadErrorMessage ?? DownloadPolicy.Detail(item);
         view.Play.Visibility = DownloadPolicy.CanPlay(item) && _downloads is IDownloadPlaybackSourceProvider && _playback is not null
@@ -564,7 +565,7 @@ public sealed partial class MainPage
         public StackPanel Content { get; } = (StackPanel)XamlReader.Load("""
             <StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Spacing="16" MinWidth="320" MaxWidth="440">
               <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="下载接收活动进度，完成还需校验与保存"/></Border><TextBlock x:Name="Activity" FontSize="12" TextWrapping="Wrap"/><TextBlock x:Name="Flushed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
+              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border x:Name="ProgressTrack" Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="下载接收活动进度，完成还需校验与保存"/></Border><TextBlock x:Name="Activity" FontSize="12" TextWrapping="Wrap"/><TextBlock x:Name="Flushed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
               <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/><Button x:Name="OpenLocal" Content="打开文件" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="用系统默认应用打开已下载的文件" ToolTipService.ToolTip="先核实本地文件身份，再交给系统默认应用打开；不会改动 NAS 原文件。"/><Button x:Name="Retry" Content="重新下载（新任务）" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="重新下载并创建新任务"/></StackPanel>
               <Button x:Name="Cancel" Content="取消下载…" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}"/>
@@ -585,6 +586,7 @@ public sealed partial class MainPage
         public TextBlock Destination => (TextBlock)Content.FindName("Destination");
         public TextBlock Stage => (TextBlock)Content.FindName("Stage");
         public ProgressBar Progress => (ProgressBar)Content.FindName("Progress");
+        public Border ProgressTrack => (Border)Content.FindName("ProgressTrack");
         public TextBlock Activity => (TextBlock)Content.FindName("Activity");
         public TextBlock Flushed => (TextBlock)Content.FindName("Flushed");
         public TextBlock Detail => (TextBlock)Content.FindName("Detail");
