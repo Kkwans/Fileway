@@ -98,12 +98,24 @@ public sealed partial class MainPage
             }
             if (!Current()) return;
             int addable = previews.Count + treeDrafts.Count;
+            var destinations = previews.Select(item => item.DestinationDisplayPath)
+                .Concat(treeDrafts.Select(item => item.DestinationDisplayPath)).ToArray();
+            var commonDirectory = destinations.Length > 0 ? System.IO.Path.GetDirectoryName(destinations[0]) : null;
+            var sameDirectory = !string.IsNullOrEmpty(commonDirectory) && destinations.All(path =>
+                string.Equals(System.IO.Path.GetDirectoryName(path), commonDirectory, StringComparison.OrdinalIgnoreCase));
             var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
             var panel = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 480 };
             var heading = new StackPanel { Spacing = 4 };
             heading.Children.Add(new TextBlock { Text = $"可添加 {addable} 个文件 · {DownloadPresentationPolicy.FormatBytes(total)}", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
             heading.Children.Add(new TextBlock { Text = "按顺序下载到已生效的默认目录；同名文件保留并报告冲突。" + (treeDrafts.Count > 0 ? " 目录内容会保留相对结构，非法名称已映射。" : ""), TextWrapping = TextWrapping.Wrap, FontSize = 12, Style = caption });
             panel.Children.Add(heading);
+            if (sameDirectory)
+            {
+                var destinationField = new StackPanel { Spacing = 2 };
+                destinationField.Children.Add(new TextBlock { Text = "保存到", Style = caption });
+                destinationField.Children.Add(new TextBlock { Text = commonDirectory, FontSize = 13, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+                panel.Children.Add(destinationField);
+            }
             if (truncated) panel.Children.Add(new TextBlock { Text = "枚举达到上限，仅包含前列条目；请选择更具体的子目录分批下载。", TextWrapping = TextWrapping.Wrap, FontSize = 12, Style = caption });
             if (previews.Count + treeDrafts.Count + failures.Count < files.Length + treeEntries.Count)
                 panel.Children.Add(new TextBlock { Text = "另有部分条目未完成预检，本次不会添加。", TextWrapping = TextWrapping.Wrap, FontSize = 12, Style = caption });
@@ -115,7 +127,7 @@ public sealed partial class MainPage
                 {
                     var entry = new StackPanel { Spacing = 2 };
                     entry.Children.Add(new TextBlock { Text = preview.Name + " · " + DownloadPresentationPolicy.FormatBytes(preview.TotalBytes), FontSize = 13, TextWrapping = TextWrapping.Wrap });
-                    entry.Children.Add(new TextBlock { Text = preview.DestinationDisplayPath, FontSize = 12, TextWrapping = TextWrapping.Wrap, Style = caption, IsTextSelectionEnabled = true });
+                    if (!sameDirectory) entry.Children.Add(new TextBlock { Text = preview.DestinationDisplayPath, FontSize = 12, TextWrapping = TextWrapping.Wrap, Style = caption, IsTextSelectionEnabled = true });
                     entries.Children.Add(entry);
                 }
                 int hidden = Math.Max(0, previews.Count - 12) + Math.Max(0, treeDrafts.Count - 24);
