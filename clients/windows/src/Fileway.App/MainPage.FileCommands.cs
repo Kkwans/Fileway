@@ -140,7 +140,8 @@ public sealed partial class MainPage
     private async Task<string?> AskNameAsync(string title, string initial = "", string primaryText = "确定")
     {
         var name = new TextBox { Header = "名称", Text = initial, MinWidth = 320, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
-        var hint = new TextBlock { Text = "不能包含 /、\\、控制字符，或仅使用 .、..。同名项目会报告冲突。", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, FontSize = 12, Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"] };
+        var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
+        var hint = new TextBlock { Text = "不能包含 /、\\、控制字符，或仅使用 .、..。同名项目会报告冲突。", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Style = caption };
         var content = new StackPanel { Spacing = 12 }; content.Children.Add(name); content.Children.Add(hint);
         var dialog = new ContentDialog { Title = title, Content = content, PrimaryButtonText = primaryText, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = ValidNewName(initial) };
         name.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = ValidNewName(name.Text);
@@ -175,9 +176,9 @@ public sealed partial class MainPage
     private async Task RenameBatchAsync(FileRow[] rows, ConnectionSession session, RemoteResourceRef directory, long generation)
     {
         if (FileManagement is not { } management || rows.Length > 500) { SetNotice("无法批量重命名", "一次最多选择 500 个同目录项目。", InfoBarSeverity.Warning); return; }
-        var secondary = (Brush)Application.Current.Resources["FwTextSecondaryBrush"];
+        var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
         var fields = rows.Select(row => new TextBox { Header = row.Name, Text = row.Name, MinWidth = 360, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] }).ToArray();
-        var hint = new TextBlock { Text = "可直接修改原名称；命名规则与单个重命名一致，提交前会先预览冲突。", FontSize = 12, Foreground = secondary, TextWrapping = TextWrapping.Wrap };
+        var hint = new TextBlock { Text = "可直接修改原名称；命名规则与单个重命名一致，提交前会先预览冲突。", Style = caption, TextWrapping = TextWrapping.Wrap };
         var names = new StackPanel { Spacing = 12 }; names.Children.Add(hint); foreach (var field in fields) names.Children.Add(field);
         var edit = new ContentDialog { Title = $"批量重命名 {rows.Length} 个项目", Content = new ScrollViewer { Content = names, MaxHeight = Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 360), VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, PrimaryButtonText = "预览", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         foreach (var field in fields) field.TextChanged += (_, _) => edit.IsPrimaryButtonEnabled = fields.All(f => ValidNewName(f.Text));
@@ -306,17 +307,17 @@ public sealed partial class MainPage
         bool ClipboardCurrent() => clipboard is null || _remoteClipboard.IsCurrent(clipboard, _session);
         if (!ClipboardCurrent()) return;
         if (resources.Length == 0) return;
-        var secondary = (Brush)Application.Current.Resources["FwTextSecondaryBrush"];
+        var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
         var path = new TextBox { Header = "目标文件夹的原始路径", Text = directory.WirePath, MinWidth = 360, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
         if (clipboard is not null) path.Visibility = Visibility.Collapsed;
         var conflicts = new Fileway.App.Controls.ChoiceBox { Header = "同名项目", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
         foreach (var label in new[] { "保留两者（自动改名）", "遇到冲突停止", "跳过同名项目", "替换同名项目" }) conflicts.Items.Add(label);
-        var explanation = new TextBlock { Text = $"已选择 {resources.Length} 项。目标会在提交前向服务器核实。复制或移动由服务器任务执行，提交接受不表示完成。", FontSize = 12, Foreground = secondary, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 };
+        var explanation = new TextBlock { Text = $"已选择 {resources.Length} 项。目标会在提交前向服务器核实。复制或移动由服务器任务执行，提交接受不表示完成。", Style = caption, TextWrapping = TextWrapping.Wrap, MaxWidth = 460 };
         var content = new StackPanel { Spacing = 16 }; content.Children.Add(path); content.Children.Add(conflicts); content.Children.Add(explanation);
         if (clipboard is not null)
         {
             var pasteTarget = new StackPanel { Spacing = 2 };
-            pasteTarget.Children.Add(new TextBlock { Text = "粘贴到", FontSize = 12, Foreground = secondary });
+            pasteTarget.Children.Add(new TextBlock { Text = "粘贴到", Style = caption });
             pasteTarget.Children.Add(new TextBlock { Text = directory.DisplayPath, FontSize = 13, TextWrapping = TextWrapping.Wrap });
             content.Children.Insert(0, pasteTarget);
         }

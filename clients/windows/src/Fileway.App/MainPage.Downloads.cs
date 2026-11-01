@@ -232,14 +232,14 @@ public sealed partial class MainPage
         try
         {
             var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
-            var secondary = (Brush)Application.Current.Resources["FwTextSecondaryBrush"];
-            var remoteLabel = new TextBlock { Text = "远端文件", FontSize = 12, Foreground = secondary };
+            var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
+            var remoteLabel = new TextBlock { Text = "远端文件", FontSize = 12, Style = caption };
             var remoteName = new TextBlock { Text = source.DisplayName, FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
             var remotePanel = new StackPanel { Spacing = 2 };
             remotePanel.Children.Add(remoteLabel); remotePanel.Children.Add(remoteName);
             var name = new TextBox { Header = "本地文件名", Text = source.DisplayName, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
-            var hint = new TextBlock { Text = "只修改本地文件名，保存目录仍使用已生效的默认下载目录。不会修改远端名称或覆盖已有文件。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = secondary };
-            var validation = new TextBlock { Text = "请输入有效的 Windows 文件名。不能包含路径、保留名称，或以空格、句点结尾。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = secondary };
+            var hint = new TextBlock { Text = "只修改本地文件名，保存目录仍使用已生效的默认下载目录。不会修改远端名称或覆盖已有文件。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Style = caption };
+            var validation = new TextBlock { Text = "请输入有效的 Windows 文件名。不能包含路径、保留名称，或以空格、句点结尾。", FontSize = 12, TextWrapping = TextWrapping.Wrap, Style = caption };
             var progress = new ProgressRing { Width = 20, Height = 20, HorizontalAlignment = HorizontalAlignment.Left, IsActive = false };
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(name, "下载另存为的本地文件名");
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(progress, "正在核对另存为位置");
@@ -250,7 +250,7 @@ public sealed partial class MainPage
             StackPanel Field(string label, TextBlock value)
             {
                 var row = new StackPanel { Spacing = 2 };
-                row.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = secondary });
+                row.Children.Add(new TextBlock { Text = label, FontSize = 12, Style = caption });
                 row.Children.Add(value);
                 return row;
             }
@@ -259,9 +259,8 @@ public sealed partial class MainPage
             previewPanel.Children.Add(Field("保存到", destination));
             var previewCard = new Border
             {
-                Padding = new Thickness(14, 12, 14, 12), CornerRadius = new CornerRadius(8), Visibility = Visibility.Collapsed,
-                Background = (Brush)Application.Current.Resources["FwSurfaceBrush"],
-                BorderBrush = (Brush)Application.Current.Resources["FwStrokeBrush"], BorderThickness = new Thickness(1),
+                Visibility = Visibility.Collapsed,
+                Style = (Style)Application.Current.Resources["FwPreviewCardStyle"],
                 Child = previewPanel,
             };
             var error = new InfoBar { IsOpen = false, IsClosable = false, Severity = InfoBarSeverity.Warning, Title = "未能核对保存位置" };

@@ -377,6 +377,7 @@ components:
 - [x] 空状态图标已按上下文收敛（0.8.126）：传输下载/上传、文件任务/操作记录各用对应图标；实拍 `20261031-ui08126/screens/transfer-after/transfer-upload.png`、`screens/operations-after/operations.png`。
 - [x] 深色侧栏管理入口已修复（0.8.127）：改用 `FwCaptionTextStyle` 的 TextBlock 内容，避免构造期捕获浅色画刷；修复前 `20261031-ui08127/screens/browser-none.png`（几乎不可见）→ `screens/dark-final/browser-none.png`（可读次级灰）。
 - [x] 深色外观滑块标签已修复（0.8.128）：标签与秒数改用 `FwCaptionTextStyle`，实测主色 (168,174,184)，此前为浅色 (83,90,100)；回收站详情同步改用样式并新增 `FwIconTileStyle`。证据 `20261031-ui08128/screens/appearance-dark.png`、`Probe-AppearanceDark.log`。
+- [x] 深色文件操作对话框已修复（0.8.129）：新建/重命名/批量重命名/复制移动提示与下载另存为标签改用 `FwCaptionTextStyle`；下载预览卡改用 `FwPreviewCardStyle`（`FwSurfaceBrush` + 1px `FwStrokeBrush` + 8 圆角）。深色重命名/批量重命名提示实测 (168,174,184)。证据 `20261101-ui08129/screens/rename-dark.png`、`batch-rename-dark.png`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
