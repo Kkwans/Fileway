@@ -28,7 +28,7 @@ internal sealed class ViewerChrome : Grid
     private readonly TextBlock _progressText = new() { Style = (Style)Application.Current.Resources["FwScrimMutedTextStyle"], TextAlignment = TextAlignment.Center };
     private readonly StackPanel _loadingHost;
     private readonly Border _errorCard;
-    private readonly TextBlock _errorTitle = new() { FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["FwTextPrimaryBrush"] };
+    private readonly TextBlock _errorTitle = new() { Style = (Style)Application.Current.Resources["FwBodyTextStyle"], FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _errorMessage;
     private readonly Button _retry;
     private readonly Border _toast;
@@ -105,7 +105,7 @@ internal sealed class ViewerChrome : Grid
         _loadingHost.Children.Add(_progressText);
         Children.Add(_loadingHost);
 
-        _errorMessage = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"] };
+        _errorMessage = new TextBlock { Style = (Style)Application.Current.Resources["FwCaptionTextStyle"], FontSize = 13, TextWrapping = TextWrapping.Wrap };
         var errorBody = new StackPanel { Spacing = 10 };
         errorBody.Children.Add(_errorTitle);
         errorBody.Children.Add(_errorMessage);
