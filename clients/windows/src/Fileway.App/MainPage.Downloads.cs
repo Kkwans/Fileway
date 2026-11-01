@@ -184,11 +184,20 @@ public sealed partial class MainPage
             if (preview.Context != context || preview.Source.Account != source.Account
                 || !string.Equals(preview.Source.WirePath, source.WirePath, StringComparison.Ordinal))
                 throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "下载确认的源文件与原选择不一致。"));
+            var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
             var content = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 440 };
             content.Children.Add(new TextBlock { Text = preview.Name, FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
-            content.Children.Add(new TextBlock { Text = $"大小：{DownloadPolicy.FormatBytes(preview.TotalBytes)}", TextWrapping = TextWrapping.Wrap });
-            content.Children.Add(new TextBlock { Text = $"保存到：{preview.DestinationDisplayPath}", TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-            content.Children.Add(new TextBlock { Text = "使用已生效的默认下载目录。仅下载这个文件；同名文件会保留并报告冲突。", FontSize = 12, TextWrapping = TextWrapping.Wrap });
+            var details = new StackPanel { Spacing = 10 };
+            var sizeField = new StackPanel { Spacing = 2 };
+            sizeField.Children.Add(new TextBlock { Text = "大小", Style = caption });
+            sizeField.Children.Add(new TextBlock { Text = DownloadPolicy.FormatBytes(preview.TotalBytes), FontSize = 13 });
+            details.Children.Add(sizeField);
+            var destinationField = new StackPanel { Spacing = 2 };
+            destinationField.Children.Add(new TextBlock { Text = "保存到", Style = caption });
+            destinationField.Children.Add(new TextBlock { Text = preview.DestinationDisplayPath, FontSize = 13, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            details.Children.Add(destinationField);
+            content.Children.Add(new Border { Style = (Style)Application.Current.Resources["FwPreviewCardStyle"], Child = details });
+            content.Children.Add(new TextBlock { Text = "使用已生效的默认下载目录。仅下载这个文件；同名文件会保留并报告冲突。", Style = caption });
             var confirm = new ContentDialog { Title = "确认下载位置", Content = new ScrollViewer { Content = content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, PrimaryButtonText = "开始下载", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
             _downloadDialog = confirm;
             ContentDialogResult result;
