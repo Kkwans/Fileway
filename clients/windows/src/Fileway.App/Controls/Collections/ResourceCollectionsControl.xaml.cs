@@ -227,6 +227,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         EditButton.IsEnabled = RemoveButton.IsEnabled = CanWrite && Selected is not null;
         ContextEdit.IsEnabled = ContextRemove.IsEnabled = EditButton.IsEnabled;
         EditGroupButton.IsEnabled = RemoveGroupButton.IsEnabled = CanWrite && !TagMode && SelectedGroup is not null;
+        GroupMoreButton.IsEnabled = EditGroupButton.IsEnabled;
         OpenButton.IsEnabled = !_busy && Selected?.Reference?.Resource is not null && connected;
         ContextOpen.IsEnabled = OpenButton.IsEnabled;
         OpenTagResourceButton.IsEnabled = !_busy && (TagResources.SelectedItem as CollectionRow)?.Reference?.Resource is not null && connected;
