@@ -13,6 +13,7 @@ namespace Fileway.App.Controls.StorageTools;
 /// </summary>
 public sealed class StorageAnalysisControl : UserControl, IDisposable
 {
+    internal event EventHandler? CloseRequested;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly CancellationToken _token;
     private bool _disposed;
@@ -103,11 +104,20 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         adminHost.Children.Add(_adminRoot);
 
         var root = new StackPanel { Spacing = 12, Padding = new Thickness(20, 12, 20, 12) };
-        var header = new StackPanel { Spacing = 4 };
-        header.Children.Add(new TextBlock { Text = "存储工具", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        var header = new Grid { ColumnSpacing = 12 };
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var heading = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        heading.Children.Add(new TextBlock { Text = "存储工具", FontSize = 22, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         var subtitle = new TextBlock { Text = "服务器端统计与清理辅助工具；分析在服务器后台执行。", FontSize = 12 };
         subtitle.Style = (Style)resources["FwCaptionTextStyle"];
-        header.Children.Add(subtitle);
+        heading.Children.Add(subtitle);
+        header.Children.Add(heading);
+        var back = new Button { Content = "返回文件", Style = (Style)resources["FwSecondaryButtonStyle"], VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetName(back, "离开存储工具，返回文件");
+        back.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
+        Grid.SetColumn(back, 1);
+        header.Children.Add(back);
         root.Children.Add(header);
         void SelectTab(int selected)
         {

@@ -91,6 +91,7 @@ public sealed partial class MainPage
         // A view owns one immutable account/directory context. Retiring it cancels
         // observation; a later visit cannot reuse its canceled token or old callbacks.
         var view = new StorageAnalysisControl();
+        view.CloseRequested += (_, _) => ReturnFromRemoteTools();
         view.Attach(_storageAnalysis, _storageAnalysis as IDuplicateAnalysisService);
         view.SetContext(directory);
         if (_storageAnalysis is IAdminUserService admin) view.AttachAdmin(admin, session.DisplayName);
