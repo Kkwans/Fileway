@@ -394,7 +394,7 @@ components:
 - [x] 回收站返回入口已补齐（0.8.143）：页头操作组末尾“返回文件”，点击回工作区；UIA 验证返回后工作区恢复，证据 `20261101-ui08143/trash/trash.png`。
 - [x] 菜单焦点圆角已收口（0.8.146）：四个菜单项样式加 `CornerRadius=10` 后系统焦点框随圆角绘制，无需替换模板；键盘实拍 `20261101-ui08146/screens/menu-focus.png`。 子菜单/单选项同批复核：`20261101-ui08147/screens/submenu-focus.png`、`submenu-open.png`。
 - [x] 高对比度侧栏选中态已修复（0.8.147）：`FwNavSelected*` 主题资源 + `SelectionBorder`；HC 透明底 + 系统文本色 1px 圆角描边，常规主题填充。证据 `20261101-ui08147/hc3/browser-hc-expanded.png`、`normal/recent.png`；HC 已恢复。
-- [x] 高对比度选中项已修复（0.8.148）：HC 下列表/网格选中填充透明、3px 标记用窗口文本色，文字/图标保持高对比；选择器用 `FwChoiceSelectionBrush` 保留系统高亮。证据 `20261101-ui08148/hc/browser-hc-selected.png`、`recent-hc-selected.png`；常规复核 `normal/browser-hc-selected.png`。
+- [x] 高对比度选中项已修复（0.8.148）：HC 下列表/网格选中填充透明、3px 标记用窗口文本色，文字/图标保持高对比；选择器用 `FwChoiceSelectionBrush` 保留系统高亮。证据 `20261101-ui08148/hc/browser-hc-selected.png`、`recent-hc-selected.png`；常规复核 `normal/browser-hc-selected.png`。 传输详情/文件任务/回收站空状态 HC 已补拍 `20261101-ui08149/screens2/`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
