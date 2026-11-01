@@ -170,7 +170,9 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         SearchActivityRing.IsActive = searching || opening;
         SearchActivityRing.Visibility = searching || opening ? Visibility.Visible : Visibility.Collapsed;
         SearchActivityText.Text = opening ? "正在核对资源…" : searching ? "正在搜索…" : "";
+        SearchActions.Visibility = searching || opening || _lastQuery is not null ? Visibility.Visible : Visibility.Collapsed;
         SearchNotice.IsOpen = error is not null || end is not null || _suspended && _lastQuery is not null;
+        SearchNotice.Visibility = SearchNotice.IsOpen ? Visibility.Visible : Visibility.Collapsed;
         SearchNotice.Title = _suspended && error is null ? "搜索已暂停" : error is not null && _lastActionOpening ? "无法打开搜索结果"
             : end?.Reason switch
             {
