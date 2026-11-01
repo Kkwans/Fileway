@@ -230,7 +230,7 @@ UI 质量不是后期才处理：每个功能切片同时完成对齐、可读�
 - **0.8.149**：HC 连接页主按钮退化为纯文字；新增 `FwPrimaryButton*` 主题资源，HC 使用 WindowText 填充 + WindowColor 前景（白底黑字），常规仍为 Accent/TextOnAccent。前后 `20261101-ui08152/screens/connection-hc.png` → `screens2/connection-hc.png`；HC 恢复 126。
 - **0.8.150**：HC 复选框选中态由不可见强调底改为白底黑勾（`FwCheckBoxCheckedBrush/GlyphBrush`），方框边界恢复；常规主题仍强调底白勾。实拍 `20261101-ui08152/screens3/connection-hc.png`；HC 恢复 126。
 - **0.8.151**：HC 未选中复选框描边 1→2px（`FwCheckBoxBorderThickness`），选中仍白底黑勾。实拍 `20261101-ui08153/screens/`、`screens-unchecked/`；HC 恢复 126。
-- **仍需用户**：实机验收 0.8.151；整棵文件夹树上传与批次卡、拖拽验收；是否允许临时改系统设置做高对比度走查。
+- **仍需用户**：实机验收 0.8.151；文本/图片查看器 HC 已补拍 `20261101-ui08154/screens-text/`、`screens2/`，压缩包查看器待补。整棵文件夹树上传与批次卡、拖拽验收；是否允许临时改系统设置做高对比度走查。
 
 ## 下一开发批次的建议顺序
 
