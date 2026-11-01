@@ -26,6 +26,8 @@
       <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#26FFFFFF" />
       <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#33FFFFFF" />
       <SolidColorBrush x:Key="FwSelectionBrush" Color="#3369A8FF" />
+      <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="FwSelectionBrush" />
       <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
       <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
@@ -51,6 +53,8 @@
       <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#1A000000" />
       <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#22000000" />
       <SolidColorBrush x:Key="FwSelectionBrush" Color="#2E2563EB" />
+      <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="FwSelectionBrush" />
       <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
       <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
@@ -75,7 +79,9 @@
       <StaticResource x:Key="FwGlassBrush" ResourceKey="SystemColorWindowColorBrush" />
       <StaticResource x:Key="FwGlassStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <StaticResource x:Key="FwGlassHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
-      <StaticResource x:Key="FwSelectionBrush" ResourceKey="SystemColorHighlightColorBrush" />
+      <SolidColorBrush x:Key="FwSelectionBrush" Color="Transparent" />
+      <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="SystemColorHighlightColorBrush" />
       <SolidColorBrush x:Key="FwNavSelectedBackgroundBrush" Color="Transparent" />
       <StaticResource x:Key="FwNavSelectedBorderBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <Thickness x:Key="FwNavSelectedBorderThickness">1</Thickness>
@@ -895,7 +901,7 @@
                     CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
             <Border x:Name="SelectionBar" Width="3" Height="28" CornerRadius="2" Margin="6,0,0,0"
                     HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"
-                    Background="{ThemeResource AccentFillColorDefaultBrush}" IsHitTestVisible="False" />
+                    Background="{ThemeResource FwSelectionBarBrush}" IsHitTestVisible="False" />
             <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
                     CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
             <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
@@ -992,7 +998,7 @@
                               AutomationProperties.AccessibilityView="Raw" />
             <Border x:Name="SelectionBar" Width="3" Height="28" CornerRadius="2" Margin="6,0,0,0"
                     HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"
-                    Background="{ThemeResource AccentFillColorDefaultBrush}" IsHitTestVisible="False" />
+                    Background="{ThemeResource FwSelectionBarBrush}" IsHitTestVisible="False" />
             <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FocusStrokeColorOuterBrush}"
                     CornerRadius="{TemplateBinding CornerRadius}" Margin="1" Visibility="Collapsed" IsHitTestVisible="False" />
           </Grid>
@@ -1068,7 +1074,7 @@
          <VisualState x:Name="Focused"><Storyboard><ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility"><DiscreteObjectKeyFrame KeyTime="0" Value="Visible"/></ObjectAnimationUsingKeyFrames><ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility"><DiscreteObjectKeyFrame KeyTime="0" Value="Visible"/></ObjectAnimationUsingKeyFrames></Storyboard></VisualState>
         </VisualStateGroup>
        </VisualStateManager.VisualStateGroups>
-       <Border x:Name="SelectionFill" Background="{ThemeResource FwSelectionBrush}"
+       <Border x:Name="SelectionFill" Background="{ThemeResource FwChoiceSelectionBrush}"
                CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False"
                Visibility="{Binding IsChecked, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource FwBoolToVisibilityConverter}}" />
        <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
