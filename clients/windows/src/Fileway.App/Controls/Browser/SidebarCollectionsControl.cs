@@ -21,11 +21,12 @@ public sealed class SidebarCollectionsControl : UserControl
     private long _generation;
     public event EventHandler<ResourceFavorite>? FavoriteRequested;
     public event EventHandler<ResourceTag>? TagRequested;
+    public event EventHandler? ManageRequested;
 
     public SidebarCollectionsControl()
     {
         var panel = new StackPanel { Spacing = 24 };
-        panel.Children.Add(Section("收藏夹", _favorites));
+        panel.Children.Add(Section("收藏夹", _favorites, manage: true));
         panel.Children.Add(Section("标签", _tags));
         Content = panel;
         SetSnapshot(null);
@@ -140,10 +141,35 @@ public sealed class SidebarCollectionsControl : UserControl
         button.Click += (_, _) => { if (generation == _generation && _account == favorite.Account) FavoriteRequested?.Invoke(this, favorite); };
         return button;
     }
-    private static StackPanel Section(string title, UIElement content)
+    private StackPanel Section(string title, UIElement content, bool manage = false)
     {
         var section = new StackPanel { Spacing = 4 };
-        section.Children.Add(new TextBlock { Text = title, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(12, 0, 12, 4) });
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(new TextBlock { Text = title, FontSize = 12, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(12, 0, 12, 4), VerticalAlignment = VerticalAlignment.Center });
+        if (manage)
+        {
+            var button = new Button
+            {
+                Content = "管理",
+                Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
+                Height = 24,
+                MinHeight = 24,
+                Padding = new Thickness(8, 0, 8, 0),
+                FontSize = 12,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 4),
+                Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"],
+            };
+            AutomationProperties.SetName(button, "管理收藏与标签");
+            ToolTipService.SetToolTip(button, "管理收藏与标签");
+            button.Click += (_, _) => ManageRequested?.Invoke(this, EventArgs.Empty);
+            Grid.SetColumn(button, 1);
+            header.Children.Add(button);
+        }
+        section.Children.Add(header);
         section.Children.Add(content);
         return section;
     }

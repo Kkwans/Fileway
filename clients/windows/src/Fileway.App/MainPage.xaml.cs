@@ -111,6 +111,7 @@ public sealed partial class MainPage : Page, IDisposable
             UpdateCollectionsContext(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
             UpdateThumbnailContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
         };
+        SidebarCollections.ManageRequested += (_, _) => Collections_Click(this, new RoutedEventArgs());
         FileList.ItemsSource = FileGrid.ItemsSource = _rows;
         FileGrid.Loaded += (_, _) => QueueGridMetricsUpdate();
         FileGrid.SizeChanged += (_, _) => UpdateGridMetrics();
