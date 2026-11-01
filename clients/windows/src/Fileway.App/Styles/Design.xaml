@@ -28,6 +28,10 @@
       <SolidColorBrush x:Key="FwSelectionBrush" Color="#3369A8FF" />
       <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="AccentFillColorDefaultBrush" />
       <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="FwSelectionBrush" />
+      <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
+      <StaticResource x:Key="FwPrimaryButtonPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
+      <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
       <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
       <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
@@ -55,6 +59,10 @@
       <SolidColorBrush x:Key="FwSelectionBrush" Color="#2E2563EB" />
       <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="AccentFillColorDefaultBrush" />
       <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="FwSelectionBrush" />
+      <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
+      <StaticResource x:Key="FwPrimaryButtonPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
+      <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
       <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
       <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
@@ -82,6 +90,10 @@
       <SolidColorBrush x:Key="FwSelectionBrush" Color="Transparent" />
       <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwPrimaryButtonPressedBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="SystemColorWindowColorBrush" />
       <SolidColorBrush x:Key="FwNavSelectedBackgroundBrush" Color="Transparent" />
       <StaticResource x:Key="FwNavSelectedBorderBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <Thickness x:Key="FwNavSelectedBorderThickness">1</Thickness>
@@ -136,8 +148,8 @@
 
   <!-- ===== Buttons ===== -->
   <Style x:Key="FwPrimaryButtonStyle" TargetType="Button">
-    <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}" />
-    <Setter Property="Foreground" Value="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+    <Setter Property="Background" Value="{ThemeResource FwPrimaryButtonBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{ThemeResource FwPrimaryButtonForegroundBrush}" />
     <Setter Property="BorderThickness" Value="0" />
     <Setter Property="CornerRadius" Value="10" />
     <Setter Property="Height" Value="36" />
@@ -159,14 +171,14 @@
                 <VisualState x:Name="PointerOver">
                   <Storyboard>
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
-                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource AccentFillColorSecondaryBrush}" />
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwPrimaryButtonHoverBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
                 <VisualState x:Name="Pressed">
                   <Storyboard>
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
-                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource AccentFillColorTertiaryBrush}" />
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwPrimaryButtonPressedBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
