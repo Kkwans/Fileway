@@ -112,7 +112,8 @@ public sealed partial class StorageSettingsControl : UserControl, IDisposable
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         var labelBlock = new TextBlock { Text = label };
         labelBlock.Style = (Style)Application.Current.Resources["FwCaptionTextStyle"];
-        var valueBlock = new TextBlock { Text = value, FontSize = 13, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
+        var valueBlock = new TextBlock { Text = value, FontSize = 13, MaxLines = 1, TextTrimming = TextTrimming.CharacterEllipsis, IsTextSelectionEnabled = true };
+        ToolTipService.SetToolTip(valueBlock, value);
         Grid.SetColumn(valueBlock, 1);
         row.Children.Add(labelBlock);
         row.Children.Add(valueBlock);
