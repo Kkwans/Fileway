@@ -38,7 +38,7 @@ public sealed class PdfWindow : Window, IAsyncDisposable
     };
     private readonly InfoBar _notice = new() { IsOpen = true, IsClosable = false, Message = "正在打开 PDF…" };
     private readonly ProgressRing _progress = new() { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _pageLabel = new() { FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8, Style = (Style)Application.Current.Resources["FwBodyTextStyle"] };
+    private readonly TextBlock _pageLabel = new() { VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8, Style = (Style)Application.Current.Resources["FwToolbarTextStyle"] };
     private Button? _previousButton;
     private Button? _nextButton;
     private PdfDocument? _document;
@@ -188,7 +188,7 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         var button = new Button
         {
             Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
-            Content = new TextBlock { Text = text, FontSize = 13, Style = (Style)Application.Current.Resources["FwBodyTextStyle"] },
+            Content = new TextBlock { Text = text, Style = (Style)Application.Current.Resources["FwToolbarTextStyle"] },
         };
         ToolTipService.SetToolTip(button, tooltip);
         AutomationProperties.SetName(button, tooltip);
