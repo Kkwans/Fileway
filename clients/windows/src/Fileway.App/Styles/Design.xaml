@@ -34,6 +34,7 @@
       <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
       <StaticResource x:Key="FwCheckBoxCheckedBrush" ResourceKey="AccentFillColorDefaultBrush" />
       <StaticResource x:Key="FwCheckBoxGlyphBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+      <Thickness x:Key="FwCheckBoxBorderThickness">1</Thickness>
       <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
       <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
@@ -67,6 +68,7 @@
       <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
       <StaticResource x:Key="FwCheckBoxCheckedBrush" ResourceKey="AccentFillColorDefaultBrush" />
       <StaticResource x:Key="FwCheckBoxGlyphBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+      <Thickness x:Key="FwCheckBoxBorderThickness">1</Thickness>
       <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
       <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
@@ -100,6 +102,7 @@
       <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="SystemColorWindowColorBrush" />
       <StaticResource x:Key="FwCheckBoxCheckedBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <StaticResource x:Key="FwCheckBoxGlyphBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <Thickness x:Key="FwCheckBoxBorderThickness">2</Thickness>
       <SolidColorBrush x:Key="FwNavSelectedBackgroundBrush" Color="Transparent" />
       <StaticResource x:Key="FwNavSelectedBorderBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <Thickness x:Key="FwNavSelectedBorderThickness">1</Thickness>
@@ -693,7 +696,7 @@
             </VisualStateManager.VisualStateGroups>
             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
               <Grid Width="20" Height="20" VerticalAlignment="Center">
-                <Border x:Name="Box" CornerRadius="6" BorderThickness="1"
+                <Border x:Name="Box" CornerRadius="6" BorderThickness="{ThemeResource FwCheckBoxBorderThickness}"
                         BorderBrush="{ThemeResource FwStrokeStrongBrush}" Background="Transparent" />
                 <Border x:Name="HoverOverlay" CornerRadius="6" Opacity="0"
                         Background="{ThemeResource SubtleFillColorSecondaryBrush}" />
