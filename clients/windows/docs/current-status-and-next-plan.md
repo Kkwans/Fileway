@@ -226,7 +226,7 @@ UI 质量不是后期才处理：每个功能切片同时完成对齐、可读�
 - **0.8.145**：回收站页头顺序调整为“返回文件｜恢复｜刷新”，与收藏页“返回在图标组最左”一致；UIA 返回导航通过，实拍 `20261101-ui08145/trash/trash.png`。
 - **0.8.146**：菜单项焦点由系统直角改为 10px 圆角——仅给四个菜单项样式加 `CornerRadius=10`，系统焦点框即跟随；键盘实拍 `20261101-ui08146/screens/menu-focus.png`，未替换模板。 子菜单与单选项键盘焦点也已实测为圆角：`20261101-ui08147/screens/submenu-focus.png`、`submenu-open.png`。
 - **0.8.147**：高对比度走查（用户授权）发现侧栏当前页选中态不可见；新增 `FwNavSelected*` 主题资源与 `SelectionBorder` 模板，HC 为透明底 + 系统文本色 1px 圆角描边，常规主题保持填充。证据 `20261101-ui08147/hc3/`、`normal/recent.png`；HC Flags 已恢复 126。
-- **0.8.148**：HC 选中列表/网格改为透明底 + 白色 3px 标记，文本与图标保持黑底白字；选择器保留系统高亮。证据 `20261101-ui08148/hc/browser-hc-selected.png`、`recent-hc-selected.png`、`normal/browser-hc-selected.png`；HC 已恢复 126。 传输详情/文件任务/回收站空状态已补拍 `20261101-ui08149/screens2/`。
+- **0.8.148**：HC 选中列表/网格改为透明底 + 白色 3px 标记，文本与图标保持黑底白字；选择器保留系统高亮。证据 `20261101-ui08148/hc/browser-hc-selected.png`、`recent-hc-selected.png`、`normal/browser-hc-selected.png`；HC 已恢复 126。 传输详情/文件任务/回收站空状态已补拍 `20261101-ui08149/screens2/`。 PDF 查看器 HC 已补拍 `20261101-ui08151/screens/pdf-hc-window.png`。
 - **仍需用户**：实机验收 0.8.148；整棵文件夹树上传与批次卡、拖拽验收；是否允许临时改系统设置做高对比度走查。
 
 ## 下一开发批次的建议顺序

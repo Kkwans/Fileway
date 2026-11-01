@@ -17,7 +17,7 @@
 
 ## 已知问题
 
-- HC 已补拍传输详情、文件任务详情与回收站空状态：`20261101-ui08149/screens2/transfer-hc-selected.png`、`tasks-hc-selected.png`、`trash-hc.png`，边框/选中标记/文字对比正常；查看器仍未单独 HC 走查。
+- HC 已补拍传输详情、文件任务详情与回收站空状态：`20261101-ui08149/screens2/transfer-hc-selected.png`、`tasks-hc-selected.png`、`trash-hc.png`，边框/选中标记/文字对比正常；PDF 查看器 HC 已实拍通过（`20261101-ui08151/screens/pdf-hc-window.png`），文本/图片/压缩包查看器未单独 HC 走查。
 - MenuBar 系统白色边框保留系统外观。
 - 整棵文件夹树上传/批次卡与拖拽仍待真人验收；PDF 沉浸式外壳的原生堆破坏未修复。
 
