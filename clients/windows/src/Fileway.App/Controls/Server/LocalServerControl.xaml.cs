@@ -1,3 +1,4 @@
+using System.Collections.ObjectModel;
 using System.Globalization;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Dispatching;
@@ -9,7 +10,7 @@ using Windows.System;
 
 namespace Fileway.App.Controls.Server;
 
-public sealed record LocalServerConnectRequest(string Endpoint, string Username);
+public sealed record LocalServerConnectRequest(string Endpoint, string? Username, string? Password);
 
 /// <summary>Deployment, lifecycle, boot settings and log inspection for the managed local server.</summary>
 public sealed partial class LocalServerControl : UserControl, IDisposable
@@ -20,15 +21,21 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     private readonly Debounce _queryDebounce = new(TimeSpan.FromMilliseconds(260));
     private readonly DispatcherTimer _followTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly ObservableCollection<LogRow> _logRows = [];
 
     private ILocalServerManagementService? _service;
     private nint _ownerHwnd;
     private LocalServerStatus? _status;
     private LocalServerCredential? _credential;
+    private IReadOnlyList<DetectedRow>? _detectionRows;
+    private string? _detectionTitle;
     private string? _revealedSecret;
     private bool _errorsOnly;
     private bool _loading;
     private bool _attached;
+    private bool _newestArrived;
+    private bool _portPrefill;
+    private bool _portTouched;
 
     public event EventHandler? CloseRequested;
     public event EventHandler<LocalServerConnectRequest>? ConnectRequested;
@@ -36,7 +43,12 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     public LocalServerControl()
     {
         InitializeComponent();
-        _followTimer.Tick += async (_, _) => await ReloadLogsAsync();
+        _followTimer.Tick += async (_, _) =>
+        {
+            // Status ticks are de-duplicated in the service, so the uptime line is refreshed here instead.
+            if (_status is not null) StatusDetail.Text = DetailFor(_status);
+            await ReloadLogsAsync();
+        };
         Unloaded += (_, _) => Dispose();
     }
 
@@ -107,10 +119,40 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
 
     private void PrefillDeployment(LocalServerDefaults defaults)
     {
-        PortBox.Text = defaults.Port.ToString(CultureInfo.InvariantCulture);
+        SetPort(defaults.Port);
+        RestrictRootCheck.IsChecked = !defaults.MountsWholeComputer;
+        RestrictRootRow.Visibility = defaults.MountsWholeComputer ? Visibility.Collapsed : Visibility.Visible;
         RootBox.Text = defaults.FilesRoot;
         AccountBox.Text = defaults.Username;
         SecretBox.Password = defaults.Password;
+    }
+
+    private void SetPort(int port)
+    {
+        _portPrefill = true;
+        PortBox.Text = port.ToString(CultureInfo.InvariantCulture);
+        _portPrefill = false;
+    }
+
+    private void PortBox_TextChanged(object sender, TextChangedEventArgs e)
+    {
+        if (!_portPrefill) _portTouched = true;
+    }
+
+    /// <summary>8888 is only a default while it is free; a running server keeps the form off its port.</summary>
+    private void SuggestPort(LocalServerStatus status)
+    {
+        if (_portTouched || _portPrefill || status.State != LocalServerState.NotDeployed || _service is null) return;
+        int suggested = _service.GetDefaults().Port;
+        if (!int.TryParse(PortBox.Text.Trim(), out int current) || current != suggested) SetPort(suggested);
+    }
+
+    /// <summary>The path row only asks for input once the default “whole computer” mount is turned off.</summary>
+    private void RestrictRoot_Changed(object sender, RoutedEventArgs e)
+    {
+        bool restrict = RestrictRootCheck.IsChecked == true;
+        RestrictRootRow.Visibility = restrict ? Visibility.Visible : Visibility.Collapsed;
+        if (restrict) _ = RootBox.Focus(FocusState.Programmatic);
     }
 
     private async Task RefreshAsync()
@@ -135,6 +177,8 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         bool busy = status.State is LocalServerState.Starting or LocalServerState.Stopping || _loading;
         bool running = status.State == LocalServerState.Running;
 
+        RenderDetection(status);
+        SuggestPort(status);
         StatusCard.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
         DetailGrid.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
         DeployCard.Visibility = deployed ? Visibility.Collapsed : Visibility.Visible;
@@ -155,6 +199,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         AutomationProperties.SetName(PrimaryButton, AutomationFor(status.State));
         StopButton.IsEnabled = running && !busy;
         StopButton.Content = status.State == LocalServerState.Stopping ? "正在停止…" : "停止服务";
+        OpenWebButton.IsEnabled = running && !busy;
 
         AutoStartCheck.IsChecked = status.AutoStartEnabled;
         AutoRestartCheck.IsChecked = status.AutoRestartEnabled;
@@ -170,6 +215,57 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
 
         await ReloadLogsAsync();
         await LoadCredentialAsync(status);
+    }
+
+    private void RenderDetection(LocalServerStatus status)
+    {
+        var rows = new List<DetectedRow>();
+        foreach (LocalServerInstance instance in status.Detected)
+        {
+            bool ours = instance.ManagedByThisClient;
+            rows.Add(new DetectedRow(
+                instance.Port,
+                "http://127.0.0.1:" + instance.Port.ToString(CultureInfo.InvariantCulture) +
+                    "    PID " + instance.ProcessId.ToString(CultureInfo.InvariantCulture) +
+                    "    " + instance.ProcessName,
+                ours ? "由栖卷客户端管理，可直接连接或打开网页。"
+                     : "不是本客户端启动的实例；可以连接和打开网页，但客户端不会停止或修改它。",
+                instance.ServingWebUi ? Visibility.Visible : Visibility.Collapsed,
+                ours && status.State == LocalServerState.Running ? Visibility.Collapsed : Visibility.Visible));
+        }
+        // Reassigning the item source on every supervision tick is what made the card blink.
+        string title = status.State == LocalServerState.NotDeployed && rows.Count > 0
+            ? "检测到本机已有服务端，无需重复部署"
+            : "检测到本机正在运行的服务端";
+        if (_detectionRows is null || !_detectionRows.SequenceEqual(rows) || _detectionTitle != title)
+        {
+            _detectionRows = rows;
+            _detectionTitle = title;
+            DetectionList.ItemsSource = rows;
+            DetectionCard.Visibility = rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            DetectionTitle.Text = title;
+        }
+    }
+
+    private sealed record DetectedRow(int Port, string Summary, string Note, Visibility WebVisibility, Visibility ConnectVisibility);
+
+    private async void OpenWeb_Click(object sender, RoutedEventArgs e)
+    {
+        if (_service is null) return;
+        int port = sender is Button { DataContext: DetectedRow row } ? row.Port
+            : sender is Button { CommandParameter: int commandPort } ? commandPort
+            : _status?.Deployment?.Port ?? 0;
+        if (port <= 0) return;
+        if (!await _service.OpenWebUiAsync(port, _lifetime.Token))
+            ShowNotice("浏览器没有打开该地址，请确认服务端已启用 Web 界面。", InfoBarSeverity.Warning);
+    }
+
+    /// <summary>A foreign instance carries no local credential, so only the address is handed to the form.</summary>
+    private void ConnectDetected_Click(object sender, RoutedEventArgs e)
+    {
+        if (_status is null || sender is not Button { CommandParameter: int port }) return;
+        ConnectRequested?.Invoke(this, new LocalServerConnectRequest(
+            "http://127.0.0.1:" + port.ToString(CultureInfo.InvariantCulture), null, null));
     }
 
     private void RenderFacts(LocalServerStatus status)
@@ -240,9 +336,12 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         if (deployment is null) return status.Endpoint ?? string.Empty;
         var parts = new List<string> { status.Endpoint ?? string.Empty };
         if (status.ProcessId is int pid) parts.Add("PID " + pid.ToString(CultureInfo.InvariantCulture));
-        if (status.State == LocalServerState.Running && status.Uptime is TimeSpan up) parts.Add("已运行 " + FormatUptime(up));
+        if (status.State == LocalServerState.Running && status.StartedAt is DateTimeOffset started)
+            parts.Add("已运行 " + FormatUptime(DateTimeOffset.Now - started));
         if (status.LastExitCode is int code and not 0) parts.Add("退出码 " + code.ToString(CultureInfo.InvariantCulture));
-        parts.Add("共享 " + new DirectoryInfo(deployment.FilesRoot).Name);
+        parts.Add(deployment.MountsWholeComputer
+            ? "共享整台电脑"
+            : "共享 " + Path.GetFileName(deployment.FilesRoot.TrimEnd('\\', '/')));
         return string.Join("  ·  ", parts.Where(part => !string.IsNullOrWhiteSpace(part)));
     }
 
@@ -288,13 +387,13 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         if (_service is null || _status is null) return;
         if (_status.State == LocalServerState.Running)
         {
-            string? endpoint = await _service.GetConnectableEndpointAsync(_lifetime.Token);
-            if (string.IsNullOrEmpty(endpoint))
+            LocalServerSignIn? signIn = await _service.GetSignInAsync(_lifetime.Token);
+            if (signIn is null)
             {
                 ShowNotice("本地服务端当前不可连接，请刷新状态。", InfoBarSeverity.Warning);
                 return;
             }
-            ConnectRequested?.Invoke(this, new LocalServerConnectRequest(endpoint, _status.Deployment?.AdminUsername ?? string.Empty));
+            ConnectRequested?.Invoke(this, new LocalServerConnectRequest(signIn.Endpoint, signIn.Username, signIn.Password));
             return;
         }
         ILocalServerManagementService service = _service;
@@ -323,14 +422,15 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
             _ = PortBox.Focus(FocusState.Programmatic);
             return;
         }
+        bool restrict = RestrictRootCheck.IsChecked == true;
         string files = RootBox.Text.Trim();
-        if (files.Length == 0 || !Path.IsPathFullyQualified(files))
+        if (restrict && (files.Length == 0 || !Path.IsPathFullyQualified(files)))
         {
-            ShowNotice("共享文件夹需要一个完整路径。", InfoBarSeverity.Warning);
+            ShowNotice("限定共享范围时需要一个完整的文件夹路径。", InfoBarSeverity.Warning);
             _ = RootBox.Focus(FocusState.Programmatic);
             return;
         }
-        var request = new LocalServerDeploymentRequest(port, files, AccountBox.Text.Trim(), SecretBox.Password);
+        var request = new LocalServerDeploymentRequest(port, !restrict, restrict ? files : string.Empty, AccountBox.Text.Trim(), SecretBox.Password);
         ILocalServerManagementService service = _service;
         DeployButton.IsEnabled = false;
         try
@@ -476,26 +576,48 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         {
             var filter = new LocalServerFilter(_errorsOnly, LogQueryBox.Text.Trim());
             LocalServerLogPage page = await _service.ReadLogsAsync(filter, 240, _lifetime.Token);
-            var rows = page.Lines.Select(LogRow.From).ToList();
-            LogList.ItemsSource = rows;
+            ApplyLogRows(page.Lines.Select(LogRow.From).ToList());
             LogSummary.Text = page.TotalCount == 0
                 ? string.Empty
                 : page.TotalCount.ToString(CultureInfo.InvariantCulture) + " 行 · 错误 " +
                   page.ErrorCount.ToString(CultureInfo.InvariantCulture) + " 行";
-            bool empty = rows.Count == 0;
+            bool empty = _logRows.Count == 0;
             LogsEmpty.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
             LogList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
             LogsEmptyTitle.Text = _errorsOnly ? "没有错误日志" : "还没有日志";
             LogsEmptyBody.Text = _errorsOnly
                 ? "当前只有常规运行记录；错误、警告与诊断输出会标记在这里。"
                 : "启动服务端后，运行日志与诊断输出会出现在这里。";
-            if (!empty && FollowCheck.IsChecked == true && LogList.Items.Count > 0)
-                LogList.ScrollIntoView(LogList.Items[^1]);
+            if (!empty && FollowCheck.IsChecked == true && _newestArrived)
+                LogList.ScrollIntoView(_logRows[0]);
         }
         catch (Exception error) when (error is FilewayException or OperationCanceledException)
         {
             _ = error; // Log reading is best-effort; the status card still reports the lifecycle.
         }
+    }
+
+    /// <summary>Applies only the lines that actually changed; a full rebind every two seconds reads as a flicker.</summary>
+    private void ApplyLogRows(List<LogRow> rows)
+    {
+        if (LogList.ItemsSource is null) LogList.ItemsSource = _logRows;
+        int head = 0;
+        while (head < _logRows.Count && head < rows.Count && _logRows[head] == rows[head]) head++;
+        int lastOld = _logRows.Count - 1;
+        int lastNew = rows.Count - 1;
+        while (lastOld >= head && lastNew >= head && _logRows[lastOld] == rows[lastNew])
+        {
+            lastOld--;
+            lastNew--;
+        }
+
+        _newestArrived = head == 0 && lastNew >= 0 && (_logRows.Count == 0 || _logRows[0] != rows[0]);
+        while (lastOld >= head)
+        {
+            _logRows.RemoveAt(lastOld);
+            lastOld--;
+        }
+        for (int index = head; index <= lastNew; index++) _logRows.Insert(index, rows[index]);
     }
 
     private void SetBusy(bool busy) => BusyRing.IsActive = busy;

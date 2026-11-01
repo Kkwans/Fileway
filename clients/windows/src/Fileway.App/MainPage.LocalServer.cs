@@ -47,16 +47,24 @@ public sealed partial class MainPage
     }
 
     /// <summary>Hands the loopback endpoint to the connection form; the page never builds URLs itself.</summary>
-    private void LocalServer_ConnectRequested(object? sender, LocalServerConnectRequest request)
+    private async void LocalServer_ConnectRequested(object? sender, LocalServerConnectRequest request)
     {
         if (_disposed) return;
         LocalServerPane.Visibility = Visibility.Collapsed;
         LocalServerPane.SuspendView();
         SetConnectionView(true);
         ServerBox.Text = request.Endpoint;
-        UsernameBox.Text = request.Username;
-        PasswordBox.Password = string.Empty;
-        _ = PasswordBox.Focus(FocusState.Programmatic);
-        SetNotice("本地服务端", "地址与用户名已填好，输入部署账号的密码即可连接。可在“本地服务端”页面查看密码。", InfoBarSeverity.Informational);
+        if (request.Username is not string username)
+        {
+            // A server this client did not deploy keeps its own secret; only the address is known.
+            PasswordBox.Password = string.Empty;
+            SetNotice("本地服务端", "地址已填好，输入该服务端的账号和密码即可连接。", InfoBarSeverity.Informational);
+            _ = UsernameBox.Focus(FocusState.Programmatic);
+            return;
+        }
+        AuthenticationBox.SelectedIndex = 0;
+        UsernameBox.Text = username;
+        PasswordBox.Password = request.Password ?? string.Empty;
+        await ConnectFromFormAsync();
     }
 }

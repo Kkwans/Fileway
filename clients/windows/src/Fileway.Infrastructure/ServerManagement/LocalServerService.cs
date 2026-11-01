@@ -22,6 +22,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
     private static readonly TimeSpan GracefulStopWindow = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan StartDeadline = TimeSpan.FromSeconds(25);
     private static readonly TimeSpan WatchInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DetectCacheWindow = TimeSpan.FromSeconds(15);
 
     private static readonly HttpClient Probe = new(new SocketsHttpHandler
     {
@@ -58,6 +59,8 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
     private bool _userStopping;
     private bool _stopInFlight;
     private int _consecutiveFailures;
+    private IReadOnlyList<LocalServerInstance> _detected = Array.Empty<LocalServerInstance>();
+    private DateTime _detectedAt = DateTime.MinValue;
     private string? _verifiedHash;
     private DateTime _verifiedStamp;
     private long _verifiedLength;
@@ -77,13 +80,40 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
     /// <summary>Isolated verification and diagnostics use the resolved root instead of the private client directory.</summary>
     public string DataDirectory => _layout.DataRoot;
 
-    public LocalServerDefaults GetDefaults() => new(LocalServerLayout.DefaultPort, _layout.FilesRoot,
+    public LocalServerDefaults GetDefaults() => new(NextFreePort(), true, _layout.FilesRoot,
         ServerInstaller.GenerateUsername(), ServerInstaller.GeneratePassword());
+
+    /// <summary>8888 unless an already running server owns it, so a second deployment never collides.</summary>
+    private int NextFreePort()
+    {
+        var taken = new HashSet<int>(_detected.Select(instance => instance.Port));
+        for (int port = LocalServerLayout.DefaultPort; port < LocalServerLayout.DefaultPort + 20; port++)
+            if (!taken.Contains(port)) return port;
+        return LocalServerLayout.DefaultPort;
+    }
 
     public async Task<LocalServerStatus> ReadStatusAsync(CancellationToken cancellationToken)
     {
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         var document = _layout.ReadDocument();
+        if (DateTime.UtcNow - _detectedAt > DetectCacheWindow)
+        {
+            _detectedAt = DateTime.UtcNow;
+            try
+            {
+                _detected = await ServerDiscovery.DetectAsync(document?.Port ?? LocalServerLayout.DefaultPort,
+                    document?.ProcessId, QuickProbe, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception error) when (error is not OperationCanceledException)
+            {
+                _detected = Array.Empty<LocalServerInstance>();
+            }
+        }
+        return await ReadCoreAsync(document, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<LocalServerStatus> ReadCoreAsync(LocalServerDocument? document, CancellationToken cancellationToken)
+    {
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _lifetime.Token);
         _ = _layout.TryReadReceipt(out ServerBuildReceipt? receipt);
         if (document is not { Deployed: true }) return Undeployed(receipt, document);
 
@@ -129,12 +159,17 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         {
             var existing = _layout.ReadDocument();
             if (existing is { Deployed: true })
-                throw Conflict("本地服务端已经部署过。要更换端口或共享文件夹，请先停止服务再重新部署。");
+                throw Conflict("本地服务端已经部署过。要更换端口或共享范围，请先停止服务再重新部署。");
             if (!_layout.TryReadReceipt(out ServerBuildReceipt? receipt)) throw ComponentMissing();
+            // Checking the port first keeps a colliding deployment from leaving a half-created database behind.
+            if (await ProbeAsync("127.0.0.1", request.Port, cancellationToken).ConfigureAwait(false))
+                throw Conflict($"127.0.0.1:{request.Port.ToString(CultureInfo.InvariantCulture)} 上已经有服务端在应答，见上方“检测到的服务端”。" +
+                    "可以直接连接那个实例，或换一个端口再部署。");
 
             var document = LocalServerLayout.NewDocument(_layout.ExecutablePath, receipt.Sha256);
             document.Port = request.Port;
-            document.FilesRoot = Path.GetFullPath(request.FilesRoot);
+            document.MountsWholeComputer = request.MountsWholeComputer;
+            document.FilesRoot = request.MountsWholeComputer ? _layout.FilesRoot : Path.GetFullPath(request.FilesRoot);
             document.AdminUsername = request.AdminUsername;
             document.DeployedAt = DateTimeOffset.Now;
             document.AutoRestart = existing?.AutoRestart ?? false;
@@ -292,6 +327,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
                 SyncStartupRegistration(document);
                 _layout.WriteDocument(document);
                 Publish(document, LocalServerState.Running, receipt, handle);
+                InvalidateDetection();
                 return await ReadStatusAsync(cancellationToken).ConfigureAwait(false);
             }
             if (ServerProcess.HasExited(handle)) break;
@@ -350,6 +386,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             _layout.WriteDocument(document);
             if (outcome == ServerStopOutcome.Unknown)
                 throw new FilewayException(new ErrorInfo(ErrorCode.OutcomeUnknown, "停止结果无法确认，请刷新状态后再决定下一步。", Retryable: true));
+            InvalidateDetection();
             return await ReadStatusAsync(cancellationToken).ConfigureAwait(false);
         }
         finally { if (borrowed) opened?.Dispose(); }
@@ -371,8 +408,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             {
                 if (!await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false)) return;
                 var status = await ReadStatusAsync(cancellationToken).ConfigureAwait(false);
-                _published = status;
-                StatusChanged?.Invoke(this, status);
+                Raise(status);
                 await ReactAsync(status, cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { return; }
@@ -508,23 +544,53 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         }
     }
 
-    private static LocalServerStatus Undeployed(ServerBuildReceipt? receipt, LocalServerDocument? document) => new(
+    /// <summary>A launch or stop changes what is listening, so the next read must re-scan rather than reuse the cache.</summary>
+    private void InvalidateDetection() => _detectedAt = DateTime.MinValue;
+
+    private LocalServerStatus Undeployed(ServerBuildReceipt? receipt, LocalServerDocument? document) => new(
         LocalServerState.NotDeployed, null, null, null, null, null, receipt?.Version, false,
-        document?.AutoRestart ?? false, 0, null, null);
+        document?.AutoRestart ?? false, 0, null, null, _detected);
 
     private LocalServerStatus Status(LocalServerDocument document, LocalServerState state, ServerBuildReceipt? receipt, SafeProcessHandle? handle)
     {
         DateTimeOffset? startedAt = document.ProcessStartedAt;
         bool ours = handle is not null && (ReferenceEquals(handle, _owned) || Matches(handle, document));
         TimeSpan? uptime = state == LocalServerState.Running && startedAt is not null ? DateTimeOffset.Now - startedAt.Value : null;
-        var deployment = new LocalServerDeployment(document.Port, document.Address, document.FilesRoot, _layout.DataRoot,
+        var deployment = new LocalServerDeployment(document.Port, document.Address, document.MountsWholeComputer,
+            document.MountsWholeComputer ? LocalServerLayout.ComputerRootLabel : document.FilesRoot, _layout.DataRoot,
             _layout.LogRoot, document.AdminUsername, document.DeployedAt ?? DateTimeOffset.Now);
         ErrorInfo? error = string.IsNullOrEmpty(document.LastError)
             ? null
             : new ErrorInfo(document.LastExitCode is null or 0 ? ErrorCode.Unknown : ErrorCode.HostExited, document.LastError!, Retryable: true);
         return new LocalServerStatus(state, deployment, Endpoint(document), ours ? document.ProcessId : null,
             startedAt, uptime, receipt?.Version, MatchesStartup(document), document.AutoRestart,
-            document.RestartAttempts, document.LastExitCode, error);
+            document.RestartAttempts, document.LastExitCode, error, _detected);
+    }
+
+    /// <summary>Credentials for a one-click sign-in; only handed out while the managed instance is healthy.</summary>
+    public async Task<LocalServerSignIn?> GetSignInAsync(CancellationToken cancellationToken)
+    {
+        var document = _layout.ReadDocument();
+        if (document is not { Deployed: true }) return null;
+        string? password = await Task.Run(_layout.ReadAdminSecret, cancellationToken).ConfigureAwait(false);
+        if (string.IsNullOrEmpty(password)) return null;
+        return new LocalServerSignIn(Endpoint(document), document.AdminUsername, password);
+    }
+
+    public async Task<bool> OpenWebUiAsync(int port, CancellationToken cancellationToken)
+    {
+        if (port is < 1 or > 65535) return false;
+        var uri = new Uri($"http://127.0.0.1:{port.ToString(System.Globalization.CultureInfo.InvariantCulture)}/");
+        try
+        {
+            using var response = await Probe.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode != HttpStatusCode.OK) return false;
+            return await Windows.System.Launcher.LaunchUriAsync(uri).AsTask(cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or OperationCanceledException or InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     private bool MatchesStartup(LocalServerDocument document) => document.AutoStart &&
@@ -545,14 +611,19 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
 
     private static string Signature(LocalServerStatus status) =>
         string.Join('|', status.State, status.ProcessId, status.LastExitCode, status.RestartAttempts,
-            status.AutoStartEnabled, status.AutoRestartEnabled, status.LastError?.Message);
+            status.AutoStartEnabled, status.AutoRestartEnabled, status.LastError?.Message,
+            string.Join(',', status.Detected.Select(instance => instance.Port)));
 
-    private static async Task<bool> ProbeAsync(LocalServerDocument document, CancellationToken cancellationToken, HttpClient? client = null)
+    private static Task<bool> ProbeAsync(LocalServerDocument document, CancellationToken cancellationToken, HttpClient? client = null) =>
+        ProbeAsync(document.Address, document.Port, cancellationToken, client);
+
+    private static async Task<bool> ProbeAsync(string address, int port, CancellationToken cancellationToken, HttpClient? client = null)
     {
         HttpClient http = client ?? Probe;
         try
         {
-            using var response = await http.GetAsync(Endpoint(document) + "/health", HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+            using var response = await http.GetAsync($"http://{address}:{port.ToString(CultureInfo.InvariantCulture)}/health",
+                HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
             if (response.StatusCode != HttpStatusCode.OK) return false;
             string body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             return body.Contains("OK", StringComparison.OrdinalIgnoreCase);

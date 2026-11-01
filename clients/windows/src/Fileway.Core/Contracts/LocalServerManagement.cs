@@ -53,10 +53,22 @@ public sealed record LocalServerLogPage(
 
 public sealed record LocalServerFilter(bool ErrorsOnly, string? Query);
 
+/// <summary>A Fileway server found listening on this machine, whether or not this client started it.</summary>
+public sealed record LocalServerInstance(
+    int Port,
+    int ProcessId,
+    string ProcessName,
+    bool ManagedByThisClient,
+    bool ServingWebUi)
+{
+    public string Endpoint => "http://127.0.0.1:" + Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+}
+
 /// <summary>Deployment settings safe to display. Credentials never appear here.</summary>
 public sealed record LocalServerDeployment(
     int Port,
     string Address,
+    bool MountsWholeComputer,
     string FilesRoot,
     string DataDirectory,
     string LogDirectory,
@@ -76,10 +88,12 @@ public sealed record LocalServerStatus(
     bool AutoRestartEnabled,
     int RestartAttempts,
     int? LastExitCode,
-    ErrorInfo? LastError);
+    ErrorInfo? LastError,
+    IReadOnlyList<LocalServerInstance> Detected);
 
 public sealed record LocalServerDeploymentRequest(
     int Port,
+    bool MountsWholeComputer,
     string FilesRoot,
     string AdminUsername,
     string AdminPassword)
@@ -94,7 +108,13 @@ public sealed record LocalServerCredential(string Username, string Password)
 }
 
 /// <summary>Starting values for the deployment form, produced by the owning layer rather than the page.</summary>
-public sealed record LocalServerDefaults(int Port, string FilesRoot, string Username, string Password);
+public sealed record LocalServerDefaults(int Port, bool MountsWholeComputer, string FilesRoot, string Username, string Password);
+
+/// <summary>Data for a one-click sign-in; the page forwards it, it never composes an address itself.</summary>
+public sealed record LocalServerSignIn(string Endpoint, string Username, string Password)
+{
+    public override string ToString() => "LocalServerSignIn (credentials redacted)";
+}
 
 /// <summary>
 /// Owns the bundled local server: integrity, lifecycle, boot registration and logs.
@@ -124,8 +144,14 @@ public interface ILocalServerManagementService
     /// <summary>The locally stored administrator account, or null while the deployment has no secret on file.</summary>
     Task<LocalServerCredential?> ReadCredentialAsync(CancellationToken cancellationToken);
 
-    /// <summary>Starting values for the deployment form, produced by the owning layer rather than the page.</summary>
+    /// <summary>Starting values for the deployment form.</summary>
     LocalServerDefaults GetDefaults();
+
+    /// <summary>Endpoint plus stored credentials for a one-click sign-in, or null when nothing is deployable.</summary>
+    Task<LocalServerSignIn?> GetSignInAsync(CancellationToken cancellationToken);
+
+    /// <summary>Opens the Web UI of a running instance in the default browser.</summary>
+    Task<bool> OpenWebUiAsync(int port, CancellationToken cancellationToken);
 
     /// <summary>Raised after a watchdog transition so the page can refresh without polling.</summary>
     event EventHandler<LocalServerStatus> StatusChanged;

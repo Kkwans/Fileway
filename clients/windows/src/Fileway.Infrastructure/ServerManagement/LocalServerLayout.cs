@@ -21,6 +21,10 @@ public sealed class LocalServerDocument
     [JsonPropertyName("filesRoot")]
     public string FilesRoot { get; set; } = string.Empty;
 
+    /// <summary>True mounts every drive through the server's virtual computer root; false restricts to FilesRoot.</summary>
+    [JsonPropertyName("mountsWholeComputer")]
+    public bool MountsWholeComputer { get; set; } = true;
+
     [JsonPropertyName("adminUsername")]
     public string AdminUsername { get; set; } = string.Empty;
 
@@ -71,7 +75,8 @@ internal sealed record ServerBuildReceipt(string Version, string Commit, string 
 internal sealed class LocalServerLayout
 {
     internal const int CurrentSchema = 1;
-    internal const int DefaultPort = 18099;
+    internal const int DefaultPort = 8888;
+    internal const string ComputerRoot = "computer";
     internal const string StateName = "local-server.json";
     internal const string SecretName = "deployment.secret";
     internal const string DatabaseName = "server.db";
@@ -204,12 +209,19 @@ internal sealed class LocalServerLayout
         }
     }
 
+    /// <summary>Display text for the virtual computer root; the server itself receives the literal token.</summary>
+    internal const string ComputerRootLabel = "整台电脑（所有盘符）";
+
+    /// <summary>The virtual root that exposes every drive, matching the server's Windows filesystem adapter.</summary>
+    internal static string RootArgument(LocalServerDocument document) =>
+        document.MountsWholeComputer || string.IsNullOrWhiteSpace(document.FilesRoot) ? ComputerRoot : document.FilesRoot;
+
     /// <summary>Arguments shared by the interactive launch and the boot registration so both agree.</summary>
     internal IReadOnlyList<string> LaunchArguments(LocalServerDocument document) => new[]
     {
         "--address", document.Address,
         "--port", document.Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
-        "--root", document.FilesRoot,
+        "--root", RootArgument(document),
         "--database", DatabasePath,
         "--cacheDir", CacheRoot,
         "--hlsCacheDir", HlsRoot,

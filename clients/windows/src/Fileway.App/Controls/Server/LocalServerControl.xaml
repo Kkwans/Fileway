@@ -26,6 +26,33 @@
   </Grid>
 
   <StackPanel Grid.Row="1" Spacing="12">
+   <!-- 本机已有服务端：不论是谁启动的，先如实回显再决定动作 -->
+   <Border x:Name="DetectionCard" Style="{StaticResource FwFormCardStyle}" Visibility="Collapsed">
+    <StackPanel Spacing="10">
+     <StackPanel Orientation="Horizontal" Spacing="8">
+      <ui:LucideIcon IconName="activity" Width="18" Height="18" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <TextBlock x:Name="DetectionTitle" Text="检测到本机已有服务端" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+     </StackPanel>
+     <ItemsControl x:Name="DetectionList">
+      <ItemsControl.ItemTemplate>
+       <DataTemplate>
+        <Grid ColumnSpacing="10" Margin="0,2">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+         <StackPanel Spacing="2" VerticalAlignment="Center">
+          <TextBlock Text="{Binding Summary}" Style="{StaticResource FwCodeTextStyle}"/>
+          <TextBlock Text="{Binding Note}" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+         </StackPanel>
+         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Button Content="打开 Web 端" CommandParameter="{Binding Port}" Click="OpenWeb_Click" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="{Binding WebVisibility}"/>
+          <Button Content="连接" CommandParameter="{Binding Port}" Click="ConnectDetected_Click" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="{Binding ConnectVisibility}"/>
+         </StackPanel>
+        </Grid>
+       </DataTemplate>
+      </ItemsControl.ItemTemplate>
+     </ItemsControl>
+    </StackPanel>
+   </Border>
+
    <!-- 状态卡片：图标块 + 状态标题 + 等宽详情行 + 右侧动作（主按钮永远在最右） -->
    <Border x:Name="StatusCard" Style="{StaticResource FwFormCardStyle}" Visibility="Collapsed">
     <Grid ColumnSpacing="14">
@@ -38,6 +65,7 @@
       <TextBlock x:Name="StatusDetail" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="Wrap"/>
      </StackPanel>
      <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+      <Button x:Name="OpenWebButton" Content="打开 Web 端" Click="OpenWeb_Click" Style="{StaticResource FwSecondaryButtonStyle}" IsEnabled="False" AutomationProperties.Name="在浏览器打开本地服务端网页"/>
       <Button x:Name="StopButton" Content="停止服务" Click="Stop_Click" Style="{StaticResource FwSecondaryButtonStyle}" IsEnabled="False" AutomationProperties.Name="停止本地服务端"/>
       <Button x:Name="PrimaryButton" Content="启动服务" Click="Primary_Click" Style="{StaticResource FwPrimaryButtonStyle}" IsEnabled="False" AutomationProperties.Name="启动本地服务端"/>
      </StackPanel>
@@ -60,43 +88,51 @@
    <StackPanel Spacing="14">
     <StackPanel Spacing="3">
      <TextBlock Text="部署本地服务端" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
-     <TextBlock Text="会创建独立的服务端数据库和管理员账号，只监听 127.0.0.1，不对局域网开放。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+     <TextBlock Text="会创建独立的服务端数据库和管理员账号，默认挂载整台电脑的所有盘符，只监听 127.0.0.1，不对局域网开放。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
     </StackPanel>
     <Grid ColumnSpacing="12">
-     <Grid.ColumnDefinitions><ColumnDefinition Width="128"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <StackPanel Spacing="6">
       <TextBlock Text="端口" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
-      <TextBox x:Name="PortBox" Height="36" MinHeight="36" MaxLength="5" Text="18099" InputScope="Number" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="监听端口"/>
+      <TextBox x:Name="PortBox" Height="36" MinHeight="36" MaxLength="5" Text="8888" InputScope="Number" TextChanged="PortBox_TextChanged" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="监听端口"/>
      </StackPanel>
-     <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Spacing="6">
-      <TextBlock Text="共享文件夹" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
-      <TextBox x:Name="RootBox" Height="36" MinHeight="36" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="共享文件夹路径"/>
-     </StackPanel>
-     <Button x:Name="BrowseRootButton" Grid.Column="2" Content="选择…" Click="BrowseRoot_Click" Style="{StaticResource FwSecondaryButtonStyle}" VerticalAlignment="Bottom" Margin="0,22,0,0" AutomationProperties.Name="选择共享文件夹"/>
-    </Grid>
-    <Grid ColumnSpacing="12">
-     <Grid.ColumnDefinitions><ColumnDefinition Width="128"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="6">
+     <StackPanel Grid.Column="1" Spacing="6">
       <TextBlock Text="管理员用户名" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
       <TextBox x:Name="AccountBox" Height="36" MinHeight="36" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="管理员用户名"/>
-     </StackPanel>
-     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Margin="0,22,0,0">
-      <Button x:Name="RegenerateButton" Click="Regenerate_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="重新生成密码" AutomationProperties.Name="重新生成管理员密码"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
-     </StackPanel>
-    </Grid>
-    <Grid ColumnSpacing="12">
-     <Grid.ColumnDefinitions><ColumnDefinition Width="128"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="6">
-      <TextBlock Text="管理员密码" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
-      <PasswordBox x:Name="SecretBox" Height="36" MinHeight="36" PasswordRevealMode="Hidden" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="管理员密码"/>
-     </StackPanel>
-     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Margin="0,22,0,0">
-      <Button x:Name="RevealSecretButton" Click="RevealSecret_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="显示密码" AutomationProperties.Name="显示管理员密码"><ui:LucideIcon IconName="eye" Width="18" Height="18"/></Button>
      </StackPanel>
     </Grid>
     <Grid ColumnSpacing="12">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <TextBlock Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" VerticalAlignment="Center" Text="随机密码满足服务端最小长度要求，只以当前 Windows 用户加密保存在本机，可在下方“启动与账号”里查看；连接后可用“修改密码”更换。"/>
+     <StackPanel Spacing="6">
+      <TextBlock Text="管理员密码" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <PasswordBox x:Name="SecretBox" Height="36" MinHeight="36" PasswordRevealMode="Hidden" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="管理员密码"/>
+     </StackPanel>
+     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Margin="0,22,0,0">
+      <Button x:Name="RevealSecretButton" Click="RevealSecret_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="显示密码" AutomationProperties.Name="显示管理员密码"><ui:LucideIcon IconName="eye" Width="18" Height="18"/></Button>
+      <Button x:Name="RegenerateButton" Click="Regenerate_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="重新生成密码" AutomationProperties.Name="重新生成管理员密码"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
+     </StackPanel>
+    </Grid>
+    <ui:FwDisclosure x:Name="AdvancedDisclosure" Header="高级：限定共享范围">
+     <ui:FwDisclosure.SectionContent>
+      <StackPanel Spacing="10">
+       <StackPanel Spacing="3">
+        <CheckBox x:Name="RestrictRootCheck" Content="只共享指定文件夹" Checked="RestrictRoot_Changed" Unchecked="RestrictRoot_Changed" AutomationProperties.Name="只共享指定文件夹"/>
+        <TextBlock Text="不勾选时服务端挂载整台电脑的所有盘符；勾选后只暴露所选文件夹，连接方看不到其他盘。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" Margin="28,0,0,0"/>
+       </StackPanel>
+       <Grid x:Name="RestrictRootRow" ColumnSpacing="12" Visibility="Collapsed">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Spacing="6">
+         <TextBlock Text="文件夹路径" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+         <TextBox x:Name="RootBox" Height="36" MinHeight="36" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="要共享的文件夹路径"/>
+        </StackPanel>
+        <Button x:Name="BrowseRootButton" Grid.Column="1" Content="选择…" Click="BrowseRoot_Click" Style="{StaticResource FwSecondaryButtonStyle}" VerticalAlignment="Bottom" AutomationProperties.Name="选择要共享的文件夹"/>
+       </Grid>
+      </StackPanel>
+     </ui:FwDisclosure.SectionContent>
+    </ui:FwDisclosure>
+    <Grid ColumnSpacing="12">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <TextBlock x:Name="DeployHint" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" VerticalAlignment="Center" Text="随机密码满足服务端最小长度要求，只以当前 Windows 用户加密保存在本机，可在“启动与账号”里查看；连接后可用“修改密码”更换。"/>
      <Button x:Name="DeployButton" Grid.Column="1" Content="部署并启动" Click="Deploy_Click" Style="{StaticResource FwPrimaryButtonStyle}" VerticalAlignment="Center" HorizontalAlignment="Right" AutomationProperties.Name="部署并启动本地服务端"/>
     </Grid>
    </StackPanel>
@@ -114,7 +150,7 @@
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <TextBlock Text="监听" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
       <TextBlock x:Name="AddressValue" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource FwCodeTextStyle}" TextTrimming="CharacterEllipsis"/>
-      <TextBlock Grid.Row="1" Text="共享文件夹" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+      <TextBlock Grid.Row="1" Text="共享范围" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
       <TextBlock x:Name="FilesValue" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
       <TextBlock Grid.Row="2" Text="数据目录" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
       <TextBlock x:Name="DataValue" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>

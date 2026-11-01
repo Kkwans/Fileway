@@ -36,15 +36,17 @@ internal static class ServerInstaller
         if (request.AdminPassword.Length < MinimumPasswordLength || request.AdminPassword.Length > 128 ||
             request.AdminPassword.Any(char.IsControl))
             throw Invalid($"管理员密码需要至少 {MinimumPasswordLength} 位，且不超过 128 位。");
-        if (string.IsNullOrWhiteSpace(request.FilesRoot) || !Path.IsPathFullyQualified(request.FilesRoot))
-            throw Invalid("请选择一个完整的共享文件夹路径。");
+        if (!request.MountsWholeComputer &&
+            (string.IsNullOrWhiteSpace(request.FilesRoot) || !Path.IsPathFullyQualified(request.FilesRoot)))
+            throw Invalid("限定共享范围时需要一个完整的文件夹路径。");
     }
 
     /// <summary>Creates the database and its single administrator; never adopts a foreign database.</summary>
     internal static async Task PrepareAsync(LocalServerLayout layout, LocalServerDocument document, string password, CancellationToken cancellationToken)
     {
         layout.EnsureDirectories();
-        Directory.CreateDirectory(document.FilesRoot);
+        if (!document.MountsWholeComputer && !string.IsNullOrWhiteSpace(document.FilesRoot))
+            Directory.CreateDirectory(document.FilesRoot);
         if (File.Exists(layout.DatabasePath))
         {
             // The deployment document is what makes a database ours; a stray file must not be adopted.
@@ -58,7 +60,7 @@ internal static class ServerInstaller
             "--database", layout.DatabasePath,
             "--address", document.Address,
             "--port", document.Port.ToString(CultureInfo.InvariantCulture),
-            "--root", document.FilesRoot,
+            "--root", LocalServerLayout.RootArgument(document),
             "--log", layout.RuntimeLogPath,
             "--disableExec=true",
         ], cancellationToken).ConfigureAwait(false);
