@@ -130,7 +130,7 @@ public sealed partial class MainPage
         {
             (MyFilesButton, "我的文件"), (RecentAccessButton, "最近访问"), (TransferCenterButton, "传输中心"),
             (NasTasksButton, "文件任务"), (StorageToolsButton, "存储工具"), (TrashPageButton, "回收站"),
-            (ConnectionButton, SidebarConnectionActionLabel.Text),
+            (ConnectionButton, SidebarConnectionActionLabel.Text), (LocalServerButton, "本地服务端"),
         })
         {
             ToolTipService.SetToolTip(button, rail ? tip : null);

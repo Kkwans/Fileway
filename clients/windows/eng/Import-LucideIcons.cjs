@@ -13,6 +13,8 @@ const names = {
   'magnifying-glass':'search','pause':'pause','pencil-simple':'pencil','play':'play','plus':'plus',
   'scissors':'scissors','sidebar-simple':'panel-left','tag':'tag','trash':'trash',
   'upload-simple':'upload','x':'x',
+  'server':'server','activity':'activity','terminal':'terminal','alert-triangle':'triangle-alert',
+  'hard-drive':'hard-drive','power':'power',
 };
 const base = `https://raw.githubusercontent.com/lucide-icons/lucide/${commit}`;
 const root = path.resolve(__dirname, '../src/Fileway.App/Assets/Lucide');

@@ -32,7 +32,7 @@ foreach ($external in @($ArtifactsRoot, $ToolsRoot, $OutputDirectory)) {
 foreach ($writeRoot in @($OutputDirectory, (Join-Path $ArtifactsRoot 'package-staging'))) {
     if ($writeRoot.Equals($publish, [StringComparison]::OrdinalIgnoreCase) -or $writeRoot.StartsWith($publish.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Packaging must not write inside its publish input.' }
 }
-foreach ($required in @('Fileway.App.exe', 'coreclr.dll', 'Microsoft.UI.Xaml.dll', 'App.xbf', 'MainPage.xbf', 'MainWindow.xbf', 'Fileway.App.pri', 'Assets\AppIcon.ico', 'fileway-host.exe', 'host-build.json', 'media\libmpv-2.dll', 'media\runtime-lock.json')) {
+foreach ($required in @('Fileway.App.exe', 'coreclr.dll', 'Microsoft.UI.Xaml.dll', 'App.xbf', 'MainPage.xbf', 'MainWindow.xbf', 'Fileway.App.pri', 'Assets\AppIcon.ico', 'fileway-host.exe', 'host-build.json', 'fileway-server.exe', 'server-build.json', 'media\libmpv-2.dll', 'media\runtime-lock.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $publish $required) -PathType Leaf)) { throw "Publish input is missing $required. Run the existing publish workflow first; packaging never rebuilds." }
 }
 $licenseRoot = Join-Path $publish 'media\licenses'

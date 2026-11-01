@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<Page x:Class="Fileway.App.MainPage" xmlns:ui="using:Fileway.App.Controls" Background="Transparent" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App" xmlns:collections="using:Fileway.App.Controls.Collections" xmlns:browser="using:Fileway.App.Controls.Browser" xmlns:transfers="using:Fileway.App.Controls.Transfers" xmlns:recent="using:Fileway.App.Controls.Recent" xmlns:search="using:Fileway.App.Controls.Search" xmlns:nasTasks="using:Fileway.App.Controls.NasTasks" xmlns:trash="using:Fileway.App.Controls.Trash" xmlns:storageTools="using:Fileway.App.Controls.StorageTools">
+<Page x:Class="Fileway.App.MainPage" xmlns:ui="using:Fileway.App.Controls" Background="Transparent" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App" xmlns:collections="using:Fileway.App.Controls.Collections" xmlns:browser="using:Fileway.App.Controls.Browser" xmlns:transfers="using:Fileway.App.Controls.Transfers" xmlns:recent="using:Fileway.App.Controls.Recent" xmlns:search="using:Fileway.App.Controls.Search" xmlns:nasTasks="using:Fileway.App.Controls.NasTasks" xmlns:trash="using:Fileway.App.Controls.Trash" xmlns:storageTools="using:Fileway.App.Controls.StorageTools" xmlns:server="using:Fileway.App.Controls.Server">
  <Page.Resources>
   <ResourceDictionary>
    <ResourceDictionary.ThemeDictionaries>
@@ -92,6 +92,7 @@
     <MenuFlyoutItem x:Name="MenuTransfersItem" Text="传输中心" Click="TransferCenter_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuNasTasksItem" Text="文件任务" Click="NasTasks_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuTrashPageItem" Text="回收站" Click="TrashPage_Click" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuLocalServerItem" Text="本地服务端…" Click="LocalServer_Click"/>
     <MenuFlyoutItem x:Name="CollectionsButton" Text="管理收藏与标签…" Click="Collections_Click" IsEnabled="False" AutomationProperties.Name="管理收藏与标签"/>
     <MenuFlyoutItem x:Name="ChangePasswordButton" Text="修改密码…" Click="ChangePassword_Click" Visibility="Collapsed" AutomationProperties.Name="修改当前账户密码"/>
     <MenuFlyoutSeparator/>
@@ -139,6 +140,7 @@
    <Border Grid.Row="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,16,0,0"><StackPanel Spacing="4">
     <TextBlock x:Name="ConnectionLabel" Text="尚未连接" FontSize="12" Margin="12,0,12,4" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
     <Button x:Name="ConnectionButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="Connection_Click" AutomationProperties.Name="连接服务器" ToolTipService.ToolTip="连接服务器"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="floppy-disk" Width="16" Height="16"/><TextBlock x:Name="SidebarConnectionActionLabel" Text="连接服务器"/></StackPanel></Button>
+    <Button x:Name="LocalServerButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="LocalServer_Click" AutomationProperties.Name="本地服务端" ToolTipService.ToolTip="本地服务端"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="server" Width="16" Height="16"/><TextBlock x:Name="LocalServerLabel" Text="本地服务端"/></StackPanel></Button>
    </StackPanel></Border>
   </Grid>
   <Button x:Name="SidebarDismiss" Grid.RowSpan="2" Grid.ColumnSpan="2" Visibility="Collapsed" Background="{ThemeResource SmokeFillColorDefaultBrush}" BorderThickness="0" CornerRadius="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Click="PaneDismiss_Click" Canvas.ZIndex="2" AutomationProperties.Name="关闭导航侧栏"/>
@@ -276,6 +278,7 @@
   <trash:TrashControl x:Name="TrashPane" Visibility="Collapsed"/>
   <transfers:TransferCenterControl x:Name="TransfersPanel" Visibility="Collapsed"/>
   <ContentControl x:Name="StorageToolsHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+  <server:LocalServerControl x:Name="LocalServerPane" Visibility="Collapsed"/>
   <collections:ResourceCollectionsControl x:Name="CollectionsPanel" Visibility="Collapsed"/>
   <Grid x:Name="ConnectionPanel" Background="Transparent" Visibility="Collapsed" SizeChanged="ConnectionPanel_SizeChanged">
    <ScrollViewer x:Name="ConnectionFormScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -331,6 +334,8 @@
        <StackPanel Spacing="2"><CheckBox x:Name="KeepSignedInBox" Content="保持登录" IsChecked="True"/><TextBlock x:Name="RetentionDescription" Text="勾选后在当前 Windows 用户下加密保存密码和会话，用于自动恢复；退出登录或忘记连接会删除。" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
        <Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource FwPrimaryButtonStyle}" Click="Connect_Click" IsEnabled="False" HorizontalAlignment="Stretch"/>
        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8"><Button x:Name="CancelConnectionButton" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="DismissConnection" Content="返回文件" Visibility="Collapsed" Click="DismissConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}"/></StackPanel>
+       <Border Height="1" Margin="0,2" Style="{StaticResource FwDividerStyle}"/>
+       <StackPanel Orientation="Horizontal" Spacing="6"><TextBlock Text="本机还没有可连接的服务？" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource FwTextTertiaryBrush}"/><Button x:Name="LocalServerFromConnectionButton" Content="部署本地服务端" Click="LocalServer_Click" Style="{StaticResource FwTextIconButtonStyle}" FontSize="12" Height="28" MinHeight="28" Padding="8,0" AutomationProperties.Name="打开本地服务端页面"/></StackPanel>
       </StackPanel>
      </Border>
     </Grid>

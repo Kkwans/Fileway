@@ -83,6 +83,7 @@ public sealed partial class MainPage
         MenuNasTasksItem.IsEnabled = NasTasksButton.IsEnabled = connected && !connectionView && _files is IServerTaskService;
         MenuTrashPageItem.IsEnabled = TrashPageButton.IsEnabled = connected && !connectionView && _files is ITrashService;
         StorageToolsButton.IsEnabled = connected && !connectionView && _storageAnalysis is not null && (_directory ?? _root) is not null;
+        LocalServerButton.IsEnabled = MenuLocalServerItem.IsEnabled = !_connecting;
         CollectionsButton.IsEnabled = connected && _collections is not null && !connectionView;
         LogoutButton.IsEnabled = connected;
         ChangePasswordButton.Visibility = connected && _session is { } session &&
@@ -102,7 +103,8 @@ public sealed partial class MainPage
         PathLocationHost.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
         NavigationCommands.Visibility = NavigationHeader.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
         WorkspaceTitle.Visibility = Visibility.Collapsed;
-        WorkspaceTitle.Text = connectionView ? "连接服务器" : RecentPane.Visibility == Visibility.Visible ? "最近访问"
+        WorkspaceTitle.Text = connectionView ? "连接服务器" : LocalServerPane.Visibility == Visibility.Visible ? "本地服务端"
+            : RecentPane.Visibility == Visibility.Visible ? "最近访问"
             : SearchPane.Visibility == Visibility.Visible ? "搜索结果" : NasTasksPane.Visibility == Visibility.Visible ? "文件任务"
             : TrashPane.Visibility == Visibility.Visible ? "回收站"
             : TransfersPanel.Visibility == Visibility.Visible ? "传输中心" : CollectionsPanel.Visibility == Visibility.Visible ? "收藏与标签" : "我的文件";
@@ -113,6 +115,7 @@ public sealed partial class MainPage
         SetSidebarCurrent(TransferCenterButton, !connectionView && TransfersPanel.Visibility == Visibility.Visible);
         SetSidebarCurrent(NasTasksButton, !connectionView && NasTasksPane.Visibility == Visibility.Visible);
         SetSidebarCurrent(TrashPageButton, !connectionView && TrashPane.Visibility == Visibility.Visible);
+        SetSidebarCurrent(LocalServerButton, LocalServerPane.Visibility == Visibility.Visible);
     }
 
     private void SetSidebarCurrent(Button button, bool current)

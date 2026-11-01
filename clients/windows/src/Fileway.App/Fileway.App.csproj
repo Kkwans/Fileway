@@ -21,9 +21,9 @@
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.8.151</Version>
+    <Version>0.8.152</Version>
     <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.8.151.0</FileVersion>
+    <FileVersion>0.8.152.0</FileVersion>
     <FilewayMediaRuntimeRoot Condition="'$(FilewayMediaRuntimeRoot)' == ''">$(FilewayArtifactsRoot)\media-runtime\x64</FilewayMediaRuntimeRoot>
   </PropertyGroup>
 
@@ -78,6 +78,8 @@
   <ItemGroup>
     <Content Include="$(FilewayArtifactsRoot)\host\$(Configuration)\fileway-host.exe" Link="fileway-host.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(FilewayArtifactsRoot)\host\$(Configuration)\host-build.json" Link="host-build.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(FilewayArtifactsRoot)\server\$(Configuration)\fileway-server.exe" Link="fileway-server.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(FilewayArtifactsRoot)\server\$(Configuration)\server-build.json" Link="server-build.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(FilewayMediaRuntimeRoot)\*.dll" Link="media\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(FilewayMediaRuntimeRoot)\runtime-lock.json" Link="media\runtime-lock.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayMediaRuntimeRoot)\runtime-lock.json')" />
     <None Include="$(FilewayMediaRuntimeRoot)\binary-provenance.json" Link="media\binary-provenance.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayMediaRuntimeRoot)\binary-provenance.json')" />
@@ -86,9 +88,11 @@
     <None Include="..\..\LICENSE" Link="licenses\Fileway-GPL-3.0.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <Target Name="ValidateFilewayGoHost" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+  <Target Name="ValidateFilewayGoBinaries" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
     <Error Condition="!Exists('$(FilewayArtifactsRoot)\host\$(Configuration)\fileway-host.exe')" Text="Build the matching Go Host first with eng/Build-Windows.ps1 or eng/Build-GoHost.ps1." />
     <Error Condition="!Exists('$(FilewayArtifactsRoot)\host\$(Configuration)\host-build.json')" Text="The Go Host build provenance manifest is missing." />
+    <Error Condition="!Exists('$(FilewayArtifactsRoot)\server\$(Configuration)\fileway-server.exe')" Text="Build the bundled Go server first with eng/Build-Windows.ps1 or eng/Build-GoServer.ps1." />
+    <Error Condition="!Exists('$(FilewayArtifactsRoot)\server\$(Configuration)\server-build.json')" Text="The bundled Go server provenance manifest is missing." />
   </Target>
 
   <Target Name="CollectFilewayXamlPublishResources" BeforeTargets="ComputeFilesToPublish">

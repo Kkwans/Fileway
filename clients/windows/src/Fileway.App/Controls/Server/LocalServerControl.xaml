@@ -1,0 +1,219 @@
+<UserControl x:Class="Fileway.App.Controls.Server.LocalServerControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:Fileway.App.Controls"
+             AutomationProperties.Name="本地服务端" SizeChanged="Panel_SizeChanged">
+ <Grid Padding="20,16" RowSpacing="12">
+  <Grid.RowDefinitions>
+   <RowDefinition Height="Auto"/>
+   <RowDefinition Height="Auto"/>
+   <RowDefinition Height="Auto"/>
+   <RowDefinition Height="*" MinHeight="190"/>
+  </Grid.RowDefinitions>
+
+  <!-- 页面头部：标题 + 说明 + 操作组，与回收站/文件任务同一节奏 -->
+  <Grid ColumnSpacing="8">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+   <StackPanel Spacing="4" VerticalAlignment="Center">
+    <TextBlock Text="本地服务端" FontSize="22" FontWeight="SemiBold"/>
+    <TextBlock Text="在本机运行一个只监听 127.0.0.1 的栖卷服务端，用于离线共享或临时部署。" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}" TextWrapping="Wrap"/>
+   </StackPanel>
+   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+    <ProgressRing x:Name="BusyRing" Width="20" Height="20" IsActive="False" VerticalAlignment="Center"/>
+    <Button x:Name="CloseButton" Content="返回文件" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开本地服务端，返回文件"/>
+    <Button x:Name="RefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="刷新状态" AutomationProperties.Name="刷新本地服务端状态"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
+   </StackPanel>
+  </Grid>
+
+  <StackPanel Grid.Row="1" Spacing="12">
+   <!-- 状态卡片：图标块 + 状态标题 + 等宽详情行 + 右侧动作（主按钮永远在最右） -->
+   <Border x:Name="StatusCard" Style="{StaticResource FwFormCardStyle}" Visibility="Collapsed">
+    <Grid ColumnSpacing="14">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <Border Width="36" Height="36" CornerRadius="10" Style="{StaticResource FwIconTileStyle}" VerticalAlignment="Center">
+      <ui:LucideIcon x:Name="StatusIcon" IconName="server" Width="20" Height="20" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+     </Border>
+     <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+      <TextBlock x:Name="StatusTitle" Text="正在读取状态…" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+      <TextBlock x:Name="StatusDetail" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="Wrap"/>
+     </StackPanel>
+     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+      <Button x:Name="StopButton" Content="停止服务" Click="Stop_Click" Style="{StaticResource FwSecondaryButtonStyle}" IsEnabled="False" AutomationProperties.Name="停止本地服务端"/>
+      <Button x:Name="PrimaryButton" Content="启动服务" Click="Primary_Click" Style="{StaticResource FwPrimaryButtonStyle}" IsEnabled="False" AutomationProperties.Name="启动本地服务端"/>
+     </StackPanel>
+    </Grid>
+   </Border>
+
+   <!-- 错误同时使用图标与文案，不只靠颜色 -->
+   <Border x:Name="ErrorCard" Style="{StaticResource FwErrorCardStyle}" Padding="16,12" Visibility="Collapsed">
+    <Grid ColumnSpacing="12">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <ui:LucideIcon IconName="alert-triangle" Width="18" Height="18" VerticalAlignment="Top" Margin="0,4,0,0" Foreground="{ThemeResource FwDangerBrush}"/>
+     <TextBlock x:Name="ErrorText" Grid.Column="1" Style="{StaticResource FwBodyTextStyle}" TextWrapping="Wrap"/>
+     <Button x:Name="ErrorLogButton" Grid.Column="2" Content="查看错误日志" Click="ErrorLog_Click" Style="{StaticResource FwSecondaryButtonStyle}" VerticalAlignment="Center"/>
+    </Grid>
+   </Border>
+  </StackPanel>
+
+  <!-- 未部署：部署表单，页面唯一主按钮在右下角 -->
+  <Border Grid.Row="2" x:Name="DeployCard" Style="{StaticResource FwFormCardStyle}" Visibility="Collapsed">
+   <StackPanel Spacing="14">
+    <StackPanel Spacing="3">
+     <TextBlock Text="部署本地服务端" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+     <TextBlock Text="会创建独立的服务端数据库和管理员账号，只监听 127.0.0.1，不对局域网开放。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+    </StackPanel>
+    <Grid ColumnSpacing="12">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="128"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Spacing="6">
+      <TextBlock Text="端口" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <TextBox x:Name="PortBox" Height="36" MinHeight="36" MaxLength="5" Text="18099" InputScope="Number" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="监听端口"/>
+     </StackPanel>
+     <StackPanel Grid.Column="1" Grid.ColumnSpan="2" Spacing="6">
+      <TextBlock Text="共享文件夹" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <TextBox x:Name="RootBox" Height="36" MinHeight="36" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="共享文件夹路径"/>
+     </StackPanel>
+     <Button x:Name="BrowseRootButton" Grid.Column="2" Content="选择…" Click="BrowseRoot_Click" Style="{StaticResource FwSecondaryButtonStyle}" VerticalAlignment="Bottom" Margin="0,22,0,0" AutomationProperties.Name="选择共享文件夹"/>
+    </Grid>
+    <Grid ColumnSpacing="12">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="128"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="6">
+      <TextBlock Text="管理员用户名" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <TextBox x:Name="AccountBox" Height="36" MinHeight="36" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="管理员用户名"/>
+     </StackPanel>
+     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Margin="0,22,0,0">
+      <Button x:Name="RegenerateButton" Click="Regenerate_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="重新生成密码" AutomationProperties.Name="重新生成管理员密码"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
+     </StackPanel>
+    </Grid>
+    <Grid ColumnSpacing="12">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="128"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Grid.Column="0" Grid.ColumnSpan="2" Spacing="6">
+      <TextBlock Text="管理员密码" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <PasswordBox x:Name="SecretBox" Height="36" MinHeight="36" PasswordRevealMode="Hidden" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="管理员密码"/>
+     </StackPanel>
+     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Bottom" Margin="0,22,0,0">
+      <Button x:Name="RevealSecretButton" Click="RevealSecret_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="显示密码" AutomationProperties.Name="显示管理员密码"><ui:LucideIcon IconName="eye" Width="18" Height="18"/></Button>
+     </StackPanel>
+    </Grid>
+    <Grid ColumnSpacing="12">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <TextBlock Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" VerticalAlignment="Center" Text="随机密码满足服务端最小长度要求，只以当前 Windows 用户加密保存在本机，可在下方“启动与账号”里查看；连接后可用“修改密码”更换。"/>
+     <Button x:Name="DeployButton" Grid.Column="1" Content="部署并启动" Click="Deploy_Click" Style="{StaticResource FwPrimaryButtonStyle}" VerticalAlignment="Center" HorizontalAlignment="Right" AutomationProperties.Name="部署并启动本地服务端"/>
+    </Grid>
+   </StackPanel>
+  </Border>
+
+  <!-- 已部署：本机构建 + 启动与账号；窄窗口改为整宽两行 -->
+  <Grid Grid.Row="2" x:Name="DetailGrid" ColumnSpacing="12" RowSpacing="12" Visibility="Collapsed">
+   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="DetailSecondColumn" Width="*"/></Grid.ColumnDefinitions>
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <Border x:Name="BuildCard" Style="{StaticResource FwFormCardStyle}">
+    <StackPanel Spacing="12">
+     <TextBlock Text="本机构建" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+     <Grid ColumnSpacing="10" RowSpacing="8">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="84"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <TextBlock Text="监听" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+      <TextBlock x:Name="AddressValue" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource FwCodeTextStyle}" TextTrimming="CharacterEllipsis"/>
+      <TextBlock Grid.Row="1" Text="共享文件夹" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+      <TextBlock x:Name="FilesValue" Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+      <TextBlock Grid.Row="2" Text="数据目录" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+      <TextBlock x:Name="DataValue" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+      <TextBlock Grid.Row="3" Text="日志目录" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+      <TextBlock x:Name="LogsValue" Grid.Row="3" Grid.Column="1" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+      <Button Grid.Row="3" Grid.Column="2" Click="OpenLogs_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="打开日志文件夹" AutomationProperties.Name="打开本地服务端日志文件夹"><ui:LucideIcon IconName="folder-open" Width="18" Height="18"/></Button>
+      <TextBlock Grid.Row="4" Text="服务端" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+      <TextBlock x:Name="VersionValue" Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource FwCodeCaptionTextStyle}" TextTrimming="CharacterEllipsis"/>
+     </Grid>
+    </StackPanel>
+   </Border>
+   <Border x:Name="StartupCard" Grid.Column="1" Style="{StaticResource FwFormCardStyle}">
+    <StackPanel Spacing="12">
+     <TextBlock Text="启动与账号" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+     <StackPanel Spacing="3">
+      <CheckBox x:Name="AutoStartCheck" Content="登录本 Windows 账户时自动启动" Checked="AutoStart_Changed" Unchecked="AutoStart_Changed" AutomationProperties.Name="开机自动启动本地服务端"/>
+      <TextBlock Text="写入当前用户的启动项，不需要管理员权限；参数与本部署保持一致。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" Margin="28,0,0,0"/>
+     </StackPanel>
+     <StackPanel Spacing="3">
+      <CheckBox x:Name="AutoRestartCheck" Content="服务端意外退出后自动重启" Checked="AutoRestart_Changed" Unchecked="AutoRestart_Changed" AutomationProperties.Name="服务端故障自动重启"/>
+      <TextBlock x:Name="AutoRestartNote" Text="由运行中的栖卷客户端看护，关闭客户端后不再重拉；连续 5 次失败会暂停并在上方提示。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" Margin="28,0,0,0"/>
+     </StackPanel>
+     <Border Height="1" Style="{StaticResource FwDividerStyle}"/>
+     <Grid ColumnSpacing="10" RowSpacing="8">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="64"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <TextBlock Text="用户名" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+      <TextBlock x:Name="AccountValue" Grid.Column="1" Style="{StaticResource FwCodeTextStyle}" TextTrimming="CharacterEllipsis"/>
+      <Button Grid.Column="2" Click="CopyAccount_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="复制用户名" AutomationProperties.Name="复制本地服务端用户名"><ui:LucideIcon IconName="copy" Width="18" Height="18"/></Button>
+      <TextBlock Grid.Row="1" Text="密码" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+      <TextBlock x:Name="SecretValue" Grid.Row="1" Grid.Column="1" Style="{StaticResource FwCodeTextStyle}" TextTrimming="CharacterEllipsis"/>
+      <StackPanel Grid.Row="1" Grid.Column="2" Orientation="Horizontal" Spacing="4">
+       <Button x:Name="RevealStoredButton" Click="RevealStored_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="显示密码" AutomationProperties.Name="显示本地服务端密码"><ui:LucideIcon IconName="eye" Width="18" Height="18"/></Button>
+       <Button Click="CopySecret_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="复制密码" AutomationProperties.Name="复制本地服务端密码"><ui:LucideIcon IconName="copy" Width="18" Height="18"/></Button>
+      </StackPanel>
+     </Grid>
+    </StackPanel>
+   </Border>
+  </Grid>
+
+  <!-- 日志：工具行 + 列表 + 空状态 -->
+  <Border Grid.Row="3" Style="{StaticResource FwFormCardStyle}" Padding="16,12">
+   <Grid RowSpacing="10">
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+    <Grid ColumnSpacing="8">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+      <ui:LucideIcon IconName="terminal" Width="18" Height="18" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <TextBlock Text="服务端日志" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+     </StackPanel>
+     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center" Margin="12,0,0,0">
+      <ToggleButton x:Name="AllLogsTab" Content="全部" Width="96" IsChecked="True" Click="AllLogs_Click" Style="{StaticResource LayoutChoiceStyle}" HorizontalContentAlignment="Center" AutomationProperties.Name="显示全部日志"/>
+      <ToggleButton x:Name="ErrorLogsTab" Content="仅错误" Width="96" Click="ErrorLogs_Click" Style="{StaticResource LayoutChoiceStyle}" HorizontalContentAlignment="Center" AutomationProperties.Name="只显示错误日志"/>
+     </StackPanel>
+     <TextBlock x:Name="LogSummary" Grid.Column="2" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="12,0,0,0"/>
+     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+      <CheckBox x:Name="FollowCheck" Content="自动跟随" IsChecked="True" AutomationProperties.Name="自动跟随最新日志"/>
+      <TextBox x:Name="LogQueryBox" Width="180" Height="36" MinHeight="36" PlaceholderText="筛选日志…" TextChanged="Query_Changed" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="按关键字筛选日志"/>
+      <Button x:Name="ReloadLogsButton" Click="RefreshLogs_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="重新读取日志" AutomationProperties.Name="重新读取日志"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
+     </StackPanel>
+    </Grid>
+    <Grid Grid.Row="1">
+     <ListView x:Name="LogList" SelectionMode="None" IsMultiSelectCheckBoxEnabled="False" HorizontalContentAlignment="Stretch" Padding="0,0,4,0" AutomationProperties.Name="本地服务端日志">
+      <ListView.ItemContainerStyle>
+       <Style TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}">
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+        <Setter Property="Padding" Value="8,4"/>
+        <Setter Property="MinHeight" Value="40"/>
+        <Setter Property="Margin" Value="0,0,0,2"/>
+       </Style>
+      </ListView.ItemContainerStyle>
+      <ListView.ItemTemplate>
+       <DataTemplate>
+        <Grid ColumnSpacing="12">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="22"/><ColumnDefinition Width="132"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+         <Grid Width="22" Height="40">
+          <Ellipse Width="6" Height="6" HorizontalAlignment="Center" VerticalAlignment="Center" Fill="{ThemeResource FwTextTertiaryBrush}" Visibility="{Binding PlainVisibility}"/>
+          <ui:LucideIcon IconName="alert-triangle" Width="16" Height="16" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwDangerBrush}" Visibility="{Binding AlertVisibility}"/>
+         </Grid>
+         <TextBlock Grid.Column="1" Text="{Binding Time}" Style="{StaticResource FwCodeCaptionTextStyle}" VerticalAlignment="Center"/>
+         <TextBlock Grid.Column="2" Text="{Binding Text}" Style="{StaticResource FwCodeTextStyle}" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding Tooltip}"/>
+         <TextBlock Grid.Column="3" Text="{Binding Channel}" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
+        </Grid>
+       </DataTemplate>
+      </ListView.ItemTemplate>
+     </ListView>
+     <StackPanel x:Name="LogsEmpty" Orientation="Horizontal" Spacing="14" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="520">
+      <Border Width="56" Height="56" CornerRadius="16" Style="{StaticResource FwIconTileStyle}">
+       <ui:LucideIcon IconName="terminal" Width="26" Height="26" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      </Border>
+      <StackPanel Spacing="3" VerticalAlignment="Center">
+       <TextBlock x:Name="LogsEmptyTitle" Text="还没有日志" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+       <TextBlock x:Name="LogsEmptyBody" Text="启动服务端后，运行日志与诊断输出会出现在这里。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+      </StackPanel>
+     </StackPanel>
+    </Grid>
+   </Grid>
+  </Border>
+
+  <InfoBar x:Name="Notice" Grid.RowSpan="4" IsOpen="False" IsClosable="True" Severity="Warning" HorizontalAlignment="Right" VerticalAlignment="Top" Width="380" Margin="0,52,0,0" Canvas.ZIndex="5"/>
+ </Grid>
+</UserControl>

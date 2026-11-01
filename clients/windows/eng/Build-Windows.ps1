@@ -10,6 +10,7 @@ $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'Use-WindowsEnvironment.ps1') -ToolsRoot $ToolsRoot -ArtifactsRoot $ArtifactsRoot -NuGetPackagesRoot $NuGetPackagesRoot
 $windowsRoot = Split-Path -Parent $PSScriptRoot
 & (Join-Path $PSScriptRoot 'Build-GoHost.ps1') -Configuration $Configuration -ToolsRoot $ToolsRoot -ArtifactsRoot $ArtifactsRoot -NuGetPackagesRoot $NuGetPackagesRoot
+& (Join-Path $PSScriptRoot 'Build-GoServer.ps1') -Configuration $Configuration -ToolsRoot $ToolsRoot -ArtifactsRoot $ArtifactsRoot -NuGetPackagesRoot $NuGetPackagesRoot
 $project = Join-Path $windowsRoot 'src\Fileway.App\Fileway.App.csproj'
 if (-not $MediaRuntimeRoot) { $MediaRuntimeRoot = Join-Path $env:FilewayArtifactsRoot 'media-runtime\x64' }
 $mediaProperty = "-p:FilewayMediaRuntimeRoot=$([System.IO.Path]::GetFullPath($MediaRuntimeRoot))"

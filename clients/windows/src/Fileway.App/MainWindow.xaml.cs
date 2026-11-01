@@ -70,6 +70,8 @@ public sealed partial class MainWindow : Window, IDisposable
         => ((MainPage)RootFrame.Content).SetUploadService(uploads, AppWindow.Id);
     public void SetStorageSettings(ILocalStorageSettingsService settings)
         => ((MainPage)RootFrame.Content).SetStorageSettings(settings, WinRT.Interop.WindowNative.GetWindowHandle(this));
+    public void SetLocalServerManagement(ILocalServerManagementService service)
+        => ((MainPage)RootFrame.Content).SetLocalServerManagement(service);
     public void ShowStorageWarning(string message) => ((MainPage)RootFrame.Content).ShowStorageWarning(message);
     public void RequestShutdown() => ((MainPage)RootFrame.Content).BeginShutdown();
     public void CompleteShutdown() => ((MainPage)RootFrame.Content).Shutdown();

@@ -3,6 +3,7 @@ using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Fileway.Infrastructure.Ipc;
 using Fileway.Infrastructure.Services;
+using Fileway.Infrastructure.ServerManagement;
 using Fileway.Infrastructure.Persistence;
 using Fileway.Infrastructure.Credentials;
 using Fileway.Infrastructure.Transfers;
@@ -26,6 +27,7 @@ public partial class App : Application, IAsyncDisposable
     private UploadApplicationService? _uploads;
     private MpvPlaybackService? _playback;
     private ILocalStorageSettingsService? _storageSettings;
+    private LocalServerService? _localServer;
     private FileStream? _dataDirectoryLock;
     private Task _startup = Task.CompletedTask;
     private Task? _shutdown;
@@ -126,6 +128,9 @@ public partial class App : Application, IAsyncDisposable
                 new PlaybackWindowFactory(_window!.DispatcherQueue, _services, new Fileway.Infrastructure.Services.RemoteSubtitleCatalog(_services), _services),
                 Path.Combine(directory, "media"), _services, recentAccess: _services, downloads: _uploads);
             _window.SetStorageSettings(storageSettings);
+            // The managed server outlives the client by design: disposal only stops supervision.
+            _localServer = LocalServerService.CreateForCurrentInstallation();
+            _window.SetLocalServerManagement(_localServer);
             _window.SetUploadService(_uploads);
             _window.SetDownloadService(_uploads);
             await _window.SetServicesAsync(_uploads, _services, _services, _playback, _uploads, _services, _services, _services, _services, _services, _services);
@@ -286,6 +291,8 @@ public partial class App : Application, IAsyncDisposable
             if (_storageSettings is IAsyncDisposable asyncSettings) await asyncSettings.DisposeAsync();
             else if (_storageSettings is IDisposable settings) settings.Dispose();
         }
+        catch (Exception) { }
+        try { if (_localServer is not null) await _localServer.DisposeAsync(); }
         catch (Exception) { }
         ShutdownDiagnostics.Record(ShutdownDiagnosticStage.ServicesAndSettingsDisposed, _window?.DispatcherQueue.HasThreadAccess == true);
         try { if (_host is not null) await _host.DisposeAsync(); }
