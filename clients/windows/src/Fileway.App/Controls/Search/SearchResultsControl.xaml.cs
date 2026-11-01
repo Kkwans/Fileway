@@ -208,13 +208,17 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
             : searching ? "结果会逐步显示，你可以随时取消。"
             : end?.Reason == SearchEndReason.Completed ? "可调整搜索条件，或选择含子目录后重试。"
             : error is not null ? "检查连接或调整搜索条件后重试。" : "输入条件并选择范围，然后开始搜索。";
-        var scope = _lastQuery is null ? "尚未开始搜索" : _lastScope switch
-            { SearchScope.Current => "当前目录", SearchScope.Recursive => "含子目录", _ => "范围待确认" };
-        SearchCount.Text = items.Count > _rows.Count
-            ? $"{scope} · 已显示 {_rows.Count} / 已收到 {items.Count} 项"
-            : $"{scope} · {items.Count} 项结果";
-        if (end?.ServerCount is { } serverCount && serverCount != items.Count)
-            SearchCount.Text += $" · 服务器报告 {serverCount} 项";
+        if (_lastQuery is null) SearchCount.Text = "尚未开始搜索";
+        else
+        {
+            var scope = _lastScope switch
+                { SearchScope.Current => "当前目录", SearchScope.Recursive => "含子目录", _ => "范围待确认" };
+            SearchCount.Text = items.Count > _rows.Count
+                ? $"{scope} · 已显示 {_rows.Count} / 已收到 {items.Count} 项"
+                : $"{scope} · {items.Count} 项结果";
+            if (end?.ServerCount is { } serverCount && serverCount != items.Count)
+                SearchCount.Text += $" · 服务器报告 {serverCount} 项";
+        }
         UpdateCommands();
         if (_viewActive && !_suspended && _rows.Count < items.Count) QueueRender();
     }
@@ -235,6 +239,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         RetrySearchButton.Visibility = !string.IsNullOrWhiteSpace(_lastQuery) ? Visibility.Visible : Visibility.Collapsed;
         RetrySearchButton.IsEnabled = HasContext && !busy;
         CancelSearchButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        OpenSelectedButton.Visibility = _lastQuery is null ? Visibility.Collapsed : Visibility.Visible;
         OpenSelectedButton.IsEnabled = _viewActive && !_suspended && Visibility == Visibility.Visible
             && _openResourceAsync is not null && SearchRecords.SelectedItem is SearchResultRow row && _controller.CanOpen(row.Hit);
     }
