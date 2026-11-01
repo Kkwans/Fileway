@@ -9,7 +9,7 @@
  </Style>
  <DataTemplate x:Key="CollectionTemplate" x:DataType="local:CollectionRow">
    <Grid Padding="10,8" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-    <ui:LucideIcon IconName="file" Width="22" Height="22" VerticalAlignment="Center" Visibility="{x:Bind IconVisibility}"/>
+    <ui:LucideIcon IconName="{x:Bind IconName}" Width="22" Height="22" VerticalAlignment="Center" Visibility="{x:Bind IconVisibility}"/>
     <Ellipse Width="12" Height="12" Fill="{x:Bind TagColorBrush}" Visibility="{x:Bind TagColorVisibility}" VerticalAlignment="Center"/>
     <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind Name}" FontSize="14" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/><TextBlock Text="{x:Bind Detail}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind State}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    </Grid>

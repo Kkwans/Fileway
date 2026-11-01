@@ -91,7 +91,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         var nextResource = currentResource?.Account == session?.Account ? currentResource : null;
         if (_currentResource != nextResource) { ++_resourceGeneration; ++_openGeneration; }
         _currentResource = nextResource;
-        if (_browseTagId is null) CurrentResourceText.Text = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "从文件列表选择一个项目，可在这里收藏或设置标签。";
+        if (_browseTagId is null) CurrentResourceText.Text = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
         EmptyTitle.Text = session is null ? "尚未连接" : "暂无记录"; EmptyText.Text = session is null ? "连接服务器后可在这里管理收藏与标签。" : "添加收藏或标签后会显示在这里。";
         UpdateCommands();
     }
@@ -177,7 +177,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     public void EnterManagementView()
     {
         _browseTagId = null; CollectionHeading.Text = "收藏与标签";
-        CurrentResourceText.Text = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "从文件列表选择一个项目，可在这里收藏或设置标签。";
+        CurrentResourceText.Text = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
         Render();
     }
     public async Task ShowTagResourcesAsync(string tagId)
@@ -622,6 +622,7 @@ public sealed class ColorChoice(string name, string value)
 public sealed record CollectionRow(string Id, string Name, string Detail, string State, CollectionResource? Reference = null, ResourceFavorite? Favorite = null, ResourceTag? Tag = null)
 {
     public override string ToString() => Name;
+    public string IconName => Favorite is not null ? "heart" : "file";
     public Visibility IconVisibility => Tag is not null && Reference is null ? Visibility.Collapsed : Visibility.Visible;
     public Visibility TagColorVisibility => Tag is not null && Reference is null ? Visibility.Visible : Visibility.Collapsed;
     public SolidColorBrush TagColorBrush => new ColorChoice("", Tag?.Color ?? "").Brush;
