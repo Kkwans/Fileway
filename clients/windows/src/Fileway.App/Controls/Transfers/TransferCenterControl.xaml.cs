@@ -65,10 +65,14 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
         }
         LoadError.Message = error;
         EmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var emptyTitle = _direction == TransferDirection.Upload ? "暂无上传记录" : "暂无下载记录";
+        var emptyHint = _direction == TransferDirection.Upload
+            ? "从文件列表上传文件后，可在这里查看服务器确认进度。"
+            : "从文件列表下载文件后，可在这里查看接收进度与保存位置。";
         EmptyTitle.Text = loading ? "正在读取记录" : error is not null ? "记录暂不可用" : !hasLoaded ? "等待加载记录"
-            : canLoadMore ? "已加载范围内暂无记录" : "暂无传输记录";
+            : canLoadMore ? "已加载范围内暂无记录" : emptyTitle;
         EmptyText.Text = loading ? "已有任务会继续执行，请稍候。" : error is not null ? "可以重试读取记录，现有任务不会重新提交。"
-            : canLoadMore && hasLoaded ? "还有未读取的记录，请选择“加载更多”。" : "从文件列表明确提交上传或下载后，可在这里查看。";
+            : canLoadMore && hasLoaded ? "还有未读取的记录，请选择“加载更多”。" : emptyHint;
         LoadedText.Text = count == 0 ? "仅显示当前账号记录" : $"已显示 {count} 条记录" + (canLoadMore ? " · 还有更多记录" : "");
     }
 
@@ -177,7 +181,8 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     internal void Update(UploadItem item)
     {
         Status = item.Status;
-        ProgressVisibility = item.Status == UploadStatus.Completed ? Visibility.Collapsed : Visibility.Visible;
+        ProgressVisibility = item.Status is UploadStatus.Uploading or UploadStatus.Paused or UploadStatus.Failed or UploadStatus.Canceled
+            ? Visibility.Visible : Visibility.Collapsed;
         var p = UploadPresentationPolicy.Progress(item);
         Update(item.Name, UploadPresentationPolicy.UploadItemStatusLabel(item), p.ConfirmedText, item.DestinationDisplayPath, p.Value, p.IsIndeterminate);
     }
@@ -196,7 +201,8 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
             _lastBytes = progress.ReceivedBytes; _lastElapsed = progress.Elapsed; _lastObservation = TimeProvider.System.GetTimestamp();
         }
         if (item.Status != DownloadStatus.Downloading) _rate = 0;
-        ProgressVisibility = item.Status == DownloadStatus.Completed ? Visibility.Collapsed : Visibility.Visible;
+        ProgressVisibility = item.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Canceled
+            ? Visibility.Visible : Visibility.Collapsed;
         CanTogglePause = item.CanPause || item.CanResume;
         CanRemove = item.Snapshot.Uncertainty == TransferUncertainty.None && item.Status is not (DownloadStatus.Publishing or DownloadStatus.Reconciling or DownloadStatus.Canceling or DownloadStatus.OutcomeUnknown);
         PauseIcon = item.CanResume ? "play" : "pause"; PauseLabel = item.CanResume ? "继续下载" : "暂停下载";
