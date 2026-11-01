@@ -387,6 +387,7 @@ components:
 - [x] 批量下载不再重复目录（0.8.136）：同目录时顶部单次“保存到”，条目行仅名称与大小；不同目录回退逐条路径。证据 `20261101-ui08136/screens-after/batch-download-dialog.png`。
 - [x] 预览卡圆角已统一（0.8.137）：`FwPreviewCardStyle` 8→10，与表单卡/按钮同属 10px 圆角；证据 `20261101-ui08137/screens-download/direct-download.png`。
 - [x] 收藏页头部操作间距已统一（0.8.138）：操作组 4→8 DIP，与其它页面头部一致；证据 `20261101-ui08138/screens/collections.png`。
+- [x] 收藏页返回入口已统一（0.8.139）：由箭头图标改为“返回文件”`FwSecondaryButtonStyle`，与最近访问/任务/传输/存储一致；证据 `20261101-ui08139/screens/collections.png`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

@@ -20,7 +20,7 @@
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock x:Name="CollectionHeading" Text="收藏与标签" FontSize="22" FontWeight="SemiBold"/><TextBlock x:Name="CurrentResourceText" Text="选择文件后添加收藏或标签" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-    <Button Click="Close_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="返回文件" AutomationProperties.Name="返回文件"><ui:LucideIcon IconName="arrow-left" Width="18" Height="18"/></Button>
+    <Button Content="返回文件" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开收藏与标签，返回文件"/>
     <Button x:Name="RefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="刷新" AutomationProperties.Name="刷新"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
     <Button x:Name="AddFavoriteButton" Click="AddFavorite_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="收藏选中资源" AutomationProperties.Name="收藏选中资源"><ui:LucideIcon IconName="heart" Width="18" Height="18"/></Button>
     <Button x:Name="ResourceTagsButton" Click="ResourceTags_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="设置资源标签" AutomationProperties.Name="设置资源标签"><ui:LucideIcon IconName="tag" Width="18" Height="18"/></Button>
