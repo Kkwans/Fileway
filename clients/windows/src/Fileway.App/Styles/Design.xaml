@@ -688,21 +688,25 @@
     <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextPrimaryBrush}" />
     <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource FwCanvasBrush}" />
     <Setter Property="FocusVisualMargin" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
   </Style>
   <Style TargetType="ToggleMenuFlyoutItem" BasedOn="{StaticResource DefaultToggleMenuFlyoutItemStyle}">
     <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextPrimaryBrush}" />
     <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource FwCanvasBrush}" />
     <Setter Property="FocusVisualMargin" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
   </Style>
   <Style TargetType="MenuFlyoutSubItem" BasedOn="{StaticResource DefaultMenuFlyoutSubItemStyle}">
     <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextPrimaryBrush}" />
     <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource FwCanvasBrush}" />
     <Setter Property="FocusVisualMargin" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
   </Style>
   <Style TargetType="RadioMenuFlyoutItem" BasedOn="{StaticResource DefaultRadioMenuFlyoutItemStyle}">
     <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextPrimaryBrush}" />
     <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource FwCanvasBrush}" />
     <Setter Property="FocusVisualMargin" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
   </Style>
 
   <!-- Tooltips share the frosted popup language with dialogs and menus. -->
