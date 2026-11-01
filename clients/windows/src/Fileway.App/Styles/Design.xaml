@@ -452,7 +452,7 @@
     <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="CornerRadius" Value="10" />
     <Setter Property="Padding" Value="14,12,14,12" />
   </Style>
   <Style x:Key="FwFormCardStyle" TargetType="Border">
