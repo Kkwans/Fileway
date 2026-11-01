@@ -152,7 +152,7 @@ public sealed class SidebarCollectionsControl : UserControl
         {
             var button = new Button
             {
-                Content = "管理",
+                Content = new TextBlock { Text = "管理", Style = (Style)Application.Current.Resources["FwCaptionTextStyle"] },
                 Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
                 Height = 24,
                 MinHeight = 24,
@@ -161,7 +161,6 @@ public sealed class SidebarCollectionsControl : UserControl
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 8, 4),
-                Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"],
             };
             AutomationProperties.SetName(button, "管理收藏与标签");
             ToolTipService.SetToolTip(button, "管理收藏与标签");
