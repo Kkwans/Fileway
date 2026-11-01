@@ -196,6 +196,7 @@ components:
 - 可移动详情浮窗：标题区（顶部 56 DIP，右侧预留 56 DIP 给关闭按钮）通过原生 `WM_NCHITTEST → HTCAPTION` 拖动，必须显示三点拖动手柄与“按住标题区域拖动移动窗口”提示；不得只依赖轮询鼠标按键。
 - 查看器：顶部信息条 60px，底部浮动胶囊距底 22px；左右翻页按钮 44px 圆形，距边缘 14px。
 - 任何工具条都不得改变内容尺寸；内容永远是画布，工具条是覆盖层。
+- 本地服务端页：状态卡、本机构建、启动与账号、日志四块共用 20/16 页边距与 `FwFormCardStyle`；卡内动作按钮的右边缘必须等于卡片内容右边缘（窗口右 − 20 页边距 − 16 卡内边距），**不得用负边距“贴齐”卡片**——0.8.152 实测 `选择…`/`重新生成`/`显示密码` 用 `Margin="0,22,-16,0"` 会凸出内容边界 16 DIP。窗口 < 900 DIP 时「启动与账号」整卡换行占满两列，而不是把两张卡挤窄。日志/路径/端点使用 `FwCodeTextStyle`（等宽 13/21）与 `FwCodeCaptionTextStyle`（12/18）；状态只以图标 + 文案表达，错误才用 `danger`。
 - 连接页：未连接时隐藏导航侧栏，整窗为欢迎页。内容为一组最大宽 1120、水平居中的两栏：左侧品牌栏（应用标识、34px 标题、说明、三行带图标的能力说明），右侧 440px 表单卡片（18px 圆角、26px 内边距）。窗口宽度 < 1000 时隐藏品牌栏、卡片占满；单栏模式必须把两栏网格的 `ColumnSpacing` 归零，否则卡片会相对窗口中心右偏（遗留列间距）。操作区（保持登录、主按钮、取消/返回）紧贴表单卡片下方、与卡片同宽同列，随表单一起滚动与居中；**不得使用与卡片不同宽度的独立窗口底栏**（边缘不齐），也不得让主按钮滚出视野。下拉与输入框统一左对齐。连接页字段使用外置 12px 标签 + 36px 无 Header 输入框，输入样式统一 `MinHeight 36`、`Padding 12,7`（带 Header 且 34px 时文字会顶对齐偏上）；**不得对带 Header 的输入框设置固定 Height**（会把标题与输入框一起裁切）。未连接时同时隐藏侧栏切换按钮（`PaneButton.Visibility` 随 `SetConnectionView` 切换），连接后恢复；1000×700 DIP 下连接页双栏、主浏览四列网格与传输中心均实拍无溢出（0.8.99）。
 
 ## Elevation & Depth
@@ -262,7 +263,7 @@ components:
 
 - 只使用仓库内 Lucide 单色 PNG（`Assets/Lucide/light`），尺寸 16/18/20/22/30；颜色继承 `Foreground`。
 - 不再混用 `SymbolIcon`/Segoe 字形；新增图标必须先补 Lucide 资源再使用。
-- 同一个动作在全局使用同一个图标名（下载 `download-simple`、回收站 `trash`、更多 `dots-three`）；不同侧栏入口不得复用同一图标（文件任务 `file-code`、存储工具 `gear`）。
+- 同一个动作在全局使用同一个图标名（下载 `download-simple`、回收站 `trash`、更多 `dots-three`）；不同侧栏入口不得复用同一图标（文件任务 `file-code`、存储工具 `gear`、本地服务端 `server`、连接 `floppy-disk`）。0.8.152 起资源共 41 个（新增 `server`/`activity`/`terminal`/`alert-triangle`/`hard-drive`/`power`），由 `eng/Import-LucideIcons.cjs` 从固定 commit 复现，旧 35 个逐字节不变。
 
 ## Motion
 
