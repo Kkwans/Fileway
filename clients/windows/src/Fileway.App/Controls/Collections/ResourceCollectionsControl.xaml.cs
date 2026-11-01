@@ -104,7 +104,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     private FavoriteGroup? SelectedGroup => (GroupBox.SelectedItem as GroupChoice)?.Group;
     private CollectionRow? Selected => Records.SelectedItem as CollectionRow;
 
-    public async Task RefreshAsync()
+    public async Task RefreshAsync(bool notify = false)
     {
         if (_busy || Capture() is not { } scope) return;
         _busy = true; UpdateCommands();
@@ -113,7 +113,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             await ReadSnapshotAsync(scope);
             if (!Current(scope)) return;
             AccountState(scope.Account).RequiresRefresh = false; RestoreAccountWriteState();
-            ShowStatus(_unknownWrite ? "已刷新服务器记录，上次写入仍未确认。普通刷新不会解除写入保护，请核实上次结果，勿重复提交。" : "已刷新收藏与标签。", _unknownWrite ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+            if (_unknownWrite) ShowStatus("已刷新服务器记录，上次写入仍未确认。普通刷新不会解除写入保护，请核实上次结果，勿重复提交。", InfoBarSeverity.Warning);
+            else if (notify) ShowStatus("已刷新收藏与标签。", InfoBarSeverity.Success);
         }
         catch (OperationCanceledException) { }
         catch (Exception exception) { if (Current(scope)) ShowStatus($"刷新失败：{MainPage.ErrorMessage(exception)}", InfoBarSeverity.Error); }
@@ -559,7 +560,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     // Only resource navigation is retired; account/session replacement cancels all work.
     public void SuspendView() { ++_openGeneration; _dialog?.Hide(); }
     private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
-    private async void Refresh_Click(object sender, RoutedEventArgs args) => await RefreshAsync();
+    private async void Refresh_Click(object sender, RoutedEventArgs args) => await RefreshAsync(notify: true);
     private void Mode_Changed(object sender, SelectionChangedEventArgs args) { if (Records is not null && !_rendering) Render(); }
     private void Group_Changed(object sender, SelectionChangedEventArgs args) { if (!_rendering) Render(); }
     private void Record_Changed(object sender, SelectionChangedEventArgs args) { if (!_rendering) { RenderTagResources(); UpdateCommands(); } }
