@@ -126,6 +126,15 @@ public sealed partial class MainPage
             button.HorizontalContentAlignment = rail ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             button.Padding = rail ? new Thickness(0) : new Thickness(12, 0, 12, 0);
         }
+        foreach (var (button, tip) in new (Button Button, string Tip)[]
+        {
+            (MyFilesButton, "我的文件"), (RecentAccessButton, "最近访问"), (TransferCenterButton, "传输中心"),
+            (NasTasksButton, "文件任务"), (StorageToolsButton, "存储工具"), (TrashPageButton, "回收站"),
+        })
+        {
+            ToolTipService.SetToolTip(button, rail ? tip : null);
+            ToolTipService.SetPlacement(button, rail ? Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Right : Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Top);
+        }
         var paneAction = _sidebarOverlay ? _sidebarOpen ? "隐藏导航侧栏" : "显示导航侧栏"
             : rail ? "展开导航侧栏" : "折叠导航侧栏";
         AutomationProperties.SetName(PaneButton, paneAction);

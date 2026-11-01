@@ -381,6 +381,7 @@ components:
 - [x] PDF 查看器深色壳已修复（0.8.130）：页面卡、页码、工具栏图标/文字/分隔线不再捕获浅色画刷，改用 `FwDocumentSurfaceStyle`、`FwBodyTextStyle`、`FwPrimaryIconStyle`、`FwDividerStyle`。修复前白卡深字 → 修复后深壳浅字；证据 `20261101-ui08130/screens-before/before-window.png` → `screens-after/after-window.png`。
 - [x] 图片查看器深色错误卡已修复（0.8.131）：`ViewerChrome` 错误标题/说明改用 `FwBodyTextStyle`/`FwCaptionTextStyle`，修复前标题与暗色卡片同色不可见；证据 `20261101-ui08131/screens-before/before-window.png` → `screens-after/after-window.png`。
 - [x] PDF 工具栏行高已收敛（0.8.132）：正文样式自带 22px 行高，紧凑工具栏应使用 `FwToolbarTextStyle`（13px/18px）。证据 `20261101-ui08132/screens/toolbar-window.png`，文字高 27px、基线 y=794。
+- [x] 侧栏 ToolTip 已收敛（0.8.133）：展开/覆盖式侧栏标签可见时不显示同名 ToolTip，仅 72px 图标栏启用并右侧放置。证据 `20261101-ui08133/screens-tips2/expanded-final.png`、`rail-final.png`。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
