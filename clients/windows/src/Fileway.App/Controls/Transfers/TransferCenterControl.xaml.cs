@@ -43,6 +43,7 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
         HintText.Text = direction == TransferDirection.Upload
             ? "上传进度显示服务器已确认的字节。打开记录不会开始上传；恢复与核实需要在详情中明确操作。"
             : "下载";
+        EmptyIcon.IconName = direction == TransferDirection.Upload ? "upload-simple" : "download-simple";
     }
 
     public void SetAvailability(bool uploads, bool downloads)
