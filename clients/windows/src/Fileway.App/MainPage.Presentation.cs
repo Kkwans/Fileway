@@ -148,8 +148,28 @@ public sealed partial class MainPage
             FontSize = 13,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         };
-        var toast = new Slider { Header = "提示自动消失（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ToastSeconds };
-        var controls = new Slider { Header = "播放控件自动隐藏（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
+        var toast = new Slider { Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ToastSeconds };
+        var controls = new Slider { Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
+        StackPanel SliderField(string label, Slider slider)
+        {
+            var value = new TextBlock
+            {
+                Text = $"{(int)slider.Value} 秒",
+                FontSize = 12,
+                Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"],
+                HorizontalAlignment = HorizontalAlignment.Right,
+            };
+            slider.ValueChanged += (_, args) => value.Text = $"{(int)args.NewValue} 秒";
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(slider, label);
+            var header = new Grid();
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            header.Children.Add(new TextBlock { Text = label, FontSize = 12, Foreground = (Brush)Application.Current.Resources["FwTextSecondaryBrush"] });
+            Grid.SetColumn(value, 1); header.Children.Add(value);
+            var field = new StackPanel { Spacing = 4 };
+            field.Children.Add(header); field.Children.Add(slider);
+            return field;
+        }
         var remember = new ToggleSwitch { Header = "再次打开视频", OnContent = "保留上次窗口大小", OffContent = "按视频比例自动调整", IsOn = PresentationPreferences.RememberPlayerSize };
         var material = new Controls.ChoiceBox { Header = "侧栏与顶栏背景", HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var label in new[] { "中性底色", "实时模糊", "壁纸取色" }) material.Items.Add(label);
@@ -166,8 +186,8 @@ public sealed partial class MainPage
         controls.ValueChanged += (_, _) => Save(() => PresentationPreferences.ControlsHideSeconds = (int)controls.Value);
         var playback = new StackPanel { Spacing = 12 };
         playback.Children.Add(Heading("提示与播放"));
-        playback.Children.Add(toast);
-        playback.Children.Add(controls);
+        playback.Children.Add(SliderField("提示自动消失", toast));
+        playback.Children.Add(SliderField("播放控件自动隐藏", controls));
         playback.Children.Add(remember);
         var appearance = new StackPanel { Spacing = 12 };
         appearance.Children.Add(Heading("界面背景"));

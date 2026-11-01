@@ -318,7 +318,7 @@ components:
 - 密码输入框不得呈现 WinUI 原生下划线外观：`FwPasswordBoxStyle` 作为 PasswordBox 隐式样式全局生效（10px 圆角、1px 描边、`MinHeight 36`、`Padding 12,7`）。对话框内的密码字段横向拉伸，与说明文字同宽左对齐，不设置固定宽度。
 - 主浏览页搜索框：`AutoSuggestBox` 通过 `TextBoxStyle` 注入 `FwSearchTextBoxStyle`（基于 `AutoSuggestBoxTextBoxStyle`，10px 圆角、1px 描边、14px 字号），保留模板自带查询与清除按钮；高度 40，与路径栏、返回/上级/刷新按钮同基线。直接给 `AutoSuggestBox` 设置边框/圆角不会作用到内部 TextBox，禁止用这种方式“修样式”。
 - 关于弹窗：品牌行 + 版本卡；两个链接按钮（项目主页与源代码 / 许可证）放在同一行（32 DIP 高、间距 8），不得纵向堆叠占两行（0.8.103）。
-- 交互与外观对话框：480 DIP 两栏（左“提示与播放”、右“界面背景”，间距 24），说明文字置于栏下；ColorPicker 宽 228 DIP，仅在“自定义取色”时显示。1000×700 下全部设置必须完整可见（0.8.107）。
+- 交互与外观对话框：480 DIP 两栏（左“提示与播放”、右“界面背景”，间距 24），说明文字置于栏下；ColorPicker 宽 228 DIP，仅在“自定义取色”时显示。1000×700 下全部设置必须完整可见（0.8.107）。两个时间滑块使用 12px 次级标签 + 右侧实时“N 秒”值 + 无 Header 的 Slider，拖动时数值即时更新；不得只给标题与轨道而不显示当前值（0.8.118）。
 - 打开方式对话框：说明保持一行（系统默认应用会先下载到默认目录），分类两列间距 8，滚动区高度使用 `DialogOrdering.ContentMaxHeight`；1000×700 下七个分类必须完整显示，不得把最后一行切在控件中间（0.8.106）。
 - 窗口状态：主窗口正常状态的大小/位置与 `maximized` 标记写入数据根 `ui-preferences.json`（camelCase，大小写不敏感，兼容旧 `theme` 文件），启动时按保存点所在显示器 `WorkArea` 钳制，越界坐标必须回到可见区；最大化关闭只更新标记、不覆盖正常 bounds，启动恢复 bounds 后再最大化（0.8.100/0.8.101）。首次启动默认 1120×760 居中。导航侧栏的展开/图标栏状态保存为 `sidebarCollapsed`，重启保持，覆盖式窄窗口开合不写入（0.8.102）。
 - 主浏览顶部工具行：返回/上级/刷新使用 `BrowserToolbarButtonStyle`（40×40、10px 圆角），与 40px 路径栏、搜索框同高；路径栏内部的编辑按钮保持 32px 内嵌尺寸，不要为了对齐把它放大到超出 32px 列。
@@ -366,6 +366,7 @@ components:
 - [x] 缓存设置字段标签已收敛（0.8.115）：容量输入框不再用 `NumberBox.Header`（150% DPI 与输入框重叠、出现裁切残影），缓存根目录/默认下载目录同步改为 12px 外置标签；前后裁剪 `20261031-ui08115/screens/cache-capacity-crop.png` → `screens/after/cache-capacity-crop.png`，完整弹窗 `screens/final/collections.png`。
 - [x] 收藏页说明与行图标已收敛（0.8.116）：副标题改为页面功能描述，收藏行使用收藏图标；缓存设置滚动区常驻滚动条。前后实拍 `20261031-ui08116/screens/menu-click/collections-page.png` → `screens/collections-after/collections-page.png`，滚动条 `screens/cache-after/scroll-strip.png`。
 - [x] 收藏分组操作状态已收敛（0.8.117）：无具体分组时“更多分组操作”禁用；选中收藏行后打开/编辑/移除启用，选中态为蓝底 + 3px 强调条。UIA 复核 `更多分组操作 enabled=True → False`，截图 `20261031-ui08117/screens/after/collections-selected.png`；宽窗口任务详情 `screens/tasks-wide/tasks-detail.png`。
+- [x] 外观滑块数值已补齐（0.8.118）：两个时间滑块右侧显示实时“N 秒”，标签 12px 次级色；深色外观实拍 `20261031-ui08118/screens/appearance-after/appearance-dark.png`，修复前 `screens/dark2/cache-dark.png`（无秒数）。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
