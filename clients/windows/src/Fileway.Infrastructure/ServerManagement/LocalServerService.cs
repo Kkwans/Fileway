@@ -66,7 +66,6 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
     private LocalServerService(LocalServerLayout layout)
     {
         _layout = layout;
-        _layout.EnsureDirectories();
         _watchdog = Task.Run(() => WatchAsync(_lifetime.Token));
     }
 

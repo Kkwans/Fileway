@@ -36,7 +36,8 @@
 - 端到端 UIA 功能回归 **31 项全通过、0 失败**：`20261101-servermgmt01/probe/verify11/report.txt`。覆盖部署→健康检查→看门狗重启→开机项写入/删除→密码显示→错误筛选→连接回填→优雅停止→再从停止启动→端口被外来进程占用时拒绝操作并如实提示→外来进程离开后恢复。
 - 几何回归：`20261101-servermgmt01/geom3/geometry.txt`（1500×1000 与 1180×900，页边距/基线/右边界/窄栏换行/无溢出）。
 - 隔离测试：全程使用 `FILEWAY_WINDOWS_DATA_ROOT` 与 `FILEWAY_LOCAL_SERVER_DATA_ROOT` 专用目录，未读写真实客户端数据根 `Fileway\Preview`；一次探针漏设服务端数据根变量，误在 `%LOCALAPPDATA%\Fileway\Server` 建了一份测试部署，已确认创建于本次探针时间窗并整体删除，注册表启动项为空。
-- 产物：`.../20261102-server08152/dist/Fileway-0.8.152-win-x64-unsigned-setup.exe`（250,177,242 字节，含服务端后比 0.8.151 大约 +36 MB），SHA-256 `1a8fc2a4d4ae44b36b1bdb675b6a349f35d0ecb021ea3c85bbd7e3a5674339d1`，与回执一致。
+- 产物：`.../20261102-server08152/dist/Fileway-0.8.152-win-x64-unsigned-setup.exe`（250,177,185 字节，含服务端后比 0.8.151 大约 +36 MB），SHA-256 `1eaa4101bbcb7be38fdc882794eceb2980b66b8c657daa2a58e45c65e52e45d4`，与回执一致。
+- 复打包原因：首次冒烟发现服务未部署也会在 `%LOCALAPPDATA%\Fileway\Server` 创建空目录，已改为仅在部署/写状态/写日志时按需创建（`EnsureDirectories` 从构造移出），随后重跑 Release（0 警告 0 错误）与两次冒烟（`data/smoke-c`、`data/smoke-d` 均 `GATE=PASS`）并重新出包；冒烟后确认该目录不再出现。
 
 ## 已知问题
 
