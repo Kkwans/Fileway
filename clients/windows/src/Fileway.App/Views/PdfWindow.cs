@@ -38,7 +38,7 @@ public sealed class PdfWindow : Window, IAsyncDisposable
     };
     private readonly InfoBar _notice = new() { IsOpen = true, IsClosable = false, Message = "正在打开 PDF…" };
     private readonly ProgressRing _progress = new() { IsActive = true, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _pageLabel = new() { FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
+    private readonly TextBlock _pageLabel = new() { FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8, Style = (Style)Application.Current.Resources["FwBodyTextStyle"] };
     private Button? _previousButton;
     private Button? _nextButton;
     private PdfDocument? _document;
@@ -58,7 +58,6 @@ public sealed class PdfWindow : Window, IAsyncDisposable
 
         _pageLabel.MinWidth = 96;
         _pageLabel.TextAlignment = TextAlignment.Center;
-        _pageLabel.Foreground = (Brush)Application.Current.Resources["FwTextPrimaryBrush"];
         _page.Margin = new Thickness(24);
 
         var root = new Grid { Padding = new Thickness(20, 12, 20, 20), RowSpacing = 12 };
@@ -73,10 +72,7 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         surfaceGrid.Children.Add(BuildToolbar());
         var surface = new Border
         {
-            CornerRadius = new CornerRadius(12),
-            Background = (Brush)Application.Current.Resources["FwCanvasBrush"],
-            BorderBrush = (Brush)Application.Current.Resources["FwStrokeBrush"],
-            BorderThickness = new Thickness(1),
+            Style = (Style)Application.Current.Resources["FwDocumentSurfaceStyle"],
             Child = surfaceGrid,
         };
         Grid.SetRow(surface, 1);
@@ -126,7 +122,7 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         bar.Children.Add(new Border
         {
             Width = 1, Height = 18, Margin = new Thickness(6, 0, 6, 0),
-            Background = (Brush)Application.Current.Resources["FwStrokeBrush"],
+            Style = (Style)Application.Current.Resources["FwDividerStyle"],
         });
         bar.Children.Add(ToolbarText("适应窗口", "缩放至适应窗口宽度", FitWidth));
         bar.Children.Add(ToolbarText("100%", "原始大小", () => _scroll.ChangeView(null, null, 1)));
@@ -173,7 +169,7 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         var glyph = new LucideIcon
         {
             IconName = icon, Width = 18, Height = 18,
-            Foreground = (Brush)Application.Current.Resources["FwTextPrimaryBrush"],
+            Style = (Style)Application.Current.Resources["FwPrimaryIconStyle"],
         };
         if (mirror) glyph.RenderTransform = new RotateTransform { Angle = 180, CenterX = 9, CenterY = 9 };
         var button = new Button
@@ -192,8 +188,7 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         var button = new Button
         {
             Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
-            Foreground = (Brush)Application.Current.Resources["FwTextPrimaryBrush"],
-            Content = new TextBlock { Text = text, FontSize = 13 },
+            Content = new TextBlock { Text = text, FontSize = 13, Style = (Style)Application.Current.Resources["FwBodyTextStyle"] },
         };
         ToolTipService.SetToolTip(button, tooltip);
         AutomationProperties.SetName(button, tooltip);
