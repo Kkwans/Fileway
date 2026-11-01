@@ -26,6 +26,9 @@
       <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#26FFFFFF" />
       <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#33FFFFFF" />
       <SolidColorBrush x:Key="FwSelectionBrush" Color="#3369A8FF" />
+      <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
+      <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
+      <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
     </ResourceDictionary>
     <ResourceDictionary x:Key="Light">
       <SolidColorBrush x:Key="FwCanvasBrush" Color="#FFF3F4F6" />
@@ -48,6 +51,9 @@
       <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#1A000000" />
       <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#22000000" />
       <SolidColorBrush x:Key="FwSelectionBrush" Color="#2E2563EB" />
+      <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
+      <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
+      <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
     </ResourceDictionary>
     <ResourceDictionary x:Key="HighContrast">
       <StaticResource x:Key="FwCanvasBrush" ResourceKey="SystemColorWindowColorBrush" />
@@ -70,6 +76,9 @@
       <StaticResource x:Key="FwGlassStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <StaticResource x:Key="FwGlassHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
       <StaticResource x:Key="FwSelectionBrush" ResourceKey="SystemColorHighlightColorBrush" />
+      <SolidColorBrush x:Key="FwNavSelectedBackgroundBrush" Color="Transparent" />
+      <StaticResource x:Key="FwNavSelectedBorderBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <Thickness x:Key="FwNavSelectedBorderThickness">1</Thickness>
     </ResourceDictionary>
   </ResourceDictionary.ThemeDictionaries>
 
@@ -177,6 +186,9 @@
                 </VisualState>
               </VisualStateGroup>
             </VisualStateManager.VisualStateGroups>
+            <Border x:Name="SelectionBorder" BorderThickness="{TemplateBinding BorderThickness}"
+                    BorderBrush="{TemplateBinding BorderBrush}" CornerRadius="{TemplateBinding CornerRadius}"
+                    IsHitTestVisible="False" />
             <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
                               ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}"
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
