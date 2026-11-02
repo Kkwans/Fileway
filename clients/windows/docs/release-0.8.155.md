@@ -41,6 +41,14 @@
   这正是设计意图，不是缺陷。
 - 本版未改任何功能行为（仅 XAML 布局 + `SetBusy` 的可见性），0.8.154 的 24 项功能回归与全链路 29 项结论继续有效。
 
+## 安装包（本地未签名候选）
+
+- `Fileway-windows-artifacts/20261102-server08155/dist/Fileway-0.8.155-win-x64-unsigned-setup.exe`
+  277,117,639 字节，sha256 `b5e574e43d74b3fa96da5b048fb420d92136512a41952bd8e9a558b87fa103da`
+- 同目录 `Fileway-0.8.155-win-x64-unsigned.zip` 279,740,617 字节，
+  sha256 `b74031ecb6e9a22110e8313fb5c0cb66c2e0e92fdef873c1a63f79094688e41e`
+- 回执 `serverVersion = 0.8.155`；NSIS 3.12（归档哈希已核对），未签名，`installed = false`。
+
 ## 已知边界
 
 - 高对比度下的本地服务端页仍未走查。
