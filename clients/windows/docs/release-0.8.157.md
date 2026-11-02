@@ -63,4 +63,7 @@
 
 ## 交付物（本地未签名候选，等待实机验收）
 
-- 见本文末尾追加的安装包哈希。
+- `Fileway-windows-artifacts/20261103-resize08157/dist/Fileway-0.8.157-win-x64-unsigned-setup.exe`
+  277,117,421 字节，SHA-256 `fe5a203ebf7df655239c09ce76b4f26ce263ceacfe8cde231030f230b3717584`
+  （与同目录 `.json` 回执一致）；压缩包 `...-unsigned.zip` 279,743,982 字节。
+- NSIS v3.12；未签名、未安装、未发布公开 Release。
