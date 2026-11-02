@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
@@ -21,9 +21,9 @@
     <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Version>0.8.156</Version>
+    <Version>0.8.157</Version>
     <AssemblyVersion>0.1.0.0</AssemblyVersion>
-    <FileVersion>0.8.156.0</FileVersion>
+    <FileVersion>0.8.157.0</FileVersion>
     <FilewayMediaRuntimeRoot Condition="'$(FilewayMediaRuntimeRoot)' == ''">$(FilewayArtifactsRoot)\media-runtime\x64</FilewayMediaRuntimeRoot>
   </PropertyGroup>
 

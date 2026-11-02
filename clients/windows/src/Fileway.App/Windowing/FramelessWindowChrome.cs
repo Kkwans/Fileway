@@ -23,6 +23,7 @@ internal sealed class FramelessWindowChrome : IDisposable
     private readonly WindowTitleBar _titleBar;
     private readonly nint _handle;
     private readonly SubclassProc _procedure;
+    private readonly EdgeResizeGate _resizeGate;
     private InputNonClientPointerSource? _nonClientPointerSource;
     private (int Width, int Height, uint Dpi, bool Disabled)? _resizeRegionState;
     private string? _captionRegionsState;
@@ -44,6 +45,7 @@ internal sealed class FramelessWindowChrome : IDisposable
         _titleBar = titleBar;
         _handle = WinRT.Interop.WindowNative.GetWindowHandle(window);
         _procedure = WindowProcedure;
+        _resizeGate = new EdgeResizeGate(_handle);
         VerifyThread();
         try
         {
@@ -224,6 +226,7 @@ internal sealed class FramelessWindowChrome : IDisposable
         if (message is 0x0083 or 0x0085) return 0; // Full-window client; no classic nonclient paint.
         if (message == 0x0086) return DefSubclassProc(window, message, wParam, -1);
         if (message == 0x0084) return HitTest(PointFromLParam(lParam));
+        if (_resizeGate.TryHandle(message, wParam, lParam) is nint gated) return gated;
         if (message == 0x00a0) // WM_NCMOUSEMOVE: retain native hover processing for the Win11 Snap menu.
         {
             if (wParam == 9)

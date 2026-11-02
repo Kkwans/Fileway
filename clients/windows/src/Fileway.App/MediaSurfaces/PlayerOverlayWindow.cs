@@ -27,6 +27,12 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private readonly PointerEventHandler _videoPressedHandler;
     private readonly PointerEventHandler _videoReleasedHandler;
     private uint? _videoPointerId;
+    private uint? _resizePointerId;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _resizeTimer;
+    private int _resizeHit;
+    private bool _resizeEntered;
+    private (int X, int Y) _resizeOrigin;
+    private NativePlayerOverlay.Rect _resizeBounds;
     private readonly KeyEventHandler _gestureKeyHandler;
     private PlayerSettingsWindow? _settingsWindow;
     private readonly UISettings _policySettings = new();
@@ -189,14 +195,91 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             ReleaseVideoPointer();
             _ = NativeVideoWindow.ReleaseCapture();
             NativePlayerOverlay.SetForegroundWindow(_owner);
-            var packed = (nint)unchecked((int)((windowPoint.Y & 0xffff) << 16 | (windowPoint.X & 0xffff)));
-            _ = NativePlayerOverlay.PostMessageW(_owner, 0x00a1, (nuint)hit, packed);
+            if (hit is >= 10 and <= 17 && NativePlayerOverlay.GetWindowRect(_owner, out var startBounds))
+            {
+                // The sizing band is invisible and lies on top of the picture, so a stray click must
+                // never size the window. The native sizing loop is unusable here: the HUD keeps mouse
+                // input, so its modal loop never sees the release and the window stays glued to the
+                // pointer. Track the drag ourselves instead - a timer, because the pointer routinely
+                // leaves this window while the edge is being dragged.
+                _resizeHit = hit;
+                _resizeOrigin = (windowPoint.X, windowPoint.Y);
+                _resizeBounds = startBounds;
+                _resizePointerId = args.Pointer.PointerId;
+                ResizeTimer.Start();
+                return;
+            }
+            PostWindowPress(hit, windowPoint);
             return;
         }
         if (!TryVideoPointer(args, out var point) || !_controls.CapturePointer(args.Pointer)) return;
         _videoPointerId = args.Pointer.PointerId;
         args.Handled = true;
         VideoPointerPressed?.Invoke(point);
+    }
+
+    private void PostWindowPress(int hit, NativeVideoWindow.NativePoint screen)
+    {
+        var packed = (nint)unchecked((int)((screen.Y & 0xffff) << 16 | (screen.X & 0xffff)));
+        _ = NativePlayerOverlay.PostMessageW(_owner, 0x00a1, (nuint)hit, packed);
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer ResizeTimer => _resizeTimer ??= CreateResizeTimer();
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateResizeTimer()
+    {
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(16);
+        timer.IsRepeating = true;
+        timer.Tick += ResizeTimer_Tick;
+        return timer;
+    }
+
+    private void ResizeTimer_Tick(Microsoft.UI.Dispatching.DispatcherQueueTimer sender, object args)
+    {
+        if (_disposed || (NativePlayerOverlay.GetAsyncKeyState(0x01) & 0x8000) == 0)
+        {
+            FinishResizePress();
+            return;
+        }
+        if (!NativePlayerOverlay.GetPhysicalCursorPos(out var now)) return;
+        ApplyResizeDrag(now.X - _resizeOrigin.X, now.Y - _resizeOrigin.Y);
+    }
+
+    private void ApplyResizeDrag(int dx, int dy)
+    {
+        if (!_resizeEntered && dx == 0 && dy == 0) return;
+        if (!_resizeEntered)
+        {
+            _resizeEntered = true;
+            _ = NativePlayerOverlay.PostMessageW(_owner, 0x0231, 0, 0); // WM_ENTERSIZEMOVE
+        }
+        var dpi = NativeVideoWindow.GetDpiForWindow(_owner);
+        var minWidth = Math.Max(1, NativeVideoWindow.GetSystemMetricsForDpi(34, dpi)); // SM_CXMINTRACK
+        var minHeight = Math.Max(1, NativeVideoWindow.GetSystemMetricsForDpi(35, dpi)); // SM_CYMINTRACK
+        var (left, top, right, bottom) = (_resizeBounds.Left, _resizeBounds.Top, _resizeBounds.Right, _resizeBounds.Bottom);
+        if (_resizeHit is 10 or 13 or 16) left = Math.Min(left + dx, right - minWidth);
+        if (_resizeHit is 11 or 14 or 17) right = Math.Max(right + dx, left + minWidth);
+        if (_resizeHit is 12 or 13 or 14) top = Math.Min(top + dy, bottom - minHeight);
+        if (_resizeHit is 15 or 16 or 17) bottom = Math.Max(bottom + dy, top + minHeight);
+        _ = NativeVideoWindow.SetWindowPos(_owner, 0, left, top, right - left, bottom - top, 0x0014);
+    }
+
+    private bool TryReleaseResizePress(Pointer pointer)
+    {
+        if (_resizePointerId != pointer.PointerId) return false;
+        FinishResizePress();
+        return true;
+    }
+
+    private void FinishResizePress()
+    {
+        if (_resizeTimer is { } timer) timer.Stop();
+        _resizePointerId = null;
+        _resizeHit = 0;
+        if (!_resizeEntered) return;
+        _resizeEntered = false;
+        _ = NativePlayerOverlay.PostMessageW(_owner, 0x0232, 0, 0); // WM_EXITSIZEMOVE: persists the size.
     }
 
     private bool TryWindowPointer(PointerRoutedEventArgs args, out NativeVideoWindow.NativePoint screen, out int hit)
@@ -235,6 +318,11 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
     private void Controls_VideoPointerReleased(object sender, PointerRoutedEventArgs args)
     {
+        if (TryReleaseResizePress(args.Pointer))
+        {
+            args.Handled = true;
+            return;
+        }
         if (_videoPointerId != args.Pointer.PointerId || args.GetCurrentPoint(_controls).Properties.IsLeftButtonPressed) return;
         var position = args.GetCurrentPoint(_controls).Position;
         var scale = _controls.XamlRoot?.RasterizationScale ?? 1;
@@ -248,6 +336,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 
     private void Controls_VideoPointerCanceled(object sender, PointerRoutedEventArgs args)
     {
+        TryReleaseResizePress(args.Pointer);
         if (_videoPointerId != args.Pointer.PointerId) return;
         _videoPointerId = null; VideoPointerCanceled?.Invoke();
     }
@@ -643,6 +732,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _resizeTimer?.Stop();
         CloseNativeSettings();
         NativeVideoWindow.ShowWindow(_window, 0);
         NativeVideoWindow.RemoveWindowSubclass(_window, _procedure, 2);
@@ -674,6 +764,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
 internal static class NativePlayerOverlay
 {
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool PostMessageW(nint window, uint message, nuint wParam, nint lParam);
+    [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int virtualKey);
     [DllImport("user32.dll", ExactSpelling = true)] internal static extern nint LoadCursorW(nint instance, nint cursor);
     [DllImport("user32.dll")] internal static extern nint SetCursor(nint cursor);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
