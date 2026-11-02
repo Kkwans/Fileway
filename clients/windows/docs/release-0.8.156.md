@@ -50,6 +50,13 @@ WinUI 3 没有 `SetResourceReference`，运行时创建的控件无法直接绑�
 - 探针本身踩到的坑记下来复用：夹具 PNG 是一张「服务端页截图」的截图，肉眼极易误判成残影/未渲染；
   查看器窗口必须与主窗**不重叠**摆放再截图，并先移动指针唤醒自动隐藏的 chrome，否则拍到的是隐藏后的画面。
 
+## 交付物（本地未签名候选，等待实机验收）
+
+- `Fileway-windows-artifacts/20261102-server08156/dist/Fileway-0.8.156-win-x64-unsigned-setup.exe`
+  277,117,296 字节，SHA-256 `15e2312e57281127b269c3cfa81e93ee9a6b58f110abcb33511a845b29000609`
+  （与同目录 `.json` 回执一致）；压缩包 `...-unsigned.zip` 279,741,543 字节。
+- NSIS v3.12；未签名、未安装、未发布公开 Release。
+
 ## 顺带记录
 
 - `DESIGN.md` 的 `canvas` 与 `scrim` 两条规则已改写：查看器画布随主题切换，视频播放器与文本/压缩包
