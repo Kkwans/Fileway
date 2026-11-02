@@ -608,7 +608,12 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         for (int index = head; index <= lastNew; index++) _logRows.Insert(index, rows[index]);
     }
 
-    private void SetBusy(bool busy) => BusyRing.IsActive = busy;
+    private void SetBusy(bool busy)
+    {
+        BusyRing.IsActive = busy;
+        // An idle ProgressRing still reserves its slot and leaves a ghost arc in the header row.
+        BusyRing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+    }
 
     private void ShowNotice(string message, InfoBarSeverity severity)
     {
