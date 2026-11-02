@@ -16,12 +16,15 @@ public sealed record LocalServerConnectRequest(string Endpoint, string? Username
 public sealed partial class LocalServerControl : UserControl, IDisposable
 {
     private const double NarrowDetailsWidth = 900;
+    private const string SingleServerNote =
+        "本机已经有一个服务端在运行（见上方“检测到的服务端”）。系统只允许运行一个：请先停止它，或直接用上面的“连接”。";
     private static readonly string MaskedSecret = new('•', 16);
 
     private readonly Debounce _queryDebounce = new(TimeSpan.FromMilliseconds(260));
     private readonly DispatcherTimer _followTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly CancellationTokenSource _lifetime = new();
     private readonly ObservableCollection<LogRow> _logRows = [];
+    private readonly string _deployHintDefault;
 
     private ILocalServerManagementService? _service;
     private nint _ownerHwnd;
@@ -34,8 +37,6 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     private bool _loading;
     private bool _attached;
     private bool _newestArrived;
-    private bool _portPrefill;
-    private bool _portTouched;
 
     public event EventHandler? CloseRequested;
     public event EventHandler<LocalServerConnectRequest>? ConnectRequested;
@@ -43,6 +44,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     public LocalServerControl()
     {
         InitializeComponent();
+        _deployHintDefault = DeployHint.Text;
         _followTimer.Tick += async (_, _) =>
         {
             // Status ticks are de-duplicated in the service, so the uptime line is refreshed here instead.
@@ -119,32 +121,12 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
 
     private void PrefillDeployment(LocalServerDefaults defaults)
     {
-        SetPort(defaults.Port);
+        PortBox.Text = defaults.Port.ToString(CultureInfo.InvariantCulture);
         RestrictRootCheck.IsChecked = !defaults.MountsWholeComputer;
         RestrictRootRow.Visibility = defaults.MountsWholeComputer ? Visibility.Collapsed : Visibility.Visible;
         RootBox.Text = defaults.FilesRoot;
         AccountBox.Text = defaults.Username;
         SecretBox.Password = defaults.Password;
-    }
-
-    private void SetPort(int port)
-    {
-        _portPrefill = true;
-        PortBox.Text = port.ToString(CultureInfo.InvariantCulture);
-        _portPrefill = false;
-    }
-
-    private void PortBox_TextChanged(object sender, TextChangedEventArgs e)
-    {
-        if (!_portPrefill) _portTouched = true;
-    }
-
-    /// <summary>8888 is only a default while it is free; a running server keeps the form off its port.</summary>
-    private void SuggestPort(LocalServerStatus status)
-    {
-        if (_portTouched || _portPrefill || status.State != LocalServerState.NotDeployed || _service is null) return;
-        int suggested = _service.GetDefaults().Port;
-        if (!int.TryParse(PortBox.Text.Trim(), out int current) || current != suggested) SetPort(suggested);
     }
 
     /// <summary>The path row only asks for input once the default “whole computer” mount is turned off.</summary>
@@ -176,9 +158,10 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         bool deployed = status.State != LocalServerState.NotDeployed;
         bool busy = status.State is LocalServerState.Starting or LocalServerState.Stopping || _loading;
         bool running = status.State == LocalServerState.Running;
+        // One machine, one server: another instance already answering blocks a second launch, not just a port clash.
+        bool otherServing = status.Detected.Any(instance => !instance.ManagedByThisClient);
 
         RenderDetection(status);
-        SuggestPort(status);
         StatusCard.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
         DetailGrid.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
         DeployCard.Visibility = deployed ? Visibility.Collapsed : Visibility.Visible;
@@ -194,12 +177,17 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         StatusTitle.Text = TitleFor(status.State);
         StatusDetail.Text = DetailFor(status);
 
-        PrimaryButton.IsEnabled = deployed && !busy;
-        PrimaryButton.Content = PrimaryLabelFor(status.State);
-        AutomationProperties.SetName(PrimaryButton, AutomationFor(status.State));
+        bool startBlocked = otherServing && !running;
+        PrimaryButton.IsEnabled = deployed && !busy && !startBlocked;
+        PrimaryButton.Content = startBlocked ? "已有其他服务端" : PrimaryLabelFor(status.State);
+        AutomationProperties.SetName(PrimaryButton, startBlocked
+            ? "本机已有其他服务端在运行，无法启动第二个"
+            : AutomationFor(status.State));
         StopButton.IsEnabled = running && !busy;
         StopButton.Content = status.State == LocalServerState.Stopping ? "正在停止…" : "停止服务";
         OpenWebButton.IsEnabled = running && !busy;
+        DeployButton.IsEnabled = !otherServing;
+        DeployHint.Text = otherServing ? SingleServerNote : _deployHintDefault;
 
         AutoStartCheck.IsChecked = status.AutoStartEnabled;
         AutoRestartCheck.IsChecked = status.AutoRestartEnabled;

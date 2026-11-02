@@ -80,35 +80,48 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
     /// <summary>Isolated verification and diagnostics use the resolved root instead of the private client directory.</summary>
     public string DataDirectory => _layout.DataRoot;
 
-    public LocalServerDefaults GetDefaults() => new(NextFreePort(), true, _layout.FilesRoot,
+    /// <summary>The port default is fixed; a busy machine is reported as such instead of quietly relocating.</summary>
+    public LocalServerDefaults GetDefaults() => new(LocalServerLayout.DefaultPort, true, _layout.FilesRoot,
         ServerInstaller.GenerateUsername(), ServerInstaller.GeneratePassword());
-
-    /// <summary>8888 unless an already running server owns it, so a second deployment never collides.</summary>
-    private int NextFreePort()
-    {
-        var taken = new HashSet<int>(_detected.Select(instance => instance.Port));
-        for (int port = LocalServerLayout.DefaultPort; port < LocalServerLayout.DefaultPort + 20; port++)
-            if (!taken.Contains(port)) return port;
-        return LocalServerLayout.DefaultPort;
-    }
 
     public async Task<LocalServerStatus> ReadStatusAsync(CancellationToken cancellationToken)
     {
         var document = _layout.ReadDocument();
         if (DateTime.UtcNow - _detectedAt > DetectCacheWindow)
-        {
-            _detectedAt = DateTime.UtcNow;
-            try
-            {
-                _detected = await ServerDiscovery.DetectAsync(document?.Port ?? LocalServerLayout.DefaultPort,
-                    document?.ProcessId, QuickProbe, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception error) when (error is not OperationCanceledException)
-            {
-                _detected = Array.Empty<LocalServerInstance>();
-            }
-        }
+            await RefreshDetectionAsync(document, cancellationToken).ConfigureAwait(false);
         return await ReadCoreAsync(document, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<IReadOnlyList<LocalServerInstance>> RefreshDetectionAsync(
+        LocalServerDocument? document, CancellationToken cancellationToken)
+    {
+        _detectedAt = DateTime.UtcNow;
+        try
+        {
+            _detected = await ServerDiscovery.DetectAsync(document?.Port ?? LocalServerLayout.DefaultPort,
+                document?.ProcessId, QuickProbe, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            _detected = Array.Empty<LocalServerInstance>();
+        }
+        return _detected;
+    }
+
+    /// <summary>
+    /// The machine is allowed exactly one Fileway server. A second one is refused by name rather than
+    /// quietly relocated to another port, because two servers on one box is always an accident.
+    /// </summary>
+    private async Task EnsureSingleServerAsync(LocalServerDocument? document, CancellationToken cancellationToken)
+    {
+        IReadOnlyList<LocalServerInstance> running = await RefreshDetectionAsync(document, cancellationToken).ConfigureAwait(false);
+        LocalServerInstance? blocker = running.FirstOrDefault(instance =>
+            document is null || instance.Port != document.Port || instance.ProcessId != document.ProcessId);
+        if (blocker is null) return;
+        string owner = blocker.ManagedByThisClient ? "本客户端之前启动的服务端" : "另一个服务端";
+        throw Conflict($"本机只允许运行一个服务端：{blocker.Endpoint} 上已经有{owner}在应答" +
+            $"（{blocker.ProcessName}，PID {blocker.ProcessId.ToString(CultureInfo.InvariantCulture)}）。" +
+            "请先停止它再部署或启动；也可以直接用上方“连接”使用这个已在运行的服务端。");
     }
 
     private async Task<LocalServerStatus> ReadCoreAsync(LocalServerDocument? document, CancellationToken cancellationToken)
@@ -161,10 +174,8 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             if (existing is { Deployed: true })
                 throw Conflict("本地服务端已经部署过。要更换端口或共享范围，请先停止服务再重新部署。");
             if (!_layout.TryReadReceipt(out ServerBuildReceipt? receipt)) throw ComponentMissing();
-            // Checking the port first keeps a colliding deployment from leaving a half-created database behind.
-            if (await ProbeAsync("127.0.0.1", request.Port, cancellationToken).ConfigureAwait(false))
-                throw Conflict($"127.0.0.1:{request.Port.ToString(CultureInfo.InvariantCulture)} 上已经有服务端在应答，见上方“检测到的服务端”。" +
-                    "可以直接连接那个实例，或换一个端口再部署。");
+            // Checking before anything is written keeps a blocked deployment from leaving a half-created database.
+            await EnsureSingleServerAsync(existing, cancellationToken).ConfigureAwait(false);
 
             var document = LocalServerLayout.NewDocument(_layout.ExecutablePath, receipt.Sha256);
             document.Port = request.Port;
@@ -291,6 +302,8 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             throw Conflict("这个端口上已经有另一个服务端在响应，但它不是本客户端部署的那个进程。为避免误停别人的服务，请先停止它或更换端口。");
         }
 
+        await EnsureSingleServerAsync(document, cancellationToken).ConfigureAwait(false);
+
         _userStopping = false;
         SafeProcessHandle handle;
         try
@@ -308,6 +321,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         _owned?.Dispose();
         _owned = handle;
         document.ProcessId = ServerProcess.ProcessIdOf(handle);
+        document.ExecutablePath = _layout.ExecutablePath;
         document.ProcessStartedAt = DateTimeOffset.Now;
         document.LastError = null;
         document.LastExitCode = null;
@@ -479,7 +493,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             {
                 try
                 {
-                    if (!string.Equals(candidate.MainModule?.FileName, document.ExecutablePath, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!IsOurImage(candidate.MainModule?.FileName, document)) continue;
                     if (candidate.StartTime < document.DeployedAt?.LocalDateTime) continue;
                     candidates.Add((candidate.Id, candidate.StartTime));
                 }
@@ -504,7 +518,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         try
         {
             process = System.Diagnostics.Process.GetProcessById(trackedProcessId);
-            if (!string.Equals(process.MainModule?.FileName, document.ExecutablePath, StringComparison.OrdinalIgnoreCase)) return;
+            if (!IsOurImage(process.MainModule?.FileName, document)) return;
             document.LastExitCode = process.ExitCode;
             if (process.ExitCode != 0) document.LastError = ServerLogReader.DescribeFailure(_layout.DiagnosticsLogPath);
             _layout.WriteDocument(document);
@@ -519,13 +533,26 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
     private bool IsIntegrityVerified(LocalServerDocument document, ServerBuildReceipt? receipt)
     {
         if (receipt is null) return false;
-        if (document.ExecutableSha256.Length == 64 &&
-            !string.Equals(document.ExecutableSha256, receipt.Sha256, StringComparison.OrdinalIgnoreCase)) return false;
         lock (_integrityLock)
         {
-            return _layout.VerifyExecutable(receipt.Sha256, ref _verifiedStamp, ref _verifiedLength, ref _verifiedHash);
+            // The on-disk bundle must match the receipt that ships with it; that is the tamper test.
+            if (!_layout.VerifyExecutable(receipt.Sha256, ref _verifiedStamp, ref _verifiedLength, ref _verifiedHash)) return false;
         }
+        // An upgrade replaces the bundled server. The deployment keeps its database and adopts the new
+        // binary; refusing here would brick every existing deployment the moment the app updates.
+        if (!string.Equals(document.ExecutableSha256, receipt.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            document.ExecutableSha256 = receipt.Sha256;
+            _layout.WriteDocument(document);
+        }
+        return true;
     }
+
+    /// <summary>Either the image recorded at deploy time or the one this installation ships counts as ours.</summary>
+    private bool IsOurImage(string? imagePath, LocalServerDocument document) =>
+        !string.IsNullOrEmpty(imagePath) &&
+        (string.Equals(imagePath, document.ExecutablePath, StringComparison.OrdinalIgnoreCase) ||
+         string.Equals(imagePath, _layout.ExecutablePath, StringComparison.OrdinalIgnoreCase));
 
     private void SyncStartupRegistration(LocalServerDocument document)
     {
@@ -635,7 +662,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
     }
 
     /// <summary>PID reuse is rejected by comparing the recorded start time and image path.</summary>
-    private static bool Matches(SafeProcessHandle handle, LocalServerDocument document)
+    private bool Matches(SafeProcessHandle handle, LocalServerDocument document)
     {
         if (document.ProcessId is not int recorded || recorded <= 0) return false;
         try
@@ -644,7 +671,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             if (ServerProcess.ProcessIdOf(handle) != process.Id) return false;
             if (document.ProcessStartedAt is DateTimeOffset start &&
                 Math.Abs((process.StartTime - start.LocalDateTime).TotalSeconds) > 10) return false;
-            return string.Equals(process.MainModule?.FileName, document.ExecutablePath, StringComparison.OrdinalIgnoreCase);
+            return IsOurImage(process.MainModule?.FileName, document);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or NotSupportedException or Win32Exception)
         {

@@ -94,7 +94,7 @@
      <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <StackPanel Spacing="6">
       <TextBlock Text="端口" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
-      <TextBox x:Name="PortBox" Height="36" MinHeight="36" MaxLength="5" Text="8888" InputScope="Number" TextChanged="PortBox_TextChanged" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="监听端口"/>
+      <TextBox x:Name="PortBox" Height="36" MinHeight="36" MaxLength="5" Text="8888" InputScope="Number" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="监听端口"/>
      </StackPanel>
      <StackPanel Grid.Column="1" Spacing="6">
       <TextBlock Text="管理员用户名" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
