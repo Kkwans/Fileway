@@ -1,4 +1,4 @@
-using Fileway.Core.Contracts;
+﻿using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Fileway.App.Branding;
 using Fileway.App.Controls;
@@ -36,7 +36,8 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     };
     private readonly Grid _canvas = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly Image _image = new() { Stretch = Stretch.Uniform };
-    private readonly TextBlock _zoomLabel = new() { FontSize = 13, MinWidth = 44, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)Application.Current.Resources["FwScrimTextBrush"] };
+    private readonly TextBlock _zoomLabel = new() { Style = (Style)Application.Current.Resources["FwScrimBodyTextStyle"], MinWidth = 44, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly Grid _root = new();
     private RemoteResourceRef _resource;
     private readonly IReadOnlyList<RemoteResourceRef> _resources;
     private readonly CancellationTokenSource _lifetime = new();
@@ -66,8 +67,6 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         _scroll.Content = _canvas;
         _canvas.Children.Add(_image);
         _viewer.ContentHost.Children.Add(_scroll);
-        // Photography surfaces stay dark in both themes; only the window chrome follows the app theme.
-        _viewer.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 11, 12, 15));
         AutomationProperties.SetAutomationId(_scroll, "ImageViewport");
         AutomationProperties.SetName(_scroll, "图片画布");
         AutomationProperties.SetAutomationId(_image, "ImageView");
@@ -75,11 +74,10 @@ public sealed class ImageWindow : Window, IAsyncDisposable
 
         BuildChrome();
 
-        var windowRoot = new Grid
-        {
-            RequestedTheme = ElementTheme.Dark,
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 11, 12, 15)),
-        };
+        // The canvas is the app canvas: a photo is judged against the surface the user chose,
+        // so a light theme must not be forced into a black mat.
+        var windowRoot = _root;
+        windowRoot.Style = (Style)Application.Current.Resources["FwViewerCanvasStyle"];
         windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         windowRoot.RowDefinitions.Add(new RowDefinition());
         windowRoot.Children.Add(_titleBar);
@@ -257,8 +255,11 @@ public sealed class ImageWindow : Window, IAsyncDisposable
 
     public void SetTheme(ElementTheme theme)
     {
-        // Image surfaces are intentionally theme-independent (always dark).
-        if (!_closed) _viewer.RequestedTheme = ElementTheme.Dark;
+        if (_closed) return;
+        // Every surface below resolves its own ThemeResource once the root theme moves.
+        _root.RequestedTheme = theme;
+        _titleBar.RequestedTheme = theme;
+        _viewer.RequestedTheme = theme;
     }
 
     private async Task NavigateAsync(int index)
@@ -275,8 +276,9 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         _imageCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _resource = _resources[index]; Title = _titleBar.Caption = _resource.DisplayName + " · " + AppBranding.DisplayName;
         _image.Source = null;
-        _viewer.SetTitle(_resource.DisplayName, _resources.Count > 1 ? $"{_index + 1} / {_resources.Count}" : "");
+        _viewer.SetTitle(_resources.Count > 1 ? $"{_index + 1} / {_resources.Count}" : "");
         _viewer.ClearError();
+        _viewer.ShowsZoomBar = false;
         _viewer.SetLoading(true, $"正在加载 {_resource.DisplayName}…");
         _zoomLabel.Text = "—";
         _loadTask = LoadAsync(generation, _imageCancellation.Token);
@@ -317,7 +319,8 @@ public sealed class ImageWindow : Window, IAsyncDisposable
             _image.Width = bitmap.PixelWidth;
             _image.Height = bitmap.PixelHeight;
             _viewer.SetLoading(false);
-            _viewer.SetTitle(_resource.DisplayName,
+            _viewer.ShowsZoomBar = true;
+            _viewer.SetTitle(
                 $"{(_resources.Count > 1 ? $"{_index + 1} / {_resources.Count} · " : "")}{bitmap.PixelWidth} × {bitmap.PixelHeight}" +
                 (content.Length > 0 ? $" · {DownloadPresentationPolicy.FormatBytes(content.Length)}" : ""));
             DispatcherQueue.TryEnqueue(() => { Fit(); UpdateZoomLabel(); });
@@ -330,7 +333,11 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         {
             if (_closed || generation != _generation) return;
             _viewer.SetLoading(false);
-            _viewer.ShowError("图片打不开", MainPage.ErrorMessage(exception));
+            // A decode failure is about this file, not the connection; blaming the server sends the user away.
+            var detail = exception is FilewayException or System.Threading.Tasks.TaskCanceledException
+                ? MainPage.ErrorMessage(exception)
+                : "文件内容无法解码，可能已损坏，或不是受支持的图片格式。";
+            _viewer.ShowError("图片打不开", detail);
         }
     }
 

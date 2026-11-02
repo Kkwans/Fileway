@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
@@ -49,8 +49,8 @@
       <SolidColorBrush x:Key="FwTextPrimaryBrush" Color="#FF1B1F24" />
       <SolidColorBrush x:Key="FwTextSecondaryBrush" Color="#FF5C6470" />
       <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF8A929E" />
-      <SolidColorBrush x:Key="FwScrimTextBrush" Color="#FFFFFFFF" />
-      <SolidColorBrush x:Key="FwScrimMutedBrush" Color="#FFD5DAE1" />
+      <SolidColorBrush x:Key="FwScrimTextBrush" Color="#FF1B1F24" />
+      <SolidColorBrush x:Key="FwScrimMutedBrush" Color="#FF5C6470" />
       <SolidColorBrush x:Key="FwDangerBrush" Color="#FFC42B1C" />
       <SolidColorBrush x:Key="FwShadowBrush" Color="#33000000" />
       <AcrylicBrush x:Key="FwChromeBrush" TintColor="#F7F8FA" TintOpacity="0.62" TintLuminosityOpacity="0.85" FallbackColor="#E6F7F8FA" />
@@ -489,6 +489,14 @@
   </Style>
   <Style x:Key="FwPrimaryIconStyle" TargetType="ctl:LucideIcon">
     <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+  </Style>
+  <!-- Viewer surfaces: styles carry ThemeResource so a code-built window still follows its element theme. -->
+  <Style x:Key="FwViewerCanvasStyle" TargetType="Grid">
+    <Setter Property="Background" Value="{ThemeResource FwCanvasBrush}" />
+  </Style>
+  <Style x:Key="FwViewerChromeStyle" TargetType="ctl:ViewerChrome" BasedOn="{StaticResource FwViewerCanvasStyle}" />
+  <Style x:Key="FwDividerStrongStyle" TargetType="Border" BasedOn="{StaticResource FwDividerStyle}">
+    <Setter Property="Background" Value="{ThemeResource FwStrokeStrongBrush}" />
   </Style>
   <Style x:Key="FwDividerStyle" TargetType="Border">
     <Setter Property="Background" Value="{ThemeResource FwStrokeBrush}" />

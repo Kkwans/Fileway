@@ -168,7 +168,7 @@ components:
 
 深色为默认体验，浅色主题保持相同语义层级。
 
-- `canvas`：查看器的全幅画布；图片/PDF 查看器始终使用近黑，不随主题变化。
+- `canvas`：查看器的全幅画布，随应用主题切换（浅色主题下为浅色画布）；图片与 PDF 查看器跟随主题，视频播放器与文本/压缩包阅读面是刻意固定的深色表面。
 - `surface` / `surface-raised`：窗口与卡片；阅读器正文底色使用 `canvas`，工具栏使用 `surface`。
 - `hairline`：1px 分隔线；需要更强边界时用 `hairline-strong`。
 - `ink` / `muted` / `faint`：三级文字；不要用纯黑或纯白代替。
@@ -195,6 +195,7 @@ components:
 - 详情面板：宽 420px，高 480px，内边距 20/16；操作区固定两组（传输、管理），每组 4 列等宽。
 - 可移动详情浮窗：标题区（顶部 56 DIP，右侧预留 56 DIP 给关闭按钮）通过原生 `WM_NCHITTEST → HTCAPTION` 拖动，必须显示三点拖动手柄与“按住标题区域拖动移动窗口”提示；不得只依赖轮询鼠标按键。
 - 查看器：顶部信息条 60px，底部浮动胶囊距底 22px；左右翻页按钮 44px 圆形，距边缘 14px。
+- 查看器外壳三条硬规则（0.8.156）：① **不重复**——信息条不得再写标题栏已有的文件名，只放元信息（序号 / 像素尺寸 / 体积）。② **不空转**——没有解码出内容（加载中、错误态）时缩放胶囊整条隐藏，不得留「—」占位与一排无效按钮。③ **不躲**——加载与错误期间禁止 chrome 自动隐藏，用户要能看到工具条与重试入口。查看器画布/chrome 一律走带 `{ThemeResource}` setter 的 Style（`FwViewerCanvasStyle`/`FwViewerChromeStyle`/scrim 系列）：应用只设 `Shell.RequestedTheme`，运行时用 `Application.Current.Resources[...]` 直接取画刷拿到的是**系统主题**，WinUI 3 又没有 `SetResourceReference`。
 - 任何工具条都不得改变内容尺寸；内容永远是画布，工具条是覆盖层。
 - 本地服务端页：状态卡、本机构建、启动与账号、日志四块共用 20/16 页边距与 `FwFormCardStyle`；卡内动作按钮的右边缘必须等于卡片内容右边缘（窗口右 − 20 页边距 − 16 卡内边距），**不得用负边距“贴齐”卡片**——0.8.152 实测 `选择…`/`重新生成`/`显示密码` 用 `Margin="0,22,-16,0"` 会凸出内容边界 16 DIP。窗口 < 900 DIP 时「启动与账号」整卡换行占满两列，而不是把两张卡挤窄。日志/路径/端点使用 `FwCodeTextStyle`（等宽 13/21）与 `FwCodeCaptionTextStyle`（12/18）；状态只以图标 + 文案表达，错误才用 `danger`。
 - 本地服务端页的三条内容规则（0.8.153，用户实机反馈）：① **先回显，再动作**——本机任何在监听的服务端（含不是本客户端启动的旧 `filebrowser.exe`）都必须出现在「检测到的服务端」卡里，带端口、PID、进程名与「打开 Web 端 / 连接」，不能假设"只有本客户端起的才算存在"（端口预填规则见下一条）。② **默认即全量**——共享范围默认是「整台电脑（所有盘符）」，限定单个文件夹是「高级」折叠区里的一个开关，未勾选时不得出现路径输入行；字段名统一叫「共享范围」，不再叫「共享文件夹」。③ **定时刷新不得整表重设**——日志列表、检测卡这类会轮询刷新的区域，内容没变时必须零 UI 变更（增量 diff + 按签名去重的状态事件）；直接重设 `ItemsSource` 就是用户看到的"每秒闪一次"。
@@ -402,6 +403,7 @@ components:
 - [x] 高对比度主按钮已修复（0.8.149）：`FwPrimaryButton*` 资源在 HC 映射 WindowText/WindowColor，白底黑字；常规仍 Accent/TextOnAccent。证据 `20261101-ui08152/screens2/connection-hc.png`。
 - [x] 高对比度复选框已修复（0.8.150）：`FwCheckBox*` 资源在 HC 映射 WindowText/WindowColor，选中为白底黑勾、20px 方框；证据 `20261101-ui08152/screens3/connection-hc.png`。
 - [x] HC 复选框描边已加强（0.8.151）：`FwCheckBoxBorderThickness` 常规 1、HC 2；证据 `20261101-ui08153/screens-unchecked/connection-hc.png`。
+- [x] 图片查看器主题已修复（0.8.156）：画布/chrome 不再钉死深色，改走 `{ThemeResource}` Style；浅色字典补 scrim 文字深色值。同时收掉顶部信息条与标题栏重复文件名、加载/错误期 chrome 误自动隐藏、无图时仍显示缩放胶囊、错误卡左对齐无图标四类排版问题。证据 `20261102-server08156/light9`、`dark2`（各 10 项 UIA 断言 + 4 张实拍）。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

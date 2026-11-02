@@ -1,11 +1,28 @@
 # 栖卷 Windows：当前能力与后续产品计划
 
-更新日期：2026-11-02。当前交付版本：**0.8.155，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
-0.8.152 起为本地服务端管理，0.8.153–0.8.155 是该功能的真机反馈闭环，逐版说明见
-`release-0.8.12.md`–`release-0.8.155.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
-`Fileway-windows-artifacts/20261102-server08155/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
+更新日期：2026-11-03。当前交付版本：**0.8.156，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
+0.8.152 起为本地服务端管理，0.8.153–0.8.155 是该功能的真机反馈闭环，0.8.156 起回到各页面 UI/UX 完善，逐版说明见
+`release-0.8.12.md`–`release-0.8.156.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
+`Fileway-windows-artifacts/20261102-server08156/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
 历史逐版细节见各 `release-*.md`，整体路线见 [product-roadmap.md](product-roadmap.md)。
 历史文档中“下一版”“尚未接入”等时态若冲突，以本文件与最新实现为准。
+
+## 0.8.156：图片查看器跟随主题 + 查看器外壳排版返工
+
+- 用户点名「图片查看窗口 UI 样式差、排版布局差，为什么浅色主题背景却是黑的」。根因是主题取值机制：
+  应用只设 `Shell.RequestedTheme`，而代码用 `Application.Current.Resources[...]` 取画刷 → 拿到的是
+  **系统主题**的字典；图片查看器还额外硬编码了近黑画布并把根主题钉成 Dark。
+- 修法：画布/外壳改走带 `{ThemeResource}` setter 的 Style（WinUI 3 没有 `SetResourceReference`），
+  删除硬编码深色；浅色字典补 `FwScrimTextBrush`/`FwScrimMutedBrush` 深色值（原先浅色主题下白字白底）。
+- 外壳四处：顶部信息条不再重复标题栏已有的文件名，改单行 `2 / 2 · 1290 × 1023 · 77.34 KB`；
+  加载/错误期间 chrome 不再自动隐藏；没有解码出图片时整条缩放胶囊隐藏（不再显示「—」和四个死按钮）；
+  错误卡改为图标容器 + 居中标题/说明/重试。解码失败文案不再一律甩锅服务器连接。
+- 证据：`20261102-server08156/Probe-ImageViewer2.ps1` 明/暗两轮各 10 项 UIA 断言全 PASS + 4 张实拍；
+  Release 0 警告 0 错误；两次启动冒烟 `GATE=PASS`。
+- 下一刀（已定，未开工）：无边框窗口**边缘误触调整大小**。隐形 sizing 边框带约 8–16 物理像素，
+  单击即进入系统 sizing 模态循环，用户点边缘想暂停视频却把窗口拽歪。改为按住并拖动超过 `SM_CXDRAG`
+  才进入调整大小，实现点在 `FramelessWindowChrome.WindowProcedure` 与 `PlayerWindow.WindowProcedure`
+  的 `WM_NCLBUTTONDOWN`，两处共用一个门控类。
 
 ## 0.8.155：本地服务端页的对齐返工
 

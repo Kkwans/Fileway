@@ -1,4 +1,4 @@
-using Microsoft.UI.Dispatching;
+﻿using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -28,7 +28,7 @@ internal sealed class ViewerChrome : Grid
     private readonly TextBlock _progressText = new() { Style = (Style)Application.Current.Resources["FwScrimMutedTextStyle"], TextAlignment = TextAlignment.Center };
     private readonly StackPanel _loadingHost;
     private readonly Border _errorCard;
-    private readonly TextBlock _errorTitle = new() { Style = (Style)Application.Current.Resources["FwBodyTextStyle"], FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock _errorTitle = new() { Style = (Style)Application.Current.Resources["FwBodyTextStyle"], FontSize = 15, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _errorMessage;
     private readonly Button _retry;
     private readonly Border _toast;
@@ -36,6 +36,7 @@ internal sealed class ViewerChrome : Grid
     private readonly DispatcherQueueTimer _idle;
     private bool _chromeVisible = true;
     private bool _pointerOverChrome;
+    private bool _holdsChrome;
 
     internal Grid ContentHost => _content;
     internal StackPanel TopActions => _topActions;
@@ -44,9 +45,24 @@ internal sealed class ViewerChrome : Grid
 
     internal bool AutoHideChrome { get; set; } = true;
 
+    private bool _showsZoomBar = true;
+
+    /// <summary>Zoom controls are meaningless before an image decodes, so hide the pill rather than show dead buttons.</summary>
+    internal bool ShowsZoomBar
+    {
+        get => _showsZoomBar;
+        set
+        {
+            if (_showsZoomBar == value) return;
+            _showsZoomBar = value;
+            if (value) { if (_chromeVisible) Fade(_bottomHost, true, animate: false); }
+            else { _bottomHost.Opacity = 0; _bottomHost.Visibility = Visibility.Collapsed; }
+        }
+    }
+
     internal ViewerChrome()
     {
-        Background = (Brush)Application.Current.Resources["FwCanvasBrush"];
+        Style = (Style)Application.Current.Resources["FwViewerChromeStyle"];
         _content.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
         Children.Add(_content);
 
@@ -106,10 +122,19 @@ internal sealed class ViewerChrome : Grid
         Children.Add(_loadingHost);
 
         _errorMessage = new TextBlock { Style = (Style)Application.Current.Resources["FwCaptionTextStyle"], FontSize = 13, TextWrapping = TextWrapping.Wrap };
+        var errorIcon = new Border
+        {
+            Width = 56,
+            Height = 56,
+            Style = (Style)Application.Current.Resources["FwIconTileStyle"],
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        errorIcon.Child = new LucideIcon { IconName = "alert-triangle", Width = 26, Height = 26, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)Application.Current.Resources["FwDangerBrush"] };
         var errorBody = new StackPanel { Spacing = 10 };
+        errorBody.Children.Add(errorIcon);
         errorBody.Children.Add(_errorTitle);
         errorBody.Children.Add(_errorMessage);
-        _retry = new Button { Content = "重试", Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"], HorizontalAlignment = HorizontalAlignment.Left };
+        _retry = new Button { Content = "重试", Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"], HorizontalAlignment = HorizontalAlignment.Center };
         _retry.Click += (_, _) => RetryRequested?.Invoke(this, EventArgs.Empty);
         errorBody.Children.Add(_retry);
         _errorCard = new Border
@@ -126,7 +151,7 @@ internal sealed class ViewerChrome : Grid
         _idle = DispatcherQueue.CreateTimer();
         _idle.IsRepeating = false;
         _idle.Interval = TimeSpan.FromMilliseconds(2600);
-        _idle.Tick += (_, _) => { if (AutoHideChrome && !_pointerOverChrome) SetChromeVisible(false, animate: true); };
+        _idle.Tick += (_, _) => { if (AutoHideChrome && !_pointerOverChrome && !_holdsChrome) SetChromeVisible(false, animate: true); };
         PointerMoved += (_, _) => { if (AutoHideChrome) { if (!_chromeVisible) SetChromeVisible(true, animate: true); RestartIdle(); } };
     }
 
@@ -163,7 +188,7 @@ internal sealed class ViewerChrome : Grid
         if (_chromeVisible == visible) { if (visible) RestartIdle(); return; }
         _chromeVisible = visible;
         Fade(_topBar, visible, animate);
-        Fade(_bottomHost, visible, animate);
+        if (_showsZoomBar) Fade(_bottomHost, visible, animate);
         if (_previous.Tag is not null) Fade(_previous, visible, animate);
         if (_next.Tag is not null) Fade(_next, visible, animate);
         if (visible) RestartIdle(); else _idle.Stop();
@@ -177,7 +202,7 @@ internal sealed class ViewerChrome : Grid
 
     internal void RestartIdle()
     {
-        if (!AutoHideChrome) return;
+        if (!AutoHideChrome || _holdsChrome) return;
         _idle.Stop();
         _idle.Start();
     }
@@ -188,10 +213,12 @@ internal sealed class ViewerChrome : Grid
         _progress.IsActive = loading;
         _progressText.Text = message;
         _progressText.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
+        _holdsChrome = loading || _errorCard.Visibility == Visibility.Visible;
         if (loading)
         {
             _errorCard.Visibility = Visibility.Collapsed;
             Canvas.SetZIndex(_loadingHost, 20);
+            SetChromeVisible(true, animate: false);
         }
     }
 
@@ -203,10 +230,17 @@ internal sealed class ViewerChrome : Grid
         _loadingHost.Visibility = Visibility.Collapsed;
         _progress.IsActive = false;
         Canvas.SetZIndex(_errorCard, 30);
+        _holdsChrome = true;
+        _idle.Stop();
         SetChromeVisible(true, animate: false);
     }
 
-    internal void ClearError() => _errorCard.Visibility = Visibility.Collapsed;
+    internal void ClearError()
+    {
+        _errorCard.Visibility = Visibility.Collapsed;
+        _holdsChrome = false;
+        RestartIdle();
+    }
 
     internal void ShowToast(string message, int seconds = 3)
     {
@@ -240,8 +274,7 @@ internal sealed class ViewerChrome : Grid
         var button = new Button
         {
             Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
-            Foreground = (Brush)Application.Current.Resources["FwScrimTextBrush"],
-            Content = new TextBlock { Text = text, FontSize = 13, Foreground = (Brush)Application.Current.Resources["FwScrimTextBrush"] },
+            Content = new TextBlock { Text = text, Style = (Style)Application.Current.Resources["FwScrimBodyTextStyle"] },
         };
         ToolTipService.SetToolTip(button, tooltip);
         AutomationProperties.SetName(button, tooltip);
