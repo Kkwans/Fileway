@@ -50,6 +50,16 @@
   端口/管理员账号/凭据文件均未变 ✓。
 - 两次启动冒烟 15 秒 / 20 秒均 `GATE=PASS`（`data/smoke-a`、`data/smoke-b`）。
 
+## 安装包（本地未签名候选）
+
+- `Fileway-windows-artifacts/20261102-server08154/dist/Fileway-0.8.154-win-x64-unsigned-setup.exe`
+  277,117,560 字节，sha256 `a976960db8cb918c7bcc39daae68a3fe5c6a72361413489e4958c4b64c9fbaac`
+- 同目录 `Fileway-0.8.154-win-x64-unsigned.zip` 279,740,593 字节，
+  sha256 `caced44bdd4e833a6b8b00d09ea234cf299c8ef98d1b117233e0d9c429cdfc81`
+- 随包 `fileway-server.exe` sha256 `e0e2f9287843a9c91ec5fca2c85fbafecd505cc7423b5c7888abe20a4a567686`，
+  与 `server-build.json` 回执逐位一致（`sha256sum` 复核），回执 `serverVersion = 0.8.154`。
+- NSIS 3.12（归档哈希已核对），未签名，`installed = false`。
+
 ## 未验证 / 已知边界
 
 - **正向全链路（机器上没有其他服务端时：部署 → 启动 → 免密连接 → 停止）本版无法回归**，
