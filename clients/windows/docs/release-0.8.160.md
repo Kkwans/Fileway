@@ -31,19 +31,34 @@
 ## 验证
 
 - Release x64 构建 **0 警告 0 错误**（0.8.160.0），两次启动冒烟 `GATE=PASS`（15s / 20s，独立数据根，无 `startup.log`）。
-- 新增 `20261103-keys08160/Probe-Keys.ps1`：21 项断言，全部以**真实按键 + 真实结果**判定——
-  PageDown/Home/End 前后各截一帧做像素差（要求滚动可见变化、回到顶部时差值 <0.5%），
-  压缩包用 `ArchiveExtractButton.IsEnabled` 的 False→True 证明方向键真的选中了条目，
-  `Enter` 后用 UIA 找“解压选中条目”确认框，再验证一次 Esc 只关框、第二次 Esc 才关窗，
-  图片窗口 Esc 作为回归项一并跑。
-- **键盘与实拍未完成**：本轮验证时段 Windows 会话再次锁定（`GetForegroundWindow()==0`、`LogonUI` 在跑、
-  两帧逐字节相同），锁定下既送不进按键也打不开查看器窗口，探针已改为**检测到锁定就以
-  INCONCLUSIVE 退出（exit 2）并留下说明**，不再把“窗口不存在”误判成断言通过。
-  `20261103-keys08160/light1/report.txt` 就是锁定期间的那一份，只作为“探针会如实记账”的证据，
-  **不能作为功能结论**。
-- 解锁后需跑 `Probe-Keys.ps1 -Theme Light|Dark` 取 21 项断言与实拍，并特别确认纯文本模式
-  能否拿到只读编辑器内部的滚动面（拿不到时方向键无效果，但不影响 Esc 与压缩包列表）。
+- `20261104-keys08160/Probe-Keys.ps1`：**真实按键 + 真实结果**判定，浅色 `light6/report.txt` 与深色 `dark2/report.txt`
+  **各 21 项全 PASS、0 FAIL**。
+  - 文本阅读器：`PageDown` 后整窗像素差 **10.79%**（深色 10.76%）、`Down` 一行 **11.32%**、`End` **10.5%**、
+    `Home` 回到顶部后与首帧差 **0%**（说明滚动面确实被按键驱动，且不是抖动）；`Ctrl+PgDn` 不误关窗；`Esc` 关窗。
+  - 压缩包：`ArchiveExtractButton` 初始 `IsEnabled=False` → `Down` 后变 `True`（证明按键真的选中了条目）、
+    `Up` 保持选中、`Enter` 弹出「解压选中条目」确认框；**第一次 Esc 只关确认框且窗口仍在**，第二次 Esc 才关窗。
+  - 图片查看器 Esc 关窗作为回归项通过。
+- 实拍：`light6/text-pagedown.png`、`light6/text-end.png`、`light6/archive-selected.png`、
+  `dark2/` 同名三张；深色选中行可见左侧 3px 强调条（见下）。
+- 探针自身修了三处会导致误判的地方：① 锁定检测不再看 `LogonUI`（解锁后该进程仍常驻，且锁屏就画在
+  `Default` 输入桌面上），只认 `GetForegroundWindow()==0`；② 抓不到帧时像素差返回 -1 记 FAIL，
+  不再把「窗口不存在」读成「屏幕变了所以按键生效」；③ 恢复真实双击兜底——详情面板是窗口化 popup，
+  其「打开」按钮不总能在主窗 UIA 树里命中，之前只走 Invoke 会误报「窗口打不开」。
+- 端口占用：探针现在在部署前最多等 30 秒并反复清理 artifacts 路径下的残留服务端，等不到就直接抛错，
+  避免在已有服务端的情况下再部署一个（深色首轮就是这么废掉的，重跑即 21/21）。
 
-## 交付物
+## 交付物（本地未签名候选，等待实机验收）
 
-**暂不打包**：键盘路径是这版的全部内容，未实测就不出包。
+- `Fileway-windows-artifacts/20261104-keys08160/dist/Fileway-0.8.160-win-x64-unsigned-setup.exe`
+  277,119,755 字节，SHA-256 `e575187bfb94fb6aac4b6686609c164bea3cebed1f666360c84041f2a2b220ad`
+  （与同目录 `.json` 回执一致）；压缩包 `...-unsigned.zip` 279,745,508 字节，
+  SHA-256 `f721426e1894da40925665c55bb3f9f0810e235c4b0e3972e6ed7b782ead53c4`。
+
+## 实拍顺带发现（下一版处理，不在本版范围）
+
+- 选中态**左侧 3px 蓝色短竖条**（`FwListViewItemStyle` 的 `SelectionBar`）贴在窗口最左边缘，
+  与行内容之间隔着图标列，看起来像脱落的碎片而不是选中指示；用户明确表示「也很丑」。
+- 同一列表项还有**两层外框**：自研双色焦点环（2px 画布光晕 + 2px 文本色环）叠在 1px 卡片描边之外。
+  代码上 `Focused` 状态只在键盘焦点时出现（`PointerFocused` 是空状态），所以鼠标点击不会看到，
+  但 UIA `SetFocus()`/`Select()` 会触发——测试截图里出现的就是它。两条都需要重新定义视觉：
+  选中与聚焦不应该同时留下「框 + 条 + 描边」三重标记。
