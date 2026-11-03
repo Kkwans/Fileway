@@ -145,6 +145,13 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             _started = true;
             ApplyTheme(_root.ActualTheme);
             await LoadAsync();
+            // Without an explicit target WinUI focuses the first caption button, so Enter/Space
+            // would minimise the archive window instead of moving through its entries. The root
+            // is the fallback holder and the list is retried after the layout pass materialises.
+            _root.IsTabStop = true;
+            _ = _root.Focus(FocusState.Programmatic);
+            _ = _list.Focus(FocusState.Programmatic);
+            DispatcherQueue.TryEnqueue(() => { _ = _list.Focus(FocusState.Programmatic); });
         };
         Closed += async (_, _) =>
         {

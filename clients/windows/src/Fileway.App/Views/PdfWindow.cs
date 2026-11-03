@@ -88,7 +88,19 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         AddNavigationAccelerator(windowRoot, VirtualKey.Right, +1);
         Content = windowRoot;
         _chrome = new FramelessWindowChrome(this, _titleBar);
-        root.Loaded += async (_, _) => { if (_started) return; _started = true; await LoadAsync(); };
+        root.Loaded += async (_, _) =>
+        {
+            if (_started) return;
+            _started = true;
+            await LoadAsync();
+            // Left alone, WinUI focuses the first caption button, so Enter/Space would minimise
+            // the document instead of scrolling it.
+            _scroll.IsTabStop = true;
+            root.IsTabStop = true;
+            _ = root.Focus(FocusState.Programmatic);
+            _ = _scroll.Focus(FocusState.Programmatic);
+            DispatcherQueue.TryEnqueue(() => { _ = _scroll.Focus(FocusState.Programmatic); });
+        };
         Closed += (_, _) =>
         {
             _closed = true;

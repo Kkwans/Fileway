@@ -1,11 +1,25 @@
 # 栖卷 Windows：当前能力与后续产品计划
 
-更新日期：2026-11-03。当前交付版本：**0.8.158，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
+更新日期：2026-11-03。当前交付版本：**0.8.159，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
 0.8.152 起为本地服务端管理，0.8.153–0.8.155 是该功能的真机反馈闭环，0.8.156 起回到各页面 UI/UX 完善，逐版说明见
-`release-0.8.12.md`–`release-0.8.158.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
+`release-0.8.12.md`–`release-0.8.159.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
 `Fileway-windows-artifacts/20261103-viewers08158/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
 历史逐版细节见各 `release-*.md`，整体路线见 [product-roadmap.md](product-roadmap.md)。
 历史文档中“下一版”“尚未接入”等时态若冲突，以本文件与最新实现为准。
+
+## 0.8.159：查看器窗口初始焦点交给内容
+
+- 0.8.158 的四张实拍里标题栏最小化按钮都带焦点框。UIA 逐元素枚举证实不是伪影：
+  `TextWindow`/`ArchiveWindow` 打开后 `MinimizeButton hasFocus=True`，
+  **按 Enter/Space 会直接最小化窗口**；`ImageWindow` 因构造里已显式 `Focus` 而幸免。
+- 修法：三个文档查看器在内容加载完成后显式接管初始焦点（根容器 `IsTabStop=true` +
+  `Focus(Programmatic)`，并在 `DispatcherQueue.TryEnqueue` 里补一次）。
+  文本阅读器**不**把焦点交给只读 TextBox——实测编辑器模板会画强调色下划线，
+  在圆角文档面板底部裁成 3px 蓝线（像素扫描 2 行→0 行），比焦点框更像故障。
+- 证据：浅/深各 13 项断言全通过（含「焦点不在任何标题栏按钮上」）+ 4 张干净实拍
+  （`20261103-viewers08158/final2-light`、`final2-dark`）；Release 0 警告 0 错误、两次冒烟 `GATE=PASS`。
+- 遗留（已记 DESIGN.md，不算回归）：压缩包列表 `_list.Focus()` 两次尝试均返回 false，
+  方向键进出条目仍不可用，且该窗口此前没有任何键盘接线。
 
 ## 0.8.158：文本与压缩包查看器跟随主题
 

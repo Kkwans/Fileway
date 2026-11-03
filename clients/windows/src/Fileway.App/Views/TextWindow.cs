@@ -227,7 +227,19 @@ public sealed class TextWindow : Window, IAsyncDisposable
             if (_started) return;
             _started = true;
             await LoadAsync();
+            FocusContent();
         };
+    }
+
+    private void FocusContent()
+    {
+        // Left alone, WinUI gives a new window keyboard focus to the first caption button,
+        // so Enter/Space would minimise the reader before the content was ever reachable.
+        // The root holds focus instead: focusing the read-only editor draws the TextBox
+        // template's accent underline, which reads as a stray line under the document panel.
+        _root.IsTabStop = true;
+        _ = _root.Focus(FocusState.Programmatic);
+        DispatcherQueue.TryEnqueue(() => { _ = _root.Focus(FocusState.Programmatic); });
     }
 
     private static Button TextAction(string text, string tooltip, Action click)
