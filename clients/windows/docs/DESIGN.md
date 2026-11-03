@@ -263,6 +263,18 @@ components:
 - 底部胶囊：图标/文字按钮 34–40 高，间距 2，分割线 1px `glass-stroke`。
 - 图片/PDF：滚轮以光标为锚点缩放，双击切换适应/放大，拖拽平移，Esc 关闭。
 - 文本：工具栏固定，不自动隐藏；源码与渲染切换不得丢失滚动位置以外的最小状态。
+- **每个查看器窗口都必须能用 Esc 关窗**（图片 0.8.131 起、文本/压缩包/PDF 自 0.8.160）。
+  窗口根接 `PreviewKeyDown`，不要把这类全局键挂在某个内容控件上：0.8.159 之后初始焦点在根容器，
+  挂在内容控件上的处理器收不到键。文本窗口在**编辑态必须放行按键**，否则 Esc 会绕过
+  “放弃未保存修改？”确认框直接丢掉改动。确认框打开期间 Esc 只关框不关窗（压缩包吃这条，
+  用 `_confirming` 标记挡住关窗分支）。
+- **键盘导航不依赖列表拿到焦点**：独立窗口里 `ListView.Focus()` 在刚激活时常返回 false，
+  因此压缩包列表由根容器把 `Down/Up/Home/End` 翻译成 `SelectedIndex`（无选中时 Down 从首行、
+  Up 从末行进入，与资源管理器一致），`Enter` 执行与双击相同的动作（目录进入、文件走解压确认），
+  `Ctrl+A` 全选走 `KeyboardAccelerator`（`Modifiers` 是 `VirtualKeyModifiers` 标志，不是集合）。
+- **文本阅读器按键滚动**：`Up/Down` 一行（24 DIP）、`PageUp/PageDown/Space` 约九成视口、
+  `Home/End` 首末，目标取当前可见面（Markdown/CSV 用各自的 `ScrollViewer`，纯文本取只读编辑器
+  内部的滚动面）。不要为了拿到原生滚动而聚焦只读 TextBox——它会画出 3px 强调色下划线（0.8.159）。
 
 ### Icons
 
@@ -289,7 +301,8 @@ components:
 ## Accessibility
 
 - 正文对比度不低于 4.5:1，辅助文字不低于 3:1；玻璃层必须保证其上的文字在纯黑与纯白背景上都可读。
-- 所有图标按钮必须有 `AutomationProperties.Name`；查看器提供键盘路径（方向键、0/1、Esc）。
+- 所有图标按钮必须有 `AutomationProperties.Name`；每个查看器窗口都提供键盘路径：Esc 关窗，
+  图片另有方向键翻页/缩放与 `0`/`1`，PDF 另有左右翻页，文本另有滚动键，压缩包另有选择与确认键（0.8.160）。
 - 语义状态不能只靠颜色：错误同时给出图标与文案。
 - 高对比度下禁用玻璃与阴影，回退为系统色实底。
 
@@ -407,7 +420,7 @@ components:
 - [x] 图片查看器主题已修复（0.8.156）：画布/chrome 不再钉死深色，改走 `{ThemeResource}` Style；浅色字典补 scrim 文字深色值。同时收掉顶部信息条与标题栏重复文件名、加载/错误期 chrome 误自动隐藏、无图时仍显示缩放胶囊、错误卡左对齐无图标四类排版问题。证据 `20261102-server08156/light9`、`dark2`（各 10 项 UIA 断言 + 4 张实拍）。
 - [x] 文本与压缩包查看器已跟随主题（0.8.158）：撤销「刻意固定深色阅读面」的旧决策，与 0.8.156 对图片查看器的批评同源。`TextWindow.ApplyTheme`/`ArchiveWindow.ApplyTheme` 不再钉 `ElementTheme.Dark`，改赋 `FwViewerCanvasStyle`/`FwDocumentPanelStyle`/`FwDocumentNoticeStyle`/`FwCaptionTextStyle`，Markdown 代码块与空文件状态同步；正文/标题去掉显式 Foreground 由主题继承。同轮按该根因全 App 扫出并修掉 6 处构造期捕获主题画刷（图片查看器分隔线、CSV 表头、存储工具两张卡、Markdown 引用块边框与列表符号、错误图标）。证据 `20261103-viewers08158/light3`、`dark2`（各 8 项 UIA 断言 + 2 张实拍，浅/深均无同色文字）。
 - [x] 查看器窗口初始焦点已交给内容（0.8.159）：修复前 UIA 实测 `TextWindow`/`ArchiveWindow` 打开后 `MinimizeButton hasFocus=True`，按 Enter/Space 直接把窗口最小化。现在三个文档查看器在加载完成后显式持焦于根容器（并在布局后补一次）。规则：**只读阅读面不要把焦点给 TextBox**——编辑器模板会画出强调色下划线，在圆角面板底部裁成一条 3px 蓝线，比焦点框更像故障（像素复核 2 行→0 行）；用户点进正文时仍会自然获得编辑器焦点与全选/复制。证据 `20261103-viewers08158/final2-light`、`final2-dark`（各 13 项断言全通过 + 4 张实拍）。
-- [ ] 压缩包查看器键盘导航仍不可用（0.8.159 遗留）：`_list.Focus()` 立即调用与布局后重试均返回 false，焦点停在根容器，方向键进出条目无效；该窗口此前也没有任何 KeyDown/Accelerator 接线，不是本版回归。要做的是给条目列表提供可靠的键盘路径（`DESIGN.md` 无障碍一节已有此要求）。
+- [~] 压缩包查看器键盘导航（0.8.159 遗留 → 0.8.160 已接线，待真机按键实测）：`_list.Focus()` 在刚激活的独立窗口里两次都返回 false，所以改由窗口根把 `Down/Up/Home/End/Enter/Ctrl+A` 翻译成条目选择与操作，同时给文本/压缩包/PDF 补上 Esc 关窗与文本按键滚动。**尚未实测**：验证时段 Windows 会话锁定，按键送不进去也打不开查看器窗口，`20261103-keys08160/light1/report.txt` 只记 INCONCLUSIVE；解锁后跑 `Probe-Keys.ps1 -Theme Light|Dark` 的 21 项断言（像素差证明滚动、`ArchiveExtractButton` False→True 证明选中、确认框与关窗两步 Esc）才能出包。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

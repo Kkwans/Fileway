@@ -6,7 +6,9 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Windows.System;
 
 namespace Fileway.App.Views;
 
@@ -199,6 +201,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         Grid.SetRow(_root, 1);
         _windowRoot.Children.Add(_root);
         Content = _windowRoot;
+        _windowRoot.PreviewKeyDown += OnPreviewKeyDown;
         _chrome = new FramelessWindowChrome(this, _titleBar);
         ApplyTheme(_theme);
         root_Loaded();
@@ -240,6 +243,63 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _root.IsTabStop = true;
         _ = _root.Focus(FocusState.Programmatic);
         DispatcherQueue.TryEnqueue(() => { _ = _root.Focus(FocusState.Programmatic); });
+    }
+
+    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        // While editing, caret and clipboard keys belong to the text box itself.
+        if (_editing) return;
+        if (args.Key == VirtualKey.Escape)
+        {
+            Close();
+            args.Handled = true;
+            return;
+        }
+
+        if (ActiveScrollHost() is not { } host) return;
+        var page = Math.Max(80, host.ViewportHeight * 0.9);
+        const double line = 24;
+        double? target = args.Key switch
+        {
+            VirtualKey.Up => host.VerticalOffset - line,
+            VirtualKey.Down => host.VerticalOffset + line,
+            VirtualKey.PageUp => host.VerticalOffset - page,
+            VirtualKey.PageDown or VirtualKey.Space => host.VerticalOffset + page,
+            VirtualKey.Home => 0,
+            VirtualKey.End => host.ScrollableHeight,
+            _ => null,
+        };
+        if (target is null) return;
+        host.ChangeView(null, Math.Clamp(target.Value, 0, host.ScrollableHeight), null, false);
+        args.Handled = true;
+    }
+
+    private ScrollViewer? ActiveScrollHost()
+    {
+        if (_renderScroll.Visibility == Visibility.Visible) return _renderScroll;
+        if (_tableScroll.Visibility == Visibility.Visible) return _tableScroll;
+        return _textFrame.Visibility == Visibility.Visible ? PlainTextScrollHost() : null;
+    }
+
+    private ScrollViewer? PlainTextScrollHost()
+    {
+        // The read-only editor owns its scroll host, which is only reachable once the template
+        // exists. Focusing the text box instead would draw its accent underline inside the
+        // rounded document panel, so the reader keeps focus on the root and drives this host.
+        return FindScrollHost(_text);
+
+        static ScrollViewer? FindScrollHost(DependencyObject node)
+        {
+            var children = VisualTreeHelper.GetChildrenCount(node);
+            for (var index = 0; index < children; index++)
+            {
+                var child = VisualTreeHelper.GetChild(node, index);
+                if (child is ScrollViewer viewer) return viewer;
+                if (FindScrollHost(child) is { } found) return found;
+            }
+
+            return null;
+        }
     }
 
     private static Button TextAction(string text, string tooltip, Action click)

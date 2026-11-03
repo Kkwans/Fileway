@@ -87,6 +87,12 @@ public sealed class PdfWindow : Window, IAsyncDisposable
         AddNavigationAccelerator(windowRoot, VirtualKey.Left, -1);
         AddNavigationAccelerator(windowRoot, VirtualKey.Right, +1);
         Content = windowRoot;
+        windowRoot.PreviewKeyDown += (_, args) =>
+        {
+            if (args.Key != VirtualKey.Escape) return;
+            Close();
+            args.Handled = true;
+        };
         _chrome = new FramelessWindowChrome(this, _titleBar);
         root.Loaded += async (_, _) =>
         {

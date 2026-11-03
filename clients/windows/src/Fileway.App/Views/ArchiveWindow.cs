@@ -6,7 +6,9 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Windows.System;
 
 namespace Fileway.App.Views;
 
@@ -55,6 +57,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private bool _closed;
     private bool _started;
     private bool _busy;
+    private bool _confirming;
     private ElementTheme _theme = ElementTheme.Default;
 
     public ArchiveWindow(IArchiveBrowseService service, ILocalStorageSettingsService settings, RemoteResourceRef archive)
@@ -106,6 +109,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
         _list.DoubleTapped += List_DoubleTapped;
         _list.SelectionChanged += (_, _) => UpdateCommands();
+        AutomationProperties.SetAutomationId(_list, "ArchiveList");
         _empty = new TextBlock { Text = "这个文件夹是空的", FontSize = 14, Opacity = 0.6, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
         var listHost = new Grid();
         listHost.Children.Add(_list);
@@ -137,6 +141,14 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         Grid.SetRow(_root, 1);
         _windowRoot.Children.Add(_root);
         Content = _windowRoot;
+        _windowRoot.PreviewKeyDown += OnPreviewKeyDown;
+        var selectAll = new KeyboardAccelerator { Key = VirtualKey.A, Modifiers = VirtualKeyModifiers.Control };
+        selectAll.Invoked += (_, args) =>
+        {
+            SelectAllEntries();
+            args.Handled = true;
+        };
+        _windowRoot.KeyboardAccelerators.Add(selectAll);
         _chrome = new FramelessWindowChrome(this, _titleBar);
         ApplyTheme(_theme);
         _root.Loaded += async (_, _) =>
@@ -147,11 +159,11 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             await LoadAsync();
             // Without an explicit target WinUI focuses the first caption button, so Enter/Space
             // would minimise the archive window instead of moving through its entries. The root
-            // is the fallback holder and the list is retried after the layout pass materialises.
+            // keeps focus and owns the keys (see OnPreviewKeyDown), because the list itself
+            // refuses programmatic focus in a freshly activated window.
             _root.IsTabStop = true;
             _ = _root.Focus(FocusState.Programmatic);
-            _ = _list.Focus(FocusState.Programmatic);
-            DispatcherQueue.TryEnqueue(() => { _ = _list.Focus(FocusState.Programmatic); });
+            DispatcherQueue.TryEnqueue(() => { _ = _root.Focus(FocusState.Programmatic); });
         };
         Closed += async (_, _) =>
         {
@@ -338,9 +350,72 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         for (DependencyObject? source = args.OriginalSource as DependencyObject; source is not null && source != _list; source = VisualTreeHelper.GetParent(source))
         {
             if (source is not ListViewItem { Tag: ArchiveRow row }) continue;
-            if (row.IsDirectory) { NavigateTo(row.Entry.FullName.Trim('/')); args.Handled = true; }
+            Activate(row);
+            args.Handled = row.IsDirectory;
             return;
         }
+    }
+
+    private void Activate(ArchiveRow row)
+    {
+        if (_busy) return;
+        if (row.IsDirectory) { NavigateTo(row.Entry.FullName.Trim('/')); return; }
+        _ = ExtractAsync(all: false);
+    }
+
+    private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        var count = _list.Items.Count;
+        switch (args.Key)
+        {
+            // Escape belongs to the confirmation dialog while it is open.
+            case VirtualKey.Escape when !_confirming && !_busy:
+                Close();
+                break;
+            case VirtualKey.Down when count > 0:
+                MoveSelection(1);
+                break;
+            case VirtualKey.Up when count > 0:
+                MoveSelection(-1);
+                break;
+            case VirtualKey.Home when count > 0:
+                SelectIndex(0);
+                break;
+            case VirtualKey.End when count > 0:
+                SelectIndex(count - 1);
+                break;
+            case VirtualKey.Enter when count > 0:
+                if (_list.SelectedItem is ListViewItem { Tag: ArchiveRow row }) Activate(row);
+                break;
+            default:
+                return;
+        }
+
+        args.Handled = true;
+    }
+
+    private void SelectAllEntries()
+    {
+        for (var index = 0; index < _list.Items.Count; index++)
+        {
+            if (_list.Items[index] is ListViewItem item) item.IsSelected = true;
+        }
+    }
+
+    private void MoveSelection(int delta)
+    {
+        var count = _list.Items.Count;
+        // With nothing selected yet, Down enters at the top and Up at the bottom, like Explorer.
+        var target = _list.SelectedIndex < 0
+            ? delta > 0 ? 0 : count - 1
+            : Math.Clamp(_list.SelectedIndex + delta, 0, count - 1);
+        SelectIndex(target);
+    }
+
+    private void SelectIndex(int index)
+    {
+        _list.SelectedIndex = index;
+        if (_list.ContainerFromIndex(index) is ListViewItem item) item.StartBringIntoView();
     }
 
     private List<int> SelectedFileIndexes(bool all)
@@ -384,7 +459,18 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,
             };
-            if (await confirm.ShowAsync() != ContentDialogResult.Primary || _closed) return;
+            _confirming = true;
+            ContentDialogResult choice;
+            try
+            {
+                choice = await confirm.ShowAsync();
+            }
+            finally
+            {
+                _confirming = false;
+            }
+
+            if (choice != ContentDialogResult.Primary || _closed) return;
             _busy = true;
             _progress.IsActive = true; _progress.Visibility = Visibility.Visible;
             _extractAll.IsEnabled = false; _extractSelected.IsEnabled = false;
