@@ -129,7 +129,7 @@ internal sealed class ViewerChrome : Grid
             Style = (Style)Application.Current.Resources["FwIconTileStyle"],
             HorizontalAlignment = HorizontalAlignment.Center,
         };
-        errorIcon.Child = new LucideIcon { IconName = "alert-triangle", Width = 26, Height = 26, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = (Brush)Application.Current.Resources["FwDangerBrush"] };
+        errorIcon.Child = new LucideIcon { IconName = "alert-triangle", Width = 26, Height = 26, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Style = (Style)Application.Current.Resources["FwDangerIconStyle"] };
         var errorBody = new StackPanel { Spacing = 10 };
         errorBody.Children.Add(errorIcon);
         errorBody.Children.Add(_errorTitle);

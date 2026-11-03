@@ -258,7 +258,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
             {
                 Padding = new Thickness(10, 8, 10, 8),
                 CornerRadius = new CornerRadius(6),
-                Background = (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["LayerFillColorDefaultBrush"],
+                Style = (Microsoft.UI.Xaml.Style)Microsoft.UI.Xaml.Application.Current.Resources["FwSubtlePanelStyle"],
                 Child = card,
             });
         }
@@ -643,7 +643,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
             {
                 Padding = new Thickness(12, 8, 12, 8),
                 CornerRadius = new CornerRadius(6),
-                Background = (Microsoft.UI.Xaml.Media.Brush)Microsoft.UI.Xaml.Application.Current.Resources["LayerFillColorDefaultBrush"],
+                Style = (Microsoft.UI.Xaml.Style)Microsoft.UI.Xaml.Application.Current.Resources["FwSubtlePanelStyle"],
                 Child = new TextBlock { Text = $"{scope.Path}\n{FormatBytes(scope.Bytes)} · {scope.Files:N0} 个文件 · {scope.Directories:N0} 个目录", TextWrapping = TextWrapping.Wrap },
             });
         }

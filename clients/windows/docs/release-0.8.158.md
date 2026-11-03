@@ -21,8 +21,22 @@
 4. **空文件状态**（0.8.74 加的那块）此前也是硬编码深色：图标底板改用 `FwIconTileStyle`，
    说明文字改用 `FwCaptionTextStyle`。
 5. 两个窗口的 `_theme` 初值由 `Dark` 改为 `Default`（继承），避免首帧按错误的主题解析资源。
-6. `DESIGN.md` 的 `canvas` 规则改写：图片 / PDF / 文本 / 压缩包查看器全部跟随主题，
-   **只有视频播放器**保留固定深色沉浸面。
+6. **同类问题全扫**：按「构造期捕获主题画刷」这一根因在全 App 静态扫描，又找到 6 处并一并修掉
+   （它们的值在浅/深两套字典里确实不同，不是无害的）：
+   - `ImageWindow.Separator()` 捕获 `FwStrokeStrongBrush`（深 `#33FFFFFF` / 浅 `#29000000`）
+     → 改用 `FwDividerStrongStyle`；
+   - `TextWindow` CSV 表头与 `StorageAnalysisControl` 两处结果卡捕获系统
+     `LayerFillColorDefaultBrush` → 改用新增 `FwSubtlePanelStyle`（`FwSurfaceRaisedBrush`
+     深 `#1F2228` / 浅 `#FFFFFF`）；
+   - `MarkdownBlockRenderer` 列表符号捕获 `TextFillColorSecondaryBrush`（Run 无法赋样式，
+     改为继承整行前景色）、引用块左边框捕获 `ControlStrokeColorDefaultBrush`
+     → 改用新增 `FwAccentBarStyle`；
+   - `ViewerChrome` 错误图标捕获 `FwDangerBrush`（深 `#FFFF6B6B` / 浅 `#FFC42B1C`）
+     → 新增 `FwDangerIconStyle`（`TargetType="ctl:LucideIcon"`）。
+   复扫结果：`Application.Current.Resources[...]` 已不再被赋给任何 Foreground/Background/BorderBrush，
+   也没有把画刷存进字段的写法。
+7. `DESIGN.md` 的 `canvas` 规则改为
+   「图片/PDF/文本/压缩包查看器跟随主题，只有视频播放器固定深色」。
 
 ## 验证状态（如实记录）
 

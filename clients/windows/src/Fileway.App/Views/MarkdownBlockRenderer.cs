@@ -138,7 +138,7 @@ internal static partial class MarkdownBlockRenderer
         {
             var (_, text) = items[index];
             var line = new TextBlock { TextWrapping = TextWrapping.Wrap, LineHeight = 24, FontSize = 15 };
-            line.Inlines.Add(new Run { Text = (items[index].Ordered ? (index + 1) + ". " : "• "), Foreground = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["TextFillColorSecondaryBrush"] });
+            line.Inlines.Add(new Run { Text = (items[index].Ordered ? (index + 1) + ". " : "• ") });
             ApplyInline(line.Inlines, text);
             panel.Children.Add(line);
         }
@@ -149,7 +149,13 @@ internal static partial class MarkdownBlockRenderer
     {
         var block = new TextBlock { TextWrapping = TextWrapping.Wrap, FontStyle = global::Windows.UI.Text.FontStyle.Italic, Margin = new Thickness(12, 0, 0, 8), Opacity = 0.85 };
         ApplyInline(block.Inlines, string.Join('\n', lines));
-        var border = new Border { BorderThickness = new Thickness(3, 0, 0, 0), BorderBrush = (Brush)Microsoft.UI.Xaml.Application.Current.Resources["ControlStrokeColorDefaultBrush"], Padding = new Thickness(8, 2, 0, 2), Child = block };
+        var border = new Border
+        {
+            Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["FwAccentBarStyle"],
+            BorderThickness = new Thickness(3, 0, 0, 0),
+            Padding = new Thickness(8, 2, 0, 2),
+            Child = block,
+        };
         return border;
     }
 

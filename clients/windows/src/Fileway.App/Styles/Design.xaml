@@ -516,6 +516,16 @@
   <Style x:Key="FwDocumentNoticeStyle" TargetType="Border" BasedOn="{StaticResource FwDocumentPanelStyle}">
     <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
   </Style>
+  <!-- Raised card without a border: CSV table head and storage result cards. -->
+  <Style x:Key="FwSubtlePanelStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
+  </Style>
+  <Style x:Key="FwAccentBarStyle" TargetType="Border">
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+  </Style>
+  <Style x:Key="FwDangerIconStyle" TargetType="ctl:LucideIcon">
+    <Setter Property="Foreground" Value="{ThemeResource FwDangerBrush}" />
+  </Style>
   <Style x:Key="FwPreviewCardStyle" TargetType="Border">
     <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />

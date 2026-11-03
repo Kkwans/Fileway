@@ -123,7 +123,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     private static Border Separator() => new()
     {
         Width = 1, Height = 18, Margin = new Thickness(4, 0, 4, 0),
-        Background = (Brush)Application.Current.Resources["FwStrokeStrongBrush"],
+        Style = (Style)Application.Current.Resources["FwDividerStrongStyle"],
         VerticalAlignment = VerticalAlignment.Center,
     };
 

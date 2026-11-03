@@ -540,7 +540,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         var table = new StackPanel { Spacing = 0 };
         table.Children.Add(new Border
         {
-            Background = (Brush)Application.Current.Resources["LayerFillColorDefaultBrush"],
+            Style = (Style)Application.Current.Resources["FwSubtlePanelStyle"],
             CornerRadius = new CornerRadius(10, 10, 0, 0),
             Child = header,
         });
