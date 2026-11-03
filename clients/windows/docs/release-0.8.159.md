@@ -45,4 +45,9 @@
 
 ## 交付物（本地未签名候选，等待实机验收）
 
-- 见本文末尾追加的安装包哈希。
+- `Fileway-windows-artifacts/20261103-viewers08159/dist/Fileway-0.8.159-win-x64-unsigned-setup.exe`
+  277,117,695 字节，SHA-256 `774e43651a420abdca6d78f05c8013842220d4ece43ec6e461cf4a5e7e94def4`
+  （与同目录 `.json` 回执一致）；压缩包 `...-unsigned.zip` 279,743,746 字节，
+  SHA-256 `22811d293767828a78c7ecd392e8e78cffe19e24636b8e4cea1454f77ab9de28`。
+- 0.8.158 的包在 `20261103-viewers08158/dist`，本次是同一范围加上初始焦点修复，
+  两者可互换验收；验收以 0.8.159 为准。

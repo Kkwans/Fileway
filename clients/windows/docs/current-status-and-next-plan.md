@@ -3,7 +3,7 @@
 更新日期：2026-11-03。当前交付版本：**0.8.159，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
 0.8.152 起为本地服务端管理，0.8.153–0.8.155 是该功能的真机反馈闭环，0.8.156 起回到各页面 UI/UX 完善，逐版说明见
 `release-0.8.12.md`–`release-0.8.159.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
-`Fileway-windows-artifacts/20261103-viewers08158/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
+`Fileway-windows-artifacts/20261103-viewers08159/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
 历史逐版细节见各 `release-*.md`，整体路线见 [product-roadmap.md](product-roadmap.md)。
 历史文档中“下一版”“尚未接入”等时态若冲突，以本文件与最新实现为准。
 
@@ -20,6 +20,8 @@
   （`20261103-viewers08158/final2-light`、`final2-dark`）；Release 0 警告 0 错误、两次冒烟 `GATE=PASS`。
 - 遗留（已记 DESIGN.md，不算回归）：压缩包列表 `_list.Focus()` 两次尝试均返回 false，
   方向键进出条目仍不可用，且该窗口此前没有任何键盘接线。
+- 交付：`Fileway-0.8.159-win-x64-unsigned-setup.exe`（哈希见 [release-0.8.159.md](release-0.8.159.md)）；
+  0.8.158 的包同时补上（`20261103-viewers08158/dist`），验收以 0.8.159 为准。
 
 ## 0.8.158：文本与压缩包查看器跟随主题
 
