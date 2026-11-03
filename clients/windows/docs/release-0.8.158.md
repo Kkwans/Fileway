@@ -38,18 +38,30 @@
 7. `DESIGN.md` 的 `canvas` 规则改为
    「图片/PDF/文本/压缩包查看器跟随主题，只有视频播放器固定深色」。
 
-## 验证状态（如实记录）
+## 验证状态
 
 - Release x64 构建 0 警告 0 错误；两次启动冒烟 `GATE=PASS`（15s / 20s，独立数据根，无 `startup.log`）。
-- **视觉证据未取得**：本轮验证时段 Windows 会话处于锁定状态（`GetForegroundWindow()==0`、
-  `LogonUI` 在跑、连续两帧桌面截图逐字节相同）。锁定下 `SendKeys` 抛错、合成鼠标点击无法打开
-  文档窗口，`20261103-viewers08158/light1/report.txt` 因此只记录了
-  `SESSION LOCKED: screenshots withheld` 与三条 INCONCLUSIVE，**没有**把环境限制写成产品通过。
-- 已核对的静态事实：`_root`/`_windowRoot`/`_toolbar`/`_banner`/`_textFrame` 构造时都没有本地
-  `Background` 赋值，因此样式赋值一定生效；四个引用的样式键（`FwViewerCanvasStyle`、
-  `FwDocumentPanelStyle`、`FwDocumentNoticeStyle`、`FwCaptionTextStyle`）与 `FwIconTileStyle`
-  均存在于应用级 `Design.xaml`。
-- **解锁后必须补做**（探针已就绪，含锁定检测与「详情面板→打开」的免输入路径）：
-  `Probe-Viewers.ps1 -Theme Light` 与 `-Theme Dark`，各 4 项断言（文本窗口打开、正文已加载、
-  工具条存在、压缩包列表存在）+ 两张实拍，确认浅色下没有白字白底、深色下没有黑底黑字，
-  然后才打包 0.8.158 安装包并记录哈希。本版**暂不打包**。
+- **浅/深两轮实机断言各 8 项全通过**（`20261103-viewers08158/light3/report.txt`、`dark2/report.txt`）：
+  限定共享范围部署在跑 → 夹具可达 → 文本窗口打开 → `TextEditor` 的 ValuePattern 读回正文首行
+  「栖卷文本查看器回归样张…」→ `EditTextButton` 存在 → 截图落盘 → 压缩包窗口打开 →
+  列表含「回归-文本.txt」。
+- **实拍 4 张**：`light3/text-viewer.png`、`light3/archive-viewer.png`、
+  `dark2/text-viewer.png`、`dark2/archive-viewer.png`。浅色：浅灰画布 + 白色圆角正文面板 + 深色文字，
+  标题深色、副标题「UTF-8 · 338 B · 可编辑」次级灰、工具条「换行/复制/编辑」深色、状态栏「纯文本」；
+  压缩包页面包屑条、提示条、列头「名称/大小」、行图标与状态栏全部为浅色分层，无白底白字。
+  深色为对应反色，无黑底黑字。
+- 探针踩到的两个假失败已修正并记录：正文内容不在 UIA `Name` 里（走 `ValuePattern`）；
+  工具条按钮设了 `AutomationProperties.Name`（=提示语），所以按「源码/渲染」找 Name 找不到——
+  这是本项目反复出现的 UIA 命名遮蔽坑，断言应打在 `AutomationId` 上。
+- 中途一次深色跑在「用本地服务端地址打开连接页」上 `Invoke` 抛「无法识别的错误」，重跑即通过，
+  属探针时序抖动，未计入产品缺陷。
+- 遗留观察（未在本版处理）：四张实拍里窗口标题栏的**最小化按钮都带着键盘焦点框**，说明查看器窗口
+  初始焦点落在标题栏按钮而不是内容上——按 Enter/Space 会直接最小化，下一版应把初始焦点交给内容。
+
+## 交付物（本地未签名候选，等待实机验收）
+
+- `Fileway-windows-artifacts/20261103-viewers08158/dist/Fileway-0.8.158-win-x64-unsigned-setup.exe`
+  277,117,432 字节，SHA-256 `87f3d3da96281ba7fcbc5b35fb16bf312346cac20dd29ad0fd67b09e09123e85`
+  （与同目录 `.json` 回执一致）；压缩包 `...-unsigned.zip` 279,743,353 字节，
+  SHA-256 `673858b8cda3f73bfc2938d88307f133a4b862979f3d0f9f372089423040822c`。
+- NSIS v3.12；未签名、未安装、未发布公开 Release。

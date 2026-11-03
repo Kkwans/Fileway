@@ -1,27 +1,29 @@
 # 栖卷 Windows：当前能力与后续产品计划
 
-更新日期：2026-11-03。当前交付版本：**0.8.157，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
+更新日期：2026-11-03。当前交付版本：**0.8.158，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
 0.8.152 起为本地服务端管理，0.8.153–0.8.155 是该功能的真机反馈闭环，0.8.156 起回到各页面 UI/UX 完善，逐版说明见
-`release-0.8.12.md`–`release-0.8.158.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新**已验收**安装包在
-`Fileway-windows-artifacts/20261103-resize08157/dist`。0.8.158 代码已完成并通过构建与启动冒烟，
-但**因会话锁定未取得浅/深实拍，暂不打包**（见下一节）。本文件维护当前产品事实与后续范围；
+`release-0.8.12.md`–`release-0.8.158.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
+`Fileway-windows-artifacts/20261103-viewers08158/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
 历史逐版细节见各 `release-*.md`，整体路线见 [product-roadmap.md](product-roadmap.md)。
 历史文档中“下一版”“尚未接入”等时态若冲突，以本文件与最新实现为准。
 
-## 0.8.158：文本与压缩包查看器跟随主题（代码完成，实拍待解锁）
+## 0.8.158：文本与压缩包查看器跟随主题
 
 - 0.8.156 的批评同源：`TextWindow`/`ArchiveWindow` 的 `SetTheme` 把 `MainPage` 传进来的主题丢掉、
   硬调 `ApplyTheme(ElementTheme.Dark)`，并用 41 处显式 `Brush(r,g,b)` 把阅读面钉成深色——
   浅色主题下打开 txt 或 zip，整窗仍是黑的。
 - 改法与图片查看器一致：撤销强制 Dark，改赋 `FwViewerCanvasStyle` / 新增 `FwDocumentPanelStyle` /
   `FwDocumentNoticeStyle` / `FwCaptionTextStyle` / `FwIconTileStyle`，正文与标题由主题继承前景色；
-  Markdown 代码块与空文件状态一并跟随。`DESIGN.md` 的 `canvas` 规则改为
+  Markdown 代码块、引用块与空文件状态一并跟随。`DESIGN.md` 的 `canvas` 规则改为
   「图片/PDF/文本/压缩包跟随主题，只有视频播放器固定深色」。
-- 已验：Release 0 警告 0 错误、两次启动冒烟 `GATE=PASS`、样式键与本地 Background 覆盖逐项核对。
-- **未验**：浅色/深色实拍。验证时段 Windows 会话锁定（`GetForegroundWindow()==0`、`LogonUI` 在跑、
-  两帧截图逐字节相同），锁定下 `SendKeys` 抛错且合成点击打不开文档窗口，
-  `20261103-viewers08158/light1/report.txt` 只记 INCONCLUSIVE。解锁后跑
-  `Probe-Viewers.ps1 -Theme Light|Dark` 补 8 项断言 + 4 张实拍，才打包出包。
+- **同类问题全扫**：按「构造期捕获主题画刷」这一根因静态扫描全 App，又抓到 6 处（图片查看器分隔线、
+  CSV 表头、存储工具两张结果卡、Markdown 引用块边框与列表符号、错误图标），浅/深字典值确实不同，
+  一并改为 ThemeResource 样式；复扫已无残留，也没有把画刷存进字段的写法。
+- 证据：浅/深两轮各 8 项 UIA 断言全通过 + 4 张实拍（`20261103-viewers08158/light3`、`dark2`），
+  浅色无白底白字、深色无黑底黑字；Release 0 警告 0 错误、两次启动冒烟 `GATE=PASS`。
+  中途一次深色跑 `Invoke` 抛「无法识别的错误」，重跑即通过，属探针抖动，未计入产品缺陷。
+- 新发现的独立缺陷（已记 DESIGN.md，本版未处理）：**查看器窗口初始焦点落在标题栏最小化按钮**——
+  四张实拍均可见焦点框，按 Enter/Space 会直接最小化，应把初始焦点交给内容区。
 
 ## 0.8.157：无边框窗口边缘误触调整大小
 
