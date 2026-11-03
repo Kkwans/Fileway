@@ -160,7 +160,6 @@ internal static partial class MarkdownBlockRenderer
             FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
             TextWrapping = TextWrapping.NoWrap,
             FontSize = 13,
-            Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 244, 246, 248)),
             LineHeight = 21,
             IsTextSelectionEnabled = true,
         };
@@ -175,8 +174,7 @@ internal static partial class MarkdownBlockRenderer
         };
         return new Border
         {
-            Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 31, 34, 40)),
-            BorderBrush = new SolidColorBrush(Windows.UI.Color.FromArgb(31, 255, 255, 255)),
+            Style = (Style)Application.Current.Resources["FwDocumentPanelStyle"],
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(10),
             Padding = new Thickness(16, 12, 16, 12),

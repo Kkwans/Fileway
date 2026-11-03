@@ -168,7 +168,7 @@ components:
 
 深色为默认体验，浅色主题保持相同语义层级。
 
-- `canvas`：查看器的全幅画布，随应用主题切换（浅色主题下为浅色画布）；图片与 PDF 查看器跟随主题，视频播放器与文本/压缩包阅读面是刻意固定的深色表面。
+- `canvas`：查看器的全幅画布，随应用主题切换（浅色主题下为浅色画布）；图片、PDF、文本、压缩包查看器全部跟随主题，只有视频播放器保留固定深色沉浸面。
 - `surface` / `surface-raised`：窗口与卡片；阅读器正文底色使用 `canvas`，工具栏使用 `surface`。
 - `hairline`：1px 分隔线；需要更强边界时用 `hairline-strong`。
 - `ink` / `muted` / `faint`：三级文字；不要用纯黑或纯白代替。
@@ -405,6 +405,7 @@ components:
 - [x] 高对比度复选框已修复（0.8.150）：`FwCheckBox*` 资源在 HC 映射 WindowText/WindowColor，选中为白底黑勾、20px 方框；证据 `20261101-ui08152/screens3/connection-hc.png`。
 - [x] HC 复选框描边已加强（0.8.151）：`FwCheckBoxBorderThickness` 常规 1、HC 2；证据 `20261101-ui08153/screens-unchecked/connection-hc.png`。
 - [x] 图片查看器主题已修复（0.8.156）：画布/chrome 不再钉死深色，改走 `{ThemeResource}` Style；浅色字典补 scrim 文字深色值。同时收掉顶部信息条与标题栏重复文件名、加载/错误期 chrome 误自动隐藏、无图时仍显示缩放胶囊、错误卡左对齐无图标四类排版问题。证据 `20261102-server08156/light9`、`dark2`（各 10 项 UIA 断言 + 4 张实拍）。
+- [x] 文本与压缩包查看器已跟随主题（0.8.158）：撤销「刻意固定深色阅读面」的旧决策，与 0.8.156 对图片查看器的批评同源。`TextWindow.ApplyTheme`/`ArchiveWindow.ApplyTheme` 不再钉 `ElementTheme.Dark`，改赋 `FwViewerCanvasStyle`/`FwDocumentPanelStyle`/`FwDocumentNoticeStyle`/`FwCaptionTextStyle`，Markdown 代码块与空文件状态同步；正文/标题去掉显式 Foreground 由主题继承。**尚未实拍**（2026-11-03 会话锁定，`20261103-viewers08158/light1` 只能记录 INCONCLUSIVE），解锁后必须补浅/深两套实拍再宣布验收。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。

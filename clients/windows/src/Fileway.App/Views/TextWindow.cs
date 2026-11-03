@@ -84,7 +84,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private bool _closed;
     private bool _started;
     private bool _wrapped;
-    private ElementTheme _theme = ElementTheme.Dark;
+    private ElementTheme _theme = ElementTheme.Default;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _bannerTimer;
 
     public TextWindow(ITextContentService service, RemoteResourceRef resource)
@@ -167,12 +167,16 @@ public sealed class TextWindow : Window, IAsyncDisposable
         var emptyPanel = new StackPanel { Spacing = 14, MaxWidth = 420, Margin = new Thickness(12), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
         emptyPanel.Children.Add(new Border
         {
-            Width = 72, Height = 72, CornerRadius = new CornerRadius(20), Background = Brush(31, 33, 38),
-            BorderBrush = Brush(255, 255, 255, 31), BorderThickness = new Thickness(1),
-            Child = new LucideIcon { IconName = "file", Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = Brush(168, 174, 184) },
+            Width = 72, Height = 72, CornerRadius = new CornerRadius(20),
+            Style = (Style)Application.Current.Resources["FwIconTileStyle"],
+            Child = new LucideIcon { IconName = "file", Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
         });
-        emptyPanel.Children.Add(new TextBlock { Text = "文件为空", FontSize = 20, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center, Foreground = Brush(238, 240, 243) });
-        emptyPanel.Children.Add(new TextBlock { Text = "这个文件没有可显示的内容。", FontSize = 13, LineHeight = 20, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap, Foreground = Brush(168, 174, 184) });
+        emptyPanel.Children.Add(new TextBlock { Text = "文件为空", FontSize = 20, FontWeight = FontWeights.SemiBold, TextAlignment = TextAlignment.Center });
+        emptyPanel.Children.Add(new TextBlock
+        {
+            Text = "这个文件没有可显示的内容。", FontSize = 13, LineHeight = 20, TextAlignment = TextAlignment.Center,
+            Style = (Style)Application.Current.Resources["FwCaptionTextStyle"],
+        });
         _emptyState = new Border { Child = emptyPanel, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
         _editor.Children.Add(_emptyState);
         _editor.Children.Add(_loading);
@@ -249,11 +253,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
     public void SetTheme(ElementTheme theme)
     {
         if (_closed) return;
-        // The reader uses the dark editorial palette in both app themes; the light
-        // variant proved unreadable when the rest of the shell was dark.
-        _theme = ElementTheme.Dark;
-        if (Content is FrameworkElement root) root.RequestedTheme = ElementTheme.Dark;
-        ApplyTheme(ElementTheme.Dark);
+        ApplyTheme(theme);
     }
 
     private Brush ThemeBrush(string key)
@@ -269,31 +269,20 @@ public sealed class TextWindow : Window, IAsyncDisposable
 
     private void ApplyTheme(ElementTheme theme)
     {
-        // The reader is intentionally a dark editorial surface; explicit colors keep it
-        // readable even when the host window's theme or resource lookup lags behind.
-        _theme = ElementTheme.Dark;
-        if (Content is FrameworkElement rootContent) rootContent.RequestedTheme = ElementTheme.Dark;
-        var canvas = Brush(11, 12, 15);
-        _root.Background = canvas;
-        _windowRoot.Background = canvas;
-        _title.Foreground = Brush(244, 246, 248);
-        _summary.Foreground = Brush(168, 174, 184);
-        _status.Foreground = Brush(168, 174, 184);
-        _bannerText.Foreground = Brush(244, 246, 248);
-        _banner.Background = Brush(31, 34, 40);
-        _banner.BorderBrush = Brush(255, 255, 255, 31);
-        _textFrame.Background = Brush(23, 25, 29);
-        _textFrame.BorderBrush = Brush(255, 255, 255, 31);
-        _text.Foreground = Brush(244, 246, 248);
-        _toolbar.Background = Brush(23, 25, 29);
-        _toolbar.BorderBrush = Brush(255, 255, 255, 31);
-        _titleBar.RequestedTheme = ElementTheme.Dark;
-        foreach (var action in new[] { _renderButton, _tableButton, _wrapButton, _copyButton, _editButton })
-            action.Foreground = Brush(244, 246, 248);
+        // The reader follows the app theme. Every surface below resolves a ThemeResource
+        // style, so nothing is captured from the application dictionary at construction time.
+        _theme = theme;
+        if (Content is FrameworkElement rootContent) rootContent.RequestedTheme = theme;
+        var resources = Application.Current.Resources;
+        _root.Style = (Style)resources["FwViewerCanvasStyle"];
+        _windowRoot.Style = (Style)resources["FwViewerCanvasStyle"];
+        _toolbar.Style = (Style)resources["FwDocumentPanelStyle"];
+        _textFrame.Style = (Style)resources["FwDocumentPanelStyle"];
+        _banner.Style = (Style)resources["FwDocumentNoticeStyle"];
+        _summary.Style = (Style)resources["FwCaptionTextStyle"];
+        _status.Style = (Style)resources["FwCaptionTextStyle"];
+        _titleBar.RequestedTheme = theme;
     }
-
-    private static SolidColorBrush Brush(byte red, byte green, byte blue, byte alpha = 255)
-        => new(Windows.UI.Color.FromArgb(alpha, red, green, blue));
 
     private void ShowBanner(string message, bool error)
     {

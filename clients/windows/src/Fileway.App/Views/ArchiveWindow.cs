@@ -55,7 +55,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private bool _closed;
     private bool _started;
     private bool _busy;
-    private ElementTheme _theme = ElementTheme.Dark;
+    private ElementTheme _theme = ElementTheme.Default;
 
     public ArchiveWindow(IArchiveBrowseService service, ILocalStorageSettingsService settings, RemoteResourceRef archive)
     {
@@ -166,7 +166,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     public void SetTheme(ElementTheme theme)
     {
         if (_closed) return;
-        ApplyTheme(ElementTheme.Dark);
+        ApplyTheme(theme);
     }
 
     private Brush ThemeBrush(string key)
@@ -182,29 +182,21 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void ApplyTheme(ElementTheme theme)
     {
-        // Same explicit dark editorial palette as the text reader; the archive is a
-        // utility surface and must stay readable under any host theme.
-        _theme = ElementTheme.Dark;
-        if (Content is FrameworkElement root) root.RequestedTheme = ElementTheme.Dark;
-        var canvas = Brush(23, 25, 29);
-        _root.Background = canvas;
-        _windowRoot.Background = canvas;
-        _toolbar.Background = Brush(31, 34, 40);
-        _toolbar.BorderBrush = Brush(255, 255, 255, 31);
-        _crumbBar.Background = Brush(31, 34, 40);
-        _crumbBar.BorderBrush = Brush(255, 255, 255, 31);
-        _statusBar.BorderBrush = Brush(255, 255, 255, 31);
-        _title.Foreground = Brush(244, 246, 248);
-        _summary.Foreground = Brush(168, 174, 184);
-        _status.Foreground = Brush(168, 174, 184);
-        _bannerText.Foreground = Brush(244, 246, 248);
-        _banner.Background = Brush(31, 34, 40);
-        _banner.BorderBrush = Brush(255, 255, 255, 31);
-        _titleBar.RequestedTheme = ElementTheme.Dark;
+        // The archive browser is a document surface and follows the app theme; each part
+        // resolves a ThemeResource style rather than a brush captured from the app dictionary.
+        _theme = theme;
+        if (Content is FrameworkElement root) root.RequestedTheme = theme;
+        var resources = Application.Current.Resources;
+        _root.Style = (Style)resources["FwViewerCanvasStyle"];
+        _windowRoot.Style = (Style)resources["FwViewerCanvasStyle"];
+        _toolbar.Style = (Style)resources["FwDocumentPanelStyle"];
+        _crumbBar.Style = (Style)resources["FwDocumentPanelStyle"];
+        _statusBar.Style = (Style)resources["FwDocumentPanelStyle"];
+        _banner.Style = (Style)resources["FwDocumentNoticeStyle"];
+        _summary.Style = (Style)resources["FwCaptionTextStyle"];
+        _status.Style = (Style)resources["FwCaptionTextStyle"];
+        _titleBar.RequestedTheme = theme;
     }
-
-    private static SolidColorBrush Brush(byte red, byte green, byte blue, byte alpha = 255)
-        => new(Windows.UI.Color.FromArgb(alpha, red, green, blue));
 
     private async Task LoadAsync()
     {
