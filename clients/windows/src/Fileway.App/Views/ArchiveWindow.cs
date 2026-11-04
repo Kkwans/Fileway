@@ -543,8 +543,9 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         var block = new TextBlock
         {
             Text = text,
+            Style = (Style)Application.Current.Resources["FwCaptionTextStyle"],
             FontSize = 12,
-            Opacity = 0.65,
+            TextWrapping = TextWrapping.NoWrap,
             HorizontalAlignment = alignment,
             VerticalAlignment = VerticalAlignment.Center,
         };
