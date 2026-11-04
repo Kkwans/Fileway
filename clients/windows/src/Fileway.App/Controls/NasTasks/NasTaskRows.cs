@@ -64,6 +64,15 @@ public sealed class NasTaskOperationRow : INotifyPropertyChanged
             _ => "结果未知，请核实",
         };
     public string When => NasTaskRow.FormatTime(Record.CreatedAt);
+    public string IconName => Record.Intent.Kind switch
+    {
+        OperationKind.Copy => "copy",
+        OperationKind.Move => "scissors",
+        OperationKind.TaskCancel => "x",
+        OperationKind.TaskRetry => "arrows-clockwise",
+        OperationKind.TaskUnarchive => "arrow-counter-clockwise",
+        _ => "clipboard",
+    };
     public string AccessibleName => $"{Name}，{Stage}，{When}";
     public override string ToString() => Name;
 
