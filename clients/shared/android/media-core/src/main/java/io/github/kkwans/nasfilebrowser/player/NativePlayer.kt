@@ -413,7 +413,8 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         }
         return DecoderRestore(confirmedPositionMs, session.wantsPlay, session.preferredRate, value.volume,
             identity(value.selectedAudio), engine!!.trackSelectionParameters.disabledTrackTypes.contains(C.TRACK_TYPE_AUDIO),
-            mode, identity(value.selectedSubtitle), selected, externalVersions.toMap(), value.subtitleDelayMs)
+            mode, identity(value.selectedSubtitle), selected,
+            externalVersions.toMap() + (selected?.sourceVersion?.let { mapOf(selected.sourceKey to it) } ?: emptyMap()), value.subtitleDelayMs)
     }
     fun reportDecoderRestoreError(epoch: Long, message: String) {
         if (!session.accepts(epoch)) return
@@ -441,7 +442,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     }
     private fun manualSubtitleChoice() {
         pendingRestore?.let {
-            it.subtitleApplied = true; it.subtitleUserChoice = true; subtitleExplicitlyChosen = true
+            it.subtitleApplied = true; it.subtitleUserChoice = true; it.externalReady = true; subtitleExplicitlyChosen = true
         }
     }
     private fun restoreSubtitle(id: Int) {
@@ -469,7 +470,10 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             }
         }
         val externalMatches = if (pending.value.subtitleMode == DecoderSubtitleMode.EXTERNAL)
-            externalIdentities.filterValues { it == pending.value.externalSubtitle }.keys.toList() else emptyList()
+            externalIdentities.filterValues { actual -> pending.value.externalSubtitle?.let { wanted ->
+                actual.sourceKey == wanted.sourceKey && actual.trackKey == wanted.trackKey &&
+                    (wanted.sourceVersion == null || actual.sourceVersion == wanted.sourceVersion)
+            } == true }.keys.toList() else emptyList()
         val subtitleReady = pending.value.subtitleMode != DecoderSubtitleMode.EXTERNAL ||
             externalMatches.size == 1 || pending.externalReady
         if (!pending.subtitleApplied && subtitleReady) {
@@ -625,14 +629,25 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             Regex("(?:^|[^a-z])(?:eng|en)(?:$|[^a-z])").containsMatchIn(label)
         return if (bilingual) 2 else 1
     }
+    /** Exact supported native format, excluding imported sources and stale engine IDs. */
+    fun nativeSubtitleIdentity(id: Int): DecoderTrackIdentity? {
+        val choice = choices[id]?.takeIf { it.type == C.TRACK_TYPE_TEXT } ?: return null
+        val group = engine?.currentTracks?.groups?.firstOrNull { it.mediaTrackGroup == choice.group } ?: return null
+        if (!group.isTrackSupported(choice.index)) return null
+        return DecoderTrackIdentity.from(choice.type, choice.group.getFormat(choice.index))
+    }
+
     /** Reselect a renderer-accepted single-track source without downloading or
      * parsing it again. The caller must bind sourceKey to an immutable resource
      * identity. Both identity maps are cleared when this media generation ends.
      * Multi-track sources still require an explicit track selection. */
-    fun selectImportedSubtitle(sourceKey: String): Boolean {
+    fun importedSubtitleIdentity(id: Int): DecoderExternalSelection? = externalIdentities[id]
+
+    fun selectImportedSubtitle(sourceKey: String, trackKey: String? = null, expectedVersion: String? = null): Boolean {
         if (released || engine == null) return false
         val id = externalIdentities.entries.singleOrNull {
-            it.value.sourceKey == sourceKey && it.key in external
+            it.value.sourceKey == sourceKey && (trackKey == null || it.value.trackKey == trackKey) &&
+                (expectedVersion == null || it.value.sourceVersion == expectedVersion) && it.key in external
         }?.key ?: return false
         subtitle(id)
         return selectedExternal == id
@@ -724,7 +739,10 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         val completion = startSubtitleImport(url, name, sourceKey, selectOnReady, expectedVersion) ?: return false
         try { return completion.await() }
         catch (cancelled: CancellationException) {
-            if (externalCompletion === completion) { externalRequest++; cancelExternalImport() }
+            if (externalCompletion === completion) {
+                externalRequest++; cancelExternalImport()
+                mutable.value = mutable.value.copy(subtitleLoading = false)
+            }
             throw cancelled
         }
     }
@@ -741,7 +759,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             check(expectedVersion == null || expectedVersion == sourceVersion) { "External subtitle source changed" }
         }
         fun accepted(imported: Map<Int, String>) {
-            imported.forEach { (trackId, key) -> externalIdentities[trackId] = DecoderExternalSelection(sourceKey, key) }
+            imported.forEach { (trackId, key) -> externalIdentities[trackId] = DecoderExternalSelection(sourceKey, key, sourceVersion) }
             externalVersions[sourceKey] = sourceVersion
             externalSubtitleReady?.invoke(sourceKey, url, name)
             externalCompletion = null

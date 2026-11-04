@@ -34,7 +34,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         val scene=if(!ui.connected)"LOGIN"else media.file?.mediaKind()?.name?.takeIf{it in setOf("VIDEO","AUDIO","IMAGE")}?:"BROWSE"
         val content=JSONObject().put("route",ui.route.name).put("directory",ui.path.take(400)).put("busy",ui.busy||media.busy)
             .put("connected",ui.connected).put("error",media.error?:player.error?:ui.error?:JSONObject.NULL)
-            .put("notice",media.notice?:player.operationError?:ui.notice?:JSONObject.NULL)
+            .put("notice",media.subtitleError?:media.notice?:player.operationError?:ui.notice?:JSONObject.NULL)
             .put("files",JSONArray(files().take(24).map(::fileJson))).put("total",files().size)
             .put("preferences",JSONObject().put("dark",ui.dark).put("gridColumns",ui.gridColumns).put("safePercent",ui.safePercent).put("clockAlways",ui.clockAlways).put("speedAlways",ui.speedAlways))
         model.context?.let{content.put("session",JSONObject().put("origin",it.profile.address.take(512)).put("username",it.api.identity.username.take(120)))}
@@ -42,7 +42,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         content.put("playback",JSONObject().put("playing",player.playing).put("positionMs",model.media.sourcePosition()).put("durationMs",media.sourceDurationMs)
             .put("positionLocalMs",player.positionMs).put("sourceOffsetMs",media.sourceOffsetMs).put("sdrActive",media.compatible)
             .put("bufferedMs",player.bufferedPositionMs+media.sourceOffsetMs).put("volume",player.volume).put("rate",player.rate).put("seekable",player.seekable)
-            .put("firstFrameRendered",player.firstFrameRendered).put("audioDecoder",player.audioDecoder.take(120)).put("subtitleLoading",player.subtitleLoading).put("waitingForBuffer",player.waitingForBuffer)
+            .put("firstFrameRendered",player.firstFrameRendered).put("audioDecoder",player.audioDecoder.take(120)).put("subtitleLoading",player.subtitleLoading||media.subtitleLoading).put("waitingForBuffer",player.waitingForBuffer)
             .put("audioRenderedBuffers",player.audioRenderedBuffers).put("audioSkippedBuffers",player.audioSkippedBuffers)
             .put("hdrMode",media.mode.name).put("sdrAvailable",media.sdrAvailable).put("subtitleDelayMs",player.subtitleDelayMs)
             .put("audio",JSONArray(if(media.compatible)media.sourceAudio.take(16).map{JSONObject().put("id",it.index).put("title",it.title.take(120)).put("codec",it.codec.take(40)).put("language",it.language.take(40)).put("source",true)} else player.audio.take(16).map{JSONObject().put("id",it.id).put("title",it.title.take(120)).put("codec",it.codec.take(40)).put("language",it.language.take(40)).put("source",false)}))
@@ -98,7 +98,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             "playback.setHdrMode"->model.media.switchMode(TvHdrMode.valueOf(p.getString("mode")))
             "audio.select"->{val id=p.getInt("id");if(p.optBoolean("source")){check(model.media.state.value.compatible&&model.media.state.value.sourceAudio.any{it.index==id}){"音轨已变化"};model.media.selectSourceAudio(id)}else{check(id==-1||player.state.value.audio.any{it.id==id}){"音轨已变化"};model.media.selectAudio(id)}}
             "subtitle.disable"->model.media.subtitlesOff()
-            "subtitle.select"->{val id=p.getInt("id");if(p.optBoolean("source")){check(model.media.state.value.sourceText.any{it.index==id});model.media.selectSourceSubtitle(id)}else{check(player.state.value.subtitles.any{it.id==id});player.subtitle(id)}}
+            "subtitle.select"->{val id=p.getInt("id");if(p.optBoolean("source")){check(model.media.state.value.sourceText.any{it.index==id});model.media.selectSourceSubtitle(id)}else{check(player.state.value.subtitles.any{it.id==id});model.media.selectPlayerSubtitle(id)}}
             "subtitle.selectNasFile"->{val file=model.media.state.value.sidecars.firstOrNull{resourceId(it)==p.getString("id")}?:error("字幕列表已变化");model.media.selectExternalSubtitle(file)}
             "subtitle.setDelay"->{val delay=p.getLong("delayMs");require(delay in -600000..600000);player.subtitleDelay(delay)}
             "subtitle.setAppearance"->{val old=model.media.playbackPreferences.textSubtitleAppearance.value;model.media.updateSubtitleAppearance(old.copy(scale=p.optDouble("scale",old.scale.toDouble()).toFloat(),bottomPadding=p.optDouble("bottomPadding",old.bottomPadding.toDouble()).toFloat(),backgroundOpacity=p.optDouble("backgroundOpacity",old.backgroundOpacity.toDouble()).toFloat()))}

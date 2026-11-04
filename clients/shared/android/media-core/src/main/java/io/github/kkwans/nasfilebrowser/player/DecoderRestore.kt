@@ -18,7 +18,7 @@ data class DecoderTrackIdentity(
 }
 
 enum class DecoderSubtitleMode { AUTO, OFF, INTERNAL, EXTERNAL }
-data class DecoderExternalSelection(val sourceKey: String, val trackKey: String)
+data class DecoderExternalSelection(val sourceKey: String, val trackKey: String, val sourceVersion: String? = null)
 data class DecoderRestore(
     val positionMs: Long, val wantsPlay: Boolean, val baseRate: Float, val volume: Int,
     val audio: DecoderTrackIdentity?, val audioOff: Boolean,

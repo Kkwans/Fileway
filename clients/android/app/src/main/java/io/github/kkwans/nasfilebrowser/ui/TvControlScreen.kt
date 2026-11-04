@@ -54,6 +54,8 @@ import kotlinx.coroutines.launch
     }
     FilewayToast(connectionNotice)
     FilewayToast(notice?.takeUnless{it==connection.error||it==connectionNotice})
+    val tvNotice=connection.snapshot?.content?.optString("notice")?.takeIf{it!="null"&&it.isNotBlank()}
+    FilewayToast(tvNotice)
     val lan=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){permitted=it}
     val camera=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){if(it){scanning=true;cameraError=null}else cameraError="扫码需要相机权限"}
     val image=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){uri->if(uri!=null)scope.launch{
@@ -140,7 +142,6 @@ import kotlinx.coroutines.launch
                             }
                         }
                         (cameraError?:snapshot?.content?.optString("error")?.takeIf{it!="null"&&it.isNotBlank()})?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}}
-                        snapshot?.content?.optString("notice")?.takeIf{it!="null"&&it.isNotBlank()}?.let{message->item{Text(message,style=MaterialTheme.typography.bodyMedium)}}
                     }
                 }
             }
@@ -189,7 +190,11 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tvPhonePlayback(model
     item{Text("音轨",style=MaterialTheme.typography.titleMedium)}
     val audio=player.optJSONArray("audio")
     if(audio!=null)items(audio.length()){i->val track=audio.getJSONObject(i);TvPhoneTrack(track.optString("title"),player.optInt("selectedAudio")==track.getInt("id")){model.command("audio.select",JSONObject().put("id",track.getInt("id")).put("source",track.optBoolean("source")))}}
-    item{Text("字幕",style=MaterialTheme.typography.titleMedium);FilewayOutlinedButton(onClick={model.command("subtitle.disable")}){Text("关闭字幕")}}
+    item{
+        Text("字幕",style=MaterialTheme.typography.titleMedium)
+        if(player.optBoolean("subtitleLoading"))Text("正在准备字幕…",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        FilewayOutlinedButton(onClick={model.command("subtitle.disable")}){Text("关闭字幕")}
+    }
     val source=player.optJSONArray("sourceSubtitles")
     val embedded=player.optJSONArray("subtitles")
     val tracks=if(source!=null&&source.length()>0)source else embedded

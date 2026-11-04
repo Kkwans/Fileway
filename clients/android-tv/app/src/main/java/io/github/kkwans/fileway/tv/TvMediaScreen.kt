@@ -121,7 +121,7 @@ import kotlinx.coroutines.*
         if(controls && state.error==null && player.error==null) {
             TvPlaybackControls(
                 title=if(audio)"" else file.name,
-                subtitle=state.notice?:player.operationError,
+                subtitle=state.subtitleError?:state.notice?:player.operationError,
                 playing=player.playing,enabled=!state.busy||player.durationMs>0,
                 previous=state.queue?.hasPrevious==true,next=state.queue?.hasNext==true,
                 position=seekTarget?:model.media.sourcePosition(),duration=state.sourceDurationMs,
@@ -216,9 +216,11 @@ import kotlinx.coroutines.*
     var browserOpen by remember{mutableStateOf(false)}
     var delay by remember{mutableStateOf((player.subtitleDelayMs/1000.0).toString())}
     LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        if(state.subtitleLoading||player.subtitleLoading)item{Text("正在准备字幕…",style=MaterialTheme.typography.bodyMedium,color=LocalTvSurfaces.current.secondaryText)}
+        state.subtitleError?.let{message->item{Text(message,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.error)}}
         item{TvButton("关闭字幕",model.media::subtitlesOff,Modifier.fillMaxWidth(),selected=player.selectedSubtitle==-1&&state.selectedSourceSubtitle==-1)}
         if(state.sourceSubtitles)items(state.sourceText,key={it.index}){track->TvButton("${track.title} · ${track.codec}",{model.media.selectSourceSubtitle(track.index)},Modifier.fillMaxWidth(),selected=state.selectedSourceSubtitle==track.index)}
-        else items(player.subtitles.filter{it.id>=0},key={it.id}){track->TvButton(track.title,{model.media.player.subtitle(track.id)},Modifier.fillMaxWidth(),selected=player.selectedSubtitle==track.id)}
+        else items(player.subtitles.filter{it.id>=0},key={it.id}){track->TvButton(track.title,{model.media.selectPlayerSubtitle(track.id)},Modifier.fillMaxWidth(),selected=player.selectedSubtitle==track.id)}
         if(state.sidecars.isNotEmpty()) {
             item{TvSectionTitle("同目录外挂字幕")}
             items(state.sidecars,key={it.wirePath}){file->TvButton(file.name,{model.media.selectExternalSubtitle(file)},Modifier.fillMaxWidth())}

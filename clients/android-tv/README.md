@@ -3,17 +3,16 @@
 独立 Android TV / 横屏投影仪客户端。最低 Android 9（API28），发布 ABI 为
 `armeabi-v7a` 与 `arm64-v8a`，与手机应用使用不同包名和私有数据。
 
-[下载 TV 0.2.1](https://github.com/Kkwans/Fileway/releases/tag/android-tv-0.2.1) · [配套手机端 1.2.2](https://github.com/Kkwans/Fileway/releases/tag/android-1.2.2)
+[下载 TV 0.3.0](https://github.com/Kkwans/Fileway/releases/tag/android-tv-0.3.0) · [配套手机端 1.2.2](https://github.com/Kkwans/Fileway/releases/tag/android-1.2.2)
 
-0.2.1 使用原签名 release/R8 APK，包含 API28 FFmpeg 音频扩展。
-字幕必要实机检查已覆盖源 ASS 附件字体、关闭与外挂 SRT；Q1 声音/HDR、
-复杂字幕及长播放仍待验证。SDR 切换的源版本/动态范围拒绝与时间映射问题仍在收敛，
-当前 UI 将在后续大版本统一重构；具体边界以发布包附带的兼容说明为准。
+0.3.0 使用原签名 release/R8 APK，保留 API28 FFmpeg 音频扩展，交付了首批浏览、
+设置和配对反馈调整。完整 UI/UX 重构及媒体问题仍在推进；Q1 声音/HDR、复杂字幕、
+长播放与实际验证范围以发布包附带的兼容说明为准。
 
 ## 构建
 
-主线正在开发 0.3.0；debug 构建带 `-dev` 后缀，不能当作已公开的正式版本。
-当前公开下载仍为上面的 0.2.1。
+主线包含后续功能修复和 UI/UX 重构；debug 构建带 `-dev` 后缀，不等于公开包。
+当前公开下载为上面的 0.3.0。字幕实现契约见[字幕选路与恢复](docs/subtitles.md)。
 
 使用手机端相同的锁定 JDK17、SDK37、NDK28.2、CMake3.22.1 和 Gradle wrapper。
 在已有 x64 Android 构建机上运行，工具与缓存显式配置到所属开发目录：
