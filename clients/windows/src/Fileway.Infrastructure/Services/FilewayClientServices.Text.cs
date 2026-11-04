@@ -123,7 +123,7 @@ public sealed partial class FilewayClientServices : ITextContentService
         }
     }
 
-    internal static (string Text, string EncodingName) DecodeText(byte[] bytes)
+    public static (string Text, string EncodingName) DecodeText(byte[] bytes)
     {
         if (bytes.Length == 0) return ("", "UTF-8");
         // BOM first: it is the only explicit author intent we can honor.

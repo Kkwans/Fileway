@@ -272,8 +272,13 @@ components:
   用 `_confirming` 标记挡住关窗分支）。
 - **键盘导航不依赖列表拿到焦点**：独立窗口里 `ListView.Focus()` 在刚激活时常返回 false，
   因此压缩包列表由根容器把 `Down/Up/Home/End` 翻译成 `SelectedIndex`（无选中时 Down 从首行、
-  Up 从末行进入，与资源管理器一致），`Enter` 执行与双击相同的动作（目录进入、文件走解压确认），
+  Up 从末行进入，与资源管理器一致），`Enter` 执行与双击相同的动作（目录进入、文件预览），
   `Ctrl+A` 全选走 `KeyboardAccelerator`（`Modifiers` 是 `VirtualKeyModifiers` 标志，不是集合）。
+  解压不再由 Enter 触发，统一走「解压选中/全部解压」按钮（0.8.164）。
+- **压缩包预览**（0.8.164）：双击/Enter 文件时，文本类复用 `TextWindow`（只读，`Edit=null` 使编辑按钮禁用），
+  图片类复用 `ImageWindow`；字节从当前压缩包会话读取（文本 4 MB、图片 32 MB 上限），不得重新下载压缩包，
+  不得写入最近访问。目录仍进入；不支持的类型提示「该类型暂不支持预览，可解压后打开。」，
+  不得假装支持或自动解压。预览窗口初始主题跟随压缩包窗口。
 - **文本阅读器按键滚动**：`Up/Down` 一行（24 DIP）、`PageUp/PageDown/Space` 约九成视口、
   `Home/End` 首末，目标取当前可见面（Markdown/CSV 用各自的 `ScrollViewer`，纯文本取只读编辑器
   内部的滚动面）。不要为了拿到原生滚动而聚焦只读 TextBox——它会画出 3px 强调色下划线（0.8.159）。
@@ -426,6 +431,7 @@ components:
 - [x] 选中态已收敛（0.8.161）：删除两个模板的左侧 3px `SelectionBar`，选中改为半透明底 + `FwSelectionStrokeBrush` 描边；`FwGridViewItemStyle` 补 `UseSystemFocusVisuals=False`；键盘聚焦时隐藏卡片描边、只留双色焦点环；压缩包列表改套 `FwArchiveListItemStyle`，不再出现 WinUI 默认蓝条。证据 `20261104-select08161/light3`、`dark3`（各 20 项 PASS，原条区高饱和像素 0）与各布局实拍。
 - [x] 压缩包信息架构已收敛（0.8.162）：四列名称/大小/类型/修改时间；列头与行共用列宽，右内边距按实际滚动条宽度动态计算；面包屑摘要、空目录图标卡、状态栏选中数、导航后焦点交回内容。证据 `20261105-archive08162/light5`、`dark3`（各 27 项 PASS，四列 UIA delta=0）与根目录/子目录/空目录实拍。
 - [x] 压缩包解压体验已补齐（0.8.163）：目标可编辑/可浏览、非法目标不关框；嵌套条目写盘前创建父目录；进度契约 + 6 DIP 轨道 + 逐条结果（成功/跳过/失败原因）；二次解压全跳过。证据 `20261105-extract08163/light4`、`dark2`（各 17 项 PASS）与修复前后对照；进度条中途实拍仍待大量文件/真人验收，未标通过。
+- [x] 压缩包内预览已补齐（0.8.164）：双击/Enter 文件按类型复用 `TextWindow`/`ImageWindow`，文本只读、图片从会话字节解码；目录仍进入，不支持类型提示；Enter 不再触发解压。证据 `20261105-preview08164/light2`、`dark1`（各 22 项 PASS，文本窗口只读与内容断言、图片窗口与 `ImageView`、Esc 关闭、不可预览提示）。图片窗口的 GDI 屏幕抓取受 WinUI 合成/遮挡影响，不把 `preview-image.png` 当像素证据，图片画布待真机验收。
 - [ ] 自研双色焦点环在 UIA 自动化下必现（`Focused` 状态），鼠标点击不出现（`PointerFocused` 是空状态）：截图验收必须意识到这点，否则会把测试伪影当成产品缺陷；若连程序化聚焦也不想显示，需要按 `FocusState` 区分。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。

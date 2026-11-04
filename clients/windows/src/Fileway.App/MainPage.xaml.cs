@@ -1103,7 +1103,7 @@ public sealed record ConnectionChoice(SavedConnection Saved)
 public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = null)
 {
     private readonly BrowserPreferences _presentation = preferences ?? new();
-    private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".heic", ".avif" };
+    internal static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".heic", ".avif" };
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".ts", ".m2ts", ".wmv" };
     internal static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp3", ".flac", ".wav", ".aac", ".ogg", ".opus", ".m4a", ".wma", ".ape", ".mka", ".aiff" };
     internal static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)

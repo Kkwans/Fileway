@@ -1,8 +1,10 @@
 using System.Globalization;
+using Fileway.App;
 using Fileway.App.Branding;
 using Fileway.App.Controls;
 using Fileway.App.Windowing;
 using Fileway.Core.Contracts;
+using Fileway.Infrastructure.Services;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -84,6 +86,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private int _extractCompleted;
     private IArchiveBrowseSession? _session;
     private readonly List<ArchiveRow> _rows = [];
+    private readonly List<Window> _previewWindows = [];
     private string _prefix = "";
     private bool _closed;
     private bool _started;
@@ -404,7 +407,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             _session = session;
             _extractAll.IsEnabled = session.Entries.Any(entry => !entry.IsDirectory);
             _summary.Text = $"{session.Entries.Count} 个条目 · 解压总量 {DownloadPresentationPolicy.FormatBytes(session.TotalUncompressedBytes)}";
-            ShowBanner("压缩包已打开。双击文件夹进入，多选后解压。", error: false);
+            ShowBanner("压缩包已打开。双击文件夹进入，双击文件预览；多选后点「解压选中」。", error: false);
             NavigateTo("");
         }
         catch (OperationCanceledException) { }
@@ -668,7 +671,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         {
             if (source is not ListViewItem { Tag: ArchiveRow row }) continue;
             Activate(row);
-            args.Handled = row.IsDirectory;
+            args.Handled = true;
             return;
         }
     }
@@ -677,7 +680,67 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     {
         if (_busy) return;
         if (row.IsDirectory) { NavigateTo(row.Entry.FullName.Trim('/')); return; }
-        _ = ExtractAsync(all: false);
+        _ = PreviewAsync(row);
+    }
+
+    private async Task PreviewAsync(ArchiveRow row)
+    {
+        if (_session is not { } session || _busy || _closed) return;
+        var extension = Path.GetExtension(row.Name).ToLowerInvariant();
+        try
+        {
+            if (FileRow.TextExtensions.Contains(extension))
+            {
+                if (row.Entry.Size > 4L * 1024 * 1024)
+                {
+                    ShowBanner("文本超过 4 MB 预览上限，可解压后查看。", error: false);
+                    return;
+                }
+                var bytes = await session.ReadEntryAsync(row.Entry.Index, 4L * 1024 * 1024, _lifetime.Token);
+                var (text, encoding) = FilewayClientServices.DecodeText(bytes.Bytes);
+                var resource = PreviewResource(row);
+                var content = new TextContent(resource, bytes.Bytes.LongLength, text, encoding);
+                var window = new TextWindow(new ArchiveTextContentService(content), resource);
+                TrackPreview(window);
+                window.SetTheme(_theme);
+                window.Activate();
+                return;
+            }
+            if (FileRow.ImageExtensions.Contains(extension))
+            {
+                if (row.Entry.Size > 32L * 1024 * 1024)
+                {
+                    ShowBanner("图片超过 32 MB 预览上限，可解压后查看。", error: false);
+                    return;
+                }
+                var bytes = await session.ReadEntryAsync(row.Entry.Index, 32L * 1024 * 1024, _lifetime.Token);
+                var resource = PreviewResource(row);
+                var window = new ImageWindow(new ArchiveImageContentService(bytes.Bytes), resource);
+                TrackPreview(window);
+                window.SetTheme(_theme);
+                window.Activate();
+                return;
+            }
+            ShowBanner("该类型暂不支持预览，可解压后打开。", error: false);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error)
+        {
+            if (_closed) return;
+            ShowBanner(error is FilewayException fileway ? fileway.Error.Message : "预览未能打开，请重试。", error: true);
+        }
+    }
+
+    private RemoteResourceRef PreviewResource(ArchiveRow row) => new(
+        _archive.Account,
+        _archive.WirePath,
+        row.Name,
+        _archive.DisplayPath + " / " + row.Entry.FullName);
+
+    private void TrackPreview(Window window)
+    {
+        _previewWindows.Add(window);
+        window.Closed += (_, _) => _previewWindows.Remove(window);
     }
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs args)

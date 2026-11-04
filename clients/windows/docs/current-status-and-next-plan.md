@@ -1,11 +1,26 @@
 # 栖卷 Windows：当前能力与后续产品计划
 
-更新日期：2026-11-04。当前交付版本：**0.8.163，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
+更新日期：2026-11-04。当前交付版本：**0.8.164，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
 0.8.152 起为本地服务端管理，0.8.153–0.8.155 是该功能的真机反馈闭环，0.8.156 起回到各页面 UI/UX 完善，逐版说明见
-`release-0.8.12.md`–`release-0.8.163.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
-`Fileway-windows-artifacts/20261105-extract08163/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
+`release-0.8.12.md`–`release-0.8.164.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
+`Fileway-windows-artifacts/20261105-preview08164/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
 历史逐版细节见各 `release-*.md`，整体路线见 [product-roadmap.md](product-roadmap.md)。
 历史文档中“下一版”“尚未接入”等时态若冲突，以本文件与最新实现为准。
+
+## 0.8.164：压缩包内预览（已实测、已打包）
+
+- 双击/Enter 文件现在先预览而不是直接走解压：文本类复用只读 `TextWindow`，图片类复用 `ImageWindow`；
+  字节从已打开的压缩包会话读取（文本 4 MB、图片 32 MB 上限），不重新下载、不写最近访问；
+  目录仍进入，不支持类型提示「该类型暂不支持预览，可解压后打开。」；解压仍走按钮。
+- 契约新增 `ArchiveEntryContent` 与 `ReadEntryAsync(index, maximumBytes, token)`；
+  `FilewayClientServices.DecodeText` 改为 public 供内存适配器复用。
+- 证据：Release 0 警告 0 错误、两次启动冒烟 `GATE=PASS`；浅色 `light2`、深色 `dark1`
+  **各 22 项 PASS、0 FAIL**（文本窗口 `EditTextButton` 禁用且内容非空、图片窗口 `ImageView`、
+  Esc 关闭、不可预览提示）。文本实拍干净；图片窗口屏幕抓取受 WinUI 合成/遮挡影响，
+  拍到后方主窗，**图片画布像素证据待真机验收**。
+- 安装包 `20261105-preview08164/dist`（setup 277,110,510 字节，SHA-256
+  `61b995d74c6e928f609f8162f6df3978aada5284868bd657243efdf2569c46b2`）。
+- 下一步回到 P1：0.8.165 收藏与标签排版。
 
 ## 0.8.163：压缩包解压体验（已实测、已打包）
 

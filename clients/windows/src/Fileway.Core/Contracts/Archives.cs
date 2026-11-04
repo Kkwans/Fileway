@@ -4,6 +4,9 @@ namespace Fileway.Core.Contracts;
 public sealed record ArchiveEntryInfo(int Index, string FullName, long Size, long CompressedSize, bool IsDirectory,
     DateTimeOffset? Modified = null);
 
+/// <summary>Bounded bytes of one archive entry, read for in-place preview without re-downloading the archive.</summary>
+public sealed record ArchiveEntryContent(int Index, string FullName, byte[] Bytes);
+
 /// <summary>Per-entry extraction outcome; Skipped means an existing target was left untouched.</summary>
 public enum ArchiveExtractOutcome { Extracted, Skipped, Failed }
 
@@ -33,6 +36,9 @@ public interface IArchiveBrowseSession : IAsyncDisposable
     /// </summary>
     Task<ArchiveExtractResult> ExtractAsync(IReadOnlyList<int> indexes, string targetDirectory,
         CancellationToken cancellationToken, IProgress<ArchiveExtractItem>? progress = null);
+
+    /// <summary>Reads one entry into memory with a hard byte cap; directories and oversized entries are refused.</summary>
+    Task<ArchiveEntryContent> ReadEntryAsync(int index, long maximumBytes, CancellationToken cancellationToken);
 }
 
 /// <summary>

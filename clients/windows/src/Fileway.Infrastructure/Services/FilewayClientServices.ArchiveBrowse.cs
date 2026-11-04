@@ -172,6 +172,40 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
             return new ArchiveExtractResult(extracted, skipped, failed, items);
         }
 
+        public async Task<ArchiveEntryContent> ReadEntryAsync(int index, long maximumBytes, CancellationToken cancellationToken)
+        {
+            if (index < 0 || index >= Entries.Count || maximumBytes <= 0)
+                throw Safe(ErrorCode.InvalidRequest, Message(ErrorCode.InvalidRequest));
+            var info = Entries[index];
+            if (info.IsDirectory) throw Safe(ErrorCode.InvalidRequest, "文件夹不能预览。");
+            if (info.Size > maximumBytes) throw Safe(ErrorCode.ResponseTooLarge, "条目超过本次预览的大小上限。");
+            lock (_gate)
+            {
+                if (_released) throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged));
+            }
+            try
+            {
+                var entry = zip.Entries[index];
+                await using var input = entry.Open();
+                using var buffer = new MemoryStream();
+                byte[] chunk = new byte[81920];
+                while (true)
+                {
+                    int read = await input.ReadAsync(chunk, cancellationToken).ConfigureAwait(false);
+                    if (read == 0) break;
+                    if (buffer.Length + read > maximumBytes)
+                        throw Safe(ErrorCode.ResponseTooLarge, "条目超过本次预览的大小上限。");
+                    buffer.Write(chunk, 0, read);
+                }
+                return new ArchiveEntryContent(index, info.FullName, buffer.ToArray());
+            }
+            catch (InvalidDataException) { throw Safe(ErrorCode.ProtocolMismatch, "条目内容无法读取。"); }
+            catch (Exception error) when (error is IOException or ObjectDisposedException or NotSupportedException)
+            {
+                throw Safe(ErrorCode.NetworkUnavailable, "无法读取压缩包内容，请检查连接后重试。");
+            }
+        }
+
         /// <summary>Canonical slash path inside the archive root; traversal, drives and control characters are refused.</summary>
         private static string? SafeRelativePath(string fullName)
         {
