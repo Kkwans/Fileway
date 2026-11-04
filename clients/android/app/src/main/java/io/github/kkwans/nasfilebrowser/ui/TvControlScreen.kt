@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import io.github.kkwans.fileway.remote.*
@@ -54,15 +54,18 @@ import kotlinx.coroutines.launch
     }
     FilewayToast(connectionNotice)
     FilewayToast(notice?.takeUnless{it==connection.error||it==connectionNotice})
-    val lan=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){permitted=it;if(it)model.search()}
+    val lan=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){permitted=it}
     val camera=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){if(it){scanning=true;cameraError=null}else cameraError="扫码需要相机权限"}
     val image=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){uri->if(uri!=null)scope.launch{
         try{scanning=false;model.pair(tvQrFromImage(context,uri))}
         catch(error:Exception){if(error is kotlinx.coroutines.CancellationException)throw error;cameraError=error.message?:"二维码读取失败"}
     }}
     fun scan(){if(context.checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED){scanning=true;cameraError=null}else camera.launch(Manifest.permission.CAMERA)}
-    LaunchedEffect(permitted){if(permitted)model.search()else lan.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)}
-    DisposableEffect(Unit){onDispose{model.stopSearch()}}
+    LaunchedEffect(permitted){if(!permitted)lan.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)}
+    LifecycleStartEffect(permitted){
+        if(permitted)model.search()
+        onStopOrDispose{model.stopSearch()}
+    }
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background){
             Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()){
