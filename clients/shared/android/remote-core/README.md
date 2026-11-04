@@ -40,3 +40,19 @@ The host observes non-VPN Wi-Fi/Ethernet networks, including link-address
 changes. Network + local address is the restart identity. Registering a callback
 also reports existing networks; that initial notification and VPN-only changes
 must not restart an unchanged LAN host or discard its invitation.
+
+Client lifecycle transitions serialize generation, socket ownership, snapshots
+and pending command retirement. Callback parsing may run off-main, but a retired
+connection cannot publish a snapshot or complete a new connection's commands.
+Disconnect invalidates the generation before IO cleanup; it preserves pairing
+and never sends playback stop or NAS logout. Empty WebSocket close frames are
+acknowledged with a valid close code instead of echoing reserved code 1005.
+
+`RemoteConnectionState.retryable` describes transient transport loss only.
+Identity/protocol failures, revoked trust and another controller's ownership
+require explicit user action. The phone model retries only its selected device
+while the control UI is visible, with bounded exponential delay and fresh
+discovery endpoints matched by identity/pin. Manual disconnect suppresses
+automatic connection until another explicit connection action. Commands are
+not replayed on reconnect; an acknowledged write remains acknowledged, while
+a lost response remains unknown. The next full snapshot replaces stale UI.

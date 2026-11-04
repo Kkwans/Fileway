@@ -47,6 +47,13 @@ import kotlinx.coroutines.launch
     var input by remember{mutableStateOf("")}
     var target by remember{mutableStateOf("search")}
     var section by remember{mutableStateOf("遥控")}
+    var connectionNotice by remember{mutableStateOf<String?>(null)}
+    LaunchedEffect(connection.phase,connection.error){
+        if(connection.phase in setOf(RemotePhase.CONNECTED,RemotePhase.OFFLINE))connectionNotice=null
+        else connection.error?.let{connectionNotice=it}
+    }
+    FilewayToast(connectionNotice)
+    FilewayToast(notice?.takeUnless{it==connection.error||it==connectionNotice})
     val lan=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){permitted=it;if(it)model.search()}
     val camera=rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()){if(it){scanning=true;cameraError=null}else cameraError="扫码需要相机权限"}
     val image=rememberLauncherForActivityResult(ActivityResultContracts.GetContent()){uri->if(uri!=null)scope.launch{
@@ -71,6 +78,12 @@ import kotlinx.coroutines.launch
                     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
                         if(connection.phase!=RemotePhase.CONNECTED){
                             item{Text(when(connection.phase){RemotePhase.CONNECTING->"正在连接…";RemotePhase.PAIRING->"正在配对…";else->"选择电视"},style=MaterialTheme.typography.titleMedium)}
+                            if(connection.phase in setOf(RemotePhase.FAILED,RemotePhase.BUSY))item{
+                                Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
+                                    connection.error?.let{Text(it,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.error)}
+                                    FilewayOutlinedButton(onClick=model::reconnectNow){Text("重新连接")}
+                                }
+                            }
                             items(paired,key={"saved/"+it.id}){device->
                                 val found=discovery.devices.firstOrNull{it.id==device.id&&it.fingerprint==device.fingerprint}
                                 TvPhoneDeviceRow(device.name,if(device.trusted)"已配对" else "配对待确认"){
@@ -123,7 +136,7 @@ import kotlinx.coroutines.launch
                                 }
                             }
                         }
-                        (cameraError?:notice?:connection.error?:snapshot?.content?.optString("error")?.takeIf{it!="null"&&it.isNotBlank()})?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}}
+                        (cameraError?:snapshot?.content?.optString("error")?.takeIf{it!="null"&&it.isNotBlank()})?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}}
                         snapshot?.content?.optString("notice")?.takeIf{it!="null"&&it.isNotBlank()}?.let{message->item{Text(message,style=MaterialTheme.typography.bodyMedium)}}
                     }
                 }
