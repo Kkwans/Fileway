@@ -1,11 +1,30 @@
 # 栖卷 Windows：当前能力与后续产品计划
 
-更新日期：2026-11-04。当前交付版本：**0.8.162，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
+更新日期：2026-11-04。当前交付版本：**0.8.163，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
 0.8.152 起为本地服务端管理，0.8.153–0.8.155 是该功能的真机反馈闭环，0.8.156 起回到各页面 UI/UX 完善，逐版说明见
-`release-0.8.12.md`–`release-0.8.162.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
-`Fileway-windows-artifacts/20261105-archive08162/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
+`release-0.8.12.md`–`release-0.8.163.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
+`Fileway-windows-artifacts/20261105-extract08163/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
 历史逐版细节见各 `release-*.md`，整体路线见 [product-roadmap.md](product-roadmap.md)。
 历史文档中“下一版”“尚未接入”等时态若冲突，以本文件与最新实现为准。
+
+## 0.8.163：压缩包解压体验（已实测、已打包）
+
+- 解压确认框原来只有默认目标、没有浏览入口；解压没有逐项进度，结果只写一条 banner。
+  验证时还暴露出一个真实缺陷：选择「文档」文件夹解压时，`文档/说明.txt` 的父目录没有创建，
+  两个文件都报 `Could not find a part of the path`（修复前 `20261105-extract08163/light1/extract-results.png`：
+  0 成功 · 2 失败）。
+- 改法：目标目录可编辑 + “浏览…”（FolderPicker，WindowId 模式），确认前校验绝对路径/合法字符/非文件，
+  非法时对话框不关闭；`ExtractAsync` 新增 `IProgress<ArchiveExtractItem>` 逐项回调；写文件前
+  `Directory.CreateDirectory(Path.GetDirectoryName(destination)!)`；新增 6 DIP 进度轨道与
+  “解压结果（N）”逐条结果（已解压/已跳过/失败原因），结果列表只读；同名文件仍跳过不覆盖。
+- 证据：Release 0 警告 0 错误、两次启动冒烟 `GATE=PASS`；浅色 `light4`、深色 `dark2`
+  **各 17 项 PASS、0 FAIL**——首次 2 成功且两个文件真实落盘、二次 `0 成功 · 2 跳过 · 0 失败`、
+  非法目标保持对话框打开并显示红字、取消正常关闭。
+- 进度轨道说明：2 个小文件完成过快，未取得中途实拍；UIA 已验证结果/汇总/逐条回调路径，
+  大批量或真人验收时补拍，暂不把“进度条视觉”标为通过。
+- 安装包 `20261105-extract08163/dist`（setup 277,113,468 字节，SHA-256
+  `e86fc3f1ca65bc05a0d8bca812f25d5c5777b3a7e285a2f4b01b06970f6deb5e`）。
+- 下一步：0.8.164 包内文本/图片预览与 Enter/双击语义。
 
 ## 0.8.162：压缩包信息架构（已实测、已打包）
 

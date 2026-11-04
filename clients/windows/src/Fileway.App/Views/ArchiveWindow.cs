@@ -72,6 +72,16 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private readonly Border _toolbar;
     private readonly Border _crumbBar;
     private readonly Border _statusBar;
+    private readonly Border _progressHost;
+    private readonly ProgressBar _extractBar;
+    private readonly TextBlock _extractProgressText;
+    private readonly Border _resultsHost;
+    private readonly TextBlock _resultsHeader;
+    private readonly TextBlock _resultsSummary;
+    private readonly Button _resultsToggle;
+    private readonly ListView _resultsList;
+    private int _extractTotal;
+    private int _extractCompleted;
     private IArchiveBrowseSession? _session;
     private readonly List<ArchiveRow> _rows = [];
     private string _prefix = "";
@@ -195,6 +205,85 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         statusGrid.Children.Add(_status);
         _statusBar.Child = statusGrid;
 
+        _extractBar = new ProgressBar
+        {
+            Height = 4,
+            Minimum = 0,
+            Maximum = 1,
+            Value = 0,
+            CornerRadius = new CornerRadius(2),
+            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _extractProgressText = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        var progressGrid = new Grid { Padding = new Thickness(20, 8, 20, 8), ColumnSpacing = 12 };
+        progressGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        progressGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        progressGrid.Children.Add(new Border
+        {
+            Height = 6,
+            CornerRadius = new CornerRadius(3),
+            Style = (Style)Application.Current.Resources["FwDividerStrongStyle"],
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = _extractBar,
+        });
+        Grid.SetColumn(_extractProgressText, 1);
+        progressGrid.Children.Add(_extractProgressText);
+        _progressHost = new Border
+        {
+            Child = progressGrid,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
+
+        _resultsHeader = new TextBlock { Text = "解压结果", FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+        _resultsSummary = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        _resultsToggle = new Button
+        {
+            Content = "收起",
+            Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"],
+            Height = 28,
+            MinHeight = 28,
+            Padding = new Thickness(12, 0, 12, 0),
+        };
+        _resultsList = new ListView
+        {
+            SelectionMode = ListViewSelectionMode.None,
+            IsItemClickEnabled = true,
+            IsEnabled = true,
+            MaxHeight = 180,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        _resultsList.ItemContainerStyle = (Style)Application.Current.Resources["FwArchiveListItemStyle"];
+        _resultsToggle.Click += (_, _) =>
+        {
+            var expand = _resultsList.Visibility != Visibility.Visible;
+            _resultsList.Visibility = expand ? Visibility.Visible : Visibility.Collapsed;
+            _resultsToggle.Content = expand ? "收起" : "展开";
+        };
+        var resultsHeaderGrid = new Grid { ColumnSpacing = 12 };
+        resultsHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        resultsHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        resultsHeaderGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        resultsHeaderGrid.Children.Add(_resultsHeader);
+        Grid.SetColumn(_resultsSummary, 1);
+        resultsHeaderGrid.Children.Add(_resultsSummary);
+        Grid.SetColumn(_resultsToggle, 2);
+        resultsHeaderGrid.Children.Add(_resultsToggle);
+        var resultsGrid = new Grid { RowSpacing = 6 };
+        resultsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        resultsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        resultsGrid.Children.Add(resultsHeaderGrid);
+        Grid.SetRow(_resultsList, 1);
+        resultsGrid.Children.Add(_resultsList);
+        _resultsHost = new Border
+        {
+            Child = resultsGrid,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(20, 8, 20, 10),
+            Visibility = Visibility.Collapsed,
+        };
+
         _root = new Grid();
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -202,12 +291,16 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition());
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.Children.Add(_toolbar);
         Grid.SetRow(_crumbBar, 1); _root.Children.Add(_crumbBar);
         Grid.SetRow(_banner, 2); _root.Children.Add(_banner);
         Grid.SetRow(_listHeader, 3); _root.Children.Add(_listHeader);
         Grid.SetRow(listHost, 4); _root.Children.Add(listHost);
-        Grid.SetRow(_statusBar, 5); _root.Children.Add(_statusBar);
+        Grid.SetRow(_progressHost, 5); _root.Children.Add(_progressHost);
+        Grid.SetRow(_resultsHost, 6); _root.Children.Add(_resultsHost);
+        Grid.SetRow(_statusBar, 7); _root.Children.Add(_statusBar);
 
         _windowRoot = new Grid();
         _windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -287,7 +380,11 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _crumbBar.Style = (Style)resources["FwDocumentPanelStyle"];
         _statusBar.Style = (Style)resources["FwDocumentPanelStyle"];
         _banner.Style = (Style)resources["FwDocumentNoticeStyle"];
+        _progressHost.Style = (Style)resources["FwDocumentPanelStyle"];
+        _resultsHost.Style = (Style)resources["FwDocumentPanelStyle"];
         _summary.Style = (Style)resources["FwCaptionTextStyle"];
+        _extractProgressText.Style = (Style)resources["FwCaptionTextStyle"];
+        _resultsSummary.Style = (Style)resources["FwCaptionTextStyle"];
         _status.Style = (Style)resources["FwCaptionTextStyle"];
         _crumbSummary.Style = (Style)resources["FwCaptionTextStyle"];
         _emptyDescription.Style = (Style)resources["FwCaptionTextStyle"];
@@ -327,6 +424,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     {
         if (_session is not { } session) return;
         _prefix = prefix;
+        ClearExtractResults();
         _rows.Clear();
         _list.Items.Clear();
         _list.SelectedItems.Clear();
@@ -663,11 +761,61 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             if (_closed) return;
             string leaf = Path.GetFileNameWithoutExtension(_archive.DisplayName);
             leaf = DownloadPresentationPolicy.IsSafeLocalName(leaf) ? leaf : "archive";
-            string target = state.Active.DownloadDirectory.TrimEnd('\\') + "\\archive-extract\\" + leaf;
-            var panel = new StackPanel { Spacing = 10, MinWidth = 340, MaxWidth = 460 };
+            string defaultTarget = state.Active.DownloadDirectory.TrimEnd('\\') + "\\archive-extract\\" + leaf;
+            var targetBox = new TextBox
+            {
+                Text = defaultTarget,
+                Style = (Style)Application.Current.Resources["FwTextBoxStyle"],
+                FontSize = 13,
+                TextWrapping = TextWrapping.NoWrap,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+            };
+            var browse = new Button
+            {
+                Content = "浏览…",
+                Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"],
+                Height = 36,
+                MinHeight = 36,
+                Padding = new Thickness(14, 0, 14, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            var targetGrid = new Grid { ColumnSpacing = 8 };
+            targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            targetGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            targetGrid.Children.Add(targetBox);
+            Grid.SetColumn(browse, 1);
+            targetGrid.Children.Add(browse);
+            var error = new TextBlock { Visibility = Visibility.Collapsed };
+            error.Style = (Style)Application.Current.Resources["FwDangerTextStyle"];
+            browse.Click += async (_, _) =>
+            {
+                try
+                {
+                    var picker = new Microsoft.Windows.Storage.Pickers.FolderPicker(AppWindow.Id)
+                    {
+                        SuggestedStartLocation = Microsoft.Windows.Storage.Pickers.PickerLocationId.ComputerFolder,
+                        Title = "选择解压目标文件夹",
+                        CommitButtonText = "选择此文件夹",
+                    };
+                    var folder = await picker.PickSingleFolderAsync().AsTask(_lifetime.Token);
+                    if (folder is not null)
+                    {
+                        targetBox.Text = folder.Path;
+                        error.Visibility = Visibility.Collapsed;
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception)
+                {
+                    error.Text = "文件夹选择器未能打开，请直接输入路径。";
+                    error.Visibility = Visibility.Visible;
+                }
+            };
+            var panel = new StackPanel { Spacing = 10, MinWidth = 460, MaxWidth = 560 };
             panel.Children.Add(new TextBlock { Text = $"解压 {indexes.Count} 个文件到：", TextWrapping = TextWrapping.Wrap });
-            panel.Children.Add(new TextBlock { Text = target, TextWrapping = TextWrapping.Wrap, FontSize = 12, IsTextSelectionEnabled = true });
+            panel.Children.Add(targetGrid);
             panel.Children.Add(new TextBlock { Text = "已存在的同名文件将跳过且不覆盖；解压结果逐条列明。", FontSize = 12, Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(error);
             var confirm = new ContentDialog
             {
                 XamlRoot = _root.XamlRoot,
@@ -677,6 +825,13 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
                 PrimaryButtonText = "开始解压",
                 CloseButtonText = "取消",
                 DefaultButton = ContentDialogButton.Primary,
+            };
+            confirm.PrimaryButtonClick += (_, args) =>
+            {
+                if (IsValidTarget(targetBox.Text)) return;
+                error.Text = "请输入完整的目标文件夹路径；不能是已存在的文件。";
+                error.Visibility = Visibility.Visible;
+                args.Cancel = true;
             };
             _confirming = true;
             ContentDialogResult choice;
@@ -690,12 +845,38 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             }
 
             if (choice != ContentDialogResult.Primary || _closed) return;
+            string target = targetBox.Text.Trim();
+            if (!IsValidTarget(target)) return;
+            ClearExtractResults();
+            _extractTotal = indexes.Count;
+            _extractCompleted = 0;
+            _extractBar.Maximum = Math.Max(1, _extractTotal);
+            _extractBar.Value = 0;
+            _extractProgressText.Text = $"正在解压 0/{_extractTotal}";
+            _progressHost.Visibility = Visibility.Visible;
+            _resultsHost.Visibility = Visibility.Visible;
+            _resultsHeader.Text = "解压结果";
+            _resultsSummary.Text = "正在解压…";
+            _resultsList.Visibility = Visibility.Visible;
+            _resultsToggle.Content = "收起";
             _busy = true;
             _progress.IsActive = true; _progress.Visibility = Visibility.Visible;
             _extractAll.IsEnabled = false; _extractSelected.IsEnabled = false;
             ShowBanner("正在解压…", error: false);
-            var result = await session.ExtractAsync(indexes, target, _lifetime.Token);
+            var progress = new Progress<ArchiveExtractItem>(item =>
+            {
+                _extractCompleted++;
+                _extractBar.Value = Math.Min(_extractTotal, _extractCompleted);
+                _extractProgressText.Text = $"正在解压 {Math.Min(_extractTotal, _extractCompleted)}/{_extractTotal}";
+                _resultsHeader.Text = $"解压结果（{_extractCompleted}）";
+                AddExtractResult(item);
+            });
+            var result = await session.ExtractAsync(indexes, target, _lifetime.Token, progress);
             if (_closed) return;
+            await Task.Yield();
+            _progressHost.Visibility = Visibility.Collapsed;
+            _resultsHeader.Text = $"解压结果（{_extractCompleted}）";
+            _resultsSummary.Text = $"{result.Extracted} 成功 · {result.Skipped} 跳过 · {result.Failed} 失败";
             ShowBanner($"解压完成：{result.Extracted} 成功 · {result.Skipped} 跳过 · {result.Failed} 失败。目标：{target}", error: result.Failed > 0);
             _status.Text = $"解压完成 · {result.Extracted} 成功 · {result.Skipped} 跳过 · {result.Failed} 失败";
         }
@@ -711,6 +892,73 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             _progress.IsActive = false; _progress.Visibility = Visibility.Collapsed;
             UpdateCommands();
         }
+    }
+
+    private static bool IsValidTarget(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return false;
+        try
+        {
+            string full = Path.GetFullPath(path.Trim());
+            return Path.IsPathFullyQualified(full) && !File.Exists(full);
+        }
+        catch (Exception) { return false; }
+    }
+
+    private void ClearExtractResults()
+    {
+        _resultsList.Items.Clear();
+        _resultsHost.Visibility = Visibility.Collapsed;
+        _progressHost.Visibility = Visibility.Collapsed;
+        _extractTotal = 0;
+        _extractCompleted = 0;
+    }
+
+    private void AddExtractResult(ArchiveExtractItem item)
+    {
+        var (iconName, styleKey, label) = item.Outcome switch
+        {
+            ArchiveExtractOutcome.Extracted => ("check", "FwPrimaryIconStyle", "已解压"),
+            ArchiveExtractOutcome.Skipped => ("minus", "FwSecondaryIconStyle", "已跳过"),
+            _ => ("alert-triangle", "FwDangerIconStyle", "失败"),
+        };
+        var icon = new LucideIcon
+        {
+            IconName = iconName,
+            Width = 18,
+            Height = 18,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 2, 0, 0),
+            Style = (Style)Application.Current.Resources[styleKey],
+        };
+        var name = new TextBlock
+        {
+            Text = item.FullName,
+            Style = (Style)Application.Current.Resources["FwToolbarTextStyle"],
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        ToolTipService.SetToolTip(name, item.FullName);
+        var outcome = new TextBlock { Text = label, FontSize = 12 };
+        outcome.Style = (Style)Application.Current.Resources[
+            item.Outcome == ArchiveExtractOutcome.Failed ? "FwDangerTextStyle" : "FwCaptionTextStyle"];
+        var text = new StackPanel { Spacing = 2 };
+        text.Children.Add(name);
+        text.Children.Add(outcome);
+        if (!string.IsNullOrEmpty(item.Error))
+        {
+            var detail = new TextBlock { Text = item.Error, TextWrapping = TextWrapping.Wrap };
+            detail.Style = (Style)Application.Current.Resources["FwDangerTextStyle"];
+            text.Children.Add(detail);
+        }
+        var grid = new Grid { ColumnSpacing = 10, Padding = new Thickness(4, 4, 8, 4) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.Children.Add(icon);
+        Grid.SetColumn(text, 1);
+        grid.Children.Add(text);
+        var row = new ListViewItem { Content = grid, Tag = item, IsEnabled = true };
+        AutomationProperties.SetName(row, item.FullName + " " + label);
+        _resultsList.Items.Add(row);
     }
 
     private void UpdateCommands()

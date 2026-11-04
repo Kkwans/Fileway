@@ -99,7 +99,7 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
         public long TotalUncompressedBytes { get; } = totalUncompressed;
 
         public async Task<ArchiveExtractResult> ExtractAsync(IReadOnlyList<int> indexes, string targetDirectory,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken, IProgress<ArchiveExtractItem>? progress = null)
         {
             ArgumentNullException.ThrowIfNull(indexes);
             if (indexes.Count is 0 or > 1000) throw Safe(ErrorCode.InvalidRequest, Message(ErrorCode.InvalidRequest));
@@ -108,6 +108,11 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
             int extracted = 0, skipped = 0, failed = 0;
             long budget = MaximumExtractTotalBytes;
             var items = new List<ArchiveExtractItem>();
+            void Report(ArchiveExtractItem item)
+            {
+                items.Add(item);
+                try { progress?.Report(item); } catch (Exception) { }
+            }
             lock (_gate)
             {
                 if (_released) throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged));
@@ -117,10 +122,10 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
                 cancellationToken.ThrowIfCancellationRequested();
                 if (index < 0 || index >= Entries.Count) throw Safe(ErrorCode.InvalidRequest, Message(ErrorCode.InvalidRequest));
                 var info = Entries[index];
-                if (info.IsDirectory) { items.Add(new(index, info.FullName, ArchiveExtractOutcome.Skipped)); skipped++; continue; }
+                if (info.IsDirectory) { Report(new(index, info.FullName, ArchiveExtractOutcome.Skipped)); skipped++; continue; }
                 if (info.Size > budget)
                 {
-                    items.Add(new(index, info.FullName, ArchiveExtractOutcome.Failed, "超过本次解压剩余字节预算。"));
+                    Report(new(index, info.FullName, ArchiveExtractOutcome.Failed, "超过本次解压剩余字节预算。"));
                     failed++;
                     continue;
                 }
@@ -129,14 +134,15 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
                     string? relative = SafeRelativePath(info.FullName);
                     if (relative is null)
                     {
-                        items.Add(new(index, info.FullName, ArchiveExtractOutcome.Failed, "条目路径不安全，已拒绝解压。"));
+                        Report(new(index, info.FullName, ArchiveExtractOutcome.Failed, "条目路径不安全，已拒绝解压。"));
                         failed++;
                         continue;
                     }
                     string destination = Path.Combine(target, relative.Replace('/', System.IO.Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
                     if (File.Exists(destination))
                     {
-                        items.Add(new(index, info.FullName, ArchiveExtractOutcome.Skipped, "目标已存在，未覆盖。"));
+                        Report(new(index, info.FullName, ArchiveExtractOutcome.Skipped, "目标已存在，未覆盖。"));
                         skipped++;
                         continue;
                     }
@@ -155,12 +161,12 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
                     }
                     budget -= written;
                     extracted++;
-                    items.Add(new(index, info.FullName, ArchiveExtractOutcome.Extracted));
+                    Report(new(index, info.FullName, ArchiveExtractOutcome.Extracted));
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or SecurityException or NotSupportedException)
                 {
                     failed++;
-                    items.Add(new(index, info.FullName, ArchiveExtractOutcome.Failed, error.Message));
+                    Report(new(index, info.FullName, ArchiveExtractOutcome.Failed, error.Message));
                 }
             }
             return new ArchiveExtractResult(extracted, skipped, failed, items);

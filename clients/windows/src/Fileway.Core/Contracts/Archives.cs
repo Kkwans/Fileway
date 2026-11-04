@@ -32,7 +32,7 @@ public interface IArchiveBrowseSession : IAsyncDisposable
     /// paths, oversized entries and existing targets are reported per entry, never overwritten.
     /// </summary>
     Task<ArchiveExtractResult> ExtractAsync(IReadOnlyList<int> indexes, string targetDirectory,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken, IProgress<ArchiveExtractItem>? progress = null);
 }
 
 /// <summary>
