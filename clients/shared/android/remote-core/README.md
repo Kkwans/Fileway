@@ -29,6 +29,17 @@ transport. Native control uses the existing Go core, separate from media leases.
 Protocol and threat boundaries: `clients/shared/core/remote/README.md`.
 Server contract: `server/docs/device-authorization.md`.
 
+`MediaHandoff.kt` supplies the immutable media description and complete queue
+transaction used by native handoff. It preserves opaque wire bytes, creates an
+ordered SHA-256 manifest and pages data below 40 KiB. The receiver binds one
+connection/session/media generation, permits identical chunk retries, rejects
+gaps and changed retries, and commits only a complete matching manifest/current
+item. Transactions expire after two minutes; limits are 10,000 items and 2 MiB.
+Exceeding a limit is an explicit error, never silent queue truncation. Callers
+must still check source instance, account permissions and file version before
+opening media; a queue digest grants no resource authority. This shared data
+layer alone does not advertise an end-to-end native-handoff capability.
+
 A TV pairing request opens its UI immediately, independently of invitation
 availability. `TvHostState.phase` describes the foreground host; `pairingOpen`,
 `pairingBusy` and `pairingError` describe the explicit invitation operation.
