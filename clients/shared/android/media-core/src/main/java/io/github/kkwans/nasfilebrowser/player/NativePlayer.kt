@@ -49,6 +49,7 @@ data class PlayerState(
     val sourceColorSpace: String = "未知",
     val videoOutput: RenderedVideoOutput? = null,
     val waitingForBuffer: Boolean = false,
+    val seeking: Boolean = false, val seekError: String? = null,
     val videoDecodePolicy: VideoDecodePolicy = VideoDecodePolicy.AUTO,
     val videoDecoderKind: String = "未知",
     val pendingAudio: Int? = null, val pendingSubtitle: Int? = null,
@@ -83,6 +84,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     private var released = false
     private var temporaryRate: Float? = null
     private var seekTarget: Long? = null
+    private var seekStartedAt = 0L
     private var externalJob: Job? = null
     private var externalSupCancellation: AtomicBoolean? = null
     private var externalRequest = 0L
@@ -252,6 +254,10 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         player.setHandleAudioBecomingNoisy(true)
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) { if (current()) publish() }
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                if (current() && seekTarget != null && reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)
+                    seekTarget = newPosition.positionMs.coerceAtLeast(0)
+            }
             override fun onTracksChanged(tracks: Tracks) { if (current()) refreshTracks() }
             override fun onRenderedFirstFrame() {
                 if (current() && player.playerError == null) {
@@ -360,9 +366,11 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             if (previous.canSavePosition) mutable.value = previous.copy(canSavePosition = false)
             return
         }
-        if (seekTarget != null && player.playbackState == Player.STATE_READY && kotlin.math.abs(player.currentPosition - requireNotNull(seekTarget)) < 1000) {
+        if (seekTarget != null && player.playbackState in setOf(Player.STATE_READY, Player.STATE_ENDED) &&
+            kotlin.math.abs(player.currentPosition - requireNotNull(seekTarget)) < 1000) {
             trace.record(PlaybackTraceAction.SEEK_REACHED, player.currentPosition.toDouble()); seekTarget = null
         }
+        val seekStalled = seekTarget != null && SystemClock.elapsedRealtime() - seekStartedAt >= 30_000
         if (previous.positionMs == 0L && player.currentPosition > 0) trace.record(PlaybackTraceAction.FIRST_CLOCK, player.currentPosition.toDouble())
         if (previous.playing != player.isPlaying) trace.record(if (player.isPlaying) PlaybackTraceAction.PLAYING else PlaybackTraceAction.PAUSED)
         val format = player.videoFormat
@@ -371,6 +379,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         mutable.value = previous.copy(
             phase = when {
                 player.playbackState == Player.STATE_ENDED -> "播放完毕"
+                seekStalled -> "跳转等待超时"
                 seekTarget != null -> "正在跳转"
                 !player.playWhenReady -> "已暂停"
                 player.playbackState == Player.STATE_BUFFERING -> if (previous.firstFrameRendered) "正在缓冲" else "正在打开视频"
@@ -380,6 +389,8 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             canSavePosition = (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_ENDED) &&
                 seekTarget == null && player.playerError == null,
             seekable = player.isCurrentMediaItemSeekable,
+            seeking = seekTarget != null && !seekStalled,
+            seekError = if (seekStalled) "跳转等待过久，请重新选择进度或重试播放" else null,
             waitingForBuffer = player.playWhenReady && player.playbackState == Player.STATE_BUFFERING,
             buffering = if (player.playbackState == Player.STATE_READY) 100f else (loadControl?.percent ?: 0).coerceAtMost(99).toFloat(),
             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0),
@@ -592,8 +603,9 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     }
     fun seek(position: Long) {
         val player = engine ?: return
-        if (!player.isCurrentMediaItemSeekable) return
-        val target = position.coerceIn(0, player.duration.coerceAtLeast(0))
+        if (!player.isCurrentMediaItemSeekable || player.duration <= 0) return
+        val target = position.coerceIn(0, player.duration)
+        seekStartedAt = SystemClock.elapsedRealtime()
         seekTarget = target; trace.record(PlaybackTraceAction.SEEK_REQUEST, target.toDouble())
         mutable.value = mutable.value.copy(canSavePosition = false)
         loadControl?.resetProgress()

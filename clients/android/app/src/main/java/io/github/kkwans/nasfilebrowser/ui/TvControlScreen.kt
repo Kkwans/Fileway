@@ -175,6 +175,10 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tvPhonePlayback(model
         val position=player.optLong("positionMs").coerceIn(0,duration)
         Text("${tvRemoteTime(position)} / ${tvRemoteTime(duration)}",style=MaterialTheme.typography.bodyMedium)
         Slider(value=seeking?:position.toFloat()/duration,onValueChange={seeking=it},onValueChangeFinished={seeking?.let{model.command("playback.seekTo",JSONObject().put("positionMs",(it*duration).toLong()))};seeking=null},enabled=player.optBoolean("seekable"))
+        player.optString("seekError").takeIf{it.isNotBlank()&&it!="null"}?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}
+        if(player.optBoolean("preparing")||player.optBoolean("seeking")||player.optBoolean("waitingForBuffer"))Text(
+            when { player.optBoolean("preparing")->"正在准备兼容播放…"; player.optBoolean("waitingForBuffer")->"缓冲 ${player.optInt("buffering").coerceIn(0,100)}%"; else->"正在跳转…" },
+            style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically){
             IconButton(onClick={model.command("queue.previous")}){FilewayIcon(R.drawable.ic_skip_previous,"上一项")}
             FilledIconButton(onClick={model.command(if(player.optBoolean("playing"))"playback.pause"else"playback.play")},Modifier.size(64.dp)){FilewayIcon(if(player.optBoolean("playing"))R.drawable.art_pause else R.drawable.art_play,if(player.optBoolean("playing"))"暂停"else"播放")}

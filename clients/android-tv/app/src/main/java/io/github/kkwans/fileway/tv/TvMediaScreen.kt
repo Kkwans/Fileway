@@ -77,6 +77,7 @@ import kotlinx.coroutines.*
         if (controls && player.playing && panel == null && !audio) { delay(4500); controls = false }
     }
     LaunchedEffect(controls,state.busy,state.error,player.error) { withFrameNanos {}; when { state.error!=null||player.error!=null -> retry.requestFocus(); controls -> play.requestFocus(); else -> stage.requestFocus() } }
+    LaunchedEffect(player.seekError) { if(player.seekError!=null)controls=true }
     LaunchedEffect(seekPulse) { val target = seekTarget; if(target != null) { delay(350); model.media.seek(target); seekTarget = null } }
     val requestSeek: (Long) -> Unit = { delta -> seekTarget = ((seekTarget ?: model.media.sourcePosition()) + delta).coerceIn(0,state.sourceDurationMs.coerceAtLeast(0)); seekPulse++; pulse++ }
     Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(stage).tvRemoteKeys { event ->
@@ -121,7 +122,7 @@ import kotlinx.coroutines.*
         if(controls && state.error==null && player.error==null) {
             TvPlaybackControls(
                 title=if(audio)"" else file.name,
-                subtitle=state.subtitleError?:state.notice?:player.operationError,
+                subtitle=state.subtitleError?:player.seekError?:state.notice?:player.operationError,
                 playing=player.playing,enabled=!state.busy||player.durationMs>0,
                 previous=state.queue?.hasPrevious==true,next=state.queue?.hasNext==true,
                 position=seekTarget?:model.media.sourcePosition(),duration=state.sourceDurationMs,
@@ -132,8 +133,9 @@ import kotlinx.coroutines.*
                 modifier=Modifier.align(Alignment.BottomCenter),
             )
         }
-        if(delayedBusy(state.busy||player.waitingForBuffer))Box(Modifier.align(Alignment.Center).background(Color(0xE61B1F27),RoundedCornerShape(12.dp)).padding(18.dp)) {
-            Text(if(state.busy)"正在准备播放…" else player.phase,style=MaterialTheme.typography.bodyLarge)
+        if(delayedBusy(state.busy||((player.waitingForBuffer||player.seeking)&&player.seekError==null)))Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.48f),RoundedCornerShape(12.dp)).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
+            Text(if(state.busy)"正在准备播放…" else if(player.seeking)"正在跳转…" else "正在缓冲…",style=MaterialTheme.typography.bodyLarge)
+            if(!state.busy&&player.waitingForBuffer)Text("缓冲 ${player.buffering.toInt()}%",style=MaterialTheme.typography.bodySmall,color=Color.White.copy(alpha=.8f))
         }
         if((player.error!=null||state.error!=null)&&!state.busy)Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.78f),RoundedCornerShape(12.dp)).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             LaunchedEffect(state.error,player.error) { withFrameNanos {}; retry.requestFocus() }

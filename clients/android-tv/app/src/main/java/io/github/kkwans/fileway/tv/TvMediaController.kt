@@ -77,6 +77,7 @@ class TvMediaController(
     private var lastSaveAt = 0L
     private var autoFallback = false
     private var switchInProgress = false
+    private var requestedPresentation: Pair<TvHdrMode, Boolean>? = null
     private var presentationRevision = 0L
     private var pendingNativeAudio: Int? = null
 
@@ -153,7 +154,7 @@ class TvMediaController(
                     else if (sourceTextAvailable) preferredSourceSubtitle()?.let { selectSourceSubtitle(it.index) }
                     loadSidecars(owner, file, expected)
                 } catch (error: Exception) {
-                    if (error is CancellationException) throw error
+                    if (error is CancellationException && error !is TimeoutCancellationException) throw error
                     if (accepts(owner, expected)) mutable.update { it.copy(busy = false, error = "$openingStage 失败：${error.message ?: "请重试"}") }
                 }
             }
@@ -249,8 +250,12 @@ class TvMediaController(
                 response = owner.api.request("GET", "/api/media/hls/$id")
             }
         }
-        check(response.getString("identity") == identity && response.optString("outputDynamicRange") == "sdr" && (mutable.value.info?.optBoolean("hdr") != true || response.optBoolean("hdrToneMapped"))) { "兼容流的源版本或动态范围无法确认" }
+        check(accepts(owner, expected)) { "播放来源已切换" }
+        check(response.getString("identity") == identity) { "兼容流的源文件版本已变化，请重新打开视频" }
+        check(response.optString("outputDynamicRange") == "sdr") { "服务端没有确认 SDR 输出，请升级服务端后重试" }
+        check(mutable.value.info?.optBoolean("hdr") != true || response.optBoolean("hdrToneMapped")) { "服务端没有确认 HDR 色调映射，已保留原播放路径" }
         val lease = owner.api.hlsLease(id)
+        if (!accepts(owner, expected)) { lease.release(); error("播放来源已切换") }
         leases += lease
         return Window(lease, (response.optDouble("startSeconds", startMs / 1000.0) * 1000).toLong(), (response.getDouble("durationSeconds") * 1000).toLong(),id)
     }
@@ -318,9 +323,11 @@ class TvMediaController(
                 val source = requireNotNull(binding)
                 val next = prefetch?.await() ?: prepareWindow(owner, source.file, source.identity, old.startMs + old.durationMs, expected)
                 if (!accepts(owner, expected) || transition != presentationRevision) { next.lease.release(); return@launch }
+                val dataSource = videoDataSource(next.lease, next)
+                if (!accepts(owner, expected) || transition != presentationRevision) { next.lease.release(); return@launch }
                 val rate = player.state.value.rate; val delay = player.state.value.subtitleDelayMs
                 ++subtitleRevision; subtitleJob?.cancel()
-                player.open(next.lease.url, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value,dataSourceFactory=videoDataSource(next.lease,next))
+                player.open(next.lease.url, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value,dataSourceFactory=dataSource)
                 player.subtitleSourceOffset(next.startMs); player.rate(rate); player.subtitleDelay(delay)
                 player.textSubtitleAppearance(playbackPreferences.textSubtitleAppearance.value)
                 if (mutable.value.sourceAudioOff) player.audio(-1)
@@ -328,8 +335,9 @@ class TvMediaController(
                 mutable.update { it.copy(sourceOffsetMs = next.startMs, busy = false, selectedSourceSubtitle = -1) }
                 old.lease.release(); restoreSubtitleSafely()
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                mutable.update { it.copy(busy = false, error = "下一段兼容播放准备失败，可重试或切回原生播放") }
+                if (error is CancellationException && error !is TimeoutCancellationException) throw error
+                if (accepts(owner, expected) && transition == presentationRevision)
+                    mutable.update { it.copy(busy = false, error = "下一段兼容播放准备失败，可重试或切回原生播放") }
             } finally { if (transition == presentationRevision) switchInProgress = false }
         }
     }
@@ -364,6 +372,7 @@ class TvMediaController(
         val oldWindow = window
         val transition = ++presentationRevision
         switchInProgress = true
+        requestedPresentation = mode to useSdr
         mutable.update { it.copy(busy = true, error = null) }
         operation = scope.launch {
             var candidate: PreviewLease? = null
@@ -373,13 +382,14 @@ class TvMediaController(
                 val prepared = if (useSdr) prepareWindow(source.owner, source.file, source.identity, position, expected) else null
                 candidate = prepared?.lease ?: originalLease(source.owner, source.file)
                 if (!accepts(source.owner, expected) || transition != presentationRevision) { candidate.release(); return@launch }
+                saveProgress()
+                val dataSource=videoDataSource(candidate,prepared)
+                if (!accepts(source.owner, expected) || transition != presentationRevision) { candidate.release(); candidate = null; return@launch }
                 val carry = player.decoderRestoreSnapshot() ?: native
                 val carryPosition = targetMs ?: sourcePosition()
                 val localPosition = prepared?.let { SourceTimeline(source.durationMs, it.startMs, it.durationMs).toLocal(carryPosition)
                     ?: error("准备期间播放位置已移出片段，请重试") } ?: carryPosition
                 val autoplay = player.wantsPlay
-                saveProgress()
-                val dataSource=videoDataSource(candidate,prepared)
                 val nextSubtitle = subtitleForPath(useSdr)
                 ++subtitleRevision; subtitleJob?.cancel()
                 openAttempted = true
@@ -397,7 +407,7 @@ class TvMediaController(
                 prefs.edit().putString("hdr_mode", mode.name).apply()
                 oldLease?.release(); restoreSubtitleSafely()
             } catch (error: Exception) {
-                if (error is CancellationException) throw error
+                if (error is CancellationException && error !is TimeoutCancellationException) throw error
                 if (accepts(source.owner, expected) && transition == presentationRevision) {
                     if (committed) mutable.update { it.copy(busy = false, notice = "新播放路径已打开，旧资源清理暂未完成") }
                     else if (openAttempted && oldLease != null && native != null) {
@@ -407,12 +417,12 @@ class TvMediaController(
                             mutable.value = previous.copy(busy = false, notice = "切换失败，已恢复原播放路径")
                             restoreSubtitleSafely()
                         } catch (restoreError: Exception) {
-                            if (restoreError is CancellationException) throw restoreError
+                            if (restoreError is CancellationException && restoreError !is TimeoutCancellationException) throw restoreError
                             mutable.value = previous.copy(busy = false, error = "切换和恢复均未完成，请重试播放")
                         }
                     } else mutable.value = previous.copy(busy = false, error = "切换未完成，已保留原播放路径：${error.message}")
                 }
-            } finally { candidate?.release(); if (transition == presentationRevision) switchInProgress = false }
+            } finally { candidate?.release(); if (transition == presentationRevision) { switchInProgress = false; requestedPresentation = null } }
         }
     }
 
@@ -429,8 +439,17 @@ class TvMediaController(
         val active = window
         return SourceTimeline(duration, active?.startMs ?: 0, active?.durationMs ?: duration).toSource(player.state.value.positionMs)
     }
+    val canSeek: Boolean get() = binding?.let { it.epoch == epoch && it.owner === current() } == true &&
+        mutable.value.sourceDurationMs > 0 && player.state.value.seekable && player.state.value.durationMs > 0
+
     fun seek(positionMs: Long) {
+        if (!canSeek) { mutable.update { it.copy(notice = "视频尚未准备好，请稍后调整进度") }; return }
         val target = positionMs.coerceIn(0, mutable.value.sourceDurationMs.coerceAtLeast(0))
+        if (switchInProgress && mutable.value.busy) {
+            val requested = requestedPresentation ?: (mutable.value.mode to mutable.value.compatible)
+            switchMode(requested.first, forceSdr = requested.second, targetMs = target)
+            return
+        }
         val activeWindow = window
         val local = SourceTimeline(mutable.value.sourceDurationMs, activeWindow?.startMs ?: 0, activeWindow?.durationMs ?: mutable.value.sourceDurationMs).toLocal(target)
         if (local != null && (activeWindow == null || local <= player.state.value.durationMs)) {player.seek(local);cache.seek(local)}
@@ -761,8 +780,9 @@ class TvMediaController(
 
     fun close() { scope.launch { closeAndSave() } }
     private suspend fun disposeBinding() {
-        saveProgress(); binding?.writer?.close(); binding = null; player.stop(); cache.stop();window = null
+        saveProgress(); binding?.writer?.close(); binding = null; player.stop()
         playbackLease?.release(); playbackLease = null
+        cache.stop();window = null
         leases.forEach { it.release() }; leases.clear()
         externalRefs.clear()
     }

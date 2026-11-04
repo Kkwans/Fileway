@@ -41,7 +41,8 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         media.file?.let{content.put("media",fileJson(it))}
         content.put("playback",JSONObject().put("playing",player.playing).put("positionMs",model.media.sourcePosition()).put("durationMs",media.sourceDurationMs)
             .put("positionLocalMs",player.positionMs).put("sourceOffsetMs",media.sourceOffsetMs).put("sdrActive",media.compatible)
-            .put("bufferedMs",player.bufferedPositionMs+media.sourceOffsetMs).put("volume",player.volume).put("rate",player.rate).put("seekable",player.seekable)
+            .put("bufferedMs",player.bufferedPositionMs+media.sourceOffsetMs).put("volume",player.volume).put("rate",player.rate).put("seekable",model.media.canSeek)
+            .put("seeking",player.seeking).put("seekError",player.seekError).put("buffering",player.buffering).put("preparing",media.busy)
             .put("firstFrameRendered",player.firstFrameRendered).put("audioDecoder",player.audioDecoder.take(120)).put("subtitleLoading",player.subtitleLoading||media.subtitleLoading).put("waitingForBuffer",player.waitingForBuffer)
             .put("audioRenderedBuffers",player.audioRenderedBuffers).put("audioSkippedBuffers",player.audioSkippedBuffers)
             .put("hdrMode",media.mode.name).put("sdrAvailable",media.sdrAvailable).put("subtitleDelayMs",player.subtitleDelayMs)
@@ -91,8 +92,8 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             "playback.play"->if(!player.state.value.playing)player.toggle()
             "playback.pause"->player.pause()
             "playback.stop"->model.media.closeAndSave()
-            "playback.seekTo"->model.media.seek(p.getLong("positionMs"))
-            "playback.seekBy"->{val delta=p.getLong("deltaMs");require(delta in -3600000..3600000);model.media.seekBy(delta)}
+            "playback.seekTo"->{check(model.media.canSeek){"视频尚未准备好，请稍后调整进度"};model.media.seek(p.getLong("positionMs"))}
+            "playback.seekBy"->{check(model.media.canSeek){"视频尚未准备好，请稍后调整进度"};val delta=p.getLong("deltaMs");require(delta in -3600000..3600000);model.media.seekBy(delta)}
             "playback.setRate"->{val rate=p.getDouble("rate").toFloat();require(rate.isFinite()&&rate in .1f..5f);player.rate(rate)}
             "playback.setVolume"->{val volume=p.getInt("volume");require(volume in 0..100);player.volume(volume)}
             "playback.setHdrMode"->model.media.switchMode(TvHdrMode.valueOf(p.getString("mode")))
