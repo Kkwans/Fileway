@@ -1,7 +1,8 @@
 namespace Fileway.Core.Contracts;
 
 /// <summary>One entry of an opened remote ZIP archive; index is stable for the session lifetime.</summary>
-public sealed record ArchiveEntryInfo(int Index, string FullName, long Size, long CompressedSize, bool IsDirectory);
+public sealed record ArchiveEntryInfo(int Index, string FullName, long Size, long CompressedSize, bool IsDirectory,
+    DateTimeOffset? Modified = null);
 
 /// <summary>Per-entry extraction outcome; Skipped means an existing target was left untouched.</summary>
 public enum ArchiveExtractOutcome { Extracted, Skipped, Failed }

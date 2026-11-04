@@ -1,3 +1,4 @@
+using System.Globalization;
 using Fileway.App.Branding;
 using Fileway.App.Controls;
 using Fileway.App.Windowing;
@@ -18,10 +19,19 @@ namespace Fileway.App.Views;
 /// </summary>
 public sealed class ArchiveWindow : Window, IAsyncDisposable
 {
-    private sealed record ArchiveRow(ArchiveEntryInfo Entry, string Name, bool IsDirectory, string Size)
+    private sealed record ArchiveRow(ArchiveEntryInfo Entry, string Name, bool IsDirectory, string Size, string Type, string Modified)
     {
         public override string ToString() => Name;
     }
+
+    private const double RowIconWidth = 28;
+    private const double RowLeftPadding = 4;
+    private const double RowRightPadding = 8;
+    private const double ColumnGap = 12;
+    private const double SizeColumnWidth = 96;
+    private const double TypeColumnWidth = 96;
+    private const double ModifiedColumnWidth = 150;
+    private const double HeaderLeftPadding = RowLeftPadding + RowIconWidth + ColumnGap;
 
     private readonly IArchiveBrowseService _service;
     private readonly ILocalStorageSettingsService _settings;
@@ -40,14 +50,25 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         IsItemClickEnabled = false,
     };
     private readonly StackPanel _breadcrumb = new() { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _crumbSummary = new()
+    {
+        FontSize = 12,
+        HorizontalAlignment = HorizontalAlignment.Right,
+        VerticalAlignment = VerticalAlignment.Center,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        MaxWidth = 340,
+    };
     private readonly Border _banner;
     private readonly TextBlock _bannerText;
     private readonly Grid _listHeader;
     private readonly Button _extractSelected;
     private readonly Button _extractAll;
-    private readonly TextBlock _empty;
+    private readonly StackPanel _empty;
+    private readonly TextBlock _emptyTitle;
+    private readonly TextBlock _emptyDescription;
     private readonly Grid _root;
     private readonly Grid _windowRoot;
+    private readonly KeyboardAccelerator _selectAll;
     private readonly Border _toolbar;
     private readonly Border _crumbBar;
     private readonly Border _statusBar;
@@ -93,25 +114,78 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         toolbarGrid.Children.Add(actions);
         _toolbar = new Border { Child = toolbarGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
 
-        var crumbGrid = new Grid { Padding = new Thickness(14, 0, 16, 0), Height = 42 };
+        var crumbGrid = new Grid { Padding = new Thickness(14, 0, 16, 0), Height = 42, ColumnSpacing = 12 };
+        crumbGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        crumbGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         crumbGrid.Children.Add(_breadcrumb);
+        Grid.SetColumn(_crumbSummary, 1);
+        crumbGrid.Children.Add(_crumbSummary);
         _crumbBar = new Border { Child = crumbGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
+        _crumbBar.SizeChanged += (_, args) => _crumbSummary.Visibility =
+            args.NewSize.Width < 760 ? Visibility.Collapsed : Visibility.Visible;
 
         _bannerText = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         _banner = new Border { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 10, 16, 10), BorderThickness = new Thickness(0, 0, 0, 1), Child = _bannerText };
-        _listHeader = new Grid { Padding = new Thickness(44, 8, 25, 6) };
+        _listHeader = new Grid { Padding = new Thickness(HeaderLeftPadding, 8, RowRightPadding, 6), ColumnSpacing = ColumnGap };
         _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        _listHeader.Children.Add(new TextBlock { Text = "名称", FontSize = 12, Opacity = 0.65 });
-        var sizeHeader = new TextBlock { Text = "大小", FontSize = 12, Opacity = 0.65, HorizontalAlignment = HorizontalAlignment.Right };
-        Grid.SetColumn(sizeHeader, 1);
-        _listHeader.Children.Add(sizeHeader);
+        _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(SizeColumnWidth) });
+        _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(TypeColumnWidth) });
+        _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(ModifiedColumnWidth) });
+        _listHeader.Children.Add(HeaderText("名称", 0, HorizontalAlignment.Left));
+        _listHeader.Children.Add(HeaderText("大小", 1, HorizontalAlignment.Right));
+        _listHeader.Children.Add(HeaderText("类型", 2, HorizontalAlignment.Left));
+        _listHeader.Children.Add(HeaderText("修改时间", 3, HorizontalAlignment.Right));
 
         _list.ItemContainerStyle = (Style)Application.Current.Resources["FwArchiveListItemStyle"];
         _list.DoubleTapped += List_DoubleTapped;
-        _list.SelectionChanged += (_, _) => UpdateCommands();
+        _list.SelectionChanged += (_, _) => { UpdateCommands(); UpdateStatus(); };
+        _list.SizeChanged += (_, _) => UpdateHeaderPadding();
+        _list.Loaded += (_, _) => UpdateHeaderPadding();
         AutomationProperties.SetAutomationId(_list, "ArchiveList");
-        _empty = new TextBlock { Text = "这个文件夹是空的", FontSize = 14, Opacity = 0.6, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
+        _emptyTitle = new TextBlock
+        {
+            Text = "这个文件夹是空的",
+            Style = (Style)Application.Current.Resources["FwTitleTextStyle"],
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        _emptyDescription = new TextBlock
+        {
+            Text = "压缩包里没有可显示的文件。",
+            FontSize = 13,
+            LineHeight = 20,
+            TextAlignment = TextAlignment.Center,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        var emptyPanel = new StackPanel
+        {
+            Spacing = 14,
+            MaxWidth = 420,
+            Margin = new Thickness(16),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed,
+        };
+        emptyPanel.Children.Add(new Border
+        {
+            Width = 72,
+            Height = 72,
+            CornerRadius = new CornerRadius(20),
+            Style = (Style)Application.Current.Resources["FwIconTileStyle"],
+            Child = new LucideIcon
+            {
+                IconName = "folder",
+                Width = 32,
+                Height = 32,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Style = (Style)Application.Current.Resources["FwSecondaryIconStyle"],
+            },
+        });
+        emptyPanel.Children.Add(_emptyTitle);
+        emptyPanel.Children.Add(_emptyDescription);
+        _empty = emptyPanel;
         var listHost = new Grid();
         listHost.Children.Add(_list);
         listHost.Children.Add(_empty);
@@ -143,13 +217,13 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _windowRoot.Children.Add(_root);
         Content = _windowRoot;
         _windowRoot.PreviewKeyDown += OnPreviewKeyDown;
-        var selectAll = new KeyboardAccelerator { Key = VirtualKey.A, Modifiers = VirtualKeyModifiers.Control };
-        selectAll.Invoked += (_, args) =>
+        _selectAll = new KeyboardAccelerator { Key = VirtualKey.A, Modifiers = VirtualKeyModifiers.Control };
+        _selectAll.Invoked += (_, args) =>
         {
             SelectAllEntries();
             args.Handled = true;
         };
-        _windowRoot.KeyboardAccelerators.Add(selectAll);
+        _windowRoot.KeyboardAccelerators.Add(_selectAll);
         _chrome = new FramelessWindowChrome(this, _titleBar);
         ApplyTheme(_theme);
         _root.Loaded += async (_, _) =>
@@ -215,6 +289,9 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _banner.Style = (Style)resources["FwDocumentNoticeStyle"];
         _summary.Style = (Style)resources["FwCaptionTextStyle"];
         _status.Style = (Style)resources["FwCaptionTextStyle"];
+        _crumbSummary.Style = (Style)resources["FwCaptionTextStyle"];
+        _emptyDescription.Style = (Style)resources["FwCaptionTextStyle"];
+        _emptyDescription.FontSize = 13;
         _titleBar.RequestedTheme = theme;
     }
 
@@ -265,41 +342,182 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             {
                 var directory = remainder[..slash];
                 if (directories.Add(directory))
-                    _rows.Add(new ArchiveRow(entry with { FullName = childPrefix + directory, IsDirectory = true }, directory, true, "—"));
+                {
+                    var synthesized = entry with { FullName = childPrefix + directory, IsDirectory = true, Modified = null };
+                    _rows.Add(new ArchiveRow(synthesized, directory, true, "—", "文件夹", "—"));
+                }
                 continue;
             }
             if (entry.IsDirectory)
             {
                 if (directories.Add(remainder))
-                    _rows.Add(new ArchiveRow(entry, remainder, true, "—"));
+                    _rows.Add(new ArchiveRow(entry, remainder, true, "—", "文件夹", FormatModified(entry.Modified)));
             }
-            else _rows.Add(new ArchiveRow(entry, remainder, false, DownloadPresentationPolicy.FormatBytes(entry.Size)));
+            else
+            {
+                _rows.Add(new ArchiveRow(entry, remainder, false, DownloadPresentationPolicy.FormatBytes(entry.Size),
+                    TypeFor(remainder), FormatModified(entry.Modified)));
+            }
         }
         var sorted = _rows.OrderByDescending(row => row.IsDirectory).ThenBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
         _rows.Clear(); _rows.AddRange(sorted);
         foreach (var row in sorted) _list.Items.Add(BuildRow(row));
         _empty.Visibility = sorted.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        RenderBreadcrumb();
+        _emptyTitle.Text = prefix.Length == 0 ? "压缩包是空的" : "这个文件夹是空的";
+        _emptyDescription.Text = prefix.Length == 0 ? "这个压缩包没有可浏览的条目。" : "压缩包里没有可显示的文件。";
         _listHeader.Visibility = sorted.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        _status.Text = $"{sorted.Length} 个条目" + (prefix.Length == 0 ? " · 根目录" : " · " + prefix);
+        RenderBreadcrumb();
+        var fileBytes = sorted.Where(row => !row.IsDirectory).Sum(row => Math.Max(0, row.Entry.Size));
+        _crumbSummary.Text = $"{sorted.Length} 个条目" + (fileBytes > 0 ? $" · {DownloadPresentationPolicy.FormatBytes(fileBytes)}" : "");
+        UpdateStatus();
         UpdateCommands();
+        _list.SelectionMode = sorted.Length == 0 ? ListViewSelectionMode.None : ListViewSelectionMode.Extended;
+        _windowRoot.KeyboardAccelerators.Clear();
+        if (sorted.Length > 0)
+        {
+            _selectAll.IsEnabled = true;
+            _windowRoot.KeyboardAccelerators.Add(_selectAll);
+        }
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            UpdateHeaderPadding();
+            // Re-entering content after navigation keeps keyboard focus off the caption buttons,
+            // especially when the target folder is empty and no row is left to hold it.
+            if (_closed) return;
+            _ = _root.Focus(FocusState.Programmatic);
+            DispatcherQueue.TryEnqueue(() => { if (!_closed) _ = _root.Focus(FocusState.Programmatic); });
+        });
     }
 
     private static ListViewItem BuildRow(ArchiveRow row)
     {
-        var icon = new LucideIcon { IconName = row.IsDirectory ? "folder" : IconFor(row.Name), Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Center };
-        var name = new TextBlock { Text = row.Name, FontSize = 13.5, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
-        var size = new TextBlock { Text = row.Size, FontSize = 12, Opacity = 0.65, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-        var grid = new Grid { ColumnSpacing = 12, Padding = new Thickness(4, 0, 8, 0) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(96) });
+        var icon = new LucideIcon
+        {
+            IconName = row.IsDirectory ? "folder" : IconFor(row.Name),
+            Width = 20,
+            Height = 20,
+            VerticalAlignment = VerticalAlignment.Center,
+            Style = (Style)Application.Current.Resources["FwSecondaryIconStyle"],
+        };
+        var name = new TextBlock
+        {
+            Text = row.Name,
+            FontSize = 13.5,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        ToolTipService.SetToolTip(name, row.Name);
+        var size = RowText(row.Size, HorizontalAlignment.Right);
+        var type = RowText(row.Type, HorizontalAlignment.Left);
+        var modified = RowText(row.Modified, HorizontalAlignment.Right);
+        var grid = new Grid { ColumnSpacing = ColumnGap, Padding = new Thickness(RowLeftPadding, 0, RowRightPadding, 0) };
+        grid.ColumnDefinitions.Add(FixedColumn(RowIconWidth));
+        grid.ColumnDefinitions.Add(StarColumn());
+        grid.ColumnDefinitions.Add(FixedColumn(SizeColumnWidth));
+        grid.ColumnDefinitions.Add(FixedColumn(TypeColumnWidth));
+        grid.ColumnDefinitions.Add(FixedColumn(ModifiedColumnWidth));
         grid.Children.Add(icon);
         Grid.SetColumn(name, 1); grid.Children.Add(name);
         Grid.SetColumn(size, 2); grid.Children.Add(size);
+        Grid.SetColumn(type, 3); grid.Children.Add(type);
+        Grid.SetColumn(modified, 4); grid.Children.Add(modified);
         var item = new ListViewItem { Content = grid, Tag = row, MinHeight = 40 };
         AutomationProperties.SetName(item, row.Name);
         return item;
+    }
+
+    private static TextBlock RowText(string text, HorizontalAlignment alignment) => new()
+    {
+        Text = text,
+        Style = (Style)Application.Current.Resources["FwCaptionTextStyle"],
+        FontSize = 12,
+        TextWrapping = TextWrapping.NoWrap,
+        TextTrimming = TextTrimming.CharacterEllipsis,
+        HorizontalAlignment = alignment,
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
+    private static TextBlock HeaderText(string text, int column, HorizontalAlignment alignment)
+    {
+        var block = new TextBlock
+        {
+            Text = text,
+            FontSize = 12,
+            Opacity = 0.65,
+            HorizontalAlignment = alignment,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(block, column);
+        return block;
+    }
+
+    private static ColumnDefinition FixedColumn(double width) => new() { Width = new GridLength(width) };
+
+    private static ColumnDefinition StarColumn() => new() { Width = new GridLength(1, GridUnitType.Star) };
+
+    private static string FormatModified(DateTimeOffset? modified) => modified is { } value
+        ? value.ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.CurrentCulture)
+        : "—";
+
+    private static string TypeFor(string name)
+    {
+        var extension = Path.GetExtension(name).ToLowerInvariant();
+        return extension switch
+        {
+            ".png" => "PNG 图片",
+            ".jpg" or ".jpeg" => "JPEG 图片",
+            ".gif" => "GIF 图片",
+            ".webp" => "WebP 图片",
+            ".bmp" => "BMP 图片",
+            ".svg" => "SVG 图片",
+            ".mp4" => "MP4 视频",
+            ".mkv" => "MKV 视频",
+            ".mov" => "MOV 视频",
+            ".avi" => "AVI 视频",
+            ".webm" => "WebM 视频",
+            ".mp3" => "MP3 音频",
+            ".flac" => "FLAC 音频",
+            ".wav" => "WAV 音频",
+            ".m4a" => "M4A 音频",
+            ".txt" or ".log" => "文本",
+            ".md" or ".markdown" => "Markdown",
+            ".json" => "JSON",
+            ".xml" => "XML",
+            ".yaml" or ".yml" => "YAML",
+            ".csv" or ".tsv" => "表格",
+            ".zip" => "ZIP 压缩包",
+            ".pdf" => "PDF 文档",
+            ".cs" or ".go" or ".js" or ".ts" or ".py" or ".java" or ".kt" or ".rs" or ".sh" => "代码",
+            "" => "文件",
+            _ => extension.TrimStart('.').ToUpperInvariant() + " 文件",
+        };
+    }
+
+    private void UpdateStatus()
+    {
+        var selected = _list.SelectedItems.Count;
+        _status.Text = $"{_rows.Count} 个条目" +
+            (_prefix.Length == 0 ? " · 根目录" : " · " + _prefix) +
+            (selected > 0 ? $" · 已选择 {selected} 个" : "");
+    }
+
+    private void UpdateHeaderPadding()
+    {
+        var scroll = FindScrollViewer(_list);
+        double reserved = 0;
+        if (scroll is not null && scroll.ComputedVerticalScrollBarVisibility == Visibility.Visible)
+            reserved = Math.Max(0, scroll.ActualWidth - scroll.ViewportWidth);
+        _listHeader.Padding = new Thickness(HeaderLeftPadding, 8, RowRightPadding + reserved, 6);
+    }
+
+    private static ScrollViewer? FindScrollViewer(DependencyObject node)
+    {
+        if (node is ScrollViewer viewer) return viewer;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(node); index++)
+        {
+            if (FindScrollViewer(VisualTreeHelper.GetChild(node, index)) is { } found) return found;
+        }
+        return null;
     }
 
     private static string IconFor(string name)

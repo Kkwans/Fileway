@@ -49,7 +49,8 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
                     throw Safe(ErrorCode.ResponseTooLarge, $"压缩包条目超过 {MaximumEntries} 个，请下载后解压。");
                 long size = Math.Max(0, entry.Length);
                 total += size;
-                entries.Add(new ArchiveEntryInfo(entries.Count, entry.FullName, size, Math.Max(0, entry.CompressedLength), entry.FullName.EndsWith('/')));
+                entries.Add(new ArchiveEntryInfo(entries.Count, entry.FullName, size, Math.Max(0, entry.CompressedLength),
+                    entry.FullName.EndsWith('/'), entry.LastWriteTime));
             }
             var session = new ZipBrowseSession(archive, lease, zip, content, response, entries, total);
             response = null; content = null; zip = null;

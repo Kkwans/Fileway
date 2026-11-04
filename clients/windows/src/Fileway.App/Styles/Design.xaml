@@ -493,6 +493,9 @@
   <Style x:Key="FwPrimaryIconStyle" TargetType="ctl:LucideIcon">
     <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
   </Style>
+  <Style x:Key="FwSecondaryIconStyle" TargetType="ctl:LucideIcon">
+    <Setter Property="Foreground" Value="{ThemeResource FwTextSecondaryBrush}" />
+  </Style>
   <!-- Viewer surfaces: styles carry ThemeResource so a code-built window still follows its element theme. -->
   <Style x:Key="FwViewerCanvasStyle" TargetType="Grid">
     <Setter Property="Background" Value="{ThemeResource FwCanvasBrush}" />
