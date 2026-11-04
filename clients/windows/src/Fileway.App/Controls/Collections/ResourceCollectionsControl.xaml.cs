@@ -141,8 +141,12 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         _rendering = true;
         try
         {
-            var choices = new List<GroupChoice> { new("*", "全部收藏"), new("", "未分组"), new("?", "分组不可用") };
-            choices.AddRange((_snapshot?.FavoriteGroups ?? []).OrderBy(item => item.Order).Select(item => new GroupChoice(item.Id, item.Name, item)));
+            var groups = _snapshot?.FavoriteGroups ?? [];
+            var hasMissingGroups = (_snapshot?.Favorites ?? []).Any(item =>
+                !string.IsNullOrEmpty(item.GroupId) && groups.All(group => group.Id != item.GroupId));
+            var choices = new List<GroupChoice> { new("*", "全部收藏"), new("", "未分组") };
+            if (hasMissingGroups) choices.Add(new("?", "分组不可用"));
+            choices.AddRange(groups.OrderBy(item => item.Order).Select(item => new GroupChoice(item.Id, item.Name, item)));
             GroupBox.ItemsSource = choices; GroupBox.SelectedItem = choices.FirstOrDefault(item => item.Id == groupId) ?? choices[0];
             _records.Clear();
             if (_snapshot is { } snapshot)
@@ -166,8 +170,11 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             }
             Records.SelectedItem = _records.FirstOrDefault(item => item.Id == (_browseTagId ?? selectedId));
             GroupBox.Visibility = TagMode ? Visibility.Collapsed : Visibility.Visible;
-            TagResourcesArea.Visibility = TagMode ? Visibility.Visible : Visibility.Collapsed;
-            TagResourcesRow.Height = new GridLength(TagMode ? 1 : 0, TagMode ? GridUnitType.Star : GridUnitType.Pixel);
+            // With no tags there is nothing to select below the list; showing the second
+            // "选择标签" empty state at the same time contradicts the "暂无标签" state above.
+            var showTagArea = TagMode && _records.Count > 0;
+            TagResourcesArea.Visibility = showTagArea ? Visibility.Visible : Visibility.Collapsed;
+            TagResourcesRow.Height = new GridLength(showTagArea ? 1 : 0, showTagArea ? GridUnitType.Star : GridUnitType.Pixel);
             EmptyHost.Visibility = _records.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             EmptyTitle.Text = TagMode ? "暂无标签" : "此分组暂无收藏"; EmptyText.Text = TagMode ? "新建标签后，可绑定选中资源。" : "可从文件列表选择资源后添加。";
             RenderTagResources();
