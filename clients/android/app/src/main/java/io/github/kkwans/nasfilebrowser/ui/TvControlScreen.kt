@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.ViewModelProvider
@@ -30,6 +31,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import org.json.JSONObject
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun TvControlScreen(phone:ClientModel,onClose:()->Unit){
     val owner=requireNotNull(LocalViewModelStoreOwner.current)
     val model=remember(owner){ViewModelProvider(owner)[TvControlModel::class.java]}
@@ -47,6 +49,7 @@ import kotlinx.coroutines.launch
     var input by remember{mutableStateOf("")}
     var target by remember{mutableStateOf("search")}
     var section by remember{mutableStateOf("遥控")}
+    var devicesOpen by remember{mutableStateOf(false)}
     var connectionNotice by remember{mutableStateOf<String?>(null)}
     LaunchedEffect(connection.phase,connection.error){
         if(connection.phase in setOf(RemotePhase.CONNECTED,RemotePhase.OFFLINE))connectionNotice=null
@@ -71,16 +74,19 @@ import kotlinx.coroutines.launch
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background){
             Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()){
-                FilewayTopAppBar(if(scanning)"扫描 TV 二维码" else "连接 TV",null,R.drawable.ic_arrow_back,"返回",{if(scanning)scanning=false else onClose()}){
-                    FilewayTextButton(onClick={image.launch("image/*")}){Text("从图片识别")}
-                    FilewayTextButton(onClick={scan()}){Text("扫码")}
+                FilewayTopAppBar(if(scanning)"扫描 TV 二维码" else "TV 遥控",if(scanning)null else connection.device?.name,R.drawable.ic_arrow_back,"返回",{if(scanning)scanning=false else onClose()}){
+                    if(scanning)FilewayTextButton(onClick={image.launch("image/*")}){Text("从图片识别")}
+                    else FilewayTextButton(onClick={devicesOpen=true}){Text("设备");FilewayIcon(R.drawable.ic_expand_more,null,Modifier.size(20.dp))}
                 }
                 if(scanning){
                     BackHandler{scanning=false}
                     TvQrScanner(Modifier.fillMaxWidth().weight(1f),onCode={scanning=false;model.pair(it)},onError={cameraError=it;scanning=false})
                 }else{
                     val snapshot=connection.snapshot
-                    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+                    if(connection.phase==RemotePhase.CONNECTED&&snapshot!=null)PrimaryTabRow(selectedTabIndex=listOf("遥控","文件","播放","设置").indexOf(section),containerColor=MaterialTheme.colorScheme.background){
+                        listOf("遥控","文件","播放","设置").forEach{label->Tab(selected=section==label,onClick={section=label},text={Text(label)})}
+                    }
+                    LazyColumn(Modifier.fillMaxWidth().weight(1f),contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
                         if(connection.phase!=RemotePhase.CONNECTED){
                             item{Text(when(connection.phase){RemotePhase.CONNECTING->"正在连接…";RemotePhase.PAIRING->"正在配对…";else->"选择电视"},style=MaterialTheme.typography.titleMedium)}
                             if(connection.phase in setOf(RemotePhase.FAILED,RemotePhase.BUSY))item{
@@ -100,20 +106,13 @@ import kotlinx.coroutines.launch
                             if(!discovery.searching&&discovery.devices.isEmpty()&&paired.isEmpty())item{Text(discovery.error?:"未发现 TV，可扫描 TV 上的二维码连接",style=MaterialTheme.typography.bodyMedium)}
                             item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){FilewayOutlinedButton(onClick={if(permitted)model.search()else lan.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)}){Text("重新搜索")};FilewayButton(onClick={scan()}){Text("扫码配对")}}}
                         }else if(snapshot!=null){
-                            item{Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
-                                Column(Modifier.weight(1f)){Text(connection.device?.name.orEmpty(),style=MaterialTheme.typography.titleMedium);Text(snapshot!!.content.optJSONObject("media")?.optString("name")?:"已连接",style=MaterialTheme.typography.bodyMedium,maxLines=2)}
-                                FilewayTextButton(onClick=model::disconnect){Text("断开")}
-                            }}
-                            item{
-                                val source=phone.tvAuthorizationContext()
-                                source?.let{Text("${it.api.identity.username} · ${it.profile.name}",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)}
-                                FilewayButton(onClick={model.authorize(phone,source)},enabled=!busy&&source!=null,modifier=Modifier.fillMaxWidth()){Text(if(busy)"正在授权…" else if(snapshot!!.scene=="LOGIN")"用此账号登录 TV" else "切换 TV 到此账号")}
-                            }
-                            item{SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()){
-                                listOf("遥控","文件","播放","设置").forEachIndexed{i,label->SegmentedButton(selected=section==label,onClick={section=label},shape=SegmentedButtonDefaults.itemShape(i,4)){Text(label)}}
-                            }}
                             when(section){
                                 "遥控"->{
+                                    snapshot.content.optJSONObject("media")?.optString("name")?.takeIf{it.isNotBlank()}?.let{name->item{Text(name,style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)}}
+                                    if(snapshot.scene=="LOGIN")item{
+                                        val source=phone.tvAuthorizationContext()
+                                        FilewayButton(onClick={model.authorize(phone,source)},enabled=!busy&&source!=null,modifier=Modifier.fillMaxWidth()){Text(if(busy)"正在授权…" else "用手机当前账号登录 TV")}
+                                    }
                                     item{TvPhoneDpad(model)}
                                     item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){FilewayOutlinedButton(onClick={model.command("app.back")},Modifier.weight(1f)){Text("返回")};FilewayOutlinedButton(onClick={model.command("app.navigate",JSONObject().put("route","HOME"))},Modifier.weight(1f)){Text("首页")}}}
                                     item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){FilterChip(selected=target=="search",onClick={target="search"},label={Text("搜索")});FilterChip(selected=target=="focused",onClick={target="focused"},label={Text("当前输入框")})}}
@@ -130,9 +129,26 @@ import kotlinx.coroutines.launch
                                 }
                                 "播放"->tvPhonePlayback(model,snapshot!!)
                                 "设置"->{
+                                    item{
+                                        val source=phone.tvAuthorizationContext()
+                                        Text("账号与连接",style=MaterialTheme.typography.titleMedium)
+                                        FilewayOutlinedButton(onClick={model.authorize(phone,source)},enabled=!busy&&source!=null,modifier=Modifier.fillMaxWidth()){Text(if(busy)"正在授权…" else "将手机当前账号用于 TV")}
+                                    }
                                     item{Text("TV 设置",style=MaterialTheme.typography.titleMedium)}
                                     snapshot!!.content.optJSONObject("session")?.let{session->item{Text("TV 当前登录\n${session.optString("username")}\n${session.optString("origin")}",style=MaterialTheme.typography.bodyMedium)}}
                                     val prefs=snapshot!!.content.optJSONObject("preferences")?:JSONObject()
+                                    if(prefs.has("seekStepSeconds"))item{
+                                        var step by remember(snapshot.connectionId){mutableStateOf<Float?>(null)}
+                                        val value=step?:prefs.optInt("seekStepSeconds",10).coerceIn(3,30).toFloat()
+                                        Text("快进 / 后退 ${value.toInt()} 秒")
+                                        Slider(value,onValueChange={step=it},onValueChangeFinished={step?.let{model.command("app.setPreference",JSONObject().put("key","seekStepSeconds").put("value",it.toInt()))};step=null},valueRange=3f..30f,steps=26)
+                                    }
+                                    if(prefs.has("controlsTimeoutSeconds"))item{
+                                        var timeout by remember(snapshot.connectionId){mutableStateOf<Float?>(null)}
+                                        val value=timeout?:prefs.optInt("controlsTimeoutSeconds",5).coerceIn(2,30).toFloat()
+                                        Text("播放控件自动隐藏 ${value.toInt()} 秒")
+                                        Slider(value,onValueChange={timeout=it},onValueChangeFinished={timeout?.let{model.command("app.setPreference",JSONObject().put("key","controlsTimeoutSeconds").put("value",it.toInt()))};timeout=null},valueRange=2f..30f,steps=27)
+                                    }
                                     item{TvPhoneToggle("深色外观",prefs.optBoolean("dark")){model.command("app.setPreference",JSONObject().put("key","dark").put("value",it))}}
                                     item{TvPhoneToggle("常驻北京时间",prefs.optBoolean("clockAlways")){model.command("app.setPreference",JSONObject().put("key","clockAlways").put("value",it))}}
                                     item{TvPhoneToggle("常驻缓冲速度",prefs.optBoolean("speedAlways")){model.command("app.setPreference",JSONObject().put("key","speedAlways").put("value",it))}}
@@ -147,6 +163,20 @@ import kotlinx.coroutines.launch
             }
         }
     }
+    if(devicesOpen)AlertDialog(onDismissRequest={devicesOpen=false},shape=RoundedCornerShape(12.dp),title={Text("选择 TV")},text={
+        LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){
+            items(paired,key={it.id}){device->
+                val found=discovery.devices.firstOrNull{it.id==device.id&&it.fingerprint==device.fingerprint}
+                TvPhoneDeviceRow(device.name,if(connection.device?.id==device.id&&connection.phase==RemotePhase.CONNECTED)"当前连接" else if(found!=null)"局域网可用" else "已配对"){
+                    model.connect(if(found!=null)device.descriptor().at(found.address,found.port)else device.descriptor());devicesOpen=false
+                }
+            }
+            items(discovery.devices.filter{candidate->paired.none{it.id==candidate.id}},key={it.id}){device->TvPhoneDeviceRow(device.name,"新设备 · 扫码配对"){model.requestPairing(device);devicesOpen=false;scan()}}
+            if(paired.isEmpty()&&discovery.devices.isEmpty())item{Text(if(discovery.searching)"正在寻找局域网中的 TV…" else "未发现 TV")}
+            if(connection.phase==RemotePhase.FAILED||connection.phase==RemotePhase.BUSY)item{FilewayOutlinedButton(onClick={model.reconnectNow();devicesOpen=false}){Text("重新连接")}}
+            if(connection.phase==RemotePhase.CONNECTED)item{FilewayTextButton(onClick={model.disconnect();devicesOpen=false}){Text("断开当前 TV")}}
+        }
+    },confirmButton={FilewayTextButton(onClick={devicesOpen=false;scan()}){Text("扫码配对")}},dismissButton={FilewayTextButton(onClick={model.search()}){Text("重新搜索")}})
 }
 
 @Composable private fun TvPhoneDeviceRow(title:String,subtitle:String,onClick:()->Unit){
@@ -170,7 +200,7 @@ import kotlinx.coroutines.launch
 private fun androidx.compose.foundation.lazy.LazyListScope.tvPhonePlayback(model:TvControlModel,snapshot:RemoteSnapshot){
     val player=snapshot.content.optJSONObject("playback")?:JSONObject()
     item{
-        var seeking by remember{mutableStateOf<Float?>(null)}
+        var seeking by remember(snapshot.connectionId,snapshot.mediaEpoch){mutableStateOf<Float?>(null)}
         val duration=player.optLong("durationMs").coerceAtLeast(1)
         val position=player.optLong("positionMs").coerceIn(0,duration)
         Text("${tvRemoteTime(position)} / ${tvRemoteTime(duration)}",style=MaterialTheme.typography.bodyMedium)
@@ -180,9 +210,14 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tvPhonePlayback(model
             when { player.optBoolean("preparing")->"正在准备兼容播放…"; player.optBoolean("waitingForBuffer")->"缓冲 ${player.optInt("buffering").coerceIn(0,100)}%"; else->"正在跳转…" },
             style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically){
-            IconButton(onClick={model.command("queue.previous")}){FilewayIcon(R.drawable.ic_skip_previous,"上一项")}
+            val queue=snapshot.content.optJSONObject("queue")
+            val index=queue?.optInt("index",-1)?:-1
+            IconButton(onClick={model.command("queue.previous")},enabled=index>0){FilewayIcon(R.drawable.ic_skip_previous,"上一项")}
+            val step=snapshot.content.optJSONObject("preferences")?.optInt("seekStepSeconds",10)?.coerceIn(3,30)?:10
+            FilewayTextButton(onClick={model.command("playback.seekBy",JSONObject().put("deltaMs",-step*1000L))},enabled=player.optBoolean("seekable")){Text("−${step}s")}
             FilledIconButton(onClick={model.command(if(player.optBoolean("playing"))"playback.pause"else"playback.play")},Modifier.size(64.dp)){FilewayIcon(if(player.optBoolean("playing"))R.drawable.art_pause else R.drawable.art_play,if(player.optBoolean("playing"))"暂停"else"播放")}
-            IconButton(onClick={model.command("queue.next")}){FilewayIcon(R.drawable.ic_skip_next,"下一项")}
+            FilewayTextButton(onClick={model.command("playback.seekBy",JSONObject().put("deltaMs",step*1000L))},enabled=player.optBoolean("seekable")){Text("+${step}s")}
+            IconButton(onClick={model.command("queue.next")},enabled=index>=0&&index<(queue?.optInt("count",0)?:0)-1){FilewayIcon(R.drawable.ic_skip_next,"下一项")}
         }
     }
     item{

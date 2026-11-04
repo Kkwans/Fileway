@@ -36,7 +36,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             .put("connected",ui.connected).put("error",media.error?:player.error?:ui.error?:JSONObject.NULL)
             .put("notice",media.subtitleError?:media.notice?:player.operationError?:ui.notice?:JSONObject.NULL)
             .put("files",JSONArray(files().take(24).map(::fileJson))).put("total",files().size)
-            .put("preferences",JSONObject().put("dark",ui.dark).put("gridColumns",ui.gridColumns).put("safePercent",ui.safePercent).put("clockAlways",ui.clockAlways).put("speedAlways",ui.speedAlways))
+            .put("preferences",JSONObject().put("dark",ui.dark).put("gridColumns",ui.gridColumns).put("safePercent",ui.safePercent).put("clockAlways",ui.clockAlways).put("speedAlways",ui.speedAlways).put("seekStepSeconds",ui.seekStepSeconds).put("controlsTimeoutSeconds",ui.controlsTimeoutSeconds))
         model.context?.let{content.put("session",JSONObject().put("origin",it.profile.address.take(512)).put("username",it.api.identity.username.take(120)))}
         media.file?.let{content.put("media",fileJson(it))}
         content.put("playback",JSONObject().put("playing",player.playing).put("positionMs",model.media.sourcePosition()).put("durationMs",media.sourceDurationMs)
@@ -85,6 +85,8 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             "app.setPreference"->when(p.getString("key")){
                 "dark"->model.setDark(p.getBoolean("value"));"gridColumns"->model.setColumns(p.getInt("value"));"safePercent"->model.setSafePercent(p.getInt("value"))
                 "clockAlways"->model.setClockAlways(p.getBoolean("value"));"speedAlways"->model.setSpeedAlways(p.getBoolean("value"))
+                "seekStepSeconds"->{val value=p.getInt("value");require(value in 3..30);model.setSeekStep(value)}
+                "controlsTimeoutSeconds"->{val value=p.getInt("value");require(value in 2..30);model.setControlsTimeout(value)}
                 "cacheMiB"->{val limit=p.getLong("value");require(limit in 64..65536);model.media.cache.setLimit(limit*1048576)}
                 else->error("设置不支持")
             }

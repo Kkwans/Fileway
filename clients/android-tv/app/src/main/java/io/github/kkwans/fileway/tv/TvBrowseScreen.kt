@@ -56,7 +56,6 @@ import kotlinx.coroutines.*
     var searchOpen by remember { mutableStateOf(false) }
     var details by remember { mutableStateOf<ResourceRef?>(null) }
     var locationOpen by remember { mutableStateOf(false) }
-    var navigationFocused by remember { mutableStateOf(false) }
     val routes = remember { listOf(TvRoute.HOME, TvRoute.FILES, TvRoute.VIDEO, TvRoute.MUSIC, TvRoute.IMAGES, TvRoute.FAVORITES) }
     val nav = remember { (routes + TvRoute.SETTINGS).associateWith { FocusRequester() } }
     val bodyFocus = remember { FocusRequester() }
@@ -73,12 +72,11 @@ import kotlinx.coroutines.*
     val scope = rememberCoroutineScope()
     val selectRoute: (TvRoute) -> Unit = { route ->
         model.navigate(route)
-        navigationFocused = false
         scope.launch { withFrameNanos {}; bodyFocus.requestFocus() }
     }
     LaunchedEffect(active) {
         if (active) { withFrameNanos {}; bodyFocus.requestFocus() }
-        else { searchOpen=false; details=null; locationOpen=false; navigationFocused=false }
+        else { searchOpen=false; details=null; locationOpen=false }
     }
     BackHandler(enabled=active) { if (!model.backDirectory()) onExit() }
     CompositionLocalProvider(LocalTvInteractive provides active,LocalTvCompact provides (LocalConfiguration.current.screenHeightDp<480)) {
@@ -86,9 +84,21 @@ import kotlinx.coroutines.*
         .then(if(active)Modifier else Modifier.clearAndSetSemantics {})) {
         val horizontal = maxWidth * (state.safePercent / 100f)
         val vertical = maxHeight * (state.safePercent / 100f)
-        Box(Modifier.fillMaxSize().padding(horizontal=horizontal,vertical=vertical)) {
-            // Content never moves as navigation expands. A raised rail overlays
-            // it only while the navigation focus group is active.
+        ModalNavigationDrawer(modifier=Modifier.fillMaxSize().padding(horizontal=horizontal,vertical=vertical),drawerContent = { drawerValue ->
+            val expanded = drawerValue == DrawerValue.Open
+            Column(Modifier.fillMaxHeight().width(if(expanded)expandedWidth+16.dp else 56.dp)
+                .background(if(expanded)LocalTvSurfaces.current.chrome else Color.Transparent)
+                .padding(end=if(expanded)8.dp else 0.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    Image(painterResource(Art.drawable.fileway_ic_launcher_foreground),null,Modifier.size(30.dp))
+                    if(expanded)Text("栖卷",style=MaterialTheme.typography.titleMedium)
+                }
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp),contentPadding=PaddingValues(vertical=2.dp)) {
+                    items(routes,key={it.name}) { route -> TvNavigationItem(route,state.route==route,expanded,{selectRoute(route)},Modifier.focusRequester(nav.getValue(route))) }
+                }
+                TvNavigationItem(TvRoute.SETTINGS,state.route==TvRoute.SETTINGS,expanded,{selectRoute(TvRoute.SETTINGS)},Modifier.focusRequester(nav.getValue(TvRoute.SETTINGS)))
+            }
+        }) {
             Column(Modifier.fillMaxSize().padding(start=76.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                 val directory = !state.search && state.route in listOf(TvRoute.FILES,TvRoute.VIDEO,TvRoute.MUSIC,TvRoute.IMAGES) && state.path!="/"
                 Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) {
@@ -142,18 +152,6 @@ import kotlinx.coroutines.*
                     }
                 }
             }
-            Column(Modifier.align(Alignment.CenterStart).fillMaxHeight().width(if(navigationFocused)expandedWidth else 56.dp)
-                .background(if(navigationFocused)LocalTvSurfaces.current.chrome else Color.Transparent,TvShape)
-                .onFocusChanged { navigationFocused=it.hasFocus }.focusGroup(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal=12.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)) {
-                    Image(painterResource(Art.drawable.fileway_ic_launcher_foreground),null,Modifier.size(30.dp))
-                    if(navigationFocused)Text("栖卷",style=MaterialTheme.typography.titleMedium)
-                }
-                LazyColumn(Modifier.weight(1f).fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp),contentPadding=PaddingValues(vertical=2.dp)) {
-                    items(routes,key={it.name}) { route -> TvNavigationItem(route,state.route==route,navigationFocused,{selectRoute(route)},Modifier.focusRequester(nav.getValue(route))) }
-                }
-                TvNavigationItem(TvRoute.SETTINGS,state.route==TvRoute.SETTINGS,navigationFocused,{selectRoute(TvRoute.SETTINGS)},Modifier.focusRequester(nav.getValue(TvRoute.SETTINGS)))
-            }
         }
     }
     if(active&&searchOpen)TvSearchPanel(state.searchScope,{searchOpen=false}) { query,searchScope -> model.search(query,searchScope);searchOpen=false }
@@ -178,21 +176,21 @@ import kotlinx.coroutines.*
 }
 
 @Composable private fun TvNavigationItem(route:TvRoute,selected:Boolean,expanded:Boolean,onClick:()->Unit,modifier:Modifier=Modifier) {
-    var focused by remember { mutableStateOf(false) }
     val interactive=LocalTvInteractive.current
     val colors=MaterialTheme.colorScheme
     val interaction=remember { MutableInteractionSource() }
-    Button(onClick=onClick,enabled=interactive,interactionSource=interaction,
-        modifier=modifier.fillMaxWidth().height(48.dp).tvTouch(onClick,interactive,interaction).focusProperties { canFocus=interactive }
-            .semantics { contentDescription=route.title;this.selected=selected }.onFocusChanged { focused=it.isFocused }
-            .border(2.dp,if(focused)colors.primary else Color.Transparent,TvShape),
-        shape=ButtonDefaults.shape(TvShape),scale=ButtonDefaults.scale(focusedScale=1f),contentPadding=PaddingValues(horizontal=16.dp),
-        colors=ButtonDefaults.colors(containerColor=if(selected)colors.primary.copy(alpha=.12f)else Color.Transparent,
-            contentColor=if(selected)colors.primary else LocalTvSurfaces.current.secondaryText,
-            focusedContainerColor=LocalTvSurfaces.current.raised,focusedContentColor=colors.onSurface)) {
-        Icon(painterResource(routeIcon(route)),null,Modifier.size(24.dp))
-        if(expanded) { Spacer(Modifier.width(14.dp));Text(route.title,style=MaterialTheme.typography.labelLarge) }
-    }
+    // Native TV selection/focus/press behavior, with width measured from our
+    // actual localized labels rather than NavigationDrawerItem's fixed 256dp.
+    ListItem(selected=selected,onClick=onClick,enabled=interactive,interactionSource=interaction,
+        modifier=modifier.fillMaxWidth().height(48.dp).tvTouch(onClick,interactive,interaction)
+            .focusProperties { canFocus=interactive }.semantics { contentDescription=route.title },
+        shape=ListItemDefaults.shape(TvShape),scale=ListItemDefaults.scale(focusedScale=1f),
+        colors=ListItemDefaults.colors(contentColor=LocalTvSurfaces.current.secondaryText,
+            selectedContainerColor=colors.primary.copy(alpha=.14f),selectedContentColor=colors.primary,
+            focusedContainerColor=colors.onSurface,focusedContentColor=colors.surface,
+            focusedSelectedContainerColor=colors.onSurface,focusedSelectedContentColor=colors.surface),
+        leadingContent={Icon(painterResource(routeIcon(route)),null,Modifier.size(24.dp))},
+        headlineContent={if(expanded)Text(route.title,style=MaterialTheme.typography.labelLarge)})
 }
 
 private fun routeIcon(route: TvRoute) = when (route) {

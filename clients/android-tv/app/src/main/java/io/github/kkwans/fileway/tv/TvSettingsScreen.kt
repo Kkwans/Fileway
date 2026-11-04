@@ -99,6 +99,17 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                     } }
                 }
                 TvSettingsSection.PLAYBACK -> {
+                    item { TvSectionTitle("遥控操作") }
+                    item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Text("跳转 ${state.seekStepSeconds} 秒",Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge)
+                        TvButton("减小",{model.setSeekStep(state.seekStepSeconds-1)},enabled=state.seekStepSeconds>3)
+                        TvButton("增大",{model.setSeekStep(state.seekStepSeconds+1)},enabled=state.seekStepSeconds<30)
+                    } }
+                    item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Text("控件显示 ${state.controlsTimeoutSeconds} 秒",Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge)
+                        TvButton("减小",{model.setControlsTimeout(state.controlsTimeoutSeconds-1)},enabled=state.controlsTimeoutSeconds>2)
+                        TvButton("增大",{model.setControlsTimeout(state.controlsTimeoutSeconds+1)},enabled=state.controlsTimeoutSeconds<30)
+                    } }
                     item { TvSectionTitle("播放时显示") }
                     item { TvOptionRow("北京时间",{model.setClockAlways(!state.clockAlways)},value=if(state.clockAlways)"常驻" else "随控件显示",selected=state.clockAlways) }
                     item { TvOptionRow("缓冲速度",{model.setSpeedAlways(!state.speedAlways)},value=if(state.speedAlways)"常驻" else "随控件显示",selected=state.speedAlways) }

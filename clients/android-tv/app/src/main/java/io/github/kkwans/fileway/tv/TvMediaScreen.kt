@@ -53,10 +53,12 @@ import kotlinx.coroutines.*
     val cache by model.media.cache.state.collectAsStateWithLifecycle()
     val textAppearance by model.media.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
     val audio = file.mediaKind() == MediaKind.AUDIO
-    var controls by remember(file.mediaKey) { mutableStateOf(true) }
+    val mediaEpoch=model.media.controlEpoch
+    var controls by remember(mediaEpoch) { mutableStateOf(audio) }
+    var exitPrompt by remember(mediaEpoch) { mutableStateOf(false) }
     var panel by remember(file.mediaKey) { mutableStateOf<String?>(null) }
     var pulse by remember { mutableIntStateOf(0) }
-    var seekTarget by remember(file.mediaKey) { mutableStateOf<Long?>(null) }
+    var seekTarget by remember(mediaEpoch) { mutableStateOf<Long?>(null) }
     var seekPulse by remember { mutableIntStateOf(0) }
     var resize by remember { mutableIntStateOf(0) }
     val stage = remember { FocusRequester() }; val play = remember { FocusRequester() }; val options = remember { FocusRequester() }
@@ -65,35 +67,37 @@ import kotlinx.coroutines.*
     var trigger by remember { mutableStateOf<FocusRequester?>(null) }
     val showPanel: (String) -> Unit = { name -> panel = name; trigger = actions[name] }
     val closePanel: () -> Unit = { panel = null }
-    val backPanel: () -> Unit = { panel = if(panel in setOf("倍速","HDR")) "设置" else null }
+    val backPanel: () -> Unit = { panel = when(panel){"倍速","HDR"->"设置";"字幕设置"->"字幕";else->null} }
     LaunchedEffect(panel) { if (panel == null && trigger != null) { withFrameNanos {}; trigger?.requestFocus() } }
     BackHandler {
-        when { panel != null -> backPanel(); controls && !audio -> controls = false; else -> model.media.close() }
+        when { panel != null -> backPanel(); controls && !audio -> controls = false; exitPrompt -> model.media.close(); else -> exitPrompt=true }
     }
+    LaunchedEffect(exitPrompt) { if(exitPrompt) { delay(2000);exitPrompt=false } }
     LaunchedEffect(controls,textAppearance,player.mediaGeneration) {
         model.media.player.textSubtitleAppearance(if(controls)textAppearance.copy(bottomPadding=maxOf(textAppearance.bottomPadding,.36f)) else textAppearance)
     }
-    LaunchedEffect(controls, player.playing, panel, pulse) {
-        if (controls && player.playing && panel == null && !audio) { delay(4500); controls = false }
+    LaunchedEffect(controls, player.playing, panel, pulse,interfaceState.controlsTimeoutSeconds) {
+        if (controls && player.playing && panel == null && !audio) { delay(interfaceState.controlsTimeoutSeconds*1000L); controls = false }
     }
     LaunchedEffect(controls,state.busy,state.error,player.error) { withFrameNanos {}; when { state.error!=null||player.error!=null -> retry.requestFocus(); controls -> play.requestFocus(); else -> stage.requestFocus() } }
     LaunchedEffect(player.seekError) { if(player.seekError!=null)controls=true }
-    LaunchedEffect(seekPulse) { val target = seekTarget; if(target != null) { delay(350); model.media.seek(target); seekTarget = null } }
+    LaunchedEffect(mediaEpoch,seekPulse) { val target = seekTarget; if(target != null) { delay(350); model.media.seek(target); seekTarget = null } }
     val requestSeek: (Long) -> Unit = { delta -> seekTarget = ((seekTarget ?: model.media.sourcePosition()) + delta).coerceIn(0,state.sourceDurationMs.coerceAtLeast(0)); seekPulse++; pulse++ }
     Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(stage).tvRemoteKeys { event ->
         run {
             pulse++
             when(event.nativeKeyEvent.keyCode) {
-                AndroidKey.KEYCODE_MEDIA_PLAY_PAUSE -> { model.media.player.toggle(); true }
+                AndroidKey.KEYCODE_MEDIA_PLAY_PAUSE -> { if(event.nativeKeyEvent.repeatCount==0)model.media.player.toggle(); true }
                 AndroidKey.KEYCODE_MEDIA_PLAY -> { if(!player.playing) model.media.player.toggle(); true }
                 AndroidKey.KEYCODE_MEDIA_PAUSE -> { model.media.player.pause(); true }
                 AndroidKey.KEYCODE_MEDIA_NEXT -> {model.media.navigateQueue(1);true}
                 AndroidKey.KEYCODE_MEDIA_PREVIOUS -> {model.media.navigateQueue(-1);true}
-                AndroidKey.KEYCODE_MEDIA_FAST_FORWARD -> {requestSeek(10_000);true}
-                AndroidKey.KEYCODE_MEDIA_REWIND -> {requestSeek(-10_000);true}
-                AndroidKey.KEYCODE_DPAD_LEFT -> if(!controls && panel==null){requestSeek(-10_000);true}else false
-                AndroidKey.KEYCODE_DPAD_RIGHT -> if(!controls && panel==null){requestSeek(10_000);true}else false
-                AndroidKey.KEYCODE_DPAD_UP, AndroidKey.KEYCODE_DPAD_DOWN, AndroidKey.KEYCODE_DPAD_CENTER, AndroidKey.KEYCODE_ENTER, AndroidKey.KEYCODE_NUMPAD_ENTER, AndroidKey.KEYCODE_BUTTON_A -> if(!controls && panel==null){controls=true;true}else false
+                AndroidKey.KEYCODE_MEDIA_FAST_FORWARD -> {requestSeek(tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}
+                AndroidKey.KEYCODE_MEDIA_REWIND -> {requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}
+                AndroidKey.KEYCODE_DPAD_LEFT -> if(!controls && panel==null){requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
+                AndroidKey.KEYCODE_DPAD_RIGHT -> if(!controls && panel==null){requestSeek(tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
+                AndroidKey.KEYCODE_DPAD_DOWN -> if(!controls && panel==null){controls=true;true}else false
+                AndroidKey.KEYCODE_DPAD_CENTER, AndroidKey.KEYCODE_ENTER, AndroidKey.KEYCODE_NUMPAD_ENTER, AndroidKey.KEYCODE_BUTTON_A -> if(!controls && panel==null){if(event.nativeKeyEvent.repeatCount==0)model.media.player.toggle();true}else false
                 else -> false
             }
         }
@@ -128,9 +132,10 @@ import kotlinx.coroutines.*
                 position=seekTarget?:model.media.sourcePosition(),duration=state.sourceDurationMs,
                 buffered=player.bufferedPositionMs+state.sourceOffsetMs,cachedRanges=cache.ranges,playFocus=play,settingsFocus=options,
                 actions=actions,onToggle={model.media.player.toggle();pulse++},onSeek=requestSeek,
-                onSeekTo={target->seekTarget=target.coerceIn(0,state.sourceDurationMs.coerceAtLeast(0));seekPulse++;pulse++},onExit=model.media::close,
+                onSeekTo={target->seekTarget=target.coerceIn(0,state.sourceDurationMs.coerceAtLeast(0));seekPulse++;pulse++},
                 onPrevious={model.media.navigateQueue(-1)},onNext={model.media.navigateQueue(1)},onPanel=showPanel,
                 modifier=Modifier.align(Alignment.BottomCenter),
+                seekStepSeconds=interfaceState.seekStepSeconds,
             )
         }
         if(delayedBusy(state.busy||((player.waitingForBuffer||player.seeking)&&player.seekError==null)))Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.48f),RoundedCornerShape(12.dp)).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -143,28 +148,30 @@ import kotlinx.coroutines.*
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){TvButton("重试",model.media::retry,Modifier.focusRequester(retry));TvButton("原生播放",{model.media.switchMode(TvHdrMode.NATIVE)});if(state.sdrAvailable)TvButton("SDR 兼容",{model.media.switchMode(TvHdrMode.SDR)});TvButton("返回",model.media::close)}
         }
         seekTarget?.let{target->if(!controls)Text("跳转到 ${tvTime(target)}",Modifier.align(Alignment.BottomCenter).padding(30.dp).background(Color(0xE614181E),RoundedCornerShape(12.dp)).padding(14.dp),style=MaterialTheme.typography.titleMedium)}
+        if(exitPrompt)Text("再按一次返回退出播放",Modifier.align(Alignment.BottomCenter).padding(bottom=28.dp).background(Color.Black.copy(alpha=.6f),TvShape).padding(horizontal=20.dp,vertical=12.dp),style=MaterialTheme.typography.bodyLarge,color=Color.White)
     }
     panel?.let { name -> TvPanel(if(name=="队列") "队列 · ${state.queue?.items?.size ?: 0}" else name,closePanel,onBack=backPanel) {
         when(name) {
             "设置" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                item{TvButton("倍速 · ${player.rate}×",{panel="倍速"},Modifier.fillMaxWidth())}
+                item{TvOptionRow("播放速度",{panel="倍速"},value="${player.rate}×",destination=true)}
                 if(!audio) {
-                    item{TvButton("HDR · ${state.mode.title}",{panel="HDR"},Modifier.fillMaxWidth())}
-                    item{TvButton("画面 · ${listOf("适合","拉伸","裁切")[resize]}",{resize=(resize+1)%3;model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,AspectRatioFrameLayout.RESIZE_MODE_FILL,AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[resize])},Modifier.fillMaxWidth())}
+                    item{TvOptionRow("动态范围",{panel="HDR"},value=state.mode.title,destination=true)}
+                    item{TvOptionRow("画面比例",{resize=(resize+1)%3;model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,AspectRatioFrameLayout.RESIZE_MODE_FILL,AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[resize])},value=listOf("适合","拉伸","裁切")[resize],showSelection=false)}
                 }
             }
-            "字幕" -> TvSubtitlePanel(model,player,state)
+            "字幕" -> TvSubtitlePanel(model,player,state){panel="字幕设置"}
+            "字幕设置" -> TvSubtitleAppearancePanel(model,player)
             "音轨" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                if(state.compatible)item{TvButton("关闭",{model.media.selectSourceAudio(-1)},Modifier.fillMaxWidth(),selected=state.sourceAudioOff)}
-                if(state.compatible)items(state.sourceAudio,key={it.index}){track->TvButton("${track.title} · ${track.codec}",{model.media.selectSourceAudio(track.index)},Modifier.fillMaxWidth(),selected=state.selectedSourceAudio==track.index)}
-                else items(player.audio,key={it.id}){track->TvButton(track.title,{model.media.selectAudio(track.id)},Modifier.fillMaxWidth(),selected=player.selectedAudio==track.id,enabled=!state.busy)}
+                if(state.compatible)item{TvOptionRow("关闭",{model.media.selectSourceAudio(-1)},selected=state.sourceAudioOff)}
+                if(state.compatible)items(state.sourceAudio,key={it.index}){track->TvOptionRow(track.title,{model.media.selectSourceAudio(track.index)},supporting=track.codec,selected=state.selectedSourceAudio==track.index)}
+                else items(player.audio,key={it.id}){track->TvOptionRow(track.title,{model.media.selectAudio(track.id)},selected=player.selectedAudio==track.id,enabled=!state.busy)}
             }
             "倍速" -> TvSpeedPanel(model,player.rate)
             "HDR" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                items(TvHdrMode.entries){mode->TvButton(mode.title,{model.media.switchMode(mode)},Modifier.fillMaxWidth(),selected=state.mode==mode,enabled=!state.busy&&(mode!=TvHdrMode.SDR||state.sdrAvailable))}
+                items(TvHdrMode.entries){mode->TvOptionRow(mode.title,{model.media.switchMode(mode)},selected=state.mode==mode,enabled=!state.busy&&(mode!=TvHdrMode.SDR||state.sdrAvailable))}
                 item{Text("当前路径：${if(state.compatible)"SDR 兼容" else "原生"}\n片源：${state.info?.optString("dynamicRange","未知")}\n输出信号：${tvOutputSignal(player)}",style=MaterialTheme.typography.bodySmall)}
             }
-            "队列" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) { val queue=state.queue; if(queue!=null)items(queue.items.size){index->TvButton(queue.items[index].name,{model.media.navigateQueue(index-queue.index)},Modifier.fillMaxWidth(),selected=index==queue.index)} }
+            "队列" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(4.dp)) { val queue=state.queue; if(queue!=null)items(queue.items.size){index->TvOptionRow(queue.items[index].name,{model.media.navigateQueue(index-queue.index)},selected=index==queue.index)} }
             "信息" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 item{Text(file.name,style=MaterialTheme.typography.titleMedium)}
                 item{Text(file.path,style=MaterialTheme.typography.bodyMedium)}
@@ -175,7 +182,13 @@ import kotlinx.coroutines.*
     } }
 }
 
-@Composable internal fun TvTimeline(position:Long,duration:Long,buffered:Long,onSeekBy:(Long)->Unit,modifier:Modifier=Modifier,cachedRanges:List<TvCachedRange> = emptyList(),onSeekTo:(Long)->Unit={onSeekBy(it-position)}) {
+internal fun tvSeekDelta(event:AndroidKey,stepSeconds:Int):Long {
+    val held=(event.eventTime-event.downTime).coerceAtLeast(0)
+    val multiplier=when { held>=6000->16;held>=3500->8;held>=2000->4;held>=1000->2;else->1 }
+    return stepSeconds.coerceIn(3,30)*1000L*multiplier
+}
+
+@Composable internal fun TvTimeline(position:Long,duration:Long,buffered:Long,onSeekBy:(Long)->Unit,modifier:Modifier=Modifier,cachedRanges:List<TvCachedRange> = emptyList(),onSeekTo:(Long)->Unit={onSeekBy(it-position)},seekStepSeconds:Int=10) {
     var focused by remember{mutableStateOf(false)}
     var dragPosition by remember(duration){mutableStateOf<Long?>(null)}
     val seekTo by rememberUpdatedState(onSeekTo)
@@ -189,8 +202,8 @@ import kotlinx.coroutines.*
                 onHorizontalDrag={change,_->change.consume();dragPosition=(duration*(change.position.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)).toLong()},
                 onDragEnd={dragPosition?.let(seekTo);dragPosition=null},onDragCancel={dragPosition=null}) }
             .onPreviewKeyEvent{
-            if(it.type==KeyEventType.KeyDown&&it.nativeKeyEvent.keyCode==AndroidKey.KEYCODE_DPAD_LEFT){onSeekBy(-10_000);true}
-            else if(it.type==KeyEventType.KeyDown&&it.nativeKeyEvent.keyCode==AndroidKey.KEYCODE_DPAD_RIGHT){onSeekBy(10_000);true}else false
+            if(it.type==KeyEventType.KeyDown&&it.nativeKeyEvent.keyCode==AndroidKey.KEYCODE_DPAD_LEFT){onSeekBy(-tvSeekDelta(it.nativeKeyEvent,seekStepSeconds));true}
+            else if(it.type==KeyEventType.KeyDown&&it.nativeKeyEvent.keyCode==AndroidKey.KEYCODE_DPAD_RIGHT){onSeekBy(tvSeekDelta(it.nativeKeyEvent,seekStepSeconds));true}else false
         }.semantics{contentDescription="播放进度 ${tvTime(displayPosition)}，总时长 ${tvTime(duration)}";progressBarRangeInfo=ProgressBarRangeInfo(if(duration>0)(displayPosition.toFloat()/duration).coerceIn(0f,1f)else 0f,0f..1f);setProgress{value->if(duration>0){seekTo((duration*value.coerceIn(0f,1f)).toLong());true}else false}}.focusable()) {
             val y=size.height/2;val width=if(focused)4.dp.toPx()else 2.dp.toPx()
             drawLine(Color.White.copy(alpha=.2f),Offset(0f,y),Offset(size.width,y),width)
@@ -205,30 +218,36 @@ import kotlinx.coroutines.*
 @Composable private fun TvSpeedPanel(model:TvModel,rate:Float) {
     var custom by remember{mutableStateOf(rate.toString())}
     LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        items(listOf(.5f,.75f,1f,1.25f,1.5f,2f)){value->TvButton("${value}×",{model.media.player.rate(value)},Modifier.fillMaxWidth(),selected=rate==value)}
+        items(listOf(.5f,.75f,1f,1.25f,1.5f,2f)){value->TvOptionRow("${value}×",{model.media.player.rate(value)},selected=rate==value)}
         item{TvField("自定义速度（0.1–5）",custom,{custom=it})}
         item{TvButton("应用",{parsePlaybackRate(custom)?.let(model.media.player::rate)},Modifier.fillMaxWidth(),enabled=parsePlaybackRate(custom)!=null)}
     }
 }
 
-@Composable private fun TvSubtitlePanel(model:TvModel,player:PlayerState,state:TvMediaState) {
+@Composable private fun TvSubtitlePanel(model:TvModel,player:PlayerState,state:TvMediaState,onAppearance:()->Unit) {
+    var browserOpen by remember{mutableStateOf(false)}
+    LazyColumn(verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        if(state.subtitleLoading||player.subtitleLoading)item{Text("正在准备字幕…",style=MaterialTheme.typography.bodyMedium,color=LocalTvSurfaces.current.secondaryText)}
+        state.subtitleError?.let{message->item{Text(message,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.error)}}
+        item{TvOptionRow("关闭字幕",model.media::subtitlesOff,selected=player.selectedSubtitle==-1&&state.selectedSourceSubtitle==-1)}
+        if(state.sourceSubtitles)items(state.sourceText,key={it.index}){track->TvOptionRow(track.title,{model.media.selectSourceSubtitle(track.index)},supporting=track.codec,selected=state.selectedSourceSubtitle==track.index)}
+        else items(player.subtitles.filter{it.id>=0},key={it.id}){track->TvOptionRow(track.title,{model.media.selectPlayerSubtitle(track.id)},selected=player.selectedSubtitle==track.id)}
+        if(state.sidecars.isNotEmpty()) {
+            item{TvSectionTitle("同目录外挂字幕")}
+            items(state.sidecars,key={it.wirePath}){file->TvOptionRow(file.name,{model.media.selectExternalSubtitle(file)},showSelection=false)}
+        }
+        item{TvOptionRow("添加外挂字幕",{browserOpen=true},icon=Art.drawable.fileway_ic_folder,destination=true)}
+        item{TvOptionRow("字幕外观与同步",onAppearance,icon=Art.drawable.fileway_ic_settings,destination=true)}
+    }
+    if(browserOpen)TvSubtitleBrowser(model,{browserOpen=false})
+}
+
+@Composable private fun TvSubtitleAppearancePanel(model:TvModel,player:PlayerState) {
     val appearance by model.media.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
     var fontsOpen by remember{mutableStateOf(false)}
-    var browserOpen by remember{mutableStateOf(false)}
     var delay by remember{mutableStateOf((player.subtitleDelayMs/1000.0).toString())}
     LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        if(state.subtitleLoading||player.subtitleLoading)item{Text("正在准备字幕…",style=MaterialTheme.typography.bodyMedium,color=LocalTvSurfaces.current.secondaryText)}
-        state.subtitleError?.let{message->item{Text(message,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.error)}}
-        item{TvButton("关闭字幕",model.media::subtitlesOff,Modifier.fillMaxWidth(),selected=player.selectedSubtitle==-1&&state.selectedSourceSubtitle==-1)}
-        if(state.sourceSubtitles)items(state.sourceText,key={it.index}){track->TvButton("${track.title} · ${track.codec}",{model.media.selectSourceSubtitle(track.index)},Modifier.fillMaxWidth(),selected=state.selectedSourceSubtitle==track.index)}
-        else items(player.subtitles.filter{it.id>=0},key={it.id}){track->TvButton(track.title,{model.media.selectPlayerSubtitle(track.id)},Modifier.fillMaxWidth(),selected=player.selectedSubtitle==track.id)}
-        if(state.sidecars.isNotEmpty()) {
-            item{TvSectionTitle("同目录外挂字幕")}
-            items(state.sidecars,key={it.wirePath}){file->TvButton(file.name,{model.media.selectExternalSubtitle(file)},Modifier.fillMaxWidth())}
-        }
-        item{TvButton("浏览其他文件夹的字幕",{browserOpen=true},Modifier.fillMaxWidth())}
-        item{TvSectionTitle("时间与外观")}
         item{Text("字幕延迟 ${player.subtitleDelayMs} ms",style=MaterialTheme.typography.bodyMedium)}
         item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TvButton("提前 100ms",{model.media.player.subtitleDelay(player.subtitleDelayMs-100)});TvButton("延后 100ms",{model.media.player.subtitleDelay(player.subtitleDelayMs+100)})}}
         item{TvField("精确延迟（秒，负数提前）",delay,{delay=it})}
@@ -241,10 +260,9 @@ import kotlinx.coroutines.*
         item{TvButton("文字背景：${(appearance.backgroundOpacity*100).toInt()}%",{scope.launch{val value=appearance.copy(backgroundOpacity=if(appearance.backgroundOpacity>=.75f)0f else appearance.backgroundOpacity+.25f);model.media.updateSubtitleAppearance(value)}},Modifier.fillMaxWidth())}
         item{Text("ASS 保留片源样式；通用字体、字号与位置设置用于普通文字字幕。",style=MaterialTheme.typography.bodySmall)}
     }
-    if(browserOpen)TvSubtitleBrowser(model,{browserOpen=false})
     if(fontsOpen)TvPanel("字幕字体",{fontsOpen=false}) {
         val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
-        LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){items(fonts.options,key={it.key}){font->TvButton(font.label,{scope.launch{val value=appearance.copy(fontKey=font.key);model.media.updateSubtitleAppearance(value)}},Modifier.fillMaxWidth(),selected=appearance.fontKey==font.key)}}
+        LazyColumn(verticalArrangement=Arrangement.spacedBy(4.dp)){items(fonts.options,key={it.key}){font->TvOptionRow(font.label,{scope.launch{val value=appearance.copy(fontKey=font.key);model.media.updateSubtitleAppearance(value)}},selected=appearance.fontKey==font.key)}}
     }
 }
 

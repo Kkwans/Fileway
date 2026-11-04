@@ -31,17 +31,16 @@ import io.github.kkwans.fileway.design.R as Art
     playFocus: FocusRequester, settingsFocus: FocusRequester,
     actions: MutableMap<String, FocusRequester>,
     onToggle: () -> Unit, onSeek: (Long) -> Unit, onSeekTo: (Long) -> Unit, onPrevious: () -> Unit,
-    onNext: () -> Unit, onExit: () -> Unit, onPanel: (String) -> Unit, modifier: Modifier = Modifier,
+    onNext: () -> Unit, onPanel: (String) -> Unit, seekStepSeconds:Int=10, modifier: Modifier = Modifier,
 ) {
     val gradient = remember { Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha=.22f), Color.Black.copy(alpha=.76f))) }
     Column(modifier.fillMaxWidth().background(gradient).padding(start=48.dp,end=48.dp,top=42.dp,bottom=24.dp),
         verticalArrangement=Arrangement.spacedBy(4.dp)) {
         if(title.isNotBlank())Text(title,style=MaterialTheme.typography.titleLarge.copy(fontSize=26.sp,lineHeight=34.sp),maxLines=1,overflow=TextOverflow.Ellipsis,color=Color.White)
         subtitle?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=Color.White.copy(alpha=.72f),maxLines=1,overflow=TextOverflow.Ellipsis) }
-        TvTimeline(position,duration,buffered,onSeek,Modifier.fillMaxWidth().focusProperties{down=playFocus},cachedRanges,onSeekTo)
-        Box(Modifier.fillMaxWidth().height(72.dp)) {
+        TvTimeline(position,duration,buffered,onSeek,Modifier.fillMaxWidth().focusProperties{down=playFocus},cachedRanges,onSeekTo,seekStepSeconds)
+        Box(Modifier.fillMaxWidth().height(84.dp)) {
             Row(Modifier.align(Alignment.CenterStart).focusGroup(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-                TvPlaybackAction("返回文件",Art.drawable.fileway_ic_arrow_back,onExit)
                 actions["设置"]=settingsFocus
                 TvPlaybackAction("设置",Art.drawable.fileway_ic_settings,{onPanel("设置")},Modifier.focusRequester(settingsFocus))
                 val queueFocus=remember{FocusRequester()};actions["队列"]=queueFocus
@@ -49,9 +48,7 @@ import io.github.kkwans.fileway.design.R as Art
             }
             Row(Modifier.align(Alignment.Center).focusGroup(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                 TvPlaybackAction("上一项",Art.drawable.fileway_ic_skip_previous,onPrevious,enabled=previous&&enabled)
-                TvPlaybackAction("后退 10 秒",Art.drawable.fileway_ic_replay_10,{onSeek(-10_000)},enabled=enabled)
                 TvPlaybackAction(if(playing)"暂停" else "播放",if(playing)Art.drawable.fileway_ic_pause else Art.drawable.fileway_ic_play_arrow,onToggle,Modifier.focusRequester(playFocus),enabled=enabled,primary=true)
-                TvPlaybackAction("前进 10 秒",Art.drawable.fileway_ic_forward_10,{onSeek(10_000)},enabled=enabled)
                 TvPlaybackAction("下一项",Art.drawable.fileway_ic_skip_next,onNext,enabled=next&&enabled)
             }
             Row(Modifier.align(Alignment.CenterEnd).focusGroup(),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
@@ -68,11 +65,12 @@ import io.github.kkwans.fileway.design.R as Art
     var focused by remember{mutableStateOf(false)}
     val interaction=remember{MutableInteractionSource()}
     val shape=if(primary)CircleShape else RoundedCornerShape(12.dp)
-    Column(modifier.width(48.dp).onFocusChanged{focused=it.hasFocus},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        Button(onClick=onClick,enabled=enabled,interactionSource=interaction,modifier=Modifier.size(48.dp).tvTouch(onClick,enabled,interaction).semantics{contentDescription=label},
-            contentPadding=PaddingValues(10.dp),shape=ButtonDefaults.shape(shape),scale=ButtonDefaults.scale(focusedScale=1f),
-            colors=ButtonDefaults.colors(containerColor=Color.White.copy(alpha=if(primary).14f else .04f),contentColor=Color.White,
-                focusedContainerColor=if(primary)Color.White else Color.White.copy(alpha=.18f),focusedContentColor=if(primary)Color(0xFF10161F) else Color.White,
+    Column(modifier.width(if(primary)64.dp else 48.dp).onFocusChanged{focused=it.hasFocus},horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        Button(onClick=onClick,enabled=enabled,interactionSource=interaction,modifier=Modifier.size(if(primary)60.dp else 48.dp).tvTouch(onClick,enabled,interaction).semantics{contentDescription=label},
+            contentPadding=PaddingValues(if(primary)14.dp else 10.dp),shape=ButtonDefaults.shape(shape),scale=ButtonDefaults.scale(focusedScale=1f),
+            border=ButtonDefaults.border(focusedBorder=Border(androidx.compose.foundation.BorderStroke(2.dp,MaterialTheme.colorScheme.primary),shape=shape)),
+            colors=ButtonDefaults.colors(containerColor=if(primary)Color.White else Color.Transparent,contentColor=if(primary)Color(0xFF181A1E) else Color.White,
+                focusedContainerColor=Color.White,focusedContentColor=Color(0xFF181A1E),
                 disabledContainerColor=Color.Transparent,disabledContentColor=Color.White.copy(alpha=.38f))) {
             Icon(painterResource(icon),null,Modifier.size(28.dp))
         }

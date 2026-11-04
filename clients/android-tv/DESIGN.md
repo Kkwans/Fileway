@@ -1,71 +1,52 @@
-# 栖卷 TV visual and interaction system
+# 栖卷 TV 与手机遥控视觉系统
 
-Mode: Operate / Experience. Extend the existing Fileway visual identity.
+Mode: Operate / Experience。整体替换旧版按钮式侧栏与播放器选项墙；保留栖卷品牌、真实文件内容和共享矢量图标。此文描述设计与当前组件契约，不代表投影仪视觉验收通过。
 
-- Consume the shared FilewayPalette and vector resources. Dark default with soft graphite canvas (#282F39), surface (#303946), navigation chrome (#222933) and focused surface (#3A4655), using Wholphin Blue/BoldBlue dark surface-container levels for projection rather than its near-black base; Fileway blue is an accent, not a blue wash. Optional light palette. Keep image canvas black.
-- Use TV Material interaction primitives with explicitly themed 12dp shapes. No phone bottom navigation or touch-only affordance.
-- Reference canvas: 960×540dp; safe content gutters default to 5%, independently adjustable. Titles 26–28sp, primary labels 18–20sp, secondary labels 14–16sp. Phone and TV share `filewayTextStyle` from design-foundation: explicit SansSerif, no font padding, centered untrimmed line height. TV owns all fifteen Material typography roles; phone sizes are preserved.
-- A 56dp left rail; expanded width is measured from the real labels and brand plus their icon/padding slots. It overlays content without moving the grid; a lazy navigation region and a separate settings slot fit short windows. One readable directory/page header and action row; content uses lazy regular grids (four columns by default, configurable 2–6) or lists. File names use 17sp/24sp with two reserved lines; secondary information uses 16sp/22sp. Home shows actual resume/recent entries. File cards reserve stable artwork/name slots.
-- Focus has a 2dp blue outline and contrasting surface; selection uses a persistent tonal fill. Never move layout geometry when focus changes. Restore focus by resource identity and scrolling position.
-- Modals and right panels contain focus, scroll when required and return it to their trigger. All operations work with directions, OK and Back. Root Back exits without confirmation.
-- Video surface remains attached while HUD/panels appear. Keep timeline, primary playback action and options on clear axes; reserve legible subtitle space. Hide controls only when idle and no modal/edit state is active.
-- Use 120–180ms color/opacity feedback only, respecting system disabled animations. No live blur, animated ambient backdrop or video frame copies.
-- Inspect real text, long paths, many items, empty/loading/failed states and both themes. Native rendering evidence is required; physical image/HDR/audio acceptance is separate.
+## 基础
 
-## TV application references
+- API 28、横屏、远距离观看；遥控与触摸共存。稳定 SurfaceView，不复制视频帧，不做实时模糊、氛围动画或大面积动态阴影。
+- 默认深色中性石墨画布 #292B30、内容层 #32353A、导航层 #24262B；播放器/图片画布独立保持黑色。Fileway 蓝色只用于强调与选中，提供浅色主题。
+- 参考视口 960×540dp。标题26sp/34sp，正文18sp/26sp，文件名17sp/24sp，次要信息16sp/22sp；两行文件名预留稳定高度。文字共享 filewayTextStyle；真实投影可读性须单独验收。
+- 普通控件、菜单和文件卡片12dp圆角，图片蒙版与焦点环共用几何。播放/暂停的圆形是语义例外。48dp以上触摸目标。
+- 焦点、选中、按下分开表达：选中保留低强度蓝色底，菜单焦点采用高对比浅色底和深色字。焦点不改变布局尺寸；内容卡片保留细描边。禁用后台页面焦点、语义和点击。
+- 常规画面默认5%安全边距，可校准；网格默认4列、可设2–6列，8dp间距。内容使用lazy列表/网格，加载不改变图片或卡片尺寸。
 
-Reviewed 2026-10-28, based on upstream source and published interface documentation. These are interaction/composition references, not dependencies or runtime acceptance evidence. No third-party branding, copyrighted cover art or implementation code is copied.
+## 浏览与导航
 
-| Reference | Source inspected | Fileway application |
-| --- | --- | --- |
-| [Wholphin](https://github.com/damontecres/Wholphin) | `HomePage`, `NavDrawer`, `GridCard`, `ItemRow`, `PlaybackControls`, `SeekBarState` | Separate navigation and content focus groups; horizontally scrollable resume/recent rows; stable artwork slots with captions; grouped playback options; coalesced seek requests. |
-| [Jellyfin Android TV](https://github.com/jellyfin/jellyfin-androidtv) | `VideoPlayerControls`, `FocusPersistManager` | Main playback actions and secondary options grouped on separate axes; restore focus by semantic item key; request focus only after the target is attached and visible. |
-| [JetStream Compose](https://github.com/android/tv-samples/tree/main/JetStreamCompose) | Official sample documentation and source structure | TV Material primitives, lazy lists/grids, lifecycle-owned playback, baseline-profile validation. Check current APIs rather than copying deprecated TvLazy examples. |
-| [SmartTube](https://github.com/yuliskov/SmartTube) | Project interaction documentation and player structure | Supplementary reference for remote-only dense playback settings; do not inherit its visual palette, media engine or buffering recommendations. |
+- 使用 AndroidX TV Material 1.1.0 ModalNavigationDrawer 管理抽屉焦点和展开状态，不自行维护侧栏 hasFocus 状态机。
+- 抽屉选项使用官方 ListItem，沿用原生焦点/选中/按下行为。展开宽度按真实标签、字体及图标槽测量；没有采用 NavigationDrawerItem 固定256dp的宽度。折叠56dp；展开覆盖内容而不移动网格。设置独立底部槽，小窗口导航区可滚动。
+- 标题、父路径和工具栏分别承担对象名、位置和动作；完整名称与路径从详情/当前位置可读。长内容不能靠缩小字体解决。
+- 首页只显示真实继续观看、最近访问和文件入口；不生成假海报、推荐和影视元数据。返回、刷新、排序和关闭播放器按资源身份恢复焦点和滚动。
 
-Source tree snapshots for traceability: Wholphin `cecfdaeba94560ed547288fe2cba0324ec9a9b24`; Jellyfin Android TV `c41f329d05bd8e1a6d4a555874e7988c59d9fb1e`; Android tv-samples `15ac8df7df91a07450751a5fe8c6fd17a6a4297f`; SmartTube `380a2b79d3aa1af44a7b8ffbb406ae483a13fbd6`. These are Git tree IDs, not Fileway commits.
+## 播放器
 
-### Composition decisions
+- 静态透明至黑色渐变承载底部HUD；不使用不透明整块底板。标题、时间轴、传输控制三层排列。
+- 传输控制只保留上一项、播放/暂停、下一项；播放按钮为清晰白色圆形。设置/队列在左，字幕/音轨/信息在右；不存在±10秒按钮。焦点反馈与图标组一致。
+- 确认键在隐藏HUD时切换播放暂停；下键显示HUD；隐藏时左右跳转，显示时只有时间轴焦点响应左右。单击3–30秒可设，长按随1/2/3.5/6秒阶段逐级加速；合并重复seek，不把请求进度存成已确认进度。
+- 播放时HUD默认5秒无操作隐藏，可设2–30秒。返回先退子菜单、再隐藏HUD；隐藏时第一次返回提示、2秒内再次返回退出。触摸单击切换HUD，双击播放暂停。
+- 北京时间左上、实测传输速度右上，无背景，各自可常驻或随HUD显示。时间轴展示真实缓存/引擎缓冲范围，不能用VBR字节比例伪造时间覆盖。
+- 音轨、字幕、倍速、HDR和队列共用原生选择列表。字幕轨道页与外观/同步页分离，字体与外挂浏览为独立入口；普通字号/位置不覆盖ASS源样式。选择和关闭字幕不重启视频。
+- 面板为半透明静态表面，独立焦点域，正文可滚动，关闭回到触发控件。延迟显示加载反馈；真实缓冲百分比来自Media3启动/重缓冲门槛，不是全片下载或转码完成率。超时保留恢复入口。
 
-- Home: small brand/header, visible current destination, actual Continue Watching row, Recent Access row and category entry cards. No giant hero without real source metadata; no fake poster library before the separately planned scraping system.
-- Content grid: preserve the left navigation axis; directory/context name above a compact action row. Thumbnail and title geometry remains stable. Focus returns to the same item after playback, details and sorting.
-- Player: adopt Wholphin Controller/PlaybackControls composition: title immediately above the timeline at the bottom, centered icon-only transport, settings/queue to the left and captions/audio/info to the right. Use a static transparent-to-black gradient and translucent controls, with no realtime blur or opaque footer. Play/pause is the first focus target when opening controls. A seek bar never traps focus away from neighboring options.
-- Panels: one scrollable right-side surface for subtitles/audio/HDR/options. Current value, selection and focus are distinguishable; closing restores the exact trigger. Pause auto-hide while the panel or an editor is active.
-- Seek: immediately show requested target, coalesce key repeats, commit one effective seek after input settles; do not save the requested target as confirmed playback progress.
-- Focus budget: no continuous scale/backdrop animation on low-end hardware. Preserve reference hierarchy and interaction quality using stable outlines, tonal state and short feedback.
+## 手机遥控
 
-Published screenshots were located, but the web reader did not render the upstream image endpoints. Source-backed layout findings above are distinct from visual inspection; Fileway's own native rendered candidate still requires the planned emulator/device review.
+- 复用手机 FilewayTopAppBar、Material3标签栏、按钮、图标及Toast。全屏遥控的设备入口和标签栏固定在顶部；内容独立滚动，主操作不被授权按钮挤出首屏。
+- 连接时也可打开设备选择，切换已配对TV、查看发现设备、断开或手动重连。新设备仍遵守授权流程，不因被发现就自动信任。
+- 遥控标签首先呈现当前内容与方向控制；TV未登录时才直接显示账号授权。账号切换属于设置，TV保有独立会话，手机切账号不自动改变TV。
+- 播放标签提供进度、上一项/下一项和可配置秒数的快进后退；显示真实准备/缓冲状态与可恢复错误。拖动状态绑定连接与媒体代次。
+- 正常手机页面一键原生接力、配对码/TV确认授权及完整遥控视觉仍属于后续实现，不能从此文推断已完成。
 
-## Confirmed projection and playback refinements
+## 参考与许可边界
 
-- No remote-control tutorials, marketing slogans or general performance disclaimers in routine UI. Keep real errors, exact states and recovery actions.
-- The published JetStream screenshot collage was read as an actual image through the GitHub file connector. Wholphin playback composition was inspected at commit `6d029086e9e1c4b45a48bffaac9b39b8767f3b27`, in `PlaybackController.kt` and `PlaybackControls.kt`. Reuse that composition and focus hierarchy; Fileway implementation and coherent Material Symbols Rounded icons remain its own, without copying GPLv2 implementation code or third-party movie art.
-- File cards have frameless stable 16:9 artwork, a thin focus outline and captions beneath; avoid nested padded panels. Unfocused navigation has no tile background.
-- Beijing time sits at top-left; measured video transfer speed sits at top-right. No telemetry background. Each can remain visible or follow HUD visibility.
-- Video prebuffer defaults to 2GiB of disk space, adjustable. RAM remains separately bounded. Display only measured cache coverage/decoder buffer; never turn VBR byte percentage into a fabricated time percentage.
+| 参考 | 采用的结构 |
+| --- | --- |
+| [AndroidX TV Material](https://developer.android.com/training/tv/playback/compose) | 原生抽屉、选择列表、遥控焦点；直接核对锁定1.1.0源码，避免拼接实验性布局依赖。 |
+| [Wholphin](https://github.com/damontecres/Wholphin) | 导航与内容独立焦点区、实际继续观看行、HUD传输动作和设置分组。 |
+| [Jellyfin Android TV](https://github.com/jellyfin/jellyfin-androidtv) | 播放器层级、媒体菜单、资源身份焦点恢复。 |
+| [JetStream Compose](https://github.com/android/tv-samples/tree/main/JetStreamCompose) | 官方TV组件、内容密度与稳定卡片结构。 |
 
-## Locally inspected references
+Wholphin本地源码参考6d029086e9e1c4b45a48bffaac9b39b8767f3b27；Jellyfin e3f2cc02dbe484a1afde85bfce52a98d55267a2b；tv-samples 15ac8df7df91a07450751a5fe8c6fd17a6a4297f。源码、项目自带参考截图、当前设备运行是不同证据。不复制GPL实现、第三方品牌或影视封面；共享图标沿用现有许可。
 
-All three reference repositories were shallow-cloned outside Fileway source and pinned in the private research receipt. Wholphin HEAD `6d029086e9e1c4b45a48bffaac9b39b8767f3b27`: inspected local Theme.kt, BlueThemeColors.kt, BoldBlueThemeColors.kt, GridCard.kt, NavDrawer.kt, PlaybackOverlay.kt and transport/controller components. Jellyfin Android TV HEAD `e3f2cc02dbe484a1afde85bfce52a98d55267a2b`: read its packaged home/player/detail screenshots directly as images, plus current video control source. Packaged screenshots are project reference assets and do not establish current upstream runtime behavior. Official tv-samples HEAD recorded in the research receipt; JetStream screenshot collage was visually inspected. No cloned repository is vendored into Fileway and no upstream movie art is packaged.
+## 验收边界
 
-For this projection-oriented build, use the reference's raised neutral surface levels as the normal canvas rather than an OLED-style near-black canvas. Player and image canvases retain media-appropriate black.
-
-## 0.3.0 browser and pairing implementation
-
-- Browse owns its ordinary theme below a separately themed player; its lazy lists and focus anchors remain composed while playback is active. Inactive browse actions are disabled and its semantics/dialogs are hidden. This removes the former whole-library/theme replacement; actual return motion remains a device acceptance item.
-- Card artwork and the focus ring share exactly the same 12dp bounds, with no inner card inset. The title slot is stable; list rows share the same aligned option component as settings.
-- Settings use measured category navigation plus a separate options column for interface, playback, cache, phone control, device information and login. Cache/account/decoder operations retain their existing implementations.
-- Current directory heading stays separate from the parent path; the location action exposes the complete directory name/path. File details expose full names and paths.
-- A pairing request immediately owns a visible page. Startup, QR generation, errors, retry, cancellation and expiry are explicit; absence of an invitation is a state to display rather than a reason to hide the page. A request waits for the real foreground host and cannot publish an invitation from an older host or a dismissed request.
-- Player HUD, measured media panels and the revised seek/back contract are the next implementation slice; the browser migration alone is not the 0.3.0 release.
-
-### Dense browser and inactive focus
-
-Directory actions share the title toolbar instead of a second full-height row.
-Grid gutters use 8dp; ordinary TV artwork stays 16:9, while windows shorter than
-480dp use a 2.2:1 slot so two rows fit without reducing filename type. Images
-remain aspect-fit within the slot. Settings category navigation uses tonal
-selection without the option check column and measures only its real slots;
-choice lists retain the aligned check column. Theme choices use content width.
-TV Material disabled surfaces remain focusable by design, so inactive browse
-actions also set `canFocus=false`; disabling clicks alone is insufficient.
+集中检查长名称/路径、空/加载/失败、两种主题、720p/1080p、触摸与方向键。源码审查和Kotlin编译仅证明集成；投影文字、焦点运动、返回闪烁、音画/字幕/HDR与低内存表现须真实运行记录。UI替换按完整页面推进，局部切片通过不能称整体0.5完成。

@@ -2,6 +2,7 @@ package io.github.kkwans.fileway.tv
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -79,8 +80,8 @@ private val TvTypography = Typography(
         primary = FilewayPalette.darkAccent, onPrimary = FilewayPalette.darkCanvas,
         secondary = FilewayPalette.darkAccent, secondaryContainer = Color(0xFF35404D),
         onSecondaryContainer = Color(0xFFF0F4FA),
-        background = if (media) FilewayPalette.playerCanvas else Color(0xFF282F39),
-        surface = if (media) FilewayPalette.playerSurface else Color(0xFF303946),
+        background = if (media) FilewayPalette.playerCanvas else Color(0xFF292B30),
+        surface = if (media) FilewayPalette.playerSurface else Color(0xFF32353A),
         onBackground = Color(0xFFF0F4FA), onSurface = Color(0xFFF0F4FA),
     ) else lightColorScheme(
         primary = FilewayPalette.blue, onPrimary = Color.White,
@@ -89,7 +90,7 @@ private val TvTypography = Typography(
         background = FilewayPalette.lightCanvas, surface = FilewayPalette.lightSurface,
         onBackground = FilewayPalette.lightText, onSurface = FilewayPalette.lightText,
     )
-    val surfaces = if (dark) TvSurfaceRoles(Color(0xFF222933), Color(0xFF3A4655), Color(0xFFBCC7D7), Color(0xFF536175))
+    val surfaces = if (dark) TvSurfaceRoles(Color(0xFF24262B), Color(0xFF41444A), Color(0xFFCBCDD2), Color(0xFF60636A))
         else TvSurfaceRoles(Color(0xFFEDF1F6), Color(0xFFE6EDF6), FilewayPalette.lightSecondary, Color(0xFFB2BFCE))
     MaterialTheme(colorScheme = colors, typography = TvTypography) {
         CompositionLocalProvider(LocalContentColor provides colors.onBackground, LocalTvSurfaces provides surfaces, content = content)
@@ -139,14 +140,16 @@ private val TvTypography = Typography(
 @Composable fun TvPanel(title: String, onDismiss: () -> Unit, onBack: () -> Unit = onDismiss, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onBack, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
         TvRemoteDialogKeys(onBack)
+        val body=remember { FocusRequester() }
+        LaunchedEffect(title) { androidx.compose.runtime.withFrameNanos {};body.requestFocus() }
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .16f))) {
             Column(Modifier.align(Alignment.CenterEnd).width((maxWidth * .46f).coerceIn(320.dp, 460.dp)).fillMaxHeight()
-                .background(MaterialTheme.colorScheme.surface.copy(alpha=.94f), RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)).padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                .background(MaterialTheme.colorScheme.surface.copy(alpha=.90f), RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                    TvButton("关闭", onDismiss)
+                    TvToolbarAction("关闭",Art.drawable.fileway_ic_close,onDismiss)
                 }
-                content()
+                Column(Modifier.weight(1f).fillMaxWidth().focusRequester(body).focusGroup(),verticalArrangement=Arrangement.spacedBy(12.dp),content=content)
             }
         }
     }
@@ -247,28 +250,22 @@ internal fun tvDate(value:String):String=runCatching {
 ) {
     val interactive=LocalTvInteractive.current
     val colors=MaterialTheme.colorScheme
-    var focused by remember { mutableStateOf(false) }
     val interaction=remember { MutableInteractionSource() }
-    Button(onClick=onClick,enabled=enabled && interactive,interactionSource=interaction,
-        modifier=modifier.fillMaxWidth().heightIn(min=52.dp).tvTouch(onClick,enabled && interactive,interaction).focusProperties { canFocus=interactive }
-            .semantics { this.selected=selected }.onFocusChanged { focused=it.isFocused }
-            .border(2.dp,if(focused)colors.primary else Color.Transparent,TvShape),
-        shape=ButtonDefaults.shape(TvShape),scale=ButtonDefaults.scale(focusedScale=1f),
-        contentPadding=PaddingValues(horizontal=14.dp,vertical=10.dp),
-        colors=ButtonDefaults.colors(containerColor=if(selected)colors.primary.copy(alpha=.12f)else Color.Transparent,
-            contentColor=colors.onSurface,focusedContainerColor=LocalTvSurfaces.current.raised,focusedContentColor=colors.onSurface)) {
-        if(leading!=null) { leading();Spacer(Modifier.width(14.dp)) }
-        else if(icon!=null) { Icon(painterResource(icon),null,Modifier.size(24.dp),tint=if(selected)colors.primary else LocalTvSurfaces.current.secondaryText);Spacer(Modifier.width(14.dp)) }
-        Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)) {
-            Text(title,style=MaterialTheme.typography.bodyLarge,maxLines=2,overflow=TextOverflow.Ellipsis)
-            supporting?.takeIf { it.isNotBlank() }?.let { Text(it,style=MaterialTheme.typography.bodySmall,color=LocalTvSurfaces.current.secondaryText,maxLines=2,overflow=TextOverflow.Ellipsis) }
-        }
-        value?.let { Spacer(Modifier.width(12.dp));Text(it,style=MaterialTheme.typography.labelMedium,color=LocalTvSurfaces.current.secondaryText) }
-        if(destination) { Spacer(Modifier.width(12.dp));Icon(painterResource(Art.drawable.fileway_ic_arrow_forward),null,Modifier.size(22.dp),tint=LocalTvSurfaces.current.secondaryText) }
-        else if(showSelection) { Spacer(Modifier.width(12.dp));Box(Modifier.size(24.dp),contentAlignment=Alignment.Center) {
-            if(selected)Icon(painterResource(Art.drawable.fileway_ic_check),null,Modifier.size(22.dp),tint=colors.primary)
-        } }
-    }
+    ListItem(selected=selected,onClick=onClick,enabled=enabled&&interactive,interactionSource=interaction,
+        modifier=modifier.fillMaxWidth().heightIn(min=52.dp).tvTouch(onClick,enabled&&interactive,interaction).focusProperties { canFocus=interactive },
+        shape=ListItemDefaults.shape(TvShape),scale=ListItemDefaults.scale(focusedScale=1f),
+        colors=ListItemDefaults.colors(containerColor=Color.Transparent,contentColor=colors.onSurface,
+            selectedContainerColor=colors.primary.copy(alpha=.12f),selectedContentColor=colors.onSurface,
+            focusedContainerColor=colors.onSurface,focusedContentColor=colors.surface,
+            focusedSelectedContainerColor=colors.onSurface,focusedSelectedContentColor=colors.surface),
+        headlineContent={Text(title,style=MaterialTheme.typography.bodyLarge,maxLines=2,overflow=TextOverflow.Ellipsis)},
+        supportingContent=supporting?.takeIf{it.isNotBlank()}?.let{subtitle->{Text(subtitle,style=MaterialTheme.typography.bodySmall,color=LocalContentColor.current.copy(alpha=.75f),maxLines=2,overflow=TextOverflow.Ellipsis)}},
+        leadingContent=if(leading!=null){{leading()}}else icon?.let{resource-> {Icon(painterResource(resource),null,Modifier.size(24.dp))}},
+        trailingContent={Row(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically){
+            value?.let{Text(it,style=MaterialTheme.typography.labelMedium)}
+            if(destination)Icon(painterResource(Art.drawable.fileway_ic_arrow_forward),null,Modifier.size(22.dp))
+            else if(showSelection)Box(Modifier.size(24.dp),contentAlignment=Alignment.Center){if(selected)Icon(painterResource(Art.drawable.fileway_ic_check),null,Modifier.size(22.dp))}
+        }})
 }
 
 @Composable internal fun TvQuietAction(label:String,onClick:()->Unit) {

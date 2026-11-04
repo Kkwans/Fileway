@@ -21,6 +21,7 @@ data class TvState(
     val dark: Boolean = true, val safePercent: Int = 5, val grid: Boolean = true, val gridColumns:Int=4, val clockAlways:Boolean=true, val speedAlways:Boolean=true, val sortAscending: Boolean = true,
     val search: Boolean = false, val searchQuery: String = "", val searchDone: Boolean = false, val searchScope: SearchScope = SearchScope.CURRENT, val searchBasePath: String = "/",
     val rootEntries:List<ResourceRef> = emptyList(),val recentPlayback: List<PlaybackSnapshot> = emptyList(), val profile: ServerProfile? = null,
+    val seekStepSeconds:Int=10, val controlsTimeoutSeconds:Int=5,
 )
 
 class TvModel(application: Application) : AndroidViewModel(application) {
@@ -28,7 +29,12 @@ class TvModel(application: Application) : AndroidViewModel(application) {
     private val store = ProfileStore(database, CredentialVault(application))
     private val history = PlaybackHistory(database.playback())
     private val preferences = application.getSharedPreferences("tv-interface", 0)
-    private val mutable = MutableStateFlow(TvState(dark = preferences.getBoolean("dark", true), safePercent = preferences.getInt("safe_percent", 5).coerceIn(0, 8), grid = preferences.getBoolean("grid", true),gridColumns=preferences.getInt("grid_columns",4).coerceIn(2,6),clockAlways=preferences.getBoolean("clock_always",true),speedAlways=preferences.getBoolean("speed_always",true)))
+    private val mutable = MutableStateFlow(TvState(
+        dark=preferences.getBoolean("dark",true),safePercent=preferences.getInt("safe_percent",5).coerceIn(0,8),
+        grid=preferences.getBoolean("grid",true),gridColumns=preferences.getInt("grid_columns",4).coerceIn(2,6),
+        clockAlways=preferences.getBoolean("clock_always",true),speedAlways=preferences.getBoolean("speed_always",true),
+        seekStepSeconds=preferences.getInt("seek_step_seconds",10).coerceIn(3,30),
+        controlsTimeoutSeconds=preferences.getInt("controls_timeout_seconds",5).coerceIn(2,30)))
     val state = mutable.asStateFlow()
     val profiles = store.profiles.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     var context: SessionContext? = null
@@ -313,6 +319,8 @@ class TvModel(application: Application) : AndroidViewModel(application) {
     fun setColumns(value:Int) {val columns=value.coerceIn(2,6);preferences.edit().putInt("grid_columns",columns).apply();mutable.update{it.copy(gridColumns=columns)} }
     fun setClockAlways(value:Boolean) {preferences.edit().putBoolean("clock_always",value).apply();mutable.update{it.copy(clockAlways=value)} }
     fun setSpeedAlways(value:Boolean) {preferences.edit().putBoolean("speed_always",value).apply();mutable.update{it.copy(speedAlways=value)} }
+    fun setSeekStep(value:Int) {val valid=value.coerceIn(3,30);preferences.edit().putInt("seek_step_seconds",valid).apply();mutable.update{it.copy(seekStepSeconds=valid)} }
+    fun setControlsTimeout(value:Int) {val valid=value.coerceIn(2,30);preferences.edit().putInt("controls_timeout_seconds",valid).apply();mutable.update{it.copy(controlsTimeoutSeconds=valid)} }
     fun toggleOrder() { mutable.update { it.copy(sortAscending = !it.sortAscending) } }
     fun clearNotice() { mutable.update { it.copy(notice = null, error = null) } }
     fun disconnect() {
@@ -322,7 +330,7 @@ class TvModel(application: Application) : AndroidViewModel(application) {
         context = null
         favorites.bind(null); recentAccess.bind(null)
         imageLoader.memoryCache?.clear()
-        mutable.update { TvState(restoring = false, dark = it.dark, safePercent = it.safePercent, grid = it.grid,gridColumns=it.gridColumns,clockAlways=it.clockAlways,speedAlways=it.speedAlways) }
+        mutable.update { TvState(restoring = false, dark = it.dark, safePercent = it.safePercent, grid = it.grid,gridColumns=it.gridColumns,clockAlways=it.clockAlways,speedAlways=it.speedAlways,seekStepSeconds=it.seekStepSeconds,controlsTimeoutSeconds=it.controlsTimeoutSeconds) }
         viewModelScope.launch {
             media.closeAndSave()
             if (bound != null) {
