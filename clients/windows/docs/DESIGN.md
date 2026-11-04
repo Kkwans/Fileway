@@ -253,7 +253,7 @@ components:
 
 - 行高 40，图标 20，名称 13.5，右侧元信息 12/muted。
 - 表头使用 `surface-raised`，单元格 220px 起，允许横向滚动；不截断到无法阅读。
-- 选中态使用 `surface-hover`，不使用系统蓝色高亮块；可选择的列表一律以 `FwListViewItemStyle` 为基底（含文件任务、搜索、最近访问、传输中心、收藏/标签），行卡片使用 `FwSurfaceBrush` + 1px `FwStrokeBrush` 描边（浅色下白卡不再与页面同色），选中时使用半透明 `FwSelectionBrush` + 左侧 3px 强调标记，并关闭系统方形焦点框、只保留自研双色圆角焦点环（外层 `FwCanvasBrush` 2px 光晕 + 内层 `FwTextPrimaryBrush` 2px 环）。
+- 选中态使用 `surface-hover`，不使用系统蓝色高亮块；可选择的列表一律以 `FwListViewItemStyle` 为基底（含文件任务、搜索、最近访问、传输中心、收藏/标签、压缩包条目），行卡片使用 `FwSurfaceBrush` + `FwItemBorderThickness`（常规 1px、高对比度 2px）`FwStrokeBrush` 描边（浅色下白卡不再与页面同色）；选中时底色 `FwSelectionBrush`、卡片描边改 `FwSelectionStrokeBrush`，**不得再使用左侧 3px 强调条**（0.8.161 删除）。焦点只保留自研双色圆角焦点环（外层 `FwCanvasBrush` 2px 光晕 + 内层 `FwTextPrimaryBrush` 2px 环），并关闭系统焦点视觉；键盘聚焦时隐藏卡片描边，避免「选中描边 + 焦点环」两条轮廓线同时出现（0.8.161）。同一项任何时刻最多一条轮廓线，不得同时出现卡片描边、系统焦点矩形、自研焦点环与强调条中的两种以上。
 - 文本型列表（最近访问/搜索/文件任务/操作记录）统一扫描路径：左 22px 类型图标，中间名称/路径/附加说明，右侧时间或“大小/类型 · 修改时间”摘要右对齐；时间使用 tabular numerals。列头必须与行摘要一致：搜索结果的右列是文件大小（文件夹显示“文件夹”）+ 修改时间，列头因此为“大小/类型 · 修改时间”（0.8.104）。页面级操作收拢到工具区右侧，不在列表上方留下孤立按钮。
 - 文本列表列头使用 12px 次级文字，左列与首列主信息同基线，右侧时间列右对齐；空状态隐藏列头。列头的左/右内边距必须按行内容盒实测：回收站 66/18、主浏览详细列表 62，不得沿用目测值或清单里未落地的理论值。
 
@@ -421,7 +421,7 @@ components:
 - [x] 文本与压缩包查看器已跟随主题（0.8.158）：撤销「刻意固定深色阅读面」的旧决策，与 0.8.156 对图片查看器的批评同源。`TextWindow.ApplyTheme`/`ArchiveWindow.ApplyTheme` 不再钉 `ElementTheme.Dark`，改赋 `FwViewerCanvasStyle`/`FwDocumentPanelStyle`/`FwDocumentNoticeStyle`/`FwCaptionTextStyle`，Markdown 代码块与空文件状态同步；正文/标题去掉显式 Foreground 由主题继承。同轮按该根因全 App 扫出并修掉 6 处构造期捕获主题画刷（图片查看器分隔线、CSV 表头、存储工具两张卡、Markdown 引用块边框与列表符号、错误图标）。证据 `20261103-viewers08158/light3`、`dark2`（各 8 项 UIA 断言 + 2 张实拍，浅/深均无同色文字）。
 - [x] 查看器窗口初始焦点已交给内容（0.8.159）：修复前 UIA 实测 `TextWindow`/`ArchiveWindow` 打开后 `MinimizeButton hasFocus=True`，按 Enter/Space 直接把窗口最小化。现在三个文档查看器在加载完成后显式持焦于根容器（并在布局后补一次）。规则：**只读阅读面不要把焦点给 TextBox**——编辑器模板会画出强调色下划线，在圆角面板底部裁成一条 3px 蓝线，比焦点框更像故障（像素复核 2 行→0 行）；用户点进正文时仍会自然获得编辑器焦点与全选/复制。证据 `20261103-viewers08158/final2-light`、`final2-dark`（各 13 项断言全通过 + 4 张实拍）。
 - [x] 压缩包查看器键盘导航与查看器 Esc 关窗已补齐（0.8.159 遗留 → 0.8.160 实测通过）：`_list.Focus()` 在刚激活的独立窗口里两次都返回 false，所以改由窗口根把 `Down/Up/Home/End/Enter/Ctrl+A` 翻译成条目选择与操作，同时给文本/压缩包/PDF 补上 Esc 关窗与文本按键滚动。浅色 `20261104-keys08160/light6`、深色 `dark2` **各 21 项真实按键断言全 PASS**（PageDown 像素差 10.79%、Home 回到首帧 0%、`ArchiveExtractButton` False→True 证明选中、两步 Esc 分别关框与关窗）+ 6 张实拍，安装包 `20261104-keys08160/dist`。
-- [ ] 选中态标记过多（0.8.160 实拍暴露，用户点名）：行同时存在 ①1px 卡片描边 ②选中底色 ③左侧 3px `SelectionBar` 短竖条 ④自研双色焦点环。用户反馈「蓝色小短竖条也很丑」——它贴在窗口最左缘，与行内容之间还隔着图标列，读起来像脱落的碎片而不是选中指示。需要重新定义：选中与聚焦不得同时留下「框 + 条 + 描边」三重标记；先出方案（条的位置/宽度/是否改为行内标记）再改 `Styles/Design.xaml` 的 `FwListViewItemStyle` 与网格卡片样式。
+- [x] 选中态已收敛（0.8.161）：删除两个模板的左侧 3px `SelectionBar`，选中改为半透明底 + `FwSelectionStrokeBrush` 描边；`FwGridViewItemStyle` 补 `UseSystemFocusVisuals=False`；键盘聚焦时隐藏卡片描边、只留双色焦点环；压缩包列表改套 `FwArchiveListItemStyle`，不再出现 WinUI 默认蓝条。证据 `20261104-select08161/light3`、`dark3`（各 20 项 PASS，原条区高饱和像素 0）与各布局实拍。
 - [ ] 自研双色焦点环在 UIA 自动化下必现（`Focused` 状态），鼠标点击不出现（`PointerFocused` 是空状态）：截图验收必须意识到这点，否则会把测试伪影当成产品缺陷；若连程序化聚焦也不想显示，需要按 `FocusState` 区分。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
 - [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。

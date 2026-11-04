@@ -1,11 +1,28 @@
 # 栖卷 Windows：当前能力与后续产品计划
 
-更新日期：2026-11-04。当前交付版本：**0.8.160，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
+更新日期：2026-11-04。当前交付版本：**0.8.161，本地未签名预览**（UI/UX 重构系列 0.8.12–0.8.151，
 0.8.152 起为本地服务端管理，0.8.153–0.8.155 是该功能的真机反馈闭环，0.8.156 起回到各页面 UI/UX 完善，逐版说明见
-`release-0.8.12.md`–`release-0.8.160.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
-`Fileway-windows-artifacts/20261104-keys08160/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
+`release-0.8.12.md`–`release-0.8.161.md`，设计契约见 [DESIGN.md](DESIGN.md)）；最新安装包在
+`Fileway-windows-artifacts/20261104-select08161/dist`，等待用户实机验收。本文件维护当前产品事实与后续范围；
 历史逐版细节见各 `release-*.md`，整体路线见 [product-roadmap.md](product-roadmap.md)。
 历史文档中“下一版”“尚未接入”等时态若冲突，以本文件与最新实现为准。
+
+## 0.8.161：选中态收敛（已实测、已打包）
+
+- 0.8.160 实拍暴露选中态三重标记：卡片描边、选中底色、左侧 3px 蓝色短竖条，键盘焦点时再叠双色焦点环。
+  用户点名「两层外框」「蓝色小短竖条也很丑」。代码级根因有三个：两个自研模板都有 `SelectionBar`；
+  `FwGridViewItemStyle` 缺 `UseSystemFocusVisuals=False`；`ArchiveWindow._list` 没设 `ItemContainerStyle`，
+  贴窗口最左缘的蓝条其实是 WinUI 默认选中指示器。
+- 改法（方案 A，单层选中）：删除 `SelectionBar` 与 `FwSelectionBarBrush`；新增 `FwSelectionStrokeBrush`
+  与 `FwItemBorderThickness`；选中 = 半透明 `FwSelectionBrush` + 强调色描边；键盘 `Focused` 隐藏卡片描边、
+  只留双色焦点环；网格补 `UseSystemFocusVisuals=False`；列表补上设计契约要求的 1px `CardBorder`；
+  压缩包列表改套新增的 `FwArchiveListItemStyle`。
+- 证据：Release 0 警告 0 错误、两次启动冒烟 `GATE=PASS`；浅色 `20261104-select08161/light3`、深色 `dark3`
+  **各 20 项 PASS、0 FAIL**（网格/详细列表/紧凑列表的鼠标与键盘选中、原 3px 条区高饱和像素 0、
+  压缩包最左缘默认蓝条像素 0），实拍各 7 张。连接页 `Invoke` 偶发抖动重试后通过，属探针已知抖动。
+- 安装包 `20261104-select08161/dist`（setup 277,119,731 字节，SHA-256
+  `bdacb4a6575309947ea66446e66211f607445505effbba9b2161386912f7b37a`）。
+- 本版只收口选中态；压缩包的面包屑摘要、四列、空状态、解压目标/进度/逐条结果、包内预览按 0.8.162–0.8.164 继续。
 
 ## 0.8.160：查看器键盘路径（已实测、已打包）
 
@@ -22,7 +39,7 @@
   `ArchiveExtractButton` False→True 证明方向键真的选中条目，`Enter` 弹出解压确认框，第一次 Esc 只关框且窗口仍在、
   第二次 Esc 才关窗；图片窗口 Esc 作为回归项通过。6 张实拍同目录。
 - 安装包 `20261104-keys08160/dist`（setup 277,119,755 字节，SHA-256 `e575187bfb94fb6aac4b6686609c164bea3cebed1f666360c84041f2a2b220ad`）。
-- **实拍顺带暴露两个新 UI 问题**（已记 DESIGN.md，下一版处理）：选中行左侧 3px 蓝色短竖条贴在窗口最左缘、
+- **实拍顺带暴露两个新 UI 问题**（已在 0.8.161 处理）：选中行左侧 3px 蓝色短竖条贴在窗口最左缘、
   与行内容脱节（用户点名“也很丑”），以及列表行同时叠加「卡片描边 + 选中底色 + 强调条 + 双色焦点环」四重标记；
   其中焦点环只在 UIA 程序化聚焦下出现、鼠标点击不出现，属测试伪影，判读截图时要区分。
 

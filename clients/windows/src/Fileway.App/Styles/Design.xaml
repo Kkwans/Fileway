@@ -26,7 +26,8 @@
       <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#26FFFFFF" />
       <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#33FFFFFF" />
       <SolidColorBrush x:Key="FwSelectionBrush" Color="#3369A8FF" />
-      <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <SolidColorBrush x:Key="FwSelectionStrokeBrush" Color="#8069A8FF" />
+      <Thickness x:Key="FwItemBorderThickness">1</Thickness>
       <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="FwSelectionBrush" />
       <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="AccentFillColorDefaultBrush" />
       <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
@@ -60,7 +61,8 @@
       <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#1A000000" />
       <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#22000000" />
       <SolidColorBrush x:Key="FwSelectionBrush" Color="#2E2563EB" />
-      <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <SolidColorBrush x:Key="FwSelectionStrokeBrush" Color="#802563EB" />
+      <Thickness x:Key="FwItemBorderThickness">1</Thickness>
       <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="FwSelectionBrush" />
       <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="AccentFillColorDefaultBrush" />
       <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
@@ -94,7 +96,8 @@
       <StaticResource x:Key="FwGlassStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <StaticResource x:Key="FwGlassHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
       <SolidColorBrush x:Key="FwSelectionBrush" Color="Transparent" />
-      <StaticResource x:Key="FwSelectionBarBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwSelectionStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <Thickness x:Key="FwItemBorderThickness">2</Thickness>
       <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="SystemColorHighlightColorBrush" />
       <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="SystemColorWindowTextColorBrush" />
       <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="SystemColorWindowTextColorBrush" />
@@ -878,6 +881,7 @@
     <Setter Property="MinHeight" Value="0" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Top" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="GridViewItem">
@@ -904,8 +908,8 @@
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
                     </ObjectAnimationUsingKeyFrames>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionBar" Storyboard.TargetProperty="Visibility">
-                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
@@ -914,8 +918,8 @@
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
                     </ObjectAnimationUsingKeyFrames>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionBar" Storyboard.TargetProperty="Visibility">
-                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
@@ -924,8 +928,8 @@
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
                     </ObjectAnimationUsingKeyFrames>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionBar" Storyboard.TargetProperty="Visibility">
-                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
@@ -937,10 +941,25 @@
                 </VisualState>
               </VisualStateGroup>
               <VisualStateGroup x:Name="FocusStates">
-                <VisualState x:Name="Unfocused" />
-                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Unfocused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="PointerFocused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
                 <VisualState x:Name="Focused">
                   <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Collapsed" />
+                    </ObjectAnimationUsingKeyFrames>
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
                     </ObjectAnimationUsingKeyFrames>
@@ -957,11 +976,9 @@
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                               AutomationProperties.AccessibilityView="Raw" />
-            <Border BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"
+            <Border x:Name="CardBorder" BorderThickness="{ThemeResource FwItemBorderThickness}"
+                    BorderBrush="{ThemeResource FwStrokeBrush}"
                     CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
-            <Border x:Name="SelectionBar" Width="3" Height="28" CornerRadius="2" Margin="6,0,0,0"
-                    HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"
-                    Background="{ThemeResource FwSelectionBarBrush}" IsHitTestVisible="False" />
             <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
                     CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
             <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
@@ -1006,8 +1023,8 @@
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
                     </ObjectAnimationUsingKeyFrames>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionBar" Storyboard.TargetProperty="Visibility">
-                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
@@ -1016,8 +1033,8 @@
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
                     </ObjectAnimationUsingKeyFrames>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionBar" Storyboard.TargetProperty="Visibility">
-                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
@@ -1026,8 +1043,8 @@
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
                     </ObjectAnimationUsingKeyFrames>
-                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="SelectionBar" Storyboard.TargetProperty="Visibility">
-                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
                     </ObjectAnimationUsingKeyFrames>
                   </Storyboard>
                 </VisualState>
@@ -1039,10 +1056,25 @@
                 </VisualState>
               </VisualStateGroup>
               <VisualStateGroup x:Name="FocusStates">
-                <VisualState x:Name="Unfocused" />
-                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Unfocused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="PointerFocused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
                 <VisualState x:Name="Focused">
                   <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Collapsed" />
+                    </ObjectAnimationUsingKeyFrames>
                     <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
                       <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
                     </ObjectAnimationUsingKeyFrames>
@@ -1056,15 +1088,22 @@
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                               AutomationProperties.AccessibilityView="Raw" />
-            <Border x:Name="SelectionBar" Width="3" Height="28" CornerRadius="2" Margin="6,0,0,0"
-                    HorizontalAlignment="Left" VerticalAlignment="Center" Visibility="Collapsed"
-                    Background="{ThemeResource FwSelectionBarBrush}" IsHitTestVisible="False" />
+            <Border x:Name="CardBorder" BorderThickness="{ThemeResource FwItemBorderThickness}"
+                    BorderBrush="{ThemeResource FwStrokeBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
             <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FocusStrokeColorOuterBrush}"
                     CornerRadius="{TemplateBinding CornerRadius}" Margin="1" Visibility="Collapsed" IsHitTestVisible="False" />
           </Grid>
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+  </Style>
+
+  <Style x:Key="FwArchiveListItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Margin" Value="0,0,0,2" />
+    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
   </Style>
 
   <Style x:Key="FwTextBoxStyle" TargetType="TextBox">

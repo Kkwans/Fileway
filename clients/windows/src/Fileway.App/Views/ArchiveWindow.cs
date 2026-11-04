@@ -99,7 +99,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
         _bannerText = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         _banner = new Border { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 10, 16, 10), BorderThickness = new Thickness(0, 0, 0, 1), Child = _bannerText };
-        _listHeader = new Grid { Padding = new Thickness(58, 8, 25, 6) };
+        _listHeader = new Grid { Padding = new Thickness(44, 8, 25, 6) };
         _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         _listHeader.Children.Add(new TextBlock { Text = "名称", FontSize = 12, Opacity = 0.65 });
@@ -107,6 +107,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         Grid.SetColumn(sizeHeader, 1);
         _listHeader.Children.Add(sizeHeader);
 
+        _list.ItemContainerStyle = (Style)Application.Current.Resources["FwArchiveListItemStyle"];
         _list.DoubleTapped += List_DoubleTapped;
         _list.SelectionChanged += (_, _) => UpdateCommands();
         AutomationProperties.SetAutomationId(_list, "ArchiveList");
