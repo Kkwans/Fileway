@@ -13,6 +13,7 @@ import java.security.MessageDigest
 /** Runs on Main and shares the model/player's public actions with touch and
  * D-pad UI. LAN clients never get to choose a URL, token, lease or filesystem. */
 class TvRemoteGateway(private val model:TvModel,context:Context){
+    private val handoff=TvMediaHandoff(model)
     private val authorization=DeviceAuthorization(context)
     private var pending:DeviceGrantRequest?=null
     var key:((Int)->Unit)?=null
@@ -52,6 +53,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             .put("sidecars",JSONArray(media.sidecars.take(8).map(::fileJson))).put("selectedAudio",if(media.compatible)media.selectedSourceAudio?:-1 else player.selectedAudio)
             .put("selectedSubtitle",player.selectedSubtitle).put("selectedSourceSubtitle",media.selectedSourceSubtitle))
         media.queue?.let{q->content.put("queue",JSONObject().put("index",q.index).put("count",q.items.size).put("items",JSONArray(q.items.take(8).map(::fileJson))))}
+        handoff.snapshot()?.let{content.put("handoff",it)}
         return JSONObject().put("sessionEpoch",model.sessionEpoch).put("mediaEpoch",model.media.controlEpoch).put("scene",scene)
             .put("capabilities",JSONObject().put("navigation",true).put("input",true).put("deviceAuth",true).put("media",true)).put("content",content)
     }
@@ -90,7 +92,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
                 "cacheMiB"->{val limit=p.getLong("value");require(limit in 64..65536);model.media.cache.setLimit(limit*1048576)}
                 else->error("设置不支持")
             }
-            "media.open","image.open"->model.open(find(p.getString("id")),files())
+            "media.open","image.open"->if(p.has("handoff"))return handoff.open(command,p)else model.open(find(p.getString("id")),files())
             "playback.play"->if(!player.state.value.playing)player.toggle()
             "playback.pause"->player.pause()
             "playback.stop"->model.media.closeAndSave()
@@ -108,7 +110,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             "queue.next","image.next"->model.media.navigateQueue(1)
             "queue.previous","image.previous"->model.media.navigateQueue(-1)
             "queue.select","image.selectIndex"->{val q=model.media.state.value.queue?:error("队列为空");val index=p.getInt("index");val selected=q.select(index)?:error("队列已变化");model.open(selected.current,selected.items)}
-            "queue.set"->{val ids=p.getJSONArray("ids");require(ids.length() in 1..100);val items=(0 until ids.length()).map{find(ids.getString(it))};val index=p.optInt("index");require(index in items.indices);model.open(items[index],items)}
+            "queue.set"->{if(p.has("handoffId"))return handoff.append(command,p);val ids=p.getJSONArray("ids");require(ids.length() in 1..100);val items=(0 until ids.length()).map{find(ids.getString(it))};val index=p.optInt("index");require(index in items.indices);model.open(items[index],items)}
             "image.setTransform"->{val scale=p.getDouble("scale").toFloat();val x=p.optDouble("x").toFloat();val y=p.optDouble("y").toFloat();require(scale.isFinite()&&scale in 1f..3f&&x.isFinite()&&y.isFinite()&&x in -1f..1f&&y in -1f..1f);if(scale>1)model.media.requestOriginalImage();imageTransform.value=JSONObject().put("revision",++imageRevision).put("scale",scale).put("x",x).put("y",y)}
             else->error("此操作尚不支持")
         }

@@ -5,6 +5,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class MediaHandoffTest {
     private val id="0123456789abcdef0123456789abcdef"
@@ -70,5 +73,16 @@ class MediaHandoffTest {
         val receiver=HandoffQueueReceiver(id,fence,q.manifest,item(0))
         fails{receiver.append(fence,chunk(0,item(0)).put("extra","x".repeat(HANDOFF_CHUNK_BYTES)))}
         assertEquals(0,receiver.received)
+    }
+    @Test fun snapshotCancellationCannotBeUndoneByAnInFlightWorker() {
+        val rows=(0 until 100).map(::item);val q=HandoffQueue.snapshot(rows,0)
+        val receiver=HandoffQueueReceiver(id,fence,q.manifest,rows[0]);val start=CountDownLatch(1)
+        val workers=Executors.newFixedThreadPool(2)
+        try {
+            val append=workers.submit { start.await();try{receiver.append(fence,chunk(0,*rows.toTypedArray()))}catch(_:IllegalStateException){} }
+            val cancel=workers.submit { start.await();receiver.cancel() }
+            start.countDown();append.get(5,TimeUnit.SECONDS);cancel.get(5,TimeUnit.SECONDS)
+            assertEquals(0,receiver.received);fails{receiver.commit(fence)}
+        }finally{workers.shutdownNow()}
     }
 }

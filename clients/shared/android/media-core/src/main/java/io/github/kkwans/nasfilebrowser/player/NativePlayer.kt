@@ -136,6 +136,9 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         it.playerError == null && it.playbackState in setOf(Player.STATE_BUFFERING, Player.STATE_READY, Player.STATE_ENDED)
     } == true
     val wantsPlay: Boolean get() = session.wantsPlay
+    /** Media3 retains this intent at ENDED; a segmented source can continue
+     * without treating a natural segment boundary as a user pause. */
+    val playWhenReady: Boolean get() = engine?.playWhenReady == true
     fun diagnosticSnapshot() = trace.snapshot()
 
     fun attach(view: ViewGroup) {

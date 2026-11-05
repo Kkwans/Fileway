@@ -276,6 +276,7 @@ fun tvOutputSignal(player:PlayerState):String {
 
 @Composable private fun TvImageScreen(model:TvModel) {
     val state by model.media.state.collectAsStateWithLifecycle();val file=state.file?:return
+    val mediaEpoch=model.media.controlEpoch
     var imageInfo by remember{mutableStateOf(false)}
     var controls by remember(file.wirePath){mutableStateOf(false)};var zoom by remember(file.wirePath){mutableFloatStateOf(1f)};var x by remember(file.wirePath){mutableFloatStateOf(0f)};var y by remember(file.wirePath){mutableFloatStateOf(0f)}
     val focus=remember{FocusRequester()}
@@ -302,7 +303,7 @@ fun tvOutputSignal(player:PlayerState):String {
             else->false
         }
     } .focusable()) {
-        request?.let{imageRequest->AsyncImage(model=imageRequest,imageLoader=model.imageLoader,onSuccess={val image=it.result.image;if(image.height>0)aspect=image.width.toFloat()/image.height},onError={model.media.imageFailed(file.mediaKey)},contentDescription=file.name,contentScale=ContentScale.Fit,modifier=Modifier.fillMaxSize().graphicsLayer{scaleX=zoom;scaleY=zoom;translationX=x.coerceIn(-maxPanX,maxPanX);translationY=y.coerceIn(-maxPanY,maxPanY)})}
+        request?.let{imageRequest->AsyncImage(model=imageRequest,imageLoader=model.imageLoader,onSuccess={val image=it.result.image;if(image.height>0)aspect=image.width.toFloat()/image.height;model.media.imageReady(file.mediaKey,mediaEpoch)},onError={model.media.imageFailed(file.mediaKey,mediaEpoch)},contentDescription=file.name,contentScale=ContentScale.Fit,modifier=Modifier.fillMaxSize().graphicsLayer{scaleX=zoom;scaleY=zoom;translationX=x.coerceIn(-maxPanX,maxPanX);translationY=y.coerceIn(-maxPanY,maxPanY)})}
         Box(Modifier.matchParentSize()
             .pointerInput(file.mediaKey) {
                 detectTapGestures(onTap={controls=!controls},onDoubleTap={

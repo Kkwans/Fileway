@@ -26,6 +26,25 @@ trust and epochs before calling the real model/player on Main. The UI projects
 public state snapshots instead of serializing internal session objects. Browse
 items use opaque resource IDs; only the TV resolves them against its own state.
 
+The additive native-handoff branch of `media.open` accepts a `handoff` object;
+`queue.set` accepts a matching `handoffId` and bounded ordered chunks. These
+descriptors contain NAS path/wirePath metadata, an instance ID/public key and
+an expected source identity, never an origin or authenticated URL. The TV
+rechecks its independent session's instance, resource metadata, permissions and
+version before opening. Legacy ID-based browse/open/queue operations retain
+their existing meaning. The end-to-end capability is advertised only after the
+paired phone flow is available; the receiver alone is not a feature rollout.
+
+Queue manifests bind count/current index/SHA-256. Chunks are at most 40 KiB;
+complete queues at most 2 MiB and 10,000 entries. The TV opens the selected
+resource first and commits the queue atomically after full verification, bound
+to connection/session/media generation. A partial queue never silently replaces
+the intended queue. The optional `content.handoff` snapshot reports its ID,
+PREPARING/READY/FAILED/CANCELLED, media epoch, queue commit and received/total
+entries. READY requires real playback position/state/track readiness or actual
+image decode plus a committed complete queue. A later ordinary playback error
+does not rewrite an already confirmed handoff as an unacknowledged failure.
+
 Playback snapshots also expose optional `positionLocalMs`, `sourceOffsetMs` and
 `sdrActive` diagnostics; `positionMs` always refers to the original source timeline.
 Playback snapshots optionally report `audioDecoder`, `audioRenderedBuffers` and

@@ -309,6 +309,12 @@ class TvModel(application: Application) : AndroidViewModel(application) {
         media.open(file, candidates)
     }
     fun openPlayback(row: PlaybackSnapshot) { val file = ResourceRef(row.path, row.wirePath, row.name, false, "", 0); open(file, listOf(file)) }
+    internal fun openHandoff(file:ResourceRef,start:TvMediaStart) {
+        ++openRequest
+        if(file.mediaKind()==MediaKind.VIDEO)imageLoader.memoryCache?.clear()
+        recentAccess.record(file)
+        media.openHandoff(file,start)
+    }
     fun toggleFavorite(file: ResourceRef) { favorites.favorite(file)?.let { favorites.remove(it) } ?: favorites.add(file) }
     fun anchorKey() = "${context?.owner}/${state.value.route}/${state.value.wirePath}/${state.value.searchQuery}"
     fun anchor() = anchors[anchorKey()] ?: TvAnchor()

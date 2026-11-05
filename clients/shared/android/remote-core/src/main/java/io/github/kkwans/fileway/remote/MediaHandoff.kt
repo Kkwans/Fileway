@@ -93,9 +93,9 @@ class HandoffQueueReceiver(
     private val keys=mutableSetOf<String>()
     private var bytes=0
     private var closed=false
-    val received:Int get()=rows.size
+    val received:Int @Synchronized get()=rows.size
     init { require(handoffId.matches(id)) { "接力标识无效" } }
-    fun append(current:HandoffFence,value:JSONObject):Int {
+    @Synchronized fun append(current:HandoffFence,value:JSONObject):Int {
         check(!closed && current==fence && nowMs()-startedAt in 0..120_000) { "播放列表接力已失效，请重新发起" }
         require(value.getString("handoffId")==id) { "播放列表接力已变化" }
         require(value.toString().toByteArray(Charsets.UTF_8).size<=HANDOFF_CHUNK_BYTES) { "播放列表分片过大" }
@@ -115,7 +115,7 @@ class HandoffQueueReceiver(
         rows.addAll(incoming);keys.addAll(newKeys);bytes+=added
         return rows.size
     }
-    fun commit(current:HandoffFence):List<ResourceRef> {
+    @Synchronized fun commit(current:HandoffFence):List<ResourceRef> {
         check(!closed && current==fence && nowMs()-startedAt in 0..120_000) { "播放列表接力已失效" }
         check(rows.size==manifest.count) { "播放列表尚未接收完整" }
         require(rows[manifest.index]==selected) { "接力当前项与播放列表不一致" }
@@ -124,7 +124,7 @@ class HandoffQueueReceiver(
         cancel()
         return result
     }
-    fun cancel() { closed=true;rows.clear();keys.clear();bytes=0 }
+    @Synchronized fun cancel() { closed=true;rows.clear();keys.clear();bytes=0 }
 }
 
 private fun ByteArray.hex()=joinToString(""){"%02x".format(it)}

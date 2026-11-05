@@ -30,6 +30,8 @@ data class TvMediaState(
     val sidecars: List<ResourceRef> = emptyList(),
     val subtitleError: String? = null, val subtitleLoading: Boolean = false,
     val sdrAvailable: Boolean = false,
+    val imageReady:Boolean=false,
+    val firstConfirmedPositionMs:Long?=null,
 )
 
 /** Owns media resources independently of the TV's composition and focus tree. */
@@ -81,12 +83,23 @@ class TvMediaController(
     private var presentationRevision = 0L
     private var pendingNativeAudio: Int? = null
 
-    fun open(file: ResourceRef, candidates: List<ResourceRef>) {
+    fun open(file: ResourceRef, candidates: List<ResourceRef>) = openMedia(file,candidates,null)
+    internal fun openHandoff(file:ResourceRef,start:TvMediaStart)=openMedia(file,listOf(file),start)
+    private fun openMedia(file: ResourceRef, candidates: List<ResourceRef>, requested:TvMediaStart?) {
         val owner = current() ?: return
         val queue = MediaQueue.snapshot(++sequence, owner.owner, file, candidates, MediaQueueSource.DIRECTORY)
         val mode = mutable.value.mode
         val expected = ++epoch
-        subtitleIntent = SubtitleIntent.Auto
+        pendingNativeAudio=null;switchInProgress=false;requestedPresentation=null
+        subtitleIntent = when(requested?.restore?.subtitleMode) {
+            DecoderSubtitleMode.OFF -> SubtitleIntent.Off
+            DecoderSubtitleMode.INTERNAL -> SubtitleIntent.Native(requireNotNull(requested.restore.subtitle))
+            DecoderSubtitleMode.EXTERNAL -> requireNotNull(requested.external).let { asset ->
+                val track=requireNotNull(requested.restore.externalSubtitle)
+                SubtitleIntent.External(asset,"external:${asset.mediaKey}",track.trackKey,track.sourceVersion)
+            }
+            else -> SubtitleIntent.Auto
+        }
         operation?.cancel(); ++subtitleRevision; subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel()
         mutable.value = TvMediaState(file = file, queue = queue, mode = mode, busy = true)
         operation = scope.launch {
@@ -107,8 +120,9 @@ class TvMediaController(
                     val info = owner.api.request("GET", "/api/media/info?$query")
                     openingStage = "读取续播进度"
                     val remote = history.remote(owner.api, file.path, file.wirePath)
-                    val local = history.local(owner.account, file.mediaKey, remote.identity)
-                    val start = PlaybackHistory.resume(local, remote)
+                    check(requested==null||requested.identity==remote.identity) { "接力文件版本已变化，请在手机重新打开" }
+                    val local = if(requested==null)history.local(owner.account, file.mediaKey, remote.identity)else null
+                    val start = requested?.restore?.positionMs?:PlaybackHistory.resume(local, remote)
                     openingStage = "读取服务端能力"
                     val capabilities = try { owner.api.request("GET", "/api/client-capabilities") }
                         catch (error: ServiceException) { if (error.status == 404) JSONObject() else throw error }
@@ -131,9 +145,27 @@ class TvMediaController(
                         sourceDurationMs = (info.optDouble("duration", remote.durationMs / 1000.0) * 1000).toLong(),
                         selectedSourceAudio = audio.firstOrNull { track -> track.preferred }?.index ?: audio.firstOrNull()?.index) }
                     val sdrAvailable = capabilities.optBoolean("sdrCompatibility")
-                    check(mode != TvHdrMode.SDR || sdrAvailable) { "当前服务端不支持 SDR 兼容，请选择原生播放" }
-                    val wantsAutoSdr = mode == TvHdrMode.AUTO && definitelyUnsupportedHdr(info)
-                    val useSdr = mode == TvHdrMode.SDR || wantsAutoSdr && sdrAvailable
+                    val video=file.mediaKind()==MediaKind.VIDEO
+                    check(!video || mode != TvHdrMode.SDR || sdrAvailable) { "当前服务端不支持 SDR 兼容，请选择原生播放" }
+                    val wantsAutoSdr = video && mode == TvHdrMode.AUTO && definitelyUnsupportedHdr(info)
+                    val useSdr = video && (mode == TvHdrMode.SDR || wantsAutoSdr && sdrAvailable)
+                    if(useSdr&&requested!=null) {
+                        if(requested.restore.audioOff)mutable.update{it.copy(sourceAudioOff=true,selectedSourceAudio=null)}
+                        else requested.restore.audio?.let { wanted ->
+                            val key=audioHandoffKey(wanted.mime.orEmpty(),wanted.language,wanted.label,wanted.selectionFlags and C.SELECTION_FLAG_DEFAULT!=0)
+                            val selected=audio.singleOrNull{audioHandoffKey(it.codec,it.language,it.label,it.preferred)==key}
+                                ?:error("接力音轨无法唯一匹配，请先在手机选择可识别的音轨")
+                            mutable.update{it.copy(selectedSourceAudio=selected.index)}
+                        }
+                        val textChoice=subtitleIntent as? SubtitleIntent.Native
+                        if(textChoice!=null) {
+                            val key=nativeSubtitleKey(textChoice.identity)
+                            val source=sourceSubtitleKeys().entries.singleOrNull{it.value==key}
+                                ?:error("接力字幕无法唯一匹配，请先在手机重新选择字幕")
+                            check(sourceTextAvailable){"服务端不支持兼容流源字幕，请升级服务端"}
+                            subtitleIntent=SubtitleIntent.Source(source.key)
+                        }
+                    }
                     if (wantsAutoSdr && !sdrAvailable) mutable.update { it.copy(notice = "服务端暂不支持 SDR 兼容，当前使用原生播放") }
                     val lease = if (useSdr && file.mediaKind() == MediaKind.VIDEO) {
                         check(capabilities.optBoolean("sdrCompatibility")) { "服务器尚未提供 SDR 兼容播放，请升级服务端" }
@@ -144,7 +176,15 @@ class TvMediaController(
                     if (!accepts(owner, expected)) { lease.release(); return@withLock }
                     playbackLease = lease
                     val dataSource=videoDataSource(lease,window)
-                    player.open(lease.url, if (window == null) start else (start - requireNotNull(window).startMs).coerceAtLeast(0), videoDecodePolicy = playbackPreferences.videoDecodePolicy.value,dataSourceFactory=dataSource)
+                    if(!accepts(owner,expected)){lease.release();return@withLock}
+                    val localStart=if(window==null)start else(start-requireNotNull(window).startMs).coerceAtLeast(0)
+                    if(requested==null)player.open(lease.url,localStart,videoDecodePolicy=playbackPreferences.videoDecodePolicy.value,dataSourceFactory=dataSource)
+                    else {
+                        val carry=subtitleRestore(requested.restore.copy(positionMs=localStart),subtitleIntent)
+                        player.openRestoring(lease.url,if(window==null)carry else carry.copy(audio=null,audioOff=mutable.value.sourceAudioOff),
+                            autoplay=requested.restore.wantsPlay,videoDecodePolicy=playbackPreferences.videoDecodePolicy.value,dataSourceFactory=dataSource)
+                        if(window!=null&&mutable.value.sourceAudioOff)player.audio(-1)
+                    }
                     player.subtitleSourceOffset(window?.startMs ?: 0)
                     player.textSubtitleAppearance(playbackPreferences.textSubtitleAppearance.value)
                     if (sourceTextAvailable && window != null) player.subtitle(-1)
@@ -159,6 +199,24 @@ class TvMediaController(
                 }
             }
         }
+    }
+
+    private fun audioHandoffKey(codec:String,language:String?,label:String?,preferred:Boolean):TvSubtitleKey {
+        val normalized=when(codec.lowercase(java.util.Locale.ROOT)) {
+            "audio/mp4a-latm"->"aac";"audio/mpeg"->"mp3";"audio/ac3"->"ac3";"audio/eac3","audio/eac3-joc"->"eac3"
+            "audio/vnd.dts","audio/vnd.dts.hd"->"dts";"audio/true-hd"->"truehd";"audio/flac"->"flac";"audio/opus"->"opus";"audio/vorbis"->"vorbis"
+            else->codec
+        }
+        return tvSubtitleKey(normalized,language,label,preferred,false)
+    }
+
+    internal fun replaceHandoffQueue(items:List<ResourceRef>,index:Int,expected:Long) {
+        check(expected==epoch&&binding?.let{it.owner===current()}!=false) { "接力播放内容已变化" }
+        val source=current()?:error("TV 登录已变化")
+        check(items.getOrNull(index)?.mediaKey==mutable.value.file?.mediaKey) { "播放列表当前项已变化" }
+        val queue=MediaQueue.snapshot(++sequence,source.owner,items[index],items,MediaQueueSource.DIRECTORY)
+        check(queue?.items?.size==items.size&&queue.index==index) { "接力播放列表无法完整恢复" }
+        mutable.update{it.copy(queue=queue)}
     }
 
     private suspend fun originalLease(owner: SessionContext, file: ResourceRef): PreviewLease {
@@ -269,6 +327,8 @@ class TvMediaController(
                     source.durationMs = value.durationMs
                     mutable.update { it.copy(sourceDurationMs = value.durationMs) }
                 }
+                if(value.canSavePosition&&mutable.value.firstConfirmedPositionMs==null)
+                    mutable.update{it.copy(firstConfirmedPositionMs=sourcePosition())}
                 if (value.canSavePosition && SystemClock.elapsedRealtime() - lastSaveAt >= 10_000) saveProgress()
                 if (window == null && !switchInProgress && subtitleJob?.isActive != true && value.pendingSubtitle == null) {
                     nativeSubtitleMatch(value.selectedSubtitle)?.let { match ->
@@ -326,8 +386,10 @@ class TvMediaController(
                 val dataSource = videoDataSource(next.lease, next)
                 if (!accepts(owner, expected) || transition != presentationRevision) { next.lease.release(); return@launch }
                 val rate = player.state.value.rate; val delay = player.state.value.subtitleDelayMs
+                val autoplay=player.playWhenReady;val volume=player.state.value.volume
                 ++subtitleRevision; subtitleJob?.cancel()
-                player.open(next.lease.url, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value,dataSourceFactory=dataSource)
+                player.open(next.lease.url,autoplay=autoplay,videoDecodePolicy = playbackPreferences.videoDecodePolicy.value,dataSourceFactory=dataSource)
+                player.volume(volume)
                 player.subtitleSourceOffset(next.startMs); player.rate(rate); player.subtitleDelay(delay)
                 player.textSubtitleAppearance(playbackPreferences.textSubtitleAppearance.value)
                 if (mutable.value.sourceAudioOff) player.audio(-1)
@@ -730,9 +792,10 @@ class TvMediaController(
             }
         }
     }
-    fun imageFailed(resourceKey: String) {
-        if (mutable.value.file?.mediaKey == resourceKey) mutable.update { it.copy(error = "无法解码这张图片，可重试或返回") }
+    fun imageFailed(resourceKey: String,expected:Long) {
+        if (epoch==expected&&mutable.value.file?.mediaKey == resourceKey) mutable.update { it.copy(error = "无法解码这张图片，可重试或返回") }
     }
+    fun imageReady(resourceKey:String,expected:Long) { if(epoch==expected&&mutable.value.file?.mediaKey==resourceKey)mutable.update{it.copy(imageReady=true)} }
     fun navigateQueue(delta: Int) { val queue = state.value.queue ?: return; queue.select(queue.index + delta)?.let { open(it.current, it.items) } }
     fun retry() { val value = state.value; value.file?.let { open(it, value.queue?.items ?: listOf(it)) } }
     private fun saveProgress() {
