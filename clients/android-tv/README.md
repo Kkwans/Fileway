@@ -55,3 +55,27 @@ TV 0.2.0 与手机端 1.2.2 引入局域网配对和独立设备登录。
 构建、模拟器交互和物理设备播放分别记录。API28 安装不证明硬件解码、HDR、
 声音或长时间稳定性。哈趣 Q1 Max 没有 ADB 时使用侧载候选及设备信息页，
 缺失的系统级指标必须保留未验证状态。
+
+## 播放器界面与源码复用
+
+视频仍由共享 Media3 核心、稳定 SurfaceView 和独立字幕层播放。TV HUD 沿用手机
+横屏播放器的时间／进度／时间、播放控制和媒体选项结构；进度条绘制共用
+`design-foundation/MediaProgressTrack.kt`，各端保留自己的遥控、触摸与焦点输入。
+TV 媒体菜单使用一个窗口承载轨道、外观、同步、字体、倍速和队列层级，使用静态
+半透明表面，不调用手机端的跨窗口实时模糊。
+
+`TvPlayerChoiceList` 的选择列表／焦点结构适配自 [BV RadioMenuList](https://github.com/aaa1115910/bv/blob/0e454c06e954b00df7a0a5a6873c9f18a7f9d0f5/player/tv/src/main/kotlin/dev/aaa1115910/bv/player/tv/controller/playermenu/component/RadioMenuList.kt)，
+Copyright (c) 2022 aaa1115910，MIT；许可随 APK 保留在 `licenses/bv-MIT.txt`。
+Fileway 的数据绑定、行布局、资源标识、字幕策略和播放内核独立维护，不包含 BV
+的 B站服务接口、账号或品牌素材。
+
+TV 界面使用随包提供的 Noto Sans SC 静态 Regular／Medium 字体，固定字形避免
+设备主题替换与可变字体轴设置差异。它不替换片源字幕字体，也不改变手机应用的
+系统字体选择。来源为 [Noto CJK Sans 2.004](https://github.com/notofonts/noto-cjk/tree/Sans2.004/Sans/SubsetOTF/SC)，文件未经修改：
+
+| 资源 | 上游 Git blob | SHA-256 |
+|---|---|---|
+| NotoSansSC-Medium.otf | `fafdfebf3103db4dc81d33ebd55b6786e08c9ebe` | `7633f5a016d4dd95e685a69633d818aabc4644c4b08e26bd35b1b30c45ed5dda` |
+| NotoSansSC-Regular.otf | `fc0fda9394367c16c1af7555a2ae4d5e2e6a6f02` | `faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9` |
+
+SIL OFL 1.1 原文及版权声明随 APK 保留在 `licenses/noto-sans-sc-OFL.txt`。字体选型不等于实际投影清晰度已验收，仍须在目标设备确认。

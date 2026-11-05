@@ -1,5 +1,7 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import io.github.kkwans.nasfilebrowser.ui.designsystem.drawMediaProgressTrack
+
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -1023,15 +1025,16 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             drawCircle(if (enabled) accent else secondary, radius = 5.dp.toPx(), center = center + Offset(0f, visualTrackOffset.toPx()))
         } },
         track = { Canvas(Modifier.fillMaxWidth().height(48.dp)) {
-            val y = size.height / 2 + visualTrackOffset.toPx()
-            drawLine(contentColor.copy(alpha = 0.24f), Offset(0f, y), Offset(size.width, y), 3.dp.toPx(), StrokeCap.Round)
-            downloadedValue?.let { available ->
-                drawLine(accent.copy(alpha = .35f), Offset(0f, y), Offset(size.width * ((available - minimum) / span).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
-            }
-            bufferedValue?.takeIf { it.isFinite() }?.let { buffered ->
-                drawLine(secondary.copy(alpha = .8f), Offset(0f, y), Offset(size.width * ((buffered - minimum) / span).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
-            }
-            drawLine(if (enabled) accent else secondary, Offset(0f, y), Offset(size.width * ((value - minimum) / span).coerceIn(0f, 1f), y), 3.dp.toPx(), StrokeCap.Round)
+            drawMediaProgressTrack(
+                progress = (value - minimum) / span,
+                trackColor = contentColor.copy(alpha = .24f),
+                progressColor = if (enabled) accent else secondary,
+                downloaded = downloadedValue?.let { (it - minimum) / span },
+                downloadedColor = accent.copy(alpha = .35f),
+                buffered = bufferedValue?.let { (it - minimum) / span },
+                bufferedColor = secondary.copy(alpha = .8f),
+                yOffset = visualTrackOffset,
+            )
         } })
     }
 }

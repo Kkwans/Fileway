@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.*
@@ -52,38 +53,54 @@ import kotlinx.coroutines.*
     val interfaceState by model.state.collectAsStateWithLifecycle()
     val cache by model.media.cache.state.collectAsStateWithLifecycle()
     val textAppearance by model.media.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
+    val fontCatalog by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
     val audio = file.mediaKind() == MediaKind.AUDIO
     val mediaEpoch=model.media.controlEpoch
     var controls by remember(mediaEpoch) { mutableStateOf(audio) }
     var exitPrompt by remember(mediaEpoch) { mutableStateOf(false) }
-    var panel by remember(file.mediaKey) { mutableStateOf<String?>(null) }
+    val pages=remember(model.sessionEpoch,file.mediaKey){mutableStateListOf<TvPlayerPage>()}
+    val panel=pages.lastOrNull()
+    val focusMemory=remember(model.sessionEpoch,file.mediaKey){mutableMapOf<TvPlayerPage,String>()}
+    var restoring by remember(file.mediaKey){mutableStateOf(false)}
+    var browserBack by remember(model.sessionEpoch,file.mediaKey){mutableStateOf<(() -> Unit)?>(null)}
+    var stageHeight by remember{mutableFloatStateOf(1f)}
+    var controlsHeight by remember{mutableFloatStateOf(0f)}
     var pulse by remember { mutableIntStateOf(0) }
     var seekTarget by remember(mediaEpoch) { mutableStateOf<Long?>(null) }
     var seekPulse by remember { mutableIntStateOf(0) }
     var resize by remember { mutableIntStateOf(0) }
-    val stage = remember { FocusRequester() }; val play = remember { FocusRequester() }; val options = remember { FocusRequester() }
+    val stage = remember { FocusRequester() }; val play = remember { FocusRequester() }
+    LaunchedEffect(player.mediaGeneration,resize){withFrameNanos{};model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,AspectRatioFrameLayout.RESIZE_MODE_FILL,AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[resize])}
     val retry = remember { FocusRequester() }
-    val actions = remember { mutableMapOf<String, FocusRequester>() }
-    var trigger by remember { mutableStateOf<FocusRequester?>(null) }
-    val showPanel: (String) -> Unit = { name -> panel = name; trigger = actions[name] }
-    val closePanel: () -> Unit = { panel = null }
-    val backPanel: () -> Unit = { panel = when(panel){"倍速","HDR"->"设置";"字幕设置"->"字幕";else->null} }
-    LaunchedEffect(panel) { if (panel == null && trigger != null) { withFrameNanos {}; trigger?.requestFocus() } }
-    BackHandler {
-        when { panel != null -> backPanel(); controls && !audio -> controls = false; exitPrompt -> model.media.close(); else -> exitPrompt=true }
+    val actions = remember(file.mediaKey) { mutableMapOf<TvPlayerPage, FocusRequester>() }
+    var trigger by remember(file.mediaKey) { mutableStateOf<FocusRequester?>(null) }
+    val showPanel: (TvPlayerPage) -> Unit = { page -> pages.clear();pages.add(page);trigger=actions[page];pulse++ }
+    val closePanel: () -> Unit = { browserBack=null;pages.clear();controls=true;restoring=true;pulse++ }
+    val backPanel: () -> Unit = { if(browserBack!=null)browserBack?.invoke() else if(pages.size>1){pages.removeAt(pages.lastIndex);pulse++}else closePanel() }
+    val back: () -> Unit = {
+        when { panel!=null->backPanel();exitPrompt->model.media.close();else->{if(!audio)controls=false;exitPrompt=true} }
     }
+    BackHandler(onBack=back)
     LaunchedEffect(exitPrompt) { if(exitPrompt) { delay(2000);exitPrompt=false } }
-    LaunchedEffect(controls,textAppearance,player.mediaGeneration) {
-        model.media.player.textSubtitleAppearance(if(controls)textAppearance.copy(bottomPadding=maxOf(textAppearance.bottomPadding,.36f)) else textAppearance)
+    LaunchedEffect(controls,textAppearance,player.mediaGeneration,controlsHeight,stageHeight) {
+        model.media.player.textSubtitleAppearance(if(controls)textAppearance.copy(bottomPadding=maxOf(textAppearance.bottomPadding,((controlsHeight+12f)/stageHeight).coerceIn(0f,.4f))) else textAppearance)
     }
     LaunchedEffect(controls, player.playing, panel, pulse,interfaceState.controlsTimeoutSeconds) {
         if (controls && player.playing && panel == null && !audio) { delay(interfaceState.controlsTimeoutSeconds*1000L); controls = false }
     }
-    LaunchedEffect(controls,state.busy,state.error,player.error) { withFrameNanos {}; when { state.error!=null||player.error!=null -> retry.requestFocus(); controls -> play.requestFocus(); else -> stage.requestFocus() } }
+    LaunchedEffect(controls,state.busy,state.error,player.error,panel) {
+        if(panel!=null)return@LaunchedEffect
+        withFrameNanos{}
+        when {
+            !state.busy&&(state.error!=null||player.error!=null)->retry.requestFocus()
+            controls&&state.error==null&&player.error==null->{(if(restoring)trigger?:play else play).requestFocus();restoring=false}
+            else->stage.requestFocus()
+        }
+    }
     LaunchedEffect(player.seekError) { if(player.seekError!=null)controls=true }
     LaunchedEffect(mediaEpoch,seekPulse) { val target = seekTarget; if(target != null) { delay(350); model.media.seek(target); seekTarget = null } }
     val requestSeek: (Long) -> Unit = { delta -> seekTarget = ((seekTarget ?: model.media.sourcePosition()) + delta).coerceIn(0,state.sourceDurationMs.coerceAtLeast(0)); seekPulse++; pulse++ }
-    Box(Modifier.fillMaxSize().background(Color.Black).focusRequester(stage).tvRemoteKeys { event ->
+    Box(Modifier.fillMaxSize().onSizeChanged{stageHeight=it.height.toFloat().coerceAtLeast(1f)}.background(Color.Black).focusRequester(stage).tvRemoteKeys { event ->
         run {
             pulse++
             when(event.nativeKeyEvent.keyCode) {
@@ -122,21 +139,27 @@ import kotlinx.coroutines.*
         Box(Modifier.matchParentSize().pointerInput(file.mediaKey) {
             detectTapGestures(onTap = { controls = !controls; pulse++ }, onDoubleTap = { model.media.player.toggle(); pulse++ })
         })
+        if(controls) {
+            val infoFocus=remember{FocusRequester()};actions[TvPlayerPage.INFO]=infoFocus
+            TvPlaybackTitle(if(audio)"音乐"else file.name,onBack=back,onInfo={showPanel(TvPlayerPage.INFO)},infoFocus=infoFocus)
+        }
         TvPlaybackTelemetry(interfaceState.clockAlways||controls,!audio&&(interfaceState.speedAlways||controls),cache.bytesPerSecond)
         if(controls && state.error==null && player.error==null) {
             TvPlaybackControls(
-                title=if(audio)"" else file.name,
-                subtitle=state.subtitleError?:player.seekError?:state.notice?:player.operationError,
-                playing=player.playing,enabled=!state.busy||player.durationMs>0,
+                playing=player.playing,enabled=!state.busy||player.durationMs>0,seekable=model.media.canSeek,audio=audio,rate=player.rate,
                 previous=state.queue?.hasPrevious==true,next=state.queue?.hasNext==true,
                 position=seekTarget?:model.media.sourcePosition(),duration=state.sourceDurationMs,
-                buffered=player.bufferedPositionMs+state.sourceOffsetMs,cachedRanges=cache.ranges,playFocus=play,settingsFocus=options,
+                buffered=player.bufferedPositionMs+state.sourceOffsetMs,cachedRanges=cache.ranges,playFocus=play,
                 actions=actions,onToggle={model.media.player.toggle();pulse++},onSeek=requestSeek,
                 onSeekTo={target->seekTarget=target.coerceIn(0,state.sourceDurationMs.coerceAtLeast(0));seekPulse++;pulse++},
                 onPrevious={model.media.navigateQueue(-1)},onNext={model.media.navigateQueue(1)},onPanel=showPanel,
-                modifier=Modifier.align(Alignment.BottomCenter),
-                seekStepSeconds=interfaceState.seekStepSeconds,
+                modifier=Modifier.align(Alignment.BottomCenter).onSizeChanged{controlsHeight=it.height.toFloat()},
+                seekStepSeconds=interfaceState.seekStepSeconds,safePercent=interfaceState.safePercent,
             )
+        }
+        if(delayedBusy(state.subtitleLoading||player.subtitleLoading))Text("正在加载字幕…",Modifier.align(Alignment.CenterEnd).padding(32.dp),style=MaterialTheme.typography.bodySmall,color=Color.White)
+        (state.subtitleError?:player.seekError?:state.notice?:player.operationError)?.let{notice->
+            Text(notice,Modifier.align(Alignment.BottomStart).padding(start=48.dp,end=48.dp,bottom=if(controls)156.dp else 24.dp),style=MaterialTheme.typography.bodySmall,color=Color.White,maxLines=2,overflow=TextOverflow.Ellipsis)
         }
         if(delayedBusy(state.busy||((player.waitingForBuffer||player.seeking)&&player.seekError==null)))Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.48f),RoundedCornerShape(12.dp)).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(if(state.busy)"正在准备播放…" else if(player.seeking)"正在跳转…" else "正在缓冲…",style=MaterialTheme.typography.bodyLarge)
@@ -150,120 +173,28 @@ import kotlinx.coroutines.*
         seekTarget?.let{target->if(!controls)Text("跳转到 ${tvTime(target)}",Modifier.align(Alignment.BottomCenter).padding(30.dp).background(Color(0xE614181E),RoundedCornerShape(12.dp)).padding(14.dp),style=MaterialTheme.typography.titleMedium)}
         if(exitPrompt)Text("再按一次返回退出播放",Modifier.align(Alignment.BottomCenter).padding(bottom=28.dp).background(Color.Black.copy(alpha=.6f),TvShape).padding(horizontal=20.dp,vertical=12.dp),style=MaterialTheme.typography.bodyLarge,color=Color.White)
     }
-    panel?.let { name -> TvPanel(if(name=="队列") "队列 · ${state.queue?.items?.size ?: 0}" else name,closePanel,onBack=backPanel) {
-        when(name) {
-            "设置" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                item{TvOptionRow("播放速度",{panel="倍速"},value="${player.rate}×",destination=true)}
-                if(!audio) {
-                    item{TvOptionRow("动态范围",{panel="HDR"},value=state.mode.title,destination=true)}
-                    item{TvOptionRow("画面比例",{resize=(resize+1)%3;model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,AspectRatioFrameLayout.RESIZE_MODE_FILL,AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[resize])},value=listOf("适合","拉伸","裁切")[resize],showSelection=false)}
-                }
-            }
-            "字幕" -> TvSubtitlePanel(model,player,state){panel="字幕设置"}
-            "字幕设置" -> TvSubtitleAppearancePanel(model,player)
-            "音轨" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                if(state.compatible)item{TvOptionRow("关闭",{model.media.selectSourceAudio(-1)},selected=state.sourceAudioOff)}
-                if(state.compatible)items(state.sourceAudio,key={it.index}){track->TvOptionRow(track.title,{model.media.selectSourceAudio(track.index)},supporting=track.codec,selected=state.selectedSourceAudio==track.index)}
-                else items(player.audio,key={it.id}){track->TvOptionRow(track.title,{model.media.selectAudio(track.id)},selected=player.selectedAudio==track.id,enabled=!state.busy)}
-            }
-            "倍速" -> TvSpeedPanel(model,player.rate)
-            "HDR" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                items(TvHdrMode.entries){mode->TvOptionRow(mode.title,{model.media.switchMode(mode)},selected=state.mode==mode,enabled=!state.busy&&(mode!=TvHdrMode.SDR||state.sdrAvailable))}
-                item{Text("当前路径：${if(state.compatible)"SDR 兼容" else "原生"}\n片源：${state.info?.optString("dynamicRange","未知")}\n输出信号：${tvOutputSignal(player)}",style=MaterialTheme.typography.bodySmall)}
-            }
-            "队列" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(4.dp)) { val queue=state.queue; if(queue!=null)items(queue.items.size){index->TvOptionRow(queue.items[index].name,{model.media.navigateQueue(index-queue.index)},selected=index==queue.index)} }
-            "信息" -> LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                item{Text(file.name,style=MaterialTheme.typography.titleMedium)}
-                item{Text(file.path,style=MaterialTheme.typography.bodyMedium)}
-                item{Text("视频缓存 ${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}${cache.error?.let{failure->"\n$failure"}.orEmpty()}",style=MaterialTheme.typography.bodyMedium)}
-                item{Text("片源动态范围：${state.info?.optString("dynamicRange","未知")}\n请求模式：${state.mode.title}\n实际路径：${if(state.compatible)"SDR 兼容" else "原文件"}\n视频输出：${tvOutputSignal(player)}\n解码器：${player.videoDecoder}\n解码类型：${player.videoDecoderKind}\n视频画面：${player.width} × ${player.height}\n音频解码器：${player.audioDecoder}\n音频输出缓冲：${player.audioRenderedBuffers}\n音频跳过缓冲：${player.audioSkippedBuffers}",style=MaterialTheme.typography.bodyMedium)}
-            }
+    panel?.let { page ->
+        val labels=when(page) {
+            TvPlayerPage.AUDIO->if(state.compatible)state.sourceAudio.map{it.title}else player.audio.map{it.title}
+            TvPlayerPage.SUBTITLE->state.sourceText.map{it.title}+player.subtitles.map{it.title}+state.sidecars.map{it.name}
+            TvPlayerPage.QUEUE->state.queue?.items?.map{it.name}.orEmpty()
+            TvPlayerPage.FONT->fontCatalog.options.map{it.label}
+            TvPlayerPage.APPEARANCE->listOf("字号","垂直位置","文字背景","位置参考",fontCatalog.resolve(textAppearance.fontKey).label,"恢复默认外观")
+            TvPlayerPage.SETTINGS->listOf("播放速度","画面比例","动态范围","应用音量","播放信息")
+            TvPlayerPage.SPEED->listOf("自定义速度（0.1–5）","1.25×")
+            else->listOf(page.title)
         }
-    } }
+        TvPlayerPanel(if(page==TvPlayerPage.QUEUE)"播放列表 · ${state.queue?.items?.size?:0}"else page.title,labels,pages.size>1,backPanel,closePanel) {
+            TvPlayerMenuContent(model,page,state,player,cache,resize,onResize={index->resize=index;model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,AspectRatioFrameLayout.RESIZE_MODE_FILL,AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[index])},
+                onNavigate={next->browserBack=null;pages.add(next);pulse++},onBack=backPanel,onClose=closePanel,onBrowserBack={browserBack=it},initialKey=focusMemory[page],onFocused={focusMemory[page]=it})
+        }
+    }
 }
 
 internal fun tvSeekDelta(event:AndroidKey,stepSeconds:Int):Long {
     val held=(event.eventTime-event.downTime).coerceAtLeast(0)
     val multiplier=when { held>=6000->16;held>=3500->8;held>=2000->4;held>=1000->2;else->1 }
     return stepSeconds.coerceIn(3,30)*1000L*multiplier
-}
-
-@Composable internal fun TvTimeline(position:Long,duration:Long,buffered:Long,onSeekBy:(Long)->Unit,modifier:Modifier=Modifier,cachedRanges:List<TvCachedRange> = emptyList(),onSeekTo:(Long)->Unit={onSeekBy(it-position)},seekStepSeconds:Int=10) {
-    var focused by remember{mutableStateOf(false)}
-    var dragPosition by remember(duration){mutableStateOf<Long?>(null)}
-    val seekTo by rememberUpdatedState(onSeekTo)
-    val displayPosition=dragPosition?:position
-    val accent=MaterialTheme.colorScheme.primary
-    Column(modifier,verticalArrangement=Arrangement.spacedBy(2.dp)) {
-        Canvas(Modifier.fillMaxWidth().height(40.dp).onFocusChanged{focused=it.isFocused}
-            .pointerInput(duration) { if(duration>0)detectTapGestures { point -> seekTo((duration*(point.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)).toLong()) } }
-            .pointerInput(duration) { if(duration>0)detectHorizontalDragGestures(
-                onDragStart={point->dragPosition=(duration*(point.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)).toLong()},
-                onHorizontalDrag={change,_->change.consume();dragPosition=(duration*(change.position.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)).toLong()},
-                onDragEnd={dragPosition?.let(seekTo);dragPosition=null},onDragCancel={dragPosition=null}) }
-            .onPreviewKeyEvent{
-            if(it.type==KeyEventType.KeyDown&&it.nativeKeyEvent.keyCode==AndroidKey.KEYCODE_DPAD_LEFT){onSeekBy(-tvSeekDelta(it.nativeKeyEvent,seekStepSeconds));true}
-            else if(it.type==KeyEventType.KeyDown&&it.nativeKeyEvent.keyCode==AndroidKey.KEYCODE_DPAD_RIGHT){onSeekBy(tvSeekDelta(it.nativeKeyEvent,seekStepSeconds));true}else false
-        }.semantics{contentDescription="播放进度 ${tvTime(displayPosition)}，总时长 ${tvTime(duration)}";progressBarRangeInfo=ProgressBarRangeInfo(if(duration>0)(displayPosition.toFloat()/duration).coerceIn(0f,1f)else 0f,0f..1f);setProgress{value->if(duration>0){seekTo((duration*value.coerceIn(0f,1f)).toLong());true}else false}}.focusable()) {
-            val y=size.height/2;val width=if(focused)4.dp.toPx()else 2.dp.toPx()
-            drawLine(Color.White.copy(alpha=.2f),Offset(0f,y),Offset(size.width,y),width)
-            if(duration>0){
-                for(range in cachedRanges)drawLine(Color.White.copy(alpha=.42f),Offset(size.width*(range.startMs.toFloat()/duration).coerceIn(0f,1f),y),Offset(size.width*(range.endMs.toFloat()/duration).coerceIn(0f,1f),y),width)
-                drawLine(Color.White.copy(alpha=.35f),Offset(0f,y),Offset(size.width*(buffered.toFloat()/duration).coerceIn(0f,1f),y),width);val x=size.width*(displayPosition.toFloat()/duration).coerceIn(0f,1f);drawLine(accent,Offset(0f,y),Offset(x,y),width);drawCircle(accent,if(focused||dragPosition!=null)6.dp.toPx()else 4.dp.toPx(),Offset(x,y))}
-        }
-        Row(Modifier.fillMaxWidth()){Text(tvTime(displayPosition),style=MaterialTheme.typography.bodySmall);Spacer(Modifier.weight(1f));Text(tvTime(duration),style=MaterialTheme.typography.bodySmall)}
-    }
-}
-
-@Composable private fun TvSpeedPanel(model:TvModel,rate:Float) {
-    var custom by remember{mutableStateOf(rate.toString())}
-    LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)) {
-        items(listOf(.5f,.75f,1f,1.25f,1.5f,2f)){value->TvOptionRow("${value}×",{model.media.player.rate(value)},selected=rate==value)}
-        item{TvField("自定义速度（0.1–5）",custom,{custom=it})}
-        item{TvButton("应用",{parsePlaybackRate(custom)?.let(model.media.player::rate)},Modifier.fillMaxWidth(),enabled=parsePlaybackRate(custom)!=null)}
-    }
-}
-
-@Composable private fun TvSubtitlePanel(model:TvModel,player:PlayerState,state:TvMediaState,onAppearance:()->Unit) {
-    var browserOpen by remember{mutableStateOf(false)}
-    LazyColumn(verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        if(state.subtitleLoading||player.subtitleLoading)item{Text("正在准备字幕…",style=MaterialTheme.typography.bodyMedium,color=LocalTvSurfaces.current.secondaryText)}
-        state.subtitleError?.let{message->item{Text(message,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.error)}}
-        item{TvOptionRow("关闭字幕",model.media::subtitlesOff,selected=player.selectedSubtitle==-1&&state.selectedSourceSubtitle==-1)}
-        if(state.sourceSubtitles)items(state.sourceText,key={it.index}){track->TvOptionRow(track.title,{model.media.selectSourceSubtitle(track.index)},supporting=track.codec,selected=state.selectedSourceSubtitle==track.index)}
-        else items(player.subtitles.filter{it.id>=0},key={it.id}){track->TvOptionRow(track.title,{model.media.selectPlayerSubtitle(track.id)},selected=player.selectedSubtitle==track.id)}
-        if(state.sidecars.isNotEmpty()) {
-            item{TvSectionTitle("同目录外挂字幕")}
-            items(state.sidecars,key={it.wirePath}){file->TvOptionRow(file.name,{model.media.selectExternalSubtitle(file)},showSelection=false)}
-        }
-        item{TvOptionRow("添加外挂字幕",{browserOpen=true},icon=Art.drawable.fileway_ic_folder,destination=true)}
-        item{TvOptionRow("字幕外观与同步",onAppearance,icon=Art.drawable.fileway_ic_settings,destination=true)}
-    }
-    if(browserOpen)TvSubtitleBrowser(model,{browserOpen=false})
-}
-
-@Composable private fun TvSubtitleAppearancePanel(model:TvModel,player:PlayerState) {
-    val appearance by model.media.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
-    val scope=rememberCoroutineScope()
-    var fontsOpen by remember{mutableStateOf(false)}
-    var delay by remember{mutableStateOf((player.subtitleDelayMs/1000.0).toString())}
-    LazyColumn(verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        item{Text("字幕延迟 ${player.subtitleDelayMs} ms",style=MaterialTheme.typography.bodyMedium)}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TvButton("提前 100ms",{model.media.player.subtitleDelay(player.subtitleDelayMs-100)});TvButton("延后 100ms",{model.media.player.subtitleDelay(player.subtitleDelayMs+100)})}}
-        item{TvField("精确延迟（秒，负数提前）",delay,{delay=it})}
-        item{TvButton("应用延迟",{parseSubtitleDelayMillis(delay)?.let(model.media.player::subtitleDelay)},enabled=parseSubtitleDelayMillis(delay)!=null)}
-        item{Text("字号 ${(appearance.scale*100).toInt()}%",style=MaterialTheme.typography.bodyMedium)}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TvButton("缩小",{scope.launch{val value=appearance.copy(scale=(appearance.scale-.1f).coerceAtLeast(.5f));model.media.updateSubtitleAppearance(value)}});TvButton("放大",{scope.launch{val value=appearance.copy(scale=(appearance.scale+.1f).coerceAtMost(2f));model.media.updateSubtitleAppearance(value)}})}}
-        item{TvButton(if(appearance.area==TextSubtitleArea.PICTURE)"位置：画面内" else "位置：整个画布",{scope.launch{val value=appearance.copy(area=if(appearance.area==TextSubtitleArea.PICTURE)TextSubtitleArea.STAGE else TextSubtitleArea.PICTURE);model.media.updateSubtitleAppearance(value)}},Modifier.fillMaxWidth())}
-        item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){TvButton("上移",{scope.launch{val value=appearance.copy(bottomPadding=(appearance.bottomPadding+.02f).coerceAtMost(.4f));model.media.updateSubtitleAppearance(value)}});TvButton("下移",{scope.launch{val value=appearance.copy(bottomPadding=(appearance.bottomPadding-.02f).coerceAtLeast(0f));model.media.updateSubtitleAppearance(value)}})}}
-        item{TvButton("字幕字体",{SubtitleFontCatalog.request();fontsOpen=true},Modifier.fillMaxWidth())}
-        item{TvButton("文字背景：${(appearance.backgroundOpacity*100).toInt()}%",{scope.launch{val value=appearance.copy(backgroundOpacity=if(appearance.backgroundOpacity>=.75f)0f else appearance.backgroundOpacity+.25f);model.media.updateSubtitleAppearance(value)}},Modifier.fillMaxWidth())}
-        item{Text("ASS 保留片源样式；通用字体、字号与位置设置用于普通文字字幕。",style=MaterialTheme.typography.bodySmall)}
-    }
-    if(fontsOpen)TvPanel("字幕字体",{fontsOpen=false}) {
-        val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
-        LazyColumn(verticalArrangement=Arrangement.spacedBy(4.dp)){items(fonts.options,key={it.key}){font->TvOptionRow(font.label,{scope.launch{val value=appearance.copy(fontKey=font.key);model.media.updateSubtitleAppearance(value)}},selected=appearance.fontKey==font.key)}}
-    }
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
@@ -371,40 +302,4 @@ fun tvOutputSignal(player:PlayerState):String {
     }
     }
     if(imageInfo)TvPanel("图片信息",{imageInfo=false}){LazyColumn(verticalArrangement=Arrangement.spacedBy(12.dp)){item{Text(file.name,style=MaterialTheme.typography.titleMedium)};item{Text(file.path,style=MaterialTheme.typography.bodyMedium)};item{Text(tvSize(file.size),style=MaterialTheme.typography.bodySmall)}}}
-}
-
-@Composable private fun TvSubtitleBrowser(model:TvModel,onClose:()->Unit) {
-    val owner=model.context
-    val playback by model.media.state.collectAsStateWithLifecycle()
-    val file=playback.file
-    var path by remember{mutableStateOf(file?.path?.substringBeforeLast('/')?.ifBlank{"/"}?:"/")}
-    var wire by remember{mutableStateOf(file?.wirePath?.substringBeforeLast('/')?.ifBlank{"/"}?:"/")}
-    var files by remember{mutableStateOf<List<io.github.kkwans.nasfilebrowser.app.ResourceRef>>(emptyList())}
-    var busy by remember{mutableStateOf(true)};var error by remember{mutableStateOf<String?>(null)}
-    var refresh by remember{mutableIntStateOf(0)}
-    val first=remember{FocusRequester()}
-    LaunchedEffect(owner?.owner,wire,refresh){
-        if(owner==null)return@LaunchedEffect
-        busy=true;error=null
-        try{
-            files=TvModel.directoryFiles(owner.api.request("GET","/api/resources$wire")).filter{it.directory||isExternalSubtitle(it.name)}
-            busy=false
-            if(files.isNotEmpty()){withFrameNanos{};first.requestFocus()}
-        }catch(failure:Exception){if(failure is CancellationException)throw failure;busy=false;error=failure.message?:"目录读取失败"}
-    }
-    val parent:()->Unit={path=path.substringBeforeLast('/').ifBlank{"/"};wire=wire.substringBeforeLast('/').ifBlank{"/"}}
-    TvPanel("选择外挂字幕",onClose,onBack={if(wire!="/")parent()else onClose()}){
-        Text(path,style=MaterialTheme.typography.bodySmall)
-        if(wire!="/")TvButton("上一级",parent,Modifier.fillMaxWidth())
-        if(busy)Text("正在读取…",style=MaterialTheme.typography.bodyMedium)
-        error?.let{Text(it,color=MaterialTheme.colorScheme.error);TvButton("重试",{refresh++})}
-        if(!busy&&error==null&&files.isEmpty())Text("此目录没有字幕或子文件夹",style=MaterialTheme.typography.bodyMedium)
-        LazyColumn(modifier=Modifier.focusRequester(first).focusGroup(),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            items(files.size){index->val entry=files[index]
-                TvButton(entry.name,{if(entry.directory){path=entry.path;wire=entry.wirePath}else{model.media.selectExternalSubtitle(entry);onClose()}},
-                    Modifier.fillMaxWidth(),enabled=!busy,
-                    icon=if(entry.directory)Art.drawable.fileway_ic_folder else Art.drawable.fileway_ic_subtitles)
-            }
-        }
-    }
 }

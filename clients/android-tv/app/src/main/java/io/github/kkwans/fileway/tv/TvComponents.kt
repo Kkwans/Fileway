@@ -29,7 +29,6 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.res.painterResource
-import io.github.kkwans.nasfilebrowser.ui.designsystem.filewayTextStyle
 import io.github.kkwans.fileway.design.R as Art
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -57,20 +56,20 @@ internal val LocalTvSurfaces = staticCompositionLocalOf { TvSurfaceRoles(
 internal val TvShape = RoundedCornerShape(12.dp)
 
 private val TvTypography = Typography(
-    displayLarge = filewayTextStyle(36, 44, FontWeight.SemiBold),
-    displayMedium = filewayTextStyle(32, 40, FontWeight.SemiBold),
-    displaySmall = filewayTextStyle(28, 36, FontWeight.SemiBold),
-    headlineLarge = filewayTextStyle(28, 36, FontWeight.SemiBold),
-    headlineMedium = filewayTextStyle(26, 34, FontWeight.SemiBold),
-    headlineSmall = filewayTextStyle(24, 32, FontWeight.Medium),
-    titleLarge = filewayTextStyle(26, 34, FontWeight.SemiBold),
-    titleMedium = filewayTextStyle(20, 28, FontWeight.Medium),
-    titleSmall = filewayTextStyle(18, 26, FontWeight.Medium),
-    bodyLarge = filewayTextStyle(18, 26), bodyMedium = filewayTextStyle(17, 24),
-    bodySmall = filewayTextStyle(16, 22),
-    labelLarge = filewayTextStyle(18, 24, FontWeight.Medium),
-    labelMedium = filewayTextStyle(16, 22, FontWeight.Medium),
-    labelSmall = filewayTextStyle(14, 20, FontWeight.Medium),
+    displayLarge = tvTextStyle(36, 44, FontWeight.SemiBold),
+    displayMedium = tvTextStyle(32, 40, FontWeight.SemiBold),
+    displaySmall = tvTextStyle(28, 36, FontWeight.SemiBold),
+    headlineLarge = tvTextStyle(28, 36, FontWeight.SemiBold),
+    headlineMedium = tvTextStyle(26, 34, FontWeight.SemiBold),
+    headlineSmall = tvTextStyle(24, 32, FontWeight.Medium),
+    titleLarge = tvTextStyle(26, 34, FontWeight.SemiBold),
+    titleMedium = tvTextStyle(20, 28, FontWeight.Medium),
+    titleSmall = tvTextStyle(18, 26, FontWeight.Medium),
+    bodyLarge = tvTextStyle(18, 26, FontWeight.Medium), bodyMedium = tvTextStyle(17, 24),
+    bodySmall = tvTextStyle(16, 22),
+    labelLarge = tvTextStyle(18, 24, FontWeight.Medium),
+    labelMedium = tvTextStyle(16, 22, FontWeight.Medium),
+    labelSmall = tvTextStyle(14, 20, FontWeight.Medium),
 )
 
 @Composable fun TvTheme(dark: Boolean, media: Boolean = false, content: @Composable () -> Unit) {
