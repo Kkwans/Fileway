@@ -842,13 +842,16 @@ class TvMediaController(
         ++presentationRevision
         val oldOperation = operation; val oldSubtitle = subtitleJob; val oldWatcher = watcher; val oldPrefetch = prefetch
         oldOperation?.cancelAndJoin(); oldSubtitle?.cancelAndJoin(); oldWatcher?.cancelAndJoin(); oldPrefetch?.cancel()
-        lock.withLock { if (epoch == expected) disposeBinding() }
+        lock.withLock { if (epoch == expected) disposeBinding(closeUi=true) }
         if (epoch == expected) mutable.update { TvMediaState(mode = it.mode) }
     }
 
     fun close() { scope.launch { closeAndSave() } }
-    private suspend fun disposeBinding() {
+    private suspend fun disposeBinding(closeUi:Boolean=false) {
         saveProgress(); binding?.writer?.close(); binding = null; player.stop()
+        // Restore browsing before waiting for lease/cache IO. The old surface
+        // must not stay visible while its retired cache files are removed.
+        if(closeUi)mutable.update{TvMediaState(mode=it.mode)}
         playbackLease?.release(); playbackLease = null
         cache.stop();window = null
         leases.forEach { it.release() }; leases.clear()

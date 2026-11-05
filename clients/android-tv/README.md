@@ -13,6 +13,7 @@
 
 主线包含后续功能修复和 UI/UX 重构；debug 构建带 `-dev` 后缀，不等于公开包。
 当前公开下载为上面的 0.3.0。字幕实现契约见[字幕选路与恢复](docs/subtitles.md)。
+视频预缓存与退出清理契约见[共享媒体核心](../shared/android/media-core/README.md)。
 
 使用手机端相同的锁定 JDK17、SDK37、NDK28.2、CMake3.22.1 和 Gradle wrapper。
 在已有 x64 Android 构建机上运行，工具与缓存显式配置到所属开发目录：

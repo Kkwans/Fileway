@@ -9,6 +9,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.cache.*
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import io.github.kkwans.nasfilebrowser.player.PlaybackCacheEvictor
 import io.github.kkwans.nasfilebrowser.data.LanServiceDiscovery
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -23,56 +24,42 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class TvCacheAndDiscoveryTest {
     private val context=InstrumentationRegistry.getInstrumentation().targetContext
-    @Test fun fullDiskBudgetEvictsOldSpansAndContinuesPrefetch() {
-        val root=File(context.cacheDir,"owned-cache-eviction-${System.nanoTime()}")
-        val database=StandaloneDatabaseProvider(context)
-        val evictor=TvLruEvictor(128*1024)
-        val cache=SimpleCache(root,evictor,database)
-        val data=ByteArray(64*1024){(it%251).toByte()}
-        val factory=CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory{ByteArrayDataSource(data)}
-        fun fill(key:String) {CacheWriter(factory.createDataSource(),DataSpec.Builder().setUri("test://owned/$key").setKey(key).setLength(data.size.toLong()).build(),ByteArray(8192),null).cache()}
-        try {
-            fill("first");fill("second")
-            assertEquals(128*1024L,cache.cacheSpace)
-            // Touch the first resource; the second must now be least recent.
-            android.os.SystemClock.sleep(10)
-            val span=cache.startReadWrite("first",0,data.size.toLong())
-            assertTrue(span.isCached)
-            fill("third")
-            assertFalse(cache.isCached("second",0,data.size.toLong()))
-            assertTrue(cache.isCached("first",0,data.size.toLong()))
-            assertTrue(cache.isCached("third",0,data.size.toLong()))
-            fill("fourth")
-            assertEquals(128*1024L,cache.cacheSpace)
-            assertTrue("full capacity never disables subsequent prebuffer",cache.isCached("fourth",0,data.size.toLong()))
-            evictor.resize(cache,64*1024)
-            assertTrue(cache.cacheSpace<=64*1024)
-            fill("fifth")
-            assertTrue(cache.cacheSpace<=64*1024)
-            assertTrue(cache.isCached("fifth",0,data.size.toLong()))
-        } finally {cache.release();database.close();root.deleteRecursively()}
-    }
-
-    @Test fun activeReadAheadSurvivesRecentTouchesToPlayedBytes() {
+    private fun ownedCache(body:(SimpleCache,PlaybackCacheEvictor,(Long)->Unit)->Unit) {
         val root=File(context.cacheDir,"owned-window-eviction-${System.nanoTime()}")
-        val database=StandaloneDatabaseProvider(context);val evictor=TvLruEvictor(128*1024)
+        val database=StandaloneDatabaseProvider(context);val evictor=PlaybackCacheEvictor(128*1024)
         val cache=SimpleCache(root,evictor,database)
-        val data=ByteArray(256*1024){(it%251).toByte()}
+        val data=ByteArray(512*1024){(it%251).toByte()}
         val factory=CacheDataSource.Factory().setCache(cache).setUpstreamDataSourceFactory{ByteArrayDataSource(data)}
-        fun fill(position:Long){CacheWriter(factory.createDataSource(),DataSpec.Builder().setUri("test://owned/window").setKey("window").setPosition(position).setLength(64*1024).build(),ByteArray(8192),null).cache()}
-        try {
-            fill(0);fill(64*1024)
-            android.os.SystemClock.sleep(10)
-            assertTrue(cache.startReadWrite("window",0,64*1024).isCached)
-            evictor.protect(cache,"window",64*1024,192*1024)
-            fill(128*1024)
-            assertFalse("played data yields to unread upcoming data",cache.isCached("window",0,64*1024))
-            assertTrue(cache.isCached("window",64*1024,128*1024))
-            evictor.protect(cache,"window",128*1024,256*1024)
-            fill(192*1024)
-            assertTrue(cache.isCached("window",128*1024,128*1024))
-            assertTrue(cache.cacheSpace<=128*1024)
-        } finally {cache.release();database.close();root.deleteRecursively()}
+            .setCacheWriteDataSinkFactory(CacheDataSink.Factory().setCache(cache).setFragmentSize(64*1024))
+        fun fill(position:Long){
+            val count=evictor.beginWrite(cache,"owned:file",position,64*1024)
+            assertEquals(64*1024L,count)
+            try{CacheWriter(factory.createDataSource(),DataSpec.Builder().setUri("test://owned/window").setKey("owned:file").setPosition(position).setLength(count).setFlags(DataSpec.FLAG_ALLOW_CACHE_FRAGMENTATION).build(),ByteArray(8192),null).cache()}
+            finally{evictor.endWrite(cache)}
+        }
+        try{evictor.activate(cache,"owned:");body(cache,evictor,::fill)}
+        finally{cache.release();database.close();root.deleteRecursively()}
+    }
+    @Test fun fullUnreadWindowWaitsThenPlayedBytesYield()=ownedCache {cache,evictor,fill->
+        evictor.nativeWindow(cache,"owned:file",0,0,256*1024)
+        fill(0);fill(64*1024)
+        assertEquals(128*1024L,cache.cacheSpace)
+        assertEquals(0L,evictor.beginWrite(cache,"owned:file",128*1024,64*1024))
+        assertTrue(cache.isCached("owned:file",0,128*1024))
+        evictor.nativeWindow(cache,"owned:file",64*1024,64*1024,192*1024)
+        fill(128*1024)
+        assertFalse(cache.isCached("owned:file",0,64*1024))
+        assertTrue(cache.isCached("owned:file",64*1024,128*1024))
+    }
+    @Test fun activeReaderSurvivesPlayedEviction()=ownedCache {cache,evictor,fill->
+        evictor.nativeWindow(cache,"owned:file",0,0,256*1024)
+        fill(0);fill(64*1024)
+        val reader=Any();evictor.pin(cache,reader,"owned:file",0,1024)
+        evictor.nativeWindow(cache,"owned:file",64*1024,64*1024,192*1024)
+        assertEquals(0L,evictor.beginWrite(cache,"owned:file",128*1024,64*1024))
+        evictor.unpin(cache,reader);fill(128*1024)
+        assertTrue(cache.isCached("owned:file",64*1024,128*1024))
+        assertEquals(128*1024L,cache.cacheSpace)
     }
 
     @Suppress("DEPRECATION")

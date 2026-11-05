@@ -80,6 +80,10 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         media.file?.let{content.put("media",fileJson(it).put("name",it.name.take(1024)))}
         if(scene=="IMAGE")content.put("image",JSONObject(imageView.toString()))
         val appearance=model.media.playbackPreferences.textSubtitleAppearance.value
+        val cache=model.media.cache.state.value
+        content.put("cache",JSONObject().put("limitBytes",cache.limitBytes).put("usedBytes",cache.usedBytes)
+            .put("bytesPerSecond",cache.bytesPerSecond).put("error",cache.error?:JSONObject.NULL)
+            .put("ranges",JSONArray(cache.ranges.take(40).map{JSONObject().put("startMs",it.startMs).put("endMs",it.endMs)})))
         content.put("playback",JSONObject().put("playing",player.playing).put("positionMs",model.media.sourcePosition()).put("durationMs",media.sourceDurationMs)
             .put("positionLocalMs",player.positionMs).put("sourceOffsetMs",media.sourceOffsetMs).put("sdrActive",media.compatible)
             .put("bufferedMs",player.bufferedPositionMs+media.sourceOffsetMs).put("volume",player.volume).put("rate",player.rate).put("seekable",model.media.canSeek)
