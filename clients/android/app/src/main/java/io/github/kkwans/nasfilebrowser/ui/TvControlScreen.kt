@@ -32,9 +32,9 @@ import org.json.JSONObject
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun TvControlScreen(phone:ClientModel,onClose:()->Unit){
-    val owner=requireNotNull(LocalViewModelStoreOwner.current)
-    val model=remember(owner){ViewModelProvider(owner)[TvControlModel::class.java]}
+@Composable internal fun TvControlScreen(phone:ClientModel,onClose:()->Unit,controlModel:TvControlModel?=null){
+    val model=controlModel?:rememberTvControlModel()
+    val viewOwner=remember{Any()}
     val connection by model.connection.collectAsStateWithLifecycle()
     val paired by model.paired.collectAsStateWithLifecycle()
     val discovery by model.discovery.collectAsStateWithLifecycle()
@@ -68,8 +68,8 @@ import kotlinx.coroutines.launch
     fun scan(){if(context.checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED){scanning=true;cameraError=null}else camera.launch(Manifest.permission.CAMERA)}
     LaunchedEffect(permitted){if(!permitted)lan.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)}
     LifecycleStartEffect(permitted){
-        if(permitted)model.search()
-        onStopOrDispose{model.stopSearch()}
+        if(permitted)model.startView(viewOwner)
+        onStopOrDispose{model.stopView(viewOwner)}
     }
     Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background){
@@ -177,6 +177,11 @@ import kotlinx.coroutines.launch
             if(connection.phase==RemotePhase.CONNECTED)item{FilewayTextButton(onClick={model.disconnect();devicesOpen=false}){Text("断开当前 TV")}}
         }
     },confirmButton={FilewayTextButton(onClick={devicesOpen=false;scan()}){Text("扫码配对")}},dismissButton={FilewayTextButton(onClick={model.search()}){Text("重新搜索")}})
+}
+
+@Composable internal fun rememberTvControlModel():TvControlModel {
+    val owner=requireNotNull(LocalViewModelStoreOwner.current)
+    return remember(owner){ViewModelProvider(owner)[TvControlModel::class.java]}
 }
 
 @Composable private fun TvPhoneDeviceRow(title:String,subtitle:String,onClick:()->Unit){

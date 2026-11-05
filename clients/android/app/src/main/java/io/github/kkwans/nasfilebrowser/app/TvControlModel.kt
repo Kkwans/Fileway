@@ -30,10 +30,15 @@ class TvControlModel(application:Application):AndroidViewModel(application){
     private var retryAttempt=0
     private var visible=false
     private var automatic=true
+    private val views=mutableSetOf<Any>()
+    internal val selectionVersion:Long get()=revision
+    internal val handoff=TvHandoffFlow(viewModelScope,this)
+    fun startView(owner:Any){if(views.add(owner)&&views.size==1)search()}
+    fun stopView(owner:Any){views-=owner;if(views.isEmpty())stopSearch()}
     init{viewModelScope.launch{connection.collect{state->
         val current=state.snapshot?.let{"${state.device?.id}/${it.connectionId}/${it.sessionEpoch}/${it.content.optString("route")}/${it.content.optString("directory")}/${it.content.optInt("total")}"}.orEmpty()
         if(listing!=current){listing=current;moreMutable.value=emptyList()}
-        if(state.phase==RemotePhase.CONNECTED){retryAttempt=0;reconnect?.cancel();reconnect=null}
+        if(state.phase==RemotePhase.CONNECTED){retryAttempt=0;reconnect?.cancel();reconnect=null;handoff.connected()}
         else if(state.phase==RemotePhase.FAILED&&state.retryable)scheduleReconnect()
     }}}
     fun search(){
@@ -99,8 +104,12 @@ class TvControlModel(application:Application):AndroidViewModel(application){
     private suspend fun send(operation:String,payload:JSONObject=JSONObject(),deviceId:String?=null):RemoteResult{
         check(deviceId==null||connection.value.device?.id==deviceId){"控制设备已切换，请重新操作"}
         val result=client.execute(operation,payload)
-        if(!result.completed)error(if(result.uncertain)"操作结果尚未确认，请刷新电视状态" else result.payload?.optString("message").orEmpty().ifBlank{"电视未执行操作（${result.code}）"})
+        if(!result.completed){if(result.uncertain)throw TvCommandUnconfirmed();error(result.payload?.optString("message").orEmpty().ifBlank{"电视未执行操作（${result.code}）"})}
         return result
+    }
+    internal suspend fun sendBound(operation:String,payload:JSONObject,deviceId:String,version:Long):RemoteResult {
+        check(version==revision){"控制设备已切换"}
+        return send(operation,payload,deviceId).also{check(version==revision&&connection.value.device?.id==deviceId){"控制设备已切换"}}
     }
     fun authorize(phone:ClientModel,expected:SessionContext?){
         if(busyMutable.value)return
@@ -111,21 +120,26 @@ class TvControlModel(application:Application):AndroidViewModel(application){
                 val source=phone.tvAuthorizationContext()?:error("请先在手机登录服务器")
                 check(source===expected){"手机登录已切换，请重新确认 TV 登录账号"}
                 val device=connection.value.device?:error("请先连接电视")
-                val instance=try{source.api.request("GET","/api/instance")}
-                    catch(_:org.json.JSONException){error("当前服务器需要升级后才能授权 TV 登录")}
-                check(phone.tvAuthorizationContext()===source){"手机登录已切换，请重新确认"}
-                val response=send("session.requestGrant",JSONObject().put("origin",source.profile.address).put("instance",instance),device.id).payload?:error("TV未返回授权请求")
-                val request=response.getJSONObject("request")
-                check(request.getString("deviceId")==device.id){"授权设备不匹配"}
-                check(response.getJSONObject("instance").getString("id")==instance.getString("id")){"授权服务实例不匹配"}
-                check(phone.tvAuthorizationContext()===source&&connection.value.device?.id==device.id){"手机账号或TV已切换，请重新确认"}
-                source.api.action("POST","/api/device-auth/requests/${request.getString("id")}/approve",JSONObject().put("deviceId",device.id).put("publicKey",request.getString("publicKey")))
-                // Approval is durable. A later phone account change cannot turn
-                // it into an unacknowledged write or copy the phone's session.
-                send("session.adopt",JSONObject().put("requestId",request.getString("id")),device.id)
+                authorizeBound(phone,source,device.id,requestRevision)
                 if(requestRevision==revision)noticeMutable.value="TV已独立登录"
             }finally{if(requestRevision==revision)busyMutable.value=false}
         }
+    }
+    internal suspend fun authorizeBound(phone:ClientModel,source:SessionContext,deviceId:String,version:Long){
+                check(version==revision&&connection.value.device?.id==deviceId&&phone.tvAuthorizationContext()===source){"手机账号或TV已切换，请重新确认"}
+                val instance=try{source.api.request("GET","/api/instance")}
+                    catch(_:org.json.JSONException){error("当前服务器需要升级后才能授权 TV 登录")}
+                check(phone.tvAuthorizationContext()===source){"手机登录已切换，请重新确认"}
+                val response=sendBound("session.requestGrant",JSONObject().put("origin",source.profile.address).put("instance",instance),deviceId,version).payload?:error("TV未返回授权请求")
+                val request=response.getJSONObject("request")
+                check(request.getString("deviceId")==deviceId){"授权设备不匹配"}
+                check(response.getJSONObject("instance").getString("id")==instance.getString("id")){"授权服务实例不匹配"}
+                check(phone.tvAuthorizationContext()===source&&connection.value.device?.id==deviceId&&version==revision){"手机账号或TV已切换，请重新确认"}
+                source.api.action("POST","/api/device-auth/requests/${request.getString("id")}/approve",JSONObject().put("deviceId",deviceId).put("publicKey",request.getString("publicKey")))
+                // Approval is durable. A later phone account change cannot turn
+                // it into an unacknowledged write or copy the phone's session.
+                try {sendBound("session.adopt",JSONObject().put("requestId",request.getString("id")),deviceId,version)}
+                catch(failure:Exception){if(failure is CancellationException)throw failure;throw TvCommandUnconfirmed("授权已批准，TV是否完成登录尚未确认，请先查看TV当前登录状态",failure)}
     }
     fun disconnect(){++revision;automatic=false;selection?.cancel();reconnect?.cancel();reconnect=null;busyMutable.value=false;client.disconnect();noticeMutable.value="已断开 TV"}
     override fun onCleared(){scan?.cancel();reconnect?.cancel();client.disconnect()}

@@ -45,6 +45,16 @@ entries. READY requires real playback position/state/track readiness or actual
 image decode plus a committed complete queue. A later ordinary playback error
 does not rewrite an already confirmed handoff as an unacknowledged failure.
 
+An open that needs another independent TV login returns `AUTH_REQUIRED` with
+`NO_SESSION`, `SERVER_MISMATCH` or `ACCESS_DENIED` before changing media. The
+phone requires an explicit account approval and never parses translated error
+text as an authorization decision. A lost result is reconciled by request ID,
+target device, session/media generation and the authoritative snapshot; it does
+not authorize replaying open or queue mutations. `media.open` with
+`cancelHandoff` can cancel only that unfinished, generation-bound request. A
+completed READY receipt remains acknowledged. Normal phone-account changes,
+closing controls and WebSocket disconnect never stop independent TV playback.
+
 Playback snapshots also expose optional `positionLocalMs`, `sourceOffsetMs` and
 `sdrActive` diagnostics; `positionMs` always refers to the original source timeline.
 Playback snapshots optionally report `audioDecoder`, `audioRenderedBuffers` and

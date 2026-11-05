@@ -113,3 +113,11 @@ Legacy Material Icons and locally drawn theme/navigation vectors are replaced wi
 | `ic_skip_back.xml` | [replay_10](https://raw.githubusercontent.com/google/material-design-icons/49d4db35df873165d6bd6ba09b063c7dafbac2f4/symbols/android/replay_10/materialsymbolsrounded/replay_10_24px.xml) | 0 | `a4e98db418c69b28174c7e5e9b6d57dc85abd081a8245e6e790daab3d1b72a75` |
 | `ic_skip_forward.xml` | [forward_10](https://raw.githubusercontent.com/google/material-design-icons/49d4db35df873165d6bd6ba09b063c7dafbac2f4/symbols/android/forward_10/materialsymbolsrounded/forward_10_24px.xml) | 0 | `d139caef4a69ab9f89c3304933a5c97ce564913772a8b4fc5fb6b92b802e3d1e` |
 | `ic_fast.xml` | [fast_forward](https://raw.githubusercontent.com/google/material-design-icons/49d4db35df873165d6bd6ba09b063c7dafbac2f4/symbols/android/fast_forward/materialsymbolsrounded/fast_forward_24px.xml) | 0 | `df435c12a41ab15fba0f44a4288e9bf04e2fd9117b811f2c68f6a1abcf48ded8` |
+
+## Native TV handoff icon
+
+`fileway_ic_cast.xml` uses Material Symbols Rounded `cast`, Google, Apache-2.0,
+[source SVG at commit 49d4db35df873165d6bd6ba09b063c7dafbac2f4](https://github.com/google/material-design-icons/blob/49d4db35df873165d6bd6ba09b063c7dafbac2f4/symbols/web/cast/materialsymbolsrounded/cast_24px.svg).
+The path geometry is unchanged; a +960 Y translation maps its viewBox into Android
+VectorDrawable coordinates. Tint is supplied by the existing toolbar icon system.
+Generated vector SHA-256: `8a2c9831eb1e10ef7557df35930d6e7e4524741e392fdda2f2759e12611530ec`.

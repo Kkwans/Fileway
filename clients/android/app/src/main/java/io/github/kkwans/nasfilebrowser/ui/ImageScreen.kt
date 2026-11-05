@@ -97,6 +97,7 @@ import kotlin.math.abs
                         FilewayIconButton(onClick = model::closeImage) { FilewayIcon(R.drawable.ic_arrow_back, "返回文件", tint = Color.White) }
                         Text(current.name, Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        TvHandoffIcon(current,client.previewScope,tint=Color.White)
                         FilewayIconButton({ details = current }) { FilewayIcon(R.drawable.ic_info, "图片详情", tint = Color.White) }
                         if (!model.isTemporaryContent(current)) FilewayIconButton({ saving = true; scope.launch {
                             val message = try { model.saveImageToAlbum(current); "已保存到相册" }

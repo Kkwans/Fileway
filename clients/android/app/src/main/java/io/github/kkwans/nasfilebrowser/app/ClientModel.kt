@@ -11,6 +11,10 @@ import io.github.kkwans.nasfilebrowser.core.EmbeddedNetwork
 import io.github.kkwans.nasfilebrowser.core.NetworkState
 import io.github.kkwans.nasfilebrowser.player.NativePlayer
 import io.github.kkwans.nasfilebrowser.player.DecoderRestore
+import io.github.kkwans.nasfilebrowser.player.DecoderSubtitleMode
+import io.github.kkwans.nasfilebrowser.player.transferJson
+import io.github.kkwans.fileway.remote.HandoffItem
+import io.github.kkwans.fileway.remote.HandoffQueue
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.download.DownloadController
 import io.github.kkwans.nasfilebrowser.download.DownloadRecord
@@ -122,6 +126,62 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private var foreground = false
     private var context: SessionContext? = null
     fun tvAuthorizationContext(): SessionContext? = context
+    internal suspend fun prepareTvHandoff(file:ResourceRef,sourceScope:String):PhoneTvHandoff {
+        val bound=context?:error("请先连接服务器")
+        check(sourceScope==bound.api.id){"手机服务器已变化，请重新选择文件"}
+        require(file.downloadId.isEmpty()&&!file.directory&&!isTemporaryContent(file)&&file.mediaKind()!=null){"TV 需要直接读取服务器文件，本机下载和包内临时文件不能接力"}
+        val request=mediaRequest
+        val engineGeneration=player.state.value.mediaGeneration
+        val opened=mutable.value.selected?.mediaKey==file.mediaKey||mutable.value.image?.mediaKey==file.mediaKey
+        val binding=playback?.takeIf{it.context===bound&&it.file.mediaKey==file.mediaKey&&opened}
+        val image=mutable.value.image?.mediaKey==file.mediaKey
+        val existingQueue=mutable.value.mediaQueue?.takeIf{opened&&it.owner==bound.account.key}
+        fun current()=context===bound&&mediaRequest==request&&(!opened||
+            if(image)mutable.value.image?.mediaKey==file.mediaKey&&mutable.value.mediaQueue?.snapshotId==existingQueue?.snapshotId
+            else playback===binding&&binding!=null&&player.state.value.mediaGeneration==engineGeneration&&mutable.value.selected?.mediaKey==file.mediaKey)
+        check(current()){"当前媒体来源无法确认，请重新打开后接力"}
+        if(opened&&!image)check(player.state.value.canSavePosition&&!mutable.value.busy){"请等待视频就绪或跳转完成后再接力"}
+        val verified=resourceMetadata(file)
+        check(current()){"手机播放来源已变化"}
+        if(file.modified.isNotBlank())check(file.modified==verified.modified&&file.size==verified.size){"文件版本已变化，请刷新或重新打开后接力"}
+        val identity=if(file.mediaKind()==MediaKind.IMAGE)"" else {
+            val value=bound.api.request("GET","/api/media/playback?path=${wireQueryPath(verified.path,verified.wirePath)}")
+            check(current()){"手机播放来源已变化"}
+            value.getString("identity").also{check(binding==null||binding.identity==it){"视频文件版本已变化，请重新打开后接力"}}
+        }
+        if(binding!=null)check(player.state.value.canSavePosition){"请等待跳转完成后再接力"}
+        val restore=if(binding!=null)player.decoderRestoreSnapshot()?:error("播放器尚未就绪")else null
+        val subtitle=restore?.externalSubtitle?.let { choice ->
+            val source=subtitleSources[choice.sourceKey] as? DecoderSubtitleSource.Server
+                ?:error("当前外挂字幕仅手机可访问，请改选服务器字幕或关闭字幕后接力")
+            check(source.bound===bound){"字幕服务器已变化"}
+            val checked=subtitleVersion(bound,source.file)
+            check(current()&&source.identity=="${checked.size}/${checked.modified}"){"外挂字幕版本已变化，请重新选择后接力"}
+            JSONObject().put("path",checked.path).put("wirePath",checked.wirePath).put("name",checked.name)
+                .put("size",checked.size).put("modified",checked.modified)
+        }
+        check(current()){"手机播放来源已变化"}
+        val candidates=(existingQueue?.items?:if(mutable.value.searchDisplayed)search.mediaSnapshot()else directoryItems())
+            .map{if(it.mediaKey==file.mediaKey)verified else it}
+        val queue=MediaQueue.snapshot(0,bound.account.key,verified,candidates,existingQueue?.source?:if(mutable.value.searchDisplayed)MediaQueueSource.SEARCH else MediaQueueSource.DIRECTORY)
+            ?:error("该文件暂不支持 TV 接力")
+        val remoteQueue=withContext(Dispatchers.Default){HandoffQueue.snapshot(queue.items.map(HandoffItem::from),queue.index)}
+        check(current()){"手机播放来源已变化"}
+        val playbackPayload=JSONObject().put("positionMs",restore?.positionMs?:0).put("wantsPlay",restore?.wantsPlay?:true)
+            .put("rate",restore?.baseRate?:1f).put("audioOff",restore?.audioOff?:false)
+            .put("subtitleMode",restore?.subtitleMode?.name?:"AUTO").put("subtitleDelayMs",restore?.subtitleDelayMs?:0)
+        restore?.audio?.let{playbackPayload.put("audio",it.transferJson())}
+        restore?.subtitle?.let{playbackPayload.put("subtitle",it.transferJson())}
+        if(restore?.subtitleMode==DecoderSubtitleMode.EXTERNAL) {
+            val choice=requireNotNull(restore.externalSubtitle)
+            val version=choice.sourceVersion?:restore.externalSources[choice.sourceKey]
+            check(version!=null){"字幕内容版本无法确认，请重新选择字幕后接力"}
+            playbackPayload.put("externalTrackKey",choice.trackKey).put("externalVersion",version)
+        }
+        return PhoneTvHandoff(bound,remoteQueue.items[remoteQueue.manifest.index],remoteQueue,identity,playbackPayload,subtitle,::current) {
+            if(binding!=null)player.pause()
+        }
+    }
     private var sessionSyncJob: Job? = null
     private var sessionSyncBound: SessionContext? = null
     private var sessionFlushJob: Job? = null
@@ -904,7 +964,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         currentCoroutineContext().ensureActive()
         check(context === bound && generation == bound.generation) { "文件来源已切换" }
         check(resourceWireBytes(row.optString("wirePath")).contentEquals(resourceWireBytes(wire))) { "文件来源已变化，请刷新核对" }
-        return file.copy(name = row.getString("name"), directory = row.getBoolean("isDir"), type = row.optString("type"),
+        return file.copy(wirePath=file.wirePath.ifEmpty{row.getString("wirePath")},name = row.getString("name"), directory = row.getBoolean("isDir"), type = row.optString("type"),
             size = row.getLong("size"), modified = row.optString("modified"), created = row.optString("created"))
     }
     internal suspend fun directorySize(file: ResourceRef, progress: (Int) -> Unit): DirectorySize {

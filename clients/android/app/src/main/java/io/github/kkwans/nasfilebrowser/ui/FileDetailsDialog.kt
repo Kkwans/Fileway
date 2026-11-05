@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
 import io.github.kkwans.nasfilebrowser.app.mediaKey
+import io.github.kkwans.nasfilebrowser.app.mediaKind
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
@@ -42,6 +43,8 @@ internal val LocalFileDetailsActionsEnabled = staticCompositionLocalOf { true }
     val metadata = load?.value ?: fetched
     val pending = load?.loading ?: fetching
     val known = if (load != null) load.value != null else resolved
+    val tvHandoff=LocalTvHandoff.current
+    val sourceScope=remember(file.mediaKey,model){model?.state?.value?.previewScope.orEmpty()}
     var metadataError by remember(file.mediaKey) { mutableStateOf<String?>(null) }
     var retry by remember(file.mediaKey) { mutableIntStateOf(0) }
     var size by remember(file.mediaKey) { mutableStateOf<DirectorySize?>(null) }
@@ -84,6 +87,10 @@ internal val LocalFileDetailsActionsEnabled = staticCompositionLocalOf { true }
                     .semantics { contentDescription = "文件详情内容" }, verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     field("名称", metadata.name)
                     FileOperationLocation("位置", file.path, showBasename = false)
+                    if(tvHandoff!=null&&model!=null&&known&&metadata.mediaKind()!=null&&metadata.downloadId.isEmpty()&&!model.isTemporaryContent(metadata))
+                        FilewayOutlinedButton(onClick={onDismiss();tvHandoff(metadata,sourceScope)},enabled=openEnabled,modifier=Modifier.fillMaxWidth()) {
+                            FilewayIcon(io.github.kkwans.fileway.design.R.drawable.fileway_ic_cast,null,Modifier.size(22.dp));Spacer(Modifier.width(8.dp));Text("在 TV 播放")
+                        }
                     CompositionLocalProvider(LocalFileDetailsActionsEnabled provides known) { actions?.invoke() }
                     additionalActions?.invoke()
                     HorizontalDivider(color = FilewayTheme.colors.outlineVariant)

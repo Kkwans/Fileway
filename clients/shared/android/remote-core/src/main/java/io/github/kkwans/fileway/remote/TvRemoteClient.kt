@@ -185,7 +185,7 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
             if (socket?.send(message) != true) { pending.remove(id); throw RemoteFailure("NOT_CONNECTED", "电视连接已断开") }
         }
         return try { withTimeoutOrNull(35_000) { result.await() } ?: RemoteResult(id, "UNKNOWN", "RESULT_PENDING_TIMEOUT") }
-        finally { pending.remove(id) }
+        finally { synchronized(lifecycle) { pending.remove(id) } }
     }
 
     fun disconnect() {

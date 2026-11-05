@@ -122,6 +122,17 @@ internal class TvMediaHandoff(private val model:TvModel) {
         return JSONObject().put("handoffId",value.id).put("received",result.first).put("committed",value.queueCommitted)
     }
 
+    suspend fun cancel(command:JSONObject,id:String):JSONObject {
+        val value=pending?:error("接力请求已结束")
+        require(value.id==id){"接力请求已变化"}
+        checkCommand(command,value.owner)
+        check(fence(command.getString("connectionId"))==value.fence){"播放来源已变化"}
+        if(value.terminal=="READY")return JSONObject().put("handoffId",id).put("status","READY")
+        value.terminal="CANCELLED";value.receiver.cancel()
+        model.media.closeAndSave()
+        return JSONObject().put("handoffId",id).put("status","CANCELLED")
+    }
+
     fun snapshot():JSONObject? {
         val value=pending?:return null
         val media=model.media.state.value;val player=model.media.player.state.value
@@ -134,7 +145,7 @@ internal class TvMediaHandoff(private val model:TvModel) {
             else if(!value.ready) {
                 val ready=if(value.kind==MediaKind.IMAGE)media.imageReady else !media.busy&&player.canSavePosition&&
                     player.pendingAudio==null&&player.pendingSubtitle==null&&!media.subtitleLoading&&!player.subtitleLoading&&
-                    player.playing==value.wantsPlay&&model.media.player.wantsPlay==value.wantsPlay&&
+                    handoffPlaybackMatches(value.wantsPlay,player.playing,player.ended,model.media.player.playWhenReady)&&
                     (!value.wantsPlay||player.firstFrameRendered||value.kind==MediaKind.AUDIO)&&
                     media.firstConfirmedPositionMs?.let{kotlin.math.abs(it-value.targetMs)<1000}==true
                 if(ready)value.ready=true
@@ -147,3 +158,7 @@ internal class TvMediaHandoff(private val model:TvModel) {
             .put("message",value.message?:JSONObject.NULL)
     }
 }
+
+/** Natural EOF may precede the next control snapshot; it is not a user pause. */
+internal fun handoffPlaybackMatches(wantsPlay:Boolean,playing:Boolean,ended:Boolean,playWhenReady:Boolean):Boolean =
+    wantsPlay==playWhenReady && (playing==wantsPlay || wantsPlay&&ended)

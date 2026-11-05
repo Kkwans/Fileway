@@ -393,6 +393,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                         Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
                         networkStatus?.let { PlayerNetworkStatus(it) }
+                        TvHandoffIcon(file,client.previewScope,enabled=controlsEnabled)
                         PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
                     }
                     FilewaySessionNotice(model)
@@ -562,6 +563,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         contentDescription = "设备时间"
                                         stateDescription = deviceTime
                                     })
+                                TvHandoffIcon(file,client.previewScope,enabled=controlsEnabled)
                                 PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
                             }
                         }

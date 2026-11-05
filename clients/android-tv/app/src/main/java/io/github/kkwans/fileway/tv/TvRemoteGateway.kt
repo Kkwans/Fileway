@@ -55,7 +55,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         media.queue?.let{q->content.put("queue",JSONObject().put("index",q.index).put("count",q.items.size).put("items",JSONArray(q.items.take(8).map(::fileJson))))}
         handoff.snapshot()?.let{content.put("handoff",it)}
         return JSONObject().put("sessionEpoch",model.sessionEpoch).put("mediaEpoch",model.media.controlEpoch).put("scene",scene)
-            .put("capabilities",JSONObject().put("navigation",true).put("input",true).put("deviceAuth",true).put("media",true)).put("content",content)
+            .put("capabilities",JSONObject().put("navigation",true).put("input",true).put("deviceAuth",true).put("media",true).put("nativeHandoff",1)).put("content",content)
     }
     suspend fun execute(command:JSONObject):JSONObject{
         val operation=command.getString("operation");val p=command.getJSONObject("payload")
@@ -92,7 +92,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
                 "cacheMiB"->{val limit=p.getLong("value");require(limit in 64..65536);model.media.cache.setLimit(limit*1048576)}
                 else->error("设置不支持")
             }
-            "media.open","image.open"->if(p.has("handoff"))return handoff.open(command,p)else model.open(find(p.getString("id")),files())
+            "media.open","image.open"->when {p.has("cancelHandoff")->return handoff.cancel(command,p.getString("cancelHandoff"));p.has("handoff")->return handoff.open(command,p);else->model.open(find(p.getString("id")),files())}
             "playback.play"->if(!player.state.value.playing)player.toggle()
             "playback.pause"->player.pause()
             "playback.stop"->model.media.closeAndSave()

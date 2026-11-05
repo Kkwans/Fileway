@@ -85,7 +85,9 @@ class MainActivity : ComponentActivity() {
             }
             CompositionLocalProvider(LocalFilewayDarkCanvasOwner provides registerDarkCanvas, LocalPlayerPictureInPicture provides pictureInPicture) {
                 ClientTheme(darkTheme = dark) {
-                    androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.background) { ClientApp(model) }
+                    androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
+                        io.github.kkwans.nasfilebrowser.ui.FilewayTvHost(model) { ClientApp(model) }
+                    }
                 }
             }
         }
