@@ -95,15 +95,44 @@ class TvControlModel(application:Application):AndroidViewModel(application){
     }
     fun work(action:suspend ()->Unit){val expected=revision;viewModelScope.launch{runAction(expected,action)}}
     fun command(operation:String,payload:JSONObject=JSONObject())=work{send(operation,payload)}
+    private fun checkSnapshot(expected:RemoteSnapshot) {
+        val actual=connection.value.snapshot
+        check(actual?.connectionId==expected.connectionId&&actual.sessionEpoch==expected.sessionEpoch&&actual.mediaEpoch==expected.mediaEpoch){"TV 播放或登录来源已变化，请重新打开面板"}
+    }
+    internal fun commandFor(expected:RemoteSnapshot,operation:String,payload:JSONObject=JSONObject())=work {
+        checkSnapshot(expected)
+        send(operation,payload,expected=expected)
+        // The write is acknowledged. A later refresh/scope change does not
+        // turn it into an unacknowledged failure or authorize replay.
+    }
+    internal suspend fun mediaList(expected:RemoteSnapshot,kind:String):List<JSONObject> =withTimeout(10000) {
+        val rows=mutableListOf<JSONObject>()
+        var total:Int?=null
+        do {
+            checkSnapshot(expected)
+            val page=send("app.list",JSONObject().put("kind",kind).put("offset",rows.size).put("count",32),expected=expected).payload?:error("TV 未返回列表")
+            checkSnapshot(expected)
+            check(page.getLong("mediaEpoch")==expected.mediaEpoch){"播放内容已变化"}
+            if(page.optBoolean("loading")){delay(200);continue}
+            val size=page.getInt("total")
+            require(size in 0..10000&& (total==null||total==size)){"列表已变化，请重新打开"}
+            total=size
+            val items=page.getJSONArray("items")
+            check(items.length()>0||rows.size==size){"TV 未返回完整列表"}
+            for(index in 0 until items.length())rows+=items.getJSONObject(index)
+            check(rows.size<=size){"TV 列表长度无效"}
+        }while(total==null||rows.size<total)
+        rows.toList()
+    }
     fun loadMore(){work{
         val expected=listing
         val first=connection.value.snapshot?.content?.optJSONArray("files")?.length()?:0
         val result=send("app.list",JSONObject().put("offset",first+moreMutable.value.size).put("count",40)).payload?:return@work
         if(listing==expected){val rows=result.getJSONArray("files");moreMutable.value=(moreMutable.value+(0 until rows.length()).map{rows.getJSONObject(it)}).distinctBy{it.getString("id")}}
     }}
-    private suspend fun send(operation:String,payload:JSONObject=JSONObject(),deviceId:String?=null):RemoteResult{
+    private suspend fun send(operation:String,payload:JSONObject=JSONObject(),deviceId:String?=null,expected:RemoteSnapshot?=null):RemoteResult{
         check(deviceId==null||connection.value.device?.id==deviceId){"控制设备已切换，请重新操作"}
-        val result=client.execute(operation,payload)
+        val result=client.execute(operation,payload,expected)
         if(!result.completed){if(result.uncertain)throw TvCommandUnconfirmed();error(result.payload?.optString("message").orEmpty().ifBlank{"电视未执行操作（${result.code}）"})}
         return result
     }

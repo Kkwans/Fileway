@@ -171,11 +171,14 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
         }
     }
 
-    suspend fun execute(operation: String, payload: JSONObject = JSONObject()): RemoteResult {
+    suspend fun execute(operation: String, payload: JSONObject = JSONObject(), expected: RemoteSnapshot? = null): RemoteResult {
         val id = UUID.randomUUID().toString()
         val result = CompletableDeferred<RemoteResult>()
         synchronized(lifecycle) {
             val snapshot = mutable.value.snapshot ?: throw RemoteFailure("NOT_CONNECTED", "尚未连接电视")
+            if (expected != null && (snapshot.connectionId != expected.connectionId ||
+                    snapshot.sessionEpoch != expected.sessionEpoch || snapshot.mediaEpoch != expected.mediaEpoch))
+                throw RemoteFailure("SCOPE_CHANGED", "TV 播放或登录来源已变化，请重新打开面板")
             val message = JSONObject().put("type", "command").put("protocol", REMOTE_PROTOCOL).put("commandId", id)
                 .put("connectionId", snapshot.connectionId).put("sessionEpoch", snapshot.sessionEpoch).put("mediaEpoch", snapshot.mediaEpoch)
                 .put("operation", operation).put("payload", payload).toString()

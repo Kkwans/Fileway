@@ -121,3 +121,7 @@ Legacy Material Icons and locally drawn theme/navigation vectors are replaced wi
 The path geometry is unchanged; a +960 Y translation maps its viewBox into Android
 VectorDrawable coordinates. Tint is supplied by the existing toolbar icon system.
 Generated vector SHA-256: `8a2c9831eb1e10ef7557df35930d6e7e4524741e392fdda2f2759e12611530ec`.
+
+`fileway_ic_speed.xml` uses the same pinned Material Symbols Rounded family,
+[speed SVG](https://github.com/google/material-design-icons/blob/49d4db35df873165d6bd6ba09b063c7dafbac2f4/symbols/web/speed/materialsymbolsrounded/speed_24px.svg),
+with the same unchanged path/+960 Y translation. Generated vector SHA-256: `d4925cf4da333e66cd97873396c7ae2e6b20ab13b544c5ab953aaed35fdd0424`.

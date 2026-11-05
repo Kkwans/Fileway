@@ -57,6 +57,18 @@ closing controls and WebSocket disconnect never stop independent TV playback.
 
 Playback snapshots also expose optional `positionLocalMs`, `sourceOffsetMs` and
 `sdrActive` diagnostics; `positionMs` always refers to the original source timeline.
+Peers advertising `mediaPanels: 1` support `app.list` with `kind` set to `audio`,
+`subtitles`, `sidecars`, `fonts` or `queue`, plus `offset` and `count` (1–32).
+These media-bound pages return `items`, `total`, `mediaEpoch` and an optional
+`loading` flag. Snapshot arrays are bounded previews, not complete lists; counts
+and selected IDs remain authoritative. The Android payload leaves room under the
+48 KiB snapshot limit for the native connection envelope. Legacy file listing
+retains its existing response. Font IDs are opaque catalog identities, never
+system paths; `subtitle.setAppearance` accepts `fontId`, `area` or `reset: true`.
+Optional `content.image` reports the actual viewport scale and normalized pan,
+including TV-side changes. Media panels must be discarded when connection,
+session or media generation changes. The phone checks this scope atomically
+with command serialization, so an old gesture cannot target new media.
 Playback snapshots optionally report `audioDecoder`, `audioRenderedBuffers` and
 `audioSkippedBuffers` for diagnostics. Counts belong to the current audio renderer
 and may reset when it changes; they are buffers, not PCM frames or elapsed time.

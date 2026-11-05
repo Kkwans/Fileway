@@ -246,6 +246,7 @@ class TvMediaController(
     private fun sourceSubtitleKeys() = mutable.value.sourceText.associate { track ->
         track.index to tvSubtitleKey(track.codec, track.language, track.label, track.preferred, track.forced)
     }
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun nativeSubtitleKey(identity: DecoderTrackIdentity) = tvSubtitleKey(
         (if (identity.mime == MimeTypes.APPLICATION_MEDIA3_CUES) identity.codecs else identity.mime).orEmpty(),
         identity.language, identity.label, identity.selectionFlags and C.SELECTION_FLAG_DEFAULT != 0,
@@ -775,11 +776,14 @@ class TvMediaController(
             if (accepts(owner, expected)) mutable.update { it.copy(sidecars = files) }
         } catch (error: Exception) { if (error is CancellationException) throw error }
     }
+    private var originalImageEpoch: Long? = null
     fun requestOriginalImage() {
         val owner = current() ?: return
         val file = mutable.value.file ?: return
         val expected = epoch
         if (file.mediaKind() != MediaKind.IMAGE) return
+        if (originalImageEpoch == expected) return
+        originalImageEpoch = expected
         scope.launch {
             try {
                 val lease = owner.api.image(file.path, file.wirePath, ImageQuality.HIGH)
@@ -788,6 +792,7 @@ class TvMediaController(
                 mutable.update { it.copy(imageUrl = lease.url) }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
+                if (originalImageEpoch == expected) originalImageEpoch = null
                 if (accepts(owner, expected)) mutable.update { it.copy(notice = "暂时无法读取原图，已保留预览") }
             }
         }
