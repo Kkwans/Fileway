@@ -30,13 +30,14 @@ type Identity struct {
 }
 
 type Descriptor struct {
-	Protocol   int    `json:"protocol"`
-	DeviceID   string `json:"deviceId"`
-	Name       string `json:"name"`
-	ServerName string `json:"serverName"`
-	Address    string `json:"address"`
-	Port       int    `json:"port"`
-	SPKISHA256 string `json:"spkiSha256"`
+	Protocol       int    `json:"protocol"`
+	DeviceID       string `json:"deviceId"`
+	Name           string `json:"name"`
+	ServerName     string `json:"serverName"`
+	Address        string `json:"address"`
+	Port           int    `json:"port"`
+	SPKISHA256     string `json:"spkiSha256"`
+	PairingVersion int    `json:"pairingVersion,omitempty"`
 }
 
 type Controller struct {

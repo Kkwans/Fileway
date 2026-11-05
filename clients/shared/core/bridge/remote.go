@@ -83,6 +83,10 @@ func (e *Engine) executeRemote(ctx context.Context, command Command) (any, error
 		return event, err
 	case "remote_pair_complete":
 		return nil, host.CompletePair(command.RemotePairRequestID, command.RemoteSaved)
+	case "remote_pair_deny":
+		return nil, host.RejectPair(command.RemotePairRequestID)
+	case "remote_pair_status":
+		return host.ApprovalStatus(command.RemotePairRequestID)
 	case "remote_revoke":
 		host.Revoke(command.RemoteControllerID)
 		return nil, nil

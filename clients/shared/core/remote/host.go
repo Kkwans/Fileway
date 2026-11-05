@@ -25,8 +25,9 @@ type Config struct {
 	Identity Identity `json:"identity"`
 	Name     string   `json:"name"`
 	// ListenAddress is one concrete local interface address, never 0.0.0.0.
-	ListenAddress string       `json:"listenAddress"`
-	Controllers   []Controller `json:"controllers"`
+	ListenAddress   string       `json:"listenAddress"`
+	Controllers     []Controller `json:"controllers"`
+	ApprovalPairing bool         `json:"approvalPairing"`
 }
 
 // Invitation is private: Android renders it only as a short-lived pairing QR.
@@ -85,6 +86,8 @@ type Host struct {
 	inviteUsed      bool
 	requestTimes    map[string][]time.Time
 	lastPairDisplay time.Time
+	approvals       map[string]*approvalPending
+	lastApproval    time.Time
 }
 
 func Start(config Config) (*Host, error) {
@@ -121,6 +124,11 @@ func Start(config Config) (*Host, error) {
 		state: State{Scene: "LOGIN", Capabilities: json.RawMessage(`{}`), Content: json.RawMessage(`{}`)},
 		descriptor: Descriptor{Protocol: Protocol, DeviceID: config.Identity.DeviceID, Name: config.Name,
 			ServerName: config.Identity.ServerName, Address: ip.String(), Port: listener.Addr().(*net.TCPAddr).Port, SPKISHA256: fingerprint},
+	}
+	// Only an Android host with a local approval UI may advertise this branch.
+	if config.ApprovalPairing {
+		host.approvals = make(map[string]*approvalPending)
+		host.descriptor.PairingVersion = 2
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
 	host.server = &http.Server{Handler: host, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
@@ -179,11 +187,18 @@ func (h *Host) CompletePair(requestID string, saved bool) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	pending := h.pairs[requestID]
-	if pending == nil || time.Now().After(pending.until) || h.ctx.Err() != nil {
+	if pending == nil {
+		return h.completeApprovalLocked(requestID, saved)
+	}
+	if time.Now().After(pending.until) || h.ctx.Err() != nil {
 		return errors.New("pairing request expired")
 	}
 	delete(h.pairs, requestID)
 	if saved {
+		if len(h.controllers) >= 16 {
+			pending.done <- false
+			return errors.New("controller limit reached")
+		}
 		key, err := parseController(pending.controller)
 		if err != nil {
 			return err
@@ -313,6 +328,12 @@ func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, h.descriptor)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/pair":
 		h.pair(w, r)
+	case h.approvals != nil && r.Method == http.MethodPost && r.URL.Path == "/v1/pairing/start":
+		h.startApproval(w, r)
+	case h.approvals != nil && r.Method == http.MethodPost && r.URL.Path == "/v1/pairing/status":
+		h.approvalStatus(w, r, false)
+	case h.approvals != nil && r.Method == http.MethodPost && r.URL.Path == "/v1/pairing/cancel":
+		h.approvalStatus(w, r, true)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/pairing/request":
 		h.mu.Lock()
 		allowed := (len(h.controllers) == 0 || (!h.inviteUsed && time.Now().Before(h.inviteUntil))) && time.Since(h.lastPairDisplay) >= 30*time.Second
@@ -404,6 +425,7 @@ func (h *Host) pair(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if input.InvitationID != h.inviteID || h.inviteUsed || now.After(h.inviteUntil) || len(h.pairs) != 0 ||
+		len(h.controllers) >= 16 || h.approvalPendingLocked(now) ||
 		!verifyPairProof(h.inviteSecret, input.Proof, h.descriptor.DeviceID, input.Controller.ID, input.Nonce) {
 		h.mu.Unlock()
 		writeError(w, "PAIR_REQUIRED", http.StatusUnauthorized)

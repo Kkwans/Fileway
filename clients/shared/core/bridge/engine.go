@@ -160,7 +160,7 @@ func (e *Engine) execute(c Command) (any, error) {
 		defer func() { e.mu.Lock(); delete(e.pending, c.RequestID); e.mu.Unlock() }()
 	}
 	switch c.Op {
-	case "remote_identity", "remote_start", "remote_descriptor", "remote_invite", "remote_wait", "remote_pair_complete", "remote_publish", "remote_reply", "remote_revoke", "remote_stop", "remote_connection":
+	case "remote_identity", "remote_start", "remote_descriptor", "remote_invite", "remote_wait", "remote_pair_complete", "remote_pair_deny", "remote_pair_status", "remote_publish", "remote_reply", "remote_revoke", "remote_stop", "remote_connection":
 		return e.executeRemote(ctx, c)
 	case "init":
 		return map[string]int{"protocol": 1}, nil

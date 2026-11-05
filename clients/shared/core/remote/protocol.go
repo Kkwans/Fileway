@@ -116,12 +116,13 @@ type Result struct {
 
 // Event crosses only the private JNI boundary. It is not a LAN response.
 type Event struct {
-	Type          string      `json:"type"`
-	ConnectionID  string      `json:"connectionId,omitempty"`
-	ControllerID  string      `json:"controllerId,omitempty"`
-	PairRequestID string      `json:"pairRequestId,omitempty"`
-	Controller    *Controller `json:"controller,omitempty"`
-	Command       *Command    `json:"command,omitempty"`
+	Type          string         `json:"type"`
+	ConnectionID  string         `json:"connectionId,omitempty"`
+	ControllerID  string         `json:"controllerId,omitempty"`
+	PairRequestID string         `json:"pairRequestId,omitempty"`
+	Controller    *Controller    `json:"controller,omitempty"`
+	Approval      *ApprovalState `json:"approval,omitempty"`
+	Command       *Command       `json:"command,omitempty"`
 }
 
 func commandDigest(command Command) string {

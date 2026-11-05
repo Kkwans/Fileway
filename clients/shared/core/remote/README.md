@@ -14,6 +14,30 @@ Android's scoped TLS trust checks the exact QR-pinned installation key, validity
 self-signature, purpose, and the normal hostname verification. No global trust
 override or TLS bypass is installed.
 
+Hosts with a local approval UI may opt in using `Config.approvalPairing`; only
+then does `/v1/identity` advertise `pairingVersion: 2`. This additive branch
+preserves existing QR pairing:
+
+- `POST /v1/pairing/start`: `{controller, nonce, signature}`. The P-256 signature
+  covers `ProofMessage("pair-request", deviceId, controllerId, nonce)`. The result
+  contains a request ID, status, expiry and a six-digit comparison code derived
+  from the same message. Both displays must match; this is not a pairing PIN.
+- `POST /v1/pairing/status` and `/v1/pairing/cancel`:
+  `{id, controllerId, nonce, signature}`, bound to that original signed request.
+  Cancel affects only PENDING. Repeating start reconciles a lost response without
+  another prompt. Neither endpoint returns NAS state or grants authority.
+- `pair.approval` presents the exact phone/request to Android. After a local
+  allow and durable storage, `CompletePair(id, true)` records PAIRED. `RejectPair`
+  records DENIED; `CompletePair(id, false)` records a storage failure. EXPIRED,
+  CANCELLED and other terminal requests cannot later acquire trust.
+
+Only one approval may be pending; at most sixteen results are retained. New
+prompts have a five-second global cooldown as well as the HTTP rate budget.
+Requests expire after two minutes, with results retained for two more. QR and
+approval cannot reserve simultaneous controller slots. Pairing never displaces
+an active phone or authorizes a NAS account. Android UI integration/acceptance
+remain separate from this core transport contract.
+
 The host listens on one concrete local interface. There is one active controller,
 at most eight sockets and sixteen paired controllers. Requests reject cross-origin
 browser access, arbitrary hostnames and unexpected query parameters. WebSocket
