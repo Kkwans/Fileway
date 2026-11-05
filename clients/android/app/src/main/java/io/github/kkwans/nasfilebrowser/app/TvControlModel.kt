@@ -36,7 +36,11 @@ class TvControlModel(application:Application):AndroidViewModel(application){
     fun startView(owner:Any){if(views.add(owner)&&views.size==1)search()}
     fun stopView(owner:Any){views-=owner;if(views.isEmpty())stopSearch()}
     init{viewModelScope.launch{connection.collect{state->
-        val current=state.snapshot?.let{"${state.device?.id}/${it.connectionId}/${it.sessionEpoch}/${it.content.optString("route")}/${it.content.optString("directory")}/${it.content.optInt("total")}"}.orEmpty()
+        val current=state.snapshot?.let{snapshot->
+            val prefix=snapshot.content.optJSONArray("files")
+            val ids=prefix?.let{rows->(0 until rows.length()).joinToString(","){rows.optJSONObject(it)?.optString("id").orEmpty()}}.orEmpty()
+            "${state.device?.id}/${snapshot.connectionId}/${snapshot.sessionEpoch}/${snapshot.content.optString("route")}/${snapshot.content.optString("directory")}/${snapshot.content.optInt("total")}/$ids"
+        }.orEmpty()
         if(listing!=current){listing=current;moreMutable.value=emptyList()}
         if(state.phase==RemotePhase.CONNECTED){retryAttempt=0;reconnect?.cancel();reconnect=null;handoff.connected()}
         else if(state.phase==RemotePhase.FAILED&&state.retryable)scheduleReconnect()
