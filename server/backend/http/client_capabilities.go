@@ -15,5 +15,6 @@ var clientCapabilitiesHandler = withUser(func(w http.ResponseWriter, r *http.Req
 		SourceSubtitles        bool   `json:"sourceSubtitles"`
 		SubtitleAttachments    bool   `json:"subtitleAttachments"`
 		SDRCompatibility       bool   `json:"sdrCompatibility"`
-	}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, 1, true, true, true})
+		SourcePGSStreaming     int    `json:"sourcePGSStreaming"`
+	}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, 1, true, true, true, 1})
 })

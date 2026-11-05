@@ -28,6 +28,7 @@ type boundedAssetWriter struct {
 	file      *os.File
 	remaining int64
 	cancel    context.CancelFunc
+	progress  func(int)
 }
 
 func (w *boundedAssetWriter) Write(value []byte) (int, error) {
@@ -37,6 +38,9 @@ func (w *boundedAssetWriter) Write(value []byte) (int, error) {
 	}
 	n, err := w.file.Write(value)
 	w.remaining -= int64(n)
+	if n > 0 && w.progress != nil {
+		w.progress(n)
+	}
 	return n, err
 }
 
@@ -105,6 +109,22 @@ func servePreparedSourceAsset(w http.ResponseWriter, r *http.Request, d *data, f
 		return http.StatusServiceUnavailable, fmt.Errorf("源媒体资源服务不可用")
 	}
 	key := sourceAssetKey(d, file, identity, format, index)
+	if stream := r.URL.Query().Get("stream"); stream != "" {
+		if stream != "1" || format != "sup" {
+			return http.StatusBadRequest, fmt.Errorf("此格式不支持流式源字幕")
+		}
+		reader, err := d.mediaAssets.openStream(r.Context(), key, limit, func(ctx context.Context, out io.Writer) error {
+			return runSourceAsset(ctx, file.RealPath(), index, format, out)
+		})
+		if err != nil {
+			return http.StatusServiceUnavailable, fmt.Errorf("暂时无法读取源字幕")
+		}
+		defer func() { _ = reader.Close() }()
+		return writeSourceAssetStream(w, r, reader, identity, func() bool {
+			current, err := files.NewFileInfo(&files.FileOptions{Fs: d.user.Fs, Path: file.Path, Checker: d})
+			return err == nil && mediaSourceIdentity(current) == identity
+		})
+	}
 	prepare := d.mediaAssets.prepare
 	if format == "font" {
 		prepare = d.mediaAssets.prepareFont

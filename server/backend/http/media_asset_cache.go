@@ -20,6 +20,7 @@ type mediaAssetService struct {
 	fontLane  chan struct{}
 	mu        sync.Mutex
 	pending   map[string]*mediaAssetFlight
+	pins      map[string]int
 	reserved  int64
 }
 
@@ -30,6 +31,9 @@ type mediaAssetFlight struct {
 	finished  bool
 	abandoned bool
 	err       error
+	changed   chan struct{}
+	name      string
+	written   int64
 }
 
 func newMediaAssetService(directory string) *mediaAssetService {
@@ -38,6 +42,7 @@ func newMediaAssetService(directory string) *mediaAssetService {
 		lane:      make(chan struct{}, 1),
 		fontLane:  make(chan struct{}, 1),
 		pending:   make(map[string]*mediaAssetFlight),
+		pins:      make(map[string]int),
 	}
 }
 
@@ -82,18 +87,10 @@ func (service *mediaAssetService) prepareInLane(ctx context.Context, key string,
 		if file, err := service.cached(key, limit); file != nil || err != nil {
 			return file, err
 		}
-		service.mu.Lock()
-		flight := service.pending[key]
-		if flight == nil {
-			// One canceled HTTP reader must not cancel other readers' extraction.
-			// The last reader does cancel it, including time waiting for a lane.
-			work, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
-			flight = &mediaAssetFlight{done: make(chan struct{}), cancel: cancel}
-			service.pending[key] = flight
-			go service.extract(work, key, limit, lane, flight, run)
+		flight, err := service.join(ctx, key, limit, lane, run, false)
+		if err != nil {
+			return nil, err
 		}
-		flight.waiters++
-		service.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			service.leave(flight)
@@ -124,7 +121,7 @@ func (service *mediaAssetService) extract(ctx context.Context, key string, limit
 	var err error
 	select {
 	case lane <- struct{}{}:
-		err = service.build(ctx, key, limit, run)
+		err = service.build(ctx, key, limit, flight, run)
 		<-lane
 	case <-ctx.Done():
 		err = ctx.Err()
@@ -134,10 +131,11 @@ func (service *mediaAssetService) extract(ctx context.Context, key string, limit
 	flight.finished = true
 	delete(service.pending, key)
 	close(flight.done)
+	service.changed(flight)
 	service.mu.Unlock()
 }
 
-func (service *mediaAssetService) build(ctx context.Context, key string, limit int64, run func(context.Context, io.Writer) error) error {
+func (service *mediaAssetService) build(ctx context.Context, key string, limit int64, flight *mediaAssetFlight, run func(context.Context, io.Writer) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -146,6 +144,13 @@ func (service *mediaAssetService) build(ctx context.Context, key string, limit i
 	}
 	if file, err := service.cached(key, limit); file != nil || err != nil {
 		if file != nil {
+			if info, statErr := file.Stat(); statErr == nil {
+				service.mu.Lock()
+				flight.name = file.Name()
+				flight.written = info.Size()
+				service.changed(flight)
+				service.mu.Unlock()
+			}
 			return file.Close()
 		}
 		return err
@@ -168,11 +173,24 @@ func (service *mediaAssetService) build(ctx context.Context, key string, limit i
 	if err != nil {
 		return err
 	}
-	defer func() { _ = os.Remove(file.Name()) }()
+	defer func() {
+		service.mu.Lock()
+		defer service.mu.Unlock()
+		_ = os.Remove(file.Name())
+	}()
 	defer func() { _ = file.Close() }()
+	service.mu.Lock()
+	flight.name = file.Name()
+	service.changed(flight)
+	service.mu.Unlock()
 	work, cancel := context.WithCancel(ctx)
 	defer cancel()
-	writer := &boundedAssetWriter{file: file, remaining: limit, cancel: cancel}
+	writer := &boundedAssetWriter{file: file, remaining: limit, cancel: cancel, progress: func(n int) {
+		service.mu.Lock()
+		flight.written += int64(n)
+		service.changed(flight)
+		service.mu.Unlock()
+	}}
 	if err := run(work, writer); err != nil {
 		return err
 	}
@@ -194,7 +212,12 @@ func (service *mediaAssetService) build(ctx context.Context, key string, limit i
 	if err := work.Err(); err != nil {
 		return err
 	}
-	return os.Rename(file.Name(), filepath.Join(service.directory, key))
+	name := filepath.Join(service.directory, key)
+	if err := os.Rename(file.Name(), name); err != nil {
+		return err
+	}
+	flight.name = name
+	return nil
 }
 
 // reserve is called under mu. It accounts for both complete files and bounded
@@ -221,6 +244,9 @@ func (service *mediaAssetService) reserve(limit int64) error {
 	for _, info := range cached {
 		if total+service.reserved+limit <= sourceAssetCacheLimit && time.Since(info.ModTime()) < 24*time.Hour {
 			break
+		}
+		if service.pins[info.Name()] > 0 {
+			continue
 		}
 		if err := os.Remove(filepath.Join(service.directory, info.Name())); err == nil {
 			total -= info.Size()

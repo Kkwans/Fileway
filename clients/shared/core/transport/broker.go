@@ -441,5 +441,13 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	buf := make([]byte, 64<<10)
+	if isSourceAssetStream(res.Header.Get("Content-Type")) && status == http.StatusOK {
+		controller := http.NewResponseController(w)
+		if err := controller.Flush(); err != nil {
+			return
+		}
+		_, _ = io.CopyBuffer(sourceAssetFlushWriter{w, controller}, res.Body, buf)
+		return
+	}
 	_, _ = io.CopyBuffer(w, res.Body, buf)
 }

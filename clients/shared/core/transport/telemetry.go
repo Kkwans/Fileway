@@ -93,6 +93,8 @@ type measuredWriter struct {
 	status  int
 }
 
+func (w *measuredWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *measuredWriter) WriteHeader(status int) {
 	if w.status == 0 {
 		w.status = status
