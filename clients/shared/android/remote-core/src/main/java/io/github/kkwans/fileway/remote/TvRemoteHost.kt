@@ -19,10 +19,14 @@ import org.json.JSONObject
 
 enum class TvHostPhase { STOPPED, STARTING, READY, FAILED }
 
+data class TvPairApproval(val id:String,val controller:TrustedController,val code:String,
+    val expiresIn:Int,val busy:Boolean=false,val error:String?=null,val allowed:Boolean=false)
+
 data class TvHostState(val device: TvDescriptor? = null, val invitation: TvInvitation? = null,
     val controllerName: String? = null, val error: String? = null,
     val phase: TvHostPhase = TvHostPhase.STOPPED, val pairingOpen: Boolean = false,
-    val pairingBusy: Boolean = false, val pairingError: String? = null)
+    val pairingBusy: Boolean = false, val pairingError: String? = null,
+    val approval:TvPairApproval?=null)
 
 /** Foreground-only control host. Stopping it never stops a media player or
  * signs out the TV. All JNI handles are tied to this host's generation. */
@@ -38,9 +42,11 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
     private val commands = Mutex()
     private val publishing=Mutex()
     private val invitations=Mutex()
+    private val pairingSaves=Mutex()
     private var running: Job? = null
     private var invitationJob: Job? = null
     private var pairingRequest: Job? = null
+    private var approvalWatch: Job? = null
     private var pairingRevision = 0L
     private var handle: String? = null
     private var revision = 0L
@@ -95,13 +101,13 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
                     val network = lanNetwork(app) ?: error("请连接局域网后使用手机遥控")
                     val address = lanAddress(app, network) ?: error("当前网络没有可用的局域网地址")
                     observedLan=network to address
-                    val controllers = store.dao.currentControllers()
+                    val controllers = pairingSaves.withLock { store.dao.currentControllers() }
                     val config = JSONObject().put("identity", store.tvIdentity()).put("name", Build.MODEL.take(40).ifBlank { "栖卷 TV" })
-                        .put("listenAddress", address).put("controllers", JSONArray(controllers.map { it.json() }))
+                        .put("listenAddress", address).put("controllers", JSONArray(controllers.map { it.json() })).put("approvalPairing",true)
                     localHandle = NativeTransport.call(JSONObject().put("op", "remote_start").put("remoteConfig", config)) as String
                     handle = localHandle
                     val device = TvDescriptor.from(call("remote_descriptor") as JSONObject)
-                    mutable.update { it.copy(device=device, phase=TvHostPhase.READY, error=null, invitation=null, controllerName=null) }
+                    mutable.update { it.copy(device=device, phase=TvHostPhase.READY, error=null, invitation=null, controllerName=null,approval=null) }
                     registration = advertise(device)
                     // Pairing is opened by the TV entry or a discovered phone's
                     // request, so an unpaired installation remains usable by remote.
@@ -112,24 +118,23 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
                             val event = call("remote_wait") as JSONObject
                             when (event.optString("type")) {
                                 "pairing.requested" -> requestPairing()
+                                "pair.approval" -> {
+                                    val owner=requireNotNull(localHandle)
+                                    approvalWatch?.cancel()
+                                    approvalWatch=launch { observeApproval(event,owner) }
+                                }
                                 "pair.requested" -> {
                                     val controller = TrustedController.from(event.getJSONObject("controller"))
-                                    var saved = false
-                                    try { store.dao.saveController(controller); saved = true
-                                        call("remote_pair_complete", JSONObject().put("remotePairRequestId", event.getString("pairRequestId")).put("remoteSaved", true))
+                                    try { persistPair(requireNotNull(localHandle),event.getString("pairRequestId"),controller)
                                         invitationJob?.cancel(); pairingRevision++; mutable.update { it.copy(invitation=null,pairingOpen=false,pairingBusy=false,pairingError=null) }
                                     } catch (error: Exception) {
-                                        if (saved) withContext(NonCancellable){
-                                            runCatching { call("remote_revoke",JSONObject().put("remoteControllerId",controller.id)) }
-                                            store.dao.removeController(controller.id)
-                                        }
                                         if (error is CancellationException) throw error
-                                        runCatching { call("remote_pair_complete", JSONObject().put("remotePairRequestId", event.getString("pairRequestId")).put("remoteSaved", false)) }
                                     }
                                 }
                                 "connection.opened" -> {
                                     val controller = store.dao.controller(event.getString("controllerId"))
-                                    mutable.update { it.copy(controllerName = controller?.name) }
+                                    if(mutable.value.approval?.controller?.id==controller?.id){approvalWatch?.cancel();approvalWatch=null}
+                                    mutable.update { it.copy(controllerName = controller?.name,approval=it.approval?.takeUnless{request->request.controller.id==controller?.id}) }
                                 }
                                 "connection.closed" -> mutable.update { it.copy(controllerName = null) }
                                 "command" -> launch { commands.withLock { dispatch(event) } }
@@ -141,13 +146,78 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
                     mutable.update { it.copy(error = error.message ?: "手机遥控暂不可用", phase=TvHostPhase.FAILED) }
                 } finally {
                     invitationJob?.cancel()
+                    approvalWatch?.cancel();approvalWatch=null
                     registration?.let { listener -> runCatching { app.getSystemService(NsdManager::class.java).unregisterService(listener) } }
                     if (handle == localHandle) handle = null
                     withContext(NonCancellable) { localHandle?.let { runCatching { NativeTransport.call(JSONObject().put("op", "remote_stop").put("remoteHandle", it)) } } }
-                    mutable.update { it.copy(device=null,invitation=null,controllerName=null,
+                    mutable.update { it.copy(device=null,invitation=null,controllerName=null,approval=null,
                         pairingError=if(it.pairingOpen && it.invitation!=null && !it.pairingBusy) "连接已变化，请重新生成二维码" else it.pairingError,
                         phase=if(it.phase==TvHostPhase.FAILED)TvHostPhase.FAILED else TvHostPhase.STOPPED) }
                 }
+            }
+        }
+    }
+    private suspend fun ownedCall(owner:String,op:String,fields:JSONObject=JSONObject()):Any? =
+        NativeTransport.call(fields.put("op",op).put("remoteHandle",owner))
+
+    private suspend fun observeApproval(event:JSONObject,owner:String) {
+        val id=event.getString("pairRequestId")
+        val controller=TrustedController.from(event.getJSONObject("controller"))
+        try {
+            while(currentCoroutineContext().isActive&&handle==owner&&foreground){
+                val status=ownedCall(owner,"remote_pair_status",JSONObject().put("remotePairRequestId",id)) as JSONObject
+                val allowed=status.getString("status")=="PAIRED"
+                if(status.getString("status")!="PENDING"&&!allowed)break
+                if(allowed&&status.getInt("expiresIn")<=0)break
+                val code=status.getString("verificationCode")
+                mutable.update { state->
+                    val previous=state.approval?.takeIf{it.id==id}
+                    val approved=allowed||previous?.allowed==true
+                    state.copy(approval=TvPairApproval(id,controller,code,status.getInt("expiresIn"),if(approved)false else previous?.busy?:false,previous?.error,approved))
+                }
+                delay(1000)
+            }
+        } catch(failure:Exception){if(failure is CancellationException)throw failure}
+        finally { if(handle==owner)mutable.update{if(it.approval?.id==id)it.copy(approval=null)else it} }
+    }
+
+    /** The non-cancellable storage/ACK boundary cannot leave a late saved key
+     * behind after cancellation, expiry or a replaced native host. */
+    private suspend fun persistPair(owner:String,id:String,controller:TrustedController)=pairingSaves.withLock {
+        withContext(NonCancellable){
+            check(handle==owner&&foreground){"连接请求已失效"}
+            val previous=store.dao.controller(controller.id)
+            var saved=false
+            try {
+                store.dao.saveController(controller);saved=true
+                check(handle==owner&&foreground){"连接请求已失效"}
+                ownedCall(owner,"remote_pair_complete",JSONObject().put("remotePairRequestId",id).put("remoteSaved",true))
+            }catch(failure:Exception){
+                if(saved){
+                    if(previous==null){
+                        runCatching{ownedCall(owner,"remote_revoke",JSONObject().put("remoteControllerId",controller.id))}
+                        store.dao.removeController(controller.id)
+                    }else store.dao.saveController(previous)
+                }
+                runCatching{ownedCall(owner,"remote_pair_complete",JSONObject().put("remotePairRequestId",id).put("remoteSaved",false))}
+                throw failure
+            }
+        }
+    }
+
+    fun resolveApproval(allow:Boolean) {
+        val request=mutable.value.approval?.takeUnless{it.busy}?:return
+        val owner=handle?:return
+        if(request.allowed){approvalWatch?.cancel();approvalWatch=null;mutable.update{if(it.approval?.id==request.id)it.copy(approval=null)else it};return}
+        mutable.update{if(it.approval?.id==request.id)it.copy(approval=request.copy(busy=true,error=null))else it}
+        scope.launch {
+            try {
+                if(allow)persistPair(owner,request.id,request.controller)
+                else ownedCall(owner,"remote_pair_deny",JSONObject().put("remotePairRequestId",request.id))
+                if(handle==owner)mutable.update{if(it.approval?.id==request.id)it.copy(approval=if(allow)request.copy(busy=false,allowed=true)else null)else it}
+            }catch(failure:Exception){
+                if(failure is CancellationException)throw failure
+                if(handle==owner)mutable.update{state->if(state.approval?.id==request.id)state.copy(approval=request.copy(error="连接未能完成，请重新申请"))else state}
             }
         }
     }
@@ -166,8 +236,10 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
                 "device.enablePairing" -> showPairing()
                 "device.revokeController" -> {
                     val id = command.getJSONObject("payload").getString("id")
-                    store.dao.removeController(id)
-                    call("remote_revoke", JSONObject().put("remoteControllerId", id))
+                    pairingSaves.withLock {
+                        store.dao.removeController(id)
+                        call("remote_revoke", JSONObject().put("remoteControllerId", id))
+                    }
                 }
                 else -> payload = execute(JSONObject(command.toString()).put("controllerId",controller))
             }
@@ -236,9 +308,11 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
         mutable.update { it.copy(invitation=null,pairingOpen=false,pairingBusy=false,pairingError=null) }
     }
     fun revokeController(id:String){scope.launch{
+        pairingSaves.withLock {
         var removed=false
         try{store.dao.removeController(id);removed=true;if(handle!=null)call("remote_revoke",JSONObject().put("remoteControllerId",id))}
         catch(error:Exception){if(error is CancellationException)throw error;mutable.update{it.copy(error=if(removed)"配对记录已更新，控制连接需要重新连接"else"配对记录未能保存，请重试")}}
+        }
     }}
     fun stop() {
         foreground = false; dismissPairing(); restart?.cancel(); running?.cancel(); running = null; observedLan=null
@@ -256,6 +330,7 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
         val info = NsdServiceInfo().apply {
             serviceName = "Fileway-TV-${device.id.take(8)}"; serviceType = REMOTE_SERVICE_TYPE; port = device.port
             setAttribute("version", "1"); setAttribute("id", device.id); setAttribute("fp", device.fingerprint); setAttribute("name", device.name)
+            setAttribute("pairing",device.pairingVersion.toString())
         }
         app.getSystemService(NsdManager::class.java).registerService(info, NsdManager.PROTOCOL_DNS_SD, listener)
         return listener

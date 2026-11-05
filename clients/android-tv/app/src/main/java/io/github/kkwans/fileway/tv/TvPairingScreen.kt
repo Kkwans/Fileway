@@ -34,6 +34,27 @@ private data class TvPairingImage(val bitmap:Bitmap?=null,val error:String?=null
 
 @Composable fun TvPairingScreen(model:TvModel) {
     val host by model.remote.state.collectAsStateWithLifecycle()
+    host.approval?.let { request->
+        val reject={model.remote.resolveApproval(false)}
+        BackHandler(enabled=!request.busy,onBack=reject)
+        Dialog(onDismissRequest={if(!request.busy)reject()},properties=DialogProperties(usePlatformDefaultWidth=false)) {
+            TvRemoteDialogKeys { if(!request.busy)reject() }
+            val deny=remember(request.id){FocusRequester()}
+            LaunchedEffect(request.id,request.allowed){withFrameNanos{};deny.requestFocus()}
+            Column(Modifier.widthIn(max=480.dp).background(MaterialTheme.colorScheme.surface,TvShape).padding(28.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                Text(if(request.allowed)"已允许连接"else"允许手机连接？",style=MaterialTheme.typography.titleLarge)
+                Text(request.controller.name,style=MaterialTheme.typography.titleMedium)
+                Text(request.code.chunked(3).joinToString(" "),style=MaterialTheme.typography.displayMedium)
+                Text(if(request.allowed)"在手机上确认核对码。"else"核对手机上的号码，连接后可操控栖卷。",style=MaterialTheme.typography.bodyMedium,color=LocalTvSurfaces.current.secondaryText)
+                request.error?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp,Alignment.End)) {
+                    TvButton(if(request.allowed)"关闭"else"拒绝",reject,Modifier.focusRequester(deny),enabled=!request.busy)
+                    if(!request.allowed)TvButton(if(request.busy)"正在连接…"else"允许",{model.remote.resolveApproval(true)},enabled=!request.busy)
+                }
+            }
+        }
+        return
+    }
     if(!host.pairingOpen && host.invitation==null)return
     val invitation=host.invitation
     BackHandler { model.remote.dismissPairing() }

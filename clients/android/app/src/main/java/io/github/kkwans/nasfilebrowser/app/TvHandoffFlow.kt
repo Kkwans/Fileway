@@ -39,14 +39,14 @@ internal class TvHandoffFlow(private val scope:CoroutineScope,private val contro
             (wantedDevice==null||wantedDevice==control.connection.value.device?.id))run(false)
     }
     fun choose(device:TvDescriptor) {
+        if(!control.allowSelection(device.id))return
         cancelAttempt();job?.cancel();++version
         mutable.value=mutable.value?.copy(stage=TvHandoffStage.DEVICE,error=null,uncertain=false)
         wantedDevice=device.id
         if(control.connection.value.device?.id==device.id&&control.connection.value.phase==RemotePhase.CONNECTED)connected()
         else control.connect(device)
     }
-    fun expectDevice(id:String){cancelAttempt();job?.cancel();++version;wantedDevice=id;mutable.value=mutable.value?.copy(stage=TvHandoffStage.DEVICE,error=null)}
-    fun changeDevice(){cancelAttempt();job?.cancel();++version;wantedDevice="";mutable.value=mutable.value?.copy(stage=TvHandoffStage.DEVICE,error=null,uncertain=false)}
+    fun expectDevice(id:String){if(!control.allowSelection(id))return;cancelAttempt();job?.cancel();++version;wantedDevice=id;mutable.value=mutable.value?.copy(stage=TvHandoffStage.DEVICE,error=null)}
     fun retry() {
         if(control.connection.value.phase==RemotePhase.CONNECTED&&(wantedDevice==null||wantedDevice==control.connection.value.device?.id))run(false)
         else {mutable.value=mutable.value?.copy(stage=TvHandoffStage.DEVICE,error=null);if(wantedDevice==null||wantedDevice==control.connection.value.device?.id)control.reconnectNow()}

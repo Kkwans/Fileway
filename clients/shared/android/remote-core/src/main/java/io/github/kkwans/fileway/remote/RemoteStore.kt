@@ -106,11 +106,11 @@ class ControllerIdentity {
         val name = "${Build.MANUFACTURER} ${Build.MODEL}".filterNot { it.isISOControl() }.trim().take(40).ifBlank { "栖卷手机" }
         JSONObject().put("id", id).put("name", name).put("publicKey", Base64.getUrlEncoder().withoutPadding().encodeToString(encoded))
     }
-    suspend fun sign(deviceId: String, controllerId: String, nonce: String): String = withContext(Dispatchers.IO) {
+    suspend fun sign(deviceId: String, controllerId: String, nonce: String, purpose:String="connect"): String = withContext(Dispatchers.IO) {
         ensureKey()
         val signature = Signature.getInstance("SHA256withECDSA").apply {
             initSign(keyStore().getKey(alias, null) as PrivateKey)
-            update(proofMessage("connect", deviceId, controllerId, nonce))
+            update(proofMessage(purpose, deviceId, controllerId, nonce))
         }.sign()
         Base64.getUrlEncoder().withoutPadding().encodeToString(signature)
     }

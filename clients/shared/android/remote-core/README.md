@@ -67,3 +67,27 @@ discovery endpoints matched by identity/pin. Manual disconnect suppresses
 automatic connection until another explicit connection action. Commands are
 not replayed on reconnect; an acknowledged write remains acknowledged, while
 a lost response remains unknown. The next full snapshot replaces stale UI.
+
+Discovery pairing uses the optional native `pairingVersion: 2` branch. It sends
+an installation-key proof, opens a local TV allow/deny page and displays the same
+six-digit comparison code on both devices. The phone requires a matching-code
+confirmation after TV approval before saving trust or opening control. A public
+endpoint claiming PAIRED is insufficient to authenticate a discovered TV. The
+TV retains its code until the approved phone connects or the presentation expires.
+Already paired devices retain one-action connection; physical QR pairing keeps
+its existing high-entropy invitation proof. Unsupported TVs retain a visible QR
+fallback rather than silently opening the camera.
+
+Cancellation/expiry cannot commit late keys. TV key persistence, revocation and
+replacement-host loading share a mutex; a temporary Room row cannot be loaded
+as approved trust while its native ACK is pending. Phone selections wait for
+the preceding bounded cancellation, and an uncertain start retry reuses the same
+signed nonce instead of creating another prompt. NAS login remains a separate
+explicit authorization after pairing.
+
+The phone keeps useful saved pairings but has one active target. Connecting,
+pairing or controlling a TV blocks another target until explicit disconnect or
+cancel. The model and transport both enforce this before retiring the active
+connection. Device UI offers the current connection first; alternative devices
+are selectable after disconnect. There is no seamless switch or automatic
+fallback to the previous TV.

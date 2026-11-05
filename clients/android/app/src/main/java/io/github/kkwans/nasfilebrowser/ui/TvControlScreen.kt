@@ -74,15 +74,16 @@ import kotlinx.coroutines.launch
         catch(error:Exception){if(error is kotlinx.coroutines.CancellationException)throw error;cameraError=error.message?:"二维码读取失败"}
     }}
     fun scan(){if(context.checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED){scanning=true;cameraError=null}else camera.launch(Manifest.permission.CAMERA)}
+    fun closeControl(){if(connection.phase==RemotePhase.PAIRING)model.disconnect();onClose()}
     LaunchedEffect(permitted){if(!permitted)lan.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)}
     LifecycleStartEffect(permitted){
         if(permitted)model.startView(viewOwner)
         onStopOrDispose{model.stopView(viewOwner)}
     }
-    Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
+    Dialog(onDismissRequest=::closeControl,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background){
             Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()){
-                FilewayTopAppBar(if(scanning)"扫描 TV 二维码" else "TV 遥控",if(scanning)null else connection.device?.name,R.drawable.ic_arrow_back,"返回",{if(scanning)scanning=false else onClose()}){
+                FilewayTopAppBar(if(scanning)"扫描 TV 二维码" else "TV 遥控",if(scanning)null else connection.device?.name,R.drawable.ic_arrow_back,"返回",{if(scanning)scanning=false else closeControl()}){
                     if(scanning)FilewayTextButton(onClick={image.launch("image/*")}){Text("从图片识别")}
                     else FilewayTextButton(onClick={devicesOpen=true}){Text("设备");FilewayIcon(R.drawable.ic_expand_more,null,Modifier.size(20.dp))}
                 }
@@ -97,22 +98,42 @@ import kotlinx.coroutines.launch
                     LazyColumn(Modifier.fillMaxWidth().weight(1f),state=sectionScroll,contentPadding=PaddingValues(horizontal=16.dp,vertical=if(compactRemote)8.dp else 12.dp),verticalArrangement=Arrangement.spacedBy(if(compactRemote)8.dp else 12.dp)){
                         if(connection.phase!=RemotePhase.CONNECTED){
                             item{Text(when(connection.phase){RemotePhase.CONNECTING->"正在连接…";RemotePhase.PAIRING->"正在配对…";else->"选择电视"},style=MaterialTheme.typography.titleMedium)}
+                            if(connection.phase==RemotePhase.PAIRING)item {
+                                Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                                    Text(if(connection.pairingAwaitingConfirmation)"TV 已允许，请核对号码"else"等待 ${connection.device?.name?:"TV"} 允许连接",style=MaterialTheme.typography.bodyLarge)
+                                    connection.pairingCode?.let { code->
+                                        Text(code.chunked(3).joinToString(" "),style=MaterialTheme.typography.headlineLarge)
+                                        Text("确认号码与 TV 上显示的一致",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    if(connection.pairingAwaitingConfirmation)FilewayButton(onClick=model.client::confirmPairing){Text("号码一致，连接")}
+                                    FilewayOutlinedButton(onClick=model::disconnect){Text("取消申请")}
+                                }
+                            }
+                            if(connection.phase==RemotePhase.CONNECTING)item {
+                                Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                                    FilewayOutlinedButton(onClick=model::disconnect){Text("取消连接")}
+                                }
+                            }
                             if(connection.phase in setOf(RemotePhase.FAILED,RemotePhase.BUSY))item{
                                 Column(verticalArrangement=Arrangement.spacedBy(8.dp)){
                                     connection.error?.let{Text(it,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.error)}
                                     FilewayOutlinedButton(onClick=model::reconnectNow){Text("重新连接")}
                                 }
                             }
+                            if(connection.phase !in setOf(RemotePhase.PAIRING,RemotePhase.CONNECTING)) {
                             items(paired,key={"saved/"+it.id}){device->
                                 val found=discovery.devices.firstOrNull{it.id==device.id&&it.fingerprint==device.fingerprint}
                                 TvPhoneDeviceRow(device.name,if(device.trusted)"已配对" else "配对待确认"){
-                                    model.connect(if(found!=null)device.descriptor().at(found.address,found.port)else device.descriptor())
+                                    val target=if(found!=null)device.descriptor().at(found.address,found.port)else device.descriptor()
+                                    if(device.trusted)model.connect(target)else model.requestPairing(target)
                                 }
                             }
-                            items(discovery.devices.filter{candidate->paired.none{it.id==candidate.id}},key={"found/"+it.id}){device->TvPhoneDeviceRow(device.name,"局域网 TV"){model.requestPairing(device);scan()}}
+                            items(discovery.devices.filter{candidate->paired.none{it.id==candidate.id}},key={"found/"+it.id}){device->TvPhoneDeviceRow(device.name,"局域网 TV · 点击连接"){model.requestPairing(device)}}
                             if(discovery.searching)item{LinearProgressIndicator(Modifier.fillMaxWidth())}
                             if(!discovery.searching&&discovery.devices.isEmpty()&&paired.isEmpty())item{Text(discovery.error?:"未发现 TV，可扫描 TV 上的二维码连接",style=MaterialTheme.typography.bodyMedium)}
                             item{Row(horizontalArrangement=Arrangement.spacedBy(12.dp)){FilewayOutlinedButton(onClick={if(permitted)model.search()else lan.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)}){Text("重新搜索")};FilewayButton(onClick={scan()}){Text("扫码配对")}}}
+                            }
                         }else if(snapshot!=null){
                             when(section){
                                 "遥控"->{
@@ -178,20 +199,27 @@ import kotlinx.coroutines.launch
             FilewayButton(onClick={model.command("app.inputText",JSONObject().put("target",target).put("text",input));inputOpen=false},modifier=Modifier.fillMaxWidth()){Text(if(target=="search")"在 TV 搜索"else"发送到 TV")}
         }
     }
-    if(devicesOpen)AlertDialog(onDismissRequest={devicesOpen=false},shape=RoundedCornerShape(12.dp),title={Text("选择 TV")},text={
+    val activeTarget=connection.phase in setOf(RemotePhase.CONNECTED,RemotePhase.CONNECTING,RemotePhase.PAIRING)
+    if(devicesOpen)AlertDialog(onDismissRequest={devicesOpen=false},shape=RoundedCornerShape(12.dp),title={Text(if(activeTarget)"当前 TV"else"选择 TV")},text={
         LazyColumn(verticalArrangement=Arrangement.spacedBy(8.dp)){
+            if(activeTarget){
+                item{Text(connection.device?.name.orEmpty(),style=MaterialTheme.typography.titleMedium)}
+                item{FilewayOutlinedButton(onClick={model.disconnect();devicesOpen=false},modifier=Modifier.fillMaxWidth()){Text(if(connection.phase==RemotePhase.CONNECTED)"断开连接"else"取消连接")}}
+            }else {
             items(paired,key={it.id}){device->
                 val found=discovery.devices.firstOrNull{it.id==device.id&&it.fingerprint==device.fingerprint}
-                TvPhoneDeviceRow(device.name,if(connection.device?.id==device.id&&connection.phase==RemotePhase.CONNECTED)"当前连接" else if(found!=null)"局域网可用" else "已配对"){
-                    model.connect(if(found!=null)device.descriptor().at(found.address,found.port)else device.descriptor());devicesOpen=false
+                TvPhoneDeviceRow(device.name,if(connection.device?.id==device.id&&connection.phase==RemotePhase.CONNECTED)"当前连接" else if(!device.trusted)"配对待确认"else if(found!=null)"局域网可用" else "已配对"){
+                    val target=if(found!=null)device.descriptor().at(found.address,found.port)else device.descriptor()
+                    if(device.trusted)model.connect(target)else model.requestPairing(target)
+                    devicesOpen=false
                 }
             }
-            items(discovery.devices.filter{candidate->paired.none{it.id==candidate.id}},key={it.id}){device->TvPhoneDeviceRow(device.name,"新设备 · 扫码配对"){model.requestPairing(device);devicesOpen=false;scan()}}
+            items(discovery.devices.filter{candidate->paired.none{it.id==candidate.id}},key={it.id}){device->TvPhoneDeviceRow(device.name,"新设备 · 点击连接"){model.requestPairing(device);devicesOpen=false}}
             if(paired.isEmpty()&&discovery.devices.isEmpty())item{Text(if(discovery.searching)"正在寻找局域网中的 TV…" else "未发现 TV")}
             if(connection.phase==RemotePhase.FAILED||connection.phase==RemotePhase.BUSY)item{FilewayOutlinedButton(onClick={model.reconnectNow();devicesOpen=false}){Text("重新连接")}}
-            if(connection.phase==RemotePhase.CONNECTED)item{FilewayTextButton(onClick={model.disconnect();devicesOpen=false}){Text("断开当前 TV")}}
+            }
         }
-    },confirmButton={FilewayTextButton(onClick={devicesOpen=false;scan()}){Text("扫码配对")}},dismissButton={FilewayTextButton(onClick={model.search()}){Text("重新搜索")}})
+    },confirmButton={if(activeTarget)FilewayTextButton(onClick={devicesOpen=false}){Text("关闭")}else FilewayTextButton(onClick={devicesOpen=false;scan()}){Text("扫码配对")}},dismissButton={if(!activeTarget)FilewayTextButton(onClick={model.search()}){Text("重新搜索")}})
 }
 
 @Composable internal fun rememberTvControlModel():TvControlModel {

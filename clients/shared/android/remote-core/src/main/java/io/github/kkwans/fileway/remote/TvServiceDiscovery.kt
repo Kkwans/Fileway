@@ -15,7 +15,7 @@ class TvServiceDiscovery(context: Context) {
             require(service.attributes["version"] == REMOTE_PROTOCOL.toString())
             TvDescriptor.from(JSONObject().put("protocol", REMOTE_PROTOCOL).put("deviceId", id)
                 .put("name", service.attributes["name"]?:service.name).put("serverName", "tv-$id.fileway.local")
-                .put("address", service.address).put("port", service.port).put("spkiSha256", service.attributes["fp"]))
+                .put("address", service.address).put("port", service.port).put("spkiSha256", service.attributes["fp"]).put("pairingVersion",service.attributes["pairing"]?.toIntOrNull()?:0))
         }.getOrNull() }.distinctBy { it.id }
         TvDiscoveryState(scan.searching, devices, scan.error)
     }

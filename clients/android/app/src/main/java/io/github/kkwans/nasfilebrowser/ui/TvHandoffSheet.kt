@@ -64,16 +64,21 @@ internal val LocalOpenTvControl=staticCompositionLocalOf<()->Unit>{{}}
     FileOperationSheet("在 TV 播放",{control.handoff.dismiss()}) {
         Column(Modifier.fillMaxWidth().weight(1f,fill=false).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text(value.title,style=MaterialTheme.typography.titleMedium)
-            if(value.stage!=TvHandoffStage.DEVICE)Row(Modifier.fillMaxWidth(),verticalAlignment=androidx.compose.ui.Alignment.CenterVertically) {
-                Text(connection.device?.name.orEmpty(),Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                FilewayTextButton(onClick=control.handoff::changeDevice){Text("更换 TV")}
-            }
+            if(value.stage!=TvHandoffStage.DEVICE)Text(connection.device?.name.orEmpty(),Modifier.fillMaxWidth(),style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
             when(value.stage) {
                 TvHandoffStage.DEVICE -> {
                     if(!permitted)FilewayButton(onClick={permission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)}){Text("允许局域网访问")}
+                    if(connection.phase in setOf(RemotePhase.CONNECTED,RemotePhase.CONNECTING,RemotePhase.PAIRING)) {
+                        Text(connection.device?.name.orEmpty(),style=MaterialTheme.typography.bodyLarge)
+                        FilewayButton(onClick=control::disconnect,modifier=Modifier.fillMaxWidth()){Text(if(connection.phase==RemotePhase.CONNECTED)"断开当前 TV"else"取消当前连接")}
+                    }else {
                     paired.forEach { device ->
                         val found=discovery.devices.firstOrNull{it.id==device.id&&it.fingerprint==device.fingerprint}
-                        FilewayOutlinedButton(onClick={control.handoff.choose(if(found!=null)device.descriptor().at(found.address,found.port)else device.descriptor())},modifier=Modifier.fillMaxWidth()) {
+                        FilewayOutlinedButton(onClick={
+                            val target=if(found!=null)device.descriptor().at(found.address,found.port)else device.descriptor()
+                            if(device.trusted)control.handoff.choose(target)
+                            else {control.handoff.expectDevice(device.id);control.requestPairing(target);onRemote()}
+                        },modifier=Modifier.fillMaxWidth()) {
                             FilewayIcon(Art.drawable.fileway_ic_cast,null,Modifier.size(22.dp));Spacer(Modifier.width(12.dp));Text(device.name,Modifier.weight(1f))
                         }
                     }
@@ -89,6 +94,7 @@ internal val LocalOpenTvControl=staticCompositionLocalOf<()->Unit>{{}}
                     Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
                         FilewayTextButton(onClick={control.search()}){Text("重新搜索")}
                         FilewayTextButton(onClick=onRemote){Text("扫码连接")}
+                    }
                     }
                 }
                 TvHandoffStage.AUTHORIZATION -> {

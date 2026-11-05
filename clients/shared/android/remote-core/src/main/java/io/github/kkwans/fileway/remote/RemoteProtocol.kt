@@ -3,6 +3,8 @@ package io.github.kkwans.fileway.remote
 import android.net.Uri
 import java.net.InetAddress
 import java.util.Base64
+import java.security.MessageDigest
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -17,9 +19,10 @@ private val deviceId = Regex("[a-f0-9]{32}")
 data class TvDescriptor(
     val id: String, val name: String, val serverName: String,
     val address: String, val port: Int, val fingerprint: String,
+    val pairingVersion: Int = 0,
 ) {
     fun json() = JSONObject().put("protocol", REMOTE_PROTOCOL).put("deviceId", id).put("name", name)
-        .put("serverName", serverName).put("address", address).put("port", port).put("spkiSha256", fingerprint)
+        .put("serverName", serverName).put("address", address).put("port", port).put("spkiSha256", fingerprint).put("pairingVersion",pairingVersion)
 
     fun at(address: String, port: Int) = from(json().put("address", address).put("port", port))
 
@@ -37,7 +40,7 @@ data class TvDescriptor(
             require(port in 1..65535 && localAddress(address) != null) { "电视没有公布可访问的局域网地址" }
             val digest = Base64.getUrlDecoder().decode(fingerprint)
             require(digest.size == 32 && digest.take(16).joinToString("") { "%02x".format(it) } == id) { "电视身份指纹无效" }
-            return TvDescriptor(id, name, serverName, address, port, fingerprint)
+            return TvDescriptor(id, name, serverName, address, port, fingerprint,value.optInt("pairingVersion",0))
         }
     }
 }
@@ -97,6 +100,13 @@ data class RemoteSnapshot(
 
 /** Exact JSON-array domain agreed with clients/shared/core/remote.ProofMessage. */
 fun proofMessage(purpose: String, device: String, controller: String, nonce: String): ByteArray {
-    require(purpose in setOf("pair", "connect") && deviceId.matches(device) && opaque.matches(controller) && opaque.matches(nonce))
+    require(purpose in setOf("pair", "connect", "pair-request") && deviceId.matches(device) && opaque.matches(controller) && opaque.matches(nonce))
     return JSONArray(listOf("fileway.remote.v1", purpose, device, controller, nonce)).toString().toByteArray(Charsets.UTF_8)
+}
+
+/** Comparison code for TV local approval, deliberately separate from a pairing PIN. */
+fun approvalCode(device:String,controller:String,nonce:String):String {
+    val hash=MessageDigest.getInstance("SHA-256").digest(proofMessage("pair-request",device,controller,nonce))
+    val number=hash.take(4).fold(0L){result,byte->(result shl 8) or (byte.toInt() and 255).toLong()}
+    return String.format(Locale.ROOT,"%06d",number%1_000_000)
 }
