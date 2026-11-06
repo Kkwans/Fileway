@@ -7,11 +7,15 @@ const val EXTERNAL_SUP_BYTES_LIMIT = 500L * 1024 * 1024
 const val EXTERNAL_TEXT_BYTES_LIMIT = 16L * 1024 * 1024
 
 class ExternalSubtitleLimitException(limit: Long) : IOException(
-    if (limit == EXTERNAL_SUP_BYTES_LIMIT) "SUP 字幕超过 500 MiB，请选择较小的文件"
-    else "文本字幕超过 16 MiB，请选择较小的文件",
+    when (limit) {
+        EXTERNAL_SUP_BYTES_LIMIT -> "SUP 字幕超过 500 MiB，请选择较小的文件"
+        EXTERNAL_TEXT_BYTES_LIMIT -> "文本字幕超过 16 MiB，请选择较小的文件"
+        SUBTITLE_FONT_BYTES_LIMIT.toLong() -> "字幕字体超过 32 MiB，无法载入"
+        else -> "字幕资源超过读取上限，无法载入"
+    },
 )
 
-class ExternalSubtitleStorageException : IOException("手机可用空间不足，无法读取 SUP 字幕")
+class ExternalSubtitleStorageException : IOException("设备可用空间不足，无法载入字幕资源")
 
 /** Bounded streaming for both unknown-length SAF providers and authenticated
  * DataSources. The caller owns the stream and destination lifetime. */

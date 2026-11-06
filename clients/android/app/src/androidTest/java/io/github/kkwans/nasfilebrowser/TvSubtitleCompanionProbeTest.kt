@@ -79,8 +79,14 @@ class TvSubtitleCompanionProbeTest {
             command("media.open", JSONObject().put("id", file.getString("id")))
             val opened = state { it.scene == "VIDEO" && it.content.getJSONObject("playback").optBoolean("firstFrameRendered") }
             ownedMediaEpoch = opened.mediaEpoch
+            if (config.has("coldStartMs")) {
+                val at = config.getLong("coldStartMs")
+                command("playback.pause")
+                command("playback.seekTo", JSONObject().put("positionMs", at))
+                state { it.content.getJSONObject("playback").optLong("positionMs") in (at - 200)..(at + 300) }
+            }
             command("playback.setHdrMode", JSONObject().put("mode", "NATIVE"))
-            state { it.content.getJSONObject("playback").optString("hdrMode") == "NATIVE" }
+            state { !it.content.optBoolean("busy") && it.content.getJSONObject("playback").let { p -> p.optString("hdrMode") == "NATIVE" && p.optBoolean("firstFrameRendered") } }
             command("subtitle.disable")
             command("playback.pause")
             command("subtitle.select", JSONObject().put("id", 6).put("source", true))
@@ -108,6 +114,22 @@ class TvSubtitleCompanionProbeTest {
             assertTrue("Attached ASS font must actually render: $visible", visible.first > 100)
             assertTrue("ASS vector must actually render: $visible", visible.second > 100)
             records.put(JSONObject().put("stage", "source-ass-font").put("playback", client.state.value.snapshot!!.content.getJSONObject("playback")))
+            if (config.optBoolean("includeSourceAssSdr")) {
+                command("playback.setHdrMode", JSONObject().put("mode", "SDR"))
+                val restored = withTimeout(90_000) { client.state.first { value ->
+                    val snapshot = value.snapshot ?: return@first false
+                    check(snapshot.content.isNull("error")) { "Owned ASS compatibility failed" }
+                    snapshot.scene == "VIDEO" && !snapshot.content.optBoolean("busy") && snapshot.content.getJSONObject("playback").let { p ->
+                        p.optBoolean("sdrActive") && p.optBoolean("firstFrameRendered") && !p.optBoolean("subtitleLoading") && p.optInt("selectedSourceSubtitle") == 6 }
+                }.snapshot!! }
+                assertFalse(restored.content.getJSONObject("playback").optBoolean("playing"))
+                delay(500)
+                val compatible = capture("tv-subtitle-source-ass-sdr.png")
+                assertTrue("Source ASS font must actually render after compatibility switch", compatible.first > 100)
+                assertTrue("Source ASS drawing must preserve its source clock", compatible.second > 100)
+                records.put(JSONObject().put("stage", "source-ass-font-sdr").put("playback", restored.content.getJSONObject("playback")))
+            }
+            if (config.optBoolean("fontOnly")) return@runBlocking
             command("subtitle.disable")
             state { it.content.getJSONObject("playback").optInt("selectedSubtitle", -1) == -1 }
             delay(400)

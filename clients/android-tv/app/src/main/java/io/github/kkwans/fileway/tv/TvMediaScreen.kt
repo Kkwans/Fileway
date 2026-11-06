@@ -158,7 +158,7 @@ import kotlinx.coroutines.*
             )
         }
         if(delayedBusy(state.subtitleLoading||player.subtitleLoading))Text("正在加载字幕…",Modifier.align(Alignment.CenterEnd).padding(32.dp),style=MaterialTheme.typography.bodySmall,color=Color.White)
-        (state.subtitleError?:player.seekError?:state.notice?:player.operationError)?.let{notice->
+        (state.subtitleError?:player.seekError?:state.subtitleNotice?:state.notice?:player.operationError)?.let{notice->
             Text(notice,Modifier.align(Alignment.BottomStart).padding(start=48.dp,end=48.dp,bottom=if(controls)156.dp else 24.dp),style=MaterialTheme.typography.bodySmall,color=Color.White,maxLines=2,overflow=TextOverflow.Ellipsis)
         }
         if(delayedBusy(state.busy||((player.waitingForBuffer||player.seeking)&&player.seekError==null)))Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.48f),RoundedCornerShape(12.dp)).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {

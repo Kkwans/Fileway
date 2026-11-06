@@ -23,7 +23,13 @@ import java.util.concurrent.atomic.AtomicLong
 
 /** One media generation owns the native subtitle state. Video remains on its own Surface. */
 @androidx.annotation.OptIn(UnstableApi::class)
-class MediaSubtitleLayer(context: Context, private val resources: MediaResourcePolicy = MediaResourcePolicy.Phone) : View(context), MediaSubtitleExtractor.Sink {
+class MediaSubtitleLayer(context: Context, private val resources: MediaResourcePolicy = MediaResourcePolicy.Phone,
+    startMs: Long = 0) : View(context), MediaSubtitleExtractor.Sink {
+    private val nativeCoverage = NativeSubtitleCoverage(startMs)
+    fun nativeBufferedThrough(positionMs: Long) = nativeCoverage.buffered(positionMs)
+    fun nativeSeek(targetMs: Long) = nativeCoverage.seek(targetMs)
+    fun nativeAssCovered(positionMs: Long) = collecting && nativeCoverage.covers(positionMs)
+    override fun seekInput(timeUs: Long) = nativeCoverage.seek(timeUs / 1000)
     private val retainedBytesLimit get() = resources.subtitleCacheBytes
     private val worker = Executors.newSingleThreadExecutor()
     private val submissions = Any()
@@ -33,6 +39,8 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
     private val selection = AtomicLong()
     private val timeMs = AtomicLong()
     private var library: Ass? = null
+    private val fontKeys = mutableSetOf<String>()
+    private var fontBytes = 0L
     private var renderer: io.github.peerless2012.ass.AssRender? = null
     private val tracks = mutableMapOf<String, AssTrack>()
     private val headers = mutableMapOf<String, List<ByteArray>>()
@@ -78,12 +86,37 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
     private fun submit(onFailure: (() -> Unit)? = null, action: () -> Unit) = synchronized(submissions) {
         if (!closed.get()) worker.execute {
             if (!closed.get()) try { action() }
-            catch (_: Exception) { post { if (!closed.get()) (onFailure ?: failed)() } }
+            catch (_: Exception) { nativeCoverage.invalidate(); post { if (!closed.get()) (onFailure ?: failed)() } }
         }
     }
     private fun ass() = library ?: Ass().also { library = it }
     override fun active() { collecting = true }
-    override fun font(name: String, bytes: ByteArray) = submit { ass().addFont(name, bytes) }
+    private fun registerFont(name: String, bytes: ByteArray): Boolean {
+        if (name.isBlank() || name.length > 256 || bytes.size !in 12..SUBTITLE_FONT_BYTES_LIMIT) return false
+        val signature = bytes.copyOfRange(0, 4)
+        if (!signature.contentEquals(byteArrayOf(0, 1, 0, 0)) &&
+            signature.decodeToString() !in setOf("OTTO", "ttcf", "true", "typ1")) return false
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+            .joinToString("") { "%02x".format(it) }
+        val key = "$name\u0000$digest"
+        if (key in fontKeys) return true
+        if (fontBytes > resources.assFontBytes - bytes.size) return false
+        ass().addFont(name, bytes)
+        fontBytes += bytes.size; fontKeys += key
+        // An already-created font provider must see newly supplied fonts.
+        // Only libass's renderer changes; the video and ASS track/clock remain.
+        renderer?.release(); renderer = null; lastNative = null; lastTrack = null
+        requestFrame(timeMs.get())
+        return true
+    }
+    override fun font(name: String, bytes: ByteArray) = submit { registerFont(name, bytes); Unit }
+    /** Acknowledgement runs on the serialized worker and does not depend on
+     * View.post/attachment. The caller releases its ByteArray before the next font. */
+    fun externalFont(name: String, bytes: ByteArray, result: (Boolean) -> Unit) = synchronized(submissions) {
+        if (closed.get()) { result(false); return@synchronized }
+        try { worker.execute { result(!closed.get() && runCatching { registerFont(name, bytes) }.getOrDefault(false)) } }
+        catch (_: RejectedExecutionException) { result(false) }
+    }
     override fun format(format: Format) = submit {
         val id = requireNotNull(format.id)
         val old = headers[id]
@@ -339,6 +372,7 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
             indexedPgs.values.forEach { it.close() }; indexedPgs.clear(); indexedBytes = 0
             renderer?.release(); tracks.values.forEach { it.release() }; library?.release()
             tracks.clear(); cues.clear(); pgs.clear(); headers.clear(); lastNative = null
+            fontKeys.clear(); fontBytes = 0
             lastPgsPacket = null; lastIndexedPgs = null; lastIndexedEvent = -1; decodedPgs = null
         }
         worker.shutdown()

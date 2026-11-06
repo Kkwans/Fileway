@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
-import java.net.URL
 import java.net.URLEncoder
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -30,6 +29,7 @@ data class TvMediaState(
     val sourceAudio: List<TvSourceTrack> = emptyList(), val sourceText: List<TvSourceTrack> = emptyList(),
     val sidecars: List<ResourceRef> = emptyList(),
     val subtitleError: String? = null, val subtitleLoading: Boolean = false,
+    val subtitleNotice: String? = null,
     val sdrAvailable: Boolean = false,
     val imageReady:Boolean=false,
     val firstConfirmedPositionMs:Long?=null,
@@ -75,7 +75,7 @@ class TvMediaController(
     private val externalRefs = mutableMapOf<String, ResourceRef>()
     private val nativeFontKeys = mutableSetOf<String>()
     private var fontGeneration = -1L
-    private var fontBytes = 0L
+    private var nativeSubtitleRecovery: Pair<Long, Int>? = null
     private var lastSaved: Pair<Long, Long>? = null
     private var lastSaveAt = 0L
     private var autoFallback = false
@@ -333,6 +333,15 @@ class TvMediaController(
                 if(value.canSavePosition&&mutable.value.firstConfirmedPositionMs==null)
                     mutable.update{it.copy(firstConfirmedPositionMs=sourcePosition())}
                 if (value.canSavePosition && SystemClock.elapsedRealtime() - lastSaveAt >= 10_000) saveProgress()
+                if (window == null && !switchInProgress && value.nativeSubtitleNeedsSource && subtitleJob?.isActive != true && mutable.value.sourceSubtitles) {
+                    val key = value.mediaGeneration to value.selectedSubtitle
+                    nativeSubtitleMatch(value.selectedSubtitle)?.let { match ->
+                        if (nativeSubtitleRecovery != key) {
+                            nativeSubtitleRecovery = key
+                            selectSourceSubtitle(match.sourceIndex)
+                        }
+                    }
+                }
                 if (window == null && !switchInProgress && subtitleJob?.isActive != true && value.pendingSubtitle == null) {
                     nativeSubtitleMatch(value.selectedSubtitle)?.let { match ->
                         if (mutable.value.selectedSourceSubtitle != match.sourceIndex)
@@ -584,7 +593,7 @@ class TvMediaController(
         val previous = subtitleIntent
         val previousSource = mutable.value.selectedSourceSubtitle
         subtitleIntent = intent
-        mutable.update { it.copy(subtitleError = null, subtitleLoading = intent != SubtitleIntent.Off) }
+        mutable.update { it.copy(subtitleError = null, subtitleNotice = null, subtitleLoading = intent != SubtitleIntent.Off) }
         subtitleJob?.cancel()
         if (intent == SubtitleIntent.Off) {
             player.subtitle(-1)
@@ -677,7 +686,9 @@ class TvMediaController(
         if (!accepts(source.owner, expected) || source.epoch != expected) return
         val track = mutable.value.sourceText.firstOrNull { it.index == index } ?: error("字幕轨道已变化")
         val sourceKey = "source:${source.identity}:$index"
+        val ext = when (track.codec) { "ass", "ssa" -> "ass"; "hdmv_pgs_subtitle" -> "sup"; "subrip" -> "srt"; else -> "vtt" }
         if (player.selectImportedSubtitle(sourceKey)) {
+            if (ext == "ass") loadFonts(source, expected, selection)
             mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
             return
         }
@@ -686,21 +697,42 @@ class TvMediaController(
                 player.state.first { it.mediaGeneration != generation || it.subtitles.any { value -> value.id >= 0 } || it.firstFrameRendered || it.error != null }
             }
             checkCurrent()
-            sourceSubtitleMatch(index)?.let { match ->
+            sourceSubtitleMatch(index)?.takeIf { player.nativeSubtitleCovered(it.nativeId) }?.let { match ->
                 selectSubtitleAndWait(match.nativeId, expected, selection, generation)
                 checkCurrent()
                 mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
                 return
             }
         }
-        val ext = when (track.codec) { "ass", "ssa" -> "ass"; "hdmv_pgs_subtitle" -> "sup"; "subrip" -> "srt"; else -> "vtt" }
         val progressive = ext == "sup" && mutable.value.sourcePGSStreaming
         val endpoint = "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}" + if (progressive) "&stream=1" else ""
         val lease = source.owner.api.assetLease(endpoint)
         try {
-            readAsset(lease, retain = true) {
+            readAsset(lease, retain = ext != "ass") {
                 checkCurrent()
-                if (ext == "ass") loadFonts(source, expected, selection)
+                // Start the complete ASS read while its independent font lane
+                // runs. Only bounded files wait; never parallel full font arrays.
+                if (ext == "ass") {
+                    coroutineScope {
+                        var prepared: java.io.File? = null
+                        val download = async(Dispatchers.IO) { SourceSubtitleAsset.download(application.cacheDir, lease.url, 16L * 1024 * 1024).also { prepared = it } }
+                        try {
+                            loadFonts(source, expected, selection)
+                            val file = download.await()
+                            withTimeout(15_000) { while (!player.canAddExternalSubtitle) delay(100) }
+                            checkCurrent()
+                            check(player.importSubtitle(android.net.Uri.fromFile(file).toString(), "${track.title}.ass", sourceKey, true)) { "字幕未能完整载入" }
+                            checkCurrent()
+                            mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
+                        } finally {
+                            withContext(NonCancellable) {
+                                download.cancelAndJoin()
+                                withContext(Dispatchers.IO) { prepared?.delete() }
+                            }
+                        }
+                    }
+                    return@readAsset
+                }
                 withTimeout(15_000) { while (!player.canAddExternalSubtitle) delay(100) }
                 checkCurrent()
                 val imported = if (progressive) player.importPgsStream(lease.url, "${track.title}.$ext", sourceKey, source.identity) {
@@ -716,36 +748,36 @@ class TvMediaController(
     private suspend fun loadFonts(source: Binding, expected: Long, selection: Long) {
         val fonts = mutable.value.info?.optJSONArray("attachments") ?: return
         val generation = player.state.value.mediaGeneration
-        if (fontGeneration != generation) { nativeFontKeys.clear(); fontBytes = 0; fontGeneration = generation }
-        for (i in 0 until fonts.length()) {
+        if (fontGeneration != generation) { nativeFontKeys.clear(); fontGeneration = generation }
+        fun checkCurrent() {
             if (!accepts(source.owner, expected) || selection != subtitleRevision || player.state.value.mediaGeneration != generation)
                 throw CancellationException("Subtitle selection changed")
-            val font = fonts.getJSONObject(i)
-            val fontKey = font.getString("id")
-            if (fontKey in nativeFontKeys) continue
-            val lease = source.owner.api.assetLease("/api/media/attachments/${font.getString("id")}?${sourceQuery(source.file)}&identity=${encode(source.identity)}")
-            try {
-                val bytes = readAsset(lease) { withContext(Dispatchers.IO) { URL(lease.url).openConnection().apply { connectTimeout = 15000; readTimeout = 30000 }.getInputStream().use { input -> val result = java.io.ByteArrayOutputStream()
-                    val chunk = ByteArray(32 * 1024)
-                    while (result.size() <= 8 * 1024 * 1024) {
-                        val size = input.read(chunk, 0, minOf(chunk.size, 8 * 1024 * 1024 + 1 - result.size()))
-                        if (size < 0) break
-                        result.write(chunk, 0, size)
-                    }
-                    result.toByteArray() } } }
-                if (!accepts(source.owner, expected) || selection != subtitleRevision || player.state.value.mediaGeneration != generation)
-                    throw CancellationException("Subtitle selection changed")
-                val totalBytes=fontBytes+bytes.size
-                check(bytes.size <= 8 * 1024 * 1024 && totalBytes <= 32L * 1024 * 1024) { "字幕字体超出内存预算" }
-                if (!accepts(source.owner, expected)) return
-                val name = font.getString("name")
-                require(name.isNotBlank() && name.length <= 256)
-                if (player.state.value.mediaGeneration != generation) return
-                player.addSubtitleFont(name, bytes)
-                fontBytes=totalBytes
-                nativeFontKeys += fontKey
-            } finally { lease.release() }
         }
+        checkCurrent()
+        val pending = (0 until minOf(fonts.length(), 64)).map { fonts.getJSONObject(it) }
+            .distinctBy { it.getString("id") }.filterNot { it.getString("id") in nativeFontKeys }
+        val complete = SourceSubtitleFonts.load(pending.map { SourceSubtitleFont(it.getString("id"), it.getString("name")) },
+            prepare = { font ->
+                checkCurrent()
+                val lease = source.owner.api.assetLease("/api/media/attachments/${font.id}?${sourceQuery(source.file)}&identity=${encode(source.identity)}")
+                var prepared: java.io.File? = null
+                var transferred = false
+                try {
+                    readAsset(lease) { prepared = SourceSubtitleAsset.download(application.cacheDir, lease.url, SUBTITLE_FONT_BYTES_LIMIT.toLong()) }
+                    currentCoroutineContext().ensureActive()
+                    checkNotNull(prepared).also { transferred = true }
+                } finally {
+                    if (!transferred) withContext(NonCancellable + Dispatchers.IO) { prepared?.delete() }
+                }
+            },
+            register = { font, file ->
+                checkCurrent()
+                val bytes = withContext(Dispatchers.IO) { file.readBytes() }
+                checkCurrent()
+                player.addSubtitleFont(font.name, bytes).also { if (it) nativeFontKeys += font.id }
+            })
+        checkCurrent()
+        mutable.update { it.copy(subtitleNotice = if (complete) null else "部分字幕字体未能载入，文字可能缺失；重新选择字幕可重试") }
     }
     fun selectExternalSubtitle(file: ResourceRef) = selectSubtitleIntent(SubtitleIntent.External(file, "external:${file.mediaKey}"))
 

@@ -73,7 +73,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         resetImageEpoch()
         val content=JSONObject().put("route",ui.route.name).put("directory",ui.path.take(400)).put("busy",ui.busy||media.busy)
             .put("connected",ui.connected).put("error",media.error?:player.error?:ui.error?:JSONObject.NULL)
-            .put("notice",media.subtitleError?:media.notice?:player.operationError?:ui.notice?:JSONObject.NULL)
+            .put("notice",media.subtitleError?:media.subtitleNotice?:media.notice?:player.operationError?:ui.notice?:JSONObject.NULL)
             .put("files",JSONArray(files().take(24).map(::fileJson))).put("total",files().size)
             .put("preferences",JSONObject().put("dark",ui.dark).put("gridColumns",ui.gridColumns).put("safePercent",ui.safePercent).put("clockAlways",ui.clockAlways).put("speedAlways",ui.speedAlways).put("seekStepSeconds",ui.seekStepSeconds).put("controlsTimeoutSeconds",ui.controlsTimeoutSeconds))
         model.context?.let{content.put("session",JSONObject().put("origin",it.profile.address.take(512)).put("username",it.api.identity.username.take(120)))}

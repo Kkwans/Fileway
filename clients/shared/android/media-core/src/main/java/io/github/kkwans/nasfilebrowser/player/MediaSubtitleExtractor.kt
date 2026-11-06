@@ -20,10 +20,12 @@ import java.io.EOFException
  * This adapter reports original ASS packets; it does not render them. */
 @androidx.annotation.OptIn(UnstableApi::class)
 class MediaSubtitleExtractor(private val sink: Sink,
+    private val resources: MediaResourcePolicy = MediaResourcePolicy.Phone,
     private val audioRole: (String, AudioTrackRole) -> Unit = { _, _ -> },
 ) : Extractor {
     interface Sink {
         fun active() = Unit
+        fun seekInput(timeUs: Long) = Unit
         fun font(name: String, bytes: ByteArray)
         fun format(format: Format)
         fun dialogue(trackId: String, startMs: Long, durationMs: Long, packet: ByteArray)
@@ -72,7 +74,7 @@ class MediaSubtitleExtractor(private val sink: Sink,
         }
         override fun binaryElement(id: Int, contentSize: Int, input: ExtractorInput) {
             if (id != 0x465C) { super.binaryElement(id, contentSize, input); return }
-            if (contentSize !in 0..MAX_FONT_BYTES || fontBytes + contentSize > MAX_TOTAL_FONTS ||
+            if (contentSize !in 1..SUBTITLE_FONT_BYTES_LIMIT || fontBytes + contentSize > resources.assFontBytes ||
                 (mime != null && mime !in FONT_MIMES)) { input.skipFully(contentSize); return }
             bytes = ByteArray(contentSize).also { input.readFully(it, 0, it.size) }
         }
@@ -112,6 +114,7 @@ class MediaSubtitleExtractor(private val sink: Sink,
     }
     override fun read(input: ExtractorInput, seekPosition: PositionHolder) = delegate.read(input, seekPosition)
     override fun seek(position: Long, timeUs: Long) {
+        sink.seekInput(timeUs)
         streams.forEach { it.clear() }
         plainStreams.forEach { it.clear() }
         transcoder?.resetSubtitleParsers()
@@ -208,8 +211,6 @@ class MediaSubtitleExtractor(private val sink: Sink,
         }
     }
     companion object {
-        private const val MAX_FONT_BYTES = 32 * 1024 * 1024
-        private const val MAX_TOTAL_FONTS = 64L * 1024 * 1024
         private const val MAX_PACKET_BYTES = 4 * 1024 * 1024
         private val FONT_MIMES = setOf("font/ttf", "font/otf", "font/sfnt", "application/x-truetype-font", "application/vnd.ms-opentype", "application/x-font-ttf")
         private val SSA_TIME = Regex("(\\d+):(\\d{2}):(\\d{2})[:.](\\d{2})")

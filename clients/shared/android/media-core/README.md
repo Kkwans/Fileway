@@ -48,3 +48,15 @@ SimpleCache、隔离小容量预算），以及需自有影片和现有登录显
 同时覆盖响应体读取及取消后的重试，避免仅取消 OkHttp headers dispatcher。
 `ProgressivePgsSourceTest` 覆盖分片、部分覆盖、真实位图、源偏移、取消与校验失败；
 其私有源诊断用例需要显式配置，不将用户媒体放进测试 APK 或仓库。
+
+## 源 ASS 和字体
+
+`SourceSubtitleAsset` 提供可取消的有界临时文件读取，调用者取得返回文件的删除权。
+`SourceSubtitleFonts` 最多同时准备两个文件，串行注册字体；字体阶段默认 20 秒，
+失败附件独立处理并返回不完整状态。控制器负责租约、源身份、账号及代次检查，
+并向用户保留真实缺失提示和重试入口。它们均不持久保存 URL、账号或字体缓存。
+
+每个字体最多 32 MiB；`MediaResourcePolicy.assFontBytes` 控制同一媒体的总量，
+手机默认 64 MiB，TV 32 MiB。原生 MKV 在分配前执行同一策略；字幕层按名称和
+内容摘要去重后注册，避免原生与源接口重复计入。后到的字体仅重建 ASS renderer，
+保留原 track、时钟及视频源。完整 PGS builder 也接受注入的索引预算。

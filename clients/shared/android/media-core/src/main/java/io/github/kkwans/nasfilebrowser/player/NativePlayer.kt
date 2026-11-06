@@ -53,6 +53,7 @@ data class PlayerState(
     val videoDecodePolicy: VideoDecodePolicy = VideoDecodePolicy.AUTO,
     val videoDecoderKind: String = "未知",
     val pendingAudio: Int? = null, val pendingSubtitle: Int? = null,
+    val nativeSubtitleNeedsSource: Boolean = false,
     val decoderRecovery: String? = null,
     /** Engine confirmed this position; a requested/buffering seek is not a checkpoint. */
     val canSavePosition: Boolean = false, val ended: Boolean = false,
@@ -128,9 +129,12 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     private var textIsAss = false
     private var textIsCollected = false
     private var subtitleAppearance = TextSubtitleAppearance()
-    fun addSubtitleFont(name: String, bytes: ByteArray) {
-        require(bytes.size <= 8 * 1024 * 1024)
-        layer?.font(name, bytes)
+    suspend fun addSubtitleFont(name: String, bytes: ByteArray): Boolean {
+        val target = layer ?: return false
+        val epoch = session.generation
+        val accepted = CompletableDeferred<Boolean>()
+        target.externalFont(name, bytes) { accepted.complete(it) }
+        return accepted.await() && session.accepts(epoch) && layer === target
     }
     fun textSubtitleAppearance(value: TextSubtitleAppearance) {
         subtitleAppearance = value
@@ -195,7 +199,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         mutable.value = PlayerState(phase = "正在打开视频", rate = session.preferredRate, mediaGeneration = epoch,
             videoDecodePolicy = videoDecodePolicy, subtitleDelayMs = restore?.subtitleDelayMs ?: 0)
         trace.beginOpen(positionMs)
-        val subtitles = MediaSubtitleLayer(context, resources).also { current ->
+        val subtitles = MediaSubtitleLayer(context, resources, positionMs).also { current ->
             current.timelineOffsetMs = subtitleSourceOffsetMs
             current.failed = { if (session.accepts(epoch)) mutable.value = mutable.value.copy(subtitleLoading = false, operationError = "字幕渲染失败，请重试或选择其他字幕") }
         }
@@ -241,7 +245,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             }
         val extractors = ExtractorsFactory {
             DefaultExtractorsFactory().createExtractors().map {
-                val extractor = if (it is MatroskaExtractor) MediaSubtitleExtractor(subtitles) { id, role -> currentAudioRoles[id] = role } else it
+                val extractor = if (it is MatroskaExtractor) MediaSubtitleExtractor(subtitles, resources) { id, role -> currentAudioRoles[id] = role } else it
                 (dataSourceFactory as? PlaybackDataSourceFactory)?.wrapExtractor(extractor) ?: extractor
             }.toTypedArray()
         }
@@ -371,6 +375,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     }
     private fun publish() {
         val player = engine ?: return
+        layer?.nativeBufferedThrough(player.bufferedPosition.coerceAtLeast(0))
         activateStreamingPgs()
         val previous = mutable.value
         if (previous.error != null) {
@@ -406,6 +411,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             buffering = if (player.playbackState == Player.STATE_READY) 100f else (loadControl?.percent ?: 0).coerceAtMost(99).toFloat(),
             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0),
             subtitleLoading = streamingPgs?.let { !it.ready || subtitlePositionUs(player.currentPosition) >= it.coveredUntilUs } ?: previous.subtitleLoading,
+            nativeSubtitleNeedsSource = previous.selectedSubtitle >= 0 && nativeSubtitleIdentity(previous.selectedSubtitle) != null && !nativeSubtitleCovered(previous.selectedSubtitle),
             audioRenderedBuffers = audioCounters?.renderedOutputBufferCount ?: 0,
             audioSkippedBuffers = audioCounters?.skippedOutputBufferCount ?: 0,
             width = player.videoSize.width, height = player.videoSize.height, rate = player.playbackParameters.speed, volume = (player.volume * 100).toInt(),
@@ -617,6 +623,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         val player = engine ?: return
         if (!player.isCurrentMediaItemSeekable || player.duration <= 0) return
         val target = position.coerceIn(0, player.duration)
+        layer?.let { it.nativeBufferedThrough(player.bufferedPosition.coerceAtLeast(0)); it.nativeSeek(target) }
         seekStartedAt = SystemClock.elapsedRealtime()
         seekTarget = target; trace.record(PlaybackTraceAction.SEEK_REQUEST, target.toDouble())
         mutable.value = mutable.value.copy(canSavePosition = false)
@@ -659,6 +666,16 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         val group = engine?.currentTracks?.groups?.firstOrNull { it.mediaTrackGroup == choice.group } ?: return null
         if (!group.isTrackSupported(choice.index)) return null
         return DecoderTrackIdentity.from(choice.type, choice.group.getFormat(choice.index))
+    }
+    /** Exact native format alone cannot prove that a mid-cue start read the
+     * earlier ASS packet. Only use the retained continuous prefix for SSA. */
+    fun nativeSubtitleCovered(id: Int): Boolean {
+        val choice = choices[id]?.takeIf { it.type == C.TRACK_TYPE_TEXT } ?: return false
+        val format = choice.group.getFormat(choice.index)
+        if (format.sampleMimeType != MimeTypes.TEXT_SSA && format.codecs != MimeTypes.TEXT_SSA) return true
+        val player = engine ?: return false
+        layer?.nativeBufferedThrough(player.bufferedPosition.coerceAtLeast(0))
+        return layer?.nativeAssCovered(player.currentPosition) == true
     }
 
     /** Reselect a renderer-accepted single-track source without downloading or
@@ -925,7 +942,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
                                 ioContext.ensureActive()
                                 // Assign inside IO before the cancellable dispatcher
                                 // handoff, so a late result still has a cleanup owner.
-                                ownedTimeline = ExternalPgs.index(file, deleteOnClose = true)
+                                ownedTimeline = ExternalPgs.index(file, deleteOnClose = true, metadataLimit = resources.subtitleCacheBytes)
                             } finally { source.close() }
                         }
                         ensureActive()

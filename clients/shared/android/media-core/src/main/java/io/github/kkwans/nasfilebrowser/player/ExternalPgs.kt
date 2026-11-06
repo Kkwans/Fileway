@@ -293,7 +293,7 @@ object ExternalPgs {
     }
 
     /** Complete files and progressive imports share exactly the same parser. */
-    suspend fun index(file: File, deleteOnClose: Boolean = false): Timeline = IndexBuilder(file).use { builder ->
+    suspend fun index(file: File, deleteOnClose: Boolean = false, metadataLimit: Long = MAX_INDEX_BYTES): Timeline = IndexBuilder(file, metadataLimit).use { builder ->
         builder.advance(file.length(), finished = true)
         builder.snapshot(deleteOnClose)
     }
