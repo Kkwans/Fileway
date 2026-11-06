@@ -60,7 +60,8 @@ class TvMediaController(
     private val lock = Mutex()
     private val leases = mutableListOf<PreviewLease>()
     private var playbackLease: PreviewLease? = null
-    private data class Binding(val owner: SessionContext, val file: ResourceRef, val identity: String, var durationMs: Long, val writer: PlaybackWriter, val epoch: Long)
+    private data class Binding(val owner: SessionContext, val file: ResourceRef, val identity: String, var durationMs: Long, val writer: PlaybackWriter, val epoch: Long,
+        val subtitleAssets: SourceSubtitleAssets = SourceSubtitleAssets())
     private var binding: Binding? = null
     private data class Window(val lease: PreviewLease, val startMs: Long, val durationMs: Long,val id:String)
     private var window: Window? = null
@@ -313,7 +314,13 @@ class TvMediaController(
         }
         check(accepts(owner, expected)) { "播放来源已切换" }
         check(response.getString("identity") == identity) { "兼容流的源文件版本已变化，请重新打开视频" }
-        check(response.optString("outputDynamicRange") == "sdr") { "服务端没有确认 SDR 输出，请升级服务端后重试" }
+        check(response.optString("outputDynamicRange") == "sdr") {
+            when (response.optString("outputDynamicRange")) {
+                "unknown" -> "兼容流的色彩信息不完整，无法确认 SDR 输出，请使用原生播放"
+                "" -> "服务端未提供输出色彩信息，请更新服务端或使用原生播放"
+                else -> "兼容流未转换为 SDR，请使用原生播放或重试"
+            }
+        }
         check(mutable.value.info?.optBoolean("hdr") != true || response.optBoolean("hdrToneMapped")) { "服务端没有确认 HDR 色调映射，已保留原播放路径" }
         val lease = owner.api.hlsLease(id)
         if (!accepts(owner, expected)) { lease.release(); error("播放来源已切换") }
@@ -704,35 +711,37 @@ class TvMediaController(
                 return
             }
         }
+        if (ext == "ass") {
+            coroutineScope {
+                var prepared: SourceSubtitleAssets.Lease? = null
+                val download = async {
+                    sourceAsset(source, sourceKey,
+                        "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}",
+                        EXTERNAL_TEXT_BYTES_LIMIT).also { prepared = it }
+                }
+                try {
+                    loadFonts(source, expected, selection)
+                    val asset = download.await()
+                    withTimeout(15_000) { while (!player.canAddExternalSubtitle) delay(100) }
+                    checkCurrent()
+                    check(player.importSubtitle(android.net.Uri.fromFile(asset.file).toString(), "${track.title}.ass", sourceKey, true)) { "字幕未能完整载入" }
+                    checkCurrent()
+                    mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
+                } finally {
+                    withContext(NonCancellable) {
+                        download.cancelAndJoin()
+                        withContext(Dispatchers.IO) { prepared?.close() }
+                    }
+                }
+            }
+            return
+        }
         val progressive = ext == "sup" && mutable.value.sourcePGSStreaming
         val endpoint = "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}" + if (progressive) "&stream=1" else ""
         val lease = source.owner.api.assetLease(endpoint)
         try {
-            readAsset(lease, retain = ext != "ass") {
+            readAsset(lease, retain = true) {
                 checkCurrent()
-                // Start the complete ASS read while its independent font lane
-                // runs. Only bounded files wait; never parallel full font arrays.
-                if (ext == "ass") {
-                    coroutineScope {
-                        var prepared: java.io.File? = null
-                        val download = async(Dispatchers.IO) { SourceSubtitleAsset.download(application.cacheDir, lease.url, 16L * 1024 * 1024).also { prepared = it } }
-                        try {
-                            loadFonts(source, expected, selection)
-                            val file = download.await()
-                            withTimeout(15_000) { while (!player.canAddExternalSubtitle) delay(100) }
-                            checkCurrent()
-                            check(player.importSubtitle(android.net.Uri.fromFile(file).toString(), "${track.title}.ass", sourceKey, true)) { "字幕未能完整载入" }
-                            checkCurrent()
-                            mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
-                        } finally {
-                            withContext(NonCancellable) {
-                                download.cancelAndJoin()
-                                withContext(Dispatchers.IO) { prepared?.delete() }
-                            }
-                        }
-                    }
-                    return@readAsset
-                }
                 withTimeout(15_000) { while (!player.canAddExternalSubtitle) delay(100) }
                 checkCurrent()
                 val imported = if (progressive) player.importPgsStream(lease.url, "${track.title}.$ext", sourceKey, source.identity) {
@@ -745,6 +754,19 @@ class TvMediaController(
             }
         } catch (error: Exception) { lease.release(); checkCurrent(); throw error }
     }
+    private suspend fun sourceAsset(source: Binding, key: String, endpoint: String, limit: Long): SourceSubtitleAssets.Lease {
+        if (!accepts(source.owner, source.epoch)) throw CancellationException("Media source changed")
+        return source.subtitleAssets.acquire(key, limit) {
+            val lease = source.owner.api.assetLease(endpoint)
+            var prepared: java.io.File? = null
+            try {
+                try { prepared = SourceSubtitleAsset.download(application.cacheDir, lease.url, limit) }
+                finally { withContext(NonCancellable) { lease.release() } }
+                currentCoroutineContext().ensureActive()
+                checkNotNull(prepared).also { prepared = null }
+            } finally { withContext(NonCancellable + Dispatchers.IO) { prepared?.delete() } }
+        }
+    }
     private suspend fun loadFonts(source: Binding, expected: Long, selection: Long) {
         val fonts = mutable.value.info?.optJSONArray("attachments") ?: return
         val generation = player.state.value.mediaGeneration
@@ -756,26 +778,18 @@ class TvMediaController(
         checkCurrent()
         val pending = (0 until minOf(fonts.length(), 64)).map { fonts.getJSONObject(it) }
             .distinctBy { it.getString("id") }.filterNot { it.getString("id") in nativeFontKeys }
-        val complete = SourceSubtitleFonts.load(pending.map { SourceSubtitleFont(it.getString("id"), it.getString("name")) },
+        val complete = SourceSubtitleFonts.loadPrepared(pending.map { SourceSubtitleFont(it.getString("id"), it.getString("name")) },
             prepare = { font ->
                 checkCurrent()
-                val lease = source.owner.api.assetLease("/api/media/attachments/${font.id}?${sourceQuery(source.file)}&identity=${encode(source.identity)}")
-                var prepared: java.io.File? = null
-                var transferred = false
-                try {
-                    readAsset(lease) { prepared = SourceSubtitleAsset.download(application.cacheDir, lease.url, SUBTITLE_FONT_BYTES_LIMIT.toLong()) }
-                    currentCoroutineContext().ensureActive()
-                    checkNotNull(prepared).also { transferred = true }
-                } finally {
-                    if (!transferred) withContext(NonCancellable + Dispatchers.IO) { prepared?.delete() }
-                }
+                sourceAsset(source, "font:${font.id}", "/api/media/attachments/${font.id}?${sourceQuery(source.file)}&identity=${encode(source.identity)}",
+                    SUBTITLE_FONT_BYTES_LIMIT.toLong())
             },
-            register = { font, file ->
+            register = { font, asset ->
                 checkCurrent()
-                val bytes = withContext(Dispatchers.IO) { file.readBytes() }
+                val bytes = withContext(Dispatchers.IO) { asset.file.readBytes() }
                 checkCurrent()
                 player.addSubtitleFont(font.name, bytes).also { if (it) nativeFontKeys += font.id }
-            })
+            }, release = { it.close() })
         checkCurrent()
         mutable.update { it.copy(subtitleNotice = if (complete) null else "部分字幕字体未能载入，文字可能缺失；重新选择字幕可重试") }
     }
@@ -889,7 +903,7 @@ class TvMediaController(
 
     fun close() { scope.launch { closeAndSave() } }
     private suspend fun disposeBinding(closeUi:Boolean=false) {
-        saveProgress(); binding?.writer?.close(); binding = null; player.stop()
+        saveProgress(); binding?.subtitleAssets?.close(); binding?.writer?.close(); binding = null; player.stop()
         // Restore browsing before waiting for lease/cache IO. The old surface
         // must not stay visible while its retired cache files are removed.
         if(closeUi)mutable.update{TvMediaState(mode=it.mode)}
@@ -898,5 +912,5 @@ class TvMediaController(
         leases.forEach { it.release() }; leases.clear()
         externalRefs.clear()
     }
-    fun release() { ++epoch; operation?.cancel(); subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel(); player.release();cache.release(); CoroutineScope(Dispatchers.IO).launch { playbackLease?.release(); leases.forEach { it.release() }; binding?.writer?.close() } }
+    fun release() { ++epoch; operation?.cancel(); subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel(); binding?.subtitleAssets?.close(); player.release();cache.release(); CoroutineScope(Dispatchers.IO).launch { playbackLease?.release(); leases.forEach { it.release() }; binding?.writer?.close() } }
 }
