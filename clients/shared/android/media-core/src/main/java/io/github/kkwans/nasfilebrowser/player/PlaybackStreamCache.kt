@@ -8,7 +8,6 @@ import androidx.media3.common.C
 import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.*
 import androidx.media3.datasource.cache.*
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParser
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
@@ -103,34 +102,6 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
         lateinit var meter:TransferListener
     }
     private class Part(val uri:Uri,val key:String,val position:Long,@Volatile var length:Long,val start:Long,val end:Long,val permanent:Boolean=false)
-
-    /** OkHttp's async dispatcher stops tracking a call when the headers callback
-     * returns. Media3 reads its body afterwards, so dispatcher.cancelAll alone
-     * cannot stop that read. Keep the actual calls until DataSource.close and
-     * permanently fence this worker's factory against bounded-open retries. */
-    private class PrefetchNetwork(private val client:OkHttpClient,private val meter:TransferListener):DataSource.Factory {
-        private val lock=Any()
-        private var cancelled=false
-        private val calls=mutableSetOf<okhttp3.Call>()
-        override fun createDataSource():HttpDataSource {
-            val owned=mutableSetOf<okhttp3.Call>()
-            val upstream=OkHttpDataSource.Factory { request->
-                synchronized(lock){client.newCall(request).also{
-                    calls+=it;owned+=it
-                    if(cancelled)it.cancel()
-                }}
-            }.setTransferListener(meter).createDataSource()
-            return object:HttpDataSource by upstream {
-                override fun close(){
-                    try{upstream.close()}finally{synchronized(lock){calls.removeAll(owned);owned.clear()}}
-                }
-            }
-        }
-        fun cancel(){
-            val active=synchronized(lock){cancelled=true;calls.toList()}
-            active.forEach{it.cancel()}
-        }
-    }
 
     init {require(directoryName.matches(Regex("[A-Za-z0-9_-]{1,100}")))}
 
@@ -248,7 +219,7 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
         worker?.cancelAndJoin();worker=null;cancelWriter=null;cancelNetwork=null
     }
     private fun startWorker(reading:Reading){
-        val network=PrefetchNetwork(downloading,reading.meter)
+        val network=CancellableHttpSources(downloading,reading.meter)
         reading.network=network
         reading.writing=CacheDataSource.Factory().setCache(reading.cache).setUpstreamDataSourceFactory(network)
             .setCacheKeyFactory{key(reading,it.uri)}

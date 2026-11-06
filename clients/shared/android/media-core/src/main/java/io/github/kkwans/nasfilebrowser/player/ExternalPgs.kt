@@ -58,12 +58,16 @@ object ExternalPgs {
      */
     class Timeline constructor(private val file: File, private val input: RandomAccessFile,
         private val sourceLength: Long, private val values: List<FileDisplaySet>, val retainedBytes: Long,
-        private val deleteOnClose: Boolean) : Closeable {
+        private val deleteOnClose: Boolean, private val growable: Boolean = false,
+        val complete: Boolean = true, private val onClosed: (() -> Unit)? = null) : Closeable {
         private val closed = AtomicBoolean()
         private val readerLock = Any()
         val eventCount get() = values.size
+        val coveredUntilUs get() = if (complete) Long.MAX_VALUE else values.lastOrNull()?.startTimeUs ?: -1L
+        fun covers(timeUs: Long) = complete || timeUs < coveredUntilUs
         fun floorIndex(timeUs: Long): Int {
             if (closed.get()) throw CancellationException("SUP timeline closed")
+            if (!covers(timeUs)) return -1
             var low = 0; var high = values.lastIndex; var found = -1
             while (low <= high) {
                 val middle = low + (high - low) / 2
@@ -76,7 +80,7 @@ object ExternalPgs {
             fun checkpoint() { if (closed.get() || isCancelled()) throw CancellationException("SUP decode canceled") }
             checkpoint()
             require(index in values.indices) { "Invalid SUP event index" }
-            require(input.length() == sourceLength) { "Indexed SUP source changed" }
+            require(if (growable) input.length() >= sourceLength else input.length() == sourceLength) { "Indexed SUP source changed" }
             val value = values[index]
             val output = mutableListOf<Cue>()
             try {
@@ -84,6 +88,7 @@ object ExternalPgs {
                     checkpoint()
                     val segments = item.picture.parts.map { part ->
                         checkpoint()
+                        require(part.offset >= 0 && part.length.toLong() <= sourceLength - part.offset) { "SUP segment outside committed prefix" }
                         input.seek(part.offset)
                         val bytes = ByteArray(part.length)
                         input.readFully(bytes)
@@ -111,44 +116,58 @@ object ExternalPgs {
             synchronized(readerLock) {
                 try { input.close() }
                 finally {
-                    if (deleteOnClose && file.exists() && !file.delete()) throw IOException("Owned SUP spool cleanup failed")
+                    try {
+                        if (deleteOnClose && file.exists() && !file.delete()) throw IOException("Owned SUP spool cleanup failed")
+                    } finally { onClosed?.invoke() }
                 }
             }
         }
     }
 
-    /** Validate SUP framing using bounded headers; compressed ODS stays in the sealed file.
-     * A successful return transfers this file reader (and optional deletion) to Timeline.
-     * Failure closes only the reader; the caller still owns the original file.
-     */
-    suspend fun index(file: File, deleteOnClose: Boolean = false): Timeline {
-        currentCoroutineContext().ensureActive()
-        val input = RandomAccessFile(file, "r")
-        try {
-            val length = input.length()
-            require(length in 13..EXTERNAL_SUP_BYTES_LIMIT) { "Invalid SUP size; maximum is 500 MiB" }
-            val pictures = mutableMapOf<Int, IndexedPicture>()
-            val palettes = mutableMapOf<Int, IndexedPalette>()
-            val output = mutableListOf<FileDisplaySet>()
-            // Includes bounded maps/current palette entries and list/array overhead.
-            // Per-part/event/object charges intentionally exceed their stored primitive data.
-            var retained = 256L * 1024
-            fun reserve(bytes: Long) {
-                require(bytes >= 0 && retained <= MAX_INDEX_BYTES - bytes) { "SUP index exceeds metadata memory budget" }
-                retained += bytes
-            }
-            var presentation: ByteArray? = null
-            var offset = 0L; var ptsUs = 0L; var lastPts = -1L; var wraps = 0L
-            val header = ByteArray(13)
-            while (offset < length) {
+    /** Single-producer, single-pass parser over an append-only owned SUP.
+     * Only complete display sets are published; ODS payload stays on disk. */
+    class IndexBuilder(private val file: File, private val metadataLimit: Long = MAX_INDEX_BYTES) : Closeable {
+        init { require(metadataLimit in 256L * 1024..MAX_INDEX_BYTES) }
+        private val input = RandomAccessFile(file, "r")
+        private val pictures = mutableMapOf<Int, IndexedPicture>()
+        private val palettes = mutableMapOf<Int, IndexedPalette>()
+        private val output = mutableListOf<FileDisplaySet>()
+        private var retained = 256L * 1024
+        private var presentation: ByteArray? = null
+        private var offset = 0L
+        private var ptsUs = 0L
+        private var lastPts = -1L
+        private var wraps = 0L
+        private var lastAvailable = 0L
+        private var committedOffset = 0L
+        private var sealed = false
+        private var closed = false
+        private val header = ByteArray(13)
+        var revision = 0L
+            private set
+        val eventCount get() = output.size
+        val coveredUntilUs get() = if (sealed) Long.MAX_VALUE else output.lastOrNull()?.startTimeUs ?: -1L
+        private fun reserve(bytes: Long) {
+            require(bytes >= 0 && retained <= metadataLimit - bytes) { "SUP index exceeds metadata memory budget" }
+            retained += bytes
+        }
+        suspend fun advance(available: Long = file.length(), finished: Boolean = false) {
+            check(!closed && !sealed)
+            require(available in lastAvailable..EXTERNAL_SUP_BYTES_LIMIT && input.length() >= available) { "SUP spool shrank or exceeded its budget" }
+            lastAvailable = available
+            while (offset < available) {
                 currentCoroutineContext().ensureActive()
-                require(length - offset >= 13) { "Truncated SUP header" }
+                if (available - offset < 13) {
+                    require(!finished) { "Truncated SUP header" }; break
+                }
                 input.seek(offset); input.readFully(header)
                 require(header[0] == 'P'.code.toByte() && header[1] == 'G'.code.toByte()) { "Invalid SUP header" }
                 val type = header[10].toInt() and 255
                 val size = u16(header, 11)
                 val end = offset + 13 + size
-                require(end <= length) { "Truncated SUP segment" }
+                if (end > available) {
+                    require(!finished) { "Truncated SUP segment" }; break
+                }
                 when (type) {
                     0x16 -> {
                         require(presentation == null && size >= 11)
@@ -238,6 +257,8 @@ object ExternalPgs {
                         if (output.lastOrNull()?.startTimeUs == ptsUs) output.removeAt(output.lastIndex)
                         output.add(FileDisplaySet(ptsUs, pcs.copyOfRange(0, 11).apply { this[10] = 1 }, paletteData, objects))
                         presentation = null
+                        committedOffset = end
+                        revision++
                     }
                     0x17 -> Unit
                     else -> error("Unsupported SUP segment")
@@ -245,12 +266,26 @@ object ExternalPgs {
                 offset = end
             }
             currentCoroutineContext().ensureActive()
-            require(input.length() == length && presentation == null && output.isNotEmpty()) { "Incomplete or changed SUP timeline" }
-            return Timeline(file, input, length, output, retained, deleteOnClose)
-        } catch (failure: Throwable) {
-            try { input.close() } catch (close: Throwable) { failure.addSuppressed(close) }
-            throw failure
+            if (finished) {
+                require(offset == available && presentation == null && output.isNotEmpty() && input.length() == available) { "Incomplete or changed SUP timeline" }
+                sealed = true
+            }
         }
+        /** The caller owns the returned immutable prefix and must close it.
+         * A partial timeline cannot claim coverage at/after its last timestamp:
+         * a later display set may still replace that timestamp. */
+        fun snapshot(deleteOnClose: Boolean = false, onClosed: (() -> Unit)? = null): Timeline {
+            check(!closed && output.isNotEmpty() && committedOffset > 0)
+            return Timeline(file, RandomAccessFile(file, "r"), if (sealed) lastAvailable else committedOffset,
+                output.toList(), retained, deleteOnClose, !sealed, sealed, onClosed)
+        }
+        override fun close() { if (!closed) { closed = true; input.close() } }
+    }
+
+    /** Complete files and progressive imports share exactly the same parser. */
+    suspend fun index(file: File, deleteOnClose: Boolean = false): Timeline = IndexBuilder(file).use { builder ->
+        builder.advance(file.length(), finished = true)
+        builder.snapshot(deleteOnClose)
     }
 
     /** Validate the complete timeline, retaining shared compressed objects. */

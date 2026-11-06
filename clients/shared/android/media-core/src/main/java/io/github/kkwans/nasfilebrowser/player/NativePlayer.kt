@@ -89,6 +89,13 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     private var externalSupCancellation: AtomicBoolean? = null
     private var externalRequest = 0L
     private var externalCompletion: CompletableDeferred<Boolean>? = null
+    private class StreamingPgs(val id: Int, val name: String, val previous: Int,
+        val onUsable: () -> Unit) {
+        var coveredUntilUs = -1L
+        var attached = false
+        var ready = false
+    }
+    private var streamingPgs: StreamingPgs? = null
     /** Called only after the renderer accepts a complete external source. Never persisted. */
     var externalSubtitleReady: ((String, String, String) -> Unit)? = null
     private val externalIdentities = mutableMapOf<Int, DecoderExternalSelection>()
@@ -364,6 +371,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     }
     private fun publish() {
         val player = engine ?: return
+        activateStreamingPgs()
         val previous = mutable.value
         if (previous.error != null) {
             if (previous.canSavePosition) mutable.value = previous.copy(canSavePosition = false)
@@ -397,6 +405,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             waitingForBuffer = player.playWhenReady && player.playbackState == Player.STATE_BUFFERING,
             buffering = if (player.playbackState == Player.STATE_READY) 100f else (loadControl?.percent ?: 0).coerceAtMost(99).toFloat(),
             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0),
+            subtitleLoading = streamingPgs?.let { !it.ready || subtitlePositionUs(player.currentPosition) >= it.coveredUntilUs } ?: previous.subtitleLoading,
             audioRenderedBuffers = audioCounters?.renderedOutputBufferCount ?: 0,
             audioSkippedBuffers = audioCounters?.skippedOutputBufferCount ?: 0,
             width = player.videoSize.width, height = player.videoSize.height, rate = player.playbackParameters.speed, volume = (player.volume * 100).toInt(),
@@ -670,6 +679,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
 
     fun subtitle(id: Int, automatic: Boolean = false) {
         if (engine == null) return
+        if (!applyingSubtitleRestore && streamingPgs?.let { it.id == id && it.ready } == true) return
         if (id != -1 && id !in external && choices[id]?.type != C.TRACK_TYPE_TEXT) {
             mutable.value = mutable.value.copy(operationError = "轨道已变化，请重新选择")
             return
@@ -758,6 +768,97 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
                 externalRequest++; cancelExternalImport()
                 mutable.value = mutable.value.copy(subtitleLoading = false)
             }
+            throw cancelled
+        }
+    }
+    private fun subtitlePositionUs(localMs: Long) = (localMs + subtitleSourceOffsetMs - mutable.value.subtitleDelayMs).coerceAtLeast(0) * 1000
+    private fun activateStreamingPgs() {
+        val value = streamingPgs ?: return
+        val player = engine ?: return
+        if (value.ready || !value.attached || subtitlePositionUs(player.currentPosition) >= value.coveredUntilUs) return
+        value.ready = true
+        external[value.id] = NativeTrack(value.id, value.name, MimeTypes.APPLICATION_PGS)
+        restoreSubtitle(value.id)
+        try { value.onUsable() }
+        catch (cancelled: CancellationException) { externalRequest++; cancelExternalImport() }
+        catch (_: Exception) { externalRequest++; cancelExternalImport(); mutable.value = mutable.value.copy(operationError = "字幕选择已变化，请重试") }
+    }
+    private fun discardStreamingPgs(value: StreamingPgs) {
+        if (streamingPgs === value) streamingPgs = null
+        layer?.discardPgsTimeline("external:${value.id}")
+        external.remove(value.id); externalIdentities.remove(value.id)
+        if (selectedExternal == value.id) { selectedExternal = null; refreshTracks() }
+    }
+    /** The import remains cancellable until the complete frame is verified.
+     * Usable prefixes may render earlier but never enter the trusted identity
+     * map or external-source persistence callback before final verification. */
+    suspend fun importPgsStream(url: String, name: String, sourceKey: String, identity: String,
+        onUsable: () -> Unit): Boolean {
+        if (!canAddExternalSubtitle) return false
+        manualSubtitleChoice()
+        subtitleExplicitlyChosen = true
+        val currentLayer = layer ?: return false
+        val epoch = session.generation
+        val request = ++externalRequest
+        cancelExternalImport()
+        val completion = CompletableDeferred<Boolean>()
+        externalCompletion = completion
+        val cancellation = AtomicBoolean(false)
+        externalSupCancellation = cancellation
+        val value = StreamingPgs(nextId++, name, mutable.value.selectedSubtitle, onUsable)
+        streamingPgs = value
+        mutable.value = mutable.value.copy(subtitleLoading = true, operationError = restoreNotice)
+        fun current() = session.accepts(epoch) && externalRequest == request && streamingPgs === value && !cancellation.get()
+        externalJob = scope.launch {
+            try {
+                val receipt = ProgressivePgsSource(context.cacheDir, resources.subtitleCacheBytes) {
+                    subtitlePositionUs(mutable.value.positionMs)
+                }.load(url, identity) { timeline ->
+                    withContext(Dispatchers.Main.immediate) {
+                        if (!current()) { timeline.close(); throw CancellationException("Subtitle selection changed") }
+                        val accepted = CompletableDeferred<Boolean>()
+                        currentLayer.externalPgsTimeline("external:${value.id}", timeline, cancellation::get,
+                            { accepted.complete(false) }) { accepted.complete(true) }
+                        check(accepted.await()) { "字幕索引超过资源预算或无法载入" }
+                        if (!current()) throw CancellationException("Subtitle selection changed")
+                        value.coveredUntilUs = timeline.coveredUntilUs; value.attached = true
+                        activateStreamingPgs()
+                        currentLayer.requestFrame((engine?.currentPosition ?: 0) + subtitleSourceOffsetMs)
+                        publish()
+                    }
+                }
+                if (!current()) return@launch
+                check(value.ready) { "字幕未能就绪" }
+                externalIdentities[value.id] = DecoderExternalSelection(sourceKey, "single", receipt.sha256)
+                externalVersions[sourceKey] = receipt.sha256
+                streamingPgs = null; externalSupCancellation = null
+                externalCompletion = null; externalJob = null
+                mutable.value = mutable.value.copy(subtitleLoading = false)
+                externalSubtitleReady?.invoke(sourceKey, url, name)
+                completion.complete(true)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                if (current()) {
+                    discardStreamingPgs(value)
+                    if (value.previous == -1 || value.previous in external || choices[value.previous]?.type == C.TRACK_TYPE_TEXT)
+                        restoreSubtitle(value.previous)
+                    externalCompletion = null; externalJob = null; externalSupCancellation = null
+                    mutable.value = mutable.value.copy(subtitleLoading = false, operationError = failure.message ?: "源字幕未能完整加载，可重试")
+                    completion.complete(false)
+                }
+            } finally {
+                if (streamingPgs === value) {
+                    discardStreamingPgs(value)
+                    mutable.value = mutable.value.copy(subtitleLoading = false)
+                    if (externalCompletion === completion) externalCompletion = null
+                    externalJob = null; externalSupCancellation = null
+                    completion.complete(false)
+                }
+            }
+        }
+        try { return completion.await() }
+        catch (cancelled: CancellationException) {
+            if (externalCompletion === completion) { externalRequest++; cancelExternalImport(); mutable.value = mutable.value.copy(subtitleLoading = false) }
             throw cancelled
         }
     }
@@ -930,6 +1031,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         }
     }
     private fun cancelExternalImport() {
+        streamingPgs?.let(::discardStreamingPgs)
         val completion = externalCompletion; externalCompletion = null
         val cancellation = externalSupCancellation; externalSupCancellation = null
         val job = externalJob; externalJob = null

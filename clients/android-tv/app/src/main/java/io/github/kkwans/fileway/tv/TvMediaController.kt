@@ -26,6 +26,7 @@ data class TvMediaState(
     val mode: TvHdrMode = TvHdrMode.AUTO, val compatible: Boolean = false,
     val sourceOffsetMs: Long = 0, val sourceDurationMs: Long = 0, val imageUrl: String? = null,
     val sourceSubtitles: Boolean = false, val selectedSourceSubtitle: Int = -1, val sourceAudioOff: Boolean = false, val selectedSourceAudio: Int? = null,
+    val sourcePGSStreaming: Boolean = false,
     val sourceAudio: List<TvSourceTrack> = emptyList(), val sourceText: List<TvSourceTrack> = emptyList(),
     val sidecars: List<ResourceRef> = emptyList(),
     val subtitleError: String? = null, val subtitleLoading: Boolean = false,
@@ -142,6 +143,7 @@ class TvMediaController(
                     val sourceTextAvailable = capabilities.optBoolean("sourceSubtitles")
                     openingStage = "准备播放资源"
                     mutable.update { it.copy(info = info, sourceAudio = audio, sourceText = text, sourceSubtitles = sourceTextAvailable, sdrAvailable = capabilities.optBoolean("sdrCompatibility"),
+                        sourcePGSStreaming = capabilities.optInt("sourcePGSStreaming") >= 1,
                         sourceDurationMs = (info.optDouble("duration", remote.durationMs / 1000.0) * 1000).toLong(),
                         selectedSourceAudio = audio.firstOrNull { track -> track.preferred }?.index ?: audio.firstOrNull()?.index) }
                     val sdrAvailable = capabilities.optBoolean("sdrCompatibility")
@@ -575,10 +577,12 @@ class TvMediaController(
     fun selectSourceSubtitle(index: Int) = selectSubtitleIntent(SubtitleIntent.Source(index))
 
     private fun selectSubtitleIntent(intent: SubtitleIntent) {
+        if (intent == subtitleIntent && subtitleJob?.isActive == true) return
         val selection = ++subtitleRevision
         val expected = epoch
         val generation = player.state.value.mediaGeneration
         val previous = subtitleIntent
+        val previousSource = mutable.value.selectedSourceSubtitle
         subtitleIntent = intent
         mutable.update { it.copy(subtitleError = null, subtitleLoading = intent != SubtitleIntent.Off) }
         subtitleJob?.cancel()
@@ -593,7 +597,7 @@ class TvMediaController(
                 if (error is CancellationException && error !is TimeoutCancellationException) throw error
                 if (selection == subtitleRevision && expected == epoch) {
                     subtitleIntent = previous
-                    mutable.update { it.copy(subtitleError = if (error is TimeoutCancellationException) "字幕加载超时，可重试" else "字幕加载失败，可重试：${error.message}") }
+                    mutable.update { it.copy(selectedSourceSubtitle = previousSource, subtitleError = if (error is TimeoutCancellationException) "字幕加载超时，可重试" else "字幕加载失败，可重试：${error.message}") }
                 }
             }
             finally {
@@ -690,7 +694,8 @@ class TvMediaController(
             }
         }
         val ext = when (track.codec) { "ass", "ssa" -> "ass"; "hdmv_pgs_subtitle" -> "sup"; "subrip" -> "srt"; else -> "vtt" }
-        val endpoint = "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}"
+        val progressive = ext == "sup" && mutable.value.sourcePGSStreaming
+        val endpoint = "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}" + if (progressive) "&stream=1" else ""
         val lease = source.owner.api.assetLease(endpoint)
         try {
             readAsset(lease, retain = true) {
@@ -698,7 +703,11 @@ class TvMediaController(
                 if (ext == "ass") loadFonts(source, expected, selection)
                 withTimeout(15_000) { while (!player.canAddExternalSubtitle) delay(100) }
                 checkCurrent()
-                check(player.importSubtitle(lease.url, "${track.title}.$ext", sourceKey, true)) { "字幕未能完整载入" }
+                val imported = if (progressive) player.importPgsStream(lease.url, "${track.title}.$ext", sourceKey, source.identity) {
+                    checkCurrent()
+                    mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null, subtitleLoading = false) }
+                } else player.importSubtitle(lease.url, "${track.title}.$ext", sourceKey, true)
+                check(imported) { player.state.value.operationError ?: "字幕未能完整载入" }
                 checkCurrent()
                 leases += lease; mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
             }

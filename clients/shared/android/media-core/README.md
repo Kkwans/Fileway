@@ -29,3 +29,16 @@ TV 遥控快照的 `content.cache` 投影这些字段；旧手机可以忽略该
 相关聚焦检查位于手机测试 APK 的 `PlaybackStreamCacheTest`（真实 Range HTTP、
 SimpleCache、隔离小容量预算），以及需自有影片和现有登录显式启用的
 `TvCachePlaybackTest`。这些检查不替代低内存 TV、完整 2 GiB 或长播放验收。
+
+## 渐进 PGS 源字幕
+
+`ExternalPgs.IndexBuilder` 单遍读取追加型 SUP，完整文件的 `index` 也使用它。
+`ProgressivePgsSource` 负责有界帧协议、完整性校验、受限磁盘 spool 和不可变前缀
+快照；播放器控制器拥有账号、租约和选择代次，loader 不保存这些上下文。
+`NativePlayer.importPgsStream` 在字幕覆盖当前源时间后可先显示前缀，最终验证成功
+才提供完整外部身份。失败或取消会移除未验证轨道；快照持有文件直到最后读者关闭。
+
+视频预取与字幕请求共用 `CancellableHttpSources` 的实际 Call 生命周期管理，
+同时覆盖响应体读取及取消后的重试，避免仅取消 OkHttp headers dispatcher。
+`ProgressivePgsSourceTest` 覆盖分片、部分覆盖、真实位图、源偏移、取消与校验失败；
+其私有源诊断用例需要显式配置，不将用户媒体放进测试 APK 或仓库。

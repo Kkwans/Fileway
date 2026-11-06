@@ -216,6 +216,10 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
         indexedPgs.filterValues { it.cancelledBeforeReady() }
             .forEach { (id, entry) -> removeIndexed(id, entry) }
     }
+    /** A failed/canceled progressive import cannot remain as a trusted track. */
+    fun discardPgsTimeline(id: String) = submit {
+        indexedPgs[id]?.let { removeIndexed(id, it) }
+    }
     /** UI ready/cancel callbacks enqueue cleanup on the same worker as decode.
      * Once closed, the already queued media-close task owns every attached entry. */
     private fun discardIndexed(id: String, entry: IndexedPgs) = synchronized(submissions) {
