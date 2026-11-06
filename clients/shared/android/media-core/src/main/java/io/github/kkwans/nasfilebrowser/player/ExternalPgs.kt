@@ -71,7 +71,8 @@ object ExternalPgs {
             var low = 0; var high = values.lastIndex; var found = -1
             while (low <= high) {
                 val middle = low + (high - low) / 2
-                if (values[middle].startTimeUs <= timeUs) { found = middle; low = middle + 1 }
+                val time = (values as? PgsDiskIndex)?.timeAt(middle) ?: values[middle].startTimeUs
+                if (time <= timeUs) { found = middle; low = middle + 1 }
                 else high = middle - 1
             }
             return found
@@ -116,9 +117,12 @@ object ExternalPgs {
             synchronized(readerLock) {
                 try { input.close() }
                 finally {
-                    try {
-                        if (deleteOnClose && file.exists() && !file.delete()) throw IOException("Owned SUP spool cleanup failed")
-                    } finally { onClosed?.invoke() }
+                    try { (values as? Closeable)?.close() }
+                    finally {
+                        try {
+                            if (deleteOnClose && file.exists() && !file.delete()) throw IOException("Owned SUP spool cleanup failed")
+                        } finally { onClosed?.invoke() }
+                    }
                 }
             }
         }
@@ -274,10 +278,16 @@ object ExternalPgs {
         /** The caller owns the returned immutable prefix and must close it.
          * A partial timeline cannot claim coverage at/after its last timestamp:
          * a later display set may still replace that timestamp. */
-        fun snapshot(deleteOnClose: Boolean = false, onClosed: (() -> Unit)? = null): Timeline {
+        suspend fun snapshot(deleteOnClose: Boolean = false, onClosed: (() -> Unit)? = null): Timeline {
             check(!closed && output.isNotEmpty() && committedOffset > 0)
-            return Timeline(file, RandomAccessFile(file, "r"), if (sealed) lastAvailable else committedOffset,
-                output.toList(), retained, deleteOnClose, !sealed, sealed, onClosed)
+            val events = if (sealed) PgsDiskIndex.create(requireNotNull(file.parentFile), output) else output.toList()
+            try {
+                return Timeline(file, RandomAccessFile(file, "r"), if (sealed) lastAvailable else committedOffset,
+                    events, (events as? PgsDiskIndex)?.retainedBytes ?: retained, deleteOnClose, !sealed, sealed, onClosed)
+            } catch (failure: Throwable) {
+                (events as? Closeable)?.close()
+                throw failure
+            }
         }
         override fun close() { if (!closed) { closed = true; input.close() } }
     }

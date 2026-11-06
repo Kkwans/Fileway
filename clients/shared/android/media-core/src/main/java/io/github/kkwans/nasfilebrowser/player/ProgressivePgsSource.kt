@@ -25,7 +25,7 @@ private class PgsSpool(directory: File) : Closeable {
     val file = File.createTempFile("external-pgs-stream-", ".sup", directory)
     private var references = 1
     private val ownerClosed = AtomicBoolean()
-    fun snapshot(builder: ExternalPgs.IndexBuilder): ExternalPgs.Timeline {
+    suspend fun snapshot(builder: ExternalPgs.IndexBuilder): ExternalPgs.Timeline {
         synchronized(this) { check(references > 0); references++ }
         return try { builder.snapshot(onClosed = ::release) }
         catch (failure: Throwable) { release(); throw failure }

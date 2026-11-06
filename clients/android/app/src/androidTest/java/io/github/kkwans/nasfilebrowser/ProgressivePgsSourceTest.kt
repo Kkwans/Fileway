@@ -240,6 +240,7 @@ class ProgressivePgsSourceTest {
                     bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
                     val visible = pixels.count { it ushr 24 > 32 }
                     assertTrue("Decoded PGS bitmap is empty", visible > 100)
+                    assertTrue("Eight equivalent complete tracks exceed the TV index budget", timeline.retainedBytes * 8 < 16L * 1024 * 1024)
                     val evidence = File(base, "fileway-pgs-source-evidence").apply { mkdirs() }
                     File(evidence, "source-pgs.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
                     File(evidence, "result.json").writeText(JSONObject().put("status", "PASS").put("scope", "Actual SUP index and Media3 bitmap decode; not composed TV/HDR acceptance")

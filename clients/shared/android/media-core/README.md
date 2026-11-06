@@ -38,6 +38,12 @@ SimpleCache、隔离小容量预算），以及需自有影片和现有登录显
 `NativePlayer.importPgsStream` 在字幕覆盖当前源时间后可先显示前缀，最终验证成功
 才提供完整外部身份。失败或取消会移除未验证轨道；快照持有文件直到最后读者关闭。
 
+完整索引的 event metadata 使用自有临时 sidecar，内存只留时间和记录偏移数组；
+随机 seek 不读取无关事件。当前事件仍使用同一 SUP、Media3、palette 和 crop 路径。
+渐进阶段只保留不可变前缀；完成后转为磁盘索引，避免多个完整轨道累计耗尽 TV
+的 16 MiB 索引预算。sidecar 上限 32 MiB，关闭或失败只删除本索引自建的文件；
+原 SUP 的删除权继续由调用者或 spool 引用计数管理，不作为跨账号持久缓存。
+
 视频预取与字幕请求共用 `CancellableHttpSources` 的实际 Call 生命周期管理，
 同时覆盖响应体读取及取消后的重试，避免仅取消 OkHttp headers dispatcher。
 `ProgressivePgsSourceTest` 覆盖分片、部分覆盖、真实位图、源偏移、取消与校验失败；
