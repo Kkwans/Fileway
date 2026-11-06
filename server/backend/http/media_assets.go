@@ -110,7 +110,7 @@ func servePreparedSourceAsset(w http.ResponseWriter, r *http.Request, d *data, f
 	}
 	key := sourceAssetKey(d, file, identity, format, index)
 	if stream := r.URL.Query().Get("stream"); stream != "" {
-		if stream != "1" || format != "sup" {
+		if stream != "1" || (format != "sup" && format != "ass") {
 			return http.StatusBadRequest, fmt.Errorf("此格式不支持流式源字幕")
 		}
 		reader, err := d.mediaAssets.openStream(r.Context(), key, limit, func(ctx context.Context, out io.Writer) error {
@@ -120,7 +120,7 @@ func servePreparedSourceAsset(w http.ResponseWriter, r *http.Request, d *data, f
 			return http.StatusServiceUnavailable, fmt.Errorf("暂时无法读取源字幕")
 		}
 		defer func() { _ = reader.Close() }()
-		return writeSourceAssetStream(w, r, reader, identity, func() bool {
+		return writeSourceAssetStream(w, r, reader, identity, format, func() bool {
 			current, err := files.NewFileInfo(&files.FileOptions{Fs: d.user.Fs, Path: file.Path, Checker: d})
 			return err == nil && mediaSourceIdentity(current) == identity
 		})

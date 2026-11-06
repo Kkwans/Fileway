@@ -159,7 +159,7 @@ func TestSourceAssetStreamFramesHeartbeatIntegrityAndFailure(t *testing.T) {
 			var validations atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				defer close(done)
-				_, _ = writeSourceAssetStream(w, r, input, "owned-identity", func() bool { return !badSource || validations.Add(1) == 1 })
+				_, _ = writeSourceAssetStream(w, r, input, "owned-identity", "sup", func() bool { return !badSource || validations.Add(1) == 1 })
 			}))
 			defer server.Close()
 			response, err := server.Client().Get(server.URL)
@@ -210,5 +210,55 @@ func TestSourceAssetStreamFramesHeartbeatIntegrityAndFailure(t *testing.T) {
 			}
 			<-done
 		})
+	}
+}
+
+func TestSourceAssetStreamASSKeepsStylesAndStartsBeforeCompletion(t *testing.T) {
+	input, output := io.Pipe()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = writeSourceAssetStream(w, r, input, "owned-ass", "ass", func() bool { return true })
+	}))
+	defer func() { _ = input.Close(); _ = output.Close(); server.Close() }()
+	response, err := server.Client().Get(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	decoder := json.NewDecoder(response.Body)
+	var frame sourceAssetFrame
+	if err := decoder.Decode(&frame); err != nil || frame.Type != "start" || frame.Format != "ass" || frame.Identity != "owned-ass" {
+		t.Fatalf("ASS start: %+v / %v", frame, err)
+	}
+	data := []byte("[Script Info]\nScriptType: v4.00+\n[V4+ Styles]\nStyle: Owned,OwnedFont,24\n[Events]\nDialogue: 0,0:00:00.50,0:00:11.00,Owned,,0,0,0,,{\\pos(80,40)\\1c&H0000FF&}Owned 字幕\n")
+	go func() { _, _ = output.Write(data) }()
+	var got bytes.Buffer
+	for got.Len() < len(data) {
+		frame = sourceAssetFrame{}
+		if err := decoder.Decode(&frame); err != nil {
+			t.Fatal(err)
+		}
+		if frame.Type == "pending" {
+			continue
+		}
+		if frame.Type != "data" {
+			t.Fatalf("ASS prefix blocked until completion: %+v", frame)
+		}
+		got.Write(frame.Data)
+	}
+	if !bytes.Equal(data, got.Bytes()) {
+		t.Fatal("ASS styling or UTF-8 changed")
+	}
+	_ = output.Close()
+	frame = sourceAssetFrame{}
+	if err := decoder.Decode(&frame); err != nil || frame.Type != "complete" || frame.Bytes != int64(len(data)) {
+		t.Fatalf("ASS completion: %+v / %v", frame, err)
+	}
+	digest := sha256.Sum256(data)
+	if frame.SHA256 != hex.EncodeToString(digest[:]) {
+		t.Fatal("ASS digest mismatch")
+	}
+	status, _ := writeSourceAssetStream(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil), bytes.NewReader(data), "owned", "font", func() bool { return true })
+	if status != http.StatusBadRequest {
+		t.Fatal("font unexpectedly accepted the subtitle stream protocol")
 	}
 }

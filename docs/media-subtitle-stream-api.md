@@ -1,4 +1,4 @@
-# 渐进源 PGS 字幕接口
+# 渐进源字幕接口
 
 `GET /api/client-capabilities` 的可选 `sourcePGSStreaming: 1` 表示服务端支持
 以下版本。旧客户端可以忽略；旧的 `format=source` 完整文件、Range 和 VTT 默认
@@ -12,7 +12,9 @@
 GET /api/subtitle{wirePath}?streamIndex=N&format=source&identity=SOURCE_ID&stream=1
 ```
 
-只接受 PGS/SUP；其他格式返回 400。沿用原账号、原媒体权限、opaque wirePath 和
+PGS/SUP 由 `sourcePGSStreaming: 1` 声明；ASS/SSA 的 ASS 输出由独立可选
+`sourceASSStreaming: 1` 声明。未声明时客户端保留完整格式路径，不能从 PGS 能力
+推断 ASS 能力。其他格式返回 400。沿用原账号、原媒体权限、opaque wirePath 和
 源身份校验；初始身份不符返回 409。不能在媒体 URL 放 JWT。原生客户端通过现有
 可撤销 broker asset lease 访问，broker 必须立即转发响应头和小帧，避免心跳被
 本地 HTTP 缓冲吞掉。新协议不提供 Range、HTTP 文件缓存或静态 Content-Length。
@@ -24,8 +26,8 @@ Cache-Control 为 `private, no-store`。每行一个 JSON 对象，按顺序发�
 
 | type | 字段与含义 |
 |---|---|
-| `start` | `identity` 必须等于请求源身份；`format` 为 `sup`。 |
-| `data` | `data` 为至多 32 KiB 原始 SUP 字节的 base64。按帧拼接，不是独立字幕事件。 |
+| `start` | `identity` 必须等于请求源身份；`format` 为 `sup` 或 `ass`，须与请求轨道匹配。 |
+| `data` | `data` 为至多 32 KiB 原始字幕字节的 base64。按帧拼接，不是独立字幕事件。 |
 | `pending` | 每秒最多一个等待心跳，覆盖排队及字幕事件间隔；不表示百分比。 |
 | `complete` | `bytes` 为原始总字节数；`sha256` 为完整 SUP 的小写 hex SHA-256。 |
 | `error` | `code` 为 `SOURCE_ASSET_FAILED` 或 `SOURCE_CHANGED`，没有服务器路径和 FFmpeg 日志。 |
@@ -49,6 +51,10 @@ Cache-Control 为 `private, no-store`。每行一个 JSON 对象，按顺序发�
 关闭，避免文件发布后又被缓存淘汰。临时文件打开/读取/关闭和发布重命名使用同一
 缓存锁，避免 Windows 活动临时句柄阻止重命名；不持锁等待网络消费者。
 
-源字体附件接口仍使用完整资源、原媒体身份和权限校验，不支持本 PGS 流协议。
+ASS 数据保留原始脚本、样式和源时间，不能把网络块边界当成行或事件边界。
+客户端只能按完整 UTF-8 行／事件组增量解析，覆盖范围不足时不得保持旧画面，
+最终仍须验证完整长度和摘要。ASS 与旧完整 ASS 接口共用同一个资产生产者和缓存。
+
+源字体附件接口仍使用完整资源、原媒体身份和权限校验，不支持本流协议。
 单字体输出上限为 32 MiB，与原生 MKV 字体读取一致；缓存仍按源身份、账号和
 附件索引隔离，并保留原有总容量、并发去重、失败清理和 Range 行为。

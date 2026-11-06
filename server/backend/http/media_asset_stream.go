@@ -174,7 +174,10 @@ type sourceAssetFrame struct {
 // Heartbeats keep bounded HTTP reads alive during legitimate lane waits and
 // gaps between subtitle events. Completion and content integrity are explicit;
 // a dropped connection or failed producer cannot masquerade as a complete SUP.
-func writeSourceAssetStream(w http.ResponseWriter, r *http.Request, reader io.Reader, identity string, valid func() bool) (int, error) {
+func writeSourceAssetStream(w http.ResponseWriter, r *http.Request, reader io.Reader, identity, format string, valid func() bool) (int, error) {
+	if format != "sup" && format != "ass" {
+		return http.StatusBadRequest, errors.New("此格式不支持流式源字幕")
+	}
 	if !valid() {
 		return http.StatusConflict, errors.New("媒体版本或读取权限已变化")
 	}
@@ -192,7 +195,7 @@ func writeSourceAssetStream(w http.ResponseWriter, r *http.Request, reader io.Re
 		}
 		return nil
 	}
-	if err := write(sourceAssetFrame{Type: "start", Identity: identity, Format: "sup"}); err != nil {
+	if err := write(sourceAssetFrame{Type: "start", Identity: identity, Format: format}); err != nil {
 		return 0, err
 	}
 	ctx, cancel := context.WithCancel(r.Context())
