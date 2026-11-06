@@ -88,6 +88,48 @@ func TestSourceFontDoesNotWaitForWholeSubtitleScan(t *testing.T) {
 	_ = file.Close()
 }
 
+func TestSourceFontSizeMatchesNativeAndRejectsOversize(t *testing.T) {
+	if sourceFontLimit != 32<<20 {
+		t.Fatal("source font size must match the native 32 MiB limit")
+	}
+	service := newMediaAssetService(t.TempDir())
+	writeBytes := func(count int64) func(context.Context, io.Writer) error {
+		return func(_ context.Context, out io.Writer) error {
+			buffer := make([]byte, 32<<10)
+			for count > 0 {
+				size := min(count, int64(len(buffer)))
+				n, err := out.Write(buffer[:size])
+				if err != nil {
+					return err
+				}
+				count -= int64(n)
+			}
+			return nil
+		}
+	}
+	const large = int64(9 << 20)
+	file, err := service.prepareFont(context.Background(), strings.Repeat("e", 64), sourceFontLimit, writeBytes(large))
+	if err != nil {
+		t.Fatal("valid font above the previous 8 MiB limit failed:", err)
+	}
+	info, err := file.Stat()
+	_ = file.Close()
+	if err != nil || info.Size() != large {
+		t.Fatal("large font was truncated", err)
+	}
+	file, err = service.prepareFont(context.Background(), strings.Repeat("f", 64), sourceFontLimit, writeBytes(sourceFontLimit+1))
+	if file != nil {
+		_ = file.Close()
+	}
+	if err == nil {
+		t.Fatal("font above the native limit was accepted")
+	}
+	entries, err := os.ReadDir(service.directory)
+	if err != nil || len(entries) != 1 || entries[0].Name() != strings.Repeat("e", 64) {
+		t.Fatal("failed font left partial cache output", err)
+	}
+}
+
 func TestSourceAssetCacheDeduplicatesAndRejectsPartialOutputs(t *testing.T) {
 	service := newMediaAssetService(t.TempDir())
 	key := strings.Repeat("a", 64)

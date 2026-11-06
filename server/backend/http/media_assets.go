@@ -20,7 +20,7 @@ import (
 )
 
 const sourceTextLimit int64 = 16 << 20
-const sourceFontLimit int64 = 8 << 20
+const sourceFontLimit int64 = 32 << 20
 const sourcePGSLimit int64 = 500 << 20
 const sourceAssetCacheLimit int64 = 1 << 30
 
