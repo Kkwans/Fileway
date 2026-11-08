@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Fileway.App.Branding;
+using Fileway.App.Windowing;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Dispatching;
@@ -24,6 +25,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private readonly NativeVideoWindow.SubclassProc _procedure;
     private readonly KeyEventHandler _keyHandler;
     private readonly nint _window;
+    private readonly NonClientInputGate? _inputGate;
     private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private Action? _onClosed;
     private bool _subclassed;
@@ -54,6 +56,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         _procedure = WindowProcedure;
         _keyHandler = Root_KeyDown;
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _inputGate = _movable ? new NonClientInputGate(_window) : null;
         _presenter = !wrapContent || content is FlyoutPresenter or MenuFlyoutPresenter ? content : new FlyoutPresenter { Content = content };
         try
         {
@@ -319,6 +322,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             _closed = true;
             DispatcherQueue.TryEnqueue(Release);
         }
+        if (_inputGate is not null && _inputGate.TryHandle(message, wParam, lParam) is nint gated) return gated;
         return NativeVideoWindow.DefSubclassProc(window, message, wParam, lParam);
     }
 

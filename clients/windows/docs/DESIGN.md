@@ -194,7 +194,7 @@ components:
 - 阅读器：内容列最大 780px，左右至少 48px 留白；段落间距 14px，标题上间距 16–22px。
 - 详情面板：宽 420px，高 480px，内边距 20/16；操作区固定两组（传输、管理），每组 4 列等宽。
 - 可移动详情浮窗：标题区（顶部 56 DIP，右侧预留 56 DIP 给关闭按钮）通过原生 `WM_NCHITTEST → HTCAPTION` 拖动，必须显示三点拖动手柄与“按住标题区域拖动移动窗口”提示；不得只依赖轮询鼠标按键。
-- 无边框窗口的**隐形 sizing 边框**（约 `SM_CXSIZEFRAME + SM_CXPADDEDBORDER` 宽，盖在内容之上）不得让单击进入调整大小：必须“按住并拖动超过 `SM_CXDRAG`”才启动（0.8.157）。文档类窗口用 `Windowing/EdgeResizeGate` 拦下 `WM_NCLBUTTONDOWN`，达到阈值后用 `DefSubclassProc` 原样重放以启动系统循环；播放器 HUD 是独立窗口、系统循环收不到按键抬起（会把窗口留在“粘住光标”的 sizing 模式），因此由 HUD 自己按拖动增量 `SetWindowPos` 主窗口并补发 `WM_ENTERSIZEMOVE/WM_EXITSIZEMOVE`。最小尺寸用 `SM_CXMINTRACK/SM_CYMINTRACK`（34/35）。
+- 无边框窗口的**隐形 sizing 边框与标题拖拽区**不得让单击进入系统移动/缩放循环：统一由 `Windowing/NonClientInputGate` 拦下 `WM_NCLBUTTONDOWN`（hit 2 与 10–17），按住并拖动超过 DPI 化 `SM_CXDRAG/SM_CYDRAG` 后才原样重放原始 press 启动原生循环（保留 Snap/resize）；16ms `WM_TIMER` 兜底检测拖动，抬起/失焦/取消模式/关窗/销毁必须清理 capture 与 timer。标题双击最大化交回原生；自定义最大化按钮 hit9 不接管。主窗/四查看器经 `FramelessWindowChrome` 接入，播放器主窗与可移动设置/详情浮窗直接接入（0.9.0 M02，替换 0.8.157 只门控 resize 的 EdgeResizeGate）。播放器 HUD 仍由自身按拖动增量 `SetWindowPos` 主窗口并补发 `WM_ENTERSIZEMOVE/WM_EXITSIZEMOVE`。最小尺寸用 `SM_CXMINTRACK/SM_CYMINTRACK`（34/35）。
 - 查看器：顶部信息条 60px，底部浮动胶囊距底 22px；左右翻页按钮 44px 圆形，距边缘 14px。
 - 查看器外壳三条硬规则（0.8.156）：① **不重复**——信息条不得再写标题栏已有的文件名，只放元信息（序号 / 像素尺寸 / 体积）。② **不空转**——没有解码出内容（加载中、错误态）时缩放胶囊整条隐藏，不得留「—」占位与一排无效按钮。③ **不躲**——加载与错误期间禁止 chrome 自动隐藏，用户要能看到工具条与重试入口。查看器画布/chrome 一律走带 `{ThemeResource}` setter 的 Style（`FwViewerCanvasStyle`/`FwViewerChromeStyle`/scrim 系列）：应用只设 `Shell.RequestedTheme`，运行时用 `Application.Current.Resources[...]` 直接取画刷拿到的是**系统主题**，WinUI 3 又没有 `SetResourceReference`。
 - 任何工具条都不得改变内容尺寸；内容永远是画布，工具条是覆盖层。

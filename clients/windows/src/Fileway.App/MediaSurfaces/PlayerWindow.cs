@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Fileway.App.Branding;
+using Fileway.App.Windowing;
 using Fileway.Core.Contracts;
 using Fileway.Playback.Contracts;
 using Microsoft.UI.Windowing;
@@ -45,6 +46,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private readonly Button _closeState = new() { Content = "关闭窗口", HorizontalAlignment = HorizontalAlignment.Left };
     private readonly NativeVideoWindow.SubclassProc _windowProcedure;
     private readonly nint _window;
+    private readonly NonClientInputGate _inputGate;
     private readonly PlayerOverlayWindow _overlay;
     private OverlappedPresenter? _windowedPresenter;
     private RectInt32 _windowedBounds;
@@ -100,6 +102,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _root.PointerCaptureLost += (_, _) => CancelVideoInput(PlaybackVideoInputSurface.Root);
         Content = _root;
         _window = WinRT.Interop.WindowNative.GetWindowHandle(this);
+        _inputGate = new NonClientInputGate(_window);
         _systemMedia = SystemMediaController.TryCreate(_window,
             play: () => DispatcherQueue.TryEnqueue(() => { if (!_closing && !_disposed && !_detached) _ = RunCommandAsync(() => _session.SetPausedAsync(false, _watchCancellation.Token)); }),
             pause: () => DispatcherQueue.TryEnqueue(() => { if (!_closing && !_disposed && !_detached) _ = RunCommandAsync(() => _session.SetPausedAsync(true, _watchCancellation.Token)); }),
@@ -303,6 +306,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             if (NativeVideoWindow.GetCapture() == _child) NativeVideoWindow.ReleaseCapture();
             return 0;
         }
+        if (!_disposed && window == _window && _inputGate.TryHandle(message, wParam, lParam) is nint gated) return gated;
         var result = NativeVideoWindow.DefSubclassProc(window, message, wParam, lParam);
         if (window == _window && (message is 0x02e0 or 0x007e)) FullscreenDisplayChanged();
         if (window == _window && (message is 0x0003 or 0x0005 or 0x02e0 or 0x0018))
