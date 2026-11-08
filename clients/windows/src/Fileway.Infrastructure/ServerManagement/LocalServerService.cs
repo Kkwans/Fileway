@@ -3,6 +3,9 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Net.NetworkInformation;
+using System.Text;
+using System.Text.Json;
 using Fileway.Core.Contracts;
 using Microsoft.Win32.SafeHandles;
 
@@ -179,6 +182,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
 
             var document = LocalServerLayout.NewDocument(_layout.ExecutablePath, receipt.Sha256);
             document.Port = request.Port;
+            document.Address = request.Address;
             document.MountsWholeComputer = request.MountsWholeComputer;
             document.FilesRoot = request.MountsWholeComputer ? _layout.FilesRoot : Path.GetFullPath(request.FilesRoot);
             document.AdminUsername = request.AdminUsername;
@@ -250,6 +254,99 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         _layout.WriteDocument(document);
         return await ReadStatusAsync(token).ConfigureAwait(false);
     }, cancellationToken);
+
+    public Task<LocalServerStatus> ReconfigureAsync(LocalServerReconfigureRequest request, CancellationToken cancellationToken) => MutateAsync(async token =>
+    {
+        ServerInstaller.ValidateEndpoint(request.Port, request.Address);
+        ServerInstaller.ValidateAccount(request.AdminUsername, request.AdminPassword);
+        if (!request.MountsWholeComputer &&
+            (string.IsNullOrWhiteSpace(request.FilesRoot) || !Path.IsPathFullyQualified(request.FilesRoot)))
+            throw new FilewayException(new ErrorInfo(ErrorCode.InvalidRequest, "限定共享范围时需要一个完整的文件夹路径。"));
+        var document = RequireDeployed();
+        if (!_layout.TryReadReceipt(out ServerBuildReceipt? receipt)) throw ComponentMissing();
+        var current = await ReadCoreAsync(document, token).ConfigureAwait(false);
+        if (current.State is LocalServerState.Starting or LocalServerState.Stopping)
+            throw Conflict("服务端正在启动或停止，请等状态稳定后再修改部署设置。");
+        bool wasRunning = current.State == LocalServerState.Running;
+        if (wasRunning) await StopInnerAsync(token).ConfigureAwait(false);
+        document = RequireDeployed();
+        try
+        {
+            if (request.AdminUsername is not null || request.AdminPassword is not null)
+                await ServerInstaller.UpdateAdminAsync(_layout, document.AdminUsername, request.AdminUsername, request.AdminPassword, token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // A failed account edit must not leave a stopped deployment behind.
+            if (wasRunning)
+            {
+                try { await StartCoreAsync(document, receipt, token).ConfigureAwait(false); }
+                catch (Exception restartError) when (restartError is FilewayException or OperationCanceledException) { }
+            }
+            throw;
+        }
+        document.Port = request.Port;
+        document.Address = request.Address;
+        document.MountsWholeComputer = request.MountsWholeComputer;
+        document.FilesRoot = request.MountsWholeComputer ? _layout.FilesRoot : Path.GetFullPath(request.FilesRoot);
+        if (request.AdminUsername is not null) document.AdminUsername = request.AdminUsername;
+        document.LastError = null;
+        _layout.WriteDocument(document);
+        if (request.AdminPassword is not null) _layout.WriteAdminSecret(request.AdminPassword);
+        SyncStartupRegistration(document);
+        return await StartCoreAsync(document, receipt, token).ConfigureAwait(false);
+    }, cancellationToken);
+
+    public async Task<LocalServerCredentialState> CheckCredentialAsync(CancellationToken cancellationToken)
+    {
+        var document = _layout.ReadDocument();
+        if (document is not { Deployed: true }) return LocalServerCredentialState.Unknown;
+        string? password = await Task.Run(_layout.ReadAdminSecret, cancellationToken).ConfigureAwait(false);
+        if (password is null) return LocalServerCredentialState.Unknown;
+        if (!await ProbeAsync(document, cancellationToken).ConfigureAwait(false)) return LocalServerCredentialState.Unknown;
+        try
+        {
+            using var content = new StringContent(
+                JsonSerializer.Serialize(new { username = document.AdminUsername, password }),
+                Encoding.UTF8, "application/json");
+            using var response = await Probe.PostAsync(
+                $"http://127.0.0.1:{document.Port.ToString(CultureInfo.InvariantCulture)}/api/login",
+                content, cancellationToken).ConfigureAwait(false);
+            return response.StatusCode == HttpStatusCode.OK ? LocalServerCredentialState.Valid
+                : response.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden ? LocalServerCredentialState.Stale
+                : LocalServerCredentialState.Unknown;
+        }
+        catch (Exception error) when (error is HttpRequestException or TaskCanceledException or OperationCanceledException or SocketException)
+        {
+            return LocalServerCredentialState.Unknown;
+        }
+    }
+
+    public Task<IReadOnlyList<string>> GetLanEndpointsAsync(CancellationToken cancellationToken)
+    {
+        var document = _layout.ReadDocument();
+        if (document is not { Deployed: true } ||
+            !IPAddress.TryParse(document.Address, out var bound) || !bound.Equals(IPAddress.Any))
+            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        var endpoints = new List<string>();
+        foreach (var adapter in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (adapter.OperationalStatus != OperationalStatus.Up || adapter.NetworkInterfaceType == NetworkInterfaceType.Loopback) continue;
+            foreach (var unicast in adapter.GetIPProperties().UnicastAddresses)
+            {
+                var address = unicast.Address;
+                if (address.AddressFamily != AddressFamily.InterNetwork || !IsPrivateNetwork(address)) continue;
+                endpoints.Add($"http://{address}:{document.Port.ToString(CultureInfo.InvariantCulture)}");
+            }
+        }
+        return Task.FromResult<IReadOnlyList<string>>(endpoints);
+    }
+
+    private static bool IsPrivateNetwork(IPAddress address)
+    {
+        var bytes = address.GetAddressBytes();
+        return bytes[0] == 10 || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) || (bytes[0] == 192 && bytes[1] == 168);
+    }
 
     public async Task<LocalServerLogPage> ReadLogsAsync(LocalServerFilter filter, int maxLines, CancellationToken cancellationToken)
     {
@@ -504,10 +601,15 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             }
         }
         if (candidates.Count != 1) return false;
-        document.ProcessId = candidates[0].Id;
-        document.ProcessStartedAt = candidates[0].Started;
+        // Merge into a fresh read: a concurrent reconfigure may have changed port/bind since
+        // this document was read; writing the whole stale object would revert those edits.
+        var fresh = _layout.ReadDocument() ?? document;
+        fresh.ProcessId = candidates[0].Id;
+        fresh.ProcessStartedAt = candidates[0].Started;
+        document.ProcessId = fresh.ProcessId;
+        document.ProcessStartedAt = fresh.ProcessStartedAt;
         _expectRunning = true;
-        _layout.WriteDocument(document);
+        _layout.WriteDocument(fresh);
         return true;
     }
 
@@ -519,9 +621,12 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         {
             process = System.Diagnostics.Process.GetProcessById(trackedProcessId);
             if (!IsOurImage(process.MainModule?.FileName, document)) return;
-            document.LastExitCode = process.ExitCode;
-            if (process.ExitCode != 0) document.LastError = ServerLogReader.DescribeFailure(_layout.DiagnosticsLogPath);
-            _layout.WriteDocument(document);
+            var fresh = _layout.ReadDocument() ?? document;
+            fresh.LastExitCode = process.ExitCode;
+            if (process.ExitCode != 0) fresh.LastError = ServerLogReader.DescribeFailure(_layout.DiagnosticsLogPath);
+            document.LastExitCode = fresh.LastExitCode;
+            document.LastError = fresh.LastError;
+            _layout.WriteDocument(fresh);
         }
         catch (Exception error) when (error is ArgumentException or InvalidOperationException or Win32Exception)
         {
@@ -542,8 +647,10 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         // binary; refusing here would brick every existing deployment the moment the app updates.
         if (!string.Equals(document.ExecutableSha256, receipt.Sha256, StringComparison.OrdinalIgnoreCase))
         {
-            document.ExecutableSha256 = receipt.Sha256;
-            _layout.WriteDocument(document);
+            var fresh = _layout.ReadDocument() ?? document;
+            fresh.ExecutableSha256 = receipt.Sha256;
+            document.ExecutableSha256 = fresh.ExecutableSha256;
+            _layout.WriteDocument(fresh);
         }
         return true;
     }
@@ -634,7 +741,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         Raise(Status(document, state, receipt, handle));
 
     private static string Endpoint(LocalServerDocument document) =>
-        $"http://{document.Address}:{document.Port.ToString(CultureInfo.InvariantCulture)}";
+        $"http://{ProbeHost(document.Address)}:{document.Port.ToString(CultureInfo.InvariantCulture)}";
 
     private static string Signature(LocalServerStatus status) =>
         string.Join('|', status.State, status.ProcessId, status.LastExitCode, status.RestartAttempts,
@@ -642,7 +749,11 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             string.Join(',', status.Detected.Select(instance => instance.Port)));
 
     private static Task<bool> ProbeAsync(LocalServerDocument document, CancellationToken cancellationToken, HttpClient? client = null) =>
-        ProbeAsync(document.Address, document.Port, cancellationToken, client);
+        ProbeAsync(ProbeHost(document.Address), document.Port, cancellationToken, client);
+
+    /// <summary>A wildcard bind is not a connectable client address; health/sign-in always use loopback.</summary>
+    private static string ProbeHost(string address) =>
+        IPAddress.TryParse(address, out var ip) && ip.Equals(IPAddress.Any) ? "127.0.0.1" : address;
 
     private static async Task<bool> ProbeAsync(string address, int port, CancellationToken cancellationToken, HttpClient? client = null)
     {

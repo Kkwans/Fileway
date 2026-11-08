@@ -96,9 +96,34 @@ public sealed record LocalServerDeploymentRequest(
     bool MountsWholeComputer,
     string FilesRoot,
     string AdminUsername,
-    string AdminPassword)
+    string AdminPassword,
+    string Address = "127.0.0.1")
 {
     public override string ToString() => "LocalServerDeploymentRequest (credentials redacted)";
+}
+
+/// <summary>Edits an existing deployment. Null credential fields keep the current account/secret.</summary>
+public sealed record LocalServerReconfigureRequest(
+    int Port,
+    string Address,
+    bool MountsWholeComputer,
+    string FilesRoot,
+    string? AdminUsername,
+    string? AdminPassword)
+{
+    public override string ToString() => "LocalServerReconfigureRequest (credentials redacted)";
+}
+
+public enum LocalServerCredentialState
+{
+    /// <summary>The stored secret still authenticates against the managed server.</summary>
+    Valid,
+
+    /// <summary>The server rejected the stored secret; it was changed elsewhere.</summary>
+    Stale,
+
+    /// <summary>The server could not be reached or did not give a definitive answer.</summary>
+    Unknown,
 }
 
 /// <summary>The account created with the deployment. Revealed only on explicit user action.</summary>
@@ -135,6 +160,15 @@ public interface ILocalServerManagementService
     Task<LocalServerStatus> SetAutoRestartAsync(bool enabled, CancellationToken cancellationToken);
 
     Task<LocalServerStatus> RetryStartAsync(CancellationToken cancellationToken);
+
+    /// <summary>Edits port/bind/scope/account of an existing deployment and restarts the owned instance.</summary>
+    Task<LocalServerStatus> ReconfigureAsync(LocalServerReconfigureRequest request, CancellationToken cancellationToken);
+
+    /// <summary>Checks the stored administrator secret against the running server without revealing it.</summary>
+    Task<LocalServerCredentialState> CheckCredentialAsync(CancellationToken cancellationToken);
+
+    /// <summary>Private-network HTTP endpoints of a LAN-bound deployment; empty while loopback-only.</summary>
+    Task<IReadOnlyList<string>> GetLanEndpointsAsync(CancellationToken cancellationToken);
 
     Task<LocalServerLogPage> ReadLogsAsync(LocalServerFilter filter, int maxLines, CancellationToken cancellationToken);
 

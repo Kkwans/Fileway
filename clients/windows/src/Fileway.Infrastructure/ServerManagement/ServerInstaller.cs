@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Text;
 using Fileway.Core.Contracts;
 
@@ -28,8 +29,7 @@ internal static class ServerInstaller
 
     internal static void Validate(LocalServerDeploymentRequest request)
     {
-        if (request.Port is < 1024 or > 65535)
-            throw Invalid("端口需要在 1024-65535 之间，避开需要管理员权限的低位端口。");
+        ValidateEndpoint(request.Port, request.Address);
         if (string.IsNullOrWhiteSpace(request.AdminUsername) || request.AdminUsername.Length > 64 ||
             request.AdminUsername.Contains(' ', StringComparison.Ordinal) || request.AdminUsername.Any(char.IsControl))
             throw Invalid("管理员用户名需要是 1-64 个字符，不能包含空格或控制字符。");
@@ -39,6 +39,40 @@ internal static class ServerInstaller
         if (!request.MountsWholeComputer &&
             (string.IsNullOrWhiteSpace(request.FilesRoot) || !Path.IsPathFullyQualified(request.FilesRoot)))
             throw Invalid("限定共享范围时需要一个完整的文件夹路径。");
+    }
+
+    internal static void ValidateEndpoint(int port, string address)
+    {
+        if (port is < 1024 or > 65535)
+            throw Invalid("端口需要在 1024-65535 之间，避开需要管理员权限的低位端口。");
+        if (!IPAddress.TryParse(address, out var ip) || !(IPAddress.IsLoopback(ip) || ip.Equals(IPAddress.Any)))
+            throw Invalid("绑定地址只能是 127.0.0.1（仅本机）或 0.0.0.0（允许局域网访问）。");
+    }
+
+    internal static void ValidateAccount(string? username, string? password)
+    {
+        if (username is not null && (username.Length is 0 or > 64 || username.Contains(' ', StringComparison.Ordinal) || username.Any(char.IsControl)))
+            throw Invalid("管理员用户名需要是 1-64 个字符，不能包含空格或控制字符。");
+        if (password is not null && (password.Length < MinimumPasswordLength || password.Length > 128 || password.Any(char.IsControl)))
+            throw Invalid($"管理员密码需要至少 {MinimumPasswordLength} 位，且不超过 128 位。");
+    }
+
+    /// <summary>Offline account edit against the managed database; only called while the owned process is stopped.</summary>
+    internal static async Task UpdateAdminAsync(LocalServerLayout layout, string currentUsername, string? newUsername, string? newPassword, CancellationToken cancellationToken)
+    {
+        var arguments = new List<string> { "users", "update", currentUsername, "--database", layout.DatabasePath };
+        if (!string.IsNullOrWhiteSpace(newUsername) && !string.Equals(newUsername, currentUsername, StringComparison.Ordinal))
+        {
+            arguments.Add("--username");
+            arguments.Add(newUsername);
+        }
+        if (!string.IsNullOrEmpty(newPassword))
+        {
+            arguments.Add("--password");
+            arguments.Add(newPassword);
+        }
+        if (arguments.Count == 5) return;
+        await RunAsync(layout, arguments, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Creates the database and its single administrator; never adopts a foreign database.</summary>
