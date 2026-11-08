@@ -3,8 +3,10 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ui="using:Fileway.App.Controls"
              AutomationProperties.Name="本地服务端" SizeChanged="Panel_SizeChanged">
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
  <Grid Padding="20,16" RowSpacing="12">
   <Grid.RowDefinitions>
+   <RowDefinition Height="Auto"/>
    <RowDefinition Height="Auto"/>
    <RowDefinition Height="Auto"/>
    <RowDefinition Height="Auto"/>
@@ -16,7 +18,7 @@
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Spacing="4" VerticalAlignment="Center">
     <TextBlock Text="本地服务端" FontSize="22" FontWeight="SemiBold"/>
-    <TextBlock Text="在本机运行一个只监听 127.0.0.1 的栖卷服务端，用于离线共享或临时部署。" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}" TextWrapping="Wrap"/>
+    <TextBlock Text="在本机运行栖卷服务端，用于离线共享或局域网访问；默认端口 8888，可修改。" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}" TextWrapping="Wrap"/>
    </StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
     <ProgressRing x:Name="BusyRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" VerticalAlignment="Center"/>
@@ -87,8 +89,8 @@
   <Border Grid.Row="2" x:Name="DeployCard" Style="{StaticResource FwFormCardStyle}" Visibility="Collapsed">
    <StackPanel Spacing="14">
     <StackPanel Spacing="3">
-     <TextBlock Text="部署本地服务端" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
-     <TextBlock Text="会创建独立的服务端数据库和管理员账号，默认挂载整台电脑的所有盘符，只监听 127.0.0.1，不对局域网开放。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+     <TextBlock x:Name="DeployTitle" Text="部署本地服务端" FontSize="15" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/>
+     <TextBlock Text="独立服务端数据库与管理员账号；默认共享整台电脑、仅本机访问。开启局域网访问前请确认共享范围与防火墙入站规则。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
     </StackPanel>
     <Grid ColumnSpacing="12">
      <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -101,11 +103,15 @@
       <TextBox x:Name="AccountBox" Height="36" MinHeight="36" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="管理员用户名"/>
      </StackPanel>
     </Grid>
+    <StackPanel Spacing="3">
+     <CheckBox x:Name="LanCheck" Content="允许局域网访问（绑定 0.0.0.0）" AutomationProperties.Name="允许局域网访问"/>
+     <TextBlock Text="开启后同一局域网内的设备可通过本机 IP 访问共享范围；需要你在 Windows 防火墙允许入站。仅本机使用请保持关闭。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" Margin="28,0,0,0"/>
+    </StackPanel>
     <Grid ColumnSpacing="12" RowSpacing="6">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="36"/></Grid.RowDefinitions>
      <TextBlock Text="管理员密码" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
-     <PasswordBox x:Name="SecretBox" Grid.Row="1" Height="36" MinHeight="36" PasswordRevealMode="Hidden" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="管理员密码"/>
+     <PasswordBox x:Name="SecretBox" Grid.Row="1" Height="36" MinHeight="36" PasswordRevealMode="Hidden" PlaceholderText="编辑时留空保留当前密码" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="管理员密码"/>
      <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
       <Button x:Name="RevealSecretButton" Click="RevealSecret_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="显示密码" AutomationProperties.Name="显示管理员密码"><ui:LucideIcon IconName="eye" Width="18" Height="18"/></Button>
       <Button x:Name="RegenerateButton" Click="Regenerate_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="重新生成密码" AutomationProperties.Name="重新生成管理员密码"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
@@ -133,11 +139,15 @@
      <TextBlock x:Name="DeployHint" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" VerticalAlignment="Center" Text="随机密码满足服务端最小长度要求，只以当前 Windows 用户加密保存在本机，可在“启动与账号”里查看；连接后可用“修改密码”更换。"/>
      <Button x:Name="DeployButton" Grid.Column="1" Content="部署并启动" Click="Deploy_Click" Style="{StaticResource FwPrimaryButtonStyle}" VerticalAlignment="Center" HorizontalAlignment="Right" AutomationProperties.Name="部署并启动本地服务端"/>
     </Grid>
+    <StackPanel Spacing="4">
+     <TextBlock x:Name="CredentialStateText" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" AutomationProperties.AutomationId="CredentialStateText"/>
+     <TextBlock x:Name="LanEndpointsText" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="Wrap" AutomationProperties.AutomationId="LanEndpointsText"/>
+    </StackPanel>
    </StackPanel>
   </Border>
 
   <!-- 已部署：本机构建 + 启动与账号；窄窗口改为整宽两行 -->
-  <Grid Grid.Row="2" x:Name="DetailGrid" ColumnSpacing="12" RowSpacing="12" Visibility="Collapsed">
+  <Grid Grid.Row="3" x:Name="DetailGrid" ColumnSpacing="12" RowSpacing="12" Visibility="Collapsed">
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="DetailSecondColumn" Width="*"/></Grid.ColumnDefinitions>
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <Border x:Name="BuildCard" Style="{StaticResource FwFormCardStyle}">
@@ -147,7 +157,7 @@
       <Grid.ColumnDefinitions><ColumnDefinition Width="84"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <TextBlock Text="监听" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
-      <TextBlock x:Name="AddressValue" Grid.Column="1" Style="{StaticResource FwCodeTextStyle}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+      <TextBlock x:Name="AddressValue" Grid.Column="1" Style="{StaticResource FwCodeTextStyle}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="AddressValue"/>
       <TextBlock Grid.Row="1" Text="共享范围" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
       <TextBlock x:Name="FilesValue" Grid.Row="1" Grid.Column="1" Style="{StaticResource FwCodeCaptionTextStyle}" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
       <TextBlock Grid.Row="2" Text="数据目录" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
@@ -190,7 +200,7 @@
   </Grid>
 
   <!-- 日志：工具行 + 列表 + 空状态 -->
-  <Border Grid.Row="3" Style="{StaticResource FwFormCardStyle}" Padding="16,12">
+  <Border Grid.Row="4" Style="{StaticResource FwFormCardStyle}" Padding="16,12">
    <Grid RowSpacing="10">
     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
     <Grid ColumnSpacing="8">
@@ -248,6 +258,7 @@
    </Grid>
   </Border>
 
-  <InfoBar x:Name="Notice" Grid.RowSpan="4" IsOpen="False" IsClosable="True" Severity="Warning" HorizontalAlignment="Right" VerticalAlignment="Top" Width="380" Margin="0,52,0,0" Canvas.ZIndex="5"/>
+  <InfoBar x:Name="Notice" Grid.RowSpan="5" IsOpen="False" IsClosable="True" Severity="Warning" HorizontalAlignment="Right" VerticalAlignment="Top" Width="380" Margin="0,52,0,0" Canvas.ZIndex="5"/>
  </Grid>
+ </ScrollViewer>
 </UserControl>

@@ -37,6 +37,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     private bool _loading;
     private bool _attached;
     private bool _newestArrived;
+    private bool _editDirty;
 
     public event EventHandler? CloseRequested;
     public event EventHandler<LocalServerConnectRequest>? ConnectRequested;
@@ -45,6 +46,12 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     {
         InitializeComponent();
         _deployHintDefault = DeployHint.Text;
+        PortBox.TextChanged += (_, _) => _editDirty = true;
+        AccountBox.TextChanged += (_, _) => _editDirty = true;
+        SecretBox.PasswordChanged += (_, _) => _editDirty = true;
+        RootBox.TextChanged += (_, _) => _editDirty = true;
+        LanCheck.Checked += (_, _) => _editDirty = true;
+        LanCheck.Unchecked += (_, _) => _editDirty = true;
         _followTimer.Tick += async (_, _) =>
         {
             // Status ticks are de-duplicated in the service, so the uptime line is refreshed here instead.
@@ -132,6 +139,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     /// <summary>The path row only asks for input once the default “whole computer” mount is turned off.</summary>
     private void RestrictRoot_Changed(object sender, RoutedEventArgs e)
     {
+        _editDirty = true;
         bool restrict = RestrictRootCheck.IsChecked == true;
         RestrictRootRow.Visibility = restrict ? Visibility.Visible : Visibility.Collapsed;
         if (restrict) _ = RootBox.Focus(FocusState.Programmatic);
@@ -164,7 +172,20 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         RenderDetection(status);
         StatusCard.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
         DetailGrid.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
-        DeployCard.Visibility = deployed ? Visibility.Collapsed : Visibility.Visible;
+        DeployCard.Visibility = Visibility.Visible;
+        DeployTitle.Text = deployed ? "部署设置" : "部署本地服务端";
+        DeployButton.Content = deployed ? "保存并重启" : "部署并启动";
+        AutomationProperties.SetName(DeployButton, deployed ? "保存部署设置并重启本地服务端" : "部署并启动本地服务端");
+        if (deployed && !_editDirty && status.Deployment is { } edit)
+        {
+            PortBox.Text = edit.Port.ToString(CultureInfo.InvariantCulture);
+            AccountBox.Text = edit.AdminUsername;
+            SecretBox.Password = string.Empty;
+            LanCheck.IsChecked = edit.Address == "0.0.0.0";
+            RestrictRootCheck.IsChecked = !edit.MountsWholeComputer;
+            RestrictRootRow.Visibility = edit.MountsWholeComputer ? Visibility.Collapsed : Visibility.Visible;
+            RootBox.Text = edit.MountsWholeComputer ? _service?.GetDefaults().FilesRoot ?? string.Empty : edit.FilesRoot;
+        }
         ArrangeDetails(ActualWidth);
 
         StatusIcon.IconName = status.State switch
@@ -186,7 +207,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         StopButton.IsEnabled = running && !busy;
         StopButton.Content = status.State == LocalServerState.Stopping ? "正在停止…" : "停止服务";
         OpenWebButton.IsEnabled = running && !busy;
-        DeployButton.IsEnabled = !otherServing;
+        DeployButton.IsEnabled = !busy && (!otherServing || running);
         DeployHint.Text = otherServing ? SingleServerNote : _deployHintDefault;
 
         AutoStartCheck.IsChecked = status.AutoStartEnabled;
@@ -213,7 +234,8 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
             bool ours = instance.ManagedByThisClient;
             rows.Add(new DetectedRow(
                 instance.Port,
-                "http://127.0.0.1:" + instance.Port.ToString(CultureInfo.InvariantCulture) +
+                instance.Endpoint,
+                instance.Endpoint +
                     "    PID " + instance.ProcessId.ToString(CultureInfo.InvariantCulture) +
                     "    " + instance.ProcessName,
                 ours ? "由栖卷客户端管理，可直接连接或打开网页。"
@@ -235,7 +257,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         }
     }
 
-    private sealed record DetectedRow(int Port, string Summary, string Note, Visibility WebVisibility, Visibility ConnectVisibility);
+    private sealed record DetectedRow(int Port, string Endpoint, string Summary, string Note, Visibility WebVisibility, Visibility ConnectVisibility);
 
     private async void OpenWeb_Click(object sender, RoutedEventArgs e)
     {
@@ -251,9 +273,8 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     /// <summary>A foreign instance carries no local credential, so only the address is handed to the form.</summary>
     private void ConnectDetected_Click(object sender, RoutedEventArgs e)
     {
-        if (_status is null || sender is not Button { CommandParameter: int port }) return;
-        ConnectRequested?.Invoke(this, new LocalServerConnectRequest(
-            "http://127.0.0.1:" + port.ToString(CultureInfo.InvariantCulture), null, null));
+        if (_status is null || sender is not Button { DataContext: DetectedRow row }) return;
+        ConnectRequested?.Invoke(this, new LocalServerConnectRequest(row.Endpoint, null, null));
     }
 
     private void RenderFacts(LocalServerStatus status)
@@ -274,11 +295,38 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
 
     private async Task LoadCredentialAsync(LocalServerStatus status)
     {
-        if (_service is null || status.State == LocalServerState.NotDeployed) { _credential = null; return; }
+        if (_service is null || status.State == LocalServerState.NotDeployed)
+        {
+            _credential = null;
+            CredentialStateText.Text = string.Empty;
+            LanEndpointsText.Text = string.Empty;
+            return;
+        }
         try
         {
             _credential = await _service.ReadCredentialAsync(_lifetime.Token);
             RenderFacts(status);
+            if (status.State == LocalServerState.Running)
+            {
+                var state = await _service.CheckCredentialAsync(_lifetime.Token);
+                CredentialStateText.Text = state switch
+                {
+                    LocalServerCredentialState.Valid => "本机保存的管理员凭据仍可登录。",
+                    LocalServerCredentialState.Stale => "服务端已拒绝本机保存的凭据：账号或密码曾在别处修改，请在此更新。",
+                    _ => "暂时无法核对凭据（服务端未就绪或结果未知）。",
+                };
+                var lan = await _service.GetLanEndpointsAsync(_lifetime.Token);
+                LanEndpointsText.Text = lan.Count > 0
+                    ? "局域网地址：" + string.Join("  ", lan)
+                    : status.Deployment?.Address == "0.0.0.0"
+                        ? "局域网访问已开启，但未发现私有网段地址。"
+                        : "仅本机访问；如需内网设备连接，请开启局域网访问。";
+            }
+            else
+            {
+                CredentialStateText.Text = string.Empty;
+                LanEndpointsText.Text = string.Empty;
+            }
         }
         catch (Exception error) when (error is FilewayException or OperationCanceledException)
         {
@@ -418,14 +466,24 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
             _ = RootBox.Focus(FocusState.Programmatic);
             return;
         }
-        var request = new LocalServerDeploymentRequest(port, !restrict, restrict ? files : string.Empty, AccountBox.Text.Trim(), SecretBox.Password);
+        string address = LanCheck.IsChecked == true ? "0.0.0.0" : "127.0.0.1";
         ILocalServerManagementService service = _service;
         DeployButton.IsEnabled = false;
         try
         {
-            await RunAsync(token => service.DeployAndStartAsync(request, token), "部署本地服务端失败。");
+            if (_status is { Deployment: not null })
+            {
+                var reconfigure = new LocalServerReconfigureRequest(port, address, !restrict, restrict ? files : string.Empty,
+                    AccountBox.Text.Trim(), SecretBox.Password.Length > 0 ? SecretBox.Password : null);
+                await RunAsync(token => service.ReconfigureAsync(reconfigure, token), "保存部署设置失败。");
+            }
+            else
+            {
+                var request = new LocalServerDeploymentRequest(port, !restrict, restrict ? files : string.Empty, AccountBox.Text.Trim(), SecretBox.Password, address);
+                await RunAsync(token => service.DeployAndStartAsync(request, token), "部署本地服务端失败。");
+            }
         }
-        finally { DeployButton.IsEnabled = true; }
+        finally { DeployButton.IsEnabled = true; _editDirty = false; }
         if (_status is not null && _status.State != LocalServerState.NotDeployed)
         {
             // Generated credentials stay on the page only until the deployment exists.
