@@ -18,28 +18,7 @@ public sealed partial class MainPage
     private bool _pathNavigating;
     private long _navigationRevision;
 
-    private void SetConnectionView(bool visible)
-    {
-        if (visible) HideCollections();
-        // Connection and file content are exclusive views. Transparent material must not
-        // depend on an opaque login panel to conceal an active file list or its empty state.
-        Workspace.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
-        ConnectionPanel.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        PaneButton.Visibility = visible ? Visibility.Collapsed : Visibility.Visible;
-        if (visible)
-        {
-            // The welcome page owns the whole window; an empty navigation rail would only
-            // duplicate the form's own account context.
-            SidebarColumn.Width = new GridLength(0);
-            Sidebar.Visibility = Visibility.Collapsed;
-            SidebarResize.Visibility = Visibility.Collapsed;
-            SidebarDismiss.Visibility = Visibility.Collapsed;
-        }
-        else UpdateSidebarLayout();
-        UpdateSelection();
-        UpdateThumbnailContext();
-        UpdateApplicationMenus();
-    }
+    private void SetConnectionView(bool visible) => ShowPane(visible ? MainPane.Connection : MainPane.Browser);
 
     internal void AttachTitleBar(WindowTitleBar titleBar)
     {

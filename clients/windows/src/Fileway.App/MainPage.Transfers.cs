@@ -51,11 +51,9 @@ public sealed partial class MainPage
         if (_disposed || _connecting || _session is null || _browserDialog is not null) return;
         UpdateTransferCenterContext();
         if (direction == TransferDirection.Upload ? ActiveUploadContext is null : ActiveDownloadContext is null) return;
-        CloseSidebarOverlay(); HideCollections();
-        Workspace.Visibility = Visibility.Collapsed;
-        TransfersPanel.Visibility = Visibility.Visible;
+        CloseSidebarOverlay();
+        ShowPane(MainPane.Transfers);
         TransfersPanel.SelectDirection(direction);
-        _thumbnailController.SetContext(null, null);
         // Seed real current-session observations; opening this view never admits execution.
         foreach (var item in _uploadItems.Values) if (IsCurrentUploadContext(item.Context)) _transferUploads.Upsert(item);
         foreach (var item in _downloadItems.Values) if (IsCurrentDownloadContext(item.Context)) _transferDownloads.Upsert(item);
@@ -108,7 +106,11 @@ public sealed partial class MainPage
         }
         TransfersPanel.SetAvailability(upload is not null, download is not null);
         TransferCenterButton.IsEnabled = !_disposed && !_connecting && (upload is not null || download is not null);
-        if (!TransferCenterButton.IsEnabled) TransfersPanel.Visibility = Visibility.Collapsed;
+        if (!TransferCenterButton.IsEnabled)
+        {
+            if (_currentPane == MainPane.Transfers) ReturnToBrowserOrConnection();
+            else TransfersPanel.Visibility = Visibility.Collapsed;
+        }
         if (changed) RenderTransferCenter(synchronizeRows: false);
     }
 

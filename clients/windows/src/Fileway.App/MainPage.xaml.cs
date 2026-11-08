@@ -107,9 +107,8 @@ public sealed partial class MainPage : Page, IDisposable
         {
             if (_disposed || _connecting || _session?.Account != tag.Account) return;
             CloseSidebarOverlay();
-            TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); HideRemoteToolsPanes();
-            UpdateCollectionsContext(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
-            UpdateThumbnailContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
+            ShowPane(MainPane.Collections);
+            UpdateCollectionsContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
         };
         SidebarCollections.ManageRequested += (_, _) => Collections_Click(this, new RoutedEventArgs());
         FileList.ItemsSource = FileGrid.ItemsSource = _rows;
@@ -731,7 +730,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async void Collections_Click(object sender, RoutedEventArgs e)
     {
         if (_disposed || _connecting || _session is null || _collections is null) return;
-        CloseSidebarOverlay(); TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); HideRemoteToolsPanes(); CollectionsPanel.Visibility = Visibility.Visible; Workspace.Visibility = Visibility.Collapsed;
+        CloseSidebarOverlay(); ShowPane(MainPane.Collections);
         _thumbnailController.SetContext(null, null);
         UpdateCollectionsContext();
         CollectionsPanel.EnterManagementView();
@@ -762,14 +761,7 @@ public sealed partial class MainPage : Page, IDisposable
         SetDetailsVisible(false);
         UpdateCollectionsContext(); await CollectionsPanel.ManageCurrentResourceTagsAsync();
     }
-    private void HideCollections()
-    {
-        CollectionsPanel.Visibility = Visibility.Collapsed; TransfersPanel.Visibility = Visibility.Collapsed; HideRecentAccessPane(); HideRemoteToolsPanes();
-        Workspace.Visibility = ConnectionPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-        CollectionsPanel.SuspendView();
-        UpdateThumbnailContext();
-        UpdateSelection();
-    }
+    private void HideCollections() => ReturnToBrowserOrConnection();
     private async Task OpenCollectionResourceAsync(RemoteFile file)
     {
         if (_disposed || _connecting || _session is not { } session || file.Resource.Account != session.Account) return;

@@ -19,7 +19,7 @@ public sealed partial class MainPage
     private void InitializeApplicationMenus()
     {
         _applicationMenusReady = true;
-        foreach (var view in new UIElement[] { Workspace, ConnectionPanel, RecentPane, TransfersPanel, CollectionsPanel, SearchPane, NasTasksPane, TrashPane })
+        foreach (var view in new UIElement[] { Workspace, ConnectionPanel, RecentPane, TransfersPanel, CollectionsPanel, SearchPane, NasTasksPane, TrashPane, LocalServerPane, StorageToolsHost })
         {
             var token = view.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateApplicationMenus());
             _applicationMenuViews.Add((view, token));

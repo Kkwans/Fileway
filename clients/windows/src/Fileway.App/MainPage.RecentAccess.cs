@@ -32,6 +32,7 @@ public sealed partial class MainPage
     private void HideRecentAccessPane()
     {
         if (RecentPane is null) return;
+        if (_currentPane == MainPane.Recent) { ReturnToBrowserOrConnection(); return; }
         RecentPane.Visibility = Visibility.Collapsed;
         RecentPane.SuspendView();
     }
@@ -40,12 +41,9 @@ public sealed partial class MainPage
     {
         if (_disposed || _connecting || _session is null || _recentAccess is null || _files is null
             || _browserDialog is not null || _storageDialog is not null || CollectionsPanel.HasOpenDialog) return;
-        CloseSidebarOverlay(); HideCollections();
+        CloseSidebarOverlay();
         UpdateRecentAccessContext();
-        Workspace.Visibility = Visibility.Collapsed;
-        RecentPane.Visibility = Visibility.Visible;
-        _thumbnailController.SetContext(null, null);
-        UpdateSelection();
+        ShowPane(MainPane.Recent);
         await RecentPane.RefreshAsync();
     }
 }

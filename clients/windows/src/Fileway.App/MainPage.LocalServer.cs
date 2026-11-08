@@ -20,39 +20,23 @@ public sealed partial class MainPage
     {
         if (_disposed || _connecting) return;
         CloseSidebarOverlay();
-        HideCollections();
-        HideRemoteToolsPanes();
-        HideRecentAccessPane();
-        TransfersPanel.Visibility = Visibility.Collapsed;
-        Workspace.Visibility = Visibility.Collapsed;
-        ConnectionPanel.Visibility = Visibility.Collapsed;
+        ShowPane(MainPane.LocalServer);
         LocalServerPane.SetReturnContext(_session is not null && _directory is not null);
-        LocalServerPane.Visibility = Visibility.Visible;
         await LocalServerPane.ShowAsync();
-        UpdateApplicationMenus();
     }
 
     private void ReturnFromLocalServer()
     {
         if (_disposed) return;
-        LocalServerPane.Visibility = Visibility.Collapsed;
-        LocalServerPane.SuspendView();
-        if (_session is null || _directory is null) SetConnectionView(true);
-        else
-        {
-            Workspace.Visibility = Visibility.Visible;
-            ActiveFiles.Focus(FocusState.Keyboard);
-        }
-        UpdateApplicationMenus();
+        ShowPane(_session is null || _directory is null ? MainPane.Connection : MainPane.Browser);
+        if (_currentPane == MainPane.Browser) ActiveFiles.Focus(FocusState.Keyboard);
     }
 
     /// <summary>Hands the loopback endpoint to the connection form; the page never builds URLs itself.</summary>
     private async void LocalServer_ConnectRequested(object? sender, LocalServerConnectRequest request)
     {
         if (_disposed) return;
-        LocalServerPane.Visibility = Visibility.Collapsed;
-        LocalServerPane.SuspendView();
-        SetConnectionView(true);
+        ShowPane(MainPane.Connection);
         ServerBox.Text = request.Endpoint;
         if (request.Username is not string username)
         {

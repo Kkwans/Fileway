@@ -12,7 +12,7 @@ public sealed partial class MainPage
     private StorageAnalysisControl? _storageAnalysisView;
     private bool CanShowRemoteTools => !_disposed && !_connecting && _session is not null &&
         _browserDialog is null && _storageDialog is null && !CollectionsPanel.HasOpenDialog && !NasTasksPane.HasOpenDialog && !TrashPane.HasOpenDialog &&
-        ConnectionPanel.Visibility != Visibility.Visible;
+        _currentPane != MainPane.Connection && _currentPane != MainPane.LocalServer;
 
     private void InitializeRemoteTools()
     {
@@ -42,15 +42,8 @@ public sealed partial class MainPage
         SearchPane.SetContext(_files as IServerSearchService, _files, session, _directory ?? _root);
         NasTasksPane.SetContext(_files as IServerTaskService, Operations, session);
         TrashPane.SetContext(_files as ITrashService, Operations, session);
-        if (session is null) HideRemoteToolsPanes();
-    }
-
-    private void HideRemoteToolsPanes()
-    {
-        if (SearchPane is not null) { SearchPane.Visibility = Visibility.Collapsed; SearchPane.SuspendView(); }
-        if (NasTasksPane is not null) { NasTasksPane.Visibility = Visibility.Collapsed; NasTasksPane.SuspendView(); }
-        if (TrashPane is not null) { TrashPane.Visibility = Visibility.Collapsed; TrashPane.SuspendView(); }
-        RetireStorageAnalysis();
+        if (session is null && _currentPane is MainPane.Search or MainPane.Tasks or MainPane.Trash or MainPane.Storage)
+            ShowPane(MainPane.Connection);
     }
 
     private void RetireStorageAnalysis()
@@ -66,11 +59,8 @@ public sealed partial class MainPage
         // Re-focusing an active search must not retire its stream or original results.
         if (SearchPane.Visibility == Visibility.Visible && string.IsNullOrWhiteSpace(query))
         { SearchPane.FocusQuery(); return; }
-        CloseSidebarOverlay(); HideCollections(); UpdateRemoteToolsContext();
-        Workspace.Visibility = Visibility.Collapsed;
-        SearchPane.Visibility = Visibility.Visible;
-        _thumbnailController.SetContext(null, null);
-        UpdateSelection();
+        CloseSidebarOverlay(); UpdateRemoteToolsContext();
+        ShowPane(MainPane.Search);
         if (string.IsNullOrWhiteSpace(query)) SearchPane.FocusQuery();
         else await SearchPane.SearchAsync(query, SearchScope.Recursive);
     }
@@ -87,7 +77,7 @@ public sealed partial class MainPage
     {
         if (!CanShowRemoteTools || _storageAnalysis is null || _session is not { } session || (_directory ?? _root) is not { } directory) return;
         if (StorageToolsHost.Visibility == Visibility.Visible) return;
-        CloseSidebarOverlay(); HideCollections(); UpdateRemoteToolsContext();
+        CloseSidebarOverlay(); UpdateRemoteToolsContext();
         // A view owns one immutable account/directory context. Retiring it cancels
         // observation; a later visit cannot reuse its canceled token or old callbacks.
         var view = new StorageAnalysisControl();
@@ -97,20 +87,14 @@ public sealed partial class MainPage
         if (_storageAnalysis is IAdminUserService admin) view.AttachAdmin(admin, session.DisplayName);
         _storageAnalysisView = view;
         StorageToolsHost.Content = view;
-        Workspace.Visibility = Visibility.Collapsed;
-        StorageToolsHost.Visibility = Visibility.Visible;
-        _thumbnailController.SetContext(null, null);
-        UpdateSelection();
+        ShowPane(MainPane.Storage);
     }
 
     private async void NasTasks_Click(object sender, RoutedEventArgs args)
     {
         if (!CanShowRemoteTools || _files is not IServerTaskService) return;
-        CloseSidebarOverlay(); HideCollections(); UpdateRemoteToolsContext();
-        Workspace.Visibility = Visibility.Collapsed;
-        NasTasksPane.Visibility = Visibility.Visible;
-        _thumbnailController.SetContext(null, null);
-        UpdateSelection();
+        CloseSidebarOverlay(); UpdateRemoteToolsContext();
+        ShowPane(MainPane.Tasks);
         await NasTasksPane.RefreshAsync();
     }
 
@@ -129,11 +113,8 @@ public sealed partial class MainPage
     private async void TrashPage_Click(object sender, RoutedEventArgs args)
     {
         if (!CanShowRemoteTools || _files is not ITrashService) return;
-        CloseSidebarOverlay(); HideCollections(); UpdateRemoteToolsContext();
-        Workspace.Visibility = Visibility.Collapsed;
-        TrashPane.Visibility = Visibility.Visible;
-        _thumbnailController.SetContext(null, null);
-        UpdateSelection();
+        CloseSidebarOverlay(); UpdateRemoteToolsContext();
+        ShowPane(MainPane.Trash);
         await TrashPane.RefreshAsync();
     }
 }
