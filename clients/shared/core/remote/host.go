@@ -59,6 +59,7 @@ type commandEntry struct {
 	transient  bool
 	session    uint64
 	media      uint64
+	storage    uint64
 	result     Result
 	expires    time.Time
 	timer      *time.Timer
@@ -259,6 +260,18 @@ func (h *Host) Publish(state State) error {
 	return nil
 }
 
+// The TV publishes an opaque generation, never a path or document URI. A
+// missing field is zero for older hosts that cannot advertise local browsing.
+func subtitleStorageRevision(state State) uint64 {
+	var content struct {
+		Revision uint64 `json:"subtitleStorageRevision"`
+	}
+	if json.Unmarshal(state.Content, &content) != nil {
+		return 0
+	}
+	return content.Revision
+}
+
 func (h *Host) Reply(connectionID, controllerID string, result Result) error {
 	if result.Status != "COMPLETED" && result.Status != "REJECTED" && result.Status != "UNKNOWN" {
 		return errors.New("invalid command result")
@@ -276,7 +289,8 @@ func (h *Host) Reply(connectionID, controllerID string, result Result) error {
 	// Android publishes a fresh state immediately before its reply. Check the
 	// captured scope again while holding the host lock, before any directory
 	// payload can be delivered to a connection that has changed TV source.
-	if entry.transient && (entry.session != h.state.SessionEpoch || entry.media != h.state.MediaEpoch) {
+	if entry.transient && (entry.session != h.state.SessionEpoch || entry.media != h.state.MediaEpoch ||
+		entry.storage != subtitleStorageRevision(h.state)) {
 		result.Status, result.Code, result.Payload = "REJECTED", "STALE_SCOPE", nil
 	}
 	// Keep the first response for the active requesting socket, but never retain
@@ -675,7 +689,8 @@ func (h *Host) acceptCommand(active *peer, command Command) error {
 	result := Result{Type: "command.result", CommandID: command.CommandID, Status: "ACCEPTED"}
 	entry := &commandEntry{digest: commandDigest(command), controller: active.controller, connection: active.id,
 		transient: transientSubtitleRead(command.Operation), session: command.SessionEpoch, media: command.MediaEpoch,
-		result: result, expires: now.Add(5 * time.Minute)}
+		storage: subtitleStorageRevision(h.state),
+		result:  result, expires: now.Add(5 * time.Minute)}
 	h.commands[key] = entry
 	entry.timer = time.AfterFunc(30*time.Second, func() {
 		// A timed-out acknowledgement does not prove a mutation failed. Keep it

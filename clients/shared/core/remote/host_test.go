@@ -258,6 +258,39 @@ func TestCompanionPairControlAndReconnect(t *testing.T) {
 	if value := read(socket); value["status"] != "REJECTED" || value["code"] != "STALE_SCOPE" || value["payload"] != nil {
 		t.Fatal("stale directory receipt changed on retry", value)
 	}
+	storageID, _ := randomID()
+	storage := Command{Type: "command", Protocol: Protocol, CommandID: storageID, ConnectionID: connectionID,
+		SessionEpoch: 1, MediaEpoch: 1, Operation: "subtitle.browse.page", Payload: json.RawMessage(`{}`)}
+	write(storage)
+	if value := read(socket); value["status"] != "ACCEPTED" {
+		t.Fatal("storage-scope test was not accepted", value)
+	}
+	for {
+		event, e := host.Wait(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if event.Type == "command" {
+			if event.Command.CommandID != storageID {
+				t.Fatal("wrong storage-scope command", event)
+			}
+			break
+		}
+	}
+	if err = host.Publish(State{SessionEpoch: 1, MediaEpoch: 1, Revision: 2, Scene: "BROWSE",
+		Capabilities: json.RawMessage(`{}`), Content: json.RawMessage(`{"subtitleStorageRevision":1}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if value := read(socket); value["type"] != "snapshot" {
+		t.Fatal("storage revocation was not published", value)
+	}
+	if err = host.Reply(connectionID, controller.ID, Result{CommandID: storageID, Status: "COMPLETED",
+		Payload: json.RawMessage(`{"items":[{"name":"revoked.srt"}]}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if value := read(socket); value["status"] != "REJECTED" || value["code"] != "STALE_SCOPE" || value["payload"] != nil {
+		t.Fatal("revoked directory response was delivered", value)
+	}
 	_ = socket.CloseNow()
 	for {
 		event, e := host.Wait(ctx)
