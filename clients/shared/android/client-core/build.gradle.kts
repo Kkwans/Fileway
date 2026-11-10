@@ -1,4 +1,6 @@
 plugins { id("com.android.library") }
+// Each app has its own Gradle root; their incremental outputs must not collide.
+layout.buildDirectory.set(rootProject.layout.buildDirectory.dir("shared/client-core"))
 android {
     namespace = "io.github.kkwans.fileway.core"
     compileSdk = 37
