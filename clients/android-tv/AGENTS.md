@@ -7,4 +7,5 @@
 - Default dark and optional light Fileway themes, 12dp controls, coherent static icon groups, no live blur or continuous decorative animation.
 - No source-scraping/media-library metadata system in this version.
 - Keep private plans, receipts, APKs and device logs outside Git. Never commit credentials or private addresses.
-- Main agent only until the user explicitly authorizes delegation. Test complete modules in batches.
+- Use subagents when appropriate under the global model-routing and ownership rules;
+  the user authorized delegation on 2026-11-10. Test complete modules in batches.

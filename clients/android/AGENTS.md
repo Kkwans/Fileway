@@ -12,15 +12,12 @@
 ## Model routing and verification economy
 
 - The main Agent model is controlled by the user; never switch or route it automatically.
-- Do not use Luna Max, gpt-5.6-luna or luna_worker subagents. When subagents are
-  authorized, use GPT-6.1 Sol with medium reasoning by default; low is allowed for
-  simple bounded work, and high for difficult diagnosis or consequential decisions.
-- The current 2026-10-24 user instruction is main-agent-only execution. Keep existing
-  subagents stopped and preserve their edits; do not spawn or resume any until the
-  user explicitly authorizes delegation again.
-- Do not spawn agents merely to parallelize routine work, and stop an agent when its
-  result no longer justifies its token cost. Product quality takes precedence over
-  token savings.
+- The user's 2026-11-10 instruction permits subagents when useful. Follow the global
+  model routing: GPT-6.1 Terra/max by default, GPT-6.1 Sol/xhigh for hard problems,
+  and GPT-6 Astra/xhigh for critical decisions or persistent difficult failures when
+  warranted. Do not use Luna models. The main agent plans, integrates and verifies;
+  delegates own explicitly bounded implementation. Do not spawn agents by default
+  when they do not help the task; product quality takes precedence over token savings.
 - Test by evidence class: focused unit/contract tests for deterministic rules and
   state machines, one complete-module build/lint batch for code integration, and a
   bounded Xiaomi 14 pass for layout, touch, IME, system dialogs, navigation and media
@@ -60,7 +57,10 @@
 
 ## Android 1.1 candidate contract (user, 2026-10-25)
 
-- Main-agent-only implementation. Deliver original-signed 1.1.0-preview/code39 on Xiaomi14; no public release. Preserve legacy tracked work and EPUB files.
+- Historical 2026-10-25 condition for this candidate: main-agent-only implementation
+  (superseded by the 2026-11-10 user instruction for subsequent work). Deliver
+  original-signed 1.1.0-preview/code39 on Xiaomi14; no public release. Preserve legacy
+  tracked work and EPUB files.
 - Lordicon System Outline first, Material Symbols Rounded for gaps; exactly two UI icon sources. Ship actual licensed animation exports, semantic colors and visible static resting frames; use bounded one-shot interaction motion.
 - Outside the video, use muted cover-derived slow ambient color movement, paused with playback/background/reduced motion. This supersedes the fixed graphite backdrop restriction for the non-fullscreen player.
 - Feedback uses window-local compositor live blur with no focus or touch interception; retain SurfaceView. System PiP only, manual default, optional automatic entry off by default; no overlay permission.
