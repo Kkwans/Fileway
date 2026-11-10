@@ -17,7 +17,8 @@ public sealed record RemoteFile(
     bool IsDirectory,
     long Size,
     DateTimeOffset? Modified,
-    string? MediaType = null);
+    string? MediaType = null,
+    DateTimeOffset? Created = null);
 
 public sealed record DirectoryPage(
     RemoteResourceRef Directory,

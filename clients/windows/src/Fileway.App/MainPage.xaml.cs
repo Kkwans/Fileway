@@ -883,6 +883,10 @@ public sealed partial class MainPage : Page, IDisposable
         DetailsKindText.Text = row?.Kind ?? (count > 1 ? $"{count} 个项目" : "—");
         DetailsSizeText.Text = row?.Size ?? "—";
         DetailsModifiedText.Text = row?.Modified ?? "—";
+        DetailsCreatedText.Text = row?.File.Created is { } created ? created.LocalDateTime.ToString("yyyy/M/d HH:mm", System.Globalization.CultureInfo.CurrentCulture) : "—";
+        DetailsLocationButton.IsEnabled = row is not null && !_connecting;
+        DetailsChecksumButton.IsEnabled = CanChecksumSelection;
+        DetailsRefreshButton.IsEnabled = row is not null && !_connecting;
         DetailsPath.Text = row?.File.Resource.DisplayPath ?? "";
         DetailsOpenButton.IsEnabled = row is not null && !_connecting;
         DetailsFileIcon.IconName = row?.IconName ?? "file";

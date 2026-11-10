@@ -1138,8 +1138,10 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
         if (size < 0) throw InvalidResponse();
         DateTimeOffset? modified = null;
         if (OptionalText(item, "modified") is { } date && DateTimeOffset.TryParse(date, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)) modified = parsed;
+        DateTimeOffset? created = null;
+        if (OptionalText(item, "created") is { } createdText && DateTimeOffset.TryParse(createdText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedCreated)) created = parsedCreated;
         return new RemoteFile(BindResource(new RemoteResourceRef(state.Session.Account, wirePath, name, displayPath), state),
-            isDirectory, size, modified, OptionalText(item, "type"));
+            isDirectory, size, modified, OptionalText(item, "type"), created);
     }
 
     private static int CompareFiles(RemoteFile left, RemoteFile right, DirectoryQuery query)

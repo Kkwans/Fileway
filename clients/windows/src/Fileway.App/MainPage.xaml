@@ -249,6 +249,12 @@
          <StackPanel Spacing="4"><TextBlock Text="大小" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/><TextBlock x:Name="DetailsSizeText" Text="—" FontSize="13" Foreground="{ThemeResource FwTextPrimaryBrush}"/></StackPanel>
          <StackPanel Grid.Column="1" Spacing="4"><TextBlock Text="修改时间" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/><TextBlock x:Name="DetailsModifiedText" Text="—" FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource FwTextPrimaryBrush}"/></StackPanel>
         </Grid>
+        <StackPanel Spacing="4"><TextBlock Text="创建时间" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/><TextBlock x:Name="DetailsCreatedText" Text="—" FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource FwTextPrimaryBrush}"/></StackPanel>
+        <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+         <Button x:Name="DetailsLocationButton" Content="所在目录" Click="DetailsLocation_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开所在目录"/>
+         <Button x:Name="DetailsChecksumButton" Content="校验…" Click="DetailsChecksum_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="校验文件"/>
+         <Button x:Name="DetailsRefreshButton" Content="刷新元数据" Click="DetailsRefreshMetadata_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="刷新文件元数据"/>
+        </StackPanel>
        </StackPanel>
       </ScrollViewer>
       <StackPanel Grid.Row="3" Spacing="8">
