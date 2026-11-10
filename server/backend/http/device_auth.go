@@ -23,6 +23,9 @@ func canonicalHandlerPath(prefix, path string) string {
 }
 
 func deviceMediaRoute(method, path string, user uint) bool {
+	if allowDeviceTVUpdate(method, strings.TrimPrefix(path, "/api")) {
+		return true
+	}
 	p := strings.TrimPrefix(path, "/api/")
 	if method == http.MethodGet || method == http.MethodHead {
 		for _, prefix := range []string{"resources", "preview", "raw", "download", "media/", "subtitle", "search", "favorites", "recent", "playback"} {

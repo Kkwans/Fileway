@@ -14,6 +14,7 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/storage"
 	"github.com/Kkwans/nas-file-browser/backend/tasks"
 	"github.com/Kkwans/nas-file-browser/backend/transfers"
+	"github.com/Kkwans/nas-file-browser/backend/tvupdate"
 )
 
 type modifyRequest struct {
@@ -40,6 +41,7 @@ func NewHandler(
 	assetsFs fs.FS,
 	videoPreviewWorkers int,
 	hlsService *hls.Service,
+	tvUpdates *tvupdate.Service,
 ) (http.Handler, error) {
 	if hlsService == nil {
 		return nil, fmt.Errorf("HLS compatibility playback service is not configured")
@@ -192,7 +194,15 @@ func NewHandler(
 	api.PathPrefix("/share").Handler(monkey(shareDeleteHandler, "/api/share")).Methods("DELETE")
 
 	api.Handle("/settings", monkey(settingsGetHandler, "")).Methods("GET")
-	api.Handle("/client-capabilities", monkey(clientCapabilitiesHandler, "")).Methods("GET")
+	capabilities := clientCapabilitiesHandler
+	if tvUpdates != nil {
+		capabilities = clientCapabilities(1)
+		api.Handle(tvUpdateCheckPath, monkey(tvUpdateCheckHandler(tvUpdates), "")).Methods("GET")
+		api.Handle(tvUpdateDownloadsPath, monkey(tvUpdateStartHandler(tvUpdates), "")).Methods("POST")
+		api.Handle(tvUpdateDownloadsPath+"/"+tvUpdateHandle, monkey(tvUpdateStatusHandler(tvUpdates), "")).Methods("GET")
+		api.Handle(tvUpdateDownloadsPath+"/"+tvUpdateHandle+"/content", monkey(tvUpdateContentHandler(tvUpdates), "")).Methods("GET", "HEAD")
+	}
+	api.Handle("/client-capabilities", monkey(capabilities, "")).Methods("GET")
 	api.Handle("/settings", monkey(settingsPutHandler, "")).Methods("PUT")
 
 	api.PathPrefix("/raw").Handler(monkey(withTransferCancellation(rawHandler, transfers.KindDownload), "/api/raw")).Methods("GET")

@@ -33,6 +33,7 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/img"
 	"github.com/Kkwans/nas-file-browser/backend/settings"
 	"github.com/Kkwans/nas-file-browser/backend/storage"
+	"github.com/Kkwans/nas-file-browser/backend/tvupdate"
 	"github.com/Kkwans/nas-file-browser/backend/users"
 )
 
@@ -97,6 +98,7 @@ func init() {
 	flags.String("redisCacheUrl", "", "redis cache URL (for multi-instance deployments), e.g. redis://user:pass@host:port")
 	flags.Int("imageProcessors", 1, "image processors count")
 	flags.Int("videoPreviewProcessors", 1, "FFmpeg video cover processors count (1-2)")
+	flags.Bool("disableTvUpdateProxy", false, "disable the TV application update proxy")
 	flags.String("hlsCacheDir", filepath.Join(os.TempDir(), "nas-file-browser-hls"), "HLS compatibility playback cache directory")
 	flags.Uint64("hlsCacheMaxBytes", uint64(hls.DefaultMaxBytes), "HLS compatibility playback cache limit in bytes")
 	flags.Int("hlsProcessors", 1, "FFmpeg HLS compatibility playback processors count (1-2)")
@@ -282,7 +284,17 @@ user created with the credentials from options "username" and "password".`,
 			panic(err)
 		}
 
-		handler, err := fbhttp.NewHandler(imageService, fileCache, uploadCache, st.Storage, server, assetsFs, videoPreviewWorkers, hlsService)
+		var tvUpdates *tvupdate.Service
+		if !v.GetBool("disableTvUpdateProxy") {
+			var cacheErr error
+			tvUpdates, cacheErr = tvupdate.New()
+			if cacheErr != nil {
+				log.Printf("TV update proxy unavailable: %v", cacheErr)
+			} else {
+				defer tvUpdates.Close()
+			}
+		}
+		handler, err := fbhttp.NewHandler(imageService, fileCache, uploadCache, st.Storage, server, assetsFs, videoPreviewWorkers, hlsService, tvUpdates)
 		if err != nil {
 			return err
 		}

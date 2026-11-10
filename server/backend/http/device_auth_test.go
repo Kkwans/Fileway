@@ -13,6 +13,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -96,6 +97,28 @@ func TestDeviceJWTMediaScopeRenewAndLegacyRollback(t *testing.T) {
 	if response := call(probe, "DELETE", "/api/resources/movie.mkv", signed); response.Code != 403 {
 		t.Fatal("device deleted resource")
 	}
+	id := strings.Repeat("A", 32)
+	for _, allowed := range []struct{ method, path string }{
+		{"GET", "/api/app-updates/tv"},
+		{"POST", "/api/app-updates/tv/downloads"},
+		{"GET", "/api/app-updates/tv/downloads/" + id},
+		{"GET", "/api/app-updates/tv/downloads/" + id + "/content"},
+		{"HEAD", "/api/app-updates/tv/downloads/" + id + "/content"},
+	} {
+		if response := call(probe, allowed.method, allowed.path, signed); response.Code != http.StatusNoContent {
+			t.Fatalf("TV update route %s %s rejected: %d", allowed.method, allowed.path, response.Code)
+		}
+	}
+	for _, denied := range []struct{ method, path string }{
+		{"PUT", "/api/app-updates/tv/downloads"},
+		{"GET", "/api/app-updates/tv/downloads/not-a-handle/content"},
+		{"GET", "/api/app-updates/tv/downloads/" + id + "/other"},
+		{"HEAD", "/api/app-updates/tv/downloads/" + id},
+	} {
+		if response := call(probe, denied.method, denied.path, signed); response.Code != http.StatusForbidden {
+			t.Fatalf("unsupported TV update route %s %s passed: %d", denied.method, denied.path, response.Code)
+		}
+	}
 	renewed := call(renewHandler(), "POST", "/api/renew", signed)
 	if renewed.Code != 200 {
 		t.Fatal("device renew failed", renewed.Code)
@@ -113,5 +136,8 @@ func TestDeviceJWTMediaScopeRenewAndLegacyRollback(t *testing.T) {
 	}
 	if response := call(probe, "GET", "/api/resources/", signed); response.Code != 401 {
 		t.Fatal("revocation not enforced", response.Code)
+	}
+	if response := call(probe, "GET", "/api/app-updates/tv/downloads/"+id+"/content", signed); response.Code != 401 {
+		t.Fatal("revocation not enforced for TV updates", response.Code)
 	}
 }
