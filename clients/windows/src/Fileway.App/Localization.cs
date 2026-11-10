@@ -28,7 +28,7 @@ internal static class Localization
 
     private const string Key = @"HKEY_CURRENT_USER\Software\Fileway\Preview\Presentation";
 
-    private static int ReadLanguage() => Microsoft.Win32.Registry.GetValue(Key, "Language", 0) is int value ? Math.Clamp(value, 0, 2) : 0;
+    private static int ReadLanguage() => Microsoft.Win32.Registry.GetValue(Key, "Language", 1) is int value ? Math.Clamp(value, 0, 2) : 1;
 
     internal static bool IsEnglish => Language switch
     {

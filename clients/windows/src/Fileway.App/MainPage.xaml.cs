@@ -604,7 +604,7 @@ public sealed partial class MainPage : Page, IDisposable
         var language = Localization.Language;
         LanguageFollowItem.Text = Localization.T("语言：跟随系统");
         LanguageChineseItem.Text = Localization.T("语言：简体中文");
-        LanguageEnglishItem.Text = Localization.IsEnglish ? "Language: English" : "语言：English";
+        LanguageEnglishItem.Text = Localization.IsEnglish ? "Language: English (partial)" : "语言：English（部分翻译）";
         LanguageFollowItem.Visibility = Localization.IsEnglish ? Visibility.Visible : Visibility.Visible;
         _ = language;
     }
