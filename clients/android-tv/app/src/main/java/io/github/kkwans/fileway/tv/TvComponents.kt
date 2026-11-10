@@ -175,18 +175,46 @@ fun tvTime(milliseconds: Long): String {
 }
 fun tvSize(bytes: Long): String = when { bytes >= 1073741824 -> "%.1f GB".format(bytes / 1073741824.0); bytes >= 1048576 -> "%.1f MB".format(bytes/1048576.0); bytes >= 1024 -> "%.0f KB".format(bytes/1024.0); else -> "$bytes B" }
 
+/** Keep repeats of one physical press together even when focus changes. */
+internal class TvRemoteKeyLatch {
+    private val consumed = mutableMapOf<Int, Long>()
+
+    fun down(key: Int, downTime: Long, repeat: Int, handle: () -> Boolean): Boolean {
+        // A dialog can receive the old key-up after focus leaves this tree.
+        // A new physical press must never inherit that abandoned latch.
+        if (repeat == 0 || consumed[key] != downTime) consumed.remove(key)
+        val handled = handle()
+        if (handled) consumed[key] = downTime
+        return handled || consumed[key] == downTime
+    }
+
+    fun up(key: Int, downTime: Long): Boolean {
+        if (consumed[key] != downTime) return false
+        consumed.remove(key)
+        return true
+    }
+}
+
 /** Consume a handled remote press through release, including repeats after focus moves. */
 fun Modifier.tvRemoteKeys(onDown: (androidx.compose.ui.input.key.KeyEvent) -> Boolean): Modifier = this.composed {
-    val consumed = remember { mutableSetOf<Int>() }
+    val consumed = remember { TvRemoteKeyLatch() }
     this.onPreviewKeyEvent { event ->
         val key = event.nativeKeyEvent.keyCode
+        val downTime = event.nativeKeyEvent.downTime
         when (event.type) {
             androidx.compose.ui.input.key.KeyEventType.KeyDown -> {
-                val handled = onDown(event)
-                if (handled) consumed.add(key)
-                handled || key in consumed
+                var handled = false
+                val result = consumed.down(key, downTime, event.nativeKeyEvent.repeatCount) {
+                    onDown(event).also { handled = it }
+                }
+                if (BuildConfig.DEBUG && key == KeyEvent.KEYCODE_DPAD_DOWN && result) {
+                    android.util.Log.d("FilewayTvInput", "remote-down handled=$handled consumed=$result repeat=${event.nativeKeyEvent.repeatCount}")
+                }
+                result
             }
-            androidx.compose.ui.input.key.KeyEventType.KeyUp -> consumed.remove(key)
+            androidx.compose.ui.input.key.KeyEventType.KeyUp -> consumed.up(key, downTime).also {
+                if (BuildConfig.DEBUG && key == KeyEvent.KEYCODE_DPAD_DOWN && it) android.util.Log.d("FilewayTvInput", "remote-down released")
+            }
             else -> false
         }
     }
