@@ -27,10 +27,14 @@ const appContentSecurityPolicy = `default-src 'self'; script-src 'self' 'unsafe-
 
 type archiveCacheHandler struct {
 	http.Handler
-	cache *archivefs.EntryCache
+	cache         *archivefs.EntryCache
+	subtitlePages *subtitlePages
 }
 
-func (handler *archiveCacheHandler) Close() error { return handler.cache.Close() }
+func (handler *archiveCacheHandler) Close() error {
+	handler.subtitlePages.close()
+	return handler.cache.Close()
+}
 
 func NewHandler(
 	imgSvc ImgService,
@@ -85,6 +89,7 @@ func NewHandler(
 
 	api := r.PathPrefix("/api").Subrouter()
 	spriteService := newVideoSpriteService(fileCache)
+	subtitlePages := newSubtitlePages()
 
 	api.Handle("/login", monkey(loginHandler(), ""))
 	api.Handle("/signup", monkey(signupHandler, ""))
@@ -108,6 +113,8 @@ func NewHandler(
 	api.Handle("/resources/batch", monkey(resourceBatchHandler, "")).Methods("POST")
 	api.Handle("/resources/batch-rename", monkey(resourceBatchRenameHandler(fileCache), "")).Methods("POST")
 	api.Handle("/resources/transfer", monkey(fileTransferTaskHandler(taskRuntime), "")).Methods("POST")
+	api.Handle(subtitlePagesRoute, monkey(subtitlePages.pageHandler(), "")).Methods("POST")
+	api.PathPrefix(subtitleFileRoute+"/").Handler(monkey(subtitlePages.fileHandler(), "/api"+subtitleFileRoute)).Methods("GET", "HEAD")
 	api.Handle("/deletions/pending", monkey(pendingDeletionHandler(taskRuntime), "")).Methods("POST")
 	api.PathPrefix("/resources/recursive").Handler(monkey(resourceGetRecursiveHandler, "/api/resources/recursive")).Methods("GET")
 	api.PathPrefix("/resources").Handler(monkey(resourceGetHandler, "/api/resources")).Methods("GET")
@@ -239,5 +246,5 @@ func NewHandler(
 	public.PathPrefix("/dl").Handler(monkey(publicDlHandler, "/api/public/dl/")).Methods("GET")
 	public.PathPrefix("/share").Handler(monkey(publicShareHandler, "/api/public/share/")).Methods("GET")
 
-	return &archiveCacheHandler{Handler: stripPrefix(server.BaseURL, r), cache: entryCache}, nil
+	return &archiveCacheHandler{Handler: stripPrefix(server.BaseURL, r), cache: entryCache, subtitlePages: subtitlePages}, nil
 }

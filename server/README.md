@@ -16,6 +16,7 @@ Linux 的部署环境，不是独立维护的产品分支。macOS 尚待原生�
 客户端网络模块在 [`clients/shared/core`](../clients/shared/core/README.md)，Android UI 在
 [`clients/android`](../clients/android/README.md)，它们不是这里的后端或 Web 副本。
 平台边界见 [架构说明](../docs/server-architecture.md)。
+字幕目录和文件的受限读取契约见 [字幕资源接口](docs/subtitle-resources.md)。
 
 ## 开发与验证
 

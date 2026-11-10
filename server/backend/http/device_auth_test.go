@@ -99,6 +99,9 @@ func TestDeviceJWTMediaScopeRenewAndLegacyRollback(t *testing.T) {
 	}
 	id := strings.Repeat("A", 32)
 	for _, allowed := range []struct{ method, path string }{
+		{"POST", "/api" + subtitlePagesRoute},
+		{"GET", "/api" + subtitleFileRoute + "/owned.srt"},
+		{"HEAD", "/api" + subtitleFileRoute + "/owned.srt"},
 		{"GET", "/api/app-updates/tv"},
 		{"POST", "/api/app-updates/tv/downloads"},
 		{"GET", "/api/app-updates/tv/downloads/" + id},
@@ -110,6 +113,9 @@ func TestDeviceJWTMediaScopeRenewAndLegacyRollback(t *testing.T) {
 		}
 	}
 	for _, denied := range []struct{ method, path string }{
+		{"POST", "/api" + subtitlePagesRoute + "/other"},
+		{"GET", "/api" + subtitlePagesRoute},
+		{"POST", "/api" + subtitleFileRoute + "/owned.srt"},
 		{"PUT", "/api/app-updates/tv/downloads"},
 		{"GET", "/api/app-updates/tv/downloads/not-a-handle/content"},
 		{"GET", "/api/app-updates/tv/downloads/" + id + "/other"},
@@ -139,5 +145,13 @@ func TestDeviceJWTMediaScopeRenewAndLegacyRollback(t *testing.T) {
 	}
 	if response := call(probe, "GET", "/api/app-updates/tv/downloads/"+id+"/content", signed); response.Code != 401 {
 		t.Fatal("revocation not enforced for TV updates", response.Code)
+	}
+	subtitles := newSubtitlePages()
+	defer subtitles.close()
+	if response := call(subtitles.pageHandler(), "POST", "/api"+subtitlePagesRoute, signed); response.Code != 401 {
+		t.Fatal("revocation not enforced for subtitle pages", response.Code)
+	}
+	if response := call(subtitles.fileHandler(), "GET", "/api"+subtitleFileRoute+"/owned.srt", signed); response.Code != 401 {
+		t.Fatal("revocation not enforced for subtitle contents", response.Code)
 	}
 }

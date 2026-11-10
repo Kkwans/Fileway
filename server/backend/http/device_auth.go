@@ -27,7 +27,13 @@ func deviceMediaRoute(method, path string, user uint) bool {
 		return true
 	}
 	p := strings.TrimPrefix(path, "/api/")
+	if method == http.MethodPost && path == "/api"+subtitlePagesRoute {
+		return true
+	}
 	if method == http.MethodGet || method == http.MethodHead {
+		if strings.HasPrefix(path, "/api"+subtitleFileRoute+"/") {
+			return true
+		}
 		for _, prefix := range []string{"resources", "preview", "raw", "download", "media/", "subtitle", "search", "favorites", "recent", "playback"} {
 			if p == prefix || strings.HasPrefix(p, prefix+"/") || strings.HasSuffix(prefix, "/") && strings.HasPrefix(p, prefix) {
 				return true

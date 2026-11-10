@@ -87,7 +87,11 @@ func handle(fn handleFunc, prefix string, store *storage.Storage, server *settin
 
 		if status >= 400 || err != nil {
 			clientIP := realip.FromRequest(r)
-			log.Printf("%s: %v %s %v", r.URL.Path, status, clientIP, err)
+			loggedPath := r.URL.Path
+			if prefix == "/api"+subtitleFileRoute {
+				loggedPath = prefix
+			}
+			log.Printf("%s: %v %s %v", loggedPath, status, clientIP, err)
 		}
 
 		if status != 0 {
