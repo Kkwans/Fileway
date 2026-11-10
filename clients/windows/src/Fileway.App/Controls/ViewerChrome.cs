@@ -108,12 +108,14 @@ internal sealed class ViewerChrome : Grid
         _toast = new Border
         {
             Style = (Style)Application.Current.Resources["FwToastStyle"],
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 0, 0, 78),
-            VerticalAlignment = VerticalAlignment.Bottom,
+            Background = SurfaceStyles.PopupBrush(ActualTheme),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 16, 0),
+            VerticalAlignment = VerticalAlignment.Top,
             Visibility = Visibility.Collapsed,
             Child = _toastText,
         };
+        ActualThemeChanged += (_, _) => _toast.Background = SurfaceStyles.PopupBrush(ActualTheme);
         Children.Add(_toast);
 
         _loadingHost = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
@@ -242,14 +244,14 @@ internal sealed class ViewerChrome : Grid
         RestartIdle();
     }
 
-    internal void ShowToast(string message, int seconds = 3)
+    internal void ShowToast(string message, int seconds = 0)
     {
         _toastText.Text = message;
         _toast.Visibility = Visibility.Visible;
         Canvas.SetZIndex(_toast, 25);
         var timer = DispatcherQueue.CreateTimer();
         timer.IsRepeating = false;
-        timer.Interval = TimeSpan.FromSeconds(seconds);
+        timer.Interval = TimeSpan.FromSeconds(seconds > 0 ? seconds : PresentationPreferences.ToastSeconds);
         timer.Tick += (_, _) => { timer.Stop(); _toast.Visibility = Visibility.Collapsed; };
         timer.Start();
     }
