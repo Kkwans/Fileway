@@ -14,10 +14,11 @@ public sealed class ChoiceBox : ComboBox
         VerticalContentAlignment = VerticalAlignment.Center;
         MinHeight = 36; CornerRadius = new CornerRadius(8); FontSize = 14; MaxDropDownHeight = 360;
         Loaded += (_, _) => ApplyPalette(); ActualThemeChanged += (_, _) => ApplyPalette();
+        DropDownOpened += (_, _) => SurfaceStyles.AttachPopupBackdrop(this);
     }
     private void ApplyPalette()
     {
-        Resources["ComboBoxDropDownBackground"] = SurfaceStyles.PopupBrush(ActualTheme);
+        Resources["ComboBoxDropDownBackground"] = SurfaceStyles.TranslucentTint(ActualTheme);
         SurfaceStyles.Soften(this, "ComboBoxItem");
     }
 }

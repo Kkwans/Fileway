@@ -24,7 +24,30 @@ internal static class SurfaceStyles
         var tint = theme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 36, 39, 44) : Windows.UI.Color.FromArgb(255, 249, 250, 252);
         if (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
             return new SolidColorBrush(new Windows.UI.ViewManagement.UISettings().GetColorValue(Windows.UI.ViewManagement.UIColorType.Background));
-        return new AcrylicBrush { TintColor = tint, TintOpacity = 0.82, TintLuminosityOpacity = 0.85, FallbackColor = tint };
+        return new FwBlurBrush { Tint = Windows.UI.Color.FromArgb(0xCC, tint.R, tint.G, tint.B) };
+    }
+    internal static SolidColorBrush TranslucentTint(ElementTheme theme)
+    {
+        var tint = theme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 36, 39, 44) : Windows.UI.Color.FromArgb(255, 249, 250, 252);
+        return new SolidColorBrush(Windows.UI.Color.FromArgb(0x66, tint.R, tint.G, tint.B));
+    }
+    internal static void AttachPopupBackdrop(DependencyObject root)
+    {
+        if (!Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported()) return;
+        if (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast) return;
+        var queue = new System.Collections.Generic.Queue<DependencyObject>();
+        queue.Enqueue(root);
+        while (queue.Count > 0)
+        {
+            var node = queue.Dequeue();
+            if (node is Microsoft.UI.Xaml.Controls.Primitives.Popup popup)
+            {
+                popup.SystemBackdrop ??= new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
+                continue;
+            }
+            var count = VisualTreeHelper.GetChildrenCount(node);
+            for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(node, i));
+        }
     }
     private static SolidColorBrush PopupBorder(ElementTheme theme)
     {
@@ -40,7 +63,7 @@ internal static class SurfaceStyles
         var style = new Style(isMenu ? typeof(MenuFlyoutPresenter) : typeof(FlyoutPresenter));
         var defaultKey = isMenu ? "DefaultMenuFlyoutPresenterStyle" : "DefaultFlyoutPresenterStyle";
         if (Application.Current.Resources.TryGetValue(defaultKey, out var baseStyle) && baseStyle is Style basis) style.BasedOn = basis;
-        style.Setters.Add(new Setter(Control.BackgroundProperty, PopupBrush(theme)));
+        style.Setters.Add(new Setter(Control.BackgroundProperty, TranslucentTint(theme)));
         style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(6)));
         style.Setters.Add(new Setter(Control.CornerRadiusProperty, new CornerRadius(14)));
         style.Setters.Add(new Setter(FrameworkElement.MinWidthProperty, 0d));
@@ -54,6 +77,8 @@ internal static class SurfaceStyles
         flyout.Opening += (_, _) =>
         {
             var theme = flyout.Target?.ActualTheme ?? ElementTheme.Light;
+            if (Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported() && !new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
+                flyout.SystemBackdrop ??= new Microsoft.UI.Xaml.Media.DesktopAcrylicBackdrop();
             Apply(flyout, theme);
         };
         if (flyout is Flyout panel)

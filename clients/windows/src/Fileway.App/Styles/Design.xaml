@@ -114,7 +114,7 @@
 
   <!-- ToolTips render in a popup that resolves ThemeResource against the system theme;
        these shared brushes are updated from the app theme at runtime instead. -->
-  <SolidColorBrush x:Key="FwToolTipBackgroundBrush" Color="#F2FBFCFD" />
+  <ctl:FwBlurBrush x:Key="FwToolTipBackgroundBrush" Tint="#CCFBFCFD" />
   <SolidColorBrush x:Key="FwToolTipBorderBrush" Color="#29000000" />
   <SolidColorBrush x:Key="FwToolTipForegroundBrush" Color="#FF1B1F24" />
 

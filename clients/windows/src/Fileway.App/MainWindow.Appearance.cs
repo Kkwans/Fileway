@@ -57,7 +57,8 @@ public sealed partial class MainWindow
             foreground = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Foreground);
             border = foreground;
         }
-        SetBrushColor("FwToolTipBackgroundBrush", background);
+        if (FindResource(Application.Current.Resources, "FwToolTipBackgroundBrush") is FwBlurBrush blur) blur.Tint = background;
+        else SetBrushColor("FwToolTipBackgroundBrush", background);
         SetBrushColor("FwToolTipBorderBrush", border);
         SetBrushColor("FwToolTipForegroundBrush", foreground);
     }

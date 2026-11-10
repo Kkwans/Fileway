@@ -31,7 +31,7 @@
           <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
           <AcrylicBrush x:Key="FlyoutBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
           <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
-          <AcrylicBrush x:Key="ContentDialogBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+          <ui:FwBlurBrush x:Key="ContentDialogBackground" Tint="#CCF9FAFC" />
           <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
           <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#0F000000" />
           <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59000000" />
@@ -50,7 +50,7 @@
           <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
           <AcrylicBrush x:Key="FlyoutBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
           <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
-          <AcrylicBrush x:Key="ContentDialogBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+          <ui:FwBlurBrush x:Key="ContentDialogBackground" Tint="#CC24272C" />
           <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
           <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#14FFFFFF" />
           <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59FFFFFF" />
