@@ -227,8 +227,11 @@ public sealed partial class TrashControl : UserControl, IDisposable
     {
         if (Busy || _trash is not ITrashManagementService || _session is not { } session || !_controller.CanDelete(row.Item)) return;
         _detailsPopup?.Dispose(); var epoch = _epoch;
+        string warning = row.Item.IsDirectory
+            ? "将永久删除此文件夹及其全部内容，不经过回收站，且无法恢复。"
+            : "将永久删除此文件，不经过回收站，且无法恢复。";
         var dialog = new ContentDialog { XamlRoot = XamlRoot, RequestedTheme = ActualTheme, Title = "永久删除此项目？",
-            Content = new TextBlock { Text = row.Name + "\n\n此操作无法恢复。", TextWrapping = TextWrapping.Wrap }, PrimaryButtonText = "永久删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
+            Content = new TextBlock { Text = row.Name + "\n\n" + warning, TextWrapping = TextWrapping.Wrap }, PrimaryButtonText = "永久删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         _dialog = dialog; bool accepted = false;
         try { accepted = await dialog.ShowAsync() == ContentDialogResult.Primary; }
         catch (Exception) { if (Current(epoch)) _message = "确认窗口未能打开。"; }

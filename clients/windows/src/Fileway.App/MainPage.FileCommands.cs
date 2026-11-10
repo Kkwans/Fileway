@@ -56,6 +56,8 @@ public sealed partial class MainPage
             Add("复制", () => CaptureClipboard(FileTransferAction.Copy), CanCaptureClipboard(FileTransferAction.Copy));
             Add("剪切", () => CaptureClipboard(FileTransferAction.Move), CanCaptureClipboard(FileTransferAction.Move));
             Add("详细信息", () => { SetDetailsVisible(true); UpdateSelection(); }, BrowserReady);
+            if (rows.Length == 1) Add("校验…", () => FileChecksum_Click(this, new RoutedEventArgs()), CanChecksumSelection);
+            if (rows.Length == 1) Add("所在目录", () => DetailsLocation_Click(this, new RoutedEventArgs()), BrowserReady);
             if (permissions?.Rename == true)
             {
                 if (rows.Length == 1 || FileManagement is not null) Add(rows.Length == 1 ? "重命名" : "批量重命名…", () => Rename_Click(this, new RoutedEventArgs()), CanWrite(p => p.Rename));

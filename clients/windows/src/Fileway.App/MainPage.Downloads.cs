@@ -49,6 +49,16 @@ public sealed partial class MainPage
     }
     private bool CanDownloadSaveAsSelection => CanDownloadSelection && SelectedRows() is [var row] && !row.File.IsDirectory;
 
+    private string DownloadDisabledReason()
+    {
+        if (_disposed || _downloads is null || ActiveDownloadContext is null) return "连接尚未就绪，请先连接服务器。";
+        if (!BrowserReady) return "请先打开一个目录。";
+        if (LoadingRing.IsActive) return "目录仍在加载，请稍候。";
+        if (_downloadOperationBusy || _downloadPreparing) return "下载操作进行中，请稍候。";
+        if (SelectedRows().Length == 0) return "请先选择要下载的项目。";
+        return "当前不可下载。";
+    }
+
     private void UpdateDownloadContext()
     {
         if (DownloadFileButton is null) return;
@@ -62,6 +72,7 @@ public sealed partial class MainPage
             _ = AutoResumeDownloadsAsync(active);
         }
         DownloadFileButton.IsEnabled = CanDownloadSelection;
+        ToolTipService.SetToolTip(DownloadFileButton, CanDownloadSelection ? "下载所选项目" : DownloadDisabledReason());
         DownloadFileButton.Visibility = _session?.Permissions.Download == false ? Visibility.Collapsed : Visibility.Visible;
         DownloadHistoryButton.IsEnabled = current is not null && !_downloadOperationBusy;
         RenderDownloadNotice(); RenderDownloadDetails();
