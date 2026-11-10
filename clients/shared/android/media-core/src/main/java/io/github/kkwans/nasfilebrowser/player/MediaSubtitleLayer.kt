@@ -43,6 +43,9 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
     private var fontBytes = 0L
     private var renderer: io.github.peerless2012.ass.AssRender? = null
     private val tracks = mutableMapOf<String, AssTrack>()
+    private class StreamedAss(var bytes: Long = 0, var coveredUntilMs: Long = -1, var complete: Boolean = false)
+    private val streamedAss = mutableMapOf<String, StreamedAss>()
+    private var streamedAssBytes = 0L
     private val headers = mutableMapOf<String, List<ByteArray>>()
     private val cues = mutableMapOf<String, MutableList<CuesWithTiming>>()
     private class PgsPacket(val timeUs: Long, val bytes: ByteArray = byteArrayOf(), val external: ExternalPgs.DisplaySet? = null)
@@ -128,8 +131,8 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
         }
     }
     override fun dialogue(trackId: String, startMs: Long, durationMs: Long, packet: ByteArray) = submit {
+        check(durationMs >= 0 && eventBytes + streamedAssBytes <= resources.assEventBytes - packet.size)
         eventBytes += packet.size
-        check(eventBytes <= resources.assEventBytes && durationMs >= 0)
         requireNotNull(tracks[trackId]).readChunk(startMs, durationMs, packet)
         requestFrame(timeMs.get())
     }
@@ -187,6 +190,41 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
         tracks.remove(id)?.release()
         tracks[id] = ass().createTrack().also { it.readBuffer(data) }
         post { if (!closed.get()) ready() }
+    }
+    /** Acknowledged worker append: no unbounded queue and no video recreation.
+     * Header, events and complete font blocks retain the original libass track. */
+    fun appendAssStream(id: String, update: AssStreamUpdate, cancelled: () -> Boolean, result: (Boolean) -> Unit) = synchronized(submissions) {
+        if (closed.get() || cancelled()) { result(false); return@synchronized }
+        try { worker.execute {
+            if (closed.get() || cancelled()) { result(false); return@execute }
+            val accepted = runCatching {
+                check(eventBytes + streamedAssBytes <= resources.assEventBytes - update.data.size) { "ASS 字幕超出当前设备的资源预算" }
+                val state = streamedAss.getOrPut(id) { StreamedAss() }
+                val oldCoverage = state.coveredUntilMs
+                val track = tracks.getOrPut(id) { ass().createTrack() }
+                if (update.data.isNotEmpty()) track.readBuffer(update.data)
+                state.bytes += update.data.size; streamedAssBytes += update.data.size
+                state.coveredUntilMs = update.coveredUntilMs; state.complete = update.complete
+                if (update.fontsChanged) { renderer?.release(); renderer = null; lastNative = null; lastTrack = null }
+                // Future events do not change the current frame. Re-render on
+                // coverage changes at the clock, disorder, fonts or completion.
+                val at = timeMs.get() - delayMs
+                if (assId == id && (update.fontsChanged || update.complete || update.coveredUntilMs < oldCoverage ||
+                        update.coveredUntilMs >= 0 && at >= oldCoverage))
+                    requestFrame(timeMs.get())
+                !cancelled()
+            }.getOrDefault(false)
+            result(accepted)
+        } } catch (_: RejectedExecutionException) { result(false) }
+    }
+    fun discardAssStream(id: String) = submit {
+        streamedAss.remove(id)?.let {
+            streamedAssBytes -= it.bytes
+            val track = tracks.remove(id)
+            if (lastTrack === track) lastTrack = null
+            track?.release()
+        }
+        if (assId == id) requestFrame(timeMs.get())
     }
     fun externalText(id: String, values: List<CuesWithTiming>, onFailure: (() -> Unit)? = null, ready: () -> Unit) =
         externalTexts(mapOf(id to values), onFailure, ready)
@@ -331,10 +369,14 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
                     }
                 }
                 val text = decodedPgs?.takeIf { it.durationUs == C.TIME_UNSET || at * 1000 < it.endTimeUs }?.cues ?: ordinary
-                val track = tracks[assId]
+                val partialAss = streamedAss[assId]
+                val track = tracks[assId].takeIf { partialAss == null || partialAss.complete || at < partialAss.coveredUntilMs }
                 val output = if (track == null || at < 0 || frameWidth <= 0 || frameHeight <= 0) null else {
                     val render = renderer ?: ass().createRender().also { renderer = it; it.setCacheLimit(1000, resources.assBitmapCacheMB) }
-                    if (lastTrack !== track) { lastNative = null; lastTrack = track }
+                    // libass can report unchanged when two tracks render the
+                    // same image. The wrapper then returns no bitmaps, so keep
+                    // the frame associated with this renderer across switches.
+                    if (lastTrack !== track) lastTrack = track
                     render.setStorageSize(storageWidth.takeIf { it > 0 } ?: frameWidth, storageHeight.takeIf { it > 0 } ?: frameHeight)
                     render.setFrameSize(frameWidth, frameHeight); render.setTrack(track)
                     val next = render.renderFrame(at, AssTexType.BITMAP_RGBA)
@@ -372,6 +414,7 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
             indexedPgs.values.forEach { it.close() }; indexedPgs.clear(); indexedBytes = 0
             renderer?.release(); tracks.values.forEach { it.release() }; library?.release()
             tracks.clear(); cues.clear(); pgs.clear(); headers.clear(); lastNative = null
+            streamedAss.clear(); streamedAssBytes = 0
             fontKeys.clear(); fontBytes = 0
             lastPgsPacket = null; lastIndexedPgs = null; lastIndexedEvent = -1; decodedPgs = null
         }

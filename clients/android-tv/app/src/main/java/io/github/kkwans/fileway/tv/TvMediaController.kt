@@ -25,7 +25,7 @@ data class TvMediaState(
     val mode: TvHdrMode = TvHdrMode.AUTO, val compatible: Boolean = false,
     val sourceOffsetMs: Long = 0, val sourceDurationMs: Long = 0, val imageUrl: String? = null,
     val sourceSubtitles: Boolean = false, val selectedSourceSubtitle: Int = -1, val sourceAudioOff: Boolean = false, val selectedSourceAudio: Int? = null,
-    val sourcePGSStreaming: Boolean = false,
+    val sourcePGSStreaming: Boolean = false, val sourceASSStreaming: Boolean = false,
     val sourceAudio: List<TvSourceTrack> = emptyList(), val sourceText: List<TvSourceTrack> = emptyList(),
     val sidecars: List<ResourceRef> = emptyList(),
     val subtitleError: String? = null, val subtitleLoading: Boolean = false,
@@ -73,6 +73,8 @@ class TvMediaController(
         data class External(val file: ResourceRef, val key: String, val trackKey: String? = null, val version: String? = null) : SubtitleIntent
     }
     private var subtitleIntent: SubtitleIntent = SubtitleIntent.Auto
+    private var subtitleFallbackIntent: SubtitleIntent = SubtitleIntent.Auto
+    private var subtitleFallbackSource = -1
     private val externalRefs = mutableMapOf<String, ResourceRef>()
     private val nativeFontKeys = mutableSetOf<String>()
     private var fontGeneration = -1L
@@ -102,7 +104,8 @@ class TvMediaController(
             }
             else -> SubtitleIntent.Auto
         }
-        operation?.cancel(); ++subtitleRevision; subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel()
+        subtitleFallbackIntent = subtitleIntent; subtitleFallbackSource = -1
+        operation?.cancel(); ++subtitleRevision; subtitleJob?.cancel(); subtitleJob = null; watcher?.cancel(); prefetch?.cancel()
         mutable.value = TvMediaState(file = file, queue = queue, mode = mode, busy = true)
         operation = scope.launch {
             lock.withLock {
@@ -145,6 +148,7 @@ class TvMediaController(
                     openingStage = "准备播放资源"
                     mutable.update { it.copy(info = info, sourceAudio = audio, sourceText = text, sourceSubtitles = sourceTextAvailable, sdrAvailable = capabilities.optBoolean("sdrCompatibility"),
                         sourcePGSStreaming = capabilities.optInt("sourcePGSStreaming") >= 1,
+                        sourceASSStreaming = capabilities.optInt("sourceASSStreaming") >= 1,
                         sourceDurationMs = (info.optDouble("duration", remote.durationMs / 1000.0) * 1000).toLong(),
                         selectedSourceAudio = audio.firstOrNull { track -> track.preferred }?.index ?: audio.firstOrNull()?.index) }
                     val sdrAvailable = capabilities.optBoolean("sdrCompatibility")
@@ -406,7 +410,7 @@ class TvMediaController(
                 if (!accepts(owner, expected) || transition != presentationRevision) { next.lease.release(); return@launch }
                 val rate = player.state.value.rate; val delay = player.state.value.subtitleDelayMs
                 val autoplay=player.playWhenReady;val volume=player.state.value.volume
-                ++subtitleRevision; subtitleJob?.cancel()
+                ++subtitleRevision; subtitleJob?.cancel(); subtitleJob = null
                 player.open(next.lease.url,autoplay=autoplay,videoDecodePolicy = playbackPreferences.videoDecodePolicy.value,dataSourceFactory=dataSource)
                 player.volume(volume)
                 player.subtitleSourceOffset(next.startMs); player.rate(rate); player.subtitleDelay(delay)
@@ -472,7 +476,7 @@ class TvMediaController(
                     ?: error("准备期间播放位置已移出片段，请重试") } ?: carryPosition
                 val autoplay = player.wantsPlay
                 val nextSubtitle = subtitleForPath(useSdr)
-                ++subtitleRevision; subtitleJob?.cancel()
+                ++subtitleRevision; subtitleJob?.cancel(); subtitleJob = null
                 openAttempted = true
                 if (!useSdr && carry != null && !previous.compatible) player.openRestoring(candidate.url, subtitleRestore(carry.copy(positionMs = carryPosition), nextSubtitle), autoplay, playbackPreferences.videoDecodePolicy.value,dataSource)
                 else player.open(candidate.url, localPosition, autoplay, playbackPreferences.videoDecodePolicy.value,dataSource)
@@ -597,18 +601,24 @@ class TvMediaController(
         val selection = ++subtitleRevision
         val expected = epoch
         val generation = player.state.value.mediaGeneration
-        val previous = subtitleIntent
-        val previousSource = mutable.value.selectedSourceSubtitle
+        val previous = if (subtitleJob?.isActive == true) subtitleFallbackIntent else subtitleIntent
+        val previousSource = if (subtitleJob?.isActive == true) subtitleFallbackSource else mutable.value.selectedSourceSubtitle
+        subtitleFallbackIntent = previous; subtitleFallbackSource = previousSource
         subtitleIntent = intent
         mutable.update { it.copy(subtitleError = null, subtitleNotice = null, subtitleLoading = intent != SubtitleIntent.Off) }
-        subtitleJob?.cancel()
+        subtitleJob?.cancel(); subtitleJob = null
         if (intent == SubtitleIntent.Off) {
             player.subtitle(-1)
             mutable.update { it.copy(selectedSourceSubtitle = -1, subtitleLoading = false) }
             return
         }
         subtitleJob = scope.launch {
-            try { restoreSubtitle(intent) }
+            try {
+                restoreSubtitle(intent)
+                if (selection == subtitleRevision && expected == epoch) {
+                    subtitleFallbackIntent = intent; subtitleFallbackSource = mutable.value.selectedSourceSubtitle
+                }
+            }
             catch (error: Exception) {
                 if (error is CancellationException && error !is TimeoutCancellationException) throw error
                 if (selection == subtitleRevision && expected == epoch) {
@@ -714,22 +724,32 @@ class TvMediaController(
         if (ext == "ass") {
             coroutineScope {
                 var prepared: SourceSubtitleAssets.Lease? = null
+                val progressive = mutable.value.sourceASSStreaming
+                val endpoint = "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}"
                 val download = async {
-                    sourceAsset(source, sourceKey,
-                        "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}",
-                        EXTERNAL_TEXT_BYTES_LIMIT).also { prepared = it }
+                    (if (progressive) sourceAssStream(source, sourceKey, "$endpoint&stream=1")
+                    else sourceAsset(source, sourceKey, endpoint, EXTERNAL_TEXT_BYTES_LIMIT)).also { prepared = it }
                 }
+                val fonts = async { loadFonts(source, expected, selection) }
                 try {
-                    loadFonts(source, expected, selection)
                     val asset = download.await()
+                    // Source bytes keep arriving while fonts are prepared. A
+                    // preview must not flash with a substitute font first.
+                    fonts.await()
                     withTimeout(15_000) { while (!player.canAddExternalSubtitle) delay(100) }
                     checkCurrent()
-                    check(player.importSubtitle(android.net.Uri.fromFile(asset.file).toString(), "${track.title}.ass", sourceKey, true)) { "字幕未能完整载入" }
+                    val imported = if (progressive) player.importAssStream(asset, "${track.title}.ass", sourceKey) {
+                        checkCurrent()
+                        mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
+                    } else player.importSubtitle(android.net.Uri.fromFile(asset.file).toString(), "${track.title}.ass", sourceKey, true)
+                    check(imported) { player.state.value.operationError ?: "字幕未能完整载入" }
                     checkCurrent()
+                    subtitleFallbackIntent = subtitleIntent; subtitleFallbackSource = index
                     mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
                 } finally {
                     withContext(NonCancellable) {
                         download.cancelAndJoin()
+                        fonts.cancelAndJoin()
                         withContext(Dispatchers.IO) { prepared?.close() }
                     }
                 }
@@ -765,6 +785,14 @@ class TvMediaController(
                 currentCoroutineContext().ensureActive()
                 checkNotNull(prepared).also { prepared = null }
             } finally { withContext(NonCancellable + Dispatchers.IO) { prepared?.delete() } }
+        }
+    }
+    private suspend fun sourceAssStream(source: Binding, key: String, endpoint: String): SourceSubtitleAssets.Lease {
+        if (!accepts(source.owner, source.epoch)) throw CancellationException("Media source changed")
+        return source.subtitleAssets.acquireGrowing(key, EXTERNAL_TEXT_BYTES_LIMIT) { writer ->
+            val lease = source.owner.api.assetLease(endpoint)
+            try { ProgressiveAssSource.download(application.cacheDir, lease.url, source.identity, writer) }
+            finally { withContext(NonCancellable) { lease.release() } }
         }
     }
     private suspend fun loadFonts(source: Binding, expected: Long, selection: Long) {

@@ -88,7 +88,10 @@ class ProgressivePgsSourceTest {
             val receipt = withTimeout(5000) { job.await() }
             assertEquals(ExternalPgsTest.ownedSup().size.toLong(), receipt.bytes)
             assertTrue(latest.get()!!.complete)
-            assertEquals(1, root.listFiles()!!.size)
+            val retained = root.listFiles()!!.map { it.name }
+            assertEquals(2, retained.size)
+            assertTrue(retained.any { it.startsWith("external-pgs-stream-") })
+            assertTrue(retained.any { it.startsWith("external-pgs-index-") })
             latest.getAndSet(null)?.close()
             assertTrue(root.listFiles()!!.isEmpty())
         } finally { latest.getAndSet(null)?.close(); server.close(); root.deleteRecursively() }
@@ -251,7 +254,7 @@ class ProgressivePgsSourceTest {
         }
     }
 
-    private class StreamServer(private val mode: String) : AutoCloseable {
+    internal class StreamServer(private val mode: String) : AutoCloseable {
         private val listener = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val url = "http://127.0.0.1:${listener.localPort}/owned"
         val started = CountDownLatch(1); val finish = CountDownLatch(1)
