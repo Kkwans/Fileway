@@ -898,7 +898,8 @@ public sealed partial class MainPage : Page, IDisposable
         DetailsTrashButton.IsEnabled = row is not null && CanWrite(p => p.Delete);
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
-        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateRemoteToolsContext(); UpdateChecksumContext();
+        MenuShareManagerItem.IsEnabled = !_connecting && _session is { } shareSession && shareSession.Permissions.Share && shareSession.Permissions.Download && _files is IShareService;
+        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateRemoteToolsContext(); UpdateChecksumContext(); UpdateShareContext();
         UpdateApplicationMenus();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)

@@ -94,6 +94,7 @@
     <MenuFlyoutItem x:Name="MenuTrashPageItem" Text="回收站" Click="TrashPage_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuLocalServerItem" Text="本地服务端…" Click="LocalServer_Click"/>
     <MenuFlyoutItem x:Name="CollectionsButton" Text="管理收藏与标签…" Click="Collections_Click" IsEnabled="False" AutomationProperties.Name="管理收藏与标签"/>
+    <MenuFlyoutItem x:Name="MenuShareManagerItem" Text="分享管理…" Click="ShareManager_Click" IsEnabled="False" AutomationProperties.Name="分享管理"/>
     <MenuFlyoutItem x:Name="ChangePasswordButton" Text="修改密码…" Click="ChangePassword_Click" Visibility="Collapsed" AutomationProperties.Name="修改当前账户密码"/>
     <MenuFlyoutSeparator/>
     <MenuFlyoutItem x:Name="StorageSettingsButton" Text="缓存与存储…" Click="StorageSettings_Click" IsEnabled="False" AutomationProperties.Name="缓存与存储设置"/>

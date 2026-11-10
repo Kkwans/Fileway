@@ -42,7 +42,8 @@ public sealed record PermissionSet(
     bool Modify,
     bool Delete,
     bool Execute,
-    bool Admin = false);
+    bool Admin = false,
+    bool Share = false);
 
 public sealed record ServerCapabilities(
     bool ResourcePaginationV1 = false,

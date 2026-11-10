@@ -507,7 +507,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
                     OptionalText(user, "username") ?? profile.DisplayName,
                     new PermissionSet(Flag(permissions, "download"), Flag(permissions, "create"), Flag(permissions, "rename"),
                         Flag(permissions, "modify"), Flag(permissions, "delete"), Flag(permissions, "execute"),
-                        Flag(permissions, "admin")),
+                        Flag(permissions, "admin"), Flag(permissions, "share")),
                     new ServerCapabilities(Flag(capabilities, "resourcePaginationV1"), Flag(capabilities, "conditionalDownloadV1"),
                         Flag(capabilities, "searchWirePathV1"), Flag(capabilities, "resourceWireOperations"),
                         OptionalText(capabilities, "authMethod") ?? "",
