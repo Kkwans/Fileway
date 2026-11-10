@@ -291,6 +291,19 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
     fun discardPgsTimeline(id: String) = submit {
         indexedPgs[id]?.let { removeIndexed(id, it) }
     }
+    internal fun discardImportedSubtitles(ids: List<String>) = submit {
+        ids.forEach { id ->
+            cues.remove(id)?.let { cueBytes -= it.sumOf(::bytes) }
+            indexedPgs[id]?.let { removeIndexed(id, it) }
+            val track = tracks.remove(id)
+            if (track != null) {
+                if (lastTrack === track) {
+                    renderer?.release(); renderer = null; lastTrack = null; lastNative = null
+                }
+                track.release()
+            }
+        }
+    }
     /** UI ready/cancel callbacks enqueue cleanup on the same worker as decode.
      * Once closed, the already queued media-close task owns every attached entry. */
     private fun discardIndexed(id: String, entry: IndexedPgs) = synchronized(submissions) {

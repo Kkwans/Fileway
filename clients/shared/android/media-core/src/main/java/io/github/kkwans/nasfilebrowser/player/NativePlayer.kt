@@ -109,6 +109,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     var externalSubtitleReady: ((String, String, String) -> Unit)? = null
     private val externalIdentities = mutableMapOf<Int, DecoderExternalSelection>()
     private val externalVersions = mutableMapOf<String, String>()
+    private var discardPendingExternal: (() -> Unit)? = null
     private var confirmedPositionMs = 0L
     private class PendingRestore(val epoch: Long, val value: DecoderRestore) {
         var audioApplied = false
@@ -694,6 +695,20 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
      * Multi-track sources still require an explicit track selection. */
     fun importedSubtitleIdentity(id: Int): DecoderExternalSelection? = externalIdentities[id]
 
+    /** Release a complete regular import by its immutable source key. */
+    fun discardImportedSubtitle(sourceKey: String) {
+        val ids = externalIdentities.filterValues { it.sourceKey == sourceKey }.keys.toList()
+        if (ids.isEmpty()) return
+        if (selectedExternal in ids) {
+            selectedExternal = null
+            subtitleDisabled = true
+        }
+        ids.forEach { id -> external.remove(id); externalIdentities.remove(id) }
+        externalVersions.remove(sourceKey)
+        layer?.discardImportedSubtitles(ids.map { "external:$it" })
+        refreshTracks()
+    }
+
     fun selectImportedSubtitle(sourceKey: String, trackKey: String? = null, expectedVersion: String? = null): Boolean {
         if (released || engine == null) return false
         val id = externalIdentities.entries.singleOrNull {
@@ -1004,14 +1019,27 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         val epoch = session.generation; val request = ++externalRequest; val id = nextId++
         cancelExternalImport()
         val completion = CompletableDeferred<Boolean>().also { externalCompletion = it }
+        val idsAwaitingAcceptance = mutableListOf("external:$id")
+        discardPendingExternal = { currentLayer.discardImportedSubtitles(idsAwaitingAcceptance.toList()) }
         var sourceVersion = ""
         fun verifyVersion(digest: ByteArray) {
             sourceVersion = digest.joinToString("") { (it.toInt() and 255).toString(16).padStart(2, '0') }
             check(expectedVersion == null || expectedVersion == sourceVersion) { "External subtitle source changed" }
         }
         fun accepted(imported: Map<Int, String>) {
+            // A newly accepted, explicitly selected import supersedes older
+            // tracks from the same source. Keep the old tracks until this
+            // point so a failed or canceled read cannot erase the prior choice.
+            if (selectOnReady) {
+                val superseded = externalIdentities.filter { (trackId, identity) ->
+                    identity.sourceKey == sourceKey && trackId !in imported
+                }.keys.toList()
+                superseded.forEach { trackId -> external.remove(trackId); externalIdentities.remove(trackId) }
+                if (superseded.isNotEmpty()) currentLayer.discardImportedSubtitles(superseded.map { "external:$it" })
+            }
             imported.forEach { (trackId, key) -> externalIdentities[trackId] = DecoderExternalSelection(sourceKey, key, sourceVersion) }
             externalVersions[sourceKey] = sourceVersion
+            discardPendingExternal = null
             externalSubtitleReady?.invoke(sourceKey, url, name)
             externalCompletion = null
             externalJob = null
@@ -1024,6 +1052,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         }
         fun externalFailure() {
             if (!session.accepts(epoch) || externalRequest != request) return
+            discardPendingExternal?.invoke(); discardPendingExternal = null
             externalSupCancellation?.set(true); externalSupCancellation = null
             externalJob = null
             if (externalCompletion === completion) externalCompletion = null
@@ -1111,6 +1140,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
                     ensureActive()
                     if (!session.accepts(epoch) || externalRequest != request) return@launch
                     val ids = tracks.mapIndexed { index, _ -> if (index == 0) id else nextId++ }
+                    idsAwaitingAcceptance += ids.drop(1).map { "external:$it" }
                     currentLayer.externalTexts(tracks.mapIndexed { index, (_, values) -> "external:${ids[index]}" to values }.toMap(), onFailure = ::externalFailure) {
                         if (!session.accepts(epoch) || externalRequest != request) return@externalTexts
                         tracks.forEachIndexed { index, (track, _) ->
@@ -1146,6 +1176,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (session.accepts(epoch) && externalRequest == request) {
+                    discardPendingExternal?.invoke(); discardPendingExternal = null
                     externalSupCancellation?.set(true); externalSupCancellation = null
                     val message = when (error) {
                         is ExternalSubtitleLimitException, is ExternalSubtitleStorageException -> error.message
@@ -1171,6 +1202,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         val completion = externalCompletion; externalCompletion = null
         val cancellation = externalSupCancellation; externalSupCancellation = null
         val job = externalJob; externalJob = null
+        discardPendingExternal?.invoke(); discardPendingExternal = null
         cancellation?.let { pending ->
             pending.set(true)
             // A not-yet-attached View must not delay reclaiming a canceled import.
