@@ -221,6 +221,43 @@ func TestCompanionPairControlAndReconnect(t *testing.T) {
 			t.Fatal("directory payload remained in receipt storage")
 		}
 	}
+	staleID, _ := randomID()
+	stale := Command{Type: "command", Protocol: Protocol, CommandID: staleID, ConnectionID: connectionID,
+		Operation: "subtitle.browse.page", Payload: json.RawMessage(`{}`)}
+	write(stale)
+	if value := read(socket); value["status"] != "ACCEPTED" {
+		t.Fatal("stale-scope test was not accepted", value)
+	}
+	for {
+		event, e := host.Wait(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if event.Type == "command" {
+			if event.Command.CommandID != staleID {
+				t.Fatal("wrong stale-scope command", event)
+			}
+			break
+		}
+	}
+	if err = host.Publish(State{SessionEpoch: 1, MediaEpoch: 1, Revision: 1, Scene: "BROWSE",
+		Capabilities: json.RawMessage(`{}`), Content: json.RawMessage(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if value := read(socket); value["type"] != "snapshot" {
+		t.Fatal("source change was not published", value)
+	}
+	if err = host.Reply(connectionID, controller.ID, Result{CommandID: staleID, Status: "COMPLETED",
+		Payload: json.RawMessage(`{"items":[{"name":"old-account.srt"}]}`)}); err != nil {
+		t.Fatal(err)
+	}
+	if value := read(socket); value["status"] != "REJECTED" || value["code"] != "STALE_SCOPE" || value["payload"] != nil {
+		t.Fatal("stale directory response was delivered", value)
+	}
+	write(stale)
+	if value := read(socket); value["status"] != "REJECTED" || value["code"] != "STALE_SCOPE" || value["payload"] != nil {
+		t.Fatal("stale directory receipt changed on retry", value)
+	}
 	_ = socket.CloseNow()
 	for {
 		event, e := host.Wait(ctx)
