@@ -210,7 +210,7 @@ components:
 
 只有**浮动层**允许阴影与毛玻璃：
 
-- 顶部/底部工具条：`scrim` 或 `glass` 背景 + 1px `glass-stroke` 边；不使用系统 Acrylic 的默认蓝灰。
+- 播放器顶部/底部工具条：有界 native region + SDK DesktopAcrylic Thin（Tint #101012、TintOpacity 0.72）恢复用户确认的高级模糊（0.9.0 M05）；其余查看器工具条 `scrim`/`glass` + 1px `glass-stroke` 边；不使用系统 Acrylic 的默认蓝灰。
 - 浮动胶囊：`glass` + 16px 圆角 + 轻微投影（ThemeShadow，Z=24–32）。
 - 对话框：18px 圆角 + `surface-raised`/毛玻璃 + 1px 描边；不允许直角或系统默认阴影。
 - 静态内容区不使用阴影；用 1px hairline 表达层级。
@@ -320,7 +320,7 @@ components:
 
 - 令牌与控件样式：`clients/windows/src/Fileway.App/Styles/Design.xaml`（`FwCanvasBrush`、`FwSurfaceBrush`、`FwGlassBrush`、`FwPrimaryButtonStyle`、`FwIconButtonStyle`、`FwActionTileStyle`、`FwPillStyle` 等）。
 - 查看器外壳：`Controls/ViewerChrome.cs`（顶部条、底部胶囊、自动隐藏、加载/错误层）。
-- 播放器 HUD 使用顶部 `#CC→#66→透明` 与底部 `透明→#73→#CC` 的黑色渐变 scrim；全屏时标题、时间与控件必须落在有效暗化区域内，白字不得直接压在彩条/高亮画面上（0.8.86 用彩条全屏帧复核）。
+- 播放器 HUD 材质为有界 region acrylic（0.9.0 M05 恢复 e3610896 方案，用户确认 HUD 与原生模糊菜单两者都要）；渐变 scrim 仅作为不支持 acrylic/HC/透明效果关闭时的回退；全屏时标题、时间与控件必须落在有效暗化区域内，白字不得直接压在彩条/高亮画面上。
 - 对话框排序：`Controls/DialogOrdering.cs`，由 ContentDialog 隐式样式自动启用。动作按钮可能被包裹，且对话框内容（如 InfoBar）也可能含同名 `CloseButton`；必须先在 `CommandSpace` 动作面板内解析 Primary/Secondary/Close，再交换共同容器中的直接子元素或 Grid 列，不得按整棵视觉树按名字查找。高内容对话框的滚动区统一 `DialogOrdering.ContentMaxHeight(anchor, preferred)`，不得写死 400/480；批量下载确认框与下载另存为的文件项使用“名称 · 大小”13px 主色 + 目标路径 12px 次级，并按“将添加/未添加”分组，文件项与失败项不得使用同一视觉层级；对话框打开期间收起“正在核对下载目标”浮条。
 - 文件写入类代码对话框（新建文件夹/空文件、单个重命名、批量重命名、移动到/复制到）：输入框统一 `FwTextBoxStyle`，说明/校验统一 12px 次级色；批量重命名给出命名规则提示，列表与确认摘要用 `DialogOrdering.ContentMaxHeight` 自适应；主按钮文案按动作使用“创建/重命名/预览/提交任务”，不得统一成“确定”。
 - 工具栏选择器：排序/类型/视图统一使用 `DropDownButton` + `FilewaySelectorButtonStyle`（左对齐、12px 内边距），菜单项用 `LayoutChoiceStyle`；单选项选中后收起菜单。不要再让原生 `ComboBox` 承载工具栏选择器（其选中文本带原生内缩）。选择器必须使用自研完整模板：36 DIP 高、1px `FwStrokeBrush`、10 DIP 圆角、`UseSystemFocusVisuals=False` + 双色圆角焦点环、Lucide `caret-down` 12 DIP 箭头，不得沿用系统模板的黑色焦点矩形。按下态不得引用 `ControlFillColorQuaternaryBrush`（应用主题没有该键，会抛启动 `XamlParseException`），统一用 `SubtleFillColorTertiaryBrush`（0.8.112）。
@@ -441,7 +441,7 @@ components:
 - [x] 回归收口与压缩包列头 HC 风险已处理（0.8.168）：列头由 `Opacity=0.65` 改为 `FwCaptionTextStyle`，HC 映射系统文本色；浅/深 archive 回归各 27 项 PASS、列对齐 delta=0。系统高对比度实拍仍未取得（需用户同意切换系统设置），不标 HC 通过。
 - [ ] 自研双色焦点环在 UIA 自动化下必现（`Focused` 状态），鼠标点击不出现（`PointerFocused` 是空状态）：截图验收必须意识到这点，否则会把测试伪影当成产品缺陷；若连程序化聚焦也不想显示，需要按 `FocusState` 区分。
 - [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
-- [x] 弹层模糊结论（2026-10-29）：WinUI 应用内 `ContentDialog`/`MenuFlyout` 的 Acrylic 不会模糊内容，单纯降低不透明度只会牺牲对比度；已实测并回退。**决策**：在引入合成模糊层（Win2D/Composition）之前，弹层统一保持「主题色 Acrylic + 1px 高光边」，不再反复调整透明度。
+- [x] 弹层模糊决策（0.9.0 M05 覆盖 2026-10-29 回退结论）：播放器 HUD 恢复有界 region + SDK Thin acrylic，菜单/弹层用原生 DesktopAcrylicBackdrop（用户确认两者都要）；应用内 ContentDialog/ToolTip/toast 的内容级模糊仍待 M10/M11 合成模糊层统一交付，在此之前保持主题 Acrylic + 1px 高光边，不再反复调透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
 - [x] 紧凑网格已实机复核（2026-10-29，`screens/ui-layouts/compact-grid.png`），容器状态正常；无界网格已复核（2026-10-29，`20261029-ui0815/screens/ui-grid/unbounded-grid-161844.png`），菜单选中态已改为半透明强调底。
 - [ ] 拖到文件夹移动需真实鼠标验收；拖出到资源管理器未开始。
