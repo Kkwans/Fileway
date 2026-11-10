@@ -1,6 +1,7 @@
 package io.github.kkwans.fileway.remote
 
 import android.content.Context
+import android.util.Log
 import java.io.IOException
 import java.security.SecureRandom
 import java.util.Base64
@@ -11,6 +12,8 @@ import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -33,7 +36,7 @@ data class RemoteResult(val id: String, val status: String, val code: String = "
 
 /** Saved pairing records are independent of the one active connection. */
 fun RemoteConnectionState.blocksSelection(target:String):Boolean = device?.id?.let {
-    it!=target&&phase in setOf(RemotePhase.PAIRING,RemotePhase.CONNECTING,RemotePhase.CONNECTED)
+    it!=target
 }==true
 class RemoteFailure(val code: String, message: String) : IOException(message)
 
@@ -49,6 +52,9 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
     @Volatile private var generation = 0L
     private val pending = ConcurrentHashMap<String, CompletableDeferred<RemoteResult>>()
     private var pairingConfirmation:Pair<Long,CompletableDeferred<Unit>>?=null
+    // Do not let an old request's bounded cancellation cancel a new request
+    // that reused the same signed approval attempt.
+    private val pairingRequests = Mutex()
     private data class ApprovalAttempt(val device:String,val fingerprint:String,val controller:String,val nonce:String,val signature:String)
     private var approvalAttempt:ApprovalAttempt?=null
 
@@ -59,8 +65,17 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
 
     /** Discovery is not trust. The TV must approve this exact installation key. */
     suspend fun requestPairing(device: TvDescriptor) {
-        val expected=requireNotNull(retire(targetDevice=device.id) { RemoteConnectionState() })
-        val transport=activate(expected,device,RemotePhase.PAIRING)
+        val expected = requireNotNull(reserve(device, RemotePhase.PAIRING))
+        try {
+            pairingRequests.withLock { requestPairing(device,expected) }
+        } catch(failure:Exception) {
+            failPairing(expected,failure)
+            throw failure
+        }
+    }
+
+    private suspend fun requestPairing(device:TvDescriptor,expected:Long) {
+        val transport=activate(expected,device)
         var auth:JSONObject?=null
         var paired=false
         try {
@@ -79,8 +94,7 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
             if(!withGeneration(expected){approvalAttempt=attempt})throw CancellationException("TV selection changed")
             val code=approvalCode(device.id,id,nonce)
             val request=JSONObject().put("controller",controller).put("nonce",nonce).put("signature",signature)
-            val previous=store.dao.device(device.id)
-            store.dao.saveDevice(PairedTv.from(device,previous?.trusted==true&&previous.fingerprint==device.fingerprint))
+            rememberDevice(expected,device,false)
             var response=try { post(transport,device,"/v1/pairing/start",request) }
                 catch(failure:RemoteFailure){
                     if(failure.code!="UNREACHABLE")throw failure
@@ -118,11 +132,10 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
                 }
             }
             if(generation!=expected)return
-            store.dao.saveDevice(PairedTv.from(device,true))
+            rememberConfirmedPairing(expected, device)
             connect(device,expected)
         } catch(failure:Exception){
-            if(failure is CancellationException&&failure !is TimeoutCancellationException)retire(expected){RemoteConnectionState()}
-            else fail(expected,if(failure is TimeoutCancellationException)"等待 TV 授权超时，可重新连接"else failure.message?:"配对未完成，请重试")
+            failPairing(expected,failure)
             throw failure
         } finally {
             if(!paired&&auth!=null)withContext(NonCancellable){
@@ -143,9 +156,9 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
 
     suspend fun pair(invitation: TvInvitation) {
         val device = invitation.device
-        val expected = requireNotNull(retire(targetDevice=device.id) { RemoteConnectionState() })
-        val transport = activate(expected, device, RemotePhase.PAIRING)
+        val expected = requireNotNull(reserve(device, RemotePhase.PAIRING))
         try {
+            val transport = activate(expected, device)
             val controller = identity.publicController()
             val id = controller.getString("id")
             val nonce = ByteArray(32).also { SecureRandom().nextBytes(it) }.let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
@@ -156,7 +169,7 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
             } finally { secret.fill(0) }
             // Preserve the scanned identity before sending the request so a lost
             // pair response can be resolved by a key challenge rather than re-pairing.
-            store.dao.saveDevice(PairedTv.from(device, false))
+            rememberDevice(expected,device,false)
             try {
                 post(transport, device, "/v1/pair", JSONObject().put("invitationId", invitation.id)
                     .put("nonce", nonce).put("proof", proof).put("controller", controller))
@@ -167,10 +180,10 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
                 post(transport, device, "/v1/challenge", JSONObject().put("controllerId", id))
             }
             if (generation != expected) return
-            store.dao.saveDevice(PairedTv.from(device, true))
+            rememberConfirmedPairing(expected, device)
             connect(device, expected)
         } catch (error: Exception) {
-            if (error is CancellationException) retire(expected) { RemoteConnectionState() }
+            if (error is CancellationException) fail(expected, "连接已取消，可重新连接")
             else fail(expected, error.message ?: "配对未完成，请重试")
             throw error
         }
@@ -179,10 +192,10 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
     suspend fun connect(descriptor: TvDescriptor) = connect(descriptor, null)
 
     private suspend fun connect(descriptor: TvDescriptor, predecessor: Long?) {
-        val expected = retire(predecessor,targetDevice=descriptor.id) { RemoteConnectionState() } ?: return
-        val device = TvDescriptor.from(descriptor.json())
-        val transport = activate(expected, device, RemotePhase.CONNECTING)
+        val expected = reserve(descriptor, RemotePhase.CONNECTING, predecessor) ?: return
         try {
+            val device = TvDescriptor.from(descriptor.json())
+            val transport = activate(expected, device)
             val controller = identity.publicController()
             val id = controller.getString("id")
             val challenge = post(transport, device, "/v1/challenge", JSONObject().put("controllerId", id))
@@ -193,6 +206,19 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
                 .header("Sec-WebSocket-Protocol", REMOTE_SUBPROTOCOL)
                 .header("X-Fileway-Controller", id).header("X-Fileway-Challenge", nonce).header("X-Fileway-Proof", proof).build()
             val listener = object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    scope.launch {
+                        try {
+                            rememberDevice(expected, device, true)
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: Exception) {
+                            // Pairing trust has its own commit. An address
+                            // refresh must not tear down an authenticated socket.
+                            Log.w("FilewayTvRemote", "Could not refresh the saved TV connection")
+                        }
+                    }
+                }
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     if (generation != expected) return
                     if (text.toByteArray(Charsets.UTF_8).size > REMOTE_MESSAGE_LIMIT) { fail(expected, "电视控制消息过大"); return }
@@ -251,13 +277,19 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
             }
             if (!withGeneration(expected) { socket = transport.newWebSocket(request, listener) })
                 throw CancellationException("TV selection changed")
-            store.dao.saveDevice(PairedTv.from(device, true))
         } catch (error: Exception) {
             if (error is CancellationException) {
-                retire(expected) { RemoteConnectionState() }
+                fail(expected, "连接已取消，可重新连接")
                 throw error
             }
-            fail(expected, error.message ?: "无法连接电视", retryable = error is RemoteFailure && error.code == "UNREACHABLE")
+            val message = error.message ?: "无法连接电视"
+            val retryable = error is RemoteFailure && error.code == "UNREACHABLE"
+            if (predecessor != null) {
+                val pairedMessage = "TV 已配对，但当前连接未完成：$message"
+                fail(expected, pairedMessage, retryable = retryable)
+                throw RemoteFailure((error as? RemoteFailure)?.code ?: "CONNECT_FAILED", pairedMessage).apply { initCause(error) }
+            }
+            fail(expected, message, retryable = retryable)
             throw error
         }
     }
@@ -291,15 +323,52 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
         retire(expected) { it.copy(phase = if (busy) RemotePhase.BUSY else RemotePhase.FAILED, error = message, snapshot = null, retryable = retryable,pairingCode=null,pairingAwaitingConfirmation=false) }
     }
 
+    private fun failPairing(expected:Long, failure:Exception) {
+        val message=when(failure) {
+            is TimeoutCancellationException -> "等待 TV 授权超时，可重新连接"
+            is CancellationException -> "连接已取消，可重新连接"
+            else -> failure.message?:"配对未完成，请重试"
+        }
+        fail(expected,message)
+    }
+
+    private suspend fun rememberDevice(expected: Long, device: TvDescriptor, trusted: Boolean) {
+        val caller = currentCoroutineContext()
+        val checkSelection: () -> Unit = {
+            if (!withGeneration(expected) { caller.ensureActive() })
+                throw CancellationException("TV selection changed")
+        }
+        checkSelection()
+        // Let Room finish the transaction. The original caller and generation
+        // are checked again after SQL, before the transaction admits the write.
+        withContext(NonCancellable) {
+            store.rememberDevice(PairedTv.from(device, trusted), checkSelection)
+        }
+    }
+
+    private suspend fun rememberConfirmedPairing(expected: Long, device: TvDescriptor) {
+        try {
+            rememberDevice(expected, device, true)
+        } catch (error: Exception) {
+            if (error is CancellationException || error is RemoteFailure) throw error
+            throw RemoteFailure("PAIRING_NOT_SAVED", "TV 已确认配对，手机未能保存配对记录，请重新连接")
+                .apply { initCause(error) }
+        }
+    }
+
+    private suspend fun reserve(device: TvDescriptor, phase: RemotePhase, predecessor: Long? = null): Long? =
+        retire(predecessor, targetDevice = device.id, caller = currentCoroutineContext()[Job]) {
+            RemoteConnectionState(phase, device)
+        }
+
     private fun withGeneration(expected: Long, action: () -> Unit): Boolean = synchronized(lifecycle) {
         if (generation != expected) false else { action(); true }
     }
 
-    private fun activate(expected: Long, device: TvDescriptor, phase: RemotePhase): OkHttpClient {
+    private fun activate(expected: Long, device: TvDescriptor): OkHttpClient {
         val transport = pinnedClient(context, device)
         if (!withGeneration(expected) {
             client = transport
-            mutable.value = RemoteConnectionState(phase, device)
         }) {
             closeTransport(transport)
             throw CancellationException("TV selection changed")
@@ -310,8 +379,10 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
     private data class Retired(val generation: Long, val socket: WebSocket?, val client: OkHttpClient?,
         val pending: List<Pair<String, CompletableDeferred<RemoteResult>>>,val confirmation:CompletableDeferred<Unit>?)
 
-    private fun retire(expected: Long? = null, targetDevice:String?=null, next: (RemoteConnectionState) -> RemoteConnectionState): Long? {
+    private fun retire(expected: Long? = null, targetDevice:String?=null, caller: Job? = null,
+        next: (RemoteConnectionState) -> RemoteConnectionState): Long? {
         val retired = synchronized(lifecycle) {
+            caller?.ensureActive()
             if (expected != null && generation != expected) return null
             if(targetDevice!=null&&mutable.value.blocksSelection(targetDevice))
                 throw RemoteFailure("DISCONNECT_REQUIRED","请先断开当前 TV，再连接其他 TV")

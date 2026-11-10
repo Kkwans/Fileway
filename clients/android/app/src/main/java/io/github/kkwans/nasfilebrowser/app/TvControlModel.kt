@@ -25,8 +25,9 @@ class TvControlModel(application:Application):AndroidViewModel(application){
     private var scan:Job?=null
     private var selection:Job?=null
     private var reconnect:Job?=null
-    private var selected:TvDescriptor?=null
-    private var revision=0L
+    private val selectionLock=Any()
+    @Volatile private var selected:TvDescriptor?=null
+    @Volatile private var revision=0L
     private var retryAttempt=0
     private var visible=false
     private var automatic=true
@@ -53,34 +54,39 @@ class TvControlModel(application:Application):AndroidViewModel(application){
             val attempted=mutableSetOf<String>()
             TvServiceDiscovery(getApplication()).scan().collect{result->
                 discoveryMutable.value=result
-                if(automatic&&selected==null&&connection.value.phase==RemotePhase.OFFLINE){
+                val expected=synchronized(selectionLock){
+                    revision.takeIf{automatic&&selected==null&&connection.value.phase==RemotePhase.OFFLINE}
+                }
+                if(expected!=null){
                     val known=result.devices.mapNotNull{found->client.store.dao.device(found.id)?.takeIf{it.trusted&&it.fingerprint==found.fingerprint}?.descriptor()?.at(found.address,found.port)}
-                    if(known.size==1&&attempted.add(known.single().id))connect(known.single())
+                    if(known.size==1&&attempted.add(known.single().id))connect(known.single(),true,expected)
                 }
             }
         }
     }
     fun stopSearch(){visible=false;scan?.cancel();scan=null;reconnect?.cancel();reconnect=null}
     fun connect(device:TvDescriptor)=connect(device,true)
-    internal fun allowSelection(id:String):Boolean {
-        if(!connection.value.blocksSelection(id))return true
-        noticeMutable.value="请先断开当前 TV，再连接其他 TV"
-        return false
+    internal fun allowSelection(id:String):Boolean = synchronized(selectionLock) {
+        if(!connection.value.blocksSelection(id)&&selected?.id?.let{it!=id}!=true)true
+        else {
+            noticeMutable.value="请先断开当前 TV，再连接其他 TV"
+            false
+        }
     }
-    private fun connect(device:TvDescriptor,resetBackoff:Boolean){
-        if(!allowSelection(device.id))return
-        automatic=true;selected=device
-        select(resetBackoff){client.connect(latest(device))}
+    private fun connect(device:TvDescriptor,resetBackoff:Boolean,predecessor:Long?=null){
+        select(device,resetBackoff,predecessor){client.connect(latest(device))}
     }
     private fun latest(device:TvDescriptor):TvDescriptor=discovery.value.devices
         .firstOrNull{it.id==device.id&&it.fingerprint==device.fingerprint}
         ?.let{device.at(it.address,it.port)}?:device
     fun reconnectNow(){
-        val device=connection.value.device?:selected?:return
-        val expected=revision
-        work {
-            val saved=client.store.dao.device(device.id)
-            if(expected==revision){if(saved?.trusted==true&&saved.fingerprint==device.fingerprint)connect(device)else requestPairing(device)}
+        val (device,expected)=synchronized(selectionLock){(connection.value.device?:selected?:return) to revision}
+        viewModelScope.launch {
+            runAction(expected) {
+                val saved=client.store.dao.device(device.id)
+                if(saved?.trusted==true&&saved.fingerprint==device.fingerprint)connect(device,true,expected)
+                else select(device,predecessor=expected){client.requestPairing(latest(device))}
+            }
         }
     }
     private fun scheduleReconnect(){
@@ -93,27 +99,48 @@ class TvControlModel(application:Application):AndroidViewModel(application){
         reconnect=viewModelScope.launch{
             delay(waitMs)
             if(expected!=revision||!visible||!automatic||connection.value.phase!=RemotePhase.FAILED||!connection.value.retryable)return@launch
-            reconnect=null
-            connect(device,false)
+            connect(device,false,expected)
         }
     }
     fun pair(text:String){
         val invitation=try{TvInvitation.parse(text)}catch(error:Exception){noticeMutable.value=error.message?:"配对码无法识别";return}
-        if(!allowSelection(invitation.device.id))return
-        select{automatic=true;selected=invitation.device;client.pair(invitation)}
+        select(invitation.device){client.pair(invitation)}
     }
-    fun requestPairing(device:TvDescriptor){if(!allowSelection(device.id))return;automatic=true;selected=device;select{client.requestPairing(latest(device))}}
-    private fun select(resetBackoff:Boolean=true,action:suspend ()->Unit){
-        val expected=++revision
-        val previous=selection
-        previous?.cancel();reconnect?.cancel();reconnect=null;busyMutable.value=false
-        if(resetBackoff)retryAttempt=0
-        selection=viewModelScope.launch{previous?.join();runAction(expected,action)}
+    fun requestPairing(device:TvDescriptor){select(device){client.requestPairing(latest(device))}}
+    private fun select(device:TvDescriptor,resetBackoff:Boolean=true,predecessor:Long?=null,action:suspend ()->Unit){
+        val next=synchronized(selectionLock){
+            if(predecessor!=null&&predecessor!=revision)return
+            if(!allowSelection(device.id))return
+            // Reserve before launching or waiting for a previous attempt's cleanup.
+            automatic=true;selected=device
+            val expected=++revision
+            val previous=selection
+            previous?.cancel();reconnect?.cancel();reconnect=null;busyMutable.value=false
+            if(resetBackoff)retryAttempt=0
+            viewModelScope.launch(start=CoroutineStart.LAZY){
+                previous?.join()
+                runAction(expected,action)
+            }.also{selection=it}
+        }
+        next.start()
     }
     private suspend fun runAction(expected:Long,action:suspend ()->Unit){
-        if(expected!=revision)return
-        try{noticeMutable.value=null;action()}
-        catch(e:Exception){if(e is CancellationException)throw e;if(expected==revision)noticeMutable.value=e.message?:"电视操作未完成"}
+        synchronized(selectionLock){
+            if(expected!=revision)return
+            noticeMutable.value=null
+        }
+        try{action()}
+        catch(e:Exception){
+            if(e is CancellationException)throw e
+            synchronized(selectionLock) {
+                if(expected==revision){
+                    // A direct transport user may have reserved a target after
+                    // the model checked; retain that actual target for retry.
+                    if(e is RemoteFailure&&e.code=="DISCONNECT_REQUIRED")selected=connection.value.device
+                    noticeMutable.value=e.message?:"电视操作未完成"
+                }
+            }
+        }
     }
     fun work(action:suspend ()->Unit){val expected=revision;viewModelScope.launch{runAction(expected,action)}}
     fun command(operation:String,payload:JSONObject=JSONObject())=work{send(operation,payload)}
@@ -192,6 +219,6 @@ class TvControlModel(application:Application):AndroidViewModel(application){
                 try {sendBound("session.adopt",JSONObject().put("requestId",request.getString("id")),deviceId,version)}
                 catch(failure:Exception){if(failure is CancellationException)throw failure;throw TvCommandUnconfirmed("授权已批准，TV是否完成登录尚未确认，请先查看TV当前登录状态",failure)}
     }
-    fun disconnect(){val pairing=connection.value.phase in setOf(RemotePhase.PAIRING,RemotePhase.CONNECTING);++revision;automatic=false;selection?.cancel();reconnect?.cancel();reconnect=null;busyMutable.value=false;client.disconnect();noticeMutable.value=if(pairing)"已取消连接申请"else"已断开 TV"}
+    fun disconnect()=synchronized(selectionLock){val pairing=connection.value.phase in setOf(RemotePhase.PAIRING,RemotePhase.CONNECTING);++revision;automatic=false;selected=null;selection?.cancel();reconnect?.cancel();reconnect=null;busyMutable.value=false;client.disconnect();noticeMutable.value=if(pairing)"已取消连接申请"else"已断开 TV"}
     override fun onCleared(){scan?.cancel();reconnect?.cancel();client.disconnect()}
 }

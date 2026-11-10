@@ -72,11 +72,28 @@ abstract class RemoteDatabase : RoomDatabase() {
     }
 }
 
-class RemoteStore(context: Context) {
-    val database = RemoteDatabase.get(context)
+class RemoteStore internal constructor(context: Context, val database: RemoteDatabase) {
+    constructor(context: Context) : this(context, RemoteDatabase.get(context))
+
     val dao = database.remote()
     val vault = CredentialVault(context)
     companion object { private val identityLock=Mutex() }
+
+    internal suspend fun rememberDevice(value: PairedTv, checkSelection: () -> Unit) {
+        database.withTransaction {
+            checkSelection()
+            val previous = dao.device(value.id)
+            if (previous?.trusted == true) {
+                if (previous.fingerprint != value.fingerprint)
+                    throw RemoteFailure("IDENTITY_CHANGED", "TV 身份与已保存的配对记录不一致")
+                if (!value.trusted) return@withTransaction
+            }
+            dao.saveDevice(value)
+            // The caller's final selection check admits this write. Room
+            // rolls back if it throws and otherwise commits in writer order.
+            checkSelection()
+        }
+    }
 
     suspend fun tvIdentity(): JSONObject = identityLock.withLock {
         val stored = withContext(Dispatchers.IO) { vault.read("tv-control-identity-v1") }
