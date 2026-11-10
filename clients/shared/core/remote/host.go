@@ -56,6 +56,7 @@ type commandEntry struct {
 	digest     string
 	controller string
 	connection string
+	transient  bool
 	result     Result
 	expires    time.Time
 	timer      *time.Timer
@@ -270,7 +271,18 @@ func (h *Host) Reply(connectionID, controllerID string, result Result) error {
 		return errors.New("command is no longer pending")
 	}
 	result.Type = "command.result"
-	entry.result, entry.expires = result, time.Now().Add(5*time.Minute)
+	// Keep the first response for the active requesting socket, but never retain
+	// directory payloads in controller-scoped command receipts. The same trusted
+	// controller may reconnect after the TV account or media has changed.
+	stored := result
+	if entry.transient {
+		stored.Payload = nil
+		if stored.Status == "COMPLETED" || stored.Status == "REJECTED" {
+			stored.Status = "REJECTED"
+			stored.Code = "RESULT_NOT_RETAINED"
+		}
+	}
+	entry.result, entry.expires = stored, time.Now().Add(5*time.Minute)
 	if entry.timer != nil {
 		entry.timer.Stop()
 	}
@@ -653,7 +665,7 @@ func (h *Host) acceptCommand(active *peer, command Command) error {
 		return h.send(active, Result{Type: "command.result", CommandID: command.CommandID, Status: "REJECTED", Code: "DEVICE_BUSY"})
 	}
 	result := Result{Type: "command.result", CommandID: command.CommandID, Status: "ACCEPTED"}
-	entry := &commandEntry{digest: commandDigest(command), controller: active.controller, connection: active.id, result: result, expires: now.Add(5 * time.Minute)}
+	entry := &commandEntry{digest: commandDigest(command), controller: active.controller, connection: active.id, transient: transientSubtitleRead(command.Operation), result: result, expires: now.Add(5 * time.Minute)}
 	h.commands[key] = entry
 	entry.timer = time.AfterFunc(30*time.Second, func() {
 		// A timed-out acknowledgement does not prove a mutation failed. Keep it

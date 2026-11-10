@@ -44,6 +44,8 @@ var operations = map[string]bool{
 	"playback.setVolume": true, "playback.setHdrMode": true,
 	"audio.select": true, "subtitle.select": true, "subtitle.disable": true,
 	"subtitle.selectNasFile": true, "subtitle.setDelay": true, "subtitle.setAppearance": true,
+	"subtitle.browse.open": true, "subtitle.browse.page": true,
+	"subtitle.browse.select": true, "subtitle.browse.close": true,
 	"media.open": true, "queue.set": true, "queue.select": true,
 	"queue.next": true, "queue.previous": true,
 	"image.open": true, "image.selectIndex": true, "image.next": true,
@@ -51,6 +53,12 @@ var operations = map[string]bool{
 	"app.navigate": true, "app.back": true, "app.key": true, "app.list": true,
 	"app.inputText": true, "app.setPreference": true,
 	"session.requestGrant": true, "session.adopt": true, "session.cancelSwitch": true,
+}
+
+// Directory reads can contain TV-local or server file names. Their result is
+// delivered to the requesting connection only, never replayed from receipts.
+func transientSubtitleRead(operation string) bool {
+	return operation == "subtitle.browse.open" || operation == "subtitle.browse.page"
 }
 
 func DecodeCommand(data []byte) (Command, error) {

@@ -172,6 +172,55 @@ func TestCompanionPairControlAndReconnect(t *testing.T) {
 	if value := read(socket); value["code"] != "COMMAND_CONFLICT" {
 		t.Fatal("conflicting duplicate accepted", value)
 	}
+
+	// A browsing response is visible to its requesting socket once, but its
+	// filenames must not survive in the controller-scoped receipt cache.
+	var directoryCommands []string
+	for _, example := range []struct{ operation, status, payload string }{
+		{"subtitle.browse.open", "COMPLETED", `{"items":[{"name":"owned-caption.srt"}]}`},
+		{"subtitle.browse.page", "COMPLETED", `{"items":[{"name":"owned-caption.srt"}]}`},
+		{"subtitle.browse.page", "REJECTED", `{"message":"owned-caption.srt is unavailable"}`},
+	} {
+		browseID, _ := randomID()
+		directoryCommands = append(directoryCommands, browseID)
+		browse := Command{Type: "command", Protocol: Protocol, CommandID: browseID, ConnectionID: connectionID,
+			Operation: example.operation, Payload: json.RawMessage(`{}`)}
+		write(browse)
+		if value := read(socket); value["status"] != "ACCEPTED" {
+			t.Fatal("directory read was not accepted", value)
+		}
+		for {
+			event, e := host.Wait(ctx)
+			if e != nil {
+				t.Fatal(e)
+			}
+			if event.Type == "command" {
+				if event.Command.CommandID != browseID {
+					t.Fatal("wrong directory command", event)
+				}
+				break
+			}
+		}
+		if err = host.Reply(connectionID, controller.ID, Result{CommandID: browseID, Status: example.status,
+			Payload: json.RawMessage(example.payload)}); err != nil {
+			t.Fatal(err)
+		}
+		first := read(socket)
+		if first["status"] != example.status || first["payload"] == nil {
+			t.Fatal("requesting connection did not receive the directory", first)
+		}
+		write(browse)
+		duplicate := read(socket)
+		if duplicate["status"] != "REJECTED" || duplicate["code"] != "RESULT_NOT_RETAINED" || duplicate["payload"] != nil {
+			t.Fatal("directory payload was replayed", duplicate)
+		}
+		host.mu.Lock()
+		stored := host.commands[controller.ID+"/"+browseID].result
+		host.mu.Unlock()
+		if len(stored.Payload) != 0 {
+			t.Fatal("directory payload remained in receipt storage")
+		}
+	}
 	_ = socket.CloseNow()
 	for {
 		event, e := host.Wait(ctx)
@@ -188,8 +237,23 @@ func TestCompanionPairControlAndReconnect(t *testing.T) {
 	// No new invitation is required on reconnect and state remains owned by TV.
 	second := connect()
 	defer func() { _ = second.CloseNow() }()
+	secondHello := read(second)
 	_ = read(second)
-	_ = read(second)
+	for _, browseID := range directoryCommands {
+		queryID, _ := randomID()
+		payload, _ := json.Marshal(map[string]string{"commandId": browseID})
+		query := Command{Type: "command", Protocol: Protocol, CommandID: queryID,
+			ConnectionID: secondHello["connectionId"].(string), Operation: "device.commandStatus", Payload: payload}
+		data, _ := json.Marshal(query)
+		if err = second.Write(ctx, websocket.MessageText, data); err != nil {
+			t.Fatal(err)
+		}
+		value := read(second)
+		result := value["payload"].(map[string]any)["result"].(map[string]any)
+		if result["status"] != "REJECTED" || result["code"] != "RESULT_NOT_RETAINED" || result["payload"] != nil {
+			t.Fatal("reconnected controller recovered a directory payload", result)
+		}
+	}
 	host.Revoke(controller.ID)
 	if status, _ := post("/v1/challenge", map[string]string{"controllerId": controller.ID}); status != 401 {
 		t.Fatal("revoked controller authenticated", status)
