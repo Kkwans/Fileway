@@ -1,0 +1,96 @@
+<UserControl x:Class="Fileway.App.Controls.Settings.SettingsControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:Fileway.App.Controls"
+             AutomationProperties.Name="设置">
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+  <StackPanel Padding="20,16" Spacing="12" MaxWidth="860" HorizontalAlignment="Left">
+   <Grid ColumnSpacing="8">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <StackPanel Spacing="4" VerticalAlignment="Center">
+     <TextBlock Text="设置" FontSize="22" FontWeight="SemiBold"/>
+     <TextBlock Text="外观、交互、播放、存储与连接偏好集中管理；修改立即生效。" Style="{StaticResource FwCaptionTextStyle}"/>
+    </StackPanel>
+    <Button Grid.Column="1" Content="返回文件" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" VerticalAlignment="Center" AutomationProperties.Name="离开设置，返回文件"/>
+   </Grid>
+
+   <Border Style="{StaticResource FwFormCardStyle}">
+    <StackPanel Spacing="10">
+     <TextBlock Text="外观" FontSize="15" FontWeight="SemiBold"/>
+     <StackPanel Spacing="6">
+      <TextBlock Text="界面主题" Style="{StaticResource FwCaptionTextStyle}"/>
+      <ui:ChoiceBox x:Name="ThemeBox" HorizontalAlignment="Stretch" AutomationProperties.Name="界面主题">
+       <ComboBoxItem Content="跟随系统"/><ComboBoxItem Content="浅色"/><ComboBoxItem Content="深色"/>
+      </ui:ChoiceBox>
+     </StackPanel>
+     <StackPanel Spacing="6">
+      <TextBlock Text="侧栏与顶栏背景" Style="{StaticResource FwCaptionTextStyle}"/>
+      <ui:ChoiceBox x:Name="MaterialBox" HorizontalAlignment="Stretch" AutomationProperties.Name="侧栏与顶栏背景">
+       <ComboBoxItem Content="中性底色"/><ComboBoxItem Content="实时模糊"/><ComboBoxItem Content="壁纸取色（Mica）"/>
+      </ui:ChoiceBox>
+     </StackPanel>
+     <StackPanel Spacing="6">
+      <TextBlock Text="中性底色配色" Style="{StaticResource FwCaptionTextStyle}"/>
+      <ui:ChoiceBox x:Name="ToneBox" HorizontalAlignment="Stretch" AutomationProperties.Name="中性底色配色">
+       <ComboBoxItem Content="雾灰"/><ComboBoxItem Content="暖灰"/><ComboBoxItem Content="冷灰"/><ComboBoxItem Content="自定义取色"/>
+      </ui:ChoiceBox>
+     </StackPanel>
+     <Button Content="更多外观与取色…" Click="Appearance_Click" Style="{StaticResource FwSecondaryButtonStyle}" HorizontalAlignment="Right" AutomationProperties.Name="打开更多外观与取色设置"/>
+    </StackPanel>
+   </Border>
+
+   <Border Style="{StaticResource FwFormCardStyle}">
+    <StackPanel Spacing="10">
+     <TextBlock Text="交互" FontSize="15" FontWeight="SemiBold"/>
+     <ToggleSwitch x:Name="TraySwitch" Header="关闭窗口后保留在托盘" OnContent="保留" OffContent="退出" AutomationProperties.Name="关闭窗口后保留在托盘"/>
+     <StackPanel Spacing="4">
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="提示自动消失" Style="{StaticResource FwCaptionTextStyle}"/><TextBlock x:Name="ToastValue" Grid.Column="1" Style="{StaticResource FwCaptionTextStyle}"/></Grid>
+      <Slider x:Name="ToastSlider" Minimum="2" Maximum="30" StepFrequency="1" AutomationProperties.Name="提示自动消失秒数"/>
+     </StackPanel>
+     <StackPanel Spacing="4">
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="播放控件自动隐藏" Style="{StaticResource FwCaptionTextStyle}"/><TextBlock x:Name="ControlsValue" Grid.Column="1" Style="{StaticResource FwCaptionTextStyle}"/></Grid>
+      <Slider x:Name="ControlsSlider" Minimum="2" Maximum="30" StepFrequency="1" AutomationProperties.Name="播放控件自动隐藏秒数"/>
+     </StackPanel>
+    </StackPanel>
+   </Border>
+
+   <Border Style="{StaticResource FwFormCardStyle}">
+    <StackPanel Spacing="10">
+     <TextBlock Text="播放" FontSize="15" FontWeight="SemiBold"/>
+     <ToggleSwitch x:Name="RememberPlayerSwitch" Header="再次打开视频" OnContent="保留上次窗口大小" OffContent="按视频比例自动调整" AutomationProperties.Name="再次打开视频保留上次窗口大小"/>
+     <TextBlock Text="字幕样式与偏移在播放器设置中调整；播放视频时从播放器菜单进入。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+    </StackPanel>
+   </Border>
+
+   <Border Style="{StaticResource FwFormCardStyle}">
+    <StackPanel Spacing="10">
+     <TextBlock Text="存储与打开方式" FontSize="15" FontWeight="SemiBold"/>
+     <TextBlock Text="缓存根目录、容量、默认下载目录与各类文件的打开方式。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button Content="打开方式…" Click="OpenWith_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开打开方式设置"/>
+      <Button Content="缓存与存储…" Click="Storage_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开缓存与存储设置"/>
+     </StackPanel>
+    </StackPanel>
+   </Border>
+
+   <Border Style="{StaticResource FwFormCardStyle}">
+    <StackPanel Spacing="10">
+     <TextBlock Text="连接与服务器" FontSize="15" FontWeight="SemiBold"/>
+     <TextBlock Text="本地服务端部署/端口/局域网访问，以及服务器存储分析与用户管理。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button Content="存储工具…" Click="ServerTools_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开存储工具与用户管理"/>
+      <Button Content="本地服务端…" Click="LocalServer_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开本地服务端管理"/>
+     </StackPanel>
+    </StackPanel>
+   </Border>
+
+   <Border Style="{StaticResource FwFormCardStyle}">
+    <StackPanel Spacing="10">
+     <TextBlock Text="关于" FontSize="15" FontWeight="SemiBold"/>
+     <TextBlock Text="版本、来源与许可证。" Style="{StaticResource FwCaptionTextStyle}"/>
+     <Button Content="关于栖卷…" Click="About_Click" Style="{StaticResource FwSecondaryButtonStyle}" HorizontalAlignment="Right" AutomationProperties.Name="打开关于栖卷"/>
+    </StackPanel>
+   </Border>
+  </StackPanel>
+ </ScrollViewer>
+</UserControl>

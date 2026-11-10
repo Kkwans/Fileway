@@ -119,6 +119,7 @@ public sealed partial class MainPage : Page, IDisposable
         InitializeRecentAccess();
         InitializeRemoteTools();
         InitializeApplicationMenus();
+        InitializeSettings();
         ApplyBrowserPresentation();
         Loaded += (_, _) => { ApplyTheme(); UpdateThumbnailContext(); };
         Unloaded += (_, _) => _thumbnailController.SetContext(null, null);

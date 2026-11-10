@@ -19,7 +19,7 @@ public sealed partial class MainPage
     private void InitializeApplicationMenus()
     {
         _applicationMenusReady = true;
-        foreach (var view in new UIElement[] { Workspace, ConnectionPanel, RecentPane, TransfersPanel, CollectionsPanel, SearchPane, NasTasksPane, TrashPane, LocalServerPane, StorageToolsHost })
+        foreach (var view in new UIElement[] { Workspace, ConnectionPanel, RecentPane, TransfersPanel, CollectionsPanel, SearchPane, NasTasksPane, TrashPane, LocalServerPane, StorageToolsHost, SettingsPane })
         {
             var token = view.RegisterPropertyChangedCallback(UIElement.VisibilityProperty, (_, _) => UpdateApplicationMenus());
             _applicationMenuViews.Add((view, token));
@@ -107,7 +107,7 @@ public sealed partial class MainPage
             : RecentPane.Visibility == Visibility.Visible ? "最近访问"
             : SearchPane.Visibility == Visibility.Visible ? "搜索结果" : NasTasksPane.Visibility == Visibility.Visible ? "文件任务"
             : TrashPane.Visibility == Visibility.Visible ? "回收站"
-            : TransfersPanel.Visibility == Visibility.Visible ? "传输中心" : CollectionsPanel.Visibility == Visibility.Visible ? "收藏与标签" : "我的文件";
+            : TransfersPanel.Visibility == Visibility.Visible ? "传输中心" : CollectionsPanel.Visibility == Visibility.Visible ? "收藏与标签" : SettingsPane.Visibility == Visibility.Visible ? "设置" : "我的文件";
         SearchBox.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
         SearchBox.IsEnabled = BrowserCommands.IsEnabled = browser;
         SetSidebarCurrent(MyFilesButton, browser);
@@ -116,6 +116,8 @@ public sealed partial class MainPage
         SetSidebarCurrent(NasTasksButton, !connectionView && NasTasksPane.Visibility == Visibility.Visible);
         SetSidebarCurrent(TrashPageButton, !connectionView && TrashPane.Visibility == Visibility.Visible);
         SetSidebarCurrent(LocalServerButton, LocalServerPane.Visibility == Visibility.Visible);
+        SetSidebarCurrent(SettingsButton, SettingsPane.Visibility == Visibility.Visible);
+        SettingsButton.IsEnabled = !_connecting;
     }
 
     private void SetSidebarCurrent(Button button, bool current)

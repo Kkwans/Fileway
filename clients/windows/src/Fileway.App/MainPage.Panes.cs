@@ -16,6 +16,7 @@ public sealed partial class MainPage
         Storage,
         Collections,
         LocalServer,
+        Settings,
     }
 
     private MainPane _currentPane = MainPane.Connection;
@@ -36,6 +37,7 @@ public sealed partial class MainPage
         if (StorageToolsHost is not null) StorageToolsHost.Visibility = pane == MainPane.Storage ? Visibility.Visible : Visibility.Collapsed;
         if (CollectionsPanel is not null) CollectionsPanel.Visibility = pane == MainPane.Collections ? Visibility.Visible : Visibility.Collapsed;
         if (LocalServerPane is not null) LocalServerPane.Visibility = pane == MainPane.LocalServer ? Visibility.Visible : Visibility.Collapsed;
+        if (SettingsPane is not null) SettingsPane.Visibility = pane == MainPane.Settings ? Visibility.Visible : Visibility.Collapsed;
 
         if (pane != MainPane.Recent) RecentPane?.SuspendView();
         if (pane != MainPane.Search) SearchPane?.SuspendView();

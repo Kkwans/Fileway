@@ -100,6 +100,7 @@ public sealed partial class MainPage
         SidebarOverlayBackground.Visibility = _sidebarOverlay ? Visibility.Visible : Visibility.Collapsed;
         MyFilesLabel.Visibility = RecentAccessLabel.Visibility = TransferCenterLabel.Visibility = NasTasksLabel.Visibility = TrashPageLabel.Visibility =
             ConnectionLabel.Visibility = SidebarConnectionActionLabel.Visibility = SidebarCollections.Visibility = rail ? Visibility.Collapsed : Visibility.Visible;
+        SettingsLabel.Visibility = rail ? Visibility.Collapsed : Visibility.Visible;
         foreach (var button in new[] { MyFilesButton, RecentAccessButton, TransferCenterButton, NasTasksButton, TrashPageButton, ConnectionButton })
         {
             button.HorizontalContentAlignment = rail ? HorizontalAlignment.Center : HorizontalAlignment.Left;
@@ -109,7 +110,7 @@ public sealed partial class MainPage
         {
             (MyFilesButton, "我的文件"), (RecentAccessButton, "最近访问"), (TransferCenterButton, "传输中心"),
             (NasTasksButton, "文件任务"), (StorageToolsButton, "存储工具"), (TrashPageButton, "回收站"),
-            (ConnectionButton, SidebarConnectionActionLabel.Text), (LocalServerButton, "本地服务端"),
+            (ConnectionButton, SidebarConnectionActionLabel.Text), (LocalServerButton, "本地服务端"), (SettingsButton, "设置"),
         })
         {
             ToolTipService.SetToolTip(button, rail ? tip : null);
