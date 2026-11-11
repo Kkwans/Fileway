@@ -78,8 +78,11 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
     val measurer=rememberTextMeasurer()
     val density=LocalDensity.current
     val style=MaterialTheme.typography.bodyLarge
-    // Width follows the actual labels plus icon/check slots, including font scale.
-    val measuredWidth=with(density) { TvSettingsSection.entries.maxOf { measurer.measure(AnnotatedString(it.title),style).size.width }.toDp() } + 66.dp
+    val labelWidth = with(density) {
+        TvSettingsSection.entries.maxOf { measurer.measure(AnnotatedString(it.title), style).size.width }.toDp()
+    }
+    // DenseListItem adds 12dp on each side and two 8dp gaps. Allow 2dp for rounding.
+    val measuredWidth = labelWidth + maxOf(ListItemDefaults.IconSizeDense, TvOptionIconSize) + 42.dp
     Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
         LazyColumn(Modifier.width(measuredWidth),state=settingsNavigation,verticalArrangement=Arrangement.spacedBy(4.dp)) {
             items(TvSettingsSection.entries,key={it.name}) { category ->
@@ -90,7 +93,7 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                         scope.launch { withFrameNanos {};body.requestFocus() }
                     }
                 },Modifier.focusRequester(navigation.getValue(category)).focusProperties { right=body },
-                    icon=category.icon,selected=section==category,showSelection=false)
+                    icon=category.icon,selected=section==category,showSelection=false,dense=true)
             }
         }
         key(section) {

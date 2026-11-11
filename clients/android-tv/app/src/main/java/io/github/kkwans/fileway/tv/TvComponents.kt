@@ -65,6 +65,7 @@ internal val LocalTvSurfaces = staticCompositionLocalOf { TvSurfaceRoles(
     Color(0xFF28282A), Color(0xFF48484B), Color(0xFFD0D0D2), Color(0xFF66666A),
 ) }
 internal val TvShape = RoundedCornerShape(12.dp)
+internal val TvOptionIconSize = 24.dp
 
 private val TvTypography = Typography(
     displayLarge = tvTextStyle(36, 44, FontWeight.SemiBold),
@@ -299,26 +300,48 @@ internal fun tvDate(value:String):String=runCatching {
 @Composable internal fun TvOptionRow(
     title:String, onClick:()->Unit, modifier:Modifier=Modifier, supporting:String?=null,
     selected:Boolean=false, enabled:Boolean=true, icon:Int?=null, value:String?=null, destination:Boolean=false,
-    showSelection:Boolean=true, leading:(@Composable ()->Unit)?=null,
+    showSelection:Boolean=true, leading:(@Composable ()->Unit)?=null, dense:Boolean=false,
 ) {
     val interactive=LocalTvInteractive.current
     val colors=MaterialTheme.colorScheme
     val interaction=remember { MutableInteractionSource() }
-    ListItem(selected=selected,onClick=onClick,enabled=enabled&&interactive,interactionSource=interaction,
-        modifier=modifier.fillMaxWidth().heightIn(min=52.dp).tvTouch(onClick,enabled&&interactive,interaction).focusProperties { canFocus=interactive },
-        shape=ListItemDefaults.shape(TvShape),scale=ListItemDefaults.scale(focusedScale=1f),
-        colors=ListItemDefaults.colors(containerColor=Color.Transparent,contentColor=colors.onSurface,
-            selectedContainerColor=colors.primary.copy(alpha=.12f),selectedContentColor=colors.onSurface,
-            focusedContainerColor=colors.onSurface,focusedContentColor=colors.surface,
-            focusedSelectedContainerColor=colors.onSurface,focusedSelectedContentColor=colors.surface),
-        headlineContent={Text(title,style=MaterialTheme.typography.bodyLarge,maxLines=2,overflow=TextOverflow.Ellipsis)},
-        supportingContent=supporting?.takeIf{it.isNotBlank()}?.let{subtitle->{Text(subtitle,style=MaterialTheme.typography.bodySmall,color=LocalContentColor.current.copy(alpha=.75f),maxLines=2,overflow=TextOverflow.Ellipsis)}},
-        leadingContent=if(leading!=null){{leading()}}else icon?.let{resource-> {Icon(painterResource(resource),null,Modifier.size(24.dp))}},
-        trailingContent={Row(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically){
+    val active = enabled && interactive
+    val rowModifier = modifier.fillMaxWidth().heightIn(min = if (dense) 48.dp else 52.dp)
+        .tvTouch(onClick, active, interaction).focusProperties { canFocus = interactive }
+    val shape = ListItemDefaults.shape(TvShape)
+    val scale = ListItemDefaults.scale(focusedScale = 1f)
+    val rowColors = ListItemDefaults.colors(containerColor=Color.Transparent,contentColor=colors.onSurface,
+        selectedContainerColor=colors.primary.copy(alpha=.12f),selectedContentColor=colors.onSurface,
+        focusedContainerColor=colors.onSurface,focusedContentColor=colors.surface,
+        focusedSelectedContainerColor=colors.onSurface,focusedSelectedContentColor=colors.surface)
+    val headlineContent: @Composable () -> Unit = {
+        Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+    val supportingContent: (@Composable () -> Unit)? = supporting?.takeIf { it.isNotBlank() }?.let { subtitle ->
+        { Text(subtitle, style = MaterialTheme.typography.bodySmall, color = LocalContentColor.current.copy(alpha = .75f),
+            maxLines = 2, overflow = TextOverflow.Ellipsis) }
+    }
+    val leadingContent: (@Composable BoxScope.() -> Unit)? = when {
+        leading != null -> { { leading() } }
+        icon != null -> { { Icon(painterResource(icon), null, Modifier.size(TvOptionIconSize)) } }
+        else -> null
+    }
+    val trailingContent: @Composable () -> Unit = {
+        Row(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically){
             value?.let{Text(it,style=MaterialTheme.typography.labelMedium)}
             if(destination)Icon(painterResource(Art.drawable.fileway_ic_expand_more),null,Modifier.size(20.dp).rotate(-90f))
             else if(showSelection)Box(Modifier.size(24.dp),contentAlignment=Alignment.Center){if(selected)Icon(painterResource(Art.drawable.fileway_ic_check),null,Modifier.size(22.dp))}
-        }})
+        }
+    }
+    if (dense) {
+        DenseListItem(selected, onClick, headlineContent, rowModifier, enabled = active, supportingContent = supportingContent,
+            leadingContent = leadingContent, trailingContent = trailingContent, shape = shape, colors = rowColors,
+            scale = scale, interactionSource = interaction)
+    } else {
+        ListItem(selected, onClick, headlineContent, rowModifier, enabled = active, supportingContent = supportingContent,
+            leadingContent = leadingContent, trailingContent = trailingContent, shape = shape, colors = rowColors,
+            scale = scale, interactionSource = interaction)
+    }
 }
 
 @Composable internal fun TvQuietAction(label:String,onClick:()->Unit) {
