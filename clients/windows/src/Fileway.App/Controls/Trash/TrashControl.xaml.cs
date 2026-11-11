@@ -232,6 +232,7 @@ public sealed partial class TrashControl : UserControl, IDisposable
             : "将永久删除此文件，不经过回收站，且无法恢复。";
         var dialog = new ContentDialog { XamlRoot = XamlRoot, RequestedTheme = ActualTheme, Title = "永久删除此项目？",
             Content = new TextBlock { Text = row.Name + "\n\n" + warning, TextWrapping = TextWrapping.Wrap }, PrimaryButtonText = "永久删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
+        Fileway.App.Controls.DialogOrdering.FocusCloseButton(dialog);
         _dialog = dialog; bool accepted = false;
         try { accepted = await dialog.ShowAsync() == ContentDialogResult.Primary; }
         catch (Exception) { if (Current(epoch)) _message = "确认窗口未能打开。"; }

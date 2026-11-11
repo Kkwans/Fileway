@@ -59,6 +59,7 @@ public sealed partial class MainPage
         MenuNewFileItem.IsEnabled = FileManagement is not null;
         MenuUploadItem.IsEnabled = browser && CanSubmitUpload;
         MenuDownloadItem.IsEnabled = browser && CanDownloadSelection;
+        AutomationProperties.SetHelpText(MenuDownloadItem, DownloadDisabledReason() ?? "");
         MenuSaveAsItem.IsEnabled = browser && CanDownloadSaveAsSelection;
         MenuRenameItem.Text = selected.Length > 1 ? "批量重命名…" : "重命名…";
         MenuRenameItem.IsEnabled = hasSelection && CanWrite(p => p.Rename) && (selected.Length == 1 || FileManagement is not null);

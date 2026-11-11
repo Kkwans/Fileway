@@ -1,5 +1,6 @@
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -46,11 +47,11 @@ public sealed partial class MainPage
         if (rows.Length == 1) Add("打开", async () => await OpenSelectedAsync(), BrowserReady);
         if (rows.Any(row => !row.File.IsDirectory) && permissions?.Download == true)
         {
-            Add("下载到默认目录…", () => DownloadFile_Click(this, new RoutedEventArgs()), CanDownloadSelection);
+            Add("下载到默认目录…", () => DownloadFile_Click(this, new RoutedEventArgs()), CanDownloadSelection, DownloadDisabledReason());
             if (rows.Length == 1) Add("下载另存为…", () => DownloadSaveAs_Click(this, new RoutedEventArgs()), CanDownloadSaveAsSelection);
         }
         if (rows.Length > 1 || rows.Length == 1 && rows[0].File.IsDirectory)
-            Add("下载为 ZIP…", async () => await DownloadSelectionAsArchiveAsync(), CanDownloadSelection);
+            Add("下载为 ZIP…", async () => await DownloadSelectionAsArchiveAsync(), CanDownloadSelection, DownloadDisabledReason());
         if (selected)
         {
             Add("复制", () => CaptureClipboard(FileTransferAction.Copy), CanCaptureClipboard(FileTransferAction.Copy));
@@ -93,9 +94,10 @@ public sealed partial class MainPage
             item.Click += (_, _) => ChangeBrowserPreferences(_browserPreferences with { ViewMode = choice.Item2 }); views.Items.Add(item);
         }
         menu.Items.Add(views);
-        void Add(string label, Action action, bool enabled)
+        void Add(string label, Action action, bool enabled, string? disabledReason = null)
         {
             var item = new MenuFlyoutItem { Text = label, IsEnabled = enabled };
+            if (disabledReason is not null) AutomationProperties.SetHelpText(item, disabledReason);
             item.Click += (_, _) => action(); menu.Items.Add(item);
         }
     }
@@ -260,9 +262,9 @@ public sealed partial class MainPage
     {
         if (error is FilewayException { Error.Code: ErrorCode.OutcomeUnknown }) TrackUnknown(session.Account, []);
         if (!SameBrowser(session, directory, generation)) return;
-        var message = error is OperationCanceledException ? "操作已取消。" : ErrorMessage(error);
-        var unknown = error is FilewayException { Error.Code: ErrorCode.OutcomeUnknown };
-        SetNotice(label + (unknown ? "结果未知" : "未完成"), message, InfoBarSeverity.Warning); UpdateOperationAction();
+        var details = DescribeError(error);
+        SetNotice(label + (details.Code == ErrorCode.OutcomeUnknown ? "结果未知" : "未完成"), details, InfoBarSeverity.Warning);
+        UpdateOperationAction();
     }
     private void TrackUnknown(AccountKey account, IEnumerable<OperationRef> operations)
     {
@@ -461,7 +463,7 @@ public sealed partial class MainPage
             }
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (SameBrowser(session, directory, generation)) SetNotice("无法核实结果", ErrorMessage(error), InfoBarSeverity.Warning); }
+        catch (Exception error) { if (SameBrowser(session, directory, generation)) SetNotice("无法核实结果", error, InfoBarSeverity.Warning); }
         finally { _fileWriteBusy = false; UpdateBrowserCommands(); }
     }
     private static string TaskStatusLabel(ServerTaskStatus status) => status switch { ServerTaskStatus.Queued => "排队中", ServerTaskStatus.Running => "执行中", ServerTaskStatus.Completed => "已完成", ServerTaskStatus.Failed => "失败", ServerTaskStatus.Canceled => "已取消", ServerTaskStatus.Interrupted => "已中断", _ => "状态未知" };

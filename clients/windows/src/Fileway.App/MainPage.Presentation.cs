@@ -29,7 +29,6 @@ public sealed partial class MainPage
         Notice.IsOpen = false;
         LoginNotice.IsClosable = true;
         Controls.FloatingNotice.Attach(Notice);
-        Controls.FloatingNotice.Attach(LoginNotice);
         Controls.FloatingNotice.Attach(ReceiptWarning);
         Controls.FloatingNotice.Attach(UploadNotice);
         Controls.FloatingNotice.Attach(DownloadNotice);

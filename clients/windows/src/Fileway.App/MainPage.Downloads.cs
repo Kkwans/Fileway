@@ -1,6 +1,7 @@
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
@@ -37,26 +38,28 @@ public sealed partial class MainPage
     private DownloadContext? ActiveDownloadContext => !_disposed && !_connecting && _session is { } session
         && _downloads?.CurrentContext is { } context && context.Account == session.Account && context.SessionId == session.Id ? context : null;
     private bool IsCurrentDownloadContext(DownloadContext context) => ActiveDownloadContext == context;
-    private bool CanDownloadSelection
-    {
-        get
-        {
-            if (_disposed || _downloads is null) return false;
-            var selected = SelectedRows();
-            return _session?.Permissions.Download == true && ActiveDownloadContext is not null && BrowserReady &&
-                !LoadingRing.IsActive && !_downloadOperationBusy && !_downloadPreparing && selected.Length > 0;
-        }
-    }
+    private bool CanDownloadSelection => DownloadDisabledReason() is null;
     private bool CanDownloadSaveAsSelection => CanDownloadSelection && SelectedRows() is [var row] && !row.File.IsDirectory;
 
-    private string DownloadDisabledReason()
+    private string? DownloadDisabledReason()
     {
-        if (_disposed || _downloads is null || ActiveDownloadContext is null) return "连接尚未就绪，请先连接服务器。";
+        if (_session?.Permissions.Download == false) return "当前账号没有下载权限。";
+        if (_disposed || _downloads is null || ActiveDownloadContext is null) return "下载尚未就绪，请检查当前连接。";
         if (!BrowserReady) return "请先打开一个目录。";
         if (LoadingRing.IsActive) return "目录仍在加载，请稍候。";
         if (_downloadOperationBusy || _downloadPreparing) return "下载操作进行中，请稍候。";
-        if (SelectedRows().Length == 0) return "请先选择要下载的项目。";
-        return "当前不可下载。";
+        return ActiveFiles.SelectedItems.Count == 0 ? "请先选择要下载的项目。" : null;
+    }
+
+    private void UpdateDownloadAvailability()
+    {
+        if (DownloadFileButtonHost is null || DetailsDownloadButton is null) return;
+        string? reason = DownloadDisabledReason();
+        DownloadFileButton.IsEnabled = DetailsDownloadButton.IsEnabled = reason is null;
+        DownloadFileButtonHost.Visibility = _session?.Permissions.Download == false ? Visibility.Collapsed : Visibility.Visible;
+        ToolTipService.SetToolTip(DownloadFileButtonHost, reason);
+        AutomationProperties.SetHelpText(DownloadFileButton, reason ?? "");
+        AutomationProperties.SetHelpText(DetailsDownloadButton, reason ?? "");
     }
 
     private void UpdateDownloadContext()
@@ -71,9 +74,7 @@ public sealed partial class MainPage
             _downloadAutoResumeApplied = active;
             _ = AutoResumeDownloadsAsync(active);
         }
-        DownloadFileButton.IsEnabled = CanDownloadSelection;
-        ToolTipService.SetToolTip(DownloadFileButton, CanDownloadSelection ? "下载所选项目" : DownloadDisabledReason());
-        DownloadFileButton.Visibility = _session?.Permissions.Download == false ? Visibility.Collapsed : Visibility.Visible;
+        UpdateDownloadAvailability();
         DownloadHistoryButton.IsEnabled = current is not null && !_downloadOperationBusy;
         RenderDownloadNotice(); RenderDownloadDetails();
         UpdateTransferCenterContext();

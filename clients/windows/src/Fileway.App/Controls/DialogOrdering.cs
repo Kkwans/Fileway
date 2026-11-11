@@ -128,9 +128,9 @@ public static class DialogOrdering
 
     internal static void FocusCloseButton(ContentDialog dialog)
     {
-        dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(() =>
+        dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
         {
-            if (Find(dialog, "CloseButton") is Button close) close.Focus(FocusState.Programmatic);
+            if (Find(dialog, "CloseButton") is Button close) close.Focus(FocusState.Keyboard);
         });
     }
 

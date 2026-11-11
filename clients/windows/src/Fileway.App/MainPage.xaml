@@ -105,7 +105,7 @@
     </Border>
     <TextBlock x:Name="WorkspaceTitle" Text="连接服务器" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Visibility="Collapsed" TextTrimming="CharacterEllipsis"/>
    </Grid>
-   <AutoSuggestBox x:Name="SearchBox" Grid.Column="2" Width="240" Height="40" MinHeight="40" Style="{StaticResource FilewaySearchBoxStyle}" VerticalAlignment="Center" PlaceholderText="筛选文件或搜索…" QueryIcon="Find" TextChanged="Search_Changed" QuerySubmitted="Search_QuerySubmitted" AutomationProperties.Name="输入筛选当前列表，按 Enter 搜索当前目录及子目录" ToolTipService.ToolTip="输入筛选已加载的列表；Enter 或搜索按钮查询当前目录及子目录 (Ctrl+F)"/>
+   <AutoSuggestBox x:Name="SearchBox" Grid.Column="2" Width="240" Height="40" MinHeight="40" Style="{StaticResource FilewaySearchBoxStyle}" VerticalAlignment="Center" PlaceholderText="筛选列表 · Enter 搜索" QueryIcon="Find" TextChanged="Search_Changed" QuerySubmitted="Search_QuerySubmitted" AutomationProperties.Name="输入筛选当前列表，按 Enter 搜索当前目录及子目录" ToolTipService.ToolTip="输入筛选已加载的列表；Enter 或搜索按钮查询当前目录及子目录 (Ctrl+F)"/>
   </Grid>
   <Grid x:Name="Sidebar" Grid.RowSpan="2" Padding="12,16,12,12" Background="Transparent" Canvas.ZIndex="3">
    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -176,7 +176,9 @@
    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4">
     <Button x:Name="NewButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" ToolTipService.ToolTip="新建" AutomationProperties.Name="新建"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="文件夹" Click="CreateDirectory_Click"/><MenuFlyoutItem x:Name="NewFileMenuItem" Text="空文件" Click="CreateEmptyFile_Click"/></MenuFlyout></Button.Flyout><ui:LucideIcon IconName="plus" Width="18" Height="18"/></Button>
     <Button x:Name="UploadFileButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" ToolTipService.ToolTip="上传文件或文件夹" AutomationProperties.Name="上传文件"><Button.Flyout><MenuFlyout><MenuFlyoutItem Text="选择文件…" Click="UploadFile_Click"/><MenuFlyoutItem Text="选择文件夹…" Click="UploadFolder_Click"/></MenuFlyout></Button.Flyout><ui:LucideIcon IconName="upload-simple" Width="18" Height="18"/></Button>
-    <Button x:Name="DownloadFileButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" Click="DownloadFile_Click" ToolTipService.ToolTip="下载到默认目录" AutomationProperties.Name="下载"><ui:LucideIcon IconName="download-simple" Width="18" Height="18"/></Button>
+    <Grid x:Name="DownloadFileButtonHost" Background="Transparent">
+     <Button x:Name="DownloadFileButton" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" IsEnabled="False" Click="DownloadFile_Click" ToolTipService.ToolTip="下载所选项目" AutomationProperties.Name="下载"><ui:LucideIcon IconName="download-simple" Width="18" Height="18"/></Button>
+    </Grid>
    </StackPanel>
    </Grid>
 
@@ -359,7 +361,6 @@
         <TextBox x:Name="ConnectionNameBox" Grid.Column="1" Height="36" PlaceholderText="家里的文件空间" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="连接名称，可选"/>
        </Grid>
        <Grid x:Name="CredentialFields" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel Spacing="6"><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="用户名"/><TextBox x:Name="UsernameBox" Height="36" PlaceholderText="服务器用户名" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="用户名"/></StackPanel><StackPanel Grid.Column="1" Spacing="6"><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="密码"/><PasswordBox x:Name="PasswordBox" Height="36" PlaceholderText="输入密码" PasswordRevealMode="Peek" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="密码"/></StackPanel></Grid>
-       <InfoBar x:Name="LoginNotice" IsOpen="True" IsClosable="False" Severity="Informational" Message="正在准备本地核心服务…"/>
       </StackPanel>
      </Border>
      <Border Grid.Row="1" Grid.Column="1" Margin="0,12,0,0" Padding="26,14,26,20" CornerRadius="16" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1">
@@ -373,7 +374,10 @@
          <Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource FwPrimaryButtonStyle}" Click="Connect_Click" IsEnabled="False"/>
         </StackPanel>
        </Grid>
-       <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="RetentionDescription" Text="勾选后在当前 Windows 用户下加密保存密码和会话，用于自动恢复；退出登录或忘记连接会删除。" TextWrapping="Wrap"/>
+       <InfoBar x:Name="LoginNotice" IsOpen="False" IsClosable="True" Severity="Informational">
+        <InfoBar.ActionButton><Button x:Name="LoginErrorDetailsButton" Content="错误详情" Visibility="Collapsed" Click="NoticeErrorDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton>
+       </InfoBar>
+       <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="RetentionDescription" Text="在当前 Windows 用户下加密保存密码和会话，用于自动恢复。共用电脑请取消勾选；退出登录或忘记连接可清除。" TextWrapping="Wrap"/>
        <Border Height="1" Margin="0,2" Style="{StaticResource FwDividerStyle}"/>
        <StackPanel Orientation="Horizontal" Spacing="6"><TextBlock Text="本机还没有可连接的服务？" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource FwTextTertiaryBrush}"/><Button x:Name="LocalServerFromConnectionButton" Content="部署本地服务端" Click="LocalServer_Click" Style="{StaticResource FwTextIconButtonStyle}" FontSize="12" Height="28" MinHeight="28" Padding="8,0" AutomationProperties.Name="打开本地服务端页面"/></StackPanel>
       </StackPanel>
@@ -387,7 +391,10 @@
    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16"><ProgressRing IsActive="True" Width="32" Height="32"/><TextBlock Text="正在准备文件空间…" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
   </Grid>
   <StackPanel x:Name="ToastHost" Grid.ColumnSpan="2" Grid.RowSpan="2" Spacing="8" Margin="16" MaxWidth="420" HorizontalAlignment="Right" VerticalAlignment="Top" Canvas.ZIndex="100">
-   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="True"><InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="True">
+    <InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton>
+    <InfoBar.Content><Button x:Name="NoticeErrorDetailsButton" Content="错误详情" Visibility="Collapsed" Click="NoticeErrorDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.Content>
+   </InfoBar>
    <InfoBar x:Name="ReceiptWarning" IsOpen="False" IsClosable="True" Severity="Warning" Title="本机操作记录提示"/>
    <InfoBar x:Name="UploadNotice" IsOpen="False" IsClosable="True" Title="文件上传"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="查看上传" Click="UploadDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
    <InfoBar x:Name="DownloadNotice" IsOpen="False" IsClosable="True" Title="文件下载"><InfoBar.ActionButton><Button x:Name="DownloadDetailsButton" Content="查看下载" Click="DownloadDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>

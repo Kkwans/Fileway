@@ -26,7 +26,7 @@ public sealed partial class MainPage
     }
 
     /// <summary>Downloads first, verifies the published file, then hands it to the Windows default app.</summary>
-    private async Task OpenWithSystemAsync(FileRow row)
+    private async Task OpenWithSystemAsync(FileRow row, Func<bool> isCurrentFile)
     {
         if (_downloads is not IDownloadService service || _downloads is not IDownloadControlService control ||
             ActiveDownloadContext is not { } context || _session?.Permissions.Download != true)
@@ -37,24 +37,58 @@ public sealed partial class MainPage
         try
         {
             var preview = await service.PrepareAsync(context, row.File.Resource, _lifetime.Token);
+            if (!isCurrentFile() || !IsCurrentDownloadContext(context)) return;
+
+            var content = new StackPanel { Spacing = 8, MaxWidth = 440 };
+            content.Children.Add(new TextBlock
+            {
+                Text = "先下载并保留本地副本，再交给 Windows 默认应用。",
+                TextWrapping = TextWrapping.Wrap,
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = preview.DestinationDisplayPath,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+                Style = (Style)Application.Current.Resources["FwCaptionTextStyle"],
+            });
+            var confirm = new ContentDialog
+            {
+                Title = "下载并打开文件？",
+                Content = content,
+                PrimaryButtonText = "下载并打开",
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.None,
+            };
+            DialogOrdering.FocusCloseButton(confirm);
+            if (await ShowBrowserDialogAsync(confirm) != ContentDialogResult.Primary ||
+                !isCurrentFile() || !IsCurrentDownloadContext(context) || _session?.Permissions.Download != true) return;
+
             var item = await service.SubmitAsync(preview, _lifetime.Token);
+            if (!IsCurrentDownloadContext(context)) return;
             SetNotice("正在准备系统打开", $"{row.Name} 会先下载到默认下载目录，完成后交给 Windows 默认应用。", InfoBarSeverity.Informational);
             var task = item.Snapshot.Task;
-            for (var attempt = 0; attempt < 1800 && !_disposed; attempt++)
+            for (var attempt = 0; attempt < 1800 && IsCurrentDownloadContext(context); attempt++)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(400), _lifetime.Token);
+                if (!IsCurrentDownloadContext(context)) return;
                 var page = await service.ListAsync(context, null, 200, _lifetime.Token);
+                if (!IsCurrentDownloadContext(context)) return;
                 var current = page.Items.FirstOrDefault(candidate => candidate.Snapshot.Task == task);
                 if (current is null) continue;
                 if (current.Status == DownloadStatus.Completed && current.Snapshot.LocalPublished)
                 {
-                    if (await control.VerifyLocalOpenAsync(context, task, _lifetime.Token) is not true)
+                    bool verified = await control.VerifyLocalOpenAsync(context, task, _lifetime.Token);
+                    if (!IsCurrentDownloadContext(context)) return;
+                    if (!verified)
                     {
                         SetNotice("本地文件校验未通过", "下载已完成，但本地文件未通过身份或大小校验，未交给系统打开。", InfoBarSeverity.Warning);
                         return;
                     }
                     var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(current.DestinationDisplayPath);
+                    if (!IsCurrentDownloadContext(context)) return;
                     var opened = await Windows.System.Launcher.LaunchFileAsync(file);
+                    if (!IsCurrentDownloadContext(context)) return;
                     SetNotice(opened ? "已交给系统应用" : "没有可用的系统应用",
                         opened ? $"{row.Name} 已交给 Windows 默认应用打开。" : "Windows 没有注册能打开此文件类型的应用。",
                         opened ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
@@ -70,7 +104,7 @@ public sealed partial class MainPage
         catch (OperationCanceledException) { }
         catch (Exception error)
         {
-            if (!_disposed) SetNotice("系统打开未完成", ErrorMessage(error), InfoBarSeverity.Warning);
+            if (IsCurrentDownloadContext(context)) SetNotice("系统打开未完成", error, InfoBarSeverity.Warning);
         }
     }
 
@@ -80,7 +114,7 @@ public sealed partial class MainPage
         var panel = new StackPanel { Spacing = 8, MinWidth = 344, MaxWidth = 440 };
         panel.Children.Add(new TextBlock
         {
-            Text = "系统默认应用会先下载到默认目录，再交给 Windows 打开。",
+            Text = "系统默认应用需要本地副本，打开前会显示下载位置供确认。",
             TextWrapping = TextWrapping.Wrap, Style = (Style)Application.Current.Resources["FwCaptionTextStyle"],
         });
         var choices = new List<(OpenWithCategory Category, ChoiceBox Box)>();
