@@ -131,8 +131,8 @@
   <Button x:Name="SidebarDismiss" Grid.RowSpan="2" Grid.ColumnSpan="2" Visibility="Collapsed" Background="{ThemeResource SmokeFillColorDefaultBrush}" BorderThickness="0" CornerRadius="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Click="PaneDismiss_Click" Canvas.ZIndex="2" AutomationProperties.Name="关闭导航侧栏"/>
   <browser:SidebarResizeThumb x:Name="SidebarResize" Grid.RowSpan="2" Grid.ColumnSpan="2" Width="8" HorizontalAlignment="Left" VerticalAlignment="Stretch" DragDelta="SidebarResize_DragDelta" KeyDown="SidebarResize_KeyDown" IsTabStop="True" UseSystemFocusVisuals="True" Canvas.ZIndex="4" AutomationProperties.Name="调整导航侧栏宽度，方向键调整" ToolTipService.ToolTip="拖动调整侧栏宽度，或使用左右方向键"/>
   <Border x:Name="WorkspaceSurface" Grid.Row="1" Grid.Column="1" Background="Transparent" BorderThickness="0">
-   <Grid>
-   <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <Grid x:Name="FeedbackLayout">
+   <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid>
   <Grid x:Name="Workspace" Visibility="Collapsed" Padding="16,0,16,0" RowSpacing="0" SizeChanged="Workspace_SizeChanged" AutomationProperties.AutomationId="Workspace">
    <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="28"/></Grid.RowDefinitions>
@@ -391,15 +391,13 @@
    </ScrollViewer>
   </Grid>
    </Grid>
-   <StackPanel x:Name="ToastHost" Grid.Row="1" Spacing="6" Margin="16,0,16,12" HorizontalAlignment="Left" MaxWidth="580" Visibility="Collapsed">
-   <InfoBar x:Name="Notice" IsOpen="False" IsClosable="True">
-    <InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton>
+   <InfoBar x:Name="Notice" Grid.Row="1" IsOpen="False" IsClosable="True" Visibility="Collapsed">
+    <InfoBar.ActionButton><Button x:Name="OperationActionButton" Content="核实结果" Visibility="Collapsed" Click="OperationAction_Click" Style="{StaticResource FwSecondaryButtonStyle}" Height="32" MinHeight="32" Padding="12,0"/></InfoBar.ActionButton>
     <InfoBar.Content><Button x:Name="NoticeErrorDetailsButton" Content="错误详情" Visibility="Collapsed" Click="NoticeErrorDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.Content>
    </InfoBar>
-   <InfoBar x:Name="ReceiptWarning" IsOpen="False" IsClosable="True" Severity="Warning" Title="本机操作记录提示"/>
-   <InfoBar x:Name="UploadNotice" IsOpen="False" IsClosable="True" Title="文件上传"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="查看上传" Click="UploadDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
-   <InfoBar x:Name="DownloadNotice" IsOpen="False" IsClosable="True" Title="文件下载"><InfoBar.ActionButton><Button x:Name="DownloadDetailsButton" Content="查看下载" Click="DownloadDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton></InfoBar>
-  </StackPanel>
+   <InfoBar x:Name="ReceiptWarning" Grid.Row="2" IsOpen="False" IsClosable="True" Severity="Warning" Title="本机操作记录提示" Visibility="Collapsed"/>
+   <InfoBar x:Name="UploadNotice" Grid.Row="3" IsOpen="False" IsClosable="True" Title="文件上传" Visibility="Collapsed"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="上传详情" Click="UploadDetails_Click" Style="{StaticResource FwSecondaryButtonStyle}" Height="32" MinHeight="32" Padding="12,0"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="DownloadNotice" Grid.Row="4" IsOpen="False" IsClosable="True" Title="文件下载" Visibility="Collapsed"><InfoBar.ActionButton><Button x:Name="DownloadDetailsButton" Content="查看下载" Click="DownloadDetails_Click" Style="{StaticResource FwSecondaryButtonStyle}" Height="32" MinHeight="32" Padding="12,0"/></InfoBar.ActionButton></InfoBar>
    </Grid>
    </Border>
    <Grid x:Name="StartupPanel" Grid.ColumnSpan="2" Grid.RowSpan="2" Canvas.ZIndex="200" Background="{ThemeResource FileContentSurfaceBrush}" AutomationProperties.Name="正在准备连接">

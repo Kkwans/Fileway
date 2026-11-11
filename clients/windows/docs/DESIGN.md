@@ -235,7 +235,7 @@ components:
 - 展开面板统一 `FwSurfaceBrush` + 1px `FwStrokeBrush` + 10px 圆角；滚动条使用 App.xaml 的 `ScrollBarThumbFill`/`ScrollBarTrackFill` 令牌（透明轨道、分级半透明滑块），高对比度走系统色。
 - 主题偏好持久化在数据根的 `ui-preferences.json`（仅 `theme`），不写注册表或全局 AppData；文件缺失/损坏时回退“跟随系统”。
 - 窗口菜单栏（`MenuBar`/`MenuBarItem`）、`ProgressRing` 和 `InfoBar` 保留系统模板和无障碍语义。`FloatingNotice` 统一反馈控件的主题底色和计时，位置由页面及弹窗布局决定。
-- 主窗 Toast 在工作区底部的布局行显示一句操作反馈，可附一个相关入口，同一时刻显示一条。背景使用带主题色保护的 Acrylic，系统回退为对应主题实色。保留关闭及自动消失，鼠标悬停和键盘焦点进入时延后消失。进度、路径、异常详情和核实结果留在对应任务或页面的内联状态区。
+- 主窗 Toast 在工作区顶部居中浮现一句操作反馈，出现和消失时保持页面布局，可附一个有边框的明确操作入口，同一时刻显示一条。背景使用带主题色保护的 Acrylic，系统回退为对应主题实色。保留关闭及自动消失，鼠标悬停和键盘焦点进入时延后消失。进度、路径、异常详情和核实结果留在对应任务或页面的内联状态区。
 
 ## Components
 

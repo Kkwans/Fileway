@@ -1,4 +1,4 @@
-﻿using Fileway.App.MediaSurfaces;
+using Fileway.App.MediaSurfaces;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -11,7 +11,7 @@ public sealed partial class MainPage
 {
     private readonly HashSet<BrowserFileTypeFilter> _typeFilters = [];
     private readonly Dictionary<(AccountKey Account, string WirePath), BrowserFileTypeFilter[]> _directoryTypeFilters = [];
-    private readonly Dictionary<InfoBar, long> _noticeVisibilityCallbacks = [];
+    private readonly Dictionary<InfoBar, (long Callback, int StatusRow)> _noticeLayouts = [];
     private bool _typeFiltersEdited;
     private PlayerSettingsWindow? _detailsPopup;
     private StackPanel? _typeFilterOptions;
@@ -27,11 +27,12 @@ public sealed partial class MainPage
         DetailsPanel.BorderThickness = new Thickness(0);
         Notice.IsOpen = false;
         Controls.FloatingNotice.Attach(LoginNotice, automatic: false);
-        foreach (var bar in ToastHost.Children.OfType<InfoBar>())
+        foreach (var bar in FeedbackLayout.Children.OfType<InfoBar>())
         {
             Controls.FloatingNotice.Attach(bar, automatic: false);
-            _noticeVisibilityCallbacks.Add(bar,
-                bar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, (_, _) => UpdateNoticeHost()));
+            var callback = bar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, (_, _) =>
+                bar.Visibility = bar.IsOpen ? Visibility.Visible : Visibility.Collapsed);
+            _noticeLayouts.Add(bar, (callback, Grid.GetRow(bar)));
         }
         AttachChoices(ViewOptionsButton);
         _typeFilterOptions = (TypeFilterBox.Flyout as Flyout)?.Content as StackPanel;
@@ -56,22 +57,33 @@ public sealed partial class MainPage
 
     private static void ConfigurePopupMaterial(FlyoutBase flyout) => Controls.SurfaceStyles.Attach(flyout);
 
-    private void UpdateNoticeHost() => ToastHost.Visibility =
-        _noticeVisibilityCallbacks.Keys.Any(bar => bar.IsOpen) ? Visibility.Visible : Visibility.Collapsed;
-
     private void ShowToast(InfoBar bar, string key, bool repeat = false)
     {
         if (_disposed) return;
-        var compact = _noticeVisibilityCallbacks.ContainsKey(bar) && !string.IsNullOrWhiteSpace(bar.Title) &&
+        var hasLayout = _noticeLayouts.TryGetValue(bar, out var layout);
+        var compact = hasLayout && !string.IsNullOrWhiteSpace(bar.Title) &&
             string.IsNullOrWhiteSpace(bar.Message) &&
-            bar.Severity is InfoBarSeverity.Success or InfoBarSeverity.Informational;
-        if (compact && _noticeVisibilityCallbacks.Keys.Any(other =>
+            bar.Severity is InfoBarSeverity.Success or InfoBarSeverity.Informational or InfoBarSeverity.Warning;
+        if (compact && _noticeLayouts.Keys.Any(other =>
                 other != bar && other.IsOpen && Controls.FloatingNotice.IsCompact(other) &&
-                Controls.FloatingNotice.IsInteracting(other))) return;
+                Controls.FloatingNotice.IsInteracting(other)))
+        {
+            bar.IsOpen = false;
+            return;
+        }
+        if (hasLayout)
+        {
+            Grid.SetRow(bar, compact ? 0 : layout.StatusRow);
+            Canvas.SetZIndex(bar, compact ? 10 : 0);
+            bar.HorizontalAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            bar.VerticalAlignment = compact ? VerticalAlignment.Top : VerticalAlignment.Stretch;
+            bar.Margin = compact ? new Thickness(12, 12, 12, 0) : new Thickness(16, 0, 16, 8);
+            bar.MaxWidth = compact ? 400 : 580;
+        }
         // Transfer snapshots refresh their bytes frequently. A dismissed toast
         // must not reappear on every tick; only a new task/stage opens it again.
         if (!Controls.FloatingNotice.Show(bar, key, repeat, compact) || !compact) return;
-        foreach (var other in _noticeVisibilityCallbacks.Keys)
+        foreach (var other in _noticeLayouts.Keys)
             if (other != bar && other.IsOpen && Controls.FloatingNotice.IsCompact(other))
                 other.IsOpen = false;
     }
@@ -83,12 +95,12 @@ public sealed partial class MainPage
         _detailsPopup?.Dispose(); _detailsPopup = null;
 
         Controls.FloatingNotice.Detach(LoginNotice);
-        foreach (var (bar, callback) in _noticeVisibilityCallbacks)
+        foreach (var (bar, layout) in _noticeLayouts)
         {
-            bar.UnregisterPropertyChangedCallback(InfoBar.IsOpenProperty, callback);
+            bar.UnregisterPropertyChangedCallback(InfoBar.IsOpenProperty, layout.Callback);
             Controls.FloatingNotice.Detach(bar);
         }
-        _noticeVisibilityCallbacks.Clear();
+        _noticeLayouts.Clear();
     }
 
     private void TypeFilter_Click(object sender, RoutedEventArgs args)
