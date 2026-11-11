@@ -18,6 +18,7 @@ public sealed partial class MainPage
         Collections,
         LocalServer,
         Settings,
+        ServerUsers,
     }
 
     private MainPane _currentPane = MainPane.Connection;
@@ -34,6 +35,7 @@ public sealed partial class MainPage
                 if (Controls.FloatingNotice.IsCompact(notice)) notice.IsOpen = false;
         }
         _currentPane = pane;
+        if (pane != MainPane.ServerUsers) RetireServerUsers();
 
         Workspace.Visibility = pane == MainPane.Browser ? Visibility.Visible : Visibility.Collapsed;
         ConnectionPanel.Visibility = pane == MainPane.Connection ? Visibility.Visible : Visibility.Collapsed;
@@ -48,6 +50,7 @@ public sealed partial class MainPage
         if (collectionStatusChanged) UpdateReceiptWarning();
         if (LocalServerPane is not null) LocalServerPane.Visibility = pane == MainPane.LocalServer ? Visibility.Visible : Visibility.Collapsed;
         if (SettingsPane is not null) SettingsPane.Visibility = pane == MainPane.Settings ? Visibility.Visible : Visibility.Collapsed;
+        if (ServerUsersHost is not null) ServerUsersHost.Visibility = pane == MainPane.ServerUsers ? Visibility.Visible : Visibility.Collapsed;
 
         if (pane != MainPane.Recent) RecentPane?.SuspendView();
         if (pane != MainPane.Search) SearchPane?.SuspendView();

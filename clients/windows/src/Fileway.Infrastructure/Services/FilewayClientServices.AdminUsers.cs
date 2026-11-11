@@ -121,7 +121,7 @@ public sealed partial class FilewayClientServices : IAdminUserService
                     data = AdminUserData(create.Username, create.Password, create.IsAdmin, create.Permissions, lockPassword: false),
                 },
             }, requireDownload: false, HostCallSafety.Mutation, cancellationToken, operation: "request",
-                authorizeSend: () => RequireServerAdmin(state)).ConfigureAwait(false);
+                authorizeSend: () => RequireServerAdmin(state), checkKnownRejection: CheckAdminPasswordRejection).ConfigureAwait(false);
             RequireExactStatus(response, 201);
             // The Location header is not proxied; resolve the new id from the username listing.
             var users = await ((IAdminUserService)this).ListAsync(account, linked.Token).ConfigureAwait(false);
@@ -184,7 +184,7 @@ public sealed partial class FilewayClientServices : IAdminUserService
                         scope: update.Scope, allowedCommands: update.Commands, pathRules: rulesData),
                 },
             }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request", beforeSend: beforeSend,
-                authorizeSend: () => RequireServerAdmin(state)).ConfigureAwait(false);
+                authorizeSend: () => RequireServerAdmin(state), checkKnownRejection: CheckAdminPasswordRejection).ConfigureAwait(false);
             RequireExactStatus(response, 200);
         }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
@@ -253,11 +253,21 @@ public sealed partial class FilewayClientServices : IAdminUserService
                 endpoint = "/api/users/" + userId.ToString(CultureInfo.InvariantCulture),
                 body = new { current_password = adminPassword ?? "" },
             }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request",
-                authorizeSend: () => RequireServerAdmin(state)).ConfigureAwait(false);
+                authorizeSend: () => RequireServerAdmin(state), checkKnownRejection: CheckAdminPasswordRejection).ConfigureAwait(false);
             RequireExactStatus(response, 200);
         }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }
+    }
+
+    private static void CheckAdminPasswordRejection(JsonElement response)
+    {
+        if (response.ValueKind == JsonValueKind.Object &&
+            response.TryGetProperty("status", out var status) && status.ValueKind == JsonValueKind.Number &&
+            status.TryGetInt32(out int code) && code == 400 &&
+            response.TryGetProperty("body", out var body) && body.ValueKind == JsonValueKind.String &&
+            body.GetString()?.Trim() is "400 当前密码不正确" or "当前密码不正确")
+            throw Safe(ErrorCode.InvalidRequest, "当前管理员密码不正确，请重新输入。", 400);
     }
 }

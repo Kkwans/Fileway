@@ -22,7 +22,6 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
     private bool _canDownload, _canDelete;
     private TaskCompletionSource? _resumeObservation = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private ContentDialog? _activeDialog;
-    private long _adminReadRevision;
     private readonly TextBox _scopeBox = new() { IsReadOnly = true };
     private readonly Button _start = new() { Content = "开始分析" };
     private readonly InfoBar _notice = new() { IsOpen = false, IsClosable = true, Severity = InfoBarSeverity.Informational, Visibility = Visibility.Collapsed };
@@ -42,24 +41,6 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
     private readonly Button _duplicateStart = new() { Content = "开始扫描" };
     private readonly StackPanel _duplicateResults = new() { Spacing = 10 };
     private readonly InfoBar _duplicateNotice = new() { IsOpen = false, IsClosable = true, Visibility = Visibility.Collapsed };
-    private IAdminUserService? _adminUsers;
-    private bool _isAdmin;
-    private bool? _enableExec;
-    private bool _adminRequiresPassword;
-    private readonly Action<int> _selectTab;
-    private readonly ToggleButton _adminTabButton = new() { Content = "用户管理", Visibility = Visibility.Collapsed, Width = 120, HorizontalContentAlignment = HorizontalAlignment.Center };
-    private readonly Grid _adminHost = new();
-    private readonly StackPanel _adminRoot = new() { Spacing = 12 };
-    private readonly InfoBar _adminNotice = new() { IsOpen = false, IsClosable = true, Title = "服务器用户管理" };
-    private readonly ListView _adminList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 460 };
-    private readonly Button _adminCreate = new() { Content = "新建用户…" };
-    private readonly Button _adminPassword = new() { Content = "重置密码…", IsEnabled = false };
-    private readonly Button _adminPolicy = new() { Content = "权限与规则…", IsEnabled = false };
-    private readonly Button _adminRefresh = new() { Content = "刷新列表" };
-    private readonly Button _adminToggleAdmin = new() { Content = "切换管理员", IsEnabled = false };
-    private readonly Button _adminToggleLock = new() { Content = "切换密码锁定", IsEnabled = false };
-    private readonly Button _adminDelete = new() { Content = "删除用户…", IsEnabled = false };
-    private List<AdminUser> _adminUsersCache = [];
     private readonly ToggleButton _analysisTabButton = new() { Content = "容量分析", Width = 120, HorizontalContentAlignment = HorizontalAlignment.Center };
     private readonly ToggleButton _duplicatesTabButton = new() { Content = "重复文件", Width = 120, HorizontalContentAlignment = HorizontalAlignment.Center };
 
@@ -73,12 +54,7 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
             (_cleanupRetry, "StorageDuplicateCleanupRetry"),
             (_duplicateStart, "StorageDuplicatesStart"), (_analysisTabButton, "StorageAnalysisTab"),
             (_duplicateNotice, "StorageDuplicatesNotice"),
-            (_duplicatesTabButton, "StorageDuplicatesTab"), (_adminTabButton, "StorageAdminTab"),
-            (_adminList, "StorageAdminUsers"), (_adminCreate, "StorageAdminCreate"),
-            (_adminNotice, "StorageAdminNotice"),
-            (_adminPassword, "StorageAdminPassword"), (_adminToggleAdmin, "StorageAdminToggleAdmin"),
-            (_adminToggleLock, "StorageAdminToggleLock"), (_adminDelete, "StorageAdminDelete"),
-            (_adminPolicy, "EditServerUserPolicy"), (_adminRefresh, "RefreshServerUsers") })
+            (_duplicatesTabButton, "StorageDuplicatesTab") })
             AutomationProperties.SetAutomationId(element, id);
         var resources = Application.Current.Resources;
         _start.Style = (Style)resources["FwPrimaryButtonStyle"];
@@ -126,10 +102,6 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
         analysisHost.Children.Add(analysisRoot);
         var duplicatesHost = new Grid { Visibility = Visibility.Collapsed };
         duplicatesHost.Children.Add(_duplicatesRoot);
-        var adminHost = new Grid { Visibility = Visibility.Collapsed };
-        BuildAdminRoot();
-        adminHost.Children.Add(_adminRoot);
-
         var root = new StackPanel { Spacing = 12, Padding = new Thickness(20, 12, 20, 12) };
         var back = new Button { Content = "返回文件", Style = (Style)resources["FwSecondaryButtonStyle"], VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetName(back, "离开存储工具，返回文件");
@@ -139,15 +111,11 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
         {
             analysisHost.Visibility = selected == 0 ? Visibility.Visible : Visibility.Collapsed;
             duplicatesHost.Visibility = selected == 1 ? Visibility.Visible : Visibility.Collapsed;
-            adminHost.Visibility = selected == 2 ? Visibility.Visible : Visibility.Collapsed;
             _analysisTabButton.IsChecked = selected == 0;
             _duplicatesTabButton.IsChecked = selected == 1;
-            _adminTabButton.IsChecked = selected == 2;
-            if (selected == 2) _ = RefreshAdminAsync();
         }
-        _selectTab = SelectTab;
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        foreach (var (button, index) in new[] { (_analysisTabButton, 0), (_duplicatesTabButton, 1), (_adminTabButton, 2) })
+        foreach (var (button, index) in new[] { (_analysisTabButton, 0), (_duplicatesTabButton, 1) })
         {
             button.Style = (Style)resources["FwSegmentedChoiceStyle"];
             button.Click += (_, _) => SelectTab(index);
@@ -156,7 +124,6 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
         root.Children.Add(tabs);
         root.Children.Add(analysisHost);
         root.Children.Add(duplicatesHost);
-        root.Children.Add(adminHost);
         SelectTab(0);
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     }
@@ -216,7 +183,6 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
             (_cleanup is null || _cleanupFinished);
         _capacityRetry.IsEnabled = _duplicateRetry.IsEnabled = active && _canDownload;
         UpdateCleanupControls();
-        UpdateAdminButtons();
     }
 
     private void SetNotice(string message, InfoBarSeverity severity)
@@ -264,230 +230,6 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
         Grid.SetColumn(action, 2);
         row.Children.Add(action);
         return FormCard(description, row, permission);
-    }
-
-    private void BuildAdminRoot()
-    {
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        _adminCreate.Click += async (_, _) => await CreateAdminUserAsync();
-        _adminPolicy.Click += async (_, _) => await EditUserPolicyAsync();
-        _adminRefresh.Click += async (_, _) => await RefreshAdminAsync();
-        _adminPassword.Click += async (_, _) => await MutateSelectedAsync(MutationKind.ResetPassword);
-        _adminToggleAdmin.Click += async (_, _) => await MutateSelectedAsync(MutationKind.ToggleAdmin);
-        _adminToggleLock.Click += async (_, _) => await MutateSelectedAsync(MutationKind.ToggleLock);
-        _adminDelete.Click += async (_, _) => await MutateSelectedAsync(MutationKind.Delete);
-        actions.Children.Add(_adminCreate);
-        actions.Children.Add(_adminPolicy);
-        actions.Children.Add(_adminPassword);
-        actions.Children.Add(_adminToggleAdmin);
-        actions.Children.Add(_adminToggleLock);
-        actions.Children.Add(_adminDelete);
-        actions.Children.Add(_adminRefresh);
-        var actionsScroll = new ScrollViewer { Content = actions, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
-            HorizontalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollMode = ScrollMode.Disabled };
-        _adminRoot.Children.Add(FormCard(
-            "在当前服务器创建用户、管理权限与规则。密码认证的服务器在保存敏感设置时需要验证当前管理员密码。",
-            actionsScroll));
-        _adminRoot.Children.Add(_adminNotice);
-        FloatingNotice.Attach(_adminNotice);
-        _adminList.SelectionChanged += (_, _) => UpdateAdminButtons();
-        _adminRoot.Children.Add(_adminList);
-    }
-
-    private void UpdateAdminButtons()
-    {
-        bool active = _isAdmin && !_busy && !_token.IsCancellationRequested;
-        _adminCreate.IsEnabled = active;
-        _adminRefresh.IsEnabled = active;
-        bool has = active && _adminList.SelectedItem is StackPanel;
-        _adminPassword.IsEnabled = has;
-        _adminPolicy.IsEnabled = has;
-        _adminToggleAdmin.IsEnabled = has;
-        _adminToggleLock.IsEnabled = has;
-        _adminDelete.IsEnabled = has;
-    }
-
-    private AdminUser? SelectedAdminUser()
-    {
-        if (_adminList.SelectedItem is not StackPanel { Tag: AdminUser user }) return null;
-        return _adminUsersCache.FirstOrDefault(candidate => candidate.Id == user.Id);
-    }
-
-    private async Task RefreshAdminAsync()
-    {
-        if (_adminUsers is null || _isAdmin is false || _lifetime.IsCancellationRequested) return;
-        long revision = ++_adminReadRevision;
-        try
-        {
-            var users = await _adminUsers.ListAsync(_directory?.Account ?? default, _token);
-            if (_token.IsCancellationRequested || revision != _adminReadRevision) return;
-            _adminUsersCache = users.ToList();
-            _adminList.Items.Clear();
-            foreach (var user in users)
-            {
-                var row = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal, Spacing = 10, Padding = new Thickness(8, 3, 8, 3),
-                    Tag = user,
-                };
-                row.Children.Add(new TextBlock { Text = user.Username, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, MinWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis });
-                row.Children.Add(new TextBlock { Text = user.IsAdmin ? "管理员" : "普通用户", FontSize = 12, Opacity = 0.75, MinWidth = 70 });
-                row.Children.Add(new TextBlock { Text = user.LockPassword ? "密码已锁定" : "", FontSize = 12, Opacity = 0.65 });
-                _adminList.Items.Add(row);
-            }
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception error)
-        {
-            if (!_token.IsCancellationRequested && revision == _adminReadRevision)
-                AddAdminStatus(error is FilewayException fileway ? fileway.Error.Message : "用户列表未能读取。", InfoBarSeverity.Error);
-        }
-    }
-
-    private async Task<string?> RequireAdminPasswordAsync(string title, string confirmLabel)
-    {
-        if (!_adminRequiresPassword) return "";
-        var password = new PasswordBox { Header = "管理员（当前账户）密码", Width = 320 };
-        var confirm = new ContentDialog { Title = title, Content = password, PrimaryButtonText = confirmLabel, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
-        if (await ShowDialogAsync(confirm) != ContentDialogResult.Primary || _token.IsCancellationRequested) return null;
-        string value = password.Password;
-        password.Password = "";
-        return value.Length == 0 ? null : value;
-    }
-
-    private enum MutationKind { ResetPassword, ToggleAdmin, ToggleLock, Delete }
-
-    private async Task CreateAdminUserAsync()
-    {
-        if (_adminUsers is null || _busy || _lifetime.IsCancellationRequested) return;
-        var username = new TextBox { Header = "用户名", Width = 320 };
-        var password = new PasswordBox { Header = "初始密码", Width = 320 };
-        var admin = new CheckBox { Content = "管理员权限", };
-        var perms = new StackPanel { Spacing = 4 };
-        var download = new CheckBox { Content = "下载", IsChecked = true };
-        var share = new CheckBox { Content = "分享", IsChecked = false };
-        download.Unchecked += (_, _) => { share.IsChecked = false; share.IsEnabled = false; };
-        download.Checked += (_, _) => share.IsEnabled = true;
-        var create = new CheckBox { Content = "上传/新建" };
-        var modify = new CheckBox { Content = "修改" };
-        var rename = new CheckBox { Content = "重命名" };
-        var delete = new CheckBox { Content = "删除" };
-        var execute = new CheckBox { Content = "执行命令" };
-        perms.Children.Add(download); perms.Children.Add(share); perms.Children.Add(create); perms.Children.Add(modify);
-        perms.Children.Add(rename); perms.Children.Add(delete); perms.Children.Add(execute);
-        var panel = new StackPanel { Spacing = 10, MinWidth = 320 };
-        panel.Children.Add(username); panel.Children.Add(password); panel.Children.Add(admin);
-        panel.Children.Add(new TextBlock { Text = "权限", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        panel.Children.Add(perms);
-        var confirm = new ContentDialog { Title = "新建用户", Content = panel, PrimaryButtonText = "创建", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = false };
-        username.TextChanged += (_, _) => confirm.IsPrimaryButtonEnabled = username.Text.Trim().Length > 0 && password.Password.Length > 0;
-        password.PasswordChanged += (_, _) => confirm.IsPrimaryButtonEnabled = username.Text.Trim().Length > 0 && password.Password.Length > 0;
-        if (await ShowDialogAsync(confirm) != ContentDialogResult.Primary || _token.IsCancellationRequested) return;
-        var adminPassword = await RequireAdminPasswordAsync("确认管理员身份", "创建");
-        if (adminPassword is null) return;
-        SetBusy(true);
-        try
-        {
-            var permissions = new PermissionSet(download.IsChecked == true, create.IsChecked == true, rename.IsChecked == true,
-                modify.IsChecked == true, delete.IsChecked == true, execute.IsChecked == true, Share: share.IsChecked == true);
-            var id = await _adminUsers.CreateAsync(_directory?.Account ?? default,
-                new AdminUserCreate(username.Text.Trim(), password.Password, admin.IsChecked == true, permissions), adminPassword, _token);
-            AddAdminStatus($"用户 {username.Text.Trim()}（#{id}）已创建。", InfoBarSeverity.Success);
-            await RefreshAdminAsync();
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception error)
-        {
-            AddAdminStatus(error is FilewayException fileway ? fileway.Error.Message : "创建未能完成。", InfoBarSeverity.Error);
-        }
-        finally { SetBusy(false); }
-    }
-
-    private async Task MutateSelectedAsync(MutationKind kind)
-    {
-        if (_adminUsers is null || _busy || _lifetime.IsCancellationRequested) return;
-        if (SelectedAdminUser() is not { } user) return;
-        string title = kind switch
-        {
-            MutationKind.ResetPassword => $"重置 {user.Username} 的密码",
-            MutationKind.ToggleAdmin => user.IsAdmin ? $"收回 {user.Username} 的管理员权限" : $"将 {user.Username} 设为管理员",
-            MutationKind.ToggleLock => user.LockPassword ? $"解除 {user.Username} 的密码锁定" : $"锁定 {user.Username} 的密码",
-            _ => $"删除用户 {user.Username}",
-        };
-        string confirmLabel = kind switch
-        {
-            MutationKind.ResetPassword => "重置",
-            MutationKind.ToggleAdmin or MutationKind.ToggleLock => "应用",
-            _ => "删除",
-        };
-        string? newPassword = null;
-        var panel = new StackPanel { Spacing = 10, MinWidth = 320 };
-        if (kind == MutationKind.ResetPassword)
-        {
-            var box = new PasswordBox { Header = "新密码", Width = 320 };
-            panel.Children.Add(box);
-            var dialog = new ContentDialog { Title = title, Content = panel, PrimaryButtonText = confirmLabel, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = false };
-            box.PasswordChanged += (_, _) => dialog.IsPrimaryButtonEnabled = box.Password.Length > 0;
-            if (await ShowDialogAsync(dialog) != ContentDialogResult.Primary || _token.IsCancellationRequested) return;
-            newPassword = box.Password;
-        }
-        panel.Children.Add(new TextBlock
-        {
-            Text = kind == MutationKind.Delete
-                ? "该用户将被永久删除（其配置不可恢复）。确认管理员密码以继续。"
-                : "确认管理员密码以继续。服务器将校验后执行。",
-            TextWrapping = TextWrapping.Wrap,
-        });
-        var password = new PasswordBox { Header = "管理员（当前账户）密码", Width = 320 };
-        if (_adminRequiresPassword) panel.Children.Add(password);
-        var confirm = new ContentDialog { Title = title, Content = panel, PrimaryButtonText = confirmLabel, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
-        if (await ShowDialogAsync(confirm) != ContentDialogResult.Primary || _token.IsCancellationRequested) return;
-        if (_adminRequiresPassword && password.Password.Length == 0) return;
-        SetBusy(true);
-        try
-        {
-            switch (kind)
-            {
-                case MutationKind.ResetPassword:
-                    await _adminUsers.UpdateAsync(_directory?.Account ?? default,
-                        new AdminUserUpdate(user.Id, Password: newPassword, null, null, null), password.Password, _token);
-                    AddAdminStatus($"{user.Username} 的密码已重置。", InfoBarSeverity.Success);
-                    break;
-                case MutationKind.ToggleAdmin:
-                    await _adminUsers.UpdateAsync(_directory?.Account ?? default,
-                        new AdminUserUpdate(user.Id, null, IsAdmin: !user.IsAdmin, null, null), password.Password, _token);
-                    AddAdminStatus($"{user.Username} 管理员权限已{(user.IsAdmin ? "收回" : "授予")}。", InfoBarSeverity.Success);
-                    break;
-                case MutationKind.ToggleLock:
-                    await _adminUsers.UpdateAsync(_directory?.Account ?? default,
-                        new AdminUserUpdate(user.Id, null, null, LockPassword: !user.LockPassword, null), password.Password, _token);
-                    AddAdminStatus($"{user.Username} 密码锁定已{(user.LockPassword ? "解除" : "启用")}。", InfoBarSeverity.Success);
-                    break;
-                case MutationKind.Delete:
-                    if (user.Username.Equals(_sessionAdminUsername, StringComparison.OrdinalIgnoreCase))
-                    { AddAdminStatus("不能删除当前登录的管理员账户。", InfoBarSeverity.Warning); return; }
-                    await _adminUsers.DeleteAsync(_directory?.Account ?? default, user.Id, password.Password, _token);
-                    AddAdminStatus($"用户 {user.Username} 已删除。", InfoBarSeverity.Success);
-                    break;
-            }
-            await RefreshAdminAsync();
-        }
-        catch (OperationCanceledException) { }
-        catch (Exception error)
-        {
-            AddAdminStatus(error is FilewayException fileway ? fileway.Error.Message : "操作未能完成。", InfoBarSeverity.Error);
-        }
-        finally { SetBusy(false); }
-    }
-
-    private string _sessionAdminUsername = "";
-
-    private void AddAdminStatus(string message, InfoBarSeverity severity)
-    {
-        if (_token.IsCancellationRequested) return;
-        _adminNotice.Message = message;
-        _adminNotice.Severity = severity;
-        Fileway.App.Controls.FloatingNotice.Show(_adminNotice);
     }
 
     private async Task StartAsync()
@@ -658,7 +400,6 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _adminNotice.IsOpen = false;
         _activeDialog?.Hide();
         _lifetime.Cancel();
         _lifetime.Dispose();
@@ -674,7 +415,6 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
         finally
         {
             _activeDialog = null;
-            // The reset-password flow reuses its panel in the identity confirmation.
             dialog.Content = null;
         }
     }
@@ -697,45 +437,4 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
         SetBusy(_busy);
     }
 
-    /// <summary>Enables the admin tab when the signed-in session carries the server admin flag.</summary>
-    public void AttachAdmin(IAdminUserService service, string adminUsername, bool? enableExec, bool requiresPassword)
-    {
-        _adminUsers = service;
-        _sessionAdminUsername = adminUsername;
-        bool isAdmin;
-        try { isAdmin = service.IsAvailable(_directory?.Account ?? default); }
-        catch (Exception) { isAdmin = false; }
-        SetAdminAvailability(isAdmin, enableExec, requiresPassword);
-    }
-
-    internal void ShowUsers()
-    {
-        if (_isAdmin) _selectTab(2);
-    }
-
-    internal void ShowAnalysisTools()
-    {
-        if (_adminTabButton.IsChecked == true) _selectTab(0);
-    }
-
-    internal void SetAdminAvailability(bool admin, bool? enableExec, bool requiresPassword)
-    {
-        _enableExec = enableExec;
-        _adminRequiresPassword = requiresPassword;
-        bool wasAdmin = _isAdmin;
-        _isAdmin = admin && _adminUsers is not null;
-        if (wasAdmin && !_isAdmin)
-        {
-            _adminReadRevision++;
-            _adminUsersCache.Clear();
-            _adminList.Items.Clear();
-            if (_adminTabButton.IsChecked == true)
-            {
-                _activeDialog?.Hide();
-                _selectTab(0);
-            }
-        }
-        _adminTabButton.Visibility = _isAdmin ? Visibility.Visible : Visibility.Collapsed;
-        UpdateAdminButtons();
-    }
 }

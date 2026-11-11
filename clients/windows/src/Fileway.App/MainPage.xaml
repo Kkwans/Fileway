@@ -290,6 +290,7 @@
   <server:LocalServerControl x:Name="LocalServerPane" Visibility="Collapsed" AutomationProperties.AutomationId="LocalServerPane"/>
   <collections:ResourceCollectionsControl x:Name="CollectionsPanel" Visibility="Collapsed" AutomationProperties.AutomationId="CollectionsPanel"/>
   <settings:SettingsControl x:Name="SettingsPane" Visibility="Collapsed" AutomationProperties.AutomationId="SettingsPane"/>
+  <ContentControl x:Name="ServerUsersHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
   <Grid x:Name="ConnectionPanel" Background="Transparent" Visibility="Collapsed" SizeChanged="ConnectionPanel_SizeChanged" AutomationProperties.AutomationId="ConnectionPanel">
    <ScrollViewer x:Name="ConnectionFormScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
     <Grid x:Name="ConnectionFormGrid" MaxWidth="1120" HorizontalAlignment="Center" VerticalAlignment="Top" Padding="56,28" ColumnSpacing="64">

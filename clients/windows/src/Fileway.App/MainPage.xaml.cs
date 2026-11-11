@@ -247,6 +247,7 @@ public sealed partial class MainPage : Page, IDisposable
         DisposeUploadPresentation();
         DisposeDownloadPresentation();
         RetireStorageAnalysis();
+        RetireServerUsers();
         TransfersPanel.Dispose();
         RetireChecksumDialog();
         _browserDialog?.Hide();

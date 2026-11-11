@@ -79,24 +79,13 @@ public sealed partial class MainPage
     }
 
     private void StorageTools_Click(object sender, RoutedEventArgs args)
-        => OpenStorageTools(showUsers: false);
-
-    private void OpenStorageTools(bool showUsers)
     {
         if (!CanShowRemoteTools || _storageAnalysis is null || _session is not { } session || (_directory ?? _root) is not { } directory) return;
-        if (showUsers && (!session.Permissions.Admin || _storageAnalysis is not IAdminUserService)) return;
-        if (StorageToolsHost.Visibility == Visibility.Visible)
-        {
-            if (showUsers) _storageAnalysisView?.ShowUsers();
-            else _storageAnalysisView?.ShowAnalysisTools();
-            return;
-        }
+        if (StorageToolsHost.Visibility == Visibility.Visible) return;
         CloseSidebarOverlay(); UpdateRemoteToolsContext();
         if (_storageAnalysisView is { } existing && existing.HasSession(session) && existing.HasDirectory(directory))
         {
             ShowPane(MainPane.Storage);
-            if (showUsers) existing.ShowUsers();
-            else existing.ShowAnalysisTools();
             return;
         }
         RetireStorageAnalysis();
@@ -105,12 +94,9 @@ public sealed partial class MainPage
         view.CloseRequested += (_, _) => ReturnFromRemoteTools();
         view.Attach(_storageAnalysis, _storageAnalysis as IDuplicateAnalysisService);
         view.SetContext(directory, session);
-        if (_storageAnalysis is IAdminUserService admin)
-            view.AttachAdmin(admin, session.DisplayName, session.Capabilities.EnableExec, session.Capabilities.AuthMethod != "noauth");
         _storageAnalysisView = view;
         StorageToolsHost.Content = view;
         ShowPane(MainPane.Storage);
-        if (showUsers) view.ShowUsers();
     }
 
     private async void NasTasks_Click(object sender, RoutedEventArgs args)

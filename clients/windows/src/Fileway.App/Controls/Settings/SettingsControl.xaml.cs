@@ -105,17 +105,37 @@ public sealed partial class SettingsControl : UserControl
         ServerSettingsButton.Visibility = canConfigure ? Visibility.Visible : Visibility.Collapsed;
         ServerUsersButton.Visibility = canManageUsers ? Visibility.Visible : Visibility.Collapsed;
         ServerSharesButton.Visibility = canManageShares ? Visibility.Visible : Visibility.Collapsed;
-        ServerManagementCaption.Text = canAdminister
-            ? "配置当前服务器的安全策略、用户权限、路径规则与允许命令。"
-            : "查看或撤销当前账户创建的分享链接。";
+        ServerManagementCaption.Text = (canConfigure, canManageUsers) switch
+        {
+            (true, true) => "管理服务器的全局安全策略、用户权限和规则。",
+            (true, false) => "配置服务器的全局安全策略。",
+            (false, true) => "管理用户、权限和规则。",
+            _ => "查看或撤销当前账户创建的分享链接。",
+        };
+    }
+
+    internal bool FocusServerUsers() => ServerUsersButton.Visibility == Visibility.Visible && ServerUsersButton.Focus(FocusState.Keyboard);
+
+    private void ServerManagementLayout_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (ServerManagementLabels is null || ServerManagementActions is null || ServerManagementLayout is null) return;
+        const double minimumLabelWidth = 126;
+        const double columnGap = 12;
+        bool stacked = ServerManagementLayout.ActualWidth < minimumLabelWidth + columnGap + ServerManagementActions.ActualWidth;
+        int row = stacked ? 1 : 0;
+        if (Grid.GetRow(ServerManagementActions) == row) return;
+        ServerManagementLayout.RowSpacing = stacked ? 8 : 0;
+        ServerManagementLayout.ColumnSpacing = stacked ? 0 : columnGap;
+        Grid.SetColumnSpan(ServerManagementLabels, stacked ? 2 : 1);
+        Grid.SetRow(ServerManagementActions, row);
+        Grid.SetColumn(ServerManagementActions, stacked ? 0 : 1);
+        Grid.SetColumnSpan(ServerManagementActions, stacked ? 2 : 1);
     }
 
     private void Cards_SizeChanged(object sender, SizeChangedEventArgs args)
     {
         if (SecondarySettings is null || SecondarySettingsColumn is null) return;
-        // Leave enough width for the three server actions and the labels at
-        // the same time. An overlay sidebar can leave the whole narrow window
-        // available, so select columns by usable card width.
+        // Use the available content width, including when the sidebar is overlaid.
         bool wide = args.NewSize.Width >= 820;
         int column = wide ? 1 : 0;
         if (Grid.GetColumn(SecondarySettings) == column) return;

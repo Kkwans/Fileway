@@ -124,17 +124,20 @@
      </Border>
 
      <Border x:Name="ServerManagementCard" Style="{StaticResource FwFormCardStyle}" Visibility="Collapsed">
-      <StackPanel Spacing="8">
-       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <TextBlock Text="服务器管理" Style="{StaticResource SettingsGroupTitle}"/>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
-         <Button x:Name="ServerSharesButton" Content="分享…" Click="ServerShares_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="分享管理" AutomationProperties.AutomationId="OpenServerShares"/>
-         <Button x:Name="ServerUsersButton" Content="用户…" Click="ServerUsers_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="用户管理" AutomationProperties.AutomationId="OpenServerUsers"/>
-         <Button x:Name="ServerSettingsButton" Content="全局设置…" Click="ServerSettings_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerSettings"/>
-        </StackPanel>
-       </Grid>
-       <TextBlock x:Name="ServerManagementCaption" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
-      </StackPanel>
+      <Grid x:Name="ServerManagementLayout" ColumnSpacing="12" SizeChanged="ServerManagementLayout_SizeChanged">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+       <StackPanel x:Name="ServerManagementLabels" VerticalAlignment="Center" Spacing="4">
+        <TextBlock Text="当前服务器管理" Style="{StaticResource SettingsGroupTitle}"/>
+        <TextBlock x:Name="ServerManagementCaption" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+       </StackPanel>
+       <StackPanel x:Name="ServerManagementActions" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right"
+                   VerticalAlignment="Center" Spacing="6" SizeChanged="ServerManagementLayout_SizeChanged">
+        <Button x:Name="ServerUsersButton" Content="用户管理" Padding="10,0" Click="ServerUsers_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerUsers"/>
+        <Button x:Name="ServerSettingsButton" Content="全局设置" Padding="10,0" Click="ServerSettings_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerSettings"/>
+        <Button x:Name="ServerSharesButton" Content="分享管理" Padding="10,0" Click="ServerShares_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerShares"/>
+       </StackPanel>
+      </Grid>
      </Border>
 
      <Border Style="{StaticResource FwFormCardStyle}">

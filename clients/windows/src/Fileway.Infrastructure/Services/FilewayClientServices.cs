@@ -889,7 +889,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
     private async Task<JsonElement> SessionRequestAsync(SessionState state, object parameters, bool requireDownload,
         HostCallSafety safety, CancellationToken cancellationToken, string operation = "request",
         Func<CancellationToken, Task>? beforeSend = null, Action<JsonElement>? confirmResponse = null,
-        Action? authorizeSend = null, JournalContext? journal = null)
+        Action? authorizeSend = null, JournalContext? journal = null, Action<JsonElement>? checkKnownRejection = null)
     {
         if (journal is not null) ValidateJournalRequest(operation, parameters, safety);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
@@ -927,6 +927,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             EnsureActive(state);
             if (journal is not null) journal.CallStarted = true;
             response = await CallAsync(operation, parameters, state.CoreSession, linked.Token, safety).ConfigureAwait(false);
+            checkKnownRejection?.Invoke(response);
             if (operation == "request") _ = HttpBody(response);
             confirmResponse?.Invoke(response);
             var acknowledgement = journal is null ? null : CaptureJournalAcknowledgement(journal, response);
