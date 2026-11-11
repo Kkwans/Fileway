@@ -119,13 +119,14 @@ public sealed partial class FilewayClientServices : IDuplicateAnalysisService
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         try
         {
-            RequireDownload(state);
+            AuthorizeCleanup();
             var response = await SessionRequestAsync(state, new
             {
                 method = "POST",
                 endpoint = "/api/analysis/duplicates/" + Uri.EscapeDataString(reportId) + "/cleanup",
                 body = new { groups = selections.Select(selection => new { sha256 = selection.Sha256, keepPath = selection.KeepPath }).ToArray() },
-            }, requireDownload: true, HostCallSafety.Mutation, linked.Token, operation: "request").ConfigureAwait(false);
+            }, requireDownload: true, HostCallSafety.Mutation, linked.Token, operation: "request",
+                authorizeSend: AuthorizeCleanup).ConfigureAwait(false);
             if (response.GetProperty("status").GetInt32() is not (200 or 202))
                 RequireExactStatus(response, 200);
             using var body = ParseBody(response);
@@ -139,6 +140,13 @@ public sealed partial class FilewayClientServices : IDuplicateAnalysisService
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }
+
+        void AuthorizeCleanup()
+        {
+            RequireDownload(state);
+            if (!state.Session.Permissions.Delete)
+                throw Safe(ErrorCode.PermissionDenied, "当前账户缺少删除权限，无法清理重复文件。", 403);
+        }
     }
 
     async Task<ServerTask?> IDuplicateAnalysisService.GetCleanupForReportAsync(AccountKey account, string reportId,

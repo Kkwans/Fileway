@@ -42,6 +42,6 @@ public interface IDuplicateAnalysisService
         CancellationToken cancellationToken);
     /// <summary>Existing cleanup task for a report, or null when none was started (404).</summary>
     Task<ServerTask?> GetCleanupForReportAsync(AccountKey account, string reportId, CancellationToken cancellationToken);
-    /// <summary>Finished cleanup result, or null while the cleanup task is still running (404).</summary>
+    /// <summary>Available per-file cleanup checkpoint, or null when none has been published. Read task status separately for completion.</summary>
     Task<DuplicateCleanupResult?> GetCleanupResultAsync(ServerTaskRef cleanupTask, CancellationToken cancellationToken);
 }

@@ -42,8 +42,8 @@ public sealed partial class MainPage
         if (NasTasksPane is not null) NasTasksPane.Visibility = pane == MainPane.Tasks ? Visibility.Visible : Visibility.Collapsed;
         if (TrashPane is not null) TrashPane.Visibility = pane == MainPane.Trash ? Visibility.Visible : Visibility.Collapsed;
         if (TransfersPanel is not null) TransfersPanel.Visibility = pane == MainPane.Transfers ? Visibility.Visible : Visibility.Collapsed;
-        if (StorageToolsHost is not null && pane != MainPane.Storage) RetireStorageAnalysis();
         if (StorageToolsHost is not null) StorageToolsHost.Visibility = pane == MainPane.Storage ? Visibility.Visible : Visibility.Collapsed;
+        _storageAnalysisView?.SetViewActive(pane == MainPane.Storage);
         if (CollectionsPanel is not null) CollectionsPanel.Visibility = pane == MainPane.Collections ? Visibility.Visible : Visibility.Collapsed;
         if (collectionStatusChanged) UpdateReceiptWarning();
         if (LocalServerPane is not null) LocalServerPane.Visibility = pane == MainPane.LocalServer ? Visibility.Visible : Visibility.Collapsed;

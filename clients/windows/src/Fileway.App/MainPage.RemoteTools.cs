@@ -42,6 +42,11 @@ public sealed partial class MainPage
         SearchPane.SetContext(_files as IServerSearchService, _files, session, _directory ?? _root);
         NasTasksPane.SetContext(_files as IServerTaskService, Operations, session);
         TrashPane.SetContext(_files as ITrashService, Operations, session);
+        if (_storageAnalysisView is { } storage)
+        {
+            if (session is not null && storage.HasSession(session)) storage.SetPermissions(session.Permissions);
+            else RetireStorageAnalysis();
+        }
         if (session is null && _currentPane is MainPane.Search or MainPane.Tasks or MainPane.Trash or MainPane.Storage)
             ShowPane(MainPane.Connection);
     }
@@ -83,15 +88,23 @@ public sealed partial class MainPage
         if (StorageToolsHost.Visibility == Visibility.Visible)
         {
             if (showUsers) _storageAnalysisView?.ShowUsers();
+            else _storageAnalysisView?.ShowAnalysisTools();
             return;
         }
         CloseSidebarOverlay(); UpdateRemoteToolsContext();
-        // A view owns one immutable account/directory context. Retiring it cancels
-        // observation; a later visit cannot reuse its canceled token or old callbacks.
+        if (_storageAnalysisView is { } existing && existing.HasSession(session) && existing.HasDirectory(directory))
+        {
+            ShowPane(MainPane.Storage);
+            if (showUsers) existing.ShowUsers();
+            else existing.ShowAnalysisTools();
+            return;
+        }
+        RetireStorageAnalysis();
+        // A scope has one session and directory. Hide pauses reads; a new scope retires the old view.
         var view = new StorageAnalysisControl();
         view.CloseRequested += (_, _) => ReturnFromRemoteTools();
         view.Attach(_storageAnalysis, _storageAnalysis as IDuplicateAnalysisService);
-        view.SetContext(directory);
+        view.SetContext(directory, session);
         if (_storageAnalysis is IAdminUserService admin)
             view.AttachAdmin(admin, session.DisplayName, session.Capabilities.EnableExec, session.Capabilities.AuthMethod != "noauth");
         _storageAnalysisView = view;
