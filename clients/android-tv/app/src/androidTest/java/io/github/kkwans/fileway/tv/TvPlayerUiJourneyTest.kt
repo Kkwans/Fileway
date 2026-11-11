@@ -17,6 +17,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.UiDevice
 import io.github.kkwans.nasfilebrowser.app.mediaKey
@@ -36,6 +37,7 @@ import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -59,6 +61,133 @@ class TvPlayerUiJourneyTest {
     private var model: TvModel? = null
     private var fixtureUrl = ""
     private var fixturePassword = ""
+
+    @Test fun systemSubtitleFolderGrantSupportsRemoteImport() = verifyOwnedLocalSubtitle(legacy = false)
+
+    @Test fun androidNineSharedStorageGrantSupportsSubtitleImport() = verifyOwnedLocalSubtitle(legacy = true)
+
+    private fun verifyOwnedLocalSubtitle(legacy: Boolean) {
+        val args = InstrumentationRegistry.getArguments()
+        val runId = args.getString("ownedSafRun")
+        assumeTrue("Use an isolated TV and an owned system-picker folder", runId?.matches(Regex("[a-z0-9]+")) == true)
+        check(Build.VERSION.SDK_INT in setOf(28, 35))
+        fixtureUrl = requireNotNull(args.getString("fixture_url"))
+        val uri = URI(fixtureUrl)
+        check(uri.scheme == "http" && uri.host == "10.0.2.2" && uri.port in 1..65535 && uri.rawPath.isEmpty())
+        val folderName = "Fileway SAF $runId"
+        val captionName = "Owned TV local caption.srt"
+        val caption = "OWNED TV LOCAL CAPTION"
+        val remote = args.getString("ownedSafRemote") == "true"
+        check(!legacy || (Build.VERSION.SDK_INT == 28 && !remote))
+        evidence = File(requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)), "tv-saf-$runId")
+            .apply { check(mkdir()) }
+        val config = Configurator.getInstance()
+        val priorIdle = config.waitForIdleTimeout
+        config.waitForIdleTimeout = 0
+        val scenario = ActivityScenario.launch(TvActivity::class.java)
+        var grantId: String? = null
+        var ownerKey: String? = null
+        var originalPolicy: VideoDecodePolicy? = null
+        fun press(label: String) {
+            waitFor("TV action $label") {
+                if (Build.VERSION.SDK_INT >= 34) instrumentation.uiAutomation.clearCache()
+                node(label, actionable = true)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+            }
+        }
+        try {
+            mark("owned saved TV account")
+            scenario.onActivity { model = ViewModelProvider(it)[TvModel::class.java] }
+            val tv = requireNotNull(model)
+            waitFor("saved fixture login", 35_000) { !tv.state.value.restoring && tv.state.value.connected }
+            val owner = requireNotNull(tv.context)
+            check(owner.profile.address.trimEnd('/') == fixtureUrl && owner.account.username == "tv-fixture")
+            ownerKey = owner.account.key
+            assertTrue("The new shared folder must be unavailable before granting it", runBlocking {
+                tv.media.localSubtitles.remoteRoots(owner.account.key).none { it.label == folderName }
+            })
+            originalPolicy = tv.media.playbackPreferences.videoDecodePolicy.value
+            scenario.onActivity { tv.media.setVideoDecodePolicy(VideoDecodePolicy.SOFTWARE); tv.navigate(TvRoute.FILES); tv.browse("/Cinema", "/Cinema", false) }
+            waitFor("owned Cinema", 25_000) { tv.state.value.path == "/Cinema" && !tv.state.value.busy }
+            val movie = tv.state.value.files.single { it.name == movieName }
+            scenario.onActivity { tv.open(movie, listOf(movie)) }
+            waitFor("video ready", 30_000) { tv.media.player.state.value.firstFrameRendered && tv.media.canSeek }
+            scenario.onActivity { tv.media.pause(); tv.media.seek(6_000); tv.media.subtitlesOff() }
+            waitFor("paused owned frame", 20_000) {
+                !tv.media.player.wantsPlay && abs(tv.media.sourcePosition() - 6_000L) < 500L &&
+                    !tv.media.player.state.value.seeking && tv.media.player.state.value.selectedSubtitle == -1
+            }
+            val generation = tv.media.player.state.value.mediaGeneration
+            val epoch = tv.media.controlEpoch
+            mark("open actual TV subtitle permission UI")
+            assertTrue(device.pressDPadDown())
+            press("字幕")
+            press("添加字幕")
+            press("本机字幕")
+            if (legacy) {
+                assertFalse(tv.media.localSubtitles.hasLegacyRead)
+                press("允许读取共享存储")
+                fun allow() = listOf("Allow", "允许").firstNotNullOfOrNull { label ->
+                    device.findObject(By.text(label))?.takeIf {
+                        it.applicationPackage in setOf("com.google.android.packageinstaller", "com.android.packageinstaller")
+                    }
+                }
+                waitFor("Android 9 system storage permission") {
+                    allow() != null
+                }
+                capture("system-storage-read-confirmation.png")
+                requireNotNull(allow()).click()
+                waitFor("shared subtitle storage available") { tv.media.localSubtitles.hasLegacyRead && node("电视共享存储") != null }
+                press("电视共享存储")
+                activate("Download")
+            } else {
+                press("授权文件夹")
+                record("WAITING_FOR_GRANT")
+                grantOwnedFolderWithSystemPicker(folderName)
+                waitFor("system folder grant shown on TV", 60_000) { node("文件夹已授权") != null }
+                val grant = runBlocking { tv.media.localSubtitles.remoteRoots(owner.account.key).single { it.label == folderName } }
+                grantId = requireNotNull(grant.grantId)
+                assertTrue(grant.detail.orEmpty().contains("已授权"))
+                capture("tv-folder-granted.png")
+            }
+            if (remote) {
+                press("关闭面板")
+            } else {
+                press(folderName)
+                press(captionName)
+                waitFor("local track selected") { tv.media.player.state.value.selectedSubtitle >= 0 }
+            }
+            mark(if (remote) "phone selects TV SAF document" else "TV selects authorized local subtitle")
+            // Keep this Activity and its authenticated TV host in the foreground.
+            if (remote) record("GRANTED")
+            waitFor("subtitle cue reaches the TV viewport", 90_000) { containsCue(scenario, caption) }
+            val player = tv.media.player.state.value
+            val key = tv.media.player.importedSubtitleIdentity(player.selectedSubtitle)?.sourceKey.orEmpty()
+            assertTrue(key.startsWith(if (remote) "external:remote:" else "external:local:"))
+            assertEquals(generation, player.mediaGeneration)
+            assertEquals(epoch, tv.media.controlEpoch)
+            assertFalse(tv.media.player.wantsPlay)
+            assertTrue(abs(tv.media.sourcePosition() - 6_000L) < 500L)
+            capture("tv-saf-caption.png")
+            if (remote) {
+                record("RENDERED")
+                waitFor("phone observed the rendered track", 35_000) { File(evidence, "phone-finished").isFile }
+            }
+            record("PASS")
+        } catch (failure: Throwable) {
+            runCatching { capture("failure.png") }
+            record("FAIL", failure = failure)
+            throw failure
+        } finally {
+            scenario.onActivity {
+                val tv = model ?: return@onActivity
+                grantId?.let { id -> check(tv.media.revokeLocalSubtitleTree(requireNotNull(ownerKey), id)) }
+                tv.media.close()
+                originalPolicy?.let(tv.media::setVideoDecodePolicy)
+            }
+            scenario.close()
+            config.waitForIdleTimeout = priorIdle
+        }
+    }
 
     @Test fun ownedBrowsePlayerSubtitleAndBackJourney() {
         Configurator.getInstance().waitForIdleTimeout = 0
@@ -655,6 +784,44 @@ class TvPlayerUiJourneyTest {
 
     private fun bounds(label: String): Rect = Rect().also {
         waitVisible(label, actionable = true).getBoundsInScreen(it)
+    }
+
+    private fun grantOwnedFolderWithSystemPicker(folderName: String) {
+        fun pickerRoots(): List<AccessibilityNodeInfo> {
+            if (Build.VERSION.SDK_INT >= 34) instrumentation.uiAutomation.clearCache()
+            return instrumentation.uiAutomation.windows.mapNotNull { it.root }.filter {
+                it.packageName?.toString() in setOf("com.google.android.documentsui", "com.android.documentsui")
+            }
+        }
+        fun action(vararg labels: String): AccessibilityNodeInfo? {
+            fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+                if (node == null) return null
+                if (node.isVisibleToUser && labels.any { label ->
+                        label.equals(node.text?.toString(), ignoreCase = true) || label.equals(node.contentDescription?.toString(), ignoreCase = true)
+                    }) generateSequence(node) { it.parent }.firstOrNull { it.isClickable && it.isEnabled }?.let { return it }
+                for (index in 0 until node.childCount) find(node.getChild(index))?.let { return it }
+                return null
+            }
+            return pickerRoots().firstNotNullOfOrNull(::find)
+        }
+        fun click(vararg labels: String) {
+            waitFor("system picker action ${labels.first()}") {
+                action(*labels)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
+            }
+        }
+        waitFor("system DocumentsUI") { pickerRoots().isNotEmpty() }
+        capture("system-folder-picker.png")
+        if (action(folderName) == null) {
+            if (action("Downloads", "Download", "下载") == null) click("Show roots", "Open navigation drawer", "显示根目录")
+            click("Downloads", "Download", "下载")
+        }
+        click(folderName)
+        waitFor("system folder selection") { action("Use this folder", "使用此文件夹") != null }
+        capture("system-selected-folder.png")
+        click("Use this folder", "使用此文件夹")
+        waitFor("system grant confirmation") { action("Allow", "允许") != null }
+        capture("system-grant-confirmation.png")
+        click("Allow", "允许")
     }
 
     private fun touch(label: String, leftmost: Boolean = false) {

@@ -33,8 +33,89 @@ import kotlin.math.abs
 /** Native phone picker over a paired LAN connection to a separate, owned TV emulator. */
 @RunWith(AndroidJUnit4::class)
 class TvRemoteAccountSubtitleTest {
+    private val instrumentation = InstrumentationRegistry.getInstrumentation()
+
+    private fun findAction(node: AccessibilityNodeInfo?, label: String, description: Boolean): AccessibilityNodeInfo? {
+        if (node == null) return null
+        val name = if (description) node.contentDescription else node.text
+        if (node.packageName?.toString() == instrumentation.targetContext.packageName &&
+            node.isVisibleToUser && name?.toString() == label) {
+            return generateSequence(node) { it.parent }.firstOrNull { it.isClickable && it.isEnabled }
+        }
+        for (index in 0 until node.childCount) findAction(node.getChild(index), label, description)?.let { return it }
+        return null
+    }
+
+    private fun roots(): List<AccessibilityNodeInfo> {
+        instrumentation.uiAutomation.clearCache()
+        return instrumentation.uiAutomation.windows.mapNotNull { it.root }
+    }
+
+    private fun actionNode(label: String, description: Boolean = false): AccessibilityNodeInfo? =
+        roots().firstNotNullOfOrNull { findAction(it, label, description) }
+
+    @Test fun selectsSubtitleFromFolderGrantedOnTv(): Unit = runBlocking {
+        val runId = InstrumentationRegistry.getArguments().getString("ownedSafRun")
+        assumeTrue("Use an owned paired TV with an explicit system folder grant", runId?.matches(Regex("[a-z0-9]+")) == true)
+        require(Build.VERSION.SDK_INT == 35 && Build.HARDWARE.contains("ranchu"))
+        val directory = requireNotNull(instrumentation.targetContext.getExternalFilesDir(null))
+        val device = UiDevice.getInstance(instrumentation)
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        lateinit var phone: ClientModel
+        lateinit var control: TvControlModel
+        var stage = "phone starts without a media account"
+        suspend fun click(label: String) {
+            withTimeout(15_000) {
+                while (actionNode(label)?.performAction(AccessibilityNodeInfo.ACTION_CLICK) != true) delay(100)
+            }
+        }
+        try {
+            scenario.onActivity {
+                val models = ViewModelProvider(it)
+                phone = models[ClientModel::class.java]
+                control = models[TvControlModel::class.java]
+            }
+            val startup = withTimeout(20_000) { phone.state.first { !it.startupPending && !it.busy } }
+            assertFalse(startup.connected)
+            val trusted = control.client.store.dao.devices().first().single { it.trusted }
+            scenario.onActivity { it.setContent { ClientTheme { TvControlScreen(phone, {}, control) } } }
+            stage = "resume the authorized TV"
+            val before = withTimeout(35_000) {
+                control.connection.first { it.phase == RemotePhase.CONNECTED && it.device?.id == trusted.id && it.snapshot?.scene == "VIDEO" }
+            }.snapshot!!
+            assertEquals("tv-fixture", before.content.getJSONObject("session").getString("username"))
+            assertEquals(1, before.capabilities.optInt("subtitleBrowseLocal"))
+            val playback = before.content.getJSONObject("playback")
+            assertFalse(playback.getBoolean("playing"))
+            assertEquals(-1, playback.getInt("selectedSubtitle"))
+            stage = "open granted TV folder from the native phone picker"
+            click("字幕")
+            click("本机字幕")
+            click("Fileway SAF $runId")
+            val file = "Owned TV local caption.srt"
+            withTimeout(12_000) { while (actionNode(file) == null) delay(100) }
+            device.takeScreenshot(File(directory, "fileway-saf-$runId-phone.png"))
+            click(file)
+            stage = "TV reports the selected local document"
+            val after = withTimeout(30_000) {
+                control.connection.first { it.snapshot?.let { snapshot ->
+                    snapshot.content.getJSONObject("playback").let { p -> !p.getBoolean("subtitleLoading") && p.getInt("selectedSubtitle") >= 0 }
+                } == true }
+            }.snapshot!!
+            assertEquals(before.sessionEpoch, after.sessionEpoch)
+            assertEquals(before.mediaEpoch, after.mediaEpoch)
+            assertFalse(after.content.getJSONObject("playback").getBoolean("playing"))
+            assertTrue(abs(after.content.getJSONObject("playback").getLong("positionMs") - playback.getLong("positionMs")) < 500L)
+            assertFalse(phone.state.value.connected)
+        } catch (failure: Throwable) {
+            runCatching { device.takeScreenshot(File(directory, "fileway-saf-$runId-phone-failure.png")) }
+            throw AssertionError("Owned TV SAF journey failed at $stage", failure)
+        } finally {
+            scenario.close()
+        }
+    }
+
     @Test fun selectsFromTvAccountAndPreservesPlaybackWhenPhoneChangesAccount(): Unit = runBlocking {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
         val args = InstrumentationRegistry.getArguments()
         val runId = args.getString("ownedTvAccountRun")
         assumeTrue("A task-owned two-emulator fixture is required", runId?.matches(Regex("[a-z0-9]+")) == true)
@@ -76,22 +157,6 @@ class TvRemoteAccountSubtitleTest {
             val rows = snapshot.content.getJSONArray("files")
             return (0 until rows.length()).map(rows::getJSONObject).single { it.getString("name") == title }
         }
-        fun findAction(node: AccessibilityNodeInfo?, label: String, description: Boolean): AccessibilityNodeInfo? {
-            if (node == null) return null
-            val name = if (description) node.contentDescription else node.text
-            if (node.packageName?.toString() == instrumentation.targetContext.packageName &&
-                node.isVisibleToUser && name?.toString() == label) {
-                return generateSequence(node) { it.parent }.firstOrNull { it.isClickable && it.isEnabled }
-            }
-            for (index in 0 until node.childCount) findAction(node.getChild(index), label, description)?.let { return it }
-            return null
-        }
-        fun roots(): List<AccessibilityNodeInfo> {
-            instrumentation.uiAutomation.clearCache()
-            return instrumentation.uiAutomation.windows.mapNotNull { it.root }
-        }
-        fun actionNode(label: String, description: Boolean = false): AccessibilityNodeInfo? =
-            roots().firstNotNullOfOrNull { findAction(it, label, description) }
         fun scrollForward(node: AccessibilityNodeInfo?): Boolean {
             if (node == null || !node.isVisibleToUser) return false
             if (node.isScrollable && node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
