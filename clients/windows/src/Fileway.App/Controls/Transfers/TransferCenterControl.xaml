@@ -14,7 +14,7 @@
   <Grid Grid.Row="2">
    <ListView x:Name="Records" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="Record_Click" KeyDown="Records_KeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="传输记录，选择一项查看详情" ItemContainerStyle="{StaticResource FwListRecordItemStyle}">
     <ListView.ItemTemplate><DataTemplate x:DataType="local:TransferCenterRow">
-     <Grid AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}" Margin="{x:Bind RowMargin}">
+     <Grid AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
       <Grid Visibility="{x:Bind HeaderVisibility}" Padding="16,14" ColumnSpacing="14" Background="{ThemeResource FwSurfaceRaisedBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1" CornerRadius="12">
        <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
        <Border Width="32" Height="32" CornerRadius="9" Background="{ThemeResource FwSelectionBrush}" VerticalAlignment="Top"><ui:LucideIcon IconName="folder" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
@@ -23,7 +23,7 @@
         <Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}" Visibility="{x:Bind ProgressVisibility, Mode=OneWay}">
          <ProgressBar Minimum="0" Maximum="100" Value="{x:Bind Progress, Mode=OneWay}" IsIndeterminate="{x:Bind Indeterminate, Mode=OneWay}" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="{x:Bind ProgressName}"/>
         </Border>
-        <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind Bytes, Mode=OneWay}"/>
+        <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind Bytes, Mode=OneWay}" TextWrapping="Wrap"/>
        </StackPanel>
       </Grid>
       <Grid Visibility="{x:Bind DetailVisibility}" Padding="16,14" ColumnSpacing="14" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="10">

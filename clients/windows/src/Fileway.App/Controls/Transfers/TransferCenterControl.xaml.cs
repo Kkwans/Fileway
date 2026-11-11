@@ -26,6 +26,7 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
     public TransferCenterControl()
     {
         InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(LoadError);
+        Records.ContainerContentChanging += Records_ContainerContentChanging;
         _clock = DispatcherQueue.CreateTimer(); _clock.Interval = TimeSpan.FromSeconds(1);
         _clock.Tick += (_, _) => { if (_rows is not null) foreach (var row in _rows) row.RefreshClock(); };
         Loaded += (_, _) => _clock.Start(); Unloaded += (_, _) => _clock.Stop();
@@ -90,6 +91,13 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
     {
         if (e.ClickedItem is TransferCenterRow { IsBatchHeader: false } row) DetailsRequested?.Invoke(this, row.Task);
     }
+    private static void Records_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+    {
+        if (!args.InRecycleQueue && args.Item is TransferCenterRow row)
+            args.ItemContainer.Margin = row.RowMargin;
+        else
+            args.ItemContainer.ClearValue(FrameworkElement.MarginProperty);
+    }
     private void Pause_Click(object sender, RoutedEventArgs args) { if (sender is FrameworkElement { DataContext: TransferCenterRow { IsBatchHeader: false } row }) PauseRequested?.Invoke(this, row.Task); }
     private void Remove_Click(object sender, RoutedEventArgs args) { if (sender is FrameworkElement { DataContext: TransferCenterRow { IsBatchHeader: false } row }) RemoveRequested?.Invoke(this, row.Task); }
     private void Records_KeyDown(object sender, KeyRoutedEventArgs e)
@@ -116,6 +124,8 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     public Visibility DetailVisibility { get; }
     public Thickness RowMargin { get; }
     internal UploadStatus Status { get; private set; }
+    private long? ConfirmedBytes { get; set; }
+    private long? TotalBytes { get; set; }
     private readonly UploadBatchInfo? _batch;
     public string Name { get; private set; } = "";
     public string Stage { get; private set; } = "";
@@ -138,14 +148,15 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     private long _lastBytes, _lastObservation;
     private TimeSpan _lastElapsed;
     private double _rate;
-    internal TransferCenterRow(TransferTaskRef task, TransferDirection direction, bool inBatch = false)
+    internal TransferCenterRow(TransferTaskRef task, TransferDirection direction, Guid? batchId = null)
     {
+        BatchId = batchId;
         Task = task; Glyph = direction == TransferDirection.Upload ? "\uE898" : "\uE896";
         IconName = direction == TransferDirection.Upload ? "upload-simple" : "download-simple";
         ProgressName = direction == TransferDirection.Upload ? "服务器确认上传进度" : "下载接收进度";
         ActionsVisibility = direction == TransferDirection.Download ? Visibility.Visible : Visibility.Collapsed;
         HeaderVisibility = Visibility.Collapsed; DetailVisibility = Visibility.Visible;
-        RowMargin = inBatch ? new Thickness(24, 0, 0, 0) : new Thickness(0);
+        RowMargin = new Thickness(batchId.HasValue ? 24 : 0, 0, 0, 6);
     }
     internal TransferCenterRow(UploadBatchInfo batch)
     {
@@ -153,7 +164,7 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
         Task = default; Glyph = ""; IconName = "folder"; ProgressName = "文件夹上传总进度";
         Name = batch.Name; ActionsVisibility = Visibility.Collapsed;
         HeaderVisibility = Visibility.Visible; DetailVisibility = Visibility.Collapsed;
-        RowMargin = new Thickness(0);
+        RowMargin = new Thickness(0, 0, 0, 6);
     }
     internal void UpdateBatch(IReadOnlyList<TransferCenterRow> children)
     {
@@ -162,23 +173,38 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
         var done = children.Count(row => row.Status == UploadStatus.Completed);
         var failed = children.Count(row => row.Status is UploadStatus.Failed or UploadStatus.OutcomeUnknown
             or UploadStatus.Conflict or UploadStatus.SourceChanged);
-        var active = children.Count(row => row.Status is UploadStatus.Queued or UploadStatus.Preparing
-            or UploadStatus.Uploading or UploadStatus.Pausing or UploadStatus.Verifying or UploadStatus.Publishing
-            or UploadStatus.Reconciling or UploadStatus.WaitingNetwork or UploadStatus.WaitingAuthentication);
-        var allDone = total > 0 && done >= total;
-        Stage = allDone ? "已完成" : failed > 0 ? $"{done}/{total} 已完成 · {failed} 项需处理"
-            : active > 0 ? $"{done}/{total} 已完成 · 上传中" : $"{done}/{total} 已完成";
-        var progress = children.Count == 0 ? 0 : children.Average(row => row.Progress);
-        Progress = allDone ? 100 : progress;
-        ProgressVisibility = allDone ? Visibility.Collapsed : Visibility.Visible;
-        Indeterminate = children.Count > 0 && children.All(row => row.Indeterminate);
-        var size = _batch.TotalBytes > 0 ? "总大小 " + DownloadPresentationPolicy.FormatBytes(_batch.TotalBytes) : "";
-        Bytes = string.Join(" · ", new[] { $"{_batch.ItemCount} 个文件", size }.Where(text => text.Length > 0));
+        Stage = failed > 0 ? $"{done}/{total} 已完成 · {failed} 项需处理" : $"{done}/{total} 已完成";
+
+        var summary = new List<string> { $"计划 {total} 个文件" };
+        if (_batch.TotalBytes > 0) summary.Add("总大小 " + DownloadPresentationPolicy.FormatBytes(_batch.TotalBytes));
+        if (children.Count < total) summary.Add($"已显示 {children.Count} 条任务");
+        var active = children.Count(row => UploadPresentationPolicy.IsActiveUpload(row.Status));
+        if (active > 0) summary.Add($"{active} 项处理中");
+        var waiting = children.Count(row => row.Status is UploadStatus.WaitingNetwork or UploadStatus.WaitingAuthentication or UploadStatus.NotStarted);
+        if (waiting > 0) summary.Add($"{waiting} 项等待");
+        var paused = children.Count(row => row.Status == UploadStatus.Paused);
+        if (paused > 0) summary.Add($"{paused} 项已暂停");
+        var canceled = children.Count(row => row.Status == UploadStatus.Canceled);
+        if (canceled > 0) summary.Add($"{canceled} 项已取消");
+        var skipped = children.Count(row => row.Status == UploadStatus.Skipped);
+        if (skipped > 0) summary.Add($"{skipped} 项已跳过");
+        Bytes = string.Join(" · ", summary);
+
+        // Percent is meaningful only when the whole batch and its actual source sizes are known.
+        var uploading = children.Any(row => row.Status == UploadStatus.Uploading);
+        var knownSizes = children.Count == total && children.All(row => row.TotalBytes.HasValue);
+        var totalBytes = knownSizes ? children.Sum(row => (double)row.TotalBytes.GetValueOrDefault()) : 0;
+        var confirmed = children.Sum(row => (double)row.ConfirmedBytes.GetValueOrDefault());
+        Progress = totalBytes > 0 ? Math.Clamp(confirmed * 100 / totalBytes, 0, 100) : 0;
+        ProgressVisibility = uploading && (!knownSizes || totalBytes > 0) ? Visibility.Visible : Visibility.Collapsed;
+        Indeterminate = uploading && (!knownSizes || !children.Any(row => row.ConfirmedBytes.HasValue));
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
     }
     internal void Update(UploadItem item)
     {
         Status = item.Status;
+        ConfirmedBytes = item.Snapshot.ConfirmedOffset;
+        TotalBytes = item.Snapshot.TotalBytes;
         ProgressVisibility = item.Status is UploadStatus.Uploading or UploadStatus.Paused or UploadStatus.Failed or UploadStatus.Canceled
             ? Visibility.Visible : Visibility.Collapsed;
         var p = UploadPresentationPolicy.Progress(item);
