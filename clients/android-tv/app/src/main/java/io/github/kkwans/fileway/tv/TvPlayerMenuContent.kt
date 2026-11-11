@@ -186,6 +186,12 @@ internal fun tvPlayerSettingsRows(
 
     when (page) {
         TvPlayerPage.SETTINGS -> TvPlayerSettings(rows.filterIsInstance<TvPlayerRow.Choice>(), focus)
+        TvPlayerPage.SPEED -> if (quick) {
+            TvPlayerChoiceList(rows, focus, Modifier.weight(1f, fill = false))
+        } else TvSpeedEditor(rows.filterIsInstance<TvPlayerRow.Choice>(), player.rate, focus) { rate ->
+            model.media.player.rate(rate)
+            onBack()
+        }
         TvPlayerPage.QUEUE -> {
             if (rows.isEmpty()) TvPlayerMessage("播放列表为空", focus)
             else if (quick) TvPlayerChoiceList(rows, focus, Modifier.weight(1f, fill = false))
@@ -277,18 +283,41 @@ internal fun tvPlayerSettingsRows(
             if (page == TvPlayerPage.HDR && !state.sdrAvailable) TvPlayerNote("当前片源未提供 SDR 兼容播放")
             if (rows.isNotEmpty()) {
                 if (rows.filterIsInstance<TvPlayerRow.Choice>().none { it.enabled }) TvPlayerMessage("暂时无法切换", focus)
-                TvPlayerChoiceList(rows, focus, Modifier.weight(1f, fill = !quick)) {
-                    if (page == TvPlayerPage.SPEED && !quick) item(key = "custom-speed") {
-                        var value by remember { mutableStateOf(player.rate.toString()) }
-                        Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
-                                options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline)
-                            TvButton("应用", { parsePlaybackRate(value)?.let { model.media.player.rate(it); onBack() } },
-                                Modifier.fillMaxWidth(), enabled = parsePlaybackRate(value) != null)
-                        }
+                TvPlayerChoiceList(rows, focus, Modifier.weight(1f, fill = !quick))
+            } else if (page == TvPlayerPage.AUDIO && state.busy) TvPlayerMessage("正在准备播放", focus)
+        }
+    }
+}
+
+@Composable
+private fun TvSpeedEditor(
+    presets: List<TvPlayerRow.Choice>, rate: Float, focus: TvPlayerPanelFocus, applyRate: (Float) -> Unit,
+) {
+    var value by remember { mutableStateOf(rate.toString()) }
+    val editor = remember { FocusRequester() }
+    val keyboardVisible = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
+    val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: presets.firstOrNull()?.key
+    Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!keyboardVisible) {
+            val lines = presets.chunked(3)
+            lines.forEachIndexed { index, line ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    line.forEach { preset ->
+                        TvPlayerPanelButton(preset.title, preset.selected, preset.action,
+                            focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
+                                if (index == 0) up = focus.header
+                                if (index == lines.lastIndex) down = editor
+                            }))
                     }
                 }
-            } else if (page == TvPlayerPage.AUDIO && state.busy) TvPlayerMessage("正在准备播放", focus)
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
+            TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
+                focus.target("custom-speed", preferred == "custom-speed", Modifier.weight(1f).focusRequester(editor)),
+                options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline)
+            val parsed = parsePlaybackRate(value)
+            TvButton("应用", { parsed?.let(applyRate) }, enabled = parsed != null)
         }
     }
 }

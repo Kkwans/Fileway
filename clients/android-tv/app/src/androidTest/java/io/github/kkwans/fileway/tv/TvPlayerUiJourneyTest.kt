@@ -296,6 +296,11 @@ class TvPlayerUiJourneyTest {
             capture("full-speed-selected.png")
             moveUntil("自定义速度（0.1–5）", "down", 12)
             waitFocus("自定义速度（0.1–5）")
+            val speedField = bounds("自定义速度（0.1–5）")
+            val applySpeed = bounds("应用")
+            val density = instrumentation.targetContext.resources.displayMetrics.density
+            assertTrue("Apply must keep its full touch target", applySpeed.height() >= (48 * density).toInt())
+            assertTrue("Apply stays beside the input", applySpeed.left >= speedField.right)
             capture("full-speed.png")
             observeWindows("custom-before-back")
             assertTrue(device.pressBack())

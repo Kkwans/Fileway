@@ -263,7 +263,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
             )
         }
         TvPlaybackHeader(
-            title = file.name.takeIf { hudVisible || panel != null },
+            title = file.name.takeIf { (hudVisible || panel != null) && (panel != TvPlayerPage.SPEED || quickPanel) },
             showTime = interfaceState.clockAlways || controls || panel != null,
             showSpeed = !audio && (interfaceState.speedAlways || controls || panel != null),
             bytesPerSecond = cache.bytesPerSecond, safePercent = interfaceState.safePercent,

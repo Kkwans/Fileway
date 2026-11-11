@@ -118,6 +118,7 @@ private const val PanelBackKey = "header/back"
 private const val PanelCloseKey = "header/close"
 // Static neutral translucency: readable against bright footage without a live blur.
 internal val PanelSurface = Color(0xD61A1B1C)
+private val SpeedPanelSurface = Color(0xF0202022)
 internal val PanelFocus = Color.White.copy(alpha = .12f)
 internal val PanelOutline = Color(0xF2F2F5F8)
 private val PanelTabShape = RoundedCornerShape(50)
@@ -222,19 +223,35 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                 val availableWidth = (maxWidth - horizontal * 2).coerceAtLeast(0.dp)
                 val baseHeight = (maxHeight * .32f).coerceIn(128.dp, 256.dp)
                     .coerceAtMost((maxHeight - bottom - 56.dp).coerceAtLeast(0.dp))
-                val panelWidth = if (compactChoice) minOf(availableWidth, (availableWidth * .28f).coerceIn(224.dp, 300.dp)) else availableWidth
+                val speedEditor = page == TvPlayerPage.SPEED
+                val panelWidth = when {
+                    speedEditor -> minOf(availableWidth, 336.dp)
+                    compactChoice -> minOf(availableWidth, (availableWidth * .28f).coerceIn(224.dp, 300.dp))
+                    else -> availableWidth
+                }
                 // The underlay also has a 48dp tab row and a 6dp gap above
                 // its body. Keep the choice panel above the entire row.
                 val stackedBottom = bottom + baseHeight + 48.dp + 6.dp + 12.dp
-                val showSettingsUnderlay = compactChoice && maxHeight - stackedBottom - 56.dp >= 112.dp
-                val keyboardEditor = page == TvPlayerPage.SPEED && maxHeight < 220.dp &&
-                    WindowInsets.ime.getBottom(LocalDensity.current) > 0
-                val panelLeft = horizontal + if (showSettingsUnderlay && availableWidth >= 560.dp) availableWidth * .15f else 0.dp
+                val keyboardEditor = speedEditor && WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                val minimumBody = when {
+                    keyboardEditor -> 96.dp
+                    speedEditor -> 216.dp
+                    page == TvPlayerPage.QUEUE -> 140.dp
+                    else -> 128.dp
+                }
+                val minimumStackedBody = if (speedEditor) minimumBody else 112.dp
+                val showSettingsUnderlay = compactChoice && !keyboardEditor &&
+                    maxHeight - stackedBottom - 56.dp >= minimumStackedBody
+                val panelLeft = horizontal + when {
+                    speedEditor && !showSettingsUnderlay -> (availableWidth - panelWidth) / 2
+                    showSettingsUnderlay && availableWidth >= 560.dp -> availableWidth * .15f
+                    else -> 0.dp
+                }
                 val panelBottom = if (keyboardEditor) 4.dp else if (showSettingsUnderlay) stackedBottom
                     else if (page == TvPlayerPage.QUEUE) bottom + 16.dp else bottom
                 val heightFraction = if (browser) .43f else if (compactChoice) .30f else if (page == TvPlayerPage.QUEUE) .28f else .32f
                 val headerSpace = if (keyboardEditor) 0.dp else 56.dp
-                val panelHeight = (maxHeight * heightFraction).coerceIn(if (page == TvPlayerPage.QUEUE) 140.dp else 128.dp, 256.dp)
+                val panelHeight = (if (keyboardEditor) minimumBody else (maxHeight * heightFraction).coerceIn(minimumBody, 256.dp))
                     .coerceAtMost((maxHeight - panelBottom - headerSpace).coerceAtLeast(0.dp))
                 val dismiss by rememberUpdatedState(if (compactChoice && child) ({ onBack("dialog-outside") }) else onClose)
                 Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { dismiss() } })
@@ -264,7 +281,7 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                     Column(
                         Modifier.align(Alignment.BottomStart).padding(start = panelLeft, bottom = panelBottom)
                             .width(panelWidth)
-                            .then(if (compactChoice) Modifier.background(PanelSurface, TvShape)
+                            .then(if (compactChoice) Modifier.background(if (speedEditor) SpeedPanelSurface else PanelSurface, TvShape)
                                 .border(1.dp, Color.White.copy(alpha = .09f), TvShape) else Modifier),
                         verticalArrangement = Arrangement.spacedBy(if (compactChoice || page == TvPlayerPage.QUEUE) 0.dp else 6.dp),
                     ) {
@@ -451,7 +468,7 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
     }
 }
 
-@Composable private fun TvPlayerPanelButton(
+@Composable internal fun TvPlayerPanelButton(
     label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier,
     description: String? = null, pill: Boolean = false,
 ) {
@@ -489,7 +506,6 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
 
 @Composable internal fun TvPlayerChoiceList(
     rows: List<TvPlayerRow>, focus: TvPlayerPanelFocus, modifier: Modifier = Modifier,
-    footer: LazyListScope.() -> Unit = {},
 ) {
     val scroll = rememberLazyListState()
     val choices = remember(rows) { rows.filterIsInstance<TvPlayerRow.Choice>() }
@@ -522,7 +538,6 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
                 )
             }
         }
-        footer()
     }
     LazyColumn(modifier.fillMaxWidth(), state = scroll, contentPadding = PaddingValues(0.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp), content = listContent)
