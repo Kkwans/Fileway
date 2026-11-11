@@ -99,12 +99,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
                 throw Safe(ErrorCode.SourceChanged, "服务器地址或安全路由已变化，请使用新的连接来源。");
             await RetireAllAsync().ConfigureAwait(false);
             coreSession = await OpenCoreSessionAsync(profile, "", cancellationToken).ConfigureAwait(false);
-            var authenticated = await CallAsync("login", new
-            {
-                username = login.Mode == AuthenticationMode.Password ? login.Username : "",
-                password = login.Mode == AuthenticationMode.Password ? login.Password : "",
-            }, coreSession, cancellationToken).ConfigureAwait(false);
-            string token = HttpBody(authenticated).Trim();
+            string token = await LoginTokenAsync(coreSession, login.Mode, login.Username, login.Password,
+                cancellationToken).ConfigureAwait(false);
             string userId = ReadTokenUserId(token);
             var verified = await VerifyConnectionAsync(coreSession, profile, login.Mode, userId, Guid.NewGuid(), token,
                 cancellationToken).ConfigureAwait(false);
@@ -173,8 +169,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
                 token = await LoginWithSavedPasswordAsync(coreSession, saved, cancellationToken).ConfigureAwait(false);
             }
             if (saved.AuthenticationMode == AuthenticationMode.NoAuthentication)
-                token = HttpBody(await CallAsync("login", new { username = "", password = "" }, coreSession,
-                    cancellationToken).ConfigureAwait(false)).Trim();
+                token = await LoginTokenAsync(coreSession, saved.AuthenticationMode, "", "", cancellationToken).ConfigureAwait(false);
             VerifiedConnection verified;
             try
             {
@@ -215,10 +210,31 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             () => _passwords.ReadPasswordAsync(saved.Account, cancellationToken)).ConfigureAwait(false);
         if (string.IsNullOrEmpty(password))
             throw Safe(ErrorCode.AuthenticationExpired, "此连接尚无可用的本机自动登录凭据，请输入密码登录一次。");
-        var response = await CallAsync("login", new { username = saved.Username, password }, coreSession, cancellationToken).ConfigureAwait(false);
-        var token = HttpBody(response).Trim();
+        var token = await LoginTokenAsync(coreSession, saved.AuthenticationMode, saved.Username, password,
+            cancellationToken).ConfigureAwait(false);
         RequireTokenAccount(token, saved.ServerUserId);
         return token;
+    }
+
+    private async Task<string> LoginTokenAsync(string coreSession, AuthenticationMode mode, string username, string password,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var response = await CallAsync("login", new
+            {
+                username = mode == AuthenticationMode.Password ? username : "",
+                password = mode == AuthenticationMode.Password ? password : "",
+            }, coreSession, cancellationToken).ConfigureAwait(false);
+            return HttpBody(response).Trim();
+        }
+        catch (FilewayException error) when (error.Error.HttpStatus is 401 or 403)
+        {
+            var message = mode == AuthenticationMode.Password
+                ? "用户名或密码不正确，请重新输入。"
+                : "服务器拒绝免认证连接，请检查认证方式。";
+            throw Safe(ErrorCode.AuthenticationExpired, message, error.Error.HttpStatus);
+        }
     }
 
     public async Task<IReadOnlyList<SavedConnection>> ListAsync(CancellationToken cancellationToken)

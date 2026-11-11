@@ -86,6 +86,7 @@ public sealed partial class MainPage : Page, IDisposable
         ConfigurePopupMaterial(MoreBrowserActionsButton.Flyout);
         ApplyLocalization();
         InitializePresentation();
+        InitializeConnectionForm();
         _thumbnailController = new BrowserThumbnailController(_lifetime.Token, FileList, FileGrid);
         CollectionsPanel.CloseRequested += (_, _) => HideCollections();
         CollectionsPanel.OpenResourceAsync = OpenCollectionResourceAsync;
@@ -192,7 +193,6 @@ public sealed partial class MainPage : Page, IDisposable
         UpdateThumbnailContext();
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
-        ConnectButton.IsEnabled = true;
         NewConnectionButton.IsEnabled = true;
         LoginNotice.IsOpen = false;
         Notice.IsOpen = false;
@@ -211,6 +211,7 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 if (_session is null || _directory is null) SetConnectionView(true);
                 StartupPanel.Visibility = Visibility.Collapsed;
+                if (ConnectionPanel.Visibility == Visibility.Visible) FocusConnectionForm();
             }
         }
     }
@@ -269,7 +270,7 @@ public sealed partial class MainPage : Page, IDisposable
         _connectionCancellation?.Dispose(); _loadCancellation?.Dispose(); _lifetime.Dispose();
     }
 
-    private async void Connect_Click(object sender, RoutedEventArgs e) => await ConnectFromFormAsync();
+    private async void Connect_Click(object sender, RoutedEventArgs e) => await ExecutePrimaryConnectionActionAsync();
 
     private void ConnectionPanel_SizeChanged(object sender, SizeChangedEventArgs args)
     {
@@ -282,25 +283,33 @@ public sealed partial class MainPage : Page, IDisposable
         ConnectionFormGrid.ColumnSpacing = wide ? 64 : 0;
     }
 
-    private void ConnectionField_KeyDown(object sender, KeyRoutedEventArgs args)
-    {
-        if (args.Key != VirtualKey.Enter) return;
-        args.Handled = true;
-        if (ConnectionPanel.Visibility == Visibility.Visible && ConnectButton.IsEnabled)
-            Connect_Click(ConnectButton, new RoutedEventArgs());
-    }
-
     private async Task ConnectFromFormAsync()
     {
         if (_connection is null || _files is null || _connecting || _tailnetBusy) return;
-        if (!Uri.TryCreate(ServerBox.Text.Trim(), UriKind.Absolute, out var address) || (address.Scheme != "https" && address.Scheme != "http") || !string.IsNullOrEmpty(address.UserInfo) || !string.IsNullOrEmpty(address.Query) || !string.IsNullOrEmpty(address.Fragment))
-        { LoginError("请输入有效的 HTTP 或 HTTPS 服务器地址，且不要包含账号、查询参数或片段。"); return; }
-        var login = AuthenticationBox.SelectedIndex == 1
+        if (!TryReadConnectionAddress(out var address))
+        {
+            LoginError("请输入有效的 HTTP 或 HTTPS 服务器地址，且不要包含账号、查询参数或片段。");
+            FocusConnectionField(ServerBox);
+            return;
+        }
+        if (PasswordAuthentication && string.IsNullOrWhiteSpace(UsernameBox.Text))
+        {
+            LoginError("请输入服务器用户名。");
+            FocusConnectionField(UsernameBox);
+            return;
+        }
+        if (PasswordAuthentication && PasswordBox.Password.Length == 0)
+        {
+            LoginError("请输入服务器密码。");
+            FocusConnectionField(PasswordBox);
+            return;
+        }
+        var login = !PasswordAuthentication
             ? new LoginInput(AuthenticationMode.NoAuthentication, KeepSignedIn: KeepSignedInBox.IsChecked == true)
             : new LoginInput(AuthenticationMode.Password, UsernameBox.Text, PasswordBox.Password, KeepSignedInBox.IsChecked == true);
         var displayName = string.IsNullOrWhiteSpace(ConnectionNameBox.Text) ? ConnectionChoice.DefaultDisplayName(address) : ConnectionNameBox.Text.Trim();
         var network = SelectedConnectionNetwork;
-        if (network == NetworkMode.EmbeddedTailnet && _tailnetStatus?.State != EmbeddedTailnetState.Running)
+        if (!ConnectionNetworkReady)
         {
             LoginError("请先启动内嵌 Tailscale 并完成授权，再连接服务器。");
             return;
@@ -309,18 +318,23 @@ public sealed partial class MainPage : Page, IDisposable
             ? saved with { DisplayName = displayName, BaseAddress = address, Network = network,
                 SourceRevision = saved.BaseAddress.AbsoluteUri == address.AbsoluteUri && saved.Network == network ? saved.SourceRevision : Guid.NewGuid() }
             : new ConnectionProfile(Guid.NewGuid(), Guid.NewGuid(), displayName, address, network, new ProxyPolicy(ProxyMode.Direct));
-        await RunConnectionAsync(token => _connection.ConnectAsync(profile, login, token), "正在连接服务器…");
+        await RunConnectionAsync(token => _connection.ConnectAsync(profile, login, token), profile.Id);
     }
 
-    private Task RunConnectionAsync(Func<CancellationToken, Task<ConnectionSession>> connect, string? message, bool silent = false)
-        => _connectionOperation = RunConnectionCoreAsync(connect, message, silent);
+    private Task RunConnectionAsync(Func<CancellationToken, Task<ConnectionSession>> connect, Guid profileId,
+        bool restoring = false, bool silent = false, bool openingOnly = false)
+        => _connectionOperation = RunConnectionCoreAsync(connect, profileId, restoring, silent, openingOnly);
 
-    private async Task RunConnectionCoreAsync(Func<CancellationToken, Task<ConnectionSession>> connect, string? message, bool silent)
+    private async Task RunConnectionCoreAsync(Func<CancellationToken, Task<ConnectionSession>> connect, Guid profileId,
+        bool restoring, bool silent, bool openingOnly)
     {
         if (_connection is null || _files is null || _connecting || _disposed) return;
         _connectionCancellation?.Dispose();
         _connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _connectionCancellation.Token;
+        _restoringConnection = restoring;
+        bool authenticated = false;
+        Control? failureFocus = null;
         SetConnecting(true);
         if (silent)
             LoginNotice.IsOpen = false;
@@ -329,12 +343,12 @@ public sealed partial class MainPage : Page, IDisposable
             LoginNotice.Title = "";
             LoginErrorDetailsButton.Visibility = Visibility.Collapsed;
             LoginNotice.Severity = InfoBarSeverity.Informational;
-            LoginNotice.Message = message ?? "正在连接服务器…";
+            LoginNotice.Message = openingOnly ? "正在打开文件空间…" : restoring ? "正在恢复已保存连接…" : "正在连接服务器…";
             LoginNotice.IsOpen = true;
         }
         try
         {
-            if (_session is not null)
+            if (!openingOnly && _session is not null)
             {
                 foreach (var window in _imageWindows.ToArray()) window.Close();
                 foreach (var window in _textWindows.ToArray()) window.Close();
@@ -345,6 +359,8 @@ public sealed partial class MainPage : Page, IDisposable
                 ClearActiveWorkspace();
             }
             _session = await connect(token);
+            authenticated = true;
+            _savedConnectionRecovery.Remove(profileId);
             LoginNotice.IsOpen = false;
             PasswordBox.Password = "";
             _sessionPasswordMinimum = Math.Clamp(_session.Capabilities.MinimumPasswordLength, 1, 128);
@@ -358,6 +374,7 @@ public sealed partial class MainPage : Page, IDisposable
             }
             _trail.Clear(); _trail.Add(_root); _history.Clear();
             if (initialDirectory.WirePath != _root.WirePath) _trail.Add(initialDirectory);
+            _workspaceRetrySession = null;
             ConnectionLabel.Text = _session.DisplayName; SidebarConnectionActionLabel.Text = "切换连接";
             LogoutButton.Visibility = Visibility.Visible;
             DismissConnection.Visibility = Visibility.Visible; SetConnectionView(false);
@@ -371,14 +388,46 @@ public sealed partial class MainPage : Page, IDisposable
             catch (Exception exception) when (exception is not OperationCanceledException)
             { SetNotice("已连接，列表更新失败", exception, InfoBarSeverity.Warning); }
         }
-        catch (OperationCanceledException) { LoginError("连接已取消。"); }
+        catch (OperationCanceledException)
+        {
+            if (!_disposed)
+            {
+                if (authenticated && _directory is null) _workspaceRetrySession = _session?.Id;
+                LoginError(authenticated ? "已登录，打开文件空间已取消。" : "连接已取消。");
+                failureFocus = ConnectButton;
+            }
+        }
         catch (Exception exception)
         {
             if (_disposed) return;
-            if (silent) SetConnectionView(true);
-            LoginError(DescribeError(exception), automatic: silent);
+            if (silent || _session is null || _directory is null) SetConnectionView(true);
+            var error = DescribeError(exception);
+            if (authenticated)
+            {
+                if (_directory is null) _workspaceRetrySession = _session?.Id;
+                PresentNotice(LoginNotice, LoginErrorDetailsButton, "已登录，暂时无法打开文件空间",
+                    error.Message, InfoBarSeverity.Error, error);
+            }
+            else
+            {
+                if (restoring) RememberConnectionRecovery(profileId, error);
+                if (restoring && SelectedConnectionNetwork == NetworkMode.EmbeddedTailnet && error.Code == ErrorCode.CapabilityMissing)
+                    PresentNotice(LoginNotice, LoginErrorDetailsButton, "内嵌网络需要处理", error.Message, InfoBarSeverity.Warning, error);
+                else LoginError(error, automatic: silent, restoring: restoring);
+            }
+            failureFocus = !authenticated && (error.Code is ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable)
+                ? PasswordAuthentication ? PasswordBox : AuthenticationBox : ConnectButton;
         }
-        finally { SetConnecting(false); PasswordBox.Password = ""; }
+        finally
+        {
+            _restoringConnection = false;
+            if (!_disposed)
+            {
+                PasswordBox.Password = "";
+                SetConnecting(false);
+                if (!silent && failureFocus is not null) FocusConnectionField(failureFocus);
+            }
+        }
     }
 
     private void SetConnecting(bool connecting)
@@ -388,16 +437,13 @@ public sealed partial class MainPage : Page, IDisposable
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
         if (connecting) { HideCollections(); CollectionsPanel.SetContext(null, null, null, null); SidebarCollections.SetSnapshot(null); }
         UpdateThumbnailContext();
-        ConnectButton.IsEnabled = !connecting && _connection is not null;
         NewConnectionButton.IsEnabled = !connecting && _connection is not null;
-        RestoreSavedButton.IsEnabled = ForgetSavedButton.IsEnabled = SavedConnectionBox.IsEnabled = !connecting;
+        ForgetSavedButton.IsEnabled = SavedConnectionBox.IsEnabled = !connecting;
         ConnectionNameBox.IsEnabled = ServerBox.IsEnabled = AuthenticationBox.IsEnabled = !connecting;
         UpdateNetworkPane();
         UsernameBox.IsEnabled = PasswordBox.IsEnabled = KeepSignedInBox.IsEnabled = !connecting;
         CancelConnectionButton.Visibility = connecting ? Visibility.Visible : Visibility.Collapsed;
-        RestoreSavedButton.Visibility = !connecting && SavedConnectionBox.SelectedItem is ConnectionChoice { Saved.KeepSignedIn: true }
-            ? Visibility.Visible : Visibility.Collapsed;
-        DismissConnection.Visibility = !connecting && _session is not null ? Visibility.Visible : Visibility.Collapsed;
+        DismissConnection.Visibility = !connecting && _session is not null && _directory is not null ? Visibility.Visible : Visibility.Collapsed;
         NavigationCommands.IsEnabled = !connecting && _session is not null;
         SortBox.IsEnabled = !connecting;
         UpdateSelection();
@@ -433,54 +479,69 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void FillSavedSelection()
     {
+        _workspaceRetrySession = null;
+        LoginNotice.IsOpen = false;
         if (SavedConnectionBox.SelectedItem is not ConnectionChoice choice)
         {
             _selectedProfile = null;
             ConnectionModeTitle.Text = "新建连接";
-            RestoreSavedButton.Visibility = ForgetSavedButton.Visibility = Visibility.Collapsed;
+            ForgetSavedButton.Visibility = Visibility.Collapsed;
+            UpdateConnectionPrimaryAction();
             return;
         }
         var saved = choice.Saved;
         _selectedProfile = saved.Profile;
         ConnectionModeTitle.Text = "编辑已保存连接";
-        ConnectionNameBox.Text = choice.DisplayName;
-        ServerBox.Text = saved.Profile.BaseAddress.AbsoluteUri;
-        ConnectionNetworkBox.SelectedIndex = (int)saved.Profile.Network;
-        AuthenticationBox.SelectedIndex = saved.AuthenticationMode == AuthenticationMode.NoAuthentication ? 1 : 0;
-        UsernameBox.Text = saved.Username;
-        PasswordBox.Password = "";
-        KeepSignedInBox.IsChecked = saved.KeepSignedIn;
+        _applyingConnectionForm = true;
+        try
+        {
+            ConnectionNameBox.Text = choice.DisplayName;
+            ServerBox.Text = saved.Profile.BaseAddress.AbsoluteUri;
+            ConnectionNetworkBox.SelectedIndex = (int)saved.Profile.Network;
+            AuthenticationBox.SelectedIndex = saved.AuthenticationMode == AuthenticationMode.NoAuthentication ? 1 : 0;
+            UsernameBox.Text = saved.Username;
+            PasswordBox.Password = "";
+            KeepSignedInBox.IsChecked = saved.KeepSignedIn;
+        }
+        finally { _applyingConnectionForm = false; }
         ForgetSavedButton.Visibility = Visibility.Visible;
-        RestoreSavedButton.Visibility = saved.KeepSignedIn ? Visibility.Visible : Visibility.Collapsed;
+        UpdateNetworkPane();
     }
-
-    private async void RestoreSaved_Click(object sender, RoutedEventArgs args) => await RestoreSelectedAsync();
 
     private async Task RestoreSelectedAsync(bool silent = false)
     {
         if (_connection is null || SavedConnectionBox.SelectedItem is not ConnectionChoice choice || _connecting || _tailnetBusy) return;
         if (!choice.Saved.KeepSignedIn) { LoginError("此连接未保持登录，请输入密码重新连接。"); return; }
-        await RunConnectionAsync(token => _connection.RestoreAsync(choice.Saved.Profile.Id, token), silent ? null : "正在恢复已保存连接…", silent);
+        // At startup the service can start a saved embedded network identity.
+        // Manual actions use the currently observed network readiness.
+        if (!silent && !ConnectionNetworkReady) return;
+        await RunConnectionAsync(token => _connection.RestoreAsync(choice.Saved.Profile.Id, token),
+            choice.Saved.Profile.Id, restoring: true, silent: silent);
     }
 
     private void NewConnection_Click(object sender, RoutedEventArgs args)
     {
         if (_connecting) return;
-        _refreshingSavedConnections = true;
-        try { SavedConnectionBox.SelectedItem = null; }
-        finally { _refreshingSavedConnections = false; }
-        _selectedProfile = null;
-        ConnectionModeTitle.Text = "新建连接";
-        ConnectionNameBox.Text = string.Empty;
-        ServerBox.Text = string.Empty;
-        ConnectionNetworkBox.SelectedIndex = (int)NetworkMode.SystemNetwork;
-        AuthenticationBox.SelectedIndex = 0;
-        UsernameBox.Text = string.Empty;
-        PasswordBox.Password = string.Empty;
-        KeepSignedInBox.IsChecked = true;
-        RestoreSavedButton.Visibility = ForgetSavedButton.Visibility = Visibility.Collapsed;
+        _workspaceRetrySession = null;
+        _refreshingSavedConnections = _applyingConnectionForm = true;
+        try
+        {
+            SavedConnectionBox.SelectedItem = null;
+            _selectedProfile = null;
+            ConnectionModeTitle.Text = "新建连接";
+            ConnectionNameBox.Text = string.Empty;
+            ServerBox.Text = string.Empty;
+            ConnectionNetworkBox.SelectedIndex = (int)NetworkMode.SystemNetwork;
+            AuthenticationBox.SelectedIndex = 0;
+            UsernameBox.Text = string.Empty;
+            PasswordBox.Password = string.Empty;
+            KeepSignedInBox.IsChecked = true;
+        }
+        finally { _refreshingSavedConnections = _applyingConnectionForm = false; }
+        ForgetSavedButton.Visibility = Visibility.Collapsed;
         LoginNotice.IsOpen = false;
-        ServerBox.Focus(FocusState.Programmatic);
+        UpdateNetworkPane();
+        FocusConnectionField(ServerBox);
     }
 
     private async void ForgetSaved_Click(object sender, RoutedEventArgs args)
@@ -491,6 +552,7 @@ public sealed partial class MainPage : Page, IDisposable
         try
         {
             await _catalog.ForgetAsync(choice.Saved.Profile.Id, _lifetime.Token);
+            _savedConnectionRecovery.Remove(choice.Saved.Profile.Id);
             if (_session?.Account.ProfileId == choice.Saved.Profile.Id)
             {
                 if (_playback is not null) await _playback.CloseAccountAsync(_session.Account, _lifetime.Token);
@@ -524,6 +586,7 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void ClearActiveWorkspace()
     {
+        _workspaceRetrySession = null;
         _remoteClipboard.Clear();
         ClearFileMoveDrag();
         HideCollections();
@@ -560,7 +623,18 @@ public sealed partial class MainPage : Page, IDisposable
             return;
         }
         foreach (var window in _imageWindows.ToArray()) window.Close();
-        ClearActiveWorkspace(); SetConnectionView(true); LoginError(issue.Error);
+        bool preserveDraft = ConnectionPanel.Visibility == Visibility.Visible &&
+            (SavedConnectionBox.SelectedItem is not ConnectionChoice choice || choice.Saved.Profile.Id != issue.Account.ProfileId ||
+                HasSavedConnectionEdits(choice) || PasswordBox.Password.Length > 0);
+        RememberConnectionRecovery(issue.Account.ProfileId, issue.Error);
+        ClearActiveWorkspace();
+        SetConnectionView(true);
+        if (!preserveDraft && SelectSavedConnection(issue.Account.ProfileId))
+        {
+            LoginError(issue.Error);
+            FocusConnectionForm();
+        }
+        else LoginError("原文件空间已断开。当前连接表单已保留。");
         try { if (_playback is not null) await _playback.CloseAccountAsync(issue.Account, _lifetime.Token); }
         catch (OperationCanceledException) { }
         catch (Exception) { /* Session leases are already retired by the connection service. */ }
@@ -859,7 +933,6 @@ public sealed partial class MainPage : Page, IDisposable
         UpdateDownloadAvailability();
         UpdateApplicationMenus();
     }
-    private void Server_Changed(object sender, TextChangedEventArgs e) { }
     private void Authentication_Changed(object sender, SelectionChangedEventArgs e)
     {
         if (CredentialFields is null) return;
@@ -867,11 +940,12 @@ public sealed partial class MainPage : Page, IDisposable
         if (RetentionDescription is not null)
         {
             string saved = AuthenticationBox.SelectedIndex == 1 ? "会话" : "密码和会话";
-            RetentionDescription.Text = $"在当前 Windows 用户下加密保存{saved}，用于自动恢复。共用电脑请取消勾选；退出登录或忘记连接可清除。";
+            RetentionDescription.Text = $"加密保存{saved}，共用电脑请取消。";
         }
         if (AuthenticationBox.SelectedIndex == 1) PasswordBox.Password = "";
+        ConnectionDraftChanged(sender, e);
     }
-    private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); SetConnectionView(true); }
+    private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); SetConnectionView(true); FocusConnectionForm(); }
     private void DismissConnection_Click(object sender, RoutedEventArgs e) => SetConnectionView(false);
     private void Search_Changed(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) { if (FileList is not null) ApplyFilter(); }
     private void Sort_Click(object sender, RoutedEventArgs args)

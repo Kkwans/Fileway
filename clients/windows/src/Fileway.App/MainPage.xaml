@@ -122,7 +122,8 @@
     <browser:SidebarCollectionsControl x:Name="SidebarCollections" IsEnabled="False"/>
    </StackPanel></ScrollViewer>
    <Border Grid.Row="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" Padding="0,12,0,0" Margin="0,16,0,0"><StackPanel Spacing="4">
-    <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="ConnectionLabel" Text="尚未连接" Margin="12,0,12,4" TextTrimming="CharacterEllipsis"/>
+    <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="ConnectionLabel" Text="尚未连接" Margin="12,0,12,4"
+               TextTrimming="CharacterEllipsis" AutomationProperties.AutomationId="ConnectionLabel"/>
     <Button x:Name="ConnectionButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="Connection_Click" AutomationProperties.Name="连接服务器" ToolTipService.ToolTip="连接服务器"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="floppy-disk" Width="16" Height="16"/><TextBlock x:Name="SidebarConnectionActionLabel" Text="连接服务器"/></StackPanel></Button>
     <Button x:Name="LocalServerButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="LocalServer_Click" AutomationProperties.Name="本地服务端" ToolTipService.ToolTip="本地服务端"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="server" Width="16" Height="16"/><TextBlock x:Name="LocalServerLabel" Text="本地服务端"/></StackPanel></Button>
     <Button x:Name="SettingsButton" Style="{StaticResource SidebarNavigationButtonStyle}" Click="Settings_Click" AutomationProperties.Name="设置" ToolTipService.ToolTip="设置"><StackPanel Orientation="Horizontal" Spacing="12"><ui:LucideIcon IconName="gear" Width="16" Height="16"/><TextBlock x:Name="SettingsLabel" Text="设置"/></StackPanel></Button>
@@ -293,10 +294,9 @@
   <ContentControl x:Name="ServerUsersHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
   <Grid x:Name="ConnectionPanel" Background="Transparent" Visibility="Collapsed" SizeChanged="ConnectionPanel_SizeChanged" AutomationProperties.AutomationId="ConnectionPanel">
    <ScrollViewer x:Name="ConnectionFormScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid x:Name="ConnectionFormGrid" MaxWidth="1120" HorizontalAlignment="Center" VerticalAlignment="Top" Padding="56,28" ColumnSpacing="64">
+    <Grid x:Name="ConnectionFormGrid" MaxWidth="1120" HorizontalAlignment="Center" VerticalAlignment="Top" Padding="56,24" ColumnSpacing="64">
      <Grid.ColumnDefinitions><ColumnDefinition x:Name="ConnectionBrandColumn" Width="*" MinWidth="0"/><ColumnDefinition x:Name="ConnectionCardColumn" Width="440"/></Grid.ColumnDefinitions>
-     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-     <Grid x:Name="ConnectionBrandHost" Grid.RowSpan="2" VerticalAlignment="Center">
+     <Grid x:Name="ConnectionBrandHost" VerticalAlignment="Top" Margin="0,52,0,0">
      <StackPanel x:Name="ConnectionBrand" Spacing="18" VerticalAlignment="Center" MaxWidth="440" HorizontalAlignment="Left">
       <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
        <Border Width="44" Height="44" CornerRadius="12" Background="{ThemeResource FwSurfaceRaisedBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1">
@@ -326,7 +326,7 @@
      </StackPanel>
      </Grid>
      <Border Grid.Column="1" Padding="26,22" CornerRadius="18" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1" VerticalAlignment="Top">
-      <StackPanel Spacing="12" HorizontalAlignment="Stretch">
+      <StackPanel Spacing="10" HorizontalAlignment="Stretch">
        <StackPanel Spacing="4"><TextBlock x:Name="ConnectionModeTitle" Text="新建连接" FontSize="20" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="连接成功后保存连接档案；保持登录可在下次启动时自动恢复。" TextWrapping="Wrap"/></StackPanel>
        <Grid x:Name="SavedConnectionsPanel" ColumnSpacing="6" Visibility="Collapsed">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -334,7 +334,16 @@
         <Button x:Name="NewConnectionButton" Grid.Column="1" Content="新建" Click="NewConnection_Click" IsEnabled="False" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="新建连接"/>
         <Button x:Name="ForgetSavedButton" Grid.Column="2" Content="忘记" Click="ForgetSaved_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="忘记连接"/>
        </Grid>
-       <StackPanel Spacing="6"><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="服务器地址"/><TextBox x:Name="ServerBox" Height="36" PlaceholderText="https://你的服务器地址" TextChanged="Server_Changed" InputScope="Url" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="服务器地址"/></StackPanel>
+       <StackPanel Spacing="6">
+        <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="服务器地址"/>
+        <TextBox x:Name="ServerBox" Height="36" PlaceholderText="https://你的服务器地址" TextChanged="ConnectionDraftChanged" InputScope="Url"
+                 KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="服务器地址" AutomationProperties.AutomationId="ServerBox"/>
+       </StackPanel>
+       <StackPanel Spacing="6">
+        <TextBlock Text="连接名称（可选）" Style="{StaticResource FwCaptionTextStyle}"/>
+        <TextBox x:Name="ConnectionNameBox" Height="36" PlaceholderText="家里的文件空间" TextChanged="ConnectionDraftChanged"
+                 KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="连接名称，可选" AutomationProperties.AutomationId="ConnectionNameBox"/>
+       </StackPanel>
        <StackPanel Spacing="6">
         <Grid ColumnSpacing="12">
          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -362,30 +371,41 @@
          </StackPanel>
         </Border>
        </StackPanel>
-       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <TextBlock Text="连接名称（可选）" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
-        <TextBox x:Name="ConnectionNameBox" Grid.Column="1" Height="36" PlaceholderText="家里的文件空间" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="连接名称，可选"/>
-       </Grid>
-       <Grid x:Name="CredentialFields" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><StackPanel Spacing="6"><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="用户名"/><TextBox x:Name="UsernameBox" Height="36" PlaceholderText="服务器用户名" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="用户名"/></StackPanel><StackPanel Grid.Column="1" Spacing="6"><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="密码"/><PasswordBox x:Name="PasswordBox" Height="36" PlaceholderText="输入密码" PasswordRevealMode="Peek" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="密码"/></StackPanel></Grid>
-      </StackPanel>
-     </Border>
-     <Border Grid.Row="1" Grid.Column="1" Margin="0,12,0,0" Padding="26,14,26,20" CornerRadius="16" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1">
-      <StackPanel Spacing="10">
-       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-        <CheckBox x:Name="KeepSignedInBox" Content="保持登录" IsChecked="True" VerticalAlignment="Center"/>
-        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
-         <Button x:Name="DismissConnection" Content="返回" Visibility="Collapsed" Click="DismissConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="返回文件"/>
-         <Button x:Name="RestoreSavedButton" Content="恢复登录" Visibility="Collapsed" Click="RestoreSaved_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="恢复已保存登录"/>
-         <Button x:Name="CancelConnectionButton" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}"/>
-         <Button x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource FwPrimaryButtonStyle}" Click="Connect_Click" IsEnabled="False"/>
+       <Grid x:Name="CredentialFields" ColumnSpacing="12">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <StackPanel Spacing="6">
+         <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="用户名"/>
+         <TextBox x:Name="UsernameBox" Height="36" PlaceholderText="服务器用户名" TextChanged="ConnectionDraftChanged"
+                  KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="用户名" AutomationProperties.AutomationId="UsernameBox"/>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Spacing="6">
+         <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="密码"/>
+         <PasswordBox x:Name="PasswordBox" Height="36" PlaceholderText="输入密码" PasswordRevealMode="Peek" PasswordChanged="ConnectionDraftChanged"
+                      KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="密码" AutomationProperties.AutomationId="PasswordBox"/>
         </StackPanel>
        </Grid>
-       <InfoBar x:Name="LoginNotice" IsOpen="False" IsClosable="True" Severity="Informational">
-        <InfoBar.ActionButton><Button x:Name="LoginErrorDetailsButton" Content="错误详情" Visibility="Collapsed" Click="NoticeErrorDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.ActionButton>
-       </InfoBar>
-       <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="RetentionDescription" Text="在当前 Windows 用户下加密保存密码和会话，用于自动恢复。共用电脑请取消勾选；退出登录或忘记连接可清除。" TextWrapping="Wrap"/>
-       <Border Height="1" Margin="0,2" Style="{StaticResource FwDividerStyle}"/>
-       <StackPanel Orientation="Horizontal" Spacing="6"><TextBlock Text="本机还没有可连接的服务？" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource FwTextTertiaryBrush}"/><Button x:Name="LocalServerFromConnectionButton" Content="部署本地服务端" Click="LocalServer_Click" Style="{StaticResource FwTextIconButtonStyle}" FontSize="12" Height="28" MinHeight="28" Padding="8,0" AutomationProperties.Name="打开本地服务端页面"/></StackPanel>
+       <Grid ColumnSpacing="8">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <CheckBox x:Name="KeepSignedInBox" Content="保持登录" IsChecked="True" VerticalAlignment="Center"
+                  Checked="ConnectionDraftChanged" Unchecked="ConnectionDraftChanged" AutomationProperties.AutomationId="KeepSignedInBox"/>
+        <TextBlock Grid.Column="1" Style="{StaticResource FwCaptionTextStyle}" x:Name="RetentionDescription"
+                   Text="加密保存密码和会话，共用电脑请取消。" VerticalAlignment="Center" TextWrapping="Wrap"/>
+       </Grid>
+       <InfoBar x:Name="LoginNotice" IsOpen="False" Visibility="Collapsed" IsClosable="True" Severity="Informational"
+                AutomationProperties.AutomationId="LoginNotice"/>
+       <Border Height="1" Margin="0,2,0,0" Style="{StaticResource FwDividerStyle}"/>
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+         <Button x:Name="DismissConnection" Content="返回" Visibility="Collapsed" Click="DismissConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="返回文件"/>
+         <Button x:Name="CancelConnectionButton" Content="取消连接" Visibility="Collapsed" Click="CancelConnection_Click" Style="{StaticResource FwSecondaryButtonStyle}"/>
+         <Button x:Name="LoginErrorDetailsButton" Content="错误详情" Visibility="Collapsed" Click="NoticeErrorDetails_Click"
+                 Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="LoginErrorDetailsButton"/>
+         <Button x:Name="LocalServerFromConnectionButton" Content="部署本地服务端" Click="LocalServer_Click"
+                 Style="{StaticResource FwTextIconButtonStyle}" AutomationProperties.Name="打开本地服务端页面"/>
+        </StackPanel>
+        <Button Grid.Column="1" x:Name="ConnectButton" Content="连接并浏览" Style="{StaticResource FwPrimaryButtonStyle}"
+                Click="Connect_Click" IsEnabled="False" AutomationProperties.AutomationId="ConnectButton"/>
+       </Grid>
       </StackPanel>
      </Border>
     </Grid>

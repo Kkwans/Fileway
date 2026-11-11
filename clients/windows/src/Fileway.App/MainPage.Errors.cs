@@ -18,16 +18,12 @@ public sealed partial class MainPage
     private void LoginError(string message) =>
         PresentNotice(LoginNotice, LoginErrorDetailsButton, "", message, InfoBarSeverity.Error);
 
-    private void LoginError(ErrorInfo error, bool automatic = false)
+    private void LoginError(ErrorInfo error, bool automatic = false, bool restoring = false)
     {
-        string recovery = error.Code switch
-        {
-            ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable => "请重新输入登录信息。",
-            ErrorCode.NetworkUnavailable or ErrorCode.Timeout => "服务恢复后可重试。",
-            _ => "请检查连接设置后重试。",
-        };
+        string message = restoring && (error.Code is ErrorCode.NetworkUnavailable or ErrorCode.Timeout)
+            ? "服务恢复后可重试。" : error.Message;
         PresentNotice(LoginNotice, LoginErrorDetailsButton, automatic ? "自动恢复登录失败" : "",
-            automatic ? recovery : error.Message, InfoBarSeverity.Error, error);
+            message, InfoBarSeverity.Error, error);
     }
 
     private void PresentNotice(InfoBar bar, Button details, string title, string message, InfoBarSeverity severity,
@@ -39,6 +35,7 @@ public sealed partial class MainPage
         details.Tag = error;
         details.Visibility = error is null ? Visibility.Collapsed : Visibility.Visible;
         ShowToast(bar, title + message, repeat);
+        if (ReferenceEquals(bar, LoginNotice)) UpdateConnectionSecondaryActions();
     }
 
     private async void NoticeErrorDetails_Click(object sender, RoutedEventArgs args)

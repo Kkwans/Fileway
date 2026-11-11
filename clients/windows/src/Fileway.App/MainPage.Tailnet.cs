@@ -21,7 +21,12 @@ public sealed partial class MainPage
         _ => NetworkMode.SystemNetwork,
     };
 
-    private void ConnectionNetwork_Changed(object sender, SelectionChangedEventArgs args) => UpdateNetworkPane();
+    private void ConnectionNetwork_Changed(object sender, SelectionChangedEventArgs args)
+    {
+        if (_applyingConnectionForm) return;
+        UpdateNetworkPane();
+        ConnectionDraftChanged(sender, args);
+    }
 
     private void UpdateNetworkPane()
     {
@@ -40,7 +45,7 @@ public sealed partial class MainPage
         if (TailnetStateText is null || _disposed) return;
         bool ready = !_connecting && !_tailnetBusy && _files is IEmbeddedTailnetService;
         ConnectionNetworkBox.IsEnabled = !_connecting && !_tailnetBusy;
-        if (_connection is not null) ConnectButton.IsEnabled = !_connecting && !_tailnetBusy;
+        UpdateConnectionPrimaryAction();
         var status = _tailnetStatus;
         TailnetStateText.Text = _tailnetBusy ? "正在处理内嵌网络…"
             : _tailnetProblem ?? (status?.State switch
