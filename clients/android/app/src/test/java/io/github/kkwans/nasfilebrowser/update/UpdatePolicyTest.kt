@@ -137,6 +137,20 @@ class UpdatePolicyTest {
         assertNotEquals(AppVersion.parse("0.7.5"), UpdatePolicy.releaseVersion(r2))
         assertEquals(AppVersion.parse("0.7.5"), UpdatePolicy.releaseVersion(legacy.copy(preview = false)))
     }
+    @Test fun unrevisionedPreviewAcceptsItsSignedCoreVersionWithoutRelaxingRevisionIdentity() {
+        val preview = release("1.3.0").copy(tag = "android-1.3.0")
+        assertEquals(AppVersion.parse("1.3.0-preview"), UpdatePolicy.releaseVersion(preview))
+        assertTrue(UpdatePolicy.archiveVersionMatches(preview, "1.3.0"))
+        assertTrue(UpdatePolicy.archiveVersionMatches(preview, "1.3.0-preview"))
+        assertFalse(UpdatePolicy.archiveVersionMatches(preview, "1.3.1"))
+        assertFalse(UpdatePolicy.archiveVersionMatches(preview, "1.3.0-preview-r2"))
+        assertFalse(UpdatePolicy.archiveVersionMatches(preview.copy(preview = false), "1.3.0-preview"))
+        val revision = release("1.3.0", revision = 2)
+        assertFalse(UpdatePolicy.archiveVersionMatches(revision, "1.3.0"))
+        assertFalse(UpdatePolicy.archiveVersionMatches(revision, "1.3.0-preview-r3"))
+        assertTrue(UpdatePolicy.archiveVersionMatches(revision, "1.3.0-preview-r2"))
+        assertFalse(UpdatePolicy.archiveVersionMatches(revision.copy(previewRevision = null), "1.3.0"))
+    }
     @Test fun originalStableTagAndUnversionedPreviewAssetsRemainCompatible() {
         val old = release("0.7", preview = false)
         val tag = old.tag.replace("android-preview-", "android-")

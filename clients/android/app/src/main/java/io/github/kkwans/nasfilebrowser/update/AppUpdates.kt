@@ -36,8 +36,7 @@ internal class UpdatePackages(private val context: Context) {
             ?: error("安装包无法读取，请重新下载")
         check(apk.packageName == current.packageName) { "安装包不属于栖卷，已拒绝安装" }
         check(apk.longVersionCode > current.versionCode) { "安装包版本未高于当前版本，已拒绝降级或重复安装" }
-        val expectedVersion = UpdatePolicy.releaseVersion(update.release)
-        check(expectedVersion != null && AppVersion.parse(apk.versionName.orEmpty()) == expectedVersion) { "安装包版本与更新说明不一致，请重新检查更新" }
+        check(UpdatePolicy.archiveVersionMatches(update.release, apk.versionName.orEmpty())) { "安装包版本与更新说明不一致，请重新检查更新" }
         val certificates = apk.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet().orEmpty()
         check(certificates.isNotEmpty() && current.certificates.isNotEmpty() && certificates == current.certificates) {
             "安装包签名与已安装的栖卷不一致，已拒绝安装"

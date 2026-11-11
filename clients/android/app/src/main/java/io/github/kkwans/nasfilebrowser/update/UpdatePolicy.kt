@@ -67,6 +67,15 @@ internal object UpdatePolicy {
         val core = AppVersion.parse(release.version) ?: return null
         return core.copy(previewRevision = if (release.preview) tag.revision ?: 1 else null)
     }
+
+    fun archiveVersionMatches(release: AppRelease, versionName: String): Boolean {
+        val expected = releaseVersion(release) ?: return false
+        val actual = AppVersion.parse(versionName) ?: return false
+        // GitHub can mark a release as a preview without changing the APK's
+        // versionName. Explicit revisions still require the exact APK revision.
+        return actual == expected || (release.preview && release.previewRevision == null &&
+            actual == expected.copy(previewRevision = null))
+    }
     fun trusted(asset: UpdateAsset, tag: String): Boolean = runCatching {
         val uri = URI(asset.url)
         val path = uri.rawPath?.split('/').orEmpty()

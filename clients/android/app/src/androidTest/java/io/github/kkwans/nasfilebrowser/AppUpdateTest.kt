@@ -76,7 +76,12 @@ class AppUpdateTest {
             val mismatch = assertThrows(IllegalStateException::class.java) { packages.verify(file, differentRevision, older) }
             assertEquals("安装包版本与更新说明不一致，请重新检查更新", mismatch.message)
             val differentChannel = ownedUpdate(version.coreVersion, preview = version.previewRevision == null, size = file.length())
-            assertThrows(IllegalStateException::class.java) { packages.verify(file, differentChannel, older) }
+            if (version.previewRevision == null) {
+                // 1.3.0 was published in the preview channel with a numeric APK versionName.
+                packages.verify(file, differentChannel, older)
+            } else {
+                assertThrows(IllegalStateException::class.java) { packages.verify(file, differentChannel, older) }
+            }
             assertThrows(IllegalStateException::class.java) { packages.verify(file, update.copy(asset = update.asset.copy(size = file.length() - 1)), older) }
             val intent = packages.intent(file)
             assertEquals(Intent.ACTION_VIEW, intent.action); assertEquals("application/vnd.android.package-archive", intent.type)

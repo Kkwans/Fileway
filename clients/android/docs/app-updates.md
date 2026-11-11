@@ -17,7 +17,8 @@
   后缀。优先选择设备支持的 ABI，其次通用包。
 - 资产必须已上传完成，来自该 release 的官方 HTTPS 下载 URL，大小不超过512MiB。
 - 正式发布的 APK 必须沿用原 application ID 和签名，versionCode 严格递增。
-  versionName 与 tag 数字版本一致，可带 `-preview` 后缀。
+  versionName 与 tag 数字版本一致。没有显式修订号的预览版可使用纯数字版本，
+  也可带 `-preview` 后缀；带 `-rN` 的预览 tag 要求 APK 的预览修订号一致。
 - 不能仅提高 versionCode 而沿用相同渠道的数字版本号；修复版应提高补丁号。
   同数字版本的预览转正式版也必须提高 versionCode。
 - release body 是 App 中展示的更新说明，宜使用可直接阅读的段落和列表。
