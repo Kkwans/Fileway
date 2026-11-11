@@ -9,7 +9,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -23,14 +22,43 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
 
 @Composable internal fun DirectoryBreadcrumbs(path: String, wirePath: String, busy: Boolean, back: () -> Unit, jump: (DirectoryCrumb) -> Unit) {
     val trail = remember(path, wirePath) { directoryTrail(path, wirePath) }
-    var expanded by remember(path, wirePath) { mutableStateOf(false) }
+    val items = remember(trail) {
+        trail.map { DirectoryBreadcrumbItem(it.path, it.label, it.path.takeUnless { path -> path == "/" }, it.wirePath != null) }
+    }
+    key(path, wirePath) {
+        DirectoryBreadcrumbs(items, busy, back = back, fullPath = path) { id ->
+            trail.firstOrNull { it.path == id }?.let(jump)
+        }
+    }
+}
+
+/** An ID is only a selection key. Only the supplied labels are rendered. */
+internal data class DirectoryBreadcrumbItem(
+    val id: String,
+    val label: String,
+    val detail: String? = null,
+    val canJump: Boolean = true,
+)
+
+@Composable internal fun DirectoryBreadcrumbs(
+    trail: List<DirectoryBreadcrumbItem>,
+    busy: Boolean,
+    back: (() -> Unit)? = null,
+    fullPath: String? = null,
+    wrapCurrent: Boolean = false,
+    jump: (String) -> Unit,
+) {
+    val currentId = trail.lastOrNull()?.id ?: return
+    var expanded by remember(currentId) { mutableStateOf(false) }
     val colors = FilewayTheme.colors
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val style = FilewayTheme.text.fileName
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        FilewayIconButton(onClick = back, enabled = !busy, modifier = Modifier.size(48.dp)) {
-            FilewayIcon(R.drawable.ic_arrow_back, "上一级", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+        if (back != null) {
+            FilewayIconButton(onClick = back, enabled = !busy, modifier = Modifier.size(48.dp)) {
+                FilewayIcon(R.drawable.ic_arrow_back, "上一级", Modifier.size(22.dp), tint = colors.onSurfaceVariant)
+            }
         }
         BoxWithConstraints(Modifier.weight(1f)) {
             val available = with(density) { maxWidth.roundToPx() }
@@ -55,13 +83,13 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
                 }
                 trail.drop(plan.firstVisible).forEachIndexed { index, crumb ->
                     if (index > 0) separator()
-                    val current = crumb.path == path
-                    FilewayTextButton(onClick = { if (current) expanded = true else jump(crumb) },
-                        enabled = !busy && (current || crumb.wirePath != null),
+                    val current = crumb.id == currentId
+                    FilewayTextButton(onClick = { if (current) expanded = true else jump(crumb.id) },
+                        enabled = !busy && (current || crumb.canJump),
                         modifier = Modifier.width(with(density) { plan.widths[index].toDp() }).heightIn(min = 48.dp)
                             .semantics { contentDescription = if (current) "当前目录：${crumb.label}，展开完整路径" else "进入目录：${crumb.label}" },
                         contentPadding = PaddingValues(horizontal = 8.dp)) {
-                        Text(crumb.label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = style,
+                        Text(crumb.label, maxLines = if (current && wrapCurrent) 2 else 1, overflow = TextOverflow.Ellipsis, style = style,
                             color = if (current) colors.onSurface else colors.primary)
                     }
                 }
@@ -73,15 +101,15 @@ import io.github.kkwans.nasfilebrowser.data.directoryTrail
         title = { Text("目录路径", style = MaterialTheme.typography.titleLarge) },
         text = {
             LazyColumn(Modifier.heightIn(max = 400.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item(key = "full-path") { SelectionContainer { Text(path, style = MaterialTheme.typography.bodySmall) } }
-                items(trail, key = { it.path }) { crumb ->
-                    FilewayTextButton(onClick = { expanded = false; jump(crumb) }, enabled = !busy && crumb.wirePath != null && crumb.path != path,
+                if (fullPath != null) item { SelectionContainer { Text(fullPath, style = MaterialTheme.typography.bodySmall) } }
+                items(trail, key = { it.id }) { crumb ->
+                    FilewayTextButton(onClick = { expanded = false; jump(crumb.id) }, enabled = !busy && crumb.canJump && crumb.id != currentId,
                         modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(crumb.label, style = MaterialTheme.typography.bodyMedium)
-                            if (crumb.path != "/") Text(crumb.path, style = MaterialTheme.typography.bodySmall,
+                            if (crumb.detail != null) Text(crumb.detail, style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (crumb.wirePath == null) Text("此路径无法安全跳转", style = MaterialTheme.typography.bodySmall)
+                            if (!crumb.canJump) Text("此路径无法安全跳转", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }

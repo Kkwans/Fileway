@@ -1,31 +1,45 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.media3.common.MimeTypes
 import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.fileway.remote.RemoteSnapshot
 import io.github.kkwans.nasfilebrowser.app.TvControlModel
+import io.github.kkwans.nasfilebrowser.app.TvSubtitleSource
+import io.github.kkwans.nasfilebrowser.data.TextSubtitleAppearance
+import io.github.kkwans.nasfilebrowser.data.TextSubtitleArea
 import io.github.kkwans.nasfilebrowser.data.parsePlaybackRate
 import io.github.kkwans.nasfilebrowser.data.parseSubtitleDelayMillis
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
+import io.github.kkwans.nasfilebrowser.ui.designsystem.drawMediaProgressTrack
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.Locale
 
-private enum class RemoteMediaPanel(val title:String) {
-    AUDIO("音轨"), SUBTITLE("字幕"), APPEARANCE("字幕外观与同步"), FONT("字幕字体"), SPEED("播放速度"), OPTIONS("播放设置"), QUEUE("队列"),
+private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubtitleSource? = null) {
+    AUDIO("音轨"), SUBTITLE("字幕"), SERVER_SUBTITLES("TV 当前服务器", TvSubtitleSource.SERVER),
+    LOCAL_SUBTITLES("TV 本机字幕", TvSubtitleSource.LOCAL), SIDECARS("同目录外挂"),
+    APPEARANCE("字幕调整"), FONT("字幕字体"),
+    SPEED("播放速度"), OPTIONS("播放设置"), QUEUE("队列"),
 }
 
 /** The same phone components and source-fenced actions across video, music and images. */
@@ -42,8 +56,19 @@ private enum class RemoteMediaPanel(val title:String) {
             FilewayOutlinedButton(onClick=onBrowse){Text("浏览 TV 文件")}
         };return
     }
-    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(16.dp)) {
-        Text(snapshot.content.optJSONObject("media")?.optString("name").orEmpty(),style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
+    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        val mediaName=snapshot.content.optJSONObject("media")?.optString("name")?.takeIf{it.isNotBlank()&&it!="null"}?:"TV 媒体"
+        val mediaLabel=when(snapshot.scene){"VIDEO"->"视频";"AUDIO"->"音乐";else->"图片"}
+        val mediaIcon=when(snapshot.scene){"VIDEO"->Art.drawable.fileway_ic_video;"AUDIO"->Art.drawable.fileway_ic_audio;else->Art.drawable.fileway_ic_image}
+        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
+            Surface(Modifier.size(48.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface){
+                Box(contentAlignment=Alignment.Center){FilewayIcon(mediaIcon,null,Modifier.size(24.dp),tint=MaterialTheme.colorScheme.primary)}
+            }
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
+                Text(mediaName,style=MaterialTheme.typography.titleMedium)
+                Text(mediaLabel,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
         if(snapshot.scene=="IMAGE") {
             val image=snapshot.content.optJSONObject("image")?:JSONObject()
             val actual=image.optDouble("scale",1.0).toFloat().coerceIn(1f,3f)
@@ -70,8 +95,9 @@ private enum class RemoteMediaPanel(val title:String) {
                 }
             }
         } else {
-            val duration=player.optLong("durationMs").coerceAtLeast(1)
-            val position=player.optLong("positionMs").coerceIn(0,duration)
+            val knownDuration=player.optLong("durationMs").coerceAtLeast(0)
+            val duration=knownDuration.coerceAtLeast(1)
+            val position=player.optLong("positionMs").coerceAtLeast(0).let{if(knownDuration>0)it.coerceAtMost(duration)else it}
             var preview by remember(owner){mutableStateOf<Float?>(null)}
             var requested by remember(owner){mutableStateOf<Long?>(null)}
             LaunchedEffect(position,player.optBoolean("seeking"),player.optBoolean("preparing"),player.optString("seekError"),requested){
@@ -83,10 +109,10 @@ private enum class RemoteMediaPanel(val title:String) {
             Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
                 Text(tvRemoteTime(shown.toLong()),style=MaterialTheme.typography.bodyMedium)
                 Box(Modifier.weight(1f).padding(horizontal=8.dp),contentAlignment=Alignment.Center){RemotePlaybackStatus(player)}
-                Text(tvRemoteTime(duration),style=MaterialTheme.typography.bodyMedium)
+                Text(if(knownDuration>0)tvRemoteTime(duration)else"--:--",style=MaterialTheme.typography.bodyMedium)
             }
-            PlayerSlider(shown,duration.toFloat(),"TV 播放进度",player.optBoolean("seekable"),{preview=it},finish={preview?.let{requested=it.toLong();send("playback.seekTo",JSONObject().put("positionMs",it.toLong()))};preview=null},
-                bufferedValue=player.optLong("bufferedMs").toFloat().coerceIn(0f,duration.toFloat()),mediaSurface=false,description="${tvRemoteTime(shown.toLong())} / ${tvRemoteTime(duration)}")
+            PlayerSlider(if(knownDuration>0)shown else 0f,duration.toFloat(),"TV 播放进度",player.optBoolean("seekable")&&knownDuration>0,{preview=it},finish={preview?.let{requested=it.toLong();send("playback.seekTo",JSONObject().put("positionMs",it.toLong()))};preview=null},
+                bufferedValue=if(knownDuration>0)player.optLong("bufferedMs").toFloat().coerceIn(0f,duration.toFloat())else null,mediaSurface=false,description="${tvRemoteTime(shown.toLong())} / ${if(knownDuration>0)tvRemoteTime(duration)else"时长未知"}")
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
                 FilewayIconButton(onClick={send("queue.previous")},enabled=index>0){FilewayIcon(Art.drawable.fileway_ic_skip_previous,"上一项")}
                 val step=snapshot.content.optJSONObject("preferences")?.optInt("seekStepSeconds",10)?.coerceIn(3,30)?:10
@@ -104,9 +130,26 @@ private enum class RemoteMediaPanel(val title:String) {
                 RemoteMediaAction("设置",Art.drawable.fileway_ic_settings){panel=RemoteMediaPanel.OPTIONS}
             }
         }
-        if(count>0)FilewayOutlinedButton(onClick={panel=RemoteMediaPanel.QUEUE},modifier=Modifier.fillMaxWidth()){FilewayIcon(Art.drawable.fileway_ic_playlist_play,null,Modifier.size(22.dp));Spacer(Modifier.width(8.dp));Text("队列 · ${index+1} / $count")}
+        if(count>0)FilewayOutlinedButton(onClick={panel=RemoteMediaPanel.QUEUE},modifier=Modifier.fillMaxWidth()){FilewayIcon(Art.drawable.fileway_ic_playlist_play,null,Modifier.size(22.dp));Spacer(Modifier.width(8.dp));Text(if(index>=0)"队列 · ${index+1} / $count"else"队列 · $count 项")}
+        if(snapshot.scene=="VIDEO")snapshot.content.optJSONObject("cache")?.let{RemoteCacheStatus(it,player.optLong("durationMs").coerceAtLeast(0))}
     }
-    panel?.let{selected->RemoteMediaSheet(model,snapshot,selected,{panel=null},{panel=it})}
+    val selectedSource = panel?.subtitleSource
+    val canBrowseSubtitles = selectedSource?.supportedBy(snapshot.capabilities) ?: true
+    LaunchedEffect(canBrowseSubtitles, selectedSource) {
+        if (!canBrowseSubtitles) panel = RemoteMediaPanel.SUBTITLE
+    }
+    panel?.let { selected ->
+        when (selected) {
+            RemoteMediaPanel.SUBTITLE, RemoteMediaPanel.SIDECARS, RemoteMediaPanel.APPEARANCE, RemoteMediaPanel.FONT ->
+                RemoteSubtitleSheet(model, snapshot, selected, { panel = null }, { panel = it })
+            RemoteMediaPanel.SERVER_SUBTITLES, RemoteMediaPanel.LOCAL_SUBTITLES -> if (canBrowseSubtitles && selectedSource != null) {
+                key(selectedSource, selectedSource.storageRevision(snapshot.content)) {
+                    TvRemoteSubtitlePicker(model, snapshot, selectedSource, selected.title) { panel = RemoteMediaPanel.SUBTITLE }
+                }
+            }
+            else -> RemoteMediaSheet(model, snapshot, selected) { panel = null }
+        }
+    }
 }
 
 @Composable private fun RemoteMediaAction(label:String,icon:Int,onClick:()->Unit) {
@@ -121,46 +164,60 @@ private enum class RemoteMediaPanel(val title:String) {
         player.optBoolean("seeking")->"正在跳转…"
         else->null
     }
-    text?.let{Text(it,style=MaterialTheme.typography.bodySmall,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(error!=null)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)}
+    text?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=if(error!=null)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)}
 }
 
-@Composable private fun RemoteMediaSheet(model:TvControlModel,snapshot:RemoteSnapshot,panel:RemoteMediaPanel,onClose:()->Unit,onPanel:(RemoteMediaPanel)->Unit) {
+@Composable private fun RemoteCacheStatus(cache:JSONObject,duration:Long){
+    val ranges=cache.optJSONArray("ranges")?.let{values->
+        (0 until values.length()).mapNotNull{index->values.optJSONObject(index)?.let{range->
+            val start=range.optLong("startMs",-1);val end=range.optLong("endMs",-1)
+            if(start>=0&&end>start&&duration>0&&start<duration)start to end.coerceAtMost(duration)else null
+        }}
+    }.orEmpty()
+    val error=cache.optString("error").takeIf{it.isNotBlank()&&it!="null"}
+    val bytes=cache.optLong("usedBytes",-1)
+    val limit=cache.optLong("limitBytes",-1)
+    val speed=cache.optLong("bytesPerSecond",-1)
+    if(ranges.isNotEmpty()||error!=null||bytes>=0&&limit>0){
+        Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)){
+            if(bytes>=0&&limit>0)Text("TV 缓存 ${readableSize(bytes)} / ${readableSize(limit)}"+(if(speed>0)" · ${readableSize(speed)}/s"else""),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            if(ranges.isNotEmpty()){
+                Text("TV 报告的缓存时间段",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                val description=ranges.joinToString("，"){(start,end)->"${tvRemoteTime(start)} 至 ${tvRemoteTime(end)}"}
+                val track=MaterialTheme.colorScheme.onSurface.copy(alpha=.18f)
+                val cached=MaterialTheme.colorScheme.primary.copy(alpha=.55f)
+                Canvas(Modifier.fillMaxWidth().height(8.dp).semantics{contentDescription="TV 已缓存时间段";stateDescription=description}){
+                    drawMediaProgressTrack(0f,track,cached,cachedRanges=ranges.map{(start,end)->start.toFloat()/duration to end.toFloat()/duration},downloadedColor=cached,thickness=3.dp,thumbRadius=0.dp)
+                }
+            }
+            error?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)}
+        }
+    }
+}
+
+@Composable private fun RemoteMediaSheet(model:TvControlModel,snapshot:RemoteSnapshot,panel:RemoteMediaPanel,onClose:()->Unit) {
     val player=snapshot.content.optJSONObject("playback")?:JSONObject()
     val queue=snapshot.content.optJSONObject("queue")?:JSONObject()
-    val back=when(panel){RemoteMediaPanel.APPEARANCE->RemoteMediaPanel.SUBTITLE;RemoteMediaPanel.FONT->RemoteMediaPanel.APPEARANCE;else->null}
-    val kind=when(panel){RemoteMediaPanel.AUDIO->"audio";RemoteMediaPanel.SUBTITLE->"subtitles";RemoteMediaPanel.FONT->"fonts";RemoteMediaPanel.QUEUE->"queue";else->null}
-    val choices=kind?.let{rememberMediaChoices(model,snapshot,it,when(it){"audio"->player.optInt("audioCount");"subtitles"->player.optInt("subtitleCount");"queue"->queue.optInt("count");else->0})}
-    val sidecars=if(panel==RemoteMediaPanel.SUBTITLE)rememberMediaChoices(model,snapshot,"sidecars",player.optInt("sidecarCount"))else null
+    val choices=when(panel){
+        RemoteMediaPanel.AUDIO->rememberMediaChoices(model,snapshot,"audio",player.optInt("audioCount"))
+        RemoteMediaPanel.QUEUE->rememberMediaChoices(model,snapshot,"queue",queue.optInt("count"))
+        else->null
+    }
     val scroll=remember(panel){LazyListState()}
     LaunchedEffect(panel,choices?.rows) {
         val selected=choices?.rows?.indexOfFirst { row->when(panel){
             RemoteMediaPanel.QUEUE->row.optInt("index")==queue.optInt("index")
             RemoteMediaPanel.AUDIO->row.optInt("id")==player.optInt("selectedAudio")
-            RemoteMediaPanel.FONT->row.optString("id")==player.optJSONObject("subtitleAppearance")?.optString("fontId")
             else->false
         }}?:-1
         if(selected>=0){withFrameNanos{};scroll.scrollToItem(selected)}
     }
     fun send(operation:String,payload:JSONObject=JSONObject())=model.commandFor(snapshot,operation,payload)
-    FileOperationSheet(if(panel==RemoteMediaPanel.QUEUE)"队列 · ${queue.optInt("count")}"else panel.title,{if(back!=null)onPanel(back)else onClose()},back=back!=null,backDescription="返回${back?.title.orEmpty()}") {
+    FileOperationSheet(if(panel==RemoteMediaPanel.QUEUE)"队列 · ${queue.optInt("count")}"else panel.title,onClose) {
         LazyColumn(Modifier.fillMaxWidth().weight(1f,fill=false),state=scroll,verticalArrangement=Arrangement.spacedBy(4.dp)) {
             when(panel) {
                 RemoteMediaPanel.AUDIO -> mediaChoiceRows(requireNotNull(choices),{it.optInt("id")==player.optInt("selectedAudio")}) {
                     send("audio.select",JSONObject().put("id",it.getInt("id")).put("source",it.optBoolean("source")));onClose()
-                }
-                RemoteMediaPanel.SUBTITLE -> {
-                    item{FilewaySelectionRow("关闭字幕",selected=player.optInt("selectedSubtitle",-1)==-1&&player.optInt("selectedSourceSubtitle",-1)==-1,onClick={send("subtitle.disable");onClose()})}
-                    if(player.optBoolean("subtitleLoading"))item{Text("正在准备字幕…",style=MaterialTheme.typography.bodyMedium)}
-                    mediaChoiceRows(requireNotNull(choices),{row->row.optInt("id")==player.optInt(if(row.optBoolean("source"))"selectedSourceSubtitle"else"selectedSubtitle",-1)}) {
-                        send("subtitle.select",JSONObject().put("id",it.getInt("id")).put("source",it.optBoolean("source")));onClose()
-                    }
-                    item{Text("同目录外挂",Modifier.padding(top=12.dp,bottom=4.dp),style=MaterialTheme.typography.titleSmall)}
-                    mediaChoiceRows(requireNotNull(sidecars),{false},"没有同目录外挂字幕"){send("subtitle.selectNasFile",JSONObject().put("id",it.getString("id")));onClose()}
-                    item{FilewayOutlinedButton(onClick={onPanel(RemoteMediaPanel.APPEARANCE)},modifier=Modifier.fillMaxWidth()){Text("外观与同步")}}
-                }
-                RemoteMediaPanel.FONT -> {
-                    val appearance=player.optJSONObject("subtitleAppearance")?:JSONObject()
-                    mediaChoiceRows(requireNotNull(choices),{it.optString("id")==appearance.optString("fontId")}){send("subtitle.setAppearance",JSONObject().put("fontId",it.getString("id")));onPanel(RemoteMediaPanel.APPEARANCE)}
                 }
                 RemoteMediaPanel.QUEUE -> mediaChoiceRows(requireNotNull(choices),{it.optInt("index")==queue.optInt("index")}){send("queue.select",JSONObject().put("index",it.getInt("index")));onClose()}
                 RemoteMediaPanel.SPEED -> {
@@ -180,25 +237,231 @@ private enum class RemoteMediaPanel(val title:String) {
                         items(listOf("AUTO" to "自动","NATIVE" to "原生 HDR","SDR" to "SDR 兼容")){(mode,title)->FilewaySelectionRow(title,selected=player.optString("hdrMode")==mode,enabled=mode!="SDR"||player.optBoolean("sdrAvailable"),onClick={send("playback.setHdrMode",JSONObject().put("mode",mode));onClose()})}
                     }
                 }
-                RemoteMediaPanel.APPEARANCE -> {
-                    item{RemoteSubtitleAppearance(model,snapshot,{onPanel(RemoteMediaPanel.FONT)})}
-                }
+                else -> Unit // Subtitle pages use the shared player layout.
             }
         }
     }
 }
 
+@Composable
+private fun RemoteSubtitleSheet(
+    model: TvControlModel,
+    snapshot: RemoteSnapshot,
+    panel: RemoteMediaPanel,
+    onClose: () -> Unit,
+    onPanel: (RemoteMediaPanel) -> Unit,
+) {
+    val player = snapshot.content.optJSONObject("playback") ?: JSONObject()
+    val subtitleLoading = player.optBoolean("subtitleLoading")
+    val panelLists = snapshot.capabilities.optInt("mediaPanels") == 1
+    val trackRevision = remember(player) {
+        player.optJSONArray("sourceSubtitles")?.toString() to player.optJSONArray("subtitles")?.toString()
+    }
+    val trackChoices = rememberMediaChoices(model, snapshot, "subtitles", player.optInt("subtitleCount"), trackRevision)
+    val tracks = remember(trackChoices.rows) {
+        trackChoices.rows.orEmpty().mapNotNull(::remoteSubtitleTrack).distinctBy { it.key }
+    }
+    val selectedSource = player.optInt("selectedSourceSubtitle", -1)
+    val selectedNative = player.optInt("selectedSubtitle", -1)
+    // The native rendering ID of a source subtitle can also appear in the player list.
+    val selectedTrack = tracks.firstOrNull { it.source && it.id == selectedSource }
+        ?: tracks.firstOrNull { !it.source && it.id == selectedNative }
+    val off = player.has("selectedSubtitle") && selectedSource < 0 && selectedNative < 0
+    val appearanceJson = player.optJSONObject("subtitleAppearance")
+    val appearance = remember(appearanceJson?.toString()) { remoteSubtitleAppearance(appearanceJson) }
+    val back = when (panel) {
+        RemoteMediaPanel.APPEARANCE, RemoteMediaPanel.SIDECARS -> RemoteMediaPanel.SUBTITLE
+        RemoteMediaPanel.FONT -> RemoteMediaPanel.APPEARANCE
+        else -> null
+    }
+    val tracksScroll = remember { LazyListState() }
+    val sidecarsScroll = remember { LazyListState() }
+    val modelNotice by model.notice.collectAsStateWithLifecycle()
+    val initialNotice = remember { modelNotice }
+    val commandNotice = modelNotice?.takeUnless { it == initialNotice }
+    val tvNotice = snapshot.content.label("notice")
+    val status: @Composable () -> Unit = {
+        if (subtitleLoading || tvNotice != null || commandNotice != null) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (subtitleLoading) RemoteSubtitleLoading("电视正在准备字幕…")
+                tvNotice?.let { RemoteSubtitleNote(it) }
+                commandNotice?.takeUnless { it == tvNotice }?.let { RemoteSubtitleNote(it, error = true) }
+            }
+        }
+    }
+    fun send(operation: String, payload: JSONObject = JSONObject()) = model.commandFor(snapshot, operation, payload)
+
+    FileOperationSheet(panel.title, { if (back == null) onClose() else onPanel(back) },
+        back = back != null, backDescription = "返回${back?.title.orEmpty()}") {
+        when (panel) {
+            RemoteMediaPanel.SUBTITLE -> {
+                val rows = remember(tracks) {
+                    val titles = tracks.groupingBy { it.title.lowercase(Locale.ROOT) }.eachCount()
+                    listOf(PlayerTrackChoice("off", "关闭字幕")) + tracks.mapIndexed { index, track ->
+                        val base = track.title.ifBlank { "字幕 ${index + 1}" }
+                        val title = if (titles.getValue(track.title.lowercase(Locale.ROOT)) > 1 && track.title.isNotBlank())
+                            "$base · ${index + 1}" else base
+                        PlayerTrackChoice(track.key, title, playerTrackDetails(track.language, track.codec, base))
+                    }
+                }
+                val hasSidecars = player.optInt("sidecarCount") > 0 || (player.optJSONArray("sidecars")?.length() ?: 0) > 0
+                val canBrowseServer = TvSubtitleSource.SERVER.supportedBy(snapshot.capabilities)
+                val canBrowseLocal = TvSubtitleSource.LOCAL.supportedBy(snapshot.capabilities)
+                LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).selectableGroup(), state = tracksScroll) {
+                    item(key = "actions") {
+                        PlayerSubtitleActions(buildList {
+                            add(PlayerSubtitleAction(Art.drawable.fileway_ic_edit, "字幕调整", { onPanel(RemoteMediaPanel.APPEARANCE) }))
+                            if (canBrowseServer)
+                                add(PlayerSubtitleAction(Art.drawable.fileway_ic_server, RemoteMediaPanel.SERVER_SUBTITLES.title,
+                                    { onPanel(RemoteMediaPanel.SERVER_SUBTITLES) }))
+                            if (canBrowseLocal)
+                                add(PlayerSubtitleAction(Art.drawable.fileway_ic_folder, RemoteMediaPanel.LOCAL_SUBTITLES.title,
+                                    { onPanel(RemoteMediaPanel.LOCAL_SUBTITLES) }))
+                            if (hasSidecars && !canBrowseServer)
+                                add(PlayerSubtitleAction(Art.drawable.fileway_ic_server, "同目录外挂", { onPanel(RemoteMediaPanel.SIDECARS) }))
+                        }, mediaSurface = false)
+                    }
+                    if (hasSidecars && canBrowseServer) item(key = "sidecar-shortcut") {
+                        FilewayTextButton(onClick = { onPanel(RemoteMediaPanel.SIDECARS) }) { Text("同目录外挂") }
+                    }
+                    if (!canBrowseServer) item(key = "server-subtitle-upgrade") {
+                        RemoteSubtitleNote("要从其他目录添加字幕，请更新电视端和当前连接的服务器。")
+                    }
+                    item(key = "status") { status() }
+                    playerTrackChoices(rows, if (off) "off" else selectedTrack?.key, mediaSurface = false) { key ->
+                        if (key == "off") send("subtitle.disable")
+                        else tracks.firstOrNull { it.key == key }?.let { track ->
+                            send("subtitle.select", JSONObject().put("id", track.id).put("source", track.source))
+                        }
+                    }
+                    subtitleListStatus(trackChoices, "电视没有可用的字幕轨道")
+                }
+            }
+            RemoteMediaPanel.SIDECARS -> {
+                val sidecars = rememberMediaChoices(model, snapshot, "sidecars", player.optInt("sidecarCount"),
+                    player.optJSONArray("sidecars")?.toString())
+                LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), state = sidecarsScroll) {
+                    item(key = "status") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            RemoteSubtitleNote("选择后在电视上加载，已选轨道可在字幕页查看。")
+                            status()
+                        }
+                    }
+                    val files = sidecars.rows.orEmpty().mapNotNull { row ->
+                        row.label("id")?.let { id -> PlayerTrackChoice(id, row.label("name") ?: "字幕文件") }
+                    }.distinctBy { it.key }
+                    items(files, key = { "sidecar:${it.key}" }) { file ->
+                        PlayerTrackRow(file.title, "", selected = null, pending = false,
+                            mediaSurface = false, enabled = !subtitleLoading) {
+                            send("subtitle.selectNasFile", JSONObject().put("id", file.key))
+                        }
+                    }
+                    subtitleListStatus(sidecars, "当前目录没有可用的外挂字幕")
+                }
+            }
+            RemoteMediaPanel.APPEARANCE -> {
+                val formatNote = remoteSubtitleFormatNote(subtitleLoading, off, selectedTrack?.codec, appearance)
+                RemoteSubtitleAdjustments(
+                    player.optLong("subtitleDelayMs"), appearance.takeIf { formatNote == null }, formatNote,
+                    fontLabel = appearanceJson?.label("fontLabel")?.takeIf { panelLists },
+                    onFont = { onPanel(RemoteMediaPanel.FONT) }, status = status,
+                    onDelay = { send("subtitle.setDelay", JSONObject().put("delayMs", it)) },
+                    onAppearance = { send("subtitle.setAppearance", it) },
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
+            RemoteMediaPanel.FONT -> {
+                val fonts = rememberMediaChoices(model, snapshot, "fonts", 0)
+                val rows = remember(fonts.rows) {
+                    fonts.rows.orEmpty().mapNotNull { row ->
+                        row.label("id")?.let { id -> row.label("title")?.let { title -> PlayerTrackChoice("font:$id", title) } }
+                    }.distinctBy { it.key }
+                }
+                val supported = remoteSubtitleFormatNote(subtitleLoading, off, selectedTrack?.codec, appearance) == null
+                val fontScroll = remember { LazyListState() }
+                LaunchedEffect(rows) {
+                    val selected = rows.indexOfFirst { it.key == "font:${appearance?.fontKey}" }
+                    if (selected >= 0) fontScroll.scrollToItem(selected + 1)
+                }
+                LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).selectableGroup(), state = fontScroll) {
+                    item(key = "status") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            RemoteSubtitleNote(if (supported) "字体保存在电视上，实际字形以电视显示为准。"
+                                else "当前字幕不可调整字体。")
+                            status()
+                        }
+                    }
+                    playerTrackChoices(rows, appearance?.fontKey?.let { "font:$it" }, mediaSurface = false, enabled = supported) { key ->
+                        if (key != "font:${appearance?.fontKey}")
+                            send("subtitle.setAppearance", JSONObject().put("fontId", key.removePrefix("font:")))
+                    }
+                    subtitleListStatus(fonts, "电视没有提供可选字体")
+                }
+            }
+            else -> Unit
+        }
+    }
+}
+
+private data class RemoteSubtitleTrack(val id: Int, val source: Boolean, val title: String, val codec: String, val language: String) {
+    val key: String get() = if (source) "source:$id" else "native:$id"
+}
+
+private fun remoteSubtitleTrack(row: JSONObject): RemoteSubtitleTrack? {
+    val id = row.optInt("id", -1).takeIf { it >= 0 } ?: return null
+    return RemoteSubtitleTrack(id, row.optBoolean("source"), row.label("title").orEmpty(),
+        row.label("codec").orEmpty(), row.label("language").orEmpty())
+}
+
+private fun JSONObject.label(key: String): String? = optString(key).takeIf { it.isNotBlank() && it != "null" }
+
+@Composable private fun RemoteSubtitleNote(text: String, error: Boolean = false) {
+    Text(text, style = MaterialTheme.typography.bodySmall,
+        color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable private fun RemoteSubtitleLoading(text: String, modifier: Modifier = Modifier) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(150); visible = true }
+    if (visible) Row(modifier, verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+        RemoteSubtitleNote(text)
+    }
+}
+
+private fun LazyListScope.subtitleListStatus(choices: MediaChoices, empty: String) {
+    val error = choices.error
+    when {
+        error != null -> item(key = "list-error") {
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                RemoteSubtitleNote(error, error = true)
+                FilewayTextButton(onClick = choices.retry) { Text("重试") }
+            }
+        }
+        choices.rows == null -> item(key = "list-loading") {
+            RemoteSubtitleLoading("正在读取电视列表…", Modifier.padding(12.dp))
+        }
+        choices.rows.isEmpty() -> item(key = "list-empty") { Box(Modifier.padding(12.dp)) { RemoteSubtitleNote(empty) } }
+    }
+}
+
 private data class MediaChoices(val rows:List<JSONObject>?,val error:String?,val retry:()->Unit)
 
-@Composable private fun rememberMediaChoices(model:TvControlModel,snapshot:RemoteSnapshot,kind:String,count:Int):MediaChoices {
-    var rows by remember(snapshot.connectionId,snapshot.sessionEpoch,snapshot.mediaEpoch,kind,count){mutableStateOf<List<JSONObject>?>(null)}
-    var error by remember(kind){mutableStateOf<String?>(null)}
+@Composable private fun rememberMediaChoices(model:TvControlModel,snapshot:RemoteSnapshot,kind:String,count:Int,revision:Any?=null):MediaChoices {
+    var rows by remember(snapshot.connectionId,snapshot.sessionEpoch,snapshot.mediaEpoch,kind,count,revision){mutableStateOf<List<JSONObject>?>(null)}
+    var error by remember(snapshot.connectionId,snapshot.sessionEpoch,snapshot.mediaEpoch,kind,count,revision){mutableStateOf<String?>(null)}
     var retry by remember(kind){mutableIntStateOf(0)}
-    LaunchedEffect(snapshot.connectionId,snapshot.sessionEpoch,snapshot.mediaEpoch,kind,count,retry) {
+    LaunchedEffect(snapshot.connectionId,snapshot.sessionEpoch,snapshot.mediaEpoch,kind,count,revision,retry) {
         try {
             error=null
             rows=if(snapshot.capabilities.optInt("mediaPanels")==1)model.mediaList(snapshot,kind)else legacyMediaRows(snapshot,kind)
-        }catch(failure:Exception){if(failure is CancellationException&&failure !is TimeoutCancellationException)throw failure;error=failure.message?:"列表暂不可用"}
+        } catch (failure: TimeoutCancellationException) {
+            error = "读取电视列表超时，可重试"
+        } catch (failure: Exception) {
+            if (failure is CancellationException) throw failure
+            error = failure.message ?: "列表暂不可用"
+        }
     }
     return MediaChoices(rows,error){retry++}
 }
@@ -224,32 +487,81 @@ private fun legacyMediaRows(snapshot:RemoteSnapshot,kind:String):List<JSONObject
     }
 }
 
-@Composable private fun RemoteSubtitleAppearance(model:TvControlModel,snapshot:RemoteSnapshot,onFonts:()->Unit) {
-    val player=snapshot.content.optJSONObject("playback")?:JSONObject()
-    val appearance=player.optJSONObject("subtitleAppearance")
-    fun send(operation:String,payload:JSONObject)=model.commandFor(snapshot,operation,payload)
-    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-        Text("同步 ${player.optLong("subtitleDelayMs")} ms",style=MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FilewayOutlinedButton(onClick={send("subtitle.setDelay",JSONObject().put("delayMs",(player.optLong("subtitleDelayMs")-100).coerceAtLeast(-600000)))}){Text("提前 100 ms")};FilewayOutlinedButton(onClick={send("subtitle.setDelay",JSONObject().put("delayMs",(player.optLong("subtitleDelayMs")+100).coerceAtMost(600000)))}){Text("延后 100 ms")}}
-        var delay by remember{mutableStateOf((player.optLong("subtitleDelayMs")/1000.0).toString())}
-        OutlinedTextField(delay,{delay=it},label={Text("精确延迟（秒）")},keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Decimal),shape=RoundedCornerShape(12.dp),modifier=Modifier.fillMaxWidth(),singleLine=true)
-        FilewayOutlinedButton(onClick={parseSubtitleDelayMillis(delay)?.takeIf{it in -600000..600000}?.let{send("subtitle.setDelay",JSONObject().put("delayMs",it))}},enabled=parseSubtitleDelayMillis(delay)?.let{it in -600000..600000}==true){Text("应用时间")}
-        if(appearance!=null) {
-            Text("普通文字外观",Modifier.padding(top=8.dp),style=MaterialTheme.typography.titleSmall)
-            AppearanceSlider("字号",appearance.optDouble("scale",1.0).toFloat(),.5f..2f,{"${(it*100).toInt()}%"}){send("subtitle.setAppearance",JSONObject().put("scale",it))}
-            AppearanceSlider("垂直位置",appearance.optDouble("bottomPadding",.08).toFloat(),0f.. .4f,{"距底部 ${(it*100).toInt()}%"}){send("subtitle.setAppearance",JSONObject().put("bottomPadding",it))}
-            AppearanceSlider("背景",appearance.optDouble("backgroundOpacity",0.0).toFloat(),0f..1f,{"${(it*100).toInt()}%"}){send("subtitle.setAppearance",JSONObject().put("backgroundOpacity",it))}
-            FilewayOutlinedButton(onClick=onFonts,modifier=Modifier.fillMaxWidth()){Text("字体 · ${appearance.optString("fontLabel","选择 TV 字体")}")}
-            FilewayTextButton(onClick={send("subtitle.setAppearance",JSONObject().put("reset",true))}){Text("恢复默认外观")}
-            Text("ASS / 位图使用片源样式",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        }
+private fun remoteSubtitleAppearance(value: JSONObject?): TextSubtitleAppearance? {
+    if (value == null) return null
+    val area = TextSubtitleArea.entries.firstOrNull { it.name == value.optString("area") } ?: return null
+    val font = value.label("fontId") ?: return null
+    val scale = value.optDouble("scale").toFloat()
+    val margin = value.optDouble("bottomPadding").toFloat()
+    val opacity = value.optDouble("backgroundOpacity").toFloat()
+    if (scale !in .5f..2f || margin !in 0f.. .4f || opacity !in 0f..1f) return null
+    return TextSubtitleAppearance(scale, margin, area, opacity, font)
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private fun remoteSubtitleFormatNote(loading: Boolean, off: Boolean, codec: String?, appearance: TextSubtitleAppearance?): String? {
+    if (loading) return "字幕准备完成后会显示适用的外观设置。"
+    if (off) return "选择一条字幕后可查看适用的外观设置。"
+    return when (codec?.trim()?.lowercase(Locale.ROOT)) {
+        "ass", "ssa", "application/ass", "application/x-ass", MimeTypes.TEXT_SSA -> SubtitleAuthorStyleNote
+        "pgs", "hdmv_pgs_subtitle", "dvbsub", "dvb_subtitle", "vobsub", "dvd_subtitle",
+        MimeTypes.APPLICATION_PGS, MimeTypes.APPLICATION_DVBSUBS, MimeTypes.APPLICATION_VOBSUB -> SubtitleBitmapStyleNote
+        "srt", "subrip", "vtt", "webvtt", "mov_text", "tx3g", "ttml", "sami", "application/x-sami",
+        MimeTypes.APPLICATION_SUBRIP, MimeTypes.TEXT_VTT, MimeTypes.APPLICATION_MP4VTT,
+        MimeTypes.APPLICATION_TX3G, MimeTypes.APPLICATION_TTML ->
+            if (appearance == null) "电视未报告普通文字字幕的外观设置。" else null
+        else -> "电视未确认当前轨道支持文字外观，仍可调整字幕时间。"
     }
 }
 
-@Composable private fun AppearanceSlider(title:String,value:Float,range:ClosedFloatingPointRange<Float>,label:(Float)->String,onCommit:(Float)->Unit) {
-    var preview by remember{mutableStateOf<Float?>(null)}
-    Text("$title · ${label(preview?:value)}",style=MaterialTheme.typography.bodyMedium)
-    PlayerSlider(preview?:value,range.endInclusive,title,true,{preview=it},finish={preview?.let(onCommit);preview=null},description=label(preview?:value),mediaSurface=false,minimum=range.start)
+@Composable private fun RemoteSubtitleAdjustments(
+    delayMs: Long,
+    appearance: TextSubtitleAppearance?,
+    formatNote: String?,
+    fontLabel: String?,
+    onFont: () -> Unit,
+    status: @Composable () -> Unit,
+    onDelay: (Long) -> Unit,
+    onAppearance: (JSONObject) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var offset by remember { mutableStateOf("") }
+    var offsetError by remember { mutableStateOf<String?>(null) }
+    SubtitleAdjustmentContent(
+        delayMs = delayMs,
+        offsetText = offset,
+        onOffsetText = { offset = it; offsetError = null },
+        offsetError = offsetError,
+        onDelay = { onDelay(it.coerceIn(-600000, 600000)) },
+        onApplyOffset = {
+            val parsed = parseSubtitleDelayMillis(offset)
+            if (parsed == null) offsetError = "请输入 -600 到 600 秒"
+            else { onDelay(parsed); offsetError = null }
+        },
+        appearance = appearance,
+        formatNote = formatNote,
+        onAppearance = { next ->
+            if (appearance != null) {
+                val patch = JSONObject()
+                if (appearance.scale != next.scale) patch.put("scale", next.scale)
+                if (appearance.bottomPadding != next.bottomPadding) patch.put("bottomPadding", next.bottomPadding)
+                if (appearance.area != next.area) patch.put("area", next.area.name)
+                if (appearance.backgroundOpacity != next.backgroundOpacity) patch.put("backgroundOpacity", next.backgroundOpacity)
+                if (patch.length() > 0) onAppearance(patch)
+            }
+        },
+        fontLabel = fontLabel,
+        onChooseFont = onFont,
+        modifier = modifier,
+        mediaSurface = false,
+        commitSliders = true,
+        previewLabel = "样式示意 · Aa",
+        fontHint = "外观更改会保存到电视，实际字形以电视显示为准。",
+        status = status,
+        reset = {
+            SubtitleAppearanceActions(onReset = { onAppearance(JSONObject().put("reset", true)) }, canReset = true)
+        },
+    )
 }
 
 internal fun tvRemoteTime(ms:Long):String {

@@ -71,7 +71,10 @@ class TvPlayerUiTest {
         suspend fun focused(label:String) {
             withTimeout(10000){while(node(label,true)?.isFocused!=true)delay(100)}
         }
-        suspend fun click(label:String){assertTrue("Native UI action missing: $label",visible(label,true).performAction(AccessibilityNodeInfo.ACTION_CLICK));delay(250)}
+        suspend fun tap(label:String) {
+            val bounds=Rect().also(visible(label,true)::getBoundsInScreen)
+            assertTrue("Touch target missing: $label",device.click(bounds.centerX(),bounds.centerY()));delay(250)
+        }
         suspend fun move(label:String,direction:String,maximum:Int=10) {
             repeat(maximum){if(node(label,true)?.isFocused==true)return;key(direction)}
             focused(label)
@@ -103,36 +106,53 @@ class TvPlayerUiTest {
             val timeline=Rect().also(visible("播放进度",true)::getBoundsInScreen)
             assertTrue("Playback HUD still occupies the middle of the picture",timeline.top>device.displayHeight*.6f)
             capture("tv-hud.png")
-            step="subtitle hierarchy";move("字幕","right");key("ok");visible("字幕轨道")
+            step="subtitle hierarchy";key("down");focused("列表");move("字幕","right");key("ok");focused("关闭字幕")
             capture("tv-subtitles.png")
-            move("字幕外观","up");key("ok");visible("字号",true)
-            key("right")
-            val wanted=(originalScale!!+.1).coerceAtMost(2.0)
+            key("left");focused("选择字幕");move("字幕调整","down",4)
+            key("ok");focused("字幕外观");key("ok");focused("字号")
+            val oldScale=originalScale!!
+            val increase=oldScale<=1.9
+            key(if(increase)"right" else "left")
+            val wanted=(oldScale+if(increase).1 else -.1).coerceIn(.5,2.0)
             remote{kotlin.math.abs(it.content.getJSONObject("playback").getJSONObject("subtitleAppearance").getDouble("scale")-wanted)<.03}
+            key("up");focused("返回上一页");key("down");focused("字号")
             capture("tv-subtitle-appearance.png")
             move("字体","down",8);key("ok");visible("字幕字体")
             back();focused("字体")
             back();focused("字幕外观")
+            back();focused("字幕调整")
+            key("up");focused("添加字幕");key("ok");focused("当前服务器")
+            key("ok");visible("服务器字幕");back();focused("当前服务器")
+            key("down");focused("本机字幕");key("ok");visible("本机字幕");back();focused("本机字幕")
+            back();focused("添加字幕")
             back();focused("字幕")
-            checks+="subtitle appearance/font hierarchy and parent/HUD focus restore; scale reaches real TV state";record()
+            checks+="phone D-pad selects task and returns font, appearance and subtitle source to their exact focus; scale reaches real TV state";record()
             step="speed and queue";move("${ready.content.getJSONObject("playback").optDouble("rate",1.0)}×","right");key("ok");visible("播放速度")
-            move("1.25×","down",5);key("ok");remote{kotlin.math.abs(it.content.getJSONObject("playback").optDouble("rate")-1.25)<.01}
+            move("1.25×",if(ready.content.getJSONObject("playback").optDouble("rate",1.0)>1.25)"up" else "down",5)
+            key("ok");remote{kotlin.math.abs(it.content.getJSONObject("playback").optDouble("rate")-1.25)<.01}
             focused("1.25×")
-            move("列表","right");key("ok");visible("播放列表 · ${ready.content.getJSONObject("queue").getInt("count")}")
+            move("列表","left");key("ok");visible("播放列表");visible("${ready.content.getJSONObject("queue").getInt("count")} 项")
             capture("tv-queue.png");back();focused("列表")
-            step="ordinary subtitle via TV menu";move("字幕","left");key("ok");move(config.getString("subtitleName"),"down",10);key("ok")
+            step="HUD entries and touch";tap("设置");visible("播放设置");focused("播放速度")
+            move("播放信息","down");key("ok");visible("名称");back();focused("播放信息")
+            back();focused("设置")
+            move("音轨","left");key("ok");visible("音轨");back();focused("音轨")
+            checks+="speed, list, settings and audio restore their HUD entry; touch opens settings and information restores its row";record()
+            step="ordinary subtitle via TV menu";tap("字幕");move(config.getString("subtitleName"),"down",50);key("ok")
             remote{it.content.getJSONObject("playback").let{p->!p.optBoolean("subtitleLoading")&&p.optInt("selectedSubtitle",-1)>=0}}
             command("playback.seekTo",JSONObject().put("positionMs",5000));remote{it.content.getJSONObject("playback").let{p->!p.optBoolean("seeking")&&kotlin.math.abs(p.optLong("positionMs")-5000)<1000}}
             assertEquals("Menus must not replace the media source",ready.mediaEpoch,remote().mediaEpoch)
+            back();focused("字幕")
             capture("tv-caption.png")
             checks+="TV speed/queue controls and ordinary NAS subtitle selected without replacing source media";record()
-            step="timeline remote seek";move("1.25×","right");key("up");focused("播放进度")
+            step="timeline remote seek";key("up");focused("播放进度")
             val before=remote().content.getJSONObject("playback").getLong("positionMs")
             val seconds=remote().content.getJSONObject("preferences").optInt("seekStepSeconds",10)
             key("right");remote{it.content.getJSONObject("playback").let{p->!p.optBoolean("seeking")&&kotlin.math.abs(p.optLong("positionMs")-(before+seconds*1000L))<1200}}
-            step="return behavior";back();visible("再按一次返回退出播放")
+            step="return behavior";back();assertNull("First back should only hide the HUD",node("播放进度"));assertNull(node("再按一次返回退出播放"))
+            back();visible("再按一次返回退出播放")
             back();remote{it.scene=="BROWSE"}
-            checks+="focused timeline uses configured remote seek; back hides HUD with prompt and second back exits";record("PASS")
+            checks+="focused timeline uses configured remote seek; back hides HUD, then two hidden-state backs exit";record("PASS")
         }catch(failure:Throwable){runCatching{device.dumpWindowHierarchy(File(evidence,"failure.xml"));capture("failure.png")};record("FAIL");throw failure}
         finally {
             withContext(NonCancellable+Dispatchers.Main) {

@@ -9,6 +9,17 @@ import kotlinx.coroutines.flow.*
 import org.json.JSONObject
 import kotlin.random.Random
 
+internal enum class TvSubtitleSource(val wireName: String, private val capability: String) {
+    SERVER("server", "subtitleBrowseServerCursor"),
+    LOCAL("tvLocal", "subtitleBrowseLocal");
+
+    fun supportedBy(capabilities: JSONObject): Boolean = capabilities.optInt(capability) == 1
+
+    fun storageRevision(content: JSONObject): Long? = if (this == LOCAL) {
+        content.optLong("subtitleStorageRevision", -1).takeIf { it >= 0 }
+    } else null
+}
+
 class TvControlModel(application:Application):AndroidViewModel(application){
     val client=TvRemoteClient(application,viewModelScope)
     val connection=client.state
@@ -153,6 +164,34 @@ class TvControlModel(application:Application):AndroidViewModel(application){
         send(operation,payload,expected=expected)
         // The write is acknowledged. A later refresh/scope change does not
         // turn it into an unacknowledged failure or authorize replay.
+    }
+    internal suspend fun subtitleBrowserCommand(
+        expected: RemoteSnapshot,
+        source: TvSubtitleSource,
+        operation: String,
+        payload: JSONObject,
+    ): RemoteResult {
+        require(operation in setOf("subtitle.browse.open", "subtitle.browse.page",
+            "subtitle.browse.select", "subtitle.browse.close"))
+        require(operation != "subtitle.browse.open" || payload.optString("source") == source.wireName)
+        fun verifyScope() {
+            val state = connection.value
+            val actual = state.snapshot
+            if (state.phase != RemotePhase.CONNECTED || actual == null)
+                throw RemoteFailure("NOT_CONNECTED", "电视连接已断开")
+            if (actual.connectionId != expected.connectionId || actual.sessionEpoch != expected.sessionEpoch ||
+                actual.mediaEpoch != expected.mediaEpoch || actual.scene != "VIDEO" ||
+                source.storageRevision(actual.content) != source.storageRevision(expected.content))
+                throw RemoteFailure("SCOPE_CHANGED", "TV 播放、登录或字幕授权已变化")
+            if (!source.supportedBy(expected.capabilities) || !source.supportedBy(actual.capabilities))
+                throw RemoteFailure("NOT_AVAILABLE", "TV 当前未提供此字幕目录")
+        }
+        currentCoroutineContext().ensureActive()
+        verifyScope()
+        val result = client.execute(operation, payload, expected)
+        currentCoroutineContext().ensureActive()
+        verifyScope()
+        return result
     }
     internal suspend fun mediaList(expected:RemoteSnapshot,kind:String):List<JSONObject> =withTimeout(10000) {
         val rows=mutableListOf<JSONObject>()
