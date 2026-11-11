@@ -219,6 +219,13 @@ public sealed partial class MainPage : Page, IDisposable
     }
     public void ShowFileOpenError(string name, string message) => SetNotice("无法打开文件", $"{name}：{message}", InfoBarSeverity.Error);
     public void Shutdown() => Dispose();
+    internal async Task ClosePdfViewersAsync()
+    {
+        var windows = _pdfWindows.ToArray();
+        foreach (var window in windows) window.CloseIfOpen();
+        await Task.WhenAll(windows.Select(window => window.DisposeAsync().AsTask()));
+    }
+
     public void BeginShutdown()
     {
         if (_disposed) return;
@@ -254,7 +261,7 @@ public sealed partial class MainPage : Page, IDisposable
         foreach (var window in _imageWindows.ToArray()) window.Close();
         foreach (var window in _textWindows.ToArray()) window.Close();
         foreach (var window in _archiveWindows.ToArray()) window.Close();
-        foreach (var window in _pdfWindows.ToArray()) window.Close();
+        foreach (var window in _pdfWindows.ToArray()) window.CloseIfOpen();
         _connectionCancellation?.Dispose(); _loadCancellation?.Dispose(); _lifetime.Dispose();
     }
 
@@ -328,7 +335,7 @@ public sealed partial class MainPage : Page, IDisposable
                 foreach (var window in _imageWindows.ToArray()) window.Close();
                 foreach (var window in _textWindows.ToArray()) window.Close();
                 foreach (var window in _archiveWindows.ToArray()) window.Close();
-                foreach (var window in _pdfWindows.ToArray()) window.Close();
+                foreach (var window in _pdfWindows.ToArray()) window.CloseIfOpen();
                 if (_playback is not null) await _playback.CloseAccountAsync(_session.Account, token);
                 await _connection.DisconnectAsync(_session.Account, token);
                 ClearActiveWorkspace();
@@ -733,7 +740,13 @@ public sealed partial class MainPage : Page, IDisposable
             {
                 var window = new PdfWindow(pdfBytes, row.File.Resource); _pdfWindows.Add(window);
                 window.SetTheme(Shell.RequestedTheme);
-                window.Closed += (_, _) => _pdfWindows.Remove(window); window.Activate();
+                window.Closed += async (_, _) =>
+                {
+                    try { await window.DisposeAsync(); }
+                    catch (Exception error) { if (!_disposed) ShowFileOpenError(row.Name, ErrorMessage(error)); }
+                    finally { _pdfWindows.Remove(window); }
+                };
+                window.Activate();
             }
             else if (IsZipArchive(row) && _archiveBrowse is { } archives)
             {

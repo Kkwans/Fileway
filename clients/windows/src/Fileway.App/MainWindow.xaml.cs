@@ -74,6 +74,7 @@ public sealed partial class MainWindow : Window, IDisposable
         => ((MainPage)RootFrame.Content).SetLocalServerManagement(service);
     public void ShowStorageWarning(string message) => ((MainPage)RootFrame.Content).ShowStorageWarning(message);
     public void RequestShutdown() => ((MainPage)RootFrame.Content).BeginShutdown();
+    internal Task ClosePdfViewersAsync() => ((MainPage)RootFrame.Content).ClosePdfViewersAsync();
     public void CompleteShutdown() => ((MainPage)RootFrame.Content).Shutdown();
     public void PrepareForClose()
     {

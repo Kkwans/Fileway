@@ -369,7 +369,7 @@ components:
 - 自研双色焦点环覆盖主/次/图标/文字图标/分段选项/侧栏导航按钮/详情动作磁贴与 CheckBox；这些控件一律 `UseSystemFocusVisuals=False`，由模板 `FocusStates` 显示光晕 + 内环。动作磁贴必须 `HorizontalAlignment=Stretch` 填满所在栅格列，不能按内容宽度收缩；CheckBox 焦点环画在内容外侧，避免压住 20px 勾选框与文字。菜单项键盘焦点使用应用双色（`FocusVisualPrimaryBrush`=文字色、`FocusVisualSecondaryBrush`=画布色，内缩 2 DIP），但形状仍由 WinUI 内部模板绘制为矩形。任务详情与回收站的展开面板使用 `FwDisclosure`（`LayoutChoiceStyle` 开关头 + 旋转箭头 + 自研焦点环），不再使用 WinUI Expander；开关头必须把标题绑定到 `AutomationProperties.Name`。
 - 菜单快捷键：只对真实存在的快捷键设置 `KeyboardAcceleratorTextOverride`（复制 Ctrl+C、剪切 Ctrl+X、粘贴 Ctrl+V、重命名 F2、移入回收站 Delete、全选 Ctrl+A、刷新 F5、搜索 Ctrl+F），不得虚构未接入的组合键；标签由系统菜单模板右对齐渲染。
 - 已知尚未迁移：部分弹层仍使用旧样式，按本契约逐步替换。
-- PDF 查看器：工具栏使用底部浮动玻璃药丸（`FwPillStyle` + `FwIconButtonStyle` + `FwTextIconButtonStyle`，左/右方向键翻页，适应窗口按视口宽度计算缩放）。
+- PDF 查看器：底部工具栏位于阅读视口外，使用应用的材质和按钮样式。适宽随窗口与页尺寸更新，100% 按 PDF 逻辑尺寸显示。左／右方向键翻页，渲染成功后同时更新画面和页码，失败时保留已显示的页面并提供重试。
 
 ## Known Gaps
 
@@ -454,7 +454,8 @@ components:
 - [x] 文件任务/操作记录列对齐已收敛（0.8.166）：操作记录行补 24px 图标列与 `Padding=8`，与任务行共用列头几何。证据 `20261105-tasks08166/light4`、`dark2`（各 18 项 PASS，任务/操作列头左缘 delta=0、时间右缘 delta=1）与宽/历史/窄实拍；浅色历史图左上侧栏 ToolTip 为探针持焦伪影。
 - [x] 回归收口与压缩包列头 HC 风险已处理（0.8.168）：列头由 `Opacity=0.65` 改为 `FwCaptionTextStyle`，HC 映射系统文本色；浅/深 archive 回归各 27 项 PASS、列对齐 delta=0。系统高对比度实拍仍未取得（需用户同意切换系统设置），不标 HC 通过。
 - [ ] 自研双色焦点环在 UIA 自动化下必现（`Focused` 状态），鼠标点击不出现（`PointerFocused` 是空状态）：截图验收必须意识到这点，否则会把测试伪影当成产品缺陷；若连程序化聚焦也不想显示，需要按 `FocusState` 区分。
-- [ ] PDF 查看器工具栏已迁移为玻璃药丸，待实机截图验收；沉浸外壳仍受原生堆破坏阻塞。
+- [x] PDF 查看器底部工具栏与正文分开，浅深 620／800／1120 DIP 已实机验收适宽、翻页与阅读焦点。
+- [ ] PDF 沉浸外壳的历史原生堆错误仍待复现定位。
 - [x] 弹层模糊决策（0.9.0 M05 覆盖 2026-10-29 回退结论）：播放器 HUD 恢复有界 region + SDK Thin acrylic，菜单/弹层用原生 DesktopAcrylicBackdrop（用户确认两者都要）；应用内 ContentDialog/ToolTip/toast 的内容级模糊仍待 M10/M11 合成模糊层统一交付，在此之前保持主题 Acrylic + 1px 高光边，不再反复调透明度。
 - [x] 独立 Acrylic 窗口结论（2026-10-29）：三次原型均因定位/尺寸问题回退。复现要点：① `AppWindow.MoveAndResize` 使用物理像素，必须乘 `XamlRoot.RasterizationScale`；② 高度需为按钮行预留至少 72 DIP；③ owner 必须取 `App.MainWindow` 的顶层 HWND，`XamlRoot.ContentIslandEnvironment` 在部分路径下不可靠。若后续重启该方案，按此三点实现，不要复用详情面板的窗口。可移动详情浮窗的拖动已在 0.8.46 改为原生 caption 命中（浅/深色均实测 MOVED=True）。
 - [x] 紧凑网格已实机复核（2026-10-29，`screens/ui-layouts/compact-grid.png`），容器状态正常；无界网格已复核（2026-10-29，`20261029-ui0815/screens/ui-grid/unbounded-grid-161844.png`），菜单选中态已改为半透明强调底。
