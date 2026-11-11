@@ -395,7 +395,7 @@ class TvRemoteUiVisualTest {
                 withTimeout(8_000) {
                     while (login == null) {
                         login = freshAccessibilityBounds(instrumentation, screen())?.firstOrNull {
-                            it.visible && it.text == "用手机当前账号登录 TV"
+                            it.visible && it.text == "TV 尚未登录"
                         }
                         if (login == null) delay(75)
                     }

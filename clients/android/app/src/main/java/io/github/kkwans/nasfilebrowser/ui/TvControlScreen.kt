@@ -9,12 +9,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -33,6 +38,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -106,10 +112,19 @@ import kotlin.math.roundToInt
     Dialog(onDismissRequest=::closeControl,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         TvPhoneSystemBars()
         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background){
-            Column(Modifier.fillMaxSize().systemBarsPadding().imePadding()){
-                FilewayTopAppBar(if(scanning)"扫描 TV 二维码" else "TV 遥控",if(scanning)null else tvConnectionSubtitle(connection),R.drawable.ic_arrow_back,"返回",{if(scanning)scanning=false else closeControl()}){
+            BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+            val landscape = maxWidth >= 560.dp && maxWidth > maxHeight * 1.35f
+            Column(Modifier.fillMaxSize()) {
+                FilewayTopAppBar(if(scanning)"扫描 TV 二维码" else "TV 遥控",if(scanning||landscape)null else tvConnectionSubtitle(connection),R.drawable.ic_arrow_back,"返回",{if(scanning)scanning=false else closeControl()}){
                     if(scanning)FilewayTextButton(onClick={image.launch("image/*")}){Text("从图片识别")}
-                    else FilewayTextButton(onClick={devicesOpen=true}){Text("设备");FilewayIcon(R.drawable.ic_expand_more,null,Modifier.size(20.dp))}
+                    else {
+                        if (landscape) Text(
+                            tvConnectionSubtitle(connection), Modifier.widthIn(max = 238.dp).padding(end = 8.dp),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                        FilewayTextButton(onClick={devicesOpen=true}){Text("设备");FilewayIcon(R.drawable.ic_expand_more,null,Modifier.size(20.dp))}
+                    }
                 }
                 if(scanning){
                     BackHandler{scanning=false}
@@ -118,32 +133,34 @@ import kotlin.math.roundToInt
                     val snapshot=connection.snapshot
                     if(connection.phase==RemotePhase.CONNECTED&&snapshot!=null){
                         val pager=rememberFilewayPager(sections.indexOf(section).coerceAtLeast(0),sections.size){index->section=sections[index];selectedTab=true}
-                        FilewayPagerTabs(pager,sections)
-                        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-                        val compactHeight = maxHeight < 360.dp
-                        HorizontalPager(state=pager,modifier=Modifier.fillMaxSize()){page->
+                        TvPhonePages(pager, sections, landscape, Modifier.weight(1f)) { page, compactHeight ->
                             val currentSection=sections[page]
                             val compactRemote=currentSection=="遥控"&&compactHeight
-                            LazyColumn(Modifier.fillMaxSize(),state=sectionScroll[page],contentPadding=PaddingValues(horizontal=16.dp,vertical=if(compactRemote)8.dp else 12.dp),verticalArrangement=Arrangement.spacedBy(if(compactRemote)8.dp else 12.dp)){
+                            val centerRemote = currentSection == "遥控" && landscape
+                            val gap = if (compactRemote) 8.dp else 12.dp
+                            LazyColumn(Modifier.fillMaxSize(),state=sectionScroll[page],contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),
+                                horizontalAlignment=Alignment.CenterHorizontally,
+                                verticalArrangement=if(centerRemote)Arrangement.spacedBy(gap,Alignment.CenterVertically)else Arrangement.spacedBy(gap)){
                             when(currentSection){
                                 "遥控"->{
                                     val showLogin=snapshot.scene=="LOGIN"
                                     val mediaName=snapshot.content.optJSONObject("media")?.optString("name")?.takeIf{it.isNotBlank()&&it!="null"}
                                     val playing=snapshot.content.optJSONObject("playback")?.opt("playing") as? Boolean
                                     val hasQuickPlayback=snapshot.scene in setOf("VIDEO","AUDIO")&&mediaName!=null&&playing!=null
-                                    item{BoxWithConstraints(Modifier.fillMaxWidth()){
+                                    item{BoxWithConstraints(Modifier.widthIn(max = if (landscape) 576.dp else Dp.Unspecified).fillMaxWidth()){
                                         val labelSize = MaterialTheme.typography.labelLarge.fontSize
                                         val actionWidth = with(LocalDensity.current) { labelSize.toDp() * 2 + 16.dp }.coerceAtLeast(48.dp)
-                                        val splitWidth = 144.dp + 8.dp + actionWidth * 3 + 16.dp
-                                        if(compactRemote&&maxWidth>=splitWidth){
-                                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),
-                                                verticalAlignment=if(showLogin)Alignment.Top else Alignment.CenterVertically){
-                                                TvPhoneDpad(model,Modifier.width(144.dp),compact=true,
+                                        val padSize = if (compactHeight) 168.dp else 192.dp
+                                        val splitWidth = padSize + 32.dp + actionWidth * 3
+                                        if (landscape && maxWidth >= splitWidth) {
+                                            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(32.dp,Alignment.CenterHorizontally),
+                                                verticalAlignment=Alignment.CenterVertically){
+                                                TvPhoneDpad(model, Modifier.width(padSize), compact=compactHeight, landscape=true,
                                                     detailsKey=snapshot.scene=="BROWSE"&&snapshot.capabilities.optInt("fileDetailsKey",0)>0)
-                                                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
+                                                Column(Modifier.widthIn(max=288.dp).weight(1f,fill=false),verticalArrangement=Arrangement.spacedBy(16.dp)){
                                                     if(showLogin)TvPhoneLoginAction(phone,model,busy)
                                                     if(hasQuickPlayback)TvPhoneQuickPlayback(model,snapshot,requireNotNull(mediaName),requireNotNull(playing),{section="播放";selectedTab=true},compact=true)
-                                                    TvPhoneRemoteActions(model){inputOpen=true}
+                                                    TvPhoneLandscapeActions(model){inputOpen=true}
                                                 }
                                             }
                                         }else{
@@ -237,7 +254,6 @@ import kotlin.math.roundToInt
                             snapshot.content.optString("error").takeIf{it!="null"&&it.isNotBlank()}?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}}
                             }
                         }
-                        }
                     }else{
                         LazyColumn(Modifier.fillMaxWidth().weight(1f),contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
                             if(connection.device!=null)item{TvPhoneTargetState(connection,model)}
@@ -251,6 +267,7 @@ import kotlin.math.roundToInt
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -268,6 +285,45 @@ import kotlin.math.roundToInt
                 onSearch={if(permitted)model.search()else lan.launch(Manifest.permission.ACCESS_LOCAL_NETWORK)},
                 onScan={devicesOpen=false;scan()},onImage={devicesOpen=false;image.launch("image/*")},onSelected={devicesOpen=false})
             cameraError?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}}
+        }
+    }
+}
+
+@Composable
+private fun TvPhonePages(
+    pager: PagerState, sections: List<String>, landscape: Boolean, modifier: Modifier,
+    page: @Composable (Int, Boolean) -> Unit,
+) {
+    Column(modifier.fillMaxWidth()) {
+        if (!landscape) FilewayPagerTabs(pager, sections)
+        Row(Modifier.fillMaxSize()) {
+            if (landscape) {
+                val scope = rememberCoroutineScope()
+                Column(
+                    Modifier.width(110.dp).fillMaxHeight().selectableGroup().padding(horizontal = 10.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+                ) {
+                    sections.forEachIndexed { index, label ->
+                        val selected = pager.currentPage == index
+                        val shape = RoundedCornerShape(12.dp)
+                        Box(
+                            Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(shape)
+                                .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.background)
+                                .selectable(selected, role = Role.Tab, onClick = { scope.launch { pager.animateScrollToPage(index) } })
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(label, style = MaterialTheme.typography.labelLarge,
+                                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            }
+            BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
+                val compactHeight = maxHeight < 360.dp
+                HorizontalPager(pager, Modifier.fillMaxSize()) { index -> page(index, compactHeight) }
+            }
         }
     }
 }
@@ -361,9 +417,15 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
 
 @Composable private fun TvPhoneLoginAction(phone:ClientModel,model:TvControlModel,busy:Boolean){
     val source=phone.tvAuthorizationContext()
-    FilewayButton(onClick={model.authorize(phone,source)},enabled=!busy&&source!=null,
-        modifier=Modifier.fillMaxWidth().heightIn(min=48.dp)){
-        Text(if(busy)"正在授权…" else "用手机当前账号登录 TV")
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("TV 尚未登录", style = MaterialTheme.typography.titleMedium)
+        if (source == null) {
+            Text("先在手机登录栖卷，再为 TV 授权。", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else FilewayButton(onClick={model.authorize(phone,source)},enabled=!busy,
+            modifier=Modifier.heightIn(min=48.dp)){
+            Text(if(busy)"正在授权…" else "用手机当前账号登录 TV")
+        }
     }
 }
 
@@ -404,6 +466,31 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
     }
 }
 
+@Composable
+private fun TvPhoneLandscapeActions(model: TvControlModel, onKeyboard: () -> Unit) {
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().padding(4.dp)) {
+            TvPhoneLandscapeAction("返回", R.drawable.ic_arrow_back, Modifier.weight(1f)) { model.command("app.back") }
+            TvPhoneLandscapeAction("首页", Art.drawable.fileway_ic_home, Modifier.weight(1f)) {
+                model.command("app.navigate", JSONObject().put("route", "HOME"))
+            }
+            TvPhoneLandscapeAction("键盘", Art.drawable.fileway_ic_text, Modifier.weight(1f), onKeyboard)
+        }
+    }
+}
+
+@Composable
+private fun TvPhoneLandscapeAction(label: String, icon: Int, modifier: Modifier, onClick: () -> Unit) {
+    Column(
+        modifier.heightIn(min = 52.dp).clip(RoundedCornerShape(10.dp)).clickable(role = Role.Button, onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically),
+    ) {
+        FilewayIcon(icon, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
 /** The full-screen Dialog owns its system bars independently of the Activity. */
 @Composable private fun TvPhoneSystemBars(){
     val view=LocalView.current
@@ -423,20 +510,25 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
     }
 }
 
-@Composable private fun TvPhoneDpad(model:TvControlModel,modifier:Modifier=Modifier,compact:Boolean=false,detailsKey:Boolean=false){
-    val side=if(compact)48.dp else 72.dp
+@Composable private fun TvPhoneDpad(model:TvControlModel,modifier:Modifier=Modifier,compact:Boolean=false,detailsKey:Boolean=false,landscape:Boolean=false){
+    val side = when { landscape && compact -> 56.dp; landscape -> 64.dp; compact -> 48.dp; else -> 72.dp }
     Box(modifier.fillMaxWidth().padding(vertical=if(compact)0.dp else 8.dp),contentAlignment=Alignment.Center){
-        Surface(Modifier.size(side*3),shape=CircleShape,color=MaterialTheme.colorScheme.surface){
+        Surface(Modifier.size(side*3),shape=CircleShape,color=MaterialTheme.colorScheme.surface,
+            border = if (landscape) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null){
             Column(horizontalAlignment=Alignment.CenterHorizontally){
                 FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","up"))},Modifier.size(side)){FilewayIcon(R.drawable.ic_expand_less,"上")}
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","left"))},Modifier.size(side)){FilewayIcon(R.drawable.ic_arrow_back,"左")}
+                    FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","left"))},Modifier.size(side)){
+                        FilewayIcon(R.drawable.ic_expand_more,"左",Modifier.rotate(90f))
+                    }
                     Box(Modifier.size(side),contentAlignment=Alignment.Center){
                         TvPhoneConfirmKey(compact, detailsKey,
                             onConfirm={model.command("app.key",JSONObject().put("key","ok"))},
-                            onDetails={model.command("app.key",JSONObject().put("key","details"))})
+                            onDetails={model.command("app.key",JSONObject().put("key","details"))}, iconOnly=landscape)
                     }
-                    FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","right"))},Modifier.size(side)){FilewayIcon(R.drawable.ic_arrow_forward,"右")}
+                    FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","right"))},Modifier.size(side)){
+                        FilewayIcon(R.drawable.ic_expand_more,"右",Modifier.rotate(-90f))
+                    }
                 }
                 FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","down"))},Modifier.size(side)){FilewayIcon(R.drawable.ic_expand_more,"下")}
             }
@@ -444,16 +536,20 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
     }
 }
 
-@Composable internal fun TvPhoneConfirmKey(compact:Boolean,detailsKey:Boolean,onConfirm:()->Unit,onDetails:()->Unit){
+@Composable internal fun TvPhoneConfirmKey(compact:Boolean,detailsKey:Boolean,onConfirm:()->Unit,onDetails:()->Unit,iconOnly:Boolean=false){
     val size=if(compact)48.dp else 64.dp
+    val content: @Composable () -> Unit = {
+        if (iconOnly) FilewayIcon(R.drawable.ic_check, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onPrimary)
+        else Text("确定",modifier=Modifier.clearAndSetSemantics{},style=MaterialTheme.typography.labelMedium,
+            color=MaterialTheme.colorScheme.onPrimary,maxLines=1,softWrap=false)
+    }
     if(detailsKey) Box(Modifier.size(size).clip(CircleShape)
         .background(MaterialTheme.colorScheme.primary)
         .combinedClickable(role=Role.Button,onLongClickLabel="查看详情",onClick=onConfirm,onLongClick=onDetails)
         .semantics{contentDescription="确认"},contentAlignment=Alignment.Center){
-        Text("确定",modifier=Modifier.clearAndSetSemantics{},style=MaterialTheme.typography.labelMedium,
-            color=MaterialTheme.colorScheme.onPrimary,maxLines=1,softWrap=false)
+        content()
     } else FilledIconButton(onClick=onConfirm,Modifier.size(size).semantics{contentDescription="确认"}){
-        Text("确定",modifier=Modifier.clearAndSetSemantics{},style=MaterialTheme.typography.labelMedium,maxLines=1,softWrap=false)
+        content()
     }
 }
 
