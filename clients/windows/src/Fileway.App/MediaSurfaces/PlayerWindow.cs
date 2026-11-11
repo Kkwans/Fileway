@@ -893,7 +893,13 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         UpdateNextVideoAvailability();
         try
         {
-            await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(target), _watchCancellation.Token));
+            await RunCommandAsync(async () =>
+            {
+                var token = _watchCancellation.Token;
+                await _session.PlayAsync(new RemotePlaybackInput(target), token);
+                // mpv keeps its pause flag when replacing a file.
+                await _session.SetPausedAsync(false, token);
+            });
         }
         finally
         {
