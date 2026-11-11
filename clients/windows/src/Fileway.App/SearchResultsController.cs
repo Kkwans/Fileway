@@ -38,6 +38,13 @@ internal sealed class SearchResultsController : IDisposable
     internal string? Error { get { lock (_gate) return _error; } }
     internal long Generation { get { lock (_gate) return _generation; } }
     internal long ViewGeneration { get { lock (_gate) return _viewGeneration; } }
+    internal Snapshot ReadSnapshot()
+    {
+        lock (_gate) return new(_generation, _items, _isSearching, _isOpening, _end, _error);
+    }
+
+    internal readonly record struct Snapshot(long Generation, IReadOnlyList<SearchHit> Items,
+        bool IsSearching, bool IsOpening, SearchEnd? End, string? Error);
 
     internal void SetContext(IServerSearchService? search, IFileRepository? files, ConnectionSession? session,
         RemoteResourceRef? baseDirectory)

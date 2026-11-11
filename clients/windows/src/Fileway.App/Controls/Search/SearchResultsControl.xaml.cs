@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -21,13 +22,13 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
     private ConnectionSession? _session;
     private RemoteResourceRef? _directory;
     private Func<RemoteFile, Task>? _openResourceAsync;
-    private string? _lastQuery;
-    private SearchScope _lastScope = SearchScope.Recursive;
+    private (string Query, SearchScope Scope)? _submittedSearch;
     private string? _presentationError;
     private long _viewRevision, _handoffRevision, _compositionRevision, _renderedGeneration = -1;
     private int _renderQueued;
     private volatile bool _disposed;
     private bool _viewActive, _suspended, _rendering, _lastActionOpening, _queryComposing;
+    private bool _openingCanceled;
 
     public event EventHandler? CloseRequested;
     public Func<RemoteFile, Task>? OpenResourceAsync
@@ -38,7 +39,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
 
     public SearchResultsControl()
     {
-        InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(SearchNotice);
+        InitializeComponent();
         SearchRecords.ItemsSource = _rows;
         _controller.Changed += Controller_Changed;
         QueryBox.TextCompositionStarted += (_, _) => { ++_compositionRevision; _queryComposing = true; UpdateCommands(); };
@@ -66,19 +67,23 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         {
             ++_viewRevision; ++_handoffRevision;
             ++_compositionRevision; _queryComposing = false;
-            _lastQuery = null; _presentationError = null; _suspended = false;
+            _submittedSearch = null; _presentationError = null; _suspended = false;
+            _lastActionOpening = _openingCanceled = false;
             ResetRows();
+            UpdateSubmittedSummary();
         }
         // A repeated context refresh must leave the user's unsubmitted query/scope untouched.
         QueueRender();
     });
 
-    public Task SearchAsync(string query, SearchScope scope) => OnUiAsync(() => SearchCoreAsync(query, scope));
+    public Task SearchAsync(string query, SearchScope scope) => OnUiAsync(() => SearchCoreAsync(query, scope, copyToDraft: true));
 
     public Task RefreshAsync() => OnUiAsync(() =>
     {
-        if (string.IsNullOrWhiteSpace(_lastQuery)) { FocusQuery(); return Task.CompletedTask; }
-        return SearchCoreAsync(_lastQuery, _lastScope);
+        if (_submittedSearch is not { } submitted || string.IsNullOrWhiteSpace(submitted.Query))
+        { FocusQuery(); return Task.CompletedTask; }
+        if (!CanRetrySearch) return Task.CompletedTask;
+        return SearchCoreAsync(submitted.Query, submitted.Scope);
     });
 
     public void FocusQuery() => OnUi(() =>
@@ -99,15 +104,23 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
 
     private bool HasContext => !_disposed && _search is not null && _files is not null
         && _session is { Id: var id } && id != Guid.Empty && _directory?.Account == _session.Account;
+    private bool CanRetrySearch => HasContext && !_queryComposing && !_controller.IsSearching && !_controller.IsOpening;
+    private SearchScope? DraftScope => ScopeBox.SelectedIndex switch { 0 => SearchScope.Current, 1 => SearchScope.Recursive, _ => null };
 
-    private async Task SearchCoreAsync(string query, SearchScope scope)
+    private async Task SearchCoreAsync(string query, SearchScope scope, bool copyToDraft = false)
     {
         if (_disposed) return;
         _viewActive = true; _suspended = false; _lastActionOpening = false;
+        _openingCanceled = false;
         var revision = ++_viewRevision; ++_handoffRevision;
-        _lastQuery = query; _lastScope = scope; _presentationError = null;
-        QueryBox.Text = query;
-        ScopeBox.SelectedIndex = scope switch { SearchScope.Current => 0, SearchScope.Recursive => 1, _ => -1 };
+        _submittedSearch = (query, scope);
+        _presentationError = null;
+        if (copyToDraft)
+        {
+            QueryBox.Text = query;
+            ScopeBox.SelectedIndex = scope switch { SearchScope.Current => 0, SearchScope.Recursive => 1, _ => -1 };
+        }
+        UpdateSubmittedSummary();
         ResetRows();
         if (!HasContext)
         {
@@ -123,7 +136,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         catch (Exception)
         {
             if (!_disposed && revision == _viewRevision)
-                _presentationError = "搜索未能完成，请重试。已收到的结果会保留。";
+                _presentationError = "搜索未能完成，请重试。";
         }
         if (!_disposed && revision == _viewRevision) QueueRender();
     }
@@ -143,11 +156,11 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
     private void Render()
     {
         if (_disposed) return;
-        var generation = _controller.Generation;
-        var items = _controller.Items;
-        if (_renderedGeneration != generation)
+        var state = _controller.ReadSnapshot();
+        var items = state.Items;
+        if (_renderedGeneration != state.Generation)
         {
-            ResetRows(); _renderedGeneration = generation;
+            ResetRows(); _renderedGeneration = state.Generation;
         }
         if (_viewActive && !_suspended)
         {
@@ -162,67 +175,66 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
             finally { _rendering = false; }
         }
 
-        var searching = _controller.IsSearching;
-        var opening = _controller.IsOpening;
-        var end = _controller.End;
-        var error = _presentationError ?? _controller.Error;
-        UpdateConfirmedQuery();
-        SearchActivityRing.IsActive = searching || opening;
-        SearchActivityRing.Visibility = searching || opening ? Visibility.Visible : Visibility.Collapsed;
-        SearchActivityText.Text = opening ? "正在核对资源…" : searching ? "正在搜索…" : "";
-        SearchActions.Visibility = searching || opening ? Visibility.Visible : Visibility.Collapsed;
-        SearchNotice.IsOpen = error is not null || end is not null || _suspended && _lastQuery is not null;
-        SearchNotice.Visibility = SearchNotice.IsOpen ? Visibility.Visible : Visibility.Collapsed;
-        SearchNotice.Title = _suspended && error is null ? "搜索已暂停" : error is not null && _lastActionOpening ? "无法打开搜索结果"
-            : end?.Reason switch
-            {
-                SearchEndReason.Completed => "搜索完成",
-                SearchEndReason.LimitReached => "已达到搜索上限",
-                SearchEndReason.ServerTimeout => "服务器搜索超时",
-                SearchEndReason.Canceled => "搜索已取消",
-                SearchEndReason.SessionChanged => "连接已变更",
-                SearchEndReason.Failed when end.Error?.Code == ErrorCode.Timeout => "搜索请求超时",
-                SearchEndReason.Failed => "搜索未能完成",
-                _ => "搜索需要处理",
-            };
-        SearchNotice.Message = error ?? (_suspended ? "重新搜索后可继续打开结果。"
-            : end?.Reason switch
-            {
-                SearchEndReason.Completed => "本次搜索已完成。",
-                SearchEndReason.LimitReached => "已保留收到的结果。可缩小搜索条件或范围后重试。",
-                SearchEndReason.ServerTimeout => "已保留收到的结果。可重新搜索或缩小范围。",
-                SearchEndReason.Canceled => "已保留收到的结果，仍可核对并打开。",
-                SearchEndReason.SessionChanged => "请在当前连接下重新搜索；旧连接的结果不会打开。",
-                SearchEndReason.Failed => "已保留收到的结果，可以重新搜索。",
-                _ => "",
-            });
-        SearchNotice.Severity = error is not null || end?.Reason is SearchEndReason.LimitReached
-            or SearchEndReason.ServerTimeout or SearchEndReason.Failed or SearchEndReason.SessionChanged
-            ? InfoBarSeverity.Warning : end?.Reason == SearchEndReason.Completed && !_suspended
-                ? InfoBarSeverity.Success : InfoBarSeverity.Informational;
+        var hasRows = _rows.Count > 0;
+        var busy = state.IsSearching || state.IsOpening;
+        var status = ResultStatus(state.End, _presentationError ?? state.Error, hasRows);
+        SearchActivityRing.IsActive = busy;
+        SearchActivityText.Text = state.IsOpening ? "正在核对资源…" : "正在搜索…";
+        SearchActivityText.Visibility = state.IsOpening || state.IsSearching && hasRows ? Visibility.Visible : Visibility.Collapsed;
+        SearchActions.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
 
-        SearchHeaders.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-        SearchEmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        SearchEmptyState.Title = !HasContext ? "连接服务器后搜索" : searching ? "正在搜索服务器"
-            : error is not null ? "搜索需要处理" : end?.Reason == SearchEndReason.Completed ? "没有找到匹配项"
-            : end?.Reason == SearchEndReason.SessionChanged ? "连接已变更" : "搜索服务器文件";
-        SearchEmptyState.Description = !HasContext ? "连接服务器后，输入条件并选择搜索范围。"
-            : searching ? "结果会逐步显示，你可以随时取消。"
-            : end?.Reason == SearchEndReason.Completed ? "可调整搜索条件，或选择含子目录后重试。"
-            : error is not null ? "检查连接或调整搜索条件后重试。" : "输入条件并选择范围，然后开始搜索。";
-        if (_lastQuery is null) SearchCount.Text = "尚未开始搜索";
-        else
+        if (hasRows && status is { } notice)
         {
-            var scope = _lastScope switch
-                { SearchScope.Current => "当前目录", SearchScope.Recursive => "含子目录", _ => "范围待确认" };
-            SearchCount.Text = items.Count > _rows.Count
-                ? $"{scope} · 已显示 {_rows.Count} / 已收到 {items.Count} 项"
-                : $"{scope} · {items.Count} 项结果";
-            if (end?.ServerCount is { } serverCount && serverCount != items.Count)
-                SearchCount.Text += $" · 服务器报告 {serverCount} 项";
+            SearchNotice.Title = notice.Title;
+            SearchNotice.Message = notice.Description;
+            SearchNotice.Severity = notice.Severity;
         }
-        UpdateCommands();
+        SearchNotice.IsOpen = hasRows && status is not null;
+        SearchNotice.Visibility = SearchNotice.IsOpen ? Visibility.Visible : Visibility.Collapsed;
+
+        SearchHeaders.Visibility = hasRows ? Visibility.Visible : Visibility.Collapsed;
+        SearchEmptyState.Visibility = hasRows ? Visibility.Collapsed : Visibility.Visible;
+        (SearchEmptyState.Title, SearchEmptyState.Description) = !HasContext
+            ? ("连接服务器后搜索", "连接服务器后，输入条件并选择搜索范围。")
+            : state.IsSearching ? ("正在搜索服务器", "结果会逐步显示，你可以随时取消。")
+            : status is { } emptyStatus ? (emptyStatus.Title, emptyStatus.Description)
+            : state.End?.Reason == SearchEndReason.Completed ? ("没有找到匹配项", _submittedSearch?.Scope == SearchScope.Current
+                ? "可调整搜索条件，或选择含子目录后重新搜索。" : "可调整搜索条件后重新搜索。")
+            : ("搜索服务器文件", "输入条件并选择范围，然后开始搜索。");
+
+        SearchCount.Text = items.Count > _rows.Count ? $"已显示 {_rows.Count} / 已收到 {items.Count} 项"
+            : state.End?.Reason == SearchEndReason.Completed ? $"{items.Count} 项结果" : $"已收到 {items.Count} 项";
+        if (state.End?.ServerCount is { } serverCount && serverCount != items.Count)
+            SearchCount.Text += $" · 服务器报告 {serverCount} 项";
+        SearchCount.Visibility = state.IsSearching && items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        UpdateCommands(state);
         if (_viewActive && !_suspended && _rows.Count < items.Count) QueueRender();
+    }
+
+    private (string Title, string Description, InfoBarSeverity Severity)? ResultStatus(SearchEnd? end, string? error, bool hasRows)
+    {
+        const InfoBarSeverity warning = InfoBarSeverity.Warning;
+        const InfoBarSeverity info = InfoBarSeverity.Informational;
+        if (_suspended && _submittedSearch is not null && error is null)
+            return ("搜索已暂停", hasRows ? "重新搜索后可核对并打开结果。" : "可以重新执行上次搜索。", info);
+        if (_openingCanceled)
+            return ("资源核对已取消", "可再次打开选中的搜索结果。", info);
+        if (_lastActionOpening && error is not null)
+            return ("无法打开搜索结果", error, warning);
+        error ??= end?.Error?.Message;
+        var retained = hasRows ? "已保留收到的部分结果。" : "尚未收到结果。";
+        return end?.Reason switch
+        {
+            SearchEndReason.LimitReached => ("已达到搜索上限", retained + "可缩小搜索条件或范围后重试。", warning),
+            SearchEndReason.ServerTimeout => ("服务器搜索超时", retained + "可重新搜索或缩小范围。", warning),
+            SearchEndReason.Canceled => ("搜索已取消", hasRows ? retained + "仍可核对并打开。" : retained, info),
+            SearchEndReason.SessionChanged => ("连接已变更", "请在当前连接下重新搜索。", warning),
+            SearchEndReason.Failed when end?.Error?.Code == ErrorCode.Timeout => ("搜索请求超时", retained + "可重新搜索。", warning),
+            SearchEndReason.Failed => ("搜索未能完成", end?.Error?.Code == ErrorCode.Unknown || error is null
+                ? retained + "可重新搜索。" : hasRows ? error + " " + retained : error, warning),
+            _ when error is not null => ("搜索需要处理", error, warning),
+            _ => null,
+        };
     }
 
     private void ResetRows()
@@ -232,15 +244,16 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         finally { _rendering = false; }
     }
 
-    private void UpdateCommands()
+    private void UpdateCommands(SearchResultsController.Snapshot? snapshot = null)
     {
         if (_disposed || SearchButton is null) return;
-        var busy = _controller.IsSearching || _controller.IsOpening;
-        SearchButton.IsEnabled = HasContext && !_queryComposing && !_controller.IsOpening && !string.IsNullOrWhiteSpace(QueryBox.Text)
-            && ScopeBox.SelectedIndex is 0 or 1;
-        RetrySearchButton.Visibility = !string.IsNullOrWhiteSpace(_lastQuery) ? Visibility.Visible : Visibility.Collapsed;
-        RetrySearchButton.IsEnabled = HasContext && !busy;
-        CancelSearchButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        var state = snapshot ?? _controller.ReadSnapshot();
+        var busy = state.IsSearching || state.IsOpening;
+        SearchButton.IsEnabled = HasContext && !_queryComposing && !state.IsOpening && !string.IsNullOrWhiteSpace(QueryBox.Text)
+            && DraftScope is not null;
+        RetrySearchButton.Visibility = _submittedSearch is { } submitted && !string.IsNullOrWhiteSpace(submitted.Query) && !busy
+            ? Visibility.Visible : Visibility.Collapsed;
+        RetrySearchButton.IsEnabled = HasContext && !_queryComposing && !busy;
         OpenSelectedButton.Visibility = SearchRecords.SelectedItem is SearchResultRow ? Visibility.Visible : Visibility.Collapsed;
         OpenSelectedButton.IsEnabled = _viewActive && !_suspended && Visibility == Visibility.Visible
             && _openResourceAsync is not null && SearchRecords.SelectedItem is SearchResultRow row && _controller.CanOpen(row.Hit);
@@ -254,7 +267,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         var viewGeneration = _controller.ViewGeneration;
         var viewRevision = _viewRevision;
         var handoffRevision = ++_handoffRevision;
-        _presentationError = null; _lastActionOpening = true;
+        _presentationError = null; _lastActionOpening = true; _openingCanceled = false;
         try
         {
             await _controller.OpenAsync(row.Hit, file => DispatchOpenAsync(file, open, session.Account,
@@ -289,12 +302,13 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         return completion.Task;
     }
 
-    private Task SubmitQueryAsync() => SearchAsync(QueryBox.Text,
-        ScopeBox.SelectedIndex == 0 ? SearchScope.Current : SearchScope.Recursive);
+    private Task SubmitQueryAsync() => DraftScope is { } scope
+        ? SearchCoreAsync(QueryBox.Text, scope) : Task.CompletedTask;
 
     private void CancelSearch()
     {
         ++_handoffRevision; _presentationError = null; _lastActionOpening = false;
+        _openingCanceled = _controller.IsOpening;
         _controller.Cancel(); QueueRender();
     }
 
@@ -308,15 +322,40 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
     private async void Retry_Click(object sender, RoutedEventArgs args) => await RefreshAsync();
     private void Cancel_Click(object sender, RoutedEventArgs args) => CancelSearch();
     private async void Open_Click(object sender, RoutedEventArgs args) => await OpenSelectedAsync();
-    private void Query_Changed(object sender, TextChangedEventArgs args) { UpdateConfirmedQuery(); UpdateCommands(); }
-    private void UpdateConfirmedQuery()
+    private void Query_Changed(object sender, TextChangedEventArgs args) { UpdateDraftHint(); UpdateCommands(); }
+    private void UpdateSubmittedSummary()
     {
-        if (SearchHeader is null || QueryBox is null) return;
-        var show = _lastQuery is not null && !string.Equals(_lastQuery, QueryBox.Text, StringComparison.Ordinal);
-        SearchHeader.Subtitle = show ? "当前结果：" + _lastQuery : "按名称搜索当前目录及子目录";
-        ToolTipService.SetToolTip(SearchHeader, show ? _lastQuery : null);
+        if (_submittedSearch is { } submitted)
+        {
+            var scope = submitted.Scope switch { SearchScope.Current => "当前目录", SearchScope.Recursive => "含子目录", _ => "范围待确认" };
+            var summary = $"已提交 · {scope} · “{submitted.Query}”";
+            var directory = _directory is { } source ? $"起始目录：{source.DisplayPath}" : "";
+            SearchSubmittedSummary.Text = summary;
+            AutomationProperties.SetHelpText(SearchSubmittedSummary, directory);
+            ToolTipService.SetToolTip(SearchSubmittedSummary, new TextBlock
+            {
+                Text = $"{directory}\n{summary}", MaxWidth = 480, MaxLines = 6,
+                TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            SearchSummaryBar.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            SearchSummaryBar.Visibility = Visibility.Collapsed;
+            SearchSubmittedSummary.Text = "";
+            AutomationProperties.SetHelpText(SearchSubmittedSummary, "");
+            ToolTipService.SetToolTip(SearchSubmittedSummary, null);
+        }
+        UpdateDraftHint();
     }
-    private void Scope_Changed(object sender, SelectionChangedEventArgs args) => UpdateCommands();
+    private void UpdateDraftHint()
+    {
+        if (SearchDraftHint is null || QueryBox is null || ScopeBox is null) return;
+        var changed = _submittedSearch is { } submitted && (!string.Equals(submitted.Query, QueryBox.Text, StringComparison.Ordinal)
+            || DraftScope != submitted.Scope);
+        SearchDraftHint.Visibility = changed ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void Scope_Changed(object sender, SelectionChangedEventArgs args) { UpdateDraftHint(); UpdateCommands(); }
     private void Record_Changed(object sender, SelectionChangedEventArgs args) { if (!_rendering) UpdateCommands(); }
     private async void Query_KeyDown(object sender, KeyRoutedEventArgs args)
     {
