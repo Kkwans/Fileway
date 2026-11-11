@@ -16,9 +16,12 @@ const approvalLifetime = 2 * time.Minute
 // ApprovalStart proves possession of an installation key. It does not grant
 // trust: only an explicit TV decision followed by durable storage can do that.
 type ApprovalStart struct {
-	Controller Controller `json:"controller"`
-	Nonce      string     `json:"nonce"`
-	Signature  string     `json:"signature"`
+	Controller      Controller `json:"controller"`
+	Nonce           string     `json:"nonce"`
+	Signature       string     `json:"signature"`
+	Version         int        `json:"version,omitempty"`
+	InvitationID    string     `json:"invitationId,omitempty"`
+	InvitationProof string     `json:"invitationProof,omitempty"`
 }
 
 type ApprovalAuth struct {
@@ -33,7 +36,7 @@ type ApprovalState struct {
 	DeviceID         string `json:"deviceId"`
 	ControllerID     string `json:"controllerId"`
 	Status           string `json:"status"`
-	VerificationCode string `json:"verificationCode"`
+	VerificationCode string `json:"verificationCode,omitempty"`
 	ExpiresIn        int    `json:"expiresIn"`
 }
 
@@ -43,6 +46,8 @@ type approvalPending struct {
 	nonce      string
 	status     string
 	until      time.Time
+	version    int
+	invitation string
 }
 
 // ApprovalCode is a comparison code, not an authentication secret or a PIN.
@@ -64,13 +69,23 @@ func (h *Host) expireApprovalsLocked(now time.Time) {
 
 func (h *Host) approvalStateLocked(id string, pending *approvalPending) ApprovalState {
 	remaining := max(0, int(time.Until(pending.until).Seconds()))
-	return ApprovalState{id, h.descriptor.DeviceID, pending.controller.ID, pending.status,
-		ApprovalCode(h.descriptor.DeviceID, pending.controller.ID, pending.nonce), remaining}
+	state := ApprovalState{ID: id, DeviceID: h.descriptor.DeviceID, ControllerID: pending.controller.ID,
+		Status: pending.status, ExpiresIn: remaining}
+	if pending.version < 3 {
+		state.VerificationCode = ApprovalCode(h.descriptor.DeviceID, pending.controller.ID, pending.nonce)
+	}
+	return state
 }
 
 func (h *Host) startApproval(w http.ResponseWriter, r *http.Request) {
 	var input ApprovalStart
 	if !readRequest(w, r, &input) {
+		return
+	}
+	fromQR := input.InvitationID != "" || input.InvitationProof != ""
+	if (input.Version != 0 && input.Version != 3) || input.Version > h.descriptor.PairingVersion ||
+		(fromQR && input.Version != 3) {
+		writeError(w, "PAIRING_VERSION_UNSUPPORTED", http.StatusBadRequest)
 		return
 	}
 	key, err := parseController(input.Controller)
@@ -97,6 +112,10 @@ func (h *Host) startApproval(w http.ResponseWriter, r *http.Request) {
 	// another TV prompt or another saved key. Name changes cannot rewrite it.
 	for requestID, pending := range h.approvals {
 		if pending.controller.ID == input.Controller.ID && pending.nonce == input.Nonce {
+			if pending.version != input.Version || pending.invitation != input.InvitationID {
+				writeError(w, "PAIR_REQUEST_CHANGED", http.StatusConflict)
+				return
+			}
 			writeJSON(w, h.approvalStateLocked(requestID, pending))
 			return
 		}
@@ -115,11 +134,22 @@ func (h *Host) startApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, "RATE_LIMITED", http.StatusTooManyRequests)
 		return
 	}
-	pending := &approvalPending{input.Controller, key, input.Nonce, "PENDING", now.Add(approvalLifetime)}
+	if fromQR && (!opaqueID.MatchString(input.InvitationID) || input.InvitationID != h.inviteID ||
+		h.inviteUsed || !now.Before(h.inviteUntil) ||
+		!verifyPairProof(h.inviteSecret, input.InvitationProof, h.descriptor.DeviceID, input.Controller.ID, input.Nonce)) {
+		writeError(w, "INVITATION_EXPIRED", http.StatusUnauthorized)
+		return
+	}
+	pending := &approvalPending{controller: input.Controller, key: key, nonce: input.Nonce,
+		status: "PENDING", until: now.Add(approvalLifetime), version: input.Version, invitation: input.InvitationID}
 	state := h.approvalStateLocked(id, pending)
 	select {
 	case h.events <- Event{Type: "pair.approval", PairRequestID: id, Controller: &input.Controller, Approval: &state}:
 		h.approvals[id] = pending
+		if fromQR {
+			h.inviteUsed = true
+			clear(h.inviteSecret)
+		}
 		h.lastApproval = now
 		writeJSON(w, state)
 	default:

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
@@ -27,12 +28,17 @@ type approvalFixture struct {
 }
 
 func newApprovalFixture(t *testing.T, enabled bool) approvalFixture {
+	return newPairingFixture(t, Config{ApprovalPairing: enabled})
+}
+
+func newPairingFixture(t *testing.T, config Config) approvalFixture {
 	t.Helper()
 	identity, err := GenerateIdentity(time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, err := Start(Config{Identity: identity, Name: "Owned approval TV", ListenAddress: "127.0.0.1", ApprovalPairing: enabled})
+	config.Identity, config.Name, config.ListenAddress = identity, "Owned approval TV", "127.0.0.1"
+	host, err := Start(config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +98,68 @@ func (f approvalFixture) request(t *testing.T) ApprovalStart {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ApprovalStart{f.controller, nonce, base64.RawURLEncoding.EncodeToString(signature)}
+	return ApprovalStart{Controller: f.controller, Nonce: nonce, Signature: base64.RawURLEncoding.EncodeToString(signature)}
+}
+
+func TestVersionThreeDiscoveryAndQRRequireTVApproval(t *testing.T) {
+	for _, path := range []string{"discovery", "qr"} {
+		t.Run(path, func(t *testing.T) {
+			f := newPairingFixture(t, Config{ApprovalPairing: true, QRApproval: true})
+			if f.host.Descriptor().PairingVersion != 3 {
+				t.Fatal("version 3 was not advertised")
+			}
+			request := f.request(t)
+			request.Version = 3
+			if path == "qr" {
+				invite, err := f.host.Invite()
+				if err != nil {
+					t.Fatal(err)
+				}
+				secret, err := base64.RawURLEncoding.DecodeString(invite.Secret)
+				if err != nil {
+					t.Fatal(err)
+				}
+				mac := hmac.New(sha256.New, secret)
+				_, _ = mac.Write(ProofMessage("pair", invite.Descriptor.DeviceID, f.controller.ID, request.Nonce))
+				request.InvitationID = invite.ID
+				if status, result := f.post("/v1/pairing/start", request); status != 401 || result["code"] != "INVITATION_EXPIRED" {
+					t.Fatal("incomplete QR proof was accepted", status, result)
+				}
+				request.InvitationProof = base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+				if status, _ := f.post("/v1/pair", map[string]any{"invitationId": invite.ID, "nonce": request.Nonce,
+					"proof": request.InvitationProof, "controller": f.controller}); status != 409 {
+					t.Fatal("version 3 host accepted the old QR endpoint", status)
+				}
+			}
+			status, result := f.post("/v1/pairing/start", request)
+			if status != 200 || result["status"] != "PENDING" || result["verificationCode"] != nil {
+				t.Fatal("expected pending consent without a comparison code", status, result)
+			}
+			if status, repeated := f.post("/v1/pairing/start", request); status != 200 || repeated["id"] != result["id"] {
+				t.Fatal("lost response did not reconcile the same pending request", status, repeated)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			event, err := f.host.Wait(ctx)
+			if err != nil || event.Type != "pair.approval" || event.PairRequestID != result["id"] || event.Approval.VerificationCode != "" {
+				t.Fatal("missing local consent event", event, err)
+			}
+			controller := map[string]string{"controllerId": f.controller.ID}
+			if status, _ := f.post("/v1/challenge", controller); status != 401 {
+				t.Fatal("the request acquired trust before TV consent", status)
+			}
+			if err := f.host.CompletePair(event.PairRequestID, true); err != nil {
+				t.Fatal(err)
+			}
+			auth := ApprovalAuth{event.PairRequestID, f.controller.ID, request.Nonce, request.Signature}
+			if status, result := f.post("/v1/pairing/status", auth); status != 200 || result["status"] != "PAIRED" {
+				t.Fatal("saved TV consent did not complete pairing", status, result)
+			}
+			if status, _ := f.post("/v1/challenge", controller); status != 200 {
+				t.Fatal("the saved controller cannot connect", status)
+			}
+		})
+	}
 }
 
 func (f approvalFixture) begin(t *testing.T) (ApprovalStart, ApprovalAuth) {

@@ -28,6 +28,7 @@ type Config struct {
 	ListenAddress   string       `json:"listenAddress"`
 	Controllers     []Controller `json:"controllers"`
 	ApprovalPairing bool         `json:"approvalPairing"`
+	QRApproval      bool         `json:"qrApproval"`
 }
 
 // Invitation is private: Android renders it only as a short-lived pairing QR.
@@ -133,6 +134,9 @@ func Start(config Config) (*Host, error) {
 	if config.ApprovalPairing {
 		host.approvals = make(map[string]*approvalPending)
 		host.descriptor.PairingVersion = 2
+		if config.QRApproval {
+			host.descriptor.PairingVersion = 3
+		}
 	}
 	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
 	host.server = &http.Server{Handler: host, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second,
@@ -361,7 +365,11 @@ func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && r.URL.Path == "/v1/identity":
 		writeJSON(w, h.descriptor)
 	case r.Method == http.MethodPost && r.URL.Path == "/v1/pair":
-		h.pair(w, r)
+		if h.descriptor.PairingVersion >= 3 {
+			writeError(w, "TV_APPROVAL_REQUIRED", http.StatusConflict)
+		} else {
+			h.pair(w, r)
+		}
 	case h.approvals != nil && r.Method == http.MethodPost && r.URL.Path == "/v1/pairing/start":
 		h.startApproval(w, r)
 	case h.approvals != nil && r.Method == http.MethodPost && r.URL.Path == "/v1/pairing/status":

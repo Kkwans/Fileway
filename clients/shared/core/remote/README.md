@@ -38,6 +38,16 @@ approval cannot reserve simultaneous controller slots. Pairing never displaces
 an active phone or authorizes a NAS account. Android UI integration/acceptance
 remain separate from this core transport contract.
 
+Hosts that also enable `Config.QRApproval` advertise `pairingVersion: 3`.
+A controller sends `version: 3` to `/v1/pairing/start` to request TV consent
+without a comparison code. Discovery uses the existing signed request; a QR
+request additionally includes `invitationId` and `invitationProof`, using the
+same invitation HMAC as the original `/v1/pair`. The host consumes the QR
+invitation only after queuing the local consent prompt. Both entries wait for
+`CompletePair` after the TV user allows the request. A version 3 host rejects
+the old direct QR endpoint with `TV_APPROVAL_REQUIRED`; version 2 discovery
+requests and existing authenticated controllers retain their protocol.
+
 The host listens on one concrete local interface. There is one active controller,
 at most eight sockets and sixteen paired controllers. Requests reject cross-origin
 browser access, arbitrary hostnames and unexpected query parameters. WebSocket
