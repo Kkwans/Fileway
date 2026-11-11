@@ -12,12 +12,10 @@
 ## Model routing and verification economy
 
 - The main Agent model is controlled by the user; never switch or route it automatically.
-- The user's 2026-11-10 instruction permits subagents when useful. Follow the global
-  model routing: GPT-6.1 Terra/max by default, GPT-6.1 Sol/xhigh for hard problems,
-  and GPT-6 Astra/xhigh for critical decisions or persistent difficult failures when
-  warranted. Do not use Luna models. The main agent plans, integrates and verifies;
-  delegates own explicitly bounded implementation. Do not spawn agents by default
-  when they do not help the task; product quality takes precedence over token savings.
+- Follow the current global subagent routing and Astra's planning/design-only scope.
+  Use subagents when their contribution justifies the coordination cost; do not
+  mandate them or prohibit them without a current user instruction. The main agent
+  plans, integrates and verifies; delegates own explicitly bounded responsibilities.
 - Test by evidence class: focused unit/contract tests for deterministic rules and
   state machines, one complete-module build/lint batch for code integration, and a
   bounded Xiaomi 14 pass for layout, touch, IME, system dialogs, navigation and media
