@@ -298,10 +298,10 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         if (_service is null || status.State == LocalServerState.NotDeployed)
         {
             _credential = null;
-            CredentialStateText.Text = string.Empty;
-            LanEndpointsText.Text = string.Empty;
+            SetDeployNotes(string.Empty, string.Empty);
             return;
         }
+        string credentialText = string.Empty;
         try
         {
             _credential = await _service.ReadCredentialAsync(_lifetime.Token);
@@ -309,29 +309,39 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
             if (status.State == LocalServerState.Running)
             {
                 var state = await _service.CheckCredentialAsync(_lifetime.Token);
-                CredentialStateText.Text = state switch
+                credentialText = state switch
                 {
                     LocalServerCredentialState.Valid => "本机保存的管理员凭据仍可登录。",
                     LocalServerCredentialState.Stale => "服务端已拒绝本机保存的凭据：账号或密码曾在别处修改，请在此更新。",
                     _ => "暂时无法核对凭据（服务端未就绪或结果未知）。",
                 };
                 var lan = await _service.GetLanEndpointsAsync(_lifetime.Token);
-                LanEndpointsText.Text = lan.Count > 0
+                string lanText = lan.Count > 0
                     ? "局域网地址：" + string.Join("  ", lan)
                     : status.Deployment?.Address == "0.0.0.0"
                         ? "局域网访问已开启，但未发现私有网段地址。"
                         : "仅本机访问；如需内网设备连接，请开启局域网访问。";
+                SetDeployNotes(credentialText, lanText);
             }
             else
             {
-                CredentialStateText.Text = string.Empty;
-                LanEndpointsText.Text = string.Empty;
+                SetDeployNotes(string.Empty, string.Empty);
             }
         }
         catch (Exception error) when (error is FilewayException or OperationCanceledException)
         {
             _credential = null;
+            SetDeployNotes(credentialText, string.Empty);
         }
+    }
+
+    private void SetDeployNotes(string credential, string lan)
+    {
+        CredentialStateText.Text = credential;
+        LanEndpointsText.Text = lan;
+        CredentialStateText.Visibility = credential.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        LanEndpointsText.Visibility = lan.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        DeployNotes.Visibility = credential.Length > 0 || lan.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static string TitleFor(LocalServerState state) => state switch

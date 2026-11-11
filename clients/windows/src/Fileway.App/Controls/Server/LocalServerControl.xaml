@@ -135,7 +135,7 @@
      <TextBlock x:Name="DeployHint" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" VerticalAlignment="Center" Text="随机密码满足服务端最小长度要求，只以当前 Windows 用户加密保存在本机，可在“启动与账号”里查看；连接后可用“修改密码”更换。"/>
      <Button x:Name="DeployButton" Grid.Column="1" Content="部署并启动" Click="Deploy_Click" Style="{StaticResource FwPrimaryButtonStyle}" VerticalAlignment="Center" HorizontalAlignment="Right" AutomationProperties.Name="部署并启动本地服务端"/>
     </Grid>
-    <StackPanel Spacing="4">
+    <StackPanel x:Name="DeployNotes" Spacing="4" Visibility="Collapsed">
      <TextBlock x:Name="CredentialStateText" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" AutomationProperties.AutomationId="CredentialStateText"/>
      <TextBlock x:Name="LanEndpointsText" Style="{StaticResource FwCodeCaptionTextStyle}" TextWrapping="Wrap" AutomationProperties.AutomationId="LanEndpointsText"/>
     </StackPanel>
