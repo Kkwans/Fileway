@@ -474,8 +474,9 @@ class TvNavigationFailureTest {
             .put("id", name).put("path", path).put("wirePath", path).put("name", name)
             .put("isDir", directory).put("accessedAt", accessedAt)
         val now = System.currentTimeMillis()
+        val posterName = "收藏海报-" + "a".repeat(125) + "🌿.jpg"
         fixture.setRecent(JSONArray().put(recent("/movie.MKV", "movie.MKV", false, now))
-            .put(recent("/A", "Folder A", true, now - 1_000)).put(recent("/poster.jpg", "poster.jpg", false, now - 2_000)))
+            .put(recent("/A", "Folder A", true, now - 1_000)).put(recent("/poster.jpg", posterName, false, now - 2_000)))
         val profile = ServerProfile(id = "tv-recent-test-${UUID.randomUUID()}", name = "TV recent fixture", address = fixture.url)
         var scenario: ActivityScenario<TvActivity>? = null
         var model: TvModel? = null
@@ -490,7 +491,7 @@ class TvNavigationFailureTest {
             activity.onActivity { tv.login(fixture.url, "nav-fixture", "fixture-only", profile) }
             waitFor("fixture login") { tv.state.value.connected && !tv.state.value.busy }
             waitFor("recent access loaded") { tv.recentAccess.state.value.items.size == 3 && !tv.recentAccess.state.value.loading }
-            assertEquals(listOf("Folder A", "poster.jpg"), tvRecentAccessResources(tv.recentAccess.state.value.items).map { it.name })
+            assertEquals(listOf("Folder A", posterName), tvRecentAccessResources(tv.recentAccess.state.value.items).map { it.name })
             waitFor("recent access shelf") { focusTargets(tvWindowRoot(), "最近访问").isNotEmpty() }
             assertTrue("videos are not shown in recent access", focusTargets(tvWindowRoot(), "movie.MKV").isEmpty())
             assertTrue("home has no detached details button", focusTargets(tvWindowRoot(), "详情").isEmpty())
@@ -508,6 +509,16 @@ class TvNavigationFailureTest {
             val remoteFiles = tv.remoteGateway.snapshot().getJSONObject("content").getJSONArray("files")
             assertEquals(2, remoteFiles.length())
             assertFalse((0 until remoteFiles.length()).any { remoteFiles.getJSONObject(it).getString("name") == "movie.MKV" })
+            val preview = remoteFiles.getJSONObject(1)
+            assertEquals(posterName, preview.getString("name"))
+            activity.onActivity {
+                val next = runBlocking {
+                    tv.remoteGateway.execute(JSONObject().put("operation", "app.list").put("sessionEpoch", tv.sessionEpoch)
+                        .put("payload", JSONObject().put("offset", 1).put("count", 1)))
+                }.getJSONArray("files").getJSONObject(0)
+                assertEquals(posterName, next.getString("name"))
+                assertEquals(preview.getString("id"), next.getString("id"))
+            }
             assertTrue(device.pressBack())
             waitFor("records return home") { tv.state.value.route == TvRoute.HOME }
             openRecentAccess()
@@ -522,7 +533,7 @@ class TvNavigationFailureTest {
                 KeyEvent(movedDown, movedDown, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER, 0), true))
             assertTrue(device.pressDPadRight())
             waitFor("second file focused while OK is held") {
-                focusTargets(tvWindowRoot(), "poster.jpg").any { it.isClickable && it.isFocused }
+                focusTargets(tvWindowRoot(), posterName).any { it.isClickable && it.isFocused }
             }
             assertTrue(instrumentation.uiAutomation.injectInputEvent(
                 KeyEvent(movedDown, SystemClock.uptimeMillis(), KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_CENTER, 0), true))
