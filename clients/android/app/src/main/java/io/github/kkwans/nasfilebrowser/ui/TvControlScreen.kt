@@ -25,7 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
@@ -74,7 +73,13 @@ import kotlin.math.roundToInt
     var section by remember(connection.device?.id){mutableStateOf(if(connection.snapshot?.scene in setOf("VIDEO","AUDIO","IMAGE"))"播放"else"遥控")}
     var selectedTab by remember(connection.device?.id){mutableStateOf(false)}
     val sectionScroll=remember(connection.device?.id){List(sections.size){LazyListState()}}
-    LaunchedEffect(connection.snapshot?.scene){if(!selectedTab&&connection.snapshot?.scene in setOf("VIDEO","AUDIO","IMAGE"))section="播放"}
+    LaunchedEffect(connection.snapshot?.scene) {
+        when (connection.snapshot?.scene) {
+            "LOGIN" -> { section = "遥控"; selectedTab = false }
+            "VIDEO", "AUDIO", "IMAGE" -> if (!selectedTab) section = "播放"
+            else -> Unit
+        }
+    }
     var devicesOpen by remember{mutableStateOf(false)}
     var connectionNotice by remember{mutableStateOf<String?>(null)}
     LaunchedEffect(connection.phase,connection.error){
@@ -114,9 +119,11 @@ import kotlin.math.roundToInt
                     if(connection.phase==RemotePhase.CONNECTED&&snapshot!=null){
                         val pager=rememberFilewayPager(sections.indexOf(section).coerceAtLeast(0),sections.size){index->section=sections[index];selectedTab=true}
                         FilewayPagerTabs(pager,sections)
-                        HorizontalPager(state=pager,modifier=Modifier.fillMaxWidth().weight(1f)){page->
+                        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                        val compactHeight = maxHeight < 360.dp
+                        HorizontalPager(state=pager,modifier=Modifier.fillMaxSize()){page->
                             val currentSection=sections[page]
-                            val compactRemote=currentSection=="遥控"&&LocalConfiguration.current.screenHeightDp<540
+                            val compactRemote=currentSection=="遥控"&&compactHeight
                             LazyColumn(Modifier.fillMaxSize(),state=sectionScroll[page],contentPadding=PaddingValues(horizontal=16.dp,vertical=if(compactRemote)8.dp else 12.dp),verticalArrangement=Arrangement.spacedBy(if(compactRemote)8.dp else 12.dp)){
                             when(currentSection){
                                 "遥控"->{
@@ -125,12 +132,13 @@ import kotlin.math.roundToInt
                                     val playing=snapshot.content.optJSONObject("playback")?.opt("playing") as? Boolean
                                     val hasQuickPlayback=snapshot.scene in setOf("VIDEO","AUDIO")&&mediaName!=null&&playing!=null
                                     item{BoxWithConstraints(Modifier.fillMaxWidth()){
-                                        // On a short login screen keep all five D-pad targets visible;
-                                        // the right column can wrap and the surrounding list can scroll.
-                                        if(compactRemote&&maxWidth>=336.dp&&(showLogin||LocalDensity.current.fontScale<=1.3f)){
+                                        val labelSize = MaterialTheme.typography.labelLarge.fontSize
+                                        val actionWidth = with(LocalDensity.current) { labelSize.toDp() * 2 + 16.dp }.coerceAtLeast(48.dp)
+                                        val splitWidth = 144.dp + 8.dp + actionWidth * 3 + 16.dp
+                                        if(compactRemote&&maxWidth>=splitWidth){
                                             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp),
                                                 verticalAlignment=if(showLogin)Alignment.Top else Alignment.CenterVertically){
-                                                TvPhoneDpad(model,Modifier.width(144.dp),forceCompact=showLogin,
+                                                TvPhoneDpad(model,Modifier.width(144.dp),compact=true,
                                                     detailsKey=snapshot.scene=="BROWSE"&&snapshot.capabilities.optInt("fileDetailsKey",0)>0)
                                                 Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(8.dp)){
                                                     if(showLogin)TvPhoneLoginAction(phone,model,busy)
@@ -148,7 +156,8 @@ import kotlin.math.roundToInt
                                                     TvPhoneQuickPlayback(model,snapshot,requireNotNull(mediaName),requireNotNull(playing),{section="播放";selectedTab=true})
                                                     Spacer(Modifier.height(8.dp))
                                                 }
-                                                TvPhoneDpad(model,detailsKey=snapshot.scene=="BROWSE"&&snapshot.capabilities.optInt("fileDetailsKey",0)>0)
+                                                TvPhoneDpad(model,compact=compactRemote,
+                                                    detailsKey=snapshot.scene=="BROWSE"&&snapshot.capabilities.optInt("fileDetailsKey",0)>0)
                                                 Spacer(Modifier.height(8.dp))
                                                 TvPhoneRemoteActions(model){inputOpen=true}
                                             }
@@ -227,6 +236,7 @@ import kotlin.math.roundToInt
                             }
                             snapshot.content.optString("error").takeIf{it!="null"&&it.isNotBlank()}?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}}
                             }
+                        }
                         }
                     }else{
                         LazyColumn(Modifier.fillMaxWidth().weight(1f),contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
@@ -417,8 +427,7 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
     }
 }
 
-@Composable private fun TvPhoneDpad(model:TvControlModel,modifier:Modifier=Modifier,forceCompact:Boolean=false,detailsKey:Boolean=false){
-    val compact=LocalConfiguration.current.screenHeightDp<540&&(forceCompact||LocalDensity.current.fontScale<=1.3f)
+@Composable private fun TvPhoneDpad(model:TvControlModel,modifier:Modifier=Modifier,compact:Boolean=false,detailsKey:Boolean=false){
     val side=if(compact)48.dp else 72.dp
     Box(modifier.fillMaxWidth().padding(vertical=if(compact)0.dp else 8.dp),contentAlignment=Alignment.Center){
         Surface(Modifier.size(side*3),shape=CircleShape,color=MaterialTheme.colorScheme.surface){

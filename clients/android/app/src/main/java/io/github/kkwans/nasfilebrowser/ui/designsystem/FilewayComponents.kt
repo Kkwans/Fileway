@@ -66,7 +66,7 @@ fun FilewayTopAppBar(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
-        Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).height(FilewaySpace.appBar)
+        Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).heightIn(min = FilewaySpace.appBar)
             .background(MaterialTheme.colorScheme.background)
             .padding(horizontal = FilewaySpace.tiny),
         verticalAlignment = Alignment.CenterVertically,
@@ -75,7 +75,7 @@ fun FilewayTopAppBar(
             FilewayIcon(leadingIcon, leadingDescription, Modifier.size(24.dp),
                 tint = MaterialTheme.colorScheme.onBackground)
         }
-        Column(Modifier.weight(1f).padding(horizontal = FilewaySpace.tiny)) {
+        Column(Modifier.weight(1f).padding(FilewaySpace.tiny)) {
             Text(
                 title,
                 modifier = Modifier.semantics { heading() },
