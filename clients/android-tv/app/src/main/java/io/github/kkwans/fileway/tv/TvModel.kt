@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import coil3.ImageLoader
 import coil3.memory.MemoryCache
 import io.github.kkwans.nasfilebrowser.app.*
+import io.github.kkwans.nasfilebrowser.core.TransportException
 import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -120,12 +121,14 @@ class TvModel(application: Application) : AndroidViewModel(application) {
                     if(generation!=expected)return@launch
                     mutable.update{it.copy(savedLogin=true,profile=profile)}
                     require(profile.network == ConnectionMode.DIRECT) { "TV 只支持直接连接" }
-                    val device = DeviceAuthorization(getApplication()).refresh(profile,account.userId)
-                    val restored = if(device==null) restoreSavedSession(store, profile, account) else {
+                    val authorizer = DeviceAuthorization(getApplication())
+                    // Refresh persists its request nonce, so a retry can recover an interrupted response.
+                    val device = retrySavedLogin { authorizer.refresh(profile, account.userId) }
+                    val restored = if(device==null) retrySavedLogin { restoreSavedSession(store, profile, account) } else {
                         val token=device.getString("token")
                         check(store.refreshToken(profile,account,token)){"设备登录来源已变化"}
                         val session=NasSession.restore(profile,token,account.userId)
-                        try { SavedSession(session,session.request("GET","/api/resources/")) }
+                        try { SavedSession(session, retrySavedLogin { session.request("GET", "/api/resources/") }) }
                         catch(error:Exception){withContext(NonCancellable){session.close()};throw error}
                     }
                     candidate=restored.api
@@ -134,12 +137,34 @@ class TvModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
-                if(generation==expected)mutable.update { it.copy(error = error.message?:"服务器暂时无法连接") }
+                if (generation == expected) mutable.update {
+                    it.copy(error = if (isTemporaryRestoreFailure(error)) "暂时无法连接已保存的服务器，请重试"
+                        else error.message ?: "服务器暂时无法连接")
+                }
             } finally {
                 withContext(NonCancellable){candidate?.close()}
                 if(generation==expected)mutable.update { it.copy(restoring = false) }
             }
         }
+    }
+
+    private suspend fun <T> retrySavedLogin(operation: suspend () -> T): T {
+        var attempts = 0
+        while (true) {
+            try {
+                return operation()
+            } catch (failure: Exception) {
+                if (!isTemporaryRestoreFailure(failure) || attempts == 2 || !inForeground) throw failure
+                delay(if (attempts++ == 0) 750L else 2_000L)
+                if (!inForeground) throw failure
+            }
+        }
+    }
+
+    private fun isTemporaryRestoreFailure(failure: Exception): Boolean = when (failure) {
+        is ServiceException -> failure.status in 502..504
+        is TransportException -> failure.message == "cannot connect to service"
+        else -> false
     }
 
     fun login(address: String, username: String, password: String, profile: ServerProfile? = null) {

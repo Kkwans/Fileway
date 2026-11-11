@@ -456,6 +456,65 @@ class TvNavigationFailureTest {
         }
     }
 
+    @Test fun savedLoginRecoversAfterTransientReadFailures() {
+        val app = instrumentation.targetContext
+        val store = ProfileStore(TvDatabase.get(app), CredentialVault(app))
+        runBlocking {
+            check(store.profiles.first().isEmpty() && store.active() == null) { "Use an isolated TV installation" }
+        }
+        val fixture = Fixture("A")
+        val profile = ServerProfile(id = "tv-restore-test-${UUID.randomUUID()}", name = "TV restore fixture", address = fixture.url)
+        var scenario: ActivityScenario<TvActivity>? = null
+        lateinit var model: TvModel
+        try {
+            val initial = ActivityScenario.launch(TvActivity::class.java)
+            scenario = initial
+            initial.onActivity { model = ViewModelProvider(it)[TvModel::class.java] }
+            waitFor("initial restore") { !model.state.value.restoring }
+            initial.onActivity { model.login(fixture.url, "nav-fixture", "fixture-only", profile) }
+            waitFor("fixture login") { model.state.value.connected && !model.state.value.busy }
+            val savedAccount = runBlocking { requireNotNull(store.active()).second }
+            val requests = fixture.count("/")
+            initial.close()
+            scenario = null
+
+            fixture.dropNext("/")
+            fixture.failNext("/")
+            val reopened = ActivityScenario.launch(TvActivity::class.java)
+            scenario = reopened
+            reopened.onActivity { model = ViewModelProvider(it)[TvModel::class.java] }
+            waitFor("reopened login result") { !model.state.value.restoring }
+            assertTrue("Transient connection and 503 failures must not strand a saved TV login", model.state.value.connected)
+            assertEquals(requests + 3, fixture.count("/"))
+            assertEquals(1, fixture.loginRequests.get())
+            assertEquals(savedAccount.key, model.context?.account?.key)
+            assertEquals(TvRoute.HOME, model.state.value.route)
+            assertNull(model.state.value.error)
+
+            reopened.close()
+            scenario = null
+            val beforeOutage = fixture.count("/")
+            repeat(3) { fixture.failNext("/") }
+            val unavailable = ActivityScenario.launch(TvActivity::class.java)
+            scenario = unavailable
+            unavailable.onActivity { model = ViewModelProvider(it)[TvModel::class.java] }
+            waitFor("retry budget exhausted") { !model.state.value.restoring }
+            assertFalse(model.state.value.connected)
+            assertTrue(model.state.value.savedLogin)
+            assertEquals(beforeOutage + 3, fixture.count("/"))
+
+            unavailable.onActivity { model.reconnect() }
+            waitFor("manual reconnect after service recovery") { model.state.value.connected && !model.state.value.restoring }
+            assertEquals(savedAccount.key, model.context?.account?.key)
+            assertEquals(beforeOutage + 4, fixture.count("/"))
+            assertEquals(1, fixture.loginRequests.get())
+        } finally {
+            scenario?.close()
+            runBlocking { store.remove(profile) }
+            fixture.close()
+        }
+    }
+
     @Test fun recentAccessAndFileDetailsWorkWithRemoteAndTouch() {
         val app = instrumentation.targetContext
         val db = TvDatabase.get(app)
@@ -762,6 +821,7 @@ class TvNavigationFailureTest {
         private val server = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
         private val sockets = ConcurrentHashMap.newKeySet<Socket>()
         private val failures = ConcurrentHashMap<String, AtomicInteger>()
+        private val drops = ConcurrentHashMap.newKeySet<String>()
         private val counts = ConcurrentHashMap<String, AtomicInteger>()
         private val gates = ConcurrentHashMap<String, Gate>()
         private val searchGate = AtomicReference<Gate?>()
@@ -769,6 +829,7 @@ class TvNavigationFailureTest {
         private val recentResponse = AtomicReference("[]")
         private val allGates = ConcurrentHashMap.newKeySet<Gate>()
         val searches = AtomicInteger()
+        val loginRequests = AtomicInteger()
         val url = "http://127.0.0.1:${server.localPort}"
         private val payload = JSONObject().put("user", JSONObject().put("id", if (source == "A") 91 else 92).put("username", "nav-fixture"))
         private val token = "header." + Base64.encodeToString(payload.toString().toByteArray(), Base64.URL_SAFE or Base64.NO_WRAP or Base64.NO_PADDING) + ".signature"
@@ -781,6 +842,7 @@ class TvNavigationFailureTest {
         }, "tv-nav-fixture").apply { isDaemon = true; start() }
 
         fun failNext(path: String) { failures.computeIfAbsent(path) { AtomicInteger() }.incrementAndGet() }
+        fun dropNext(path: String) { check(drops.add(path)) }
         fun count(path: String) = counts[path]?.get() ?: 0
         fun holdNext(path: String): Gate = Gate().also { check(gates.putIfAbsent(path, it) == null); allGates.add(it) }
         fun holdNextSearch(): Gate = Gate().also { check(searchGate.compareAndSet(null, it)); allGates.add(it) }
@@ -802,11 +864,12 @@ class TvNavigationFailureTest {
             var read = 0
             while (read < body.size) { val n = input.read(body, read, body.size - read); if (n < 0) return; read += n }
             val endpoint = request[1].substringBefore('?')
-            if (endpoint == "/api/login") { reply(socket, 200, token, "text/plain"); return }
+            if (endpoint == "/api/login") { loginRequests.incrementAndGet(); reply(socket, 200, token, "text/plain"); return }
             check(headers["x-auth"] == token)
             if (endpoint.startsWith("/api/resources/")) {
                 val path = endpoint.removePrefix("/api/resources")
                 counts.computeIfAbsent(path) { AtomicInteger() }.incrementAndGet()
+                if (drops.remove(path)) return
                 val gate = gates.remove(path)
                 try {
                     gate?.started?.countDown()
