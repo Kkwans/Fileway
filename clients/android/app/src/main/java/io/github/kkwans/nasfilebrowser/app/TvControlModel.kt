@@ -62,16 +62,27 @@ class TvControlModel(application:Application):AndroidViewModel(application){
         visible=true
         scheduleReconnect()
         scan=viewModelScope.launch{
-            val attempted=mutableSetOf<String>()
+            val remembered = client.store.dao.devices().first().firstOrNull { it.trusted }?.descriptor()
+            var attempted = false
+            fun restore(target: TvDescriptor) {
+                val expected = synchronized(selectionLock) {
+                    revision.takeIf { visible && automatic && selected == null && connection.value.phase == RemotePhase.OFFLINE }
+                }
+                if (expected != null && !attempted) {
+                    attempted = true
+                    connect(target, true, expected)
+                }
+            }
+            if (remembered != null) launch {
+                // Give discovery a brief chance to refresh an address or port.
+                delay(1_500)
+                restore(remembered)
+            }
             TvServiceDiscovery(getApplication()).scan().collect{result->
                 discoveryMutable.value=result
-                val expected=synchronized(selectionLock){
-                    revision.takeIf{automatic&&selected==null&&connection.value.phase==RemotePhase.OFFLINE}
-                }
-                if(expected!=null){
-                    val known=result.devices.mapNotNull{found->client.store.dao.device(found.id)?.takeIf{it.trusted&&it.fingerprint==found.fingerprint}?.descriptor()?.at(found.address,found.port)}
-                    if(known.size==1&&attempted.add(known.single().id))connect(known.single(),true,expected)
-                }
+                if (remembered != null) result.devices.firstOrNull {
+                    it.id == remembered.id && it.fingerprint == remembered.fingerprint
+                }?.let { restore(remembered.at(it.address, it.port)) }
             }
         }
     }

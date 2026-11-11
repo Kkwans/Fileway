@@ -38,13 +38,13 @@ class TvPairApprovalUiTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val args = InstrumentationRegistry.getArguments()
         val mode = args.getString("filewayLocalConsentMode")
-        assumeTrue("Local two-emulator consent opt-in required", mode in setOf("discovery", "qr"))
+        assumeTrue("Local two-emulator consent opt-in required", mode in setOf("discovery", "qr", "resume"))
         require(Build.VERSION.SDK_INT == 35 && Build.HARDWARE.contains("ranchu"))
         val address = requireNotNull(args.getString("filewayLocalConsentTvAddress"))
         val name = requireNotNull(args.getString("filewayLocalConsentTvName"))
         val relay = args.getString("filewayLocalConsentRelay")
         require(localAddress(address) != null)
-        require(relay == null || (mode == "qr" && relay == "10.0.2.2"))
+        require(relay == null || (mode in setOf("qr", "resume") && relay == "10.0.2.2"))
         val files = requireNotNull(instrumentation.targetContext.getExternalFilesDir(null))
         val evidence = File(files, "fileway-local-consent-$mode.json")
         check(evidence.createNewFile()) { "A fresh task-owned run is required" }
@@ -65,8 +65,23 @@ class TvPairApprovalUiTest {
                 phone = models[ClientModel::class.java]
                 initialized = true
             }
-            require(control.client.store.dao.devices().first().none { it.trusted }) { "Use an unpaired test phone" }
+            val saved = control.client.store.dao.devices().first().filter { it.trusted }
+            val preferred = if (mode == "resume") {
+                requireNotNull(saved.firstOrNull()).also { require(it.name == name && it.address == (relay ?: address)) }
+            } else {
+                require(saved.isEmpty()) { "Use an unpaired test phone" }
+                null
+            }
             scenario.onActivity { it.setContent { ClientTheme { TvControlScreen(phone, {}, control) } } }
+            if (preferred != null) {
+                val restored = withTimeout(25_000) { control.connection.first { it.phase == RemotePhase.CONNECTED && it.snapshot != null } }
+                assertEquals(preferred.id, restored.device?.id)
+                scenario.onActivity { control.disconnect(); control.search() }
+                val unsolicited = withTimeoutOrNull(3_500) { control.connection.first { it.phase != RemotePhase.OFFLINE } }
+                assertNull("Explicit disconnect must prevent another automatic connection", unsolicited)
+                record("PASS")
+                return@runBlocking
+            }
             val target = if (mode == "discovery") {
                 val seen = withTimeout(30_000) {
                     control.discovery.first { result -> result.devices.any { it.address == address && it.name == name } }
