@@ -5,8 +5,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -208,14 +210,15 @@ internal data class PlayerSubtitleAction(val icon: Int, val title: String, val c
 @Composable
 internal fun PlayerSubtitleActions(actions: List<PlayerSubtitleAction>, mediaSurface: Boolean = true) {
     val content = if (mediaSurface) FilewayTheme.status.mediaContent else MaterialTheme.colorScheme.onSurface
-    Row(Modifier.fillMaxWidth().padding(horizontal = if (mediaSurface) 12.dp else 0.dp, vertical = 8.dp),
+    Row(Modifier.fillMaxWidth().padding(horizontal = if (mediaSurface) 12.dp else 0.dp, vertical = 8.dp)
+        .height(IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         actions.forEach { (icon, title, click, enabled) ->
-            Column(Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+            Column(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(12.dp))
                 .background(filewayGlassLayerColor()).then(Modifier.filewayGlassFrame())
                 .clickable(enabled = enabled, role = Role.Button, onClick = click)
                 .heightIn(min = 64.dp).padding(horizontal = 4.dp, vertical = 8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically)) {
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 val tint = content.copy(alpha = if (enabled) 1f else .38f)
                 FilewayIcon(icon, null, Modifier.size(22.dp), tint = tint)
                 Text(title, color = tint, fontSize = 12.sp, lineHeight = 18.sp, textAlign = TextAlign.Center)

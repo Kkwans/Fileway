@@ -440,14 +440,14 @@ class TvRemoteUiVisualTest {
             stage = "portrait-subtitle-options"
             tap("字幕")
             await("字幕调整")
-            await("TV 当前服务器")
-            await("TV 本机字幕")
+            await("服务器字幕")
+            await("本机字幕")
             capture("portrait-subtitle-options.png")
             tap("字幕调整")
             await("字号")
             capture("portrait-subtitle-appearance.png")
             assertTrue(device.pressBack())
-            await("TV 当前服务器")
+            await("服务器字幕")
             assertTrue(device.pressBack())
             await("TV 播放进度", description = true)
             checks += "subtitle source entries and appearance sheet are visible without a TV transport"

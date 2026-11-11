@@ -1,5 +1,6 @@
 package io.github.kkwans.nasfilebrowser
 
+import android.graphics.Rect
 import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
@@ -58,6 +59,7 @@ class TvRemoteAccountSubtitleTest {
         var stage = "phone startup"
         var ownedPlayback = false
         var ownedLogin = false
+        var pickerWindow: Rect? = null
         fun report(result: String) = status.writeText(JSONObject().put("status", result).put("stage", stage).toString())
         suspend fun login(user: String, secret: String) {
             scenario.onActivity { phone.connect(url, user, secret) }
@@ -74,22 +76,48 @@ class TvRemoteAccountSubtitleTest {
             val rows = snapshot.content.getJSONArray("files")
             return (0 until rows.length()).map(rows::getJSONObject).single { it.getString("name") == title }
         }
-        suspend fun click(label: String, description: Boolean = false) {
-            fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-                if (node == null) return null
-                val name = if (description) node.contentDescription else node.text
-                if (node.packageName?.toString() == instrumentation.targetContext.packageName &&
-                    node.isVisibleToUser && name?.toString() == label) {
-                    return generateSequence(node) { it.parent }.firstOrNull { it.isClickable && it.isEnabled }
-                }
-                for (index in 0 until node.childCount) find(node.getChild(index))?.let { return it }
-                return null
+        fun findAction(node: AccessibilityNodeInfo?, label: String, description: Boolean): AccessibilityNodeInfo? {
+            if (node == null) return null
+            val name = if (description) node.contentDescription else node.text
+            if (node.packageName?.toString() == instrumentation.targetContext.packageName &&
+                node.isVisibleToUser && name?.toString() == label) {
+                return generateSequence(node) { it.parent }.firstOrNull { it.isClickable && it.isEnabled }
             }
+            for (index in 0 until node.childCount) findAction(node.getChild(index), label, description)?.let { return it }
+            return null
+        }
+        fun roots(): List<AccessibilityNodeInfo> {
+            instrumentation.uiAutomation.clearCache()
+            return instrumentation.uiAutomation.windows.mapNotNull { it.root }
+        }
+        fun actionNode(label: String, description: Boolean = false): AccessibilityNodeInfo? =
+            roots().firstNotNullOfOrNull { findAction(it, label, description) }
+        fun scrollForward(node: AccessibilityNodeInfo?): Boolean {
+            if (node == null || !node.isVisibleToUser) return false
+            if (node.isScrollable && node.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)) return true
+            return (0 until node.childCount).any { scrollForward(node.getChild(it)) }
+        }
+        suspend fun click(label: String, description: Boolean = false, touch: Boolean = false) {
+            var previousBounds: Rect? = null
+            var stableSamples = 0
             withTimeout(12_000) {
                 while (true) {
-                    instrumentation.uiAutomation.clearCache()
-                    val target = instrumentation.uiAutomation.windows.firstNotNullOfOrNull { find(it.root) }
-                    if (target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) break
+                    val target = actionNode(label, description)
+                    if (touch) {
+                        val bounds = target?.let { Rect().also(it::getBoundsInScreen) }
+                        stableSamples = if (bounds != null && !bounds.isEmpty && bounds == previousBounds) stableSamples + 1 else 0
+                        previousBounds = bounds
+                        if (target != null && bounds != null && stableSamples >= 3) {
+                            val window = Rect().also { requireNotNull(target.window).getBoundsInScreen(it) }
+                            pickerWindow = window
+                            File(directory, "fileway-tv-account-subtitle-$runId-touch.json").writeText(JSONObject()
+                                .put("screenBounds", bounds.toShortString()).put("windowBounds", window.toShortString())
+                                .put("tapX", bounds.centerX()).put("tapY", bounds.centerY()).toString())
+                            device.takeScreenshot(File(directory, "fileway-tv-account-subtitle-$runId-before-touch.png"))
+                            assertTrue(device.click(bounds.centerX(), bounds.centerY()))
+                            break
+                        }
+                    } else if (target?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true) break
                     delay(100)
                 }
             }
@@ -138,11 +166,40 @@ class TvRemoteAccountSubtitleTest {
             withTimeout(20_000) { while (!screenshotReady.exists()) delay(100) }
 
             stage = "phone subtitle picker"
+            withTimeout(12_000) { while (actionNode("字幕") == null) delay(100) }
+            device.takeScreenshot(File(directory, "fileway-tv-account-subtitle-$runId-playback.png"))
             click("字幕")
-            click("TV 当前服务器")
+            stage = "subtitle actions align"
+            withTimeout(12_000) {
+                while (true) {
+                    val windows = roots()
+                    val bounds = listOf("字幕调整", "服务器字幕", "本机字幕").mapNotNull { label ->
+                        windows.firstNotNullOfOrNull { findAction(it, label, false) }?.let { Rect().also(it::getBoundsInScreen) }
+                    }
+                    if (bounds.size == 3 && bounds.none { it.isEmpty } &&
+                        bounds.maxOf { it.top } - bounds.minOf { it.top } <= 1 &&
+                        bounds.maxOf { it.bottom } - bounds.minOf { it.bottom } <= 1) break
+                    delay(100)
+                }
+            }
+            device.takeScreenshot(File(directory, "fileway-tv-account-subtitle-$runId-actions.png"))
+            click("服务器字幕")
             stage = "leave the video directory in the TV subtitle picker"
-            click("进入目录：根目录", description = true)
+            click("进入目录：根目录", description = true, touch = true)
             stage = "choose subtitle from the separate TV directory"
+            val rootDescription = "当前目录：根目录，展开完整路径"
+            val rootWindow = withTimeout(12_000) {
+                var window = actionNode(rootDescription, description = true)?.window
+                while (window == null) { delay(100); window = actionNode(rootDescription, description = true)?.window }
+                Rect().also(window::getBoundsInScreen)
+            }
+            assertEquals("Subtitle window keeps its position across directory results", pickerWindow, rootWindow)
+            withTimeout(12_000) {
+                while (actionNode("Owned Captions") == null) {
+                    scrollForward(actionNode(rootDescription, description = true)?.window?.root)
+                    delay(300)
+                }
+            }
             click("Owned Captions")
             click("Owned remote caption.srt")
             val selected = remote { it.mediaEpoch == before.mediaEpoch && it.playback().let { p ->

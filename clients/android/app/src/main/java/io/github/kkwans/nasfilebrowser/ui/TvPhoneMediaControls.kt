@@ -17,6 +17,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MimeTypes
@@ -43,7 +45,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
 }
 
 /** The same phone components and source-fenced actions across video, music and images. */
-@Composable internal fun TvPhoneMediaControls(model:TvControlModel,snapshot:RemoteSnapshot,onBrowse:()->Unit) {
+@Composable internal fun TvPhoneMediaControls(model: TvControlModel, snapshot: RemoteSnapshot, compact: Boolean = false, onBrowse: () -> Unit) {
     val owner="${snapshot.connectionId}/${snapshot.sessionEpoch}/${snapshot.mediaEpoch}"
     var panel by remember(owner){mutableStateOf<RemoteMediaPanel?>(null)}
     val player=snapshot.content.optJSONObject("playback")?:JSONObject()
@@ -56,18 +58,21 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
             FilewayOutlinedButton(onClick=onBrowse){Text("浏览 TV 文件")}
         };return
     }
-    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+    val compactTransport = compact && snapshot.scene != "IMAGE"
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (compactTransport) 6.dp else 12.dp)) {
         val mediaName=snapshot.content.optJSONObject("media")?.optString("name")?.takeIf{it.isNotBlank()&&it!="null"}?:"TV 媒体"
         val mediaLabel=when(snapshot.scene){"VIDEO"->"视频";"AUDIO"->"音乐";else->"图片"}
         val mediaIcon=when(snapshot.scene){"VIDEO"->Art.drawable.fileway_ic_video;"AUDIO"->Art.drawable.fileway_ic_audio;else->Art.drawable.fileway_ic_image}
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
-            Surface(Modifier.size(48.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface){
+            Surface(Modifier.size(if (compactTransport) 40.dp else 48.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface){
                 Box(contentAlignment=Alignment.Center){FilewayIcon(mediaIcon,null,Modifier.size(24.dp),tint=MaterialTheme.colorScheme.primary)}
             }
             Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
-                Text(mediaName,style=MaterialTheme.typography.titleMedium)
-                Text(mediaLabel,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(mediaName, style = MaterialTheme.typography.titleMedium,
+                    maxLines = if (compactTransport) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
+                if (!compactTransport) Text(mediaLabel,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            if (compactTransport) Box(Modifier.widthIn(max = 176.dp)) { RemotePlaybackStatus(player, maxLines = 2) }
         }
         if(snapshot.scene=="IMAGE") {
             val image=snapshot.content.optJSONObject("image")?:JSONObject()
@@ -106,24 +111,36 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
             }
             LaunchedEffect(requested){if(requested!=null){delay(125000);requested=null}}
             val shown=preview?:requested?.toFloat()?:position.toFloat()
-            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically){
+            val timeline: @Composable (Modifier) -> Unit = { modifier ->
+                PlayerSlider(if (knownDuration > 0) shown else 0f, duration.toFloat(), "TV 播放进度",
+                    player.optBoolean("seekable") && knownDuration > 0, { preview = it },
+                    finish = {
+                        preview?.let { requested = it.toLong(); send("playback.seekTo", JSONObject().put("positionMs", it.toLong())) }
+                        preview = null
+                    }, modifier = modifier,
+                    bufferedValue = if (knownDuration > 0) player.optLong("bufferedMs").toFloat().coerceIn(0f, duration.toFloat()) else null,
+                    mediaSurface = false, description = "${tvRemoteTime(shown.toLong())} / ${if (knownDuration > 0) tvRemoteTime(duration) else "时长未知"}")
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(tvRemoteTime(shown.toLong()),style=MaterialTheme.typography.bodyMedium)
-                Box(Modifier.weight(1f).padding(horizontal=8.dp),contentAlignment=Alignment.Center){RemotePlaybackStatus(player)}
+                if (compactTransport) timeline(Modifier.weight(1f))
+                else Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { RemotePlaybackStatus(player) }
                 Text(if(knownDuration>0)tvRemoteTime(duration)else"--:--",style=MaterialTheme.typography.bodyMedium)
             }
-            PlayerSlider(if(knownDuration>0)shown else 0f,duration.toFloat(),"TV 播放进度",player.optBoolean("seekable")&&knownDuration>0,{preview=it},finish={preview?.let{requested=it.toLong();send("playback.seekTo",JSONObject().put("positionMs",it.toLong()))};preview=null},
-                bufferedValue=if(knownDuration>0)player.optLong("bufferedMs").toFloat().coerceIn(0f,duration.toFloat())else null,mediaSurface=false,description="${tvRemoteTime(shown.toLong())} / ${if(knownDuration>0)tvRemoteTime(duration)else"时长未知"}")
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
+            if (!compactTransport) timeline(Modifier)
+            val controls = Modifier.align(Alignment.CenterHorizontally)
+                .widthIn(max = if (compactTransport) 480.dp else Dp.Unspecified).fillMaxWidth()
+            Row(controls,horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
                 FilewayIconButton(onClick={send("queue.previous")},enabled=index>0){FilewayIcon(Art.drawable.fileway_ic_skip_previous,"上一项")}
                 val step=snapshot.content.optJSONObject("preferences")?.optInt("seekStepSeconds",10)?.coerceIn(3,30)?:10
                 FilewayTextButton(onClick={send("playback.seekBy",JSONObject().put("deltaMs",-step*1000L))},enabled=player.optBoolean("seekable")){Text("−${step}s")}
-                FilledIconButton(onClick={send(if(player.optBoolean("playing"))"playback.pause"else"playback.play")},modifier=Modifier.size(64.dp)) {
+                FilledIconButton(onClick={send(if(player.optBoolean("playing"))"playback.pause"else"playback.play")},modifier=Modifier.size(if (compactTransport) 56.dp else 64.dp)) {
                     FilewayIcon(if(player.optBoolean("playing"))Art.drawable.fileway_ic_pause else Art.drawable.fileway_ic_play_arrow,if(player.optBoolean("playing"))"暂停"else"播放",Modifier.size(32.dp))
                 }
                 FilewayTextButton(onClick={send("playback.seekBy",JSONObject().put("deltaMs",step*1000L))},enabled=player.optBoolean("seekable")){Text("+${step}s")}
                 FilewayIconButton(onClick={send("queue.next")},enabled=index>=0&&index<count-1){FilewayIcon(Art.drawable.fileway_ic_skip_next,"下一项")}
             }
-            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceEvenly) {
+            Row(controls,horizontalArrangement=Arrangement.SpaceEvenly) {
                 RemoteMediaAction("音轨",Art.drawable.fileway_ic_audio){panel=RemoteMediaPanel.AUDIO}
                 if(snapshot.scene=="VIDEO")RemoteMediaAction("字幕",Art.drawable.fileway_ic_subtitles){panel=RemoteMediaPanel.SUBTITLE}
                 RemoteMediaAction("${player.optDouble("rate",1.0)}×",Art.drawable.fileway_ic_speed){panel=RemoteMediaPanel.SPEED}
@@ -156,7 +173,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
     FilewayTextButton(onClick=onClick){Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)){FilewayIcon(icon,null,Modifier.size(24.dp));Text(label,style=MaterialTheme.typography.labelMedium)}}
 }
 
-@Composable private fun RemotePlaybackStatus(player:JSONObject) {
+@Composable private fun RemotePlaybackStatus(player: JSONObject, maxLines: Int = Int.MAX_VALUE) {
     val error=player.optString("seekError").takeIf{it.isNotBlank()&&it!="null"}
     val text=error?:when {
         player.optBoolean("preparing")->"正在准备播放…"
@@ -164,7 +181,8 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
         player.optBoolean("seeking")->"正在跳转…"
         else->null
     }
-    text?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=if(error!=null)MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)}
+    text?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = maxLines, overflow = TextOverflow.Ellipsis,
+        color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
 @Composable private fun RemoteCacheStatus(cache:JSONObject,duration:Long){
@@ -303,7 +321,7 @@ private fun RemoteSubtitleSheet(
                         val base = track.title.ifBlank { "字幕 ${index + 1}" }
                         val title = if (titles.getValue(track.title.lowercase(Locale.ROOT)) > 1 && track.title.isNotBlank())
                             "$base · ${index + 1}" else base
-                        PlayerTrackChoice(track.key, title, playerTrackDetails(track.language, track.codec, base))
+                        PlayerTrackChoice(track.key, title, playerTrackDetails(track.language, remoteSubtitleFormatLabel(track.codec), base))
                     }
                 }
                 val hasSidecars = player.optInt("sidecarCount") > 0 || (player.optJSONArray("sidecars")?.length() ?: 0) > 0
@@ -314,10 +332,10 @@ private fun RemoteSubtitleSheet(
                         PlayerSubtitleActions(buildList {
                             add(PlayerSubtitleAction(Art.drawable.fileway_ic_edit, "字幕调整", { onPanel(RemoteMediaPanel.APPEARANCE) }))
                             if (canBrowseServer)
-                                add(PlayerSubtitleAction(Art.drawable.fileway_ic_server, RemoteMediaPanel.SERVER_SUBTITLES.title,
+                                add(PlayerSubtitleAction(Art.drawable.fileway_ic_server, "服务器字幕",
                                     { onPanel(RemoteMediaPanel.SERVER_SUBTITLES) }))
                             if (canBrowseLocal)
-                                add(PlayerSubtitleAction(Art.drawable.fileway_ic_folder, RemoteMediaPanel.LOCAL_SUBTITLES.title,
+                                add(PlayerSubtitleAction(Art.drawable.fileway_ic_folder, "本机字幕",
                                     { onPanel(RemoteMediaPanel.LOCAL_SUBTITLES) }))
                             if (hasSidecars && !canBrowseServer)
                                 add(PlayerSubtitleAction(Art.drawable.fileway_ic_server, "同目录外挂", { onPanel(RemoteMediaPanel.SIDECARS) }))
@@ -498,6 +516,17 @@ private fun remoteSubtitleAppearance(value: JSONObject?): TextSubtitleAppearance
     val opacity = value.optDouble("backgroundOpacity").toFloat()
     if (scale !in .5f..2f || margin !in 0f.. .4f || opacity !in 0f..1f) return null
     return TextSubtitleAppearance(scale, margin, area, opacity, font)
+}
+
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+private fun remoteSubtitleFormatLabel(codec: String): String = when (codec.trim().lowercase(Locale.ROOT)) {
+    "srt", "subrip", MimeTypes.APPLICATION_SUBRIP -> "SRT"
+    "ass", "ssa", "application/ass", "application/x-ass", MimeTypes.TEXT_SSA -> "ASS"
+    "vtt", "webvtt", MimeTypes.TEXT_VTT, MimeTypes.APPLICATION_MP4VTT -> "WebVTT"
+    "pgs", "hdmv_pgs_subtitle", MimeTypes.APPLICATION_PGS -> "PGS"
+    "dvbsub", "dvb_subtitle", MimeTypes.APPLICATION_DVBSUBS -> "DVB"
+    "vobsub", "dvd_subtitle", MimeTypes.APPLICATION_VOBSUB -> "VobSub"
+    else -> codec.takeUnless { '/' in it }.orEmpty()
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)

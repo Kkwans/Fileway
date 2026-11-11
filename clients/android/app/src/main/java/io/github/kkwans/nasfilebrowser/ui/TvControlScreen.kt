@@ -192,7 +192,9 @@ import kotlin.math.roundToInt
                                     items(moreFiles,key={"more/"+it.getString("id")}){file->TvPhoneDeviceRow(file.getString("name"),tvFileKind(file),tvFileIcon(file)){model.command("media.open",JSONObject().put("id",file.getString("id")))}}
                                     if((files?.length()?:0)+moreFiles.size<snapshot.content.optInt("total"))item{FilewayOutlinedButton(onClick=model::loadMore,Modifier.fillMaxWidth()){Text("更多文件")}}
                                 }
-                                "播放"->item{key(snapshot.connectionId,snapshot.sessionEpoch,snapshot.mediaEpoch){TvPhoneMediaControls(model,snapshot){section="文件";selectedTab=true}}}
+                                "播放"->item{key(snapshot.connectionId,snapshot.sessionEpoch,snapshot.mediaEpoch){
+                                    TvPhoneMediaControls(model, snapshot, compact = landscape && compactHeight) { section = "文件"; selectedTab = true }
+                                }}
                                 "设置"->{
                                     item{
                                         val source=phone.tvAuthorizationContext()
@@ -363,7 +365,7 @@ private fun tvConnectionSubtitle(connection:RemoteConnectionState):String {
         RemotePhase.BUSY->"连接暂不可用"
         RemotePhase.FAILED->"连接失败"
     }
-    return connection.device?.name?.let{"$it · $status"}?:status
+    return connection.device?.name?.takeIf { it.isNotBlank() }?.let { "$status · $it" } ?: status
 }
 
 private fun tvFileKind(file:JSONObject):String = if(file.optBoolean("directory"))"文件夹"else when(file.optString("kind")){
