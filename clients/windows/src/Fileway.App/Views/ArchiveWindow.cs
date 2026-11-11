@@ -9,6 +9,7 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.System;
@@ -34,6 +35,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private const double TypeColumnWidth = 96;
     private const double ModifiedColumnWidth = 150;
     private const double HeaderLeftPadding = RowLeftPadding + RowIconWidth + ColumnGap;
+    private const double CompactColumnsWidth = 720;
+    private const int MaximumExtractItems = 1000;
 
     private readonly IArchiveBrowseService _service;
     private readonly ILocalStorageSettingsService _settings;
@@ -41,9 +44,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private readonly FramelessWindowChrome _chrome;
     private readonly RemoteResourceRef _archive;
     private readonly CancellationTokenSource _lifetime = new();
-    private readonly TextBlock _title = new() { FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly TextBlock _summary = new() { FontSize = 12 };
-    private readonly TextBlock _status = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+    private readonly TextBlock _summary = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly ProgressRing _progress = new() { IsActive = false, Width = 18, Height = 18, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
     private readonly ListView _list = new()
     {
@@ -51,14 +52,16 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         HorizontalContentAlignment = HorizontalAlignment.Stretch,
         IsItemClickEnabled = false,
     };
-    private readonly StackPanel _breadcrumb = new() { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _crumbSummary = new()
+    private readonly Button _rootCrumb;
+    private readonly Button _parentCrumb;
+    private readonly Button _ancestorButton;
+    private readonly MenuFlyout _ancestors = new();
+    private readonly TextBlock _currentCrumb = new()
     {
-        FontSize = 12,
-        HorizontalAlignment = HorizontalAlignment.Right,
+        FontSize = 13,
+        FontWeight = FontWeights.SemiBold,
         VerticalAlignment = VerticalAlignment.Center,
         TextTrimming = TextTrimming.CharacterEllipsis,
-        MaxWidth = 340,
     };
     private readonly Border _banner;
     private readonly TextBlock _bannerText;
@@ -73,17 +76,15 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private readonly KeyboardAccelerator _selectAll;
     private readonly Border _toolbar;
     private readonly Border _crumbBar;
-    private readonly Border _statusBar;
     private readonly Border _progressHost;
     private readonly ProgressBar _extractBar;
     private readonly TextBlock _extractProgressText;
     private readonly Border _resultsHost;
     private readonly TextBlock _resultsHeader;
     private readonly TextBlock _resultsSummary;
+    private readonly TextBlock _resultsMessage;
     private readonly Button _resultsToggle;
     private readonly ListView _resultsList;
-    private int _extractTotal;
-    private int _extractCompleted;
     private IArchiveBrowseSession? _session;
     private readonly List<ArchiveRow> _rows = [];
     private readonly List<Window> _previewWindows = [];
@@ -92,6 +93,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private bool _started;
     private bool _busy;
     private bool _confirming;
+    private bool _compactColumns;
     private ElementTheme _theme = ElementTheme.Default;
 
     public ArchiveWindow(IArchiveBrowseService service, ILocalStorageSettingsService settings, RemoteResourceRef archive)
@@ -102,11 +104,6 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         Title = _titleBar.Caption = archive.DisplayName + " · " + AppBranding.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1080, 800));
-
-        _title.Text = archive.DisplayName;
-        var titleStack = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-        titleStack.Children.Add(_title);
-        titleStack.Children.Add(_summary);
 
         _extractAll = new Button { Content = "全部解压", Style = (Style)Application.Current.Resources["FwPrimaryButtonStyle"], Height = 32, MinHeight = 32, Padding = new Thickness(16, 0, 16, 0), IsEnabled = false };
         _extractSelected = new Button { Content = "解压选中", Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"], Height = 32, MinHeight = 32, Padding = new Thickness(14, 0, 14, 0), IsEnabled = false };
@@ -119,27 +116,56 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         actions.Children.Add(_extractSelected);
         actions.Children.Add(_extractAll);
 
-        var toolbarGrid = new Grid { Padding = new Thickness(20, 0, 16, 0), Height = 58 };
+        var toolbarGrid = new Grid { Padding = new Thickness(20, 0, 16, 0), ColumnSpacing = 12, Height = 48 };
         toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        toolbarGrid.Children.Add(titleStack);
+        toolbarGrid.Children.Add(_summary);
         Grid.SetColumn(actions, 1);
         toolbarGrid.Children.Add(actions);
         _toolbar = new Border { Child = toolbarGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
 
-        var crumbGrid = new Grid { Padding = new Thickness(14, 0, 16, 0), Height = 42, ColumnSpacing = 12 };
-        crumbGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        _rootCrumb = CrumbButton("压缩包", "ArchiveRootCrumb");
+        _rootCrumb.Tag = "";
+        AutomationProperties.SetHelpText(_rootCrumb, "压缩包根目录");
+        _parentCrumb = CrumbButton("", "ArchiveParentCrumb");
+        _parentCrumb.MaxWidth = 144;
+        _ancestorButton = new Button
+        {
+            Style = (Style)Application.Current.Resources["FwIconButtonStyle"],
+            Width = 32,
+            Height = 32,
+            MinHeight = 32,
+            Content = new LucideIcon { IconName = "dots-three", Width = 16, Height = 16 },
+            Flyout = _ancestors,
+            Visibility = Visibility.Collapsed,
+        };
+        SurfaceStyles.Attach(_ancestors);
+        AutomationProperties.SetAutomationId(_ancestorButton, "ArchiveAncestorMenu");
+        AutomationProperties.SetName(_ancestorButton, "上级文件夹");
+        ToolTipService.SetToolTip(_ancestorButton, "上级文件夹");
+        AutomationProperties.SetAutomationId(_currentCrumb, "ArchiveCurrentPath");
+
+        var pathActions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+        pathActions.Children.Add(_rootCrumb);
+        pathActions.Children.Add(_ancestorButton);
+        pathActions.Children.Add(_parentCrumb);
+        var crumbGrid = new Grid { Padding = new Thickness(20, 0, 16, 0), Height = 38 };
         crumbGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        crumbGrid.Children.Add(_breadcrumb);
-        Grid.SetColumn(_crumbSummary, 1);
-        crumbGrid.Children.Add(_crumbSummary);
+        crumbGrid.ColumnDefinitions.Add(StarColumn());
+        crumbGrid.Children.Add(pathActions);
+        Grid.SetColumn(_currentCrumb, 1);
+        crumbGrid.Children.Add(_currentCrumb);
         _crumbBar = new Border { Child = crumbGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
-        _crumbBar.SizeChanged += (_, args) => _crumbSummary.Visibility =
-            args.NewSize.Width < 760 ? Visibility.Collapsed : Visibility.Visible;
+        RenderBreadcrumb();
 
         _bannerText = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         _banner = new Border { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 10, 16, 10), BorderThickness = new Thickness(0, 0, 0, 1), Child = _bannerText };
-        _listHeader = new Grid { Padding = new Thickness(HeaderLeftPadding, 8, RowRightPadding, 6), ColumnSpacing = ColumnGap };
+        _listHeader = new Grid
+        {
+            Padding = new Thickness(HeaderLeftPadding, 8, RowRightPadding, 6),
+            ColumnSpacing = ColumnGap,
+            Visibility = Visibility.Collapsed,
+        };
         _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(SizeColumnWidth) });
         _listHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(TypeColumnWidth) });
@@ -152,8 +178,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _list.ItemContainerStyle = (Style)Application.Current.Resources["FwArchiveListItemStyle"];
         _list.DoubleTapped += List_DoubleTapped;
         _list.SelectionChanged += (_, _) => { UpdateCommands(); UpdateStatus(); };
-        _list.SizeChanged += (_, _) => UpdateHeaderPadding();
-        _list.Loaded += (_, _) => UpdateHeaderPadding();
+        _list.SizeChanged += (_, _) => UpdateListLayout();
+        _list.Loaded += (_, _) => UpdateListLayout();
         AutomationProperties.SetAutomationId(_list, "ArchiveList");
         _emptyTitle = new TextBlock
         {
@@ -203,11 +229,6 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         listHost.Children.Add(_list);
         listHost.Children.Add(_empty);
 
-        _statusBar = new Border { BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(20, 0, 20, 0), Height = 30 };
-        var statusGrid = new Grid();
-        statusGrid.Children.Add(_status);
-        _statusBar.Child = statusGrid;
-
         _extractBar = new ProgressBar
         {
             Height = 4,
@@ -219,6 +240,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             VerticalAlignment = VerticalAlignment.Center,
         };
         _extractProgressText = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetAutomationId(_extractProgressText, "ArchiveExtractProgress");
         var progressGrid = new Grid { Padding = new Thickness(20, 8, 20, 8), ColumnSpacing = 12 };
         progressGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         progressGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -241,6 +263,13 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
         _resultsHeader = new TextBlock { Text = "解压结果", FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
         _resultsSummary = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+        _resultsMessage = new TextBlock
+        {
+            Style = (Style)Application.Current.Resources["FwDangerTextStyle"],
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0),
+            Visibility = Visibility.Collapsed,
+        };
         _resultsToggle = new Button
         {
             Content = "收起",
@@ -252,11 +281,11 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _resultsList = new ListView
         {
             SelectionMode = ListViewSelectionMode.None,
-            IsItemClickEnabled = true,
-            IsEnabled = true,
             MaxHeight = 180,
+            Margin = new Thickness(0, 6, 0, 0),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
+        AutomationProperties.SetAutomationId(_resultsList, "ArchiveExtractResults");
         _resultsList.ItemContainerStyle = (Style)Application.Current.Resources["FwArchiveListItemStyle"];
         _resultsToggle.Click += (_, _) =>
         {
@@ -273,11 +302,14 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         resultsHeaderGrid.Children.Add(_resultsSummary);
         Grid.SetColumn(_resultsToggle, 2);
         resultsHeaderGrid.Children.Add(_resultsToggle);
-        var resultsGrid = new Grid { RowSpacing = 6 };
+        var resultsGrid = new Grid();
+        resultsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         resultsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         resultsGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         resultsGrid.Children.Add(resultsHeaderGrid);
-        Grid.SetRow(_resultsList, 1);
+        Grid.SetRow(_resultsMessage, 1);
+        resultsGrid.Children.Add(_resultsMessage);
+        Grid.SetRow(_resultsList, 2);
         resultsGrid.Children.Add(_resultsList);
         _resultsHost = new Border
         {
@@ -295,7 +327,6 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _root.RowDefinitions.Add(new RowDefinition());
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.Children.Add(_toolbar);
         Grid.SetRow(_crumbBar, 1); _root.Children.Add(_crumbBar);
         Grid.SetRow(_banner, 2); _root.Children.Add(_banner);
@@ -303,7 +334,6 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         Grid.SetRow(listHost, 4); _root.Children.Add(listHost);
         Grid.SetRow(_progressHost, 5); _root.Children.Add(_progressHost);
         Grid.SetRow(_resultsHost, 6); _root.Children.Add(_resultsHost);
-        Grid.SetRow(_statusBar, 7); _root.Children.Add(_statusBar);
 
         _windowRoot = new Grid();
         _windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -316,6 +346,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _selectAll = new KeyboardAccelerator { Key = VirtualKey.A, Modifiers = VirtualKeyModifiers.Control };
         _selectAll.Invoked += (_, args) =>
         {
+            if (_busy || _confirming || _ancestors.IsOpen || _root.XamlRoot is not { } root ||
+                !IsListKeyboardSource(FocusManager.GetFocusedElement(root) as DependencyObject)) return;
             SelectAllEntries();
             args.Handled = true;
         };
@@ -328,6 +360,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             _started = true;
             ApplyTheme(_root.ActualTheme);
             await LoadAsync();
+            if (_closed) return;
             // Without an explicit target WinUI focuses the first caption button, so Enter/Space
             // would minimise the archive window instead of moving through its entries. The root
             // keeps focus and owns the keys (see OnPreviewKeyDown), because the list itself
@@ -339,17 +372,26 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         Closed += async (_, _) =>
         {
             _closed = true;
+            _bannerTimer?.Stop();
             _lifetime.Cancel();
-            if (_session is { } session) await session.DisposeAsync().ConfigureAwait(false);
             _chrome.Dispose();
-            _lifetime.Dispose();
+            try { if (_session is { } session) await session.DisposeAsync().ConfigureAwait(false); }
+            catch (FilewayException) { }
+            finally { _lifetime.Dispose(); }
         };
     }
 
     public ValueTask DisposeAsync()
     {
         // The Closed handler owns teardown; this covers an explicit dispose before closing.
-        if (!_closed) { _closed = true; _lifetime.Cancel(); _chrome.Dispose(); _lifetime.Dispose(); }
+        if (!_closed)
+        {
+            _closed = true;
+            _bannerTimer?.Stop();
+            _lifetime.Cancel();
+            _chrome.Dispose();
+            _lifetime.Dispose();
+        }
         return ValueTask.CompletedTask;
     }
 
@@ -372,15 +414,12 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _windowRoot.Style = (Style)resources["FwViewerCanvasStyle"];
         _toolbar.Style = (Style)resources["FwDocumentPanelStyle"];
         _crumbBar.Style = (Style)resources["FwDocumentPanelStyle"];
-        _statusBar.Style = (Style)resources["FwDocumentPanelStyle"];
         _banner.Style = (Style)resources["FwDocumentNoticeStyle"];
         _progressHost.Style = (Style)resources["FwDocumentPanelStyle"];
         _resultsHost.Style = (Style)resources["FwDocumentPanelStyle"];
         _summary.Style = (Style)resources["FwCaptionTextStyle"];
         _extractProgressText.Style = (Style)resources["FwCaptionTextStyle"];
         _resultsSummary.Style = (Style)resources["FwCaptionTextStyle"];
-        _status.Style = (Style)resources["FwCaptionTextStyle"];
-        _crumbSummary.Style = (Style)resources["FwCaptionTextStyle"];
         _emptyDescription.Style = (Style)resources["FwCaptionTextStyle"];
         _emptyDescription.FontSize = 13;
         _titleBar.RequestedTheme = theme;
@@ -396,15 +435,14 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             var session = await _service.OpenAsync(_archive, _lifetime.Token);
             if (_closed) { await session.DisposeAsync(); return; }
             _session = session;
-            _extractAll.IsEnabled = session.Entries.Any(entry => !entry.IsDirectory);
-            _summary.Text = $"{session.Entries.Count} 个条目 · 解压总量 {DownloadPresentationPolicy.FormatBytes(session.TotalUncompressedBytes)}";
-            ShowBanner("压缩包已打开。双击文件夹进入，双击文件预览；多选后点「解压选中」。", error: false);
             NavigateTo("");
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
         {
             if (_closed) return;
+            _summary.Text = "压缩包未打开";
+            _listHeader.Visibility = Visibility.Collapsed;
             ShowBanner(error is FilewayException fileway ? fileway.Error.Message : "压缩包未能打开，请检查连接后重试。", error: true);
         }
         finally
@@ -416,9 +454,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void NavigateTo(string prefix)
     {
-        if (_session is not { } session) return;
+        if (_closed || _busy || _confirming || _session is not { } session) return;
         _prefix = prefix;
-        ClearExtractResults();
         _rows.Clear();
         _list.Items.Clear();
         _list.SelectedItems.Clear();
@@ -459,29 +496,25 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _emptyDescription.Text = prefix.Length == 0 ? "这个压缩包没有可浏览的条目。" : "压缩包里没有可显示的文件。";
         _listHeader.Visibility = sorted.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         RenderBreadcrumb();
-        var fileBytes = sorted.Where(row => !row.IsDirectory).Sum(row => Math.Max(0, row.Entry.Size));
-        _crumbSummary.Text = $"{sorted.Length} 个条目" + (fileBytes > 0 ? $" · {DownloadPresentationPolicy.FormatBytes(fileBytes)}" : "");
+        _list.SelectionMode = sorted.Length == 0 ? ListViewSelectionMode.None : ListViewSelectionMode.Extended;
         UpdateStatus();
         UpdateCommands();
-        _list.SelectionMode = sorted.Length == 0 ? ListViewSelectionMode.None : ListViewSelectionMode.Extended;
-        _windowRoot.KeyboardAccelerators.Clear();
-        if (sorted.Length > 0)
-        {
-            _selectAll.IsEnabled = true;
-            _windowRoot.KeyboardAccelerators.Add(_selectAll);
-        }
         DispatcherQueue.TryEnqueue(() =>
         {
             UpdateHeaderPadding();
             // Re-entering content after navigation keeps keyboard focus off the caption buttons,
             // especially when the target folder is empty and no row is left to hold it.
-            if (_closed) return;
+            if (_closed || _busy || _confirming || _prefix != prefix) return;
             _ = _root.Focus(FocusState.Programmatic);
-            DispatcherQueue.TryEnqueue(() => { if (!_closed) _ = _root.Focus(FocusState.Programmatic); });
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (!_closed && !_busy && !_confirming && _prefix == prefix)
+                    _ = _root.Focus(FocusState.Programmatic);
+            });
         });
     }
 
-    private static ListViewItem BuildRow(ArchiveRow row)
+    private ListViewItem BuildRow(ArchiveRow row)
     {
         var icon = new LucideIcon
         {
@@ -498,7 +531,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         };
-        ToolTipService.SetToolTip(name, row.Name);
+        ToolTipService.SetToolTip(name, $"{row.Name}\n{row.Type} · {row.Size} · {row.Modified}");
         var size = RowText(row.Size, HorizontalAlignment.Right);
         var type = RowText(row.Type, HorizontalAlignment.Left);
         var modified = RowText(row.Modified, HorizontalAlignment.Right);
@@ -513,8 +546,10 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         Grid.SetColumn(size, 2); grid.Children.Add(size);
         Grid.SetColumn(type, 3); grid.Children.Add(type);
         Grid.SetColumn(modified, 4); grid.Children.Add(modified);
+        SetTypeColumn(grid, 3, _compactColumns);
         var item = new ListViewItem { Content = grid, Tag = row, MinHeight = 40 };
         AutomationProperties.SetName(item, row.Name);
+        AutomationProperties.SetHelpText(item, $"{row.Type} · {row.Size} · {row.Modified}");
         return item;
     }
 
@@ -588,10 +623,33 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void UpdateStatus()
     {
+        if (_session is not { } session) return;
         var selected = _list.SelectedItems.Count;
-        _status.Text = $"{_rows.Count} 个条目" +
-            (_prefix.Length == 0 ? " · 根目录" : " · " + _prefix) +
-            (selected > 0 ? $" · 已选择 {selected} 个" : "");
+        var total = DownloadPresentationPolicy.FormatBytes(session.TotalUncompressedBytes);
+        _summary.Text = $"{_rows.Count} 个条目" +
+            (selected > 0 ? $" · 已选 {selected} 个" : $" · 解压总量 {total}");
+        ToolTipService.SetToolTip(_summary, $"压缩包共 {session.Entries.Count} 个条目 · 解压总量 {total}");
+    }
+
+    private void UpdateListLayout()
+    {
+        bool compact = _list.ActualWidth > 0 && _list.ActualWidth < CompactColumnsWidth;
+        if (compact != _compactColumns)
+        {
+            _compactColumns = compact;
+            SetTypeColumn(_listHeader, 2, compact);
+            foreach (var item in _list.Items.OfType<ListViewItem>())
+                if (item.Content is Grid row) SetTypeColumn(row, 3, compact);
+        }
+        UpdateHeaderPadding();
+    }
+
+    private static void SetTypeColumn(Grid grid, int index, bool compact)
+    {
+        grid.ColumnDefinitions[index].Width = new GridLength(compact ? 0 : TypeColumnWidth);
+        foreach (var child in grid.Children)
+            if (child is FrameworkElement element && Grid.GetColumn(element) == index)
+                element.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void UpdateHeaderPadding()
@@ -629,36 +687,62 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void RenderBreadcrumb()
     {
-        _breadcrumb.Children.Clear();
-        _breadcrumb.Children.Add(CrumbButton("压缩包", ""));
-        var segments = _prefix.Length == 0 ? [] : _prefix.Split('/');
+        var segments = _prefix.Length == 0 ? Array.Empty<string>() : _prefix.Split('/');
+        _rootCrumb.Visibility = segments.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _parentCrumb.Visibility = segments.Length > 1 ? Visibility.Visible : Visibility.Collapsed;
+        _ancestorButton.Visibility = segments.Length > 2 ? Visibility.Visible : Visibility.Collapsed;
+        _ancestors.Items.Clear();
         var accumulated = "";
-        foreach (var segment in segments)
+        for (int index = 0; index < segments.Length - 1; index++)
         {
-            _breadcrumb.Children.Add(new TextBlock { Text = "›", FontSize = 13, Opacity = 0.45, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 2, 0) });
+            var segment = segments[index];
             accumulated = accumulated.Length == 0 ? segment : accumulated + "/" + segment;
             var target = accumulated;
-            _breadcrumb.Children.Add(CrumbButton(segment, target));
+            if (index == segments.Length - 2)
+            {
+                ((TextBlock)_parentCrumb.Content).Text = segment;
+                _parentCrumb.Tag = target;
+                AutomationProperties.SetName(_parentCrumb, segment);
+                AutomationProperties.SetHelpText(_parentCrumb, "/" + target);
+                ToolTipService.SetToolTip(_parentCrumb, "/" + target);
+            }
+            else
+            {
+                var item = new MenuFlyoutItem { Text = segment };
+                AutomationProperties.SetHelpText(item, "/" + target);
+                item.Click += (_, _) => NavigateTo(target);
+                _ancestors.Items.Add(item);
+            }
         }
+        var current = segments.Length == 0 ? "压缩包" : segments[^1];
+        _currentCrumb.Text = segments.Length == 0 ? current : "›  " + current;
+        AutomationProperties.SetName(_currentCrumb, current);
+        AutomationProperties.SetHelpText(_currentCrumb, "/" + _prefix);
+        ToolTipService.SetToolTip(_currentCrumb, "/" + _prefix);
     }
 
-    private Button CrumbButton(string text, string target)
+    private Button CrumbButton(string text, string id)
     {
         var button = new Button
         {
-            Content = new TextBlock { Text = text, FontSize = 13, FontWeight = FontWeights.Normal },
+            Content = new TextBlock { Text = text, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis },
             Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
             Height = 28,
             MinHeight = 28,
             Padding = new Thickness(8, 0, 8, 0),
         };
-        button.Click += (_, _) => NavigateTo(target);
+        AutomationProperties.SetAutomationId(button, id);
+        AutomationProperties.SetName(button, text);
+        button.Click += (_, _) =>
+        {
+            if (button.Tag is string target) NavigateTo(target);
+        };
         return button;
     }
 
     private void List_DoubleTapped(object sender, Microsoft.UI.Xaml.Input.DoubleTappedRoutedEventArgs args)
     {
-        if (_busy) return;
+        if (_busy || _confirming) return;
         for (DependencyObject? source = args.OriginalSource as DependencyObject; source is not null && source != _list; source = VisualTreeHelper.GetParent(source))
         {
             if (source is not ListViewItem { Tag: ArchiveRow row }) continue;
@@ -670,14 +754,15 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void Activate(ArchiveRow row)
     {
-        if (_busy) return;
+        if (_busy || _confirming) return;
         if (row.IsDirectory) { NavigateTo(row.Entry.FullName.Trim('/')); return; }
         _ = PreviewAsync(row);
     }
 
     private async Task PreviewAsync(ArchiveRow row)
     {
-        if (_session is not { } session || _busy || _closed) return;
+        if (_session is not { } session || _busy || _confirming || _closed) return;
+        var prefix = _prefix;
         var extension = Path.GetExtension(row.Name).ToLowerInvariant();
         try
         {
@@ -689,6 +774,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
                     return;
                 }
                 var bytes = await session.ReadEntryAsync(row.Entry.Index, 4L * 1024 * 1024, _lifetime.Token);
+                if (_closed || _busy || _confirming || _prefix != prefix) return;
                 var (text, encoding) = FilewayClientServices.DecodeText(bytes.Bytes);
                 var resource = PreviewResource(row);
                 var content = new TextContent(resource, bytes.Bytes.LongLength, text, encoding);
@@ -706,6 +792,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
                     return;
                 }
                 var bytes = await session.ReadEntryAsync(row.Entry.Index, 32L * 1024 * 1024, _lifetime.Token);
+                if (_closed || _busy || _confirming || _prefix != prefix) return;
                 var resource = PreviewResource(row);
                 var window = new ImageWindow(new ArchiveImageContentService(bytes.Bytes), resource);
                 TrackPreview(window);
@@ -718,7 +805,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         catch (OperationCanceledException) { }
         catch (Exception error)
         {
-            if (_closed) return;
+            if (_closed || _busy || _confirming || _prefix != prefix) return;
             ShowBanner(error is FilewayException fileway ? fileway.Error.Message : "预览未能打开，请重试。", error: true);
         }
     }
@@ -737,27 +824,40 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        if (_confirming || _busy || _ancestors.IsOpen) return;
+        if (args.Key == VirtualKey.Escape)
+        {
+            Close();
+            args.Handled = true;
+            return;
+        }
+
+        var source = args.OriginalSource as DependencyObject;
+        if (!IsListKeyboardSource(source)) return;
+        if (args.Key == VirtualKey.Enter && _list.SelectedItem is ListViewItem { Tag: ArchiveRow row })
+        {
+            Activate(row);
+            args.Handled = true;
+            return;
+        }
+
+        // Root focus is the fallback before the first item gets focus. Once inside the
+        // ListView, WinUI handles arrows, including modified keys for range selection.
         var count = _list.Items.Count;
+        if (!ReferenceEquals(source, _root) || count == 0) return;
         switch (args.Key)
         {
-            // Escape belongs to the confirmation dialog while it is open.
-            case VirtualKey.Escape when !_confirming && !_busy:
-                Close();
-                break;
-            case VirtualKey.Down when count > 0:
+            case VirtualKey.Down:
                 MoveSelection(1);
                 break;
-            case VirtualKey.Up when count > 0:
+            case VirtualKey.Up:
                 MoveSelection(-1);
                 break;
-            case VirtualKey.Home when count > 0:
+            case VirtualKey.Home:
                 SelectIndex(0);
                 break;
-            case VirtualKey.End when count > 0:
+            case VirtualKey.End:
                 SelectIndex(count - 1);
-                break;
-            case VirtualKey.Enter when count > 0:
-                if (_list.SelectedItem is ListViewItem { Tag: ArchiveRow row }) Activate(row);
                 break;
             default:
                 return;
@@ -766,13 +866,18 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         args.Handled = true;
     }
 
-    private void SelectAllEntries()
+    private bool IsListKeyboardSource(DependencyObject? source)
     {
-        for (var index = 0; index < _list.Items.Count; index++)
+        if (ReferenceEquals(source, _root)) return true;
+        for (var current = source; current is not null && current != _root; current = VisualTreeHelper.GetParent(current))
         {
-            if (_list.Items[index] is ListViewItem item) item.IsSelected = true;
+            if (current is ButtonBase or TextBox) return false;
+            if (ReferenceEquals(current, _list)) return true;
         }
+        return false;
     }
+
+    private void SelectAllEntries() => _list.SelectAll();
 
     private void MoveSelection(int delta)
     {
@@ -787,7 +892,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private void SelectIndex(int index)
     {
         _list.SelectedIndex = index;
-        if (_list.ContainerFromIndex(index) is ListViewItem item) item.StartBringIntoView();
+        _list.ScrollIntoView(_list.Items[index]);
+        if (_list.ContainerFromIndex(index) is ListViewItem item) _ = item.Focus(FocusState.Keyboard);
     }
 
     private List<int> SelectedFileIndexes(bool all)
@@ -807,9 +913,24 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private async Task ExtractAsync(bool all)
     {
-        if (_session is not { } session || _busy || _closed) return;
+        if (_session is not { } session || _busy || _confirming || _closed) return;
         var indexes = SelectedFileIndexes(all);
-        if (indexes.Count == 0) { ShowBanner("请先选择要解压的文件或文件夹。", error: false); return; }
+        if (indexes.Count == 0)
+        {
+            ShowBanner(_list.SelectedItems.Count == 0 ? "请先选择要解压的文件或文件夹。" : "所选条目没有可解压的文件。", error: false);
+            return;
+        }
+        if (indexes.Count > MaximumExtractItems)
+        {
+            ShowBanner($"一次最多解压 {MaximumExtractItems} 个文件，请分批选择。", error: false);
+            return;
+        }
+
+        var observed = new List<ArchiveExtractItem>();
+        string? extractTarget = null;
+        bool reporting = false;
+        _confirming = true;
+        UpdateCommands();
         try
         {
             var state = await _settings.ReadAsync(_lifetime.Token);
@@ -825,6 +946,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
                 TextWrapping = TextWrapping.NoWrap,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
             };
+            AutomationProperties.SetAutomationId(targetBox, "ArchiveExtractTarget");
+            AutomationProperties.SetName(targetBox, "解压目标文件夹");
             var browse = new Button
             {
                 Content = "浏览…",
@@ -866,7 +989,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
                     error.Visibility = Visibility.Visible;
                 }
             };
-            var panel = new StackPanel { Spacing = 10, MinWidth = 460, MaxWidth = 560 };
+            var panel = new StackPanel { Spacing = 10, MinWidth = 300, MaxWidth = 480 };
             panel.Children.Add(new TextBlock { Text = $"解压 {indexes.Count} 个文件到：", TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(targetGrid);
             panel.Children.Add(new TextBlock { Text = "已存在的同名文件将跳过且不覆盖；解压结果逐条列明。", FontSize = 12, Opacity = 0.75, TextWrapping = TextWrapping.Wrap });
@@ -888,64 +1011,57 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
                 error.Visibility = Visibility.Visible;
                 args.Cancel = true;
             };
-            _confirming = true;
-            ContentDialogResult choice;
-            try
-            {
-                choice = await confirm.ShowAsync();
-            }
-            finally
-            {
-                _confirming = false;
-            }
-
+            var choice = await confirm.ShowAsync();
             if (choice != ContentDialogResult.Primary || _closed) return;
             string target = targetBox.Text.Trim();
             if (!IsValidTarget(target)) return;
+            extractTarget = target;
             ClearExtractResults();
-            _extractTotal = indexes.Count;
-            _extractCompleted = 0;
-            _extractBar.Maximum = Math.Max(1, _extractTotal);
+            _bannerTimer?.Stop();
+            _banner.Visibility = Visibility.Collapsed;
+            _extractBar.Maximum = indexes.Count;
             _extractBar.Value = 0;
-            _extractProgressText.Text = $"正在解压 0/{_extractTotal}";
+            _extractProgressText.Text = $"正在解压 0/{indexes.Count}";
             _progressHost.Visibility = Visibility.Visible;
-            _resultsHost.Visibility = Visibility.Visible;
-            _resultsHeader.Text = "解压结果";
-            _resultsSummary.Text = "正在解压…";
-            _resultsList.Visibility = Visibility.Visible;
-            _resultsToggle.Content = "收起";
             _busy = true;
-            _progress.IsActive = true; _progress.Visibility = Visibility.Visible;
-            _extractAll.IsEnabled = false; _extractSelected.IsEnabled = false;
-            ShowBanner("正在解压…", error: false);
+            _confirming = false;
+            reporting = true;
+            UpdateCommands();
             var progress = new Progress<ArchiveExtractItem>(item =>
             {
-                _extractCompleted++;
-                _extractBar.Value = Math.Min(_extractTotal, _extractCompleted);
-                _extractProgressText.Text = $"正在解压 {Math.Min(_extractTotal, _extractCompleted)}/{_extractTotal}";
-                _resultsHeader.Text = $"解压结果（{_extractCompleted}）";
-                AddExtractResult(item);
+                if (_closed || !reporting) return;
+                observed.Add(item);
+                _extractBar.Value = Math.Min(indexes.Count, observed.Count);
+                _extractProgressText.Text = $"正在解压 {Math.Min(indexes.Count, observed.Count)}/{indexes.Count}";
             });
             var result = await session.ExtractAsync(indexes, target, _lifetime.Token, progress);
             if (_closed) return;
-            await Task.Yield();
-            _progressHost.Visibility = Visibility.Collapsed;
-            _resultsHeader.Text = $"解压结果（{_extractCompleted}）";
-            _resultsSummary.Text = $"{result.Extracted} 成功 · {result.Skipped} 跳过 · {result.Failed} 失败";
-            ShowBanner($"解压完成：{result.Extracted} 成功 · {result.Skipped} 跳过 · {result.Failed} 失败。目标：{target}", error: result.Failed > 0);
-            _status.Text = $"解压完成 · {result.Extracted} 成功 · {result.Skipped} 跳过 · {result.Failed} 失败";
+            PresentExtractResults(result.Items, ExtractSummary(result.Extracted, result.Skipped, result.Failed), target);
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException)
+        {
+            if (!_closed && extractTarget is not null)
+                PresentInterruptedExtraction(observed, extractTarget, "解压已停止。");
+        }
         catch (Exception error)
         {
             if (_closed) return;
-            ShowBanner(error is FilewayException fileway ? fileway.Error.Message : "解压未能完成，请重试。", error: true);
+            var message = error is FilewayException fileway ? fileway.Error.Message : "解压未能完成，请重试。";
+            if (extractTarget is not null)
+                PresentInterruptedExtraction(observed, extractTarget, message);
+            else
+                ShowBanner(message, error: true);
         }
         finally
         {
+            reporting = false;
             _busy = false;
-            _progress.IsActive = false; _progress.Visibility = Visibility.Collapsed;
-            UpdateCommands();
+            _confirming = false;
+            if (!_closed)
+            {
+                _progressHost.Visibility = Visibility.Collapsed;
+                UpdateCommands();
+            }
         }
     }
 
@@ -954,8 +1070,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         if (string.IsNullOrWhiteSpace(path)) return false;
         try
         {
-            string full = Path.GetFullPath(path.Trim());
-            return Path.IsPathFullyQualified(full) && !File.Exists(full);
+            string target = path.Trim();
+            return Path.IsPathFullyQualified(target) && !File.Exists(Path.GetFullPath(target));
         }
         catch (Exception) { return false; }
     }
@@ -965,15 +1081,42 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _resultsList.Items.Clear();
         _resultsHost.Visibility = Visibility.Collapsed;
         _progressHost.Visibility = Visibility.Collapsed;
-        _extractTotal = 0;
-        _extractCompleted = 0;
+        _resultsSummary.Text = "";
+        _resultsMessage.Text = "";
+    }
+
+    private static string ExtractSummary(int extracted, int skipped, int failed) =>
+        $"{extracted} 成功 · {skipped} 跳过 · {failed} 失败";
+
+    private void PresentInterruptedExtraction(List<ArchiveExtractItem> observed, string target, string message)
+    {
+        var summary = observed.Count == 0 ? "" : ExtractSummary(
+            observed.Count(item => item.Outcome == ArchiveExtractOutcome.Extracted),
+            observed.Count(item => item.Outcome == ArchiveExtractOutcome.Skipped),
+            observed.Count(item => item.Outcome == ArchiveExtractOutcome.Failed));
+        PresentExtractResults(observed, summary, target, message);
+    }
+
+    private void PresentExtractResults(IReadOnlyList<ArchiveExtractItem> items, string summary, string target, string? message = null)
+    {
+        _resultsSummary.Text = summary;
+        _resultsSummary.Visibility = summary.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _resultsMessage.Text = message ?? "";
+        _resultsMessage.Visibility = message is null ? Visibility.Collapsed : Visibility.Visible;
+        ToolTipService.SetToolTip(_resultsHeader, target);
+        AutomationProperties.SetHelpText(_resultsHeader, "解压目标：" + target);
+        _resultsList.Items.Clear();
+        foreach (var item in items) AddExtractResult(item);
+        _resultsToggle.Content = "收起";
+        _resultsToggle.Visibility = _resultsList.Visibility = items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _resultsHost.Visibility = Visibility.Visible;
     }
 
     private void AddExtractResult(ArchiveExtractItem item)
     {
         var (iconName, styleKey, label) = item.Outcome switch
         {
-            ArchiveExtractOutcome.Extracted => ("check", "FwPrimaryIconStyle", "已解压"),
+            ArchiveExtractOutcome.Extracted => ("folder-open", "FwPrimaryIconStyle", "已解压"),
             ArchiveExtractOutcome.Skipped => ("minus", "FwSecondaryIconStyle", "已跳过"),
             _ => ("alert-triangle", "FwDangerIconStyle", "失败"),
         };
@@ -986,9 +1129,11 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             Margin = new Thickness(0, 2, 0, 0),
             Style = (Style)Application.Current.Resources[styleKey],
         };
+        var separator = item.FullName.LastIndexOf('/');
+        var leaf = separator + 1 < item.FullName.Length ? item.FullName[(separator + 1)..] : item.FullName;
         var name = new TextBlock
         {
-            Text = item.FullName,
+            Text = leaf,
             Style = (Style)Application.Current.Resources["FwToolbarTextStyle"],
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
@@ -999,10 +1144,12 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         var text = new StackPanel { Spacing = 2 };
         text.Children.Add(name);
         text.Children.Add(outcome);
-        if (!string.IsNullOrEmpty(item.Error))
+        var reason = item.Error ?? (item.Outcome == ArchiveExtractOutcome.Skipped ? "目标已存在，未覆盖。" : null);
+        if (!string.IsNullOrEmpty(reason))
         {
-            var detail = new TextBlock { Text = item.Error, TextWrapping = TextWrapping.Wrap };
-            detail.Style = (Style)Application.Current.Resources["FwDangerTextStyle"];
+            var detail = new TextBlock { Text = reason, TextWrapping = TextWrapping.Wrap };
+            detail.Style = (Style)Application.Current.Resources[
+                item.Outcome == ArchiveExtractOutcome.Failed ? "FwDangerTextStyle" : "FwCaptionTextStyle"];
             text.Children.Add(detail);
         }
         var grid = new Grid { ColumnSpacing = 10, Padding = new Thickness(4, 4, 8, 4) };
@@ -1018,9 +1165,11 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void UpdateCommands()
     {
-        if (_extractSelected is null) return;
-        _extractSelected.IsEnabled = !_busy && _session is not null && _list.SelectedItems.Count > 0;
-        _extractAll.IsEnabled = !_busy && _session is not null && _session.Entries.Any(entry => !entry.IsDirectory);
+        var canBrowse = !_closed && !_busy && !_confirming && _session is not null;
+        _extractSelected.IsEnabled = canBrowse && _list.SelectedItems.Count > 0;
+        _extractAll.IsEnabled = canBrowse && _session?.Entries.Any(entry => !entry.IsDirectory) == true;
+        _rootCrumb.IsEnabled = _parentCrumb.IsEnabled = _ancestorButton.IsEnabled = canBrowse;
+        _selectAll.IsEnabled = canBrowse && _list.Items.Count > 0;
     }
 
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _bannerTimer;

@@ -58,6 +58,7 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
         }
         catch (Exception error) when (error is InvalidDataException)
         {
+            await ReleaseAsync(zip, content, response, lease).ConfigureAwait(false);
             throw Safe(ErrorCode.ProtocolMismatch, "文件不是有效的 ZIP 压缩包，无法浏览。");
         }
         catch (FilewayException) { await ReleaseAsync(zip, content, response, lease).ConfigureAwait(false); throw; }
@@ -92,7 +93,9 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
         long totalUncompressed) : IArchiveBrowseSession
     {
         private readonly object _gate = new();
+        private readonly SemaphoreSlim _archiveAccess = new(1, 1);
         private bool _released;
+        private Task? _disposeTask;
 
         public RemoteResourceRef Archive { get; } = archive;
         public IReadOnlyList<ArchiveEntryInfo> Entries { get; } = entries;
@@ -103,6 +106,18 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
         {
             ArgumentNullException.ThrowIfNull(indexes);
             if (indexes.Count is 0 or > 1000) throw Safe(ErrorCode.InvalidRequest, Message(ErrorCode.InvalidRequest));
+            await _archiveAccess.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
+            {
+                EnsureOpen();
+                return await ExtractCoreAsync(indexes, targetDirectory, cancellationToken, progress).ConfigureAwait(false);
+            }
+            finally { _archiveAccess.Release(); }
+        }
+
+        private async Task<ArchiveExtractResult> ExtractCoreAsync(IReadOnlyList<int> indexes, string targetDirectory,
+            CancellationToken cancellationToken, IProgress<ArchiveExtractItem>? progress)
+        {
             string target = Fileway.Infrastructure.Persistence.StorageSettingsValidation.DirectoryPath(targetDirectory);
             Directory.CreateDirectory(target);
             int extracted = 0, skipped = 0, failed = 0;
@@ -112,10 +127,6 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
             {
                 items.Add(item);
                 try { progress?.Report(item); } catch (Exception) { }
-            }
-            lock (_gate)
-            {
-                if (_released) throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged));
             }
             foreach (int index in indexes)
             {
@@ -146,30 +157,61 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
                         skipped++;
                         continue;
                     }
-                    var entry = zip.Entries[index];
-                    await using var input = entry.Open();
-                    await using var output = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous);
-                    byte[] buffer = new byte[81920];
-                    long written = 0;
-                    while (true)
+                    if (!await PublishEntryAsync(zip.Entries[index], destination, info.Size, cancellationToken).ConfigureAwait(false))
                     {
-                        int count = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-                        if (count == 0) break;
-                        written += count;
-                        if (written > info.Size || written > budget) throw new IOException("条目大小与目录声明不符，已中止。");
-                        await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+                        Report(new(index, info.FullName, ArchiveExtractOutcome.Skipped, "目标已存在，未覆盖。"));
+                        skipped++;
+                        continue;
                     }
-                    budget -= written;
+                    budget -= info.Size;
                     extracted++;
                     Report(new(index, info.FullName, ArchiveExtractOutcome.Extracted));
                 }
-                catch (Exception error) when (error is IOException or UnauthorizedAccessException or SecurityException or NotSupportedException)
+                catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or SecurityException or NotSupportedException)
                 {
                     failed++;
                     Report(new(index, info.FullName, ArchiveExtractOutcome.Failed, error.Message));
                 }
             }
             return new ArchiveExtractResult(extracted, skipped, failed, items);
+        }
+
+        private static async Task<bool> PublishEntryAsync(ZipArchiveEntry entry, string destination,
+            long expectedSize, CancellationToken cancellationToken)
+        {
+            // Stage beside the final file so publication is a same-volume rename.
+            string staging = Path.Combine(Path.GetDirectoryName(destination)!, $".fileway-archive-{Guid.NewGuid():N}.partial");
+            var ownsStaging = false;
+            try
+            {
+                await using (var input = entry.Open())
+                await using (var output = new FileStream(staging, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous))
+                {
+                    ownsStaging = true;
+                    byte[] buffer = new byte[81920];
+                    long written = 0;
+                    int count;
+                    while ((count = await input.ReadAsync(buffer, cancellationToken).ConfigureAwait(false)) != 0)
+                    {
+                        written += count;
+                        if (written > expectedSize) throw new InvalidDataException("条目大小与目录声明不符。");
+                        await output.WriteAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
+                    }
+                    if (written != expectedSize) throw new InvalidDataException("条目大小与目录声明不符。");
+                    await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                try { File.Move(staging, destination, overwrite: false); }
+                catch (IOException) when (File.Exists(destination)) { return false; }
+                ownsStaging = false;
+                return true;
+            }
+            finally
+            {
+                if (ownsStaging)
+                    try { File.Delete(staging); }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException or SecurityException) { }
+            }
         }
 
         public async Task<ArchiveEntryContent> ReadEntryAsync(int index, long maximumBytes, CancellationToken cancellationToken)
@@ -179,10 +221,18 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
             var info = Entries[index];
             if (info.IsDirectory) throw Safe(ErrorCode.InvalidRequest, "文件夹不能预览。");
             if (info.Size > maximumBytes) throw Safe(ErrorCode.ResponseTooLarge, "条目超过本次预览的大小上限。");
-            lock (_gate)
+            await _archiveAccess.WaitAsync(cancellationToken).ConfigureAwait(false);
+            try
             {
-                if (_released) throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged));
+                EnsureOpen();
+                return await ReadEntryCoreAsync(index, info, maximumBytes, cancellationToken).ConfigureAwait(false);
             }
+            finally { _archiveAccess.Release(); }
+        }
+
+        private async Task<ArchiveEntryContent> ReadEntryCoreAsync(int index, ArchiveEntryInfo info,
+            long maximumBytes, CancellationToken cancellationToken)
+        {
             try
             {
                 var entry = zip.Entries[index];
@@ -220,20 +270,39 @@ public sealed partial class FilewayClientServices : IArchiveBrowseService
             return normalized;
         }
 
-        public async ValueTask DisposeAsync()
+        private void EnsureOpen()
         {
-            FilewayException? failure = null;
-            lock (_gate) _released = true;
+            lock (_gate)
+                if (_released) throw Safe(ErrorCode.SourceChanged, Message(ErrorCode.SourceChanged));
+        }
+
+        public ValueTask DisposeAsync()
+        {
+            lock (_gate)
+            {
+                _released = true;
+                return new ValueTask(_disposeTask ??= DisposeResourcesAsync());
+            }
+        }
+
+        private async Task DisposeResourcesAsync()
+        {
+            await _archiveAccess.WaitAsync().ConfigureAwait(false);
             try
             {
-                zip.Dispose();
-                content.Dispose();
-                response.Dispose();
+                FilewayException? failure = null;
+                try
+                {
+                    zip.Dispose();
+                    content.Dispose();
+                    response.Dispose();
+                }
+                catch (Exception) { failure = Safe(ErrorCode.OutcomeUnknown, Message(ErrorCode.OutcomeUnknown)); }
+                if (!await lease.TryDisposeConfirmedAsync().ConfigureAwait(false))
+                    failure = Safe(ErrorCode.OutcomeUnknown, Message(ErrorCode.OutcomeUnknown));
+                if (failure is not null) throw failure;
             }
-            catch (Exception error) { failure = Safe(ErrorCode.OutcomeUnknown, Message(ErrorCode.OutcomeUnknown)); _ = error; }
-            if (!await lease.TryDisposeConfirmedAsync().ConfigureAwait(false))
-                failure = new FilewayException(new ErrorInfo(ErrorCode.OutcomeUnknown, Message(ErrorCode.OutcomeUnknown)));
-            if (failure is not null) throw failure;
+            finally { _archiveAccess.Release(); }
         }
     }
 }
