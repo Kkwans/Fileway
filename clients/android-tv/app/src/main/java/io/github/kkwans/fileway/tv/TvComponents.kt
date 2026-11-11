@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.FocusRequester
@@ -36,14 +37,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.platform.LocalView
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.Window
 import androidx.tv.material3.*
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 
 internal val LocalTvInteractive = staticCompositionLocalOf { true }
 internal val LocalTvCompact = staticCompositionLocalOf { false }
+internal val LocalTvConfirmKeyGuard = staticCompositionLocalOf<TvConfirmKeyGuard?> { null }
+
+internal fun TvConfirmKeyGuard.intercept(event: KeyEvent): Boolean = consume(
+    TvConfirmPress(event.keyCode, event.downTime, event.deviceId),
+    release = event.action == KeyEvent.ACTION_UP,
+    repeat = event.action == KeyEvent.ACTION_DOWN && event.repeatCount > 0,
+)
 
 val LocalTvRemoteGateway=staticCompositionLocalOf<TvRemoteGateway?>{null}
 
@@ -51,7 +61,7 @@ val LocalTvRemoteGateway=staticCompositionLocalOf<TvRemoteGateway?>{null}
     val chrome: Color, val raised: Color, val secondaryText: Color, val outline: Color,
 )
 internal val LocalTvSurfaces = staticCompositionLocalOf { TvSurfaceRoles(
-    Color(0xFF20262F), Color(0xFF35404D), Color(0xFFBCC7D7), Color(0xFF4E5B6D),
+    Color(0xFF28282A), Color(0xFF48484B), Color(0xFFD0D0D2), Color(0xFF66666A),
 ) }
 internal val TvShape = RoundedCornerShape(12.dp)
 
@@ -77,10 +87,10 @@ private val TvTypography = Typography(
     // focus. Video and image canvases retain their own black surface.
     val colors = if (dark) darkColorScheme(
         primary = FilewayPalette.darkAccent, onPrimary = FilewayPalette.darkCanvas,
-        secondary = FilewayPalette.darkAccent, secondaryContainer = Color(0xFF35404D),
+        secondary = FilewayPalette.darkAccent, secondaryContainer = Color(0xFF424245),
         onSecondaryContainer = Color(0xFFF0F4FA),
-        background = if (media) FilewayPalette.playerCanvas else Color(0xFF292B30),
-        surface = if (media) FilewayPalette.playerSurface else Color(0xFF32353A),
+        background = if (media) FilewayPalette.playerCanvas else Color(0xFF303032),
+        surface = if (media) Color(0xFF202020) else Color(0xFF38383B),
         onBackground = Color(0xFFF0F4FA), onSurface = Color(0xFFF0F4FA),
     ) else lightColorScheme(
         primary = FilewayPalette.blue, onPrimary = Color.White,
@@ -89,7 +99,7 @@ private val TvTypography = Typography(
         background = FilewayPalette.lightCanvas, surface = FilewayPalette.lightSurface,
         onBackground = FilewayPalette.lightText, onSurface = FilewayPalette.lightText,
     )
-    val surfaces = if (dark) TvSurfaceRoles(Color(0xFF24262B), Color(0xFF41444A), Color(0xFFCBCDD2), Color(0xFF60636A))
+    val surfaces = if (dark) TvSurfaceRoles(Color(0xFF28282A), Color(0xFF48484B), Color(0xFFD0D0D2), Color(0xFF66666A))
         else TvSurfaceRoles(Color(0xFFEDF1F6), Color(0xFFE6EDF6), FilewayPalette.lightSecondary, Color(0xFFB2BFCE))
     MaterialTheme(colorScheme = colors, typography = TvTypography) {
         CompositionLocalProvider(LocalContentColor provides colors.onBackground, LocalTvSurfaces provides surfaces, content = content)
@@ -117,7 +127,8 @@ private val TvTypography = Typography(
 }
 
 @Composable fun TvField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier,
-    password: Boolean = false, options: KeyboardOptions = KeyboardOptions.Default) {
+    password: Boolean = false, options: KeyboardOptions = KeyboardOptions.Default,
+    focusedBorderColor: Color = MaterialTheme.colorScheme.primary) {
     var focused by remember { mutableStateOf(false) }
     val gateway=LocalTvRemoteGateway.current
     val interactive=LocalTvInteractive.current
@@ -128,7 +139,7 @@ private val TvTypography = Typography(
         Text(label, style = MaterialTheme.typography.bodySmall, color = LocalTvSurfaces.current.secondaryText)
         BasicTextField(value, onValueChange, enabled=interactive, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .semantics { contentDescription = label }.onFocusChanged { focused = it.isFocused;if(it.isFocused)gateway?.input=receiver else if(gateway?.input===receiver)gateway.input=null }.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
-            .border(2.dp, if (focused) MaterialTheme.colorScheme.primary else LocalTvSurfaces.current.outline, TvShape)
+            .border(2.dp, if (focused) focusedBorderColor else LocalTvSurfaces.current.outline, TvShape)
             .padding(12.dp), singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
@@ -156,16 +167,26 @@ private val TvTypography = Typography(
 
 /** Dialogs own a separate Android Window; dispatch to that actual focus tree. */
 @Composable fun TvRemoteDialogKeys(onBack:()->Unit){
-    val gateway=LocalTvRemoteGateway.current;val view=LocalView.current
+    val gateway=LocalTvRemoteGateway.current;val view=LocalView.current;val confirmGuard=LocalTvConfirmKeyGuard.current
     val latestBack by rememberUpdatedState(onBack)
-    DisposableEffect(gateway,view){
+    DisposableEffect(gateway,view,confirmGuard){
         val previousKey=gateway?.key;val previousBack=gateway?.back
+        val window=(view.parent as? DialogWindowProvider)?.window
+        val previousCallback=window?.callback
+        val guardedCallback = if (confirmGuard != null && previousCallback != null) object : Window.Callback by previousCallback {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+                confirmGuard.intercept(event) || previousCallback.dispatchKeyEvent(event)
+        } else null
+        if (window != null && guardedCallback != null) window.callback = guardedCallback
         val receiver:(Int)->Unit={code->val time=SystemClock.uptimeMillis();view.rootView.dispatchKeyEvent(KeyEvent(time,time,KeyEvent.ACTION_DOWN,code,0));view.rootView.dispatchKeyEvent(KeyEvent(time,time,KeyEvent.ACTION_UP,code,0));Unit}
         val goBack:()->Unit={
             if(androidx.core.view.ViewCompat.getRootWindowInsets(view)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())==true)view.context.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(view.windowToken,0)
             else latestBack()
         };gateway?.key=receiver;gateway?.back=goBack
-        onDispose{if(gateway?.key===receiver)gateway.key=previousKey;if(gateway?.back===goBack)gateway.back=previousBack}
+        onDispose{
+            if (window != null && guardedCallback != null && window.callback === guardedCallback) window.callback = previousCallback
+            if(gateway?.key===receiver)gateway.key=previousKey;if(gateway?.back===goBack)gateway.back=previousBack
+        }
     }
 }
 
@@ -223,10 +244,12 @@ fun Modifier.tvRemoteKeys(onDown: (androidx.compose.ui.input.key.KeyEvent) -> Bo
 /** TV Material 1.1.0 provides D-pad/semantics actions without pointer clicks.
  * Add pointer handling only, keeping its existing focus and key semantics.
  * A scroll cancels the press; lifting after a scroll never opens a card. */
-fun Modifier.tvTouch(onClick: () -> Unit, enabled: Boolean = true, interaction: MutableInteractionSource? = null): Modifier = composed {
+fun Modifier.tvTouch(onClick: () -> Unit, enabled: Boolean = true, interaction: MutableInteractionSource? = null,
+    onLongClick: (() -> Unit)? = null): Modifier = composed {
     val click by rememberUpdatedState(onClick)
+    val longClick by rememberUpdatedState(onLongClick)
     val focus = remember { FocusRequester() }
-    this.focusRequester(focus).pointerInput(enabled, interaction) {
+    this.focusRequester(focus).pointerInput(enabled, interaction, onLongClick != null) {
         if (enabled) detectTapGestures(
             onPress = { point ->
                 focus.requestFocus()
@@ -237,6 +260,7 @@ fun Modifier.tvTouch(onClick: () -> Unit, enabled: Boolean = true, interaction: 
                 else interaction?.emit(PressInteraction.Cancel(press))
             },
             onTap = { click() },
+            onLongPress = if (onLongClick != null) ({ longClick?.invoke() }) else null,
         )
     }
 }
@@ -290,7 +314,7 @@ internal fun tvDate(value:String):String=runCatching {
         leadingContent=if(leading!=null){{leading()}}else icon?.let{resource-> {Icon(painterResource(resource),null,Modifier.size(24.dp))}},
         trailingContent={Row(horizontalArrangement=Arrangement.spacedBy(10.dp),verticalAlignment=Alignment.CenterVertically){
             value?.let{Text(it,style=MaterialTheme.typography.labelMedium)}
-            if(destination)Icon(painterResource(Art.drawable.fileway_ic_arrow_forward),null,Modifier.size(22.dp))
+            if(destination)Icon(painterResource(Art.drawable.fileway_ic_expand_more),null,Modifier.size(20.dp).rotate(-90f))
             else if(showSelection)Box(Modifier.size(24.dp),contentAlignment=Alignment.Center){if(selected)Icon(painterResource(Art.drawable.fileway_ic_check),null,Modifier.size(22.dp))}
         }})
 }

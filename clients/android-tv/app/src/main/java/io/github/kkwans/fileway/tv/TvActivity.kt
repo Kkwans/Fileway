@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.Window
 import android.view.inputmethod.InputMethodManager
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -26,12 +27,29 @@ import kotlinx.coroutines.launch
 
 class TvActivity : ComponentActivity() {
     private lateinit var model: TvModel
+    private lateinit var subtitlePicker: TvLocalSubtitlePicker
+    private val confirmKeyGuard = TvConfirmKeyGuard()
+    private var previousWindowCallback: Window.Callback? = null
+    private var guardedWindowCallback: Window.Callback? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.callback?.let { previous ->
+            previousWindowCallback = previous
+            val guarded = object : Window.Callback by previous {
+                override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+                    confirmKeyGuard.intercept(event) || previous.dispatchKeyEvent(event)
+            }
+            guardedWindowCallback = guarded
+            window.callback = guarded
+        }
         window.decorView.systemUiVisibility = 5894
         model = ViewModelProvider(this)[TvModel::class.java]
+        subtitlePicker = TvLocalSubtitlePicker(this, model.media)
         lifecycle.addObserver(object : DefaultLifecycleObserver {
-            override fun onResume(owner: LifecycleOwner) { model.updates.reconcileInstall() }
+            override fun onResume(owner: LifecycleOwner) {
+                subtitlePicker.afterResume()
+                model.updates.reconcileInstall()
+            }
         })
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -52,7 +70,8 @@ class TvActivity : ComponentActivity() {
             val state by model.state.collectAsStateWithLifecycle()
             val media by model.media.state.collectAsStateWithLifecycle()
             TvTheme(state.dark) {
-                CompositionLocalProvider(LocalTvRemoteGateway provides model.remoteGateway) {
+                CompositionLocalProvider(LocalTvRemoteGateway provides model.remoteGateway, LocalTvSubtitlePicker provides subtitlePicker,
+                    LocalTvConfirmKeyGuard provides confirmKeyGuard) {
                 Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                     if (!state.connected) TvLoginScreen(model)
                     else {
@@ -69,6 +88,11 @@ class TvActivity : ComponentActivity() {
         }
     }
     override fun onStart(){super.onStart();model.foreground()}
-    override fun onStop() { model.pause(); super.onStop() }
-    override fun onDestroy(){model.remoteGateway.key=null;model.remoteGateway.back=null;super.onDestroy()}
+    override fun onStop() { subtitlePicker.beforeStop(); model.pause(); super.onStop() }
+    override fun onDestroy(){
+        guardedWindowCallback?.let { if (window.callback === it) window.callback = previousWindowCallback }
+        guardedWindowCallback = null
+        previousWindowCallback = null
+        confirmKeyGuard.clear();model.remoteGateway.key=null;model.remoteGateway.back=null;super.onDestroy()
+    }
 }

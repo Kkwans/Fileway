@@ -1,7 +1,9 @@
 package io.github.kkwans.fileway.tv
 
 import android.content.Context
+import android.os.SystemClock
 import android.view.KeyEvent
+import androidx.lifecycle.viewModelScope
 import io.github.kkwans.fileway.remote.*
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.data.*
@@ -15,6 +17,50 @@ import java.security.MessageDigest
 class TvRemoteGateway(private val model:TvModel,context:Context){
     private val handoff=TvMediaHandoff(model)
     private val authorization=DeviceAuthorization(context)
+    private val subtitleBrowser = TvRemoteSubtitleBrowser(
+        scope = model.viewModelScope,
+        source = ::subtitleSource,
+        authorize = { peer -> model.remote.authorized(JSONObject().put("controllerId", peer.controller).put("connectionId", peer.connection)) },
+        elapsed = SystemClock::elapsedRealtime,
+        prepare = { entry, epoch, selection, authorized ->
+            model.media.prepareRemoteScopedSubtitle(entry, epoch, selection, authorized)?.let { operation ->
+                TvRemoteSubtitleBrowser.Import({ operation.result.await() }, operation::cancel)
+            }
+        },
+    )
+    private fun subtitleSource(): TvRemoteSubtitleBrowser.Source? {
+        val (owner, file) = model.media.serverSubtitleSource() ?: return null
+        if (owner !== model.context || owner.api.sessionHealth.value?.code in setOf(SessionHealthCode.EXPIRED, SessionHealthCode.ACCOUNT_CHANGED)) return null
+        val account = owner.account.key
+        val storage = model.media.localSubtitles
+        val local = TvRemoteSubtitleBrowser.LocalSource(
+            revision = storage::remoteRevision,
+            list = { node, offset, anchor ->
+                if (node == null) {
+                    val roots = storage.remoteRoots(account).sortedWith(compareBy({ it.label }, { it.id }))
+                    if (offset > 0 && roots.getOrNull(offset - 1)?.key != anchor)
+                        throw TvLocalSubtitleFailure("电视目录已变化，请重新读取", TvLocalSubtitleIssue.DIRECTORY_CHANGED)
+                    val rows = roots.drop(offset).take(32)
+                    val next = offset + rows.size
+                    val after = (offset + 1..next).toList()
+                    TvRemoteSubtitleBrowser.LocalPage(rows, after, next.takeIf { it < roots.size },
+                        after.zip(rows) { cursor, row -> cursor to row.key }.toMap())
+                } else {
+                    val page = storage.remotePage(account, node as TvLocalSubtitleStorage.Node, offset, anchor)
+                    TvRemoteSubtitleBrowser.LocalPage(page.rows, page.afterRow, page.next, page.anchors)
+                }
+            },
+            verify = { storage.remoteReadableUri(account, it as TvLocalSubtitleStorage.Node) },
+            prepare = { node, epoch, selection, authorized ->
+                model.media.prepareRemoteLocalSubtitle(node as TvLocalSubtitleStorage.Node, epoch, selection, authorized)?.let { operation ->
+                    TvRemoteSubtitleBrowser.Import({ operation.result.await() }, operation::cancel)
+                }
+            },
+        )
+        return TvRemoteSubtitleBrowser.Source(owner, owner.api.identity.id, model.sessionEpoch, model.media.controlEpoch,
+            model.media.player.state.value.mediaGeneration, file, model.media.localSubtitleFence()?.selection, local,
+            scoped = if (model.media.state.value.scopedSubtitlePages) ({ ScopedSubtitleResources(owner.api) }) else null)
+    }
     private var pending:DeviceGrantRequest?=null
     var key:((Int)->Unit)?=null
     var back:(()->Unit)?=null
@@ -28,6 +74,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
     private fun files():List<ResourceRef> = when(model.state.value.route){
         TvRoute.HOME->model.state.value.rootEntries
         TvRoute.RECENT->model.state.value.recentPlayback.map{ResourceRef(it.path,it.wirePath,it.name,false,"",0)}
+        TvRoute.RECENT_ACCESS->tvRecentAccessResources(model.recentAccess.state.value.items)
         TvRoute.FAVORITES->model.favorites.state.value.items.filter{it.openable}.map{ResourceRef(it.path,it.wirePath,it.name,false,"",0)}
         else->model.visibleFiles()
     }
@@ -41,7 +88,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
     private fun subtitleRows():List<JSONObject> {
         val media=model.media.state.value;val player=model.media.player
         val source=media.sourceText.takeIf{media.sourceSubtitles}.orEmpty()
-        val native=player.state.value.subtitles.filter{it.id>=0&&(source.isEmpty()||player.importedSubtitleIdentity(it.id)!=null)}
+        val native=player.state.value.subtitles.filter{it.id>=0&&model.media.subtitleTrackPublished(it.id)&&(source.isEmpty()||player.importedSubtitleIdentity(it.id)!=null)}
         return source.map{JSONObject().put("id",it.index).put("title",it.title.take(240)).put("codec",it.codec.take(40)).put("language",it.language.take(40)).put("source",true)}+
             native.map{JSONObject().put("id",it.id).put("title",it.title.take(240)).put("codec",it.codec.take(40)).put("language",it.language.take(40)).put("source",false)}
     }
@@ -75,7 +122,8 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             .put("connected",ui.connected).put("error",media.error?:player.error?:ui.error?:JSONObject.NULL)
             .put("notice",media.subtitleError?:media.subtitleNotice?:media.notice?:player.operationError?:ui.notice?:JSONObject.NULL)
             .put("files",JSONArray(files().take(24).map(::fileJson))).put("total",files().size)
-            .put("preferences",JSONObject().put("dark",ui.dark).put("gridColumns",ui.gridColumns).put("safePercent",ui.safePercent).put("clockAlways",ui.clockAlways).put("speedAlways",ui.speedAlways).put("seekStepSeconds",ui.seekStepSeconds).put("controlsTimeoutSeconds",ui.controlsTimeoutSeconds))
+            .put("preferences",JSONObject().put("dark",ui.dark).put("gridColumns",ui.gridColumns).put("safePercent",ui.safePercent).put("clockAlways",ui.clockAlways).put("speedAlways",ui.speedAlways).put("seekStepSeconds",ui.seekStepSeconds).put("controlsTimeoutSeconds",ui.controlsTimeoutSeconds).put("detailsHoldMillis",ui.detailsHoldMillis))
+        if (scene == "VIDEO") content.put("subtitleStorageRevision", model.media.localSubtitles.remoteRevision())
         model.context?.let{content.put("session",JSONObject().put("origin",it.profile.address.take(512)).put("username",it.api.identity.username.take(120)))}
         media.file?.let{content.put("media",fileJson(it).put("name",it.name.take(1024)))}
         if(scene=="IMAGE")content.put("image",JSONObject(imageView.toString()))
@@ -94,17 +142,23 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             .put("audioCount",audioRows().size).put("subtitleCount",subtitleRows().size).put("sidecarCount",media.sidecars.size)
             .put("subtitleAppearance",JSONObject().put("scale",appearance.scale).put("bottomPadding",appearance.bottomPadding).put("backgroundOpacity",appearance.backgroundOpacity).put("area",appearance.area.name).put("fontId",fontId(appearance.fontKey)).put("fontLabel",SubtitleFontCatalog.state.value.resolve(appearance.fontKey).label.take(120)))
             .put("audio",JSONArray(if(media.compatible)media.sourceAudio.take(16).map{JSONObject().put("id",it.index).put("title",it.title.take(120)).put("codec",it.codec.take(40)).put("language",it.language.take(40)).put("source",true)} else player.audio.take(16).map{JSONObject().put("id",it.id).put("title",it.title.take(120)).put("codec",it.codec.take(40)).put("language",it.language.take(40)).put("source",false)}))
-            .put("subtitles",JSONArray(player.subtitles.take(16).map{JSONObject().put("id",it.id).put("title",it.title.take(120))}))
+            .put("subtitles",JSONArray(player.subtitles.filter{model.media.subtitleTrackPublished(it.id)}.take(16).map{JSONObject().put("id",it.id).put("title",it.title.take(120))}))
             .put("sourceSubtitles",JSONArray(media.sourceText.takeIf{media.sourceSubtitles}.orEmpty().take(16).map{JSONObject().put("id",it.index).put("title",it.title.take(120)).put("language",it.language.take(40))}))
             .put("sidecars",JSONArray(media.sidecars.take(8).map(::fileJson))).put("selectedAudio",if(media.compatible)media.selectedSourceAudio?:-1 else player.selectedAudio)
             .put("selectedSubtitle",player.selectedSubtitle).put("selectedSourceSubtitle",media.selectedSourceSubtitle))
         media.queue?.let{q->content.put("queue",JSONObject().put("index",q.index).put("count",q.items.size).put("items",JSONArray(q.items.take(8).map(::fileJson))))}
         handoff.snapshot()?.let{content.put("handoff",it)}
+        val capabilities = JSONObject().put("navigation",true).put("input",true).put("deviceAuth",true).put("media",true).put("nativeHandoff",1).put("mediaPanels",1).put("fileDetailsKey",1).put("recentAccessPage",1)
+        if (scene == "VIDEO" && subtitleBrowser.available) capabilities.put("subtitleBrowseServer", 1)
+        if (scene == "VIDEO" && subtitleBrowser.available) capabilities.put("subtitleBrowseServerCursor", 1)
+        if (scene == "VIDEO" && subtitleBrowser.serverUpgradeRequired) capabilities.put("subtitleBrowseServerReason", "SERVER_UPGRADE_REQUIRED")
+        if (scene == "VIDEO" && subtitleBrowser.localAvailable) capabilities.put("subtitleBrowseLocal", 1)
         return JSONObject().put("sessionEpoch",model.sessionEpoch).put("mediaEpoch",model.media.controlEpoch).put("scene",scene)
-            .put("capabilities",JSONObject().put("navigation",true).put("input",true).put("deviceAuth",true).put("media",true).put("nativeHandoff",1).put("mediaPanels",1)).put("content",content).also(::boundRemoteSnapshot)
+            .put("capabilities",capabilities).put("content",content).also(::boundRemoteSnapshot)
     }
     suspend fun execute(command:JSONObject):JSONObject{
         val operation=command.getString("operation");val p=command.getJSONObject("payload")
+        if (operation.startsWith("subtitle.browse.")) return subtitleBrowser.execute(operation, command, p)
         check(command.getLong("sessionEpoch")==model.sessionEpoch){"TV账号或服务器已变化，请刷新"}
         if(operation.startsWith("playback.")||operation.startsWith("subtitle.")||operation.startsWith("audio.")||operation.startsWith("queue.")||operation.startsWith("image.")){
             check(command.getLong("mediaEpoch")==model.media.controlEpoch){"播放内容已变化，请刷新"}
@@ -128,13 +182,14 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             "app.navigate"->{model.navigate(TvRoute.valueOf(p.getString("route")))}
             "app.list"->{val start=p.optInt("offset").coerceAtLeast(0);val count=p.optInt("count",32).coerceIn(1,32);val kind=p.optString("kind","files");if(kind!="files"){check(command.getLong("mediaEpoch")==model.media.controlEpoch){"播放内容已变化"};return listMedia(kind,start,count)};return JSONObject().put("files",JSONArray(files().drop(start).take(count).map(::fileJson))).put("total",files().size)}
             "app.back"->(back?:error("TV界面尚未就绪"))()
-            "app.key"->{val code=when(p.getString("key")){"up"->KeyEvent.KEYCODE_DPAD_UP;"down"->KeyEvent.KEYCODE_DPAD_DOWN;"left"->KeyEvent.KEYCODE_DPAD_LEFT;"right"->KeyEvent.KEYCODE_DPAD_RIGHT;"ok"->KeyEvent.KEYCODE_DPAD_CENTER;else->error("按键不支持")};(key?:error("TV界面尚未就绪"))(code)}
+            "app.key"->{val code=when(p.getString("key")){"up"->KeyEvent.KEYCODE_DPAD_UP;"down"->KeyEvent.KEYCODE_DPAD_DOWN;"left"->KeyEvent.KEYCODE_DPAD_LEFT;"right"->KeyEvent.KEYCODE_DPAD_RIGHT;"ok"->KeyEvent.KEYCODE_DPAD_CENTER;"details"->KeyEvent.KEYCODE_INFO;else->error("按键不支持")};(key?:error("TV界面尚未就绪"))(code)}
             "app.inputText"->{val text=p.getString("text");require(text.length<=4096){"输入过长"};if(p.optString("target")=="search")model.search(text,SearchScope.valueOf(p.optString("scope","GLOBAL")))else (input?:error("请先选择TV中的输入框"))(text)}
             "app.setPreference"->when(p.getString("key")){
                 "dark"->model.setDark(p.getBoolean("value"));"gridColumns"->model.setColumns(p.getInt("value"));"safePercent"->model.setSafePercent(p.getInt("value"))
                 "clockAlways"->model.setClockAlways(p.getBoolean("value"));"speedAlways"->model.setSpeedAlways(p.getBoolean("value"))
                 "seekStepSeconds"->{val value=p.getInt("value");require(value in 3..30);model.setSeekStep(value)}
                 "controlsTimeoutSeconds"->{val value=p.getInt("value");require(value in 2..30);model.setControlsTimeout(value)}
+                "detailsHoldMillis"->{val value=p.getInt("value");require(value in 500..2000);model.setDetailsHold(value)}
                 "cacheMiB"->{val limit=p.getLong("value");require(limit in 64..65536);model.media.cache.setLimit(limit*1048576)}
                 else->error("设置不支持")
             }
@@ -149,7 +204,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             "playback.setHdrMode"->model.media.switchMode(TvHdrMode.valueOf(p.getString("mode")))
             "audio.select"->{val id=p.getInt("id");if(p.optBoolean("source")){check(model.media.state.value.compatible&&model.media.state.value.sourceAudio.any{it.index==id}){"音轨已变化"};model.media.selectSourceAudio(id)}else{check(id==-1||player.state.value.audio.any{it.id==id}){"音轨已变化"};model.media.selectAudio(id)}}
             "subtitle.disable"->model.media.subtitlesOff()
-            "subtitle.select"->{val id=p.getInt("id");if(p.optBoolean("source")){check(model.media.state.value.sourceText.any{it.index==id});model.media.selectSourceSubtitle(id)}else{check(player.state.value.subtitles.any{it.id==id});model.media.selectPlayerSubtitle(id)}}
+            "subtitle.select"->{val id=p.getInt("id");if(p.optBoolean("source")){check(model.media.state.value.sourceText.any{it.index==id});model.media.selectSourceSubtitle(id)}else{check(model.media.subtitleTrackPublished(id)&&player.state.value.subtitles.any{it.id==id});model.media.selectPlayerSubtitle(id)}}
             "subtitle.selectNasFile"->{val file=model.media.state.value.sidecars.firstOrNull{resourceId(it)==p.getString("id")}?:error("字幕列表已变化");model.media.selectExternalSubtitle(file)}
             "subtitle.setDelay"->{val delay=p.getLong("delayMs");require(delay in -600000..600000);player.subtitleDelay(delay)}
             "subtitle.setAppearance"->{

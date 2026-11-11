@@ -51,6 +51,12 @@ TV 0.2.0 与手机端 1.2.2 引入局域网配对和独立设备登录。
 配对与撤销入口位于 TV 设置。首次未配对时也可从登录页连接手机。
 操作及安全边界见[手机遥控说明](../android/docs/tv-control.md)。
 
+快照中的 `fileDetailsKey: 1` 表示 `app.key` 支持 `key: "details"`，用于查看当前
+焦点文件的详情；手机仅在该能力存在时为确认键启用长按。`detailsHoldMillis` 是
+物理 TV 遥控器的长按阈值（500–2000ms）。`recentAccessPage: 1` 表示支持导航到
+`RECENT_ACCESS`；该列表与手机一致排除视频，且不展示无法验证原始路径的记录。
+旧 TV 没有这些能力声明时，手机保留原有确认键行为。
+
 ## 验证边界
 
 构建、模拟器交互和物理设备播放分别记录。API28 安装不证明硬件解码、HDR、
@@ -64,6 +70,9 @@ TV 0.2.0 与手机端 1.2.2 引入局域网配对和独立设备登录。
 `design-foundation/MediaProgressTrack.kt`，各端保留自己的遥控、触摸与焦点输入。
 TV 媒体菜单使用一个窗口承载轨道、外观、同步、字体、倍速和队列层级，使用静态
 半透明表面，不调用手机端的跨窗口实时模糊。
+
+播放控制的横向分组框架适配自 [JetStream VideoPlayerMainFrame](https://github.com/android/tv-samples/blob/15ac8df7df91a07450751a5fe8c6fd17a6a4297f/JetStreamCompose/jetstream/src/main/java/com/google/jetstream/presentation/screens/videoPlayer/components/VideoPlayerMainFrame.kt)，
+Copyright 2024 Google LLC，Apache License 2.0；时间轴位于操作行上方，与手机端一致。电视播放状态、输入和字幕仍使用栖卷现有核心。
 
 `TvPlayerChoiceList` 的选择列表／焦点结构适配自 [BV RadioMenuList](https://github.com/aaa1115910/bv/blob/0e454c06e954b00df7a0a5a6873c9f18a7f9d0f5/player/tv/src/main/kotlin/dev/aaa1115910/bv/player/tv/controller/playermenu/component/RadioMenuList.kt)，
 Copyright (c) 2022 aaa1115910，MIT；许可随 APK 保留在 `licenses/bv-MIT.txt`。

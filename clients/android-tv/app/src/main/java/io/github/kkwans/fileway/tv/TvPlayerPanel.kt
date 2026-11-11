@@ -6,34 +6,53 @@ package io.github.kkwans.fileway.tv
 
 import android.graphics.drawable.ColorDrawable
 import android.view.KeyEvent
-import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.*
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -44,123 +63,584 @@ import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 import io.github.kkwans.nasfilebrowser.ui.designsystem.drawMediaProgressTrack
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 
-internal enum class TvPlayerPage(val title:String) {
-    SETTINGS("播放设置"), AUDIO("音轨"), SUBTITLE("字幕"), APPEARANCE("字幕外观"), SYNC("字幕同步"),
-    FONT("字幕字体"), EXTERNAL("选择外挂字幕"), SPEED("播放速度"), HDR("动态范围"), RATIO("画面比例"),
+internal enum class TvPlayerPage(val title: String) {
+    SETTINGS("播放设置"), AUDIO("音轨"), SUBTITLE("字幕"), SUBTITLE_ADJUST("字幕调整"),
+    APPEARANCE("字幕外观"), SYNC("字幕同步"), FONT("字幕字体"), SUBTITLE_SOURCE("添加字幕"),
+    EXTERNAL("服务器字幕"), LOCAL_SUBTITLE("本机字幕"), SPEED("播放速度"), HDR("动态范围"), RATIO("画面比例"),
     VOLUME("应用音量"), QUEUE("播放列表"), INFO("播放信息"),
 }
+
 internal sealed interface TvPlayerRow {
-    val key:String
-    data class Heading(override val key:String,val title:String):TvPlayerRow
-    data class Choice(override val key:String,val title:String,val selected:Boolean=false,val enabled:Boolean=true,
-        val supporting:String?=null,val value:String?=null,val icon:Int?=null,val destination:Boolean=false,
-        val selectable:Boolean=true,val action:()->Unit):TvPlayerRow
+    val key: String
+
+    data class Heading(override val key: String, val title: String) : TvPlayerRow
+    data class Choice(
+        override val key: String, val title: String, val selected: Boolean = false,
+        val enabled: Boolean = true, val supporting: String? = null, val value: String? = null,
+        val icon: Int? = null, val destination: Boolean = false, val selectable: Boolean = true,
+        val action: () -> Unit, val fontFamily: FontFamily? = null,
+    ) : TvPlayerRow
 }
 
-/** One stable dialog window for all player pages. Its material is static alpha. */
-@Composable internal fun TvPlayerPanel(title:String,labels:List<String>,child:Boolean,onBack:()->Unit,onClose:()->Unit,content:@Composable ColumnScope.()->Unit) {
-    Dialog(onDismissRequest=onClose,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false,dismissOnBackPress=false)) {
-        TvTheme(dark=true,media=true) {
-            BackHandler(onBack=onBack)
-            TvRemoteDialogKeys(onBack)
-            val view=LocalView.current
-            SideEffect {
-                (view.parent as? DialogWindowProvider)?.window?.let { window->
+internal class TvPlayerPanelFocus(initialKey: String?, val onFocused: (String) -> Unit) {
+    val header = FocusRequester()
+    val body = FocusRequester()
+    val section = FocusRequester()
+    val appearanceScale = FocusRequester()
+    var hasSection = false
+    var hasHeader = true
+    private val initial = FocusRequester()
+    var initialKey by mutableStateOf(initialKey)
+        private set
+    var pending by mutableStateOf(true)
+        private set
+
+    fun retarget(key: String?) {
+        initialKey = key
+        pending = true
+    }
+
+    @Composable fun target(key: String, preferred: Boolean, modifier: Modifier = Modifier): Modifier {
+        var placed by remember { mutableStateOf(false) }
+        LaunchedEffect(placed, preferred, pending) {
+            if (placed && preferred && pending && initial.requestFocus(FocusDirection.Enter)) pending = false
+        }
+        return modifier
+            .then(if (preferred) Modifier.focusRequester(initial) else Modifier)
+            .onFocusChanged { if (it.isFocused) onFocused(key) }
+            .onGloballyPositioned { placed = it.isAttached }
+    }
+}
+
+private const val PanelBackKey = "header/back"
+private const val PanelCloseKey = "header/close"
+// Static neutral translucency: readable against bright footage without a live blur.
+internal val PanelSurface = Color(0xD61A1B1C)
+internal val PanelFocus = Color.White.copy(alpha = .12f)
+internal val PanelOutline = Color(0xF2F2F5F8)
+private val PanelTabShape = RoundedCornerShape(50)
+
+private fun tvPlayerPanelVerticalInset(height: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
+    if (height >= 160.dp) ((height - 144.dp) / 2).coerceIn(8.dp, 16.dp) else 7.dp
+
+private val PanelTabs = listOf(
+    TvPlayerPage.QUEUE to "列表",
+    TvPlayerPage.SETTINGS to "设置",
+    TvPlayerPage.SUBTITLE to "字幕",
+    TvPlayerPage.AUDIO to "音频",
+    TvPlayerPage.INFO to "信息",
+)
+private val SubtitleSections = listOf(
+    TvPlayerPage.SUBTITLE to "选择字幕",
+    TvPlayerPage.SUBTITLE_SOURCE to "添加字幕",
+    TvPlayerPage.SUBTITLE_ADJUST to "字幕调整",
+)
+internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
+
+/** The dialog keeps the same native focus window while its bottom panel changes pages. */
+@Composable internal fun TvPlayerPanel(
+    page: TvPlayerPage, safePercent: Int, child: Boolean, audio: Boolean,
+    quick: Boolean, hudHeight: androidx.compose.ui.unit.Dp, quickAnchor: Rect?, quickLabels: List<String>,
+    settingsUnderlay: List<TvPlayerRow.Choice>,
+    initialKey: String?, onFocused: (String) -> Unit, onTab: (TvPlayerPage) -> Unit,
+    onSubtitleSection: (TvPlayerPage) -> Unit, onBack: (String) -> Unit, onClose: () -> Unit,
+    content: @Composable ColumnScope.(TvPlayerPanelFocus) -> Unit,
+) {
+    Dialog(
+        onDismissRequest = { onBack("dialog-window") },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false, decorFitsSystemWindows = false, dismissOnClickOutside = false,
+        ),
+    ) {
+        TvTheme(dark = true, media = true) {
+            TvRemoteDialogKeys { onBack("dialog-phone") }
+            val view = LocalView.current
+            DisposableEffect(view) {
+                (view.parent as? DialogWindowProvider)?.window?.let { window ->
                     window.setDimAmount(0f)
                     window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-                    WindowCompat.getInsetsController(window,view).hide(WindowInsetsCompat.Type.systemBars())
+                    WindowCompat.getInsetsController(window, view).hide(WindowInsetsCompat.Type.systemBars())
                 }
+                onDispose { }
             }
-            val measure=rememberTextMeasurer();val density=LocalDensity.current
-            val style=MaterialTheme.typography.bodyLarge
-            val sample=remember(labels){labels.take(48)+listOfNotNull(labels.maxByOrNull{it.length})}
-            val bodyWidth=remember(sample,style,density) {
-                with(density){sample.maxOfOrNull{measure.measure(it,style,maxLines=1).size.width}?.toDp()?:200.dp}+112.dp
-            }
-            BoxWithConstraints(Modifier.fillMaxSize()) {
-                val available=maxWidth-32.dp
-                val width=maxOf(bodyWidth,with(density){measure.measure(title,MaterialTheme.typography.titleMedium,maxLines=1).size.width.toDp()}+128.dp)
-                    .coerceIn(minOf(304.dp,available),minOf(400.dp,available))
-                Column(Modifier.align(Alignment.CenterEnd).padding(16.dp).width(width).fillMaxHeight()
-                    .background(FilewayPalette.playerSurface.copy(alpha=.94f),RoundedCornerShape(12.dp))
-                    .padding(horizontal=12.dp,vertical=8.dp)) {
-                    Row(Modifier.fillMaxWidth().heightIn(min=56.dp),verticalAlignment=Alignment.CenterVertically) {
-                        if(child)TvPlaybackAction("返回上一页",Art.drawable.fileway_ic_arrow_back,onBack,compact=true)
-                        Text(title,Modifier.weight(1f).padding(horizontal=8.dp),style=MaterialTheme.typography.titleMedium,maxLines=2,overflow=TextOverflow.Ellipsis)
-                        TvPlaybackAction("关闭面板",Art.drawable.fileway_ic_close,onClose,compact=true)
+            val saveable = rememberSaveableStateHolder()
+            BoxWithConstraints(Modifier.fillMaxSize().imePadding()) {
+                val horizontal = tvPlayerSafeInset(maxWidth, safePercent, 16.dp)
+                val bottom = tvPlayerSafeInset(maxHeight, safePercent, 12.dp)
+                if (quick) {
+                    val availableWidth = (maxWidth - horizontal * 2).coerceAtLeast(0.dp)
+                    val density = LocalDensity.current
+                    val measure = rememberTextMeasurer()
+                    val minWidth = minOf(availableWidth, 208.dp)
+                    val maxPopupWidth = minOf(availableWidth, (availableWidth * .40f).coerceAtLeast(minWidth))
+                    val width = remember(quickLabels, page, minWidth, maxPopupWidth, density, measure) {
+                        val style = tvTextStyle(17, 23, FontWeight.Medium)
+                        val maxTextPx = with(density) { (maxPopupWidth - 72.dp).coerceAtLeast(0.dp).toPx() }
+                        var longest = 0f
+                        for (label in quickLabels.asSequence() + sequenceOf(page.title)) {
+                            longest = maxOf(longest, measure.measure(AnnotatedString(label.take(256)), style, maxLines = 1).size.width.toFloat())
+                            if (longest >= maxTextPx) break
+                        }
+                        (with(density) { longest.toDp() } + 72.dp).coerceIn(minWidth, maxPopupWidth)
                     }
-                    key(title){Column(Modifier.fillMaxWidth().weight(1f),content=content)}
+                    val anchorX = quickAnchor?.let { with(density) { it.center.x.toDp() } }
+                    val left = (anchorX?.minus(width / 2) ?: if (page == TvPlayerPage.QUEUE) horizontal else maxWidth - horizontal - width)
+                        .coerceIn(horizontal, (maxWidth - horizontal - width).coerceAtLeast(horizontal))
+                    val anchorTop = quickAnchor?.let { with(density) { it.top.toDp() } }
+                    val popupBottom = (anchorTop?.let { maxHeight - it + 8.dp } ?: maxOf(bottom + 84.dp, hudHeight - 48.dp))
+                        .coerceIn(bottom, (maxHeight - 144.dp).coerceAtLeast(bottom))
+                    val bodyHeight = (maxHeight * .40f).coerceIn(96.dp, 250.dp)
+                        .coerceAtMost((maxHeight - popupBottom - bottom - 44.dp).coerceAtLeast(0.dp))
+                    val dismiss by rememberUpdatedState { onBack("quick-outside") }
+                    Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { dismiss() } })
+                    saveable.SaveableStateProvider("quick/${page.name}") {
+                        val focus = remember(page) { TvPlayerPanelFocus(initialKey, onFocused).apply { hasHeader = false } }
+                        Column(
+                            Modifier.align(Alignment.BottomStart).padding(start = left, bottom = popupBottom)
+                                .width(width).clip(TvShape).background(PanelSurface, TvShape)
+                                .border(1.dp, Color.White.copy(alpha = .09f), TvShape)
+                                .semantics { contentDescription = "${page.title}快捷菜单" }
+                                .pointerInput(Unit) { detectTapGestures { } },
+                        ) {
+                            Box(Modifier.fillMaxWidth().height(44.dp).padding(horizontal = 20.dp), contentAlignment = Alignment.CenterStart) {
+                                Text(page.title, style = tvTextStyle(17, 23, FontWeight.Medium), color = Color.White)
+                            }
+                            Column(Modifier.fillMaxWidth().heightIn(max = bodyHeight).padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
+                                .focusRequester(focus.body).focusGroup()) {
+                                content(focus)
+                            }
+                        }
+                    }
+                } else {
+                val subtitleSection = SubtitleSections.any { it.first == page }
+                val category = if (subtitleSection) TvPlayerPage.SUBTITLE else page
+                val hasTabs = PanelTabs.any { it.first == category }
+                val browser = page == TvPlayerPage.EXTERNAL || page == TvPlayerPage.LOCAL_SUBTITLE
+                val compactChoice = page in listOf(TvPlayerPage.SPEED, TvPlayerPage.HDR, TvPlayerPage.RATIO, TvPlayerPage.VOLUME)
+                val availableWidth = (maxWidth - horizontal * 2).coerceAtLeast(0.dp)
+                val baseHeight = (maxHeight * .32f).coerceIn(128.dp, 256.dp)
+                    .coerceAtMost((maxHeight - bottom - 56.dp).coerceAtLeast(0.dp))
+                val panelWidth = if (compactChoice) minOf(availableWidth, (availableWidth * .28f).coerceIn(224.dp, 300.dp)) else availableWidth
+                val panelLeft = horizontal + if (compactChoice && availableWidth >= 560.dp) availableWidth * .15f else 0.dp
+                // The underlay also has a 48dp tab row and a 6dp gap above
+                // its body. Keep the choice panel above the entire row.
+                val panelBottom = if (compactChoice) bottom + baseHeight + 48.dp + 6.dp + 12.dp
+                    else if (page == TvPlayerPage.QUEUE) bottom + 16.dp else bottom
+                val heightFraction = if (browser) .43f else if (compactChoice) .30f else if (page == TvPlayerPage.QUEUE) .28f else .32f
+                val panelHeight = (maxHeight * heightFraction).coerceIn(if (page == TvPlayerPage.QUEUE) 140.dp else 128.dp, 256.dp)
+                    .coerceAtMost((maxHeight - panelBottom - 56.dp).coerceAtLeast(0.dp))
+                val dismiss by rememberUpdatedState(if (compactChoice && child) ({ onBack("dialog-outside") }) else onClose)
+                Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { dismiss() } })
+                if (page == TvPlayerPage.QUEUE) {
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(panelHeight + panelBottom + 96.dp)
+                        .background(Brush.verticalGradient(0f to Color.Transparent,
+                            .22f to Color.Black.copy(alpha = .42f), .65f to Color.Black.copy(alpha = .66f),
+                            1f to Color.Black.copy(alpha = .80f))))
+                } else if (hasTabs || compactChoice) {
+                    // Fade around the tab labels only: the translucent panel below
+                    // must not be darkened a second time across the video frame.
+                    val headerBottom = if (compactChoice) baseHeight + bottom else panelHeight + panelBottom
+                    Box(Modifier.align(Alignment.BottomCenter)
+                        .padding(bottom = (headerBottom - 8.dp).coerceAtLeast(0.dp))
+                        .fillMaxWidth().height(80.dp)
+                        .background(Brush.verticalGradient(0f to Color.Transparent,
+                            .40f to Color.Black.copy(alpha = .30f), .65f to Color.Black.copy(alpha = .40f),
+                            1f to Color.Transparent)))
+                }
+                if (compactChoice) TvPlayerSettingsUnderlay(
+                    settingsUnderlay, page, audio, availableWidth, baseHeight, horizontal, bottom,
+                    Modifier.align(Alignment.BottomStart),
+                )
+                saveable.SaveableStateProvider(page.name) {
+                    val focus = remember(page) { TvPlayerPanelFocus(initialKey, onFocused).apply { hasSection = subtitleSection } }
+                    Column(
+                        Modifier.align(Alignment.BottomStart).padding(start = panelLeft, bottom = panelBottom)
+                            .width(panelWidth)
+                            .then(if (compactChoice) Modifier.background(PanelSurface, TvShape)
+                                .border(1.dp, Color.White.copy(alpha = .09f), TvShape) else Modifier),
+                        verticalArrangement = Arrangement.spacedBy(if (compactChoice || page == TvPlayerPage.QUEUE) 0.dp else 6.dp),
+                    ) {
+                        Row(
+                            Modifier.width(panelWidth).heightIn(min = 48.dp)
+                                .pointerInput(Unit) { detectTapGestures { } },
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (hasTabs) {
+                                Row(
+                                    Modifier.weight(1f).padding(start = 4.dp).horizontalScroll(rememberScrollState()).focusGroup(),
+                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    for ((tab, label) in PanelTabs) {
+                                        if (audio && tab == TvPlayerPage.SUBTITLE) continue
+                                        val key = "header/tab/${tab.name}"
+                                        val current = category == tab
+                                        TvPlayerPanelButton(
+                                            label, selected = current, description = tab.title.takeIf { tab == TvPlayerPage.QUEUE || tab == TvPlayerPage.SETTINGS }, pill = true,
+                                            onClick = { if (page == tab) focus.body.requestFocus() else onTab(tab) },
+                                            modifier = focus.target(key, focus.initialKey == key,
+                                                (if (current) Modifier.focusRequester(focus.header) else Modifier)
+                                                    .focusProperties { down = focus.body }),
+                                        )
+                                    }
+                                }
+                            } else {
+                                if (child) TvPlaybackAction(
+                                    "返回上一页", Art.drawable.fileway_ic_arrow_back, { onBack("dialog-touch") },
+                                    focus.target(PanelBackKey, focus.initialKey == PanelBackKey,
+                                        Modifier.focusRequester(focus.header).focusProperties {
+                                            down = if (page == TvPlayerPage.APPEARANCE) focus.appearanceScale else focus.body
+                                        }),
+                                    showLabel = false,
+                                )
+                                Text(
+                                    page.title, Modifier.weight(1f).padding(start = if (child) 0.dp else 10.dp),
+                                    style = tvTextStyle(18, 24, FontWeight.Medium), maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            if (!hasTabs) TvPlaybackAction(
+                                "关闭面板", Art.drawable.fileway_ic_close, onClose,
+                                focus.target(PanelCloseKey, focus.initialKey == PanelCloseKey,
+                                    (if (!child) Modifier.focusRequester(focus.header) else Modifier)
+                                        .focusProperties { down = focus.body }),
+                                showLabel = false,
+                            )
+                        }
+                        Box(Modifier.fillMaxWidth()) {
+                            // Match the reference's inset group column and long option rows,
+                            // but derive them from the available width for calibrated displays.
+                            val sideWidth = (panelWidth * .13f).coerceIn(104.dp, 112.dp)
+                                .coerceAtMost(panelWidth * .30f)
+                            val structured = subtitleSection || page == TvPlayerPage.AUDIO || page == TvPlayerPage.SETTINGS
+                            // Tabs, queue artwork and the first panel column share a visual left edge.
+                            val leftInset = 12.dp
+                            val rightInset = 12.dp
+                            val columnGap = 12.dp
+                            val verticalInset = if (page == TvPlayerPage.QUEUE) 0.dp else if (structured) tvPlayerPanelVerticalInset(panelHeight) else 7.dp
+                            Row(
+                                Modifier.width(panelWidth).height(panelHeight)
+                                    .then(if (compactChoice || page == TvPlayerPage.QUEUE) Modifier else Modifier.background(PanelSurface, TvShape)
+                                        .border(1.dp, Color.White.copy(alpha = .09f), TvShape))
+                                    .pointerInput(Unit) { detectTapGestures { } }
+                                    .padding(start = leftInset, end = rightInset, top = verticalInset, bottom = verticalInset),
+                                horizontalArrangement = Arrangement.spacedBy(columnGap),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                if (subtitleSection) Column(
+                                    Modifier.width(sideWidth).fillMaxHeight().verticalScroll(rememberScrollState()).focusGroup(),
+                                ) {
+                                    SubtitleSections.forEachIndexed { index, (section, label) ->
+                                        val current = page == section
+                                        val enter = { if (current) focus.body.requestFocus() else onSubtitleSection(section) }
+                                        val key = tvSubtitleGroupKey(section)
+                                        TvPlayerPanelButton(
+                                            label, selected = current, onClick = { enter() },
+                                            modifier = focus.target(key, focus.initialKey == key,
+                                                (if (current) Modifier.focusRequester(focus.section) else Modifier)
+                                                    .fillMaxWidth()
+                                                    .focusProperties { if (index == 0) up = focus.header }
+                                                    .tvRemoteKeys { event ->
+                                                        if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                                                            enter(); true
+                                                        } else false
+                                                    }),
+                                        )
+                                    }
+                                }
+                                if (page == TvPlayerPage.AUDIO) Box(
+                                    Modifier.width(sideWidth).height(48.dp).padding(horizontal = 14.dp),
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
+                                    Text("音轨", style = tvTextStyle(16, 22), color = Color.White.copy(alpha = .82f))
+                                }
+                                Column(Modifier.weight(1f).fillMaxHeight().focusRequester(focus.body).focusGroup()) {
+                                    content(focus)
+                                }
+                            }
+                        }
+                    }
+                }
                 }
             }
         }
     }
 }
 
-@Composable internal fun TvPlayerChoiceList(rows:List<TvPlayerRow>,onBack:()->Unit,modifier:Modifier=Modifier,initialKey:String?=null,onFocused:(String)->Unit={}) {
-    val scroll=rememberLazyListState()
-    val keys=rows.map{it.key}
-    val first=remember(keys){rows.filterIsInstance<TvPlayerRow.Choice>().let{choices->choices.firstOrNull{it.enabled&&it.key==initialKey}?:choices.firstOrNull{it.enabled&&it.selected}?:choices.firstOrNull{it.enabled}}?.key}
-    val initialFocus=remember{FocusRequester()}
-    LaunchedEffect(keys) {
-        val index=rows.indexOfFirst{it.key==first}
-        if(index>=0){withFrameNanos{};if(scroll.layoutInfo.visibleItemsInfo.none{it.index==index})scroll.scrollToItem(index);withFrameNanos{};initialFocus.requestFocus()}
-    }
-    LazyColumn(modifier.fillMaxWidth().focusRestorer(initialFocus).focusGroup().tvRemoteKeys {
-        if(it.nativeKeyEvent.keyCode==KeyEvent.KEYCODE_DPAD_LEFT){onBack();true}else false
-    },state=scroll,contentPadding=PaddingValues(vertical=4.dp),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        items(rows,key={it.key}) { row->when(row) {
-            is TvPlayerRow.Heading->Text(row.title,Modifier.padding(start=12.dp,top=12.dp,bottom=4.dp),style=MaterialTheme.typography.labelMedium,color=Color.White.copy(alpha=.65f))
-            is TvPlayerRow.Choice->TvPlayerChoiceRow(row,(if(row.key==first)Modifier.focusRequester(initialFocus)else Modifier).onFocusChanged{if(it.isFocused)onFocused(row.key)})
-        }}
+/** Non-interactive parent context while a compact settings choice has focus. */
+@Composable private fun TvPlayerSettingsUnderlay(
+    rows: List<TvPlayerRow.Choice>, active: TvPlayerPage, audio: Boolean,
+    width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp,
+    inset: androidx.compose.ui.unit.Dp, bottom: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier,
+) {
+    val contentInset = 12.dp
+    val twoColumns = width - contentInset * 2 >= 450.dp
+    Column(modifier.padding(start = inset, bottom = bottom).width(width).clearAndSetSemantics { },
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.height(48.dp).padding(start = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            for ((tab, label) in PanelTabs) {
+                if (audio && tab == TvPlayerPage.SUBTITLE) continue
+                val metrics = tvPanelTabMetrics(label)
+                Box(Modifier.width(metrics.width).height(48.dp), contentAlignment = Alignment.Center) {
+                    TvPlayerTabVisual(label, selected = tab == TvPlayerPage.SETTINGS, focused = false, hovered = false, metrics = metrics)
+                }
+            }
+        }
+        Column(Modifier.width(width).height(height).clip(TvShape).background(PanelSurface, TvShape)
+            .border(1.dp, Color.White.copy(alpha = .09f), TvShape)
+            .padding(start = contentInset, end = contentInset, top = tvPlayerPanelVerticalInset(height), bottom = tvPlayerPanelVerticalInset(height)),
+            verticalArrangement = Arrangement.Top) {
+            rows.chunked(if (twoColumns) 2 else 1).forEach { group ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                    group.forEach { row ->
+                        Row(Modifier.weight(1f).height(48.dp)
+                            .background(if (row.key == active.name) Color.White.copy(alpha = .12f) else Color.Transparent, TvShape)
+                            .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // Keep the same text, value and arrow slots as the live settings row.
+                            Text(row.title, Modifier.weight(1f), style = tvTextStyle(16, 22), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            row.value?.let { Text(it, style = tvTextStyle(15, 21), color = Color.White.copy(alpha = .84f), maxLines = 1) }
+                            if (row.destination) Icon(painterResource(Art.drawable.fileway_ic_expand_more), null, Modifier.size(18.dp).rotate(-90f))
+                        }
+                    }
+                    if (twoColumns && group.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
     }
 }
 
-@Composable internal fun TvPlayerChoiceRow(row:TvPlayerRow.Choice,modifier:Modifier) {
-    val interaction=remember{MutableInteractionSource()}
-    val accent=FilewayPalette.darkAccent
-    val outline=Border(BorderStroke(2.dp,accent),shape=TvShape)
-    ListItem(selected=row.selected,onClick=row.action,enabled=row.enabled,interactionSource=interaction,
-        modifier=modifier.fillMaxWidth().heightIn(min=52.dp).tvTouch(row.action,row.enabled,interaction),
-        shape=ListItemDefaults.shape(TvShape),scale=ListItemDefaults.scale(focusedScale=1f),
-        border=ListItemDefaults.border(focusedBorder=outline,focusedSelectedBorder=outline),
-        colors=ListItemDefaults.colors(containerColor=Color.Transparent,contentColor=Color.White,
-            selectedContainerColor=accent.copy(alpha=.12f),selectedContentColor=Color.White,
-            focusedContainerColor=accent.copy(alpha=.22f),focusedContentColor=Color.White,
-            focusedSelectedContainerColor=accent.copy(alpha=.28f),focusedSelectedContentColor=Color.White),
-        headlineContent={Text(row.title,style=MaterialTheme.typography.bodyLarge,maxLines=2,overflow=TextOverflow.Ellipsis)},
-        supportingContent=row.supporting?.takeIf{it.isNotBlank()}?.let{text->{Text(text,style=MaterialTheme.typography.labelSmall,color=LocalContentColor.current.copy(alpha=.7f),maxLines=2,overflow=TextOverflow.Ellipsis)}},
-        leadingContent={Box(Modifier.size(24.dp),contentAlignment=Alignment.Center){
-            when {row.icon!=null->Icon(painterResource(row.icon),null,Modifier.size(24.dp))
-                row.selected&&row.selectable->Icon(painterResource(Art.drawable.fileway_ic_check),null,Modifier.size(22.dp))}
-        }},trailingContent={Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            row.value?.let{Text(it,Modifier.widthIn(max=112.dp),style=MaterialTheme.typography.labelMedium,maxLines=1,overflow=TextOverflow.Ellipsis)}
-            if(row.destination)Icon(painterResource(Art.drawable.fileway_ic_arrow_forward),null,Modifier.size(20.dp))
-        }})
+private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
+
+@Composable private fun tvPanelTabMetrics(label: String): TvPanelTabMetrics {
+    val density = LocalDensity.current
+    val measure = rememberTextMeasurer()
+    return remember(label, density, measure) {
+        val width = with(density) { measure.measure(AnnotatedString(label), tvTextStyle(16, 22, FontWeight.SemiBold), maxLines = 1).size.width.toDp() }
+        TvPanelTabMetrics(maxOf(48.dp, width + 16.dp), width)
+    }
 }
 
-/** The phone track with TV key handling and one commit per touch drag. */
-@Composable internal fun TvPlayerRange(label:String,value:Float,range:ClosedFloatingPointRange<Float>,step:Float,format:(Float)->String,modifier:Modifier=Modifier,onCommit:(Float)->Unit) {
-    var preview by remember{mutableStateOf<Float?>(null)}
-    var focused by remember{mutableStateOf(false)}
-    var dragging by remember{mutableStateOf(false)}
+@Composable private fun TvPlayerTabVisual(
+    label: String, selected: Boolean, focused: Boolean, hovered: Boolean, metrics: TvPanelTabMetrics,
+) {
+    Box(Modifier.fillMaxWidth().height(34.dp).clip(PanelTabShape)
+        .background(if (focused || hovered) Color.White.copy(alpha = .12f) else Color.Transparent)
+        .then(if (focused) Modifier.border(1.dp, Color.White.copy(alpha = .88f), PanelTabShape) else Modifier),
+        contentAlignment = Alignment.Center) {
+        Text(label, style = tvTextStyle(16, 22, if (selected) FontWeight.SemiBold else FontWeight.Normal)
+            .copy(shadow = Shadow(Color.Black.copy(alpha = .9f), Offset(0f, 1f), 3f)),
+            color = Color.White.copy(alpha = if (selected || focused) 1f else .82f), maxLines = 1)
+        if (selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 1.dp)
+            .width(metrics.labelWidth).height(2.dp).background(Color.White.copy(alpha = .90f), PanelTabShape))
+    }
+}
+
+@Composable private fun TvPlayerPanelButton(
+    label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier,
+    description: String? = null, pill: Boolean = false,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val hovered by interaction.collectIsHoveredAsState()
+    val shape = if (pill) PanelTabShape else TvShape
+    val metrics = if (pill) tvPanelTabMetrics(label) else null
+    Button(
+        onClick = onClick, interactionSource = interaction,
+        modifier = modifier.then(if (metrics != null) Modifier.width(metrics.width) else Modifier)
+            .heightIn(min = 48.dp)
+            .then(if (!pill) Modifier.border(1.25.dp, if (focused) PanelOutline else Color.Transparent, TvShape) else Modifier)
+            .hoverable(interaction).tvTouch(onClick, interaction = interaction).semantics {
+            this.selected = selected
+            if (description != null) contentDescription = description
+        },
+        contentPadding = if (pill) PaddingValues(0.dp) else PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+        shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
+        border = ButtonDefaults.border(focusedBorder = Border.None),
+        colors = ButtonDefaults.colors(
+            containerColor = if (selected && !pill) Color.White.copy(alpha = .10f) else if (!pill && hovered) Color.White.copy(alpha = .07f) else Color.Transparent,
+            contentColor = if (selected) Color.White else Color.White.copy(alpha = .82f),
+            focusedContainerColor = if (pill) Color.Transparent else PanelFocus, focusedContentColor = Color.White,
+            pressedContainerColor = if (pill) Color.Transparent else PanelFocus,
+        ),
+    ) {
+        if (metrics != null) TvPlayerTabVisual(label, selected, focused, hovered, metrics)
+        else Box(Modifier.fillMaxWidth().heightIn(min = 40.dp), contentAlignment = Alignment.Center) {
+            Text(label, Modifier.fillMaxWidth(), style = tvTextStyle(16, 22, if (selected) FontWeight.Medium else FontWeight.Normal),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@Composable internal fun TvPlayerChoiceList(
+    rows: List<TvPlayerRow>, focus: TvPlayerPanelFocus, modifier: Modifier = Modifier,
+    footer: LazyListScope.() -> Unit = {},
+) {
+    val scroll = rememberLazyListState()
+    val choices = remember(rows) { rows.filterIsInstance<TvPlayerRow.Choice>() }
+    val first = choices.firstOrNull { it.enabled }?.key
+    val preferred = choices.firstOrNull { it.enabled && it.key == focus.initialKey }?.key
+        ?: choices.firstOrNull { it.enabled && it.selected }?.key ?: first
+    val index = rows.indexOfFirst { it.key == preferred }
+    val prefersChrome = focus.initialKey?.let { it.startsWith("header/") || it.startsWith("group/") } == true
+    LaunchedEffect(index, focus.pending, prefersChrome) {
+        if (index >= 0 && focus.pending && !prefersChrome) {
+            snapshotFlow { scroll.layoutInfo.viewportSize.height }.first { it > 0 }
+            if (scroll.layoutInfo.visibleItemsInfo.none { it.index == index }) scroll.scrollToItem(index)
+        }
+    }
+    val listContent: LazyListScope.() -> Unit = {
+        items(rows, key = { it.key }) { row ->
+            when (row) {
+                is TvPlayerRow.Heading -> Text(
+                    row.title, Modifier.padding(start = 12.dp, top = 8.dp, bottom = 6.dp),
+                    style = tvTextStyle(17, 23, FontWeight.Medium), color = Color.White.copy(alpha = .86f),
+                )
+                is TvPlayerRow.Choice -> TvPlayerChoiceRow(
+                    row,
+                    focus.target(row.key, row.key == preferred && !prefersChrome,
+                        Modifier.focusProperties {
+                            if (row.key == first && focus.hasHeader) up = focus.header
+                            left = if (focus.hasSection) focus.section else FocusRequester.Cancel
+                            right = FocusRequester.Cancel
+                        }),
+                )
+            }
+        }
+        footer()
+    }
+    LazyColumn(modifier.fillMaxWidth(), state = scroll, contentPadding = PaddingValues(0.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp), content = listContent)
+}
+
+@Composable internal fun TvPlayerChoiceRow(row: TvPlayerRow.Choice, modifier: Modifier = Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    var focused by remember { mutableStateOf(false) }
+    Button(
+        onClick = row.action, enabled = row.enabled, interactionSource = interaction,
+        modifier = modifier.fillMaxWidth().heightIn(min = 48.dp)
+            // TV Material's surface border is centred on the bounds and can be
+            // cut by a LazyColumn viewport; draw the whole outline inside instead.
+            .border(1.25.dp, if (focused) PanelOutline else Color.Transparent, TvShape)
+            .onFocusChanged { focused = it.isFocused }
+            .hoverable(interaction, enabled = row.enabled).tvTouch(row.action, row.enabled, interaction).semantics { if (row.selectable) selected = row.selected },
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+        shape = ButtonDefaults.shape(TvShape), scale = ButtonDefaults.scale(focusedScale = 1f),
+        border = ButtonDefaults.border(focusedBorder = Border.None),
+        colors = ButtonDefaults.colors(
+            containerColor = if (row.selected) Color.White.copy(alpha = .055f) else if (hovered) Color.White.copy(alpha = .07f) else Color.Transparent,
+            contentColor = Color.White, focusedContentColor = Color.White,
+            focusedContainerColor = PanelFocus,
+            disabledContainerColor = Color.Transparent, disabledContentColor = Color.White.copy(alpha = .4f),
+        ),
+    ) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (row.icon != null) Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
+                Icon(painterResource(row.icon), null, Modifier.size(18.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                val overflow = if (focused) Modifier.basicMarquee() else Modifier
+                Text(
+                    row.title, overflow, style = tvTextStyle(17, 23, if (row.selected) FontWeight.Medium else FontWeight.Normal),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                row.supporting?.takeIf { it.isNotBlank() }?.let {
+                    Text(it, overflow, style = tvTextStyle(15, 20).copy(fontFamily = row.fontFamily),
+                        color = LocalContentColor.current.copy(alpha = .78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            row.value?.let {
+                Text(it, Modifier.widthIn(max = 132.dp).then(if (focused) Modifier.basicMarquee() else Modifier), style = tvTextStyle(15, 21), textAlign = TextAlign.End,
+                    color = LocalContentColor.current.copy(alpha = .84f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (row.selectable) Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                if (row.selected) Icon(painterResource(Art.drawable.fileway_ic_check), null, Modifier.size(18.dp), tint = FilewayPalette.darkAccent)
+            }
+            if (row.destination) Icon(painterResource(Art.drawable.fileway_ic_expand_more), null, Modifier.size(18.dp).rotate(-90f))
+        }
+    }
+}
+
+/** Same real range for pointer and D-pad. A drag commits only on release. */
+@Composable internal fun TvPlayerRange(
+    label: String, value: Float, range: ClosedFloatingPointRange<Float>, step: Float, format: (Float) -> String,
+    modifier: Modifier = Modifier, onCommit: (Float) -> Unit,
+) {
+    var preview by remember { mutableStateOf<Float?>(null) }
+    var focused by remember { mutableStateOf(false) }
+    var dragging by remember { mutableStateOf(false) }
     val commit by rememberUpdatedState(onCommit)
-    val shown=preview?:value
-    LaunchedEffect(value){if(!dragging&&preview?.let{kotlin.math.abs(it-value)<step/2}==true)preview=null}
-    LaunchedEffect(preview){if(preview!=null){delay(5000);if(!dragging)preview=null}}
-    val set:(Float)->Unit={next->preview=next.coerceIn(range);commit(requireNotNull(preview))}
-    val span=range.endInclusive-range.start
-    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth()){Text(label,Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge);Text(format(shown),style=MaterialTheme.typography.labelMedium,color=FilewayPalette.darkAccent)}
-        Canvas(modifier.fillMaxWidth().height(48.dp).onFocusChanged{focused=it.isFocused}
-            .pointerInput(range){detectTapGestures{point->set(range.start+span*(point.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f))}}
-            .pointerInput(range){detectHorizontalDragGestures(onDragStart={dragging=true},onHorizontalDrag={change,_->change.consume();preview=range.start+span*(change.position.x/size.width.coerceAtLeast(1)).coerceIn(0f,1f)},
-                onDragEnd={dragging=false;preview?.let(commit)},onDragCancel={dragging=false;preview=null})}
-            .tvRemoteKeys{event->when(event.nativeKeyEvent.keyCode){KeyEvent.KEYCODE_DPAD_LEFT->{set(shown-step);true};KeyEvent.KEYCODE_DPAD_RIGHT->{set(shown+step);true};else->false}}
-            .semantics{contentDescription=label;stateDescription=format(shown);progressBarRangeInfo=ProgressBarRangeInfo(shown,range);setProgress{target->if(target.isFinite()){set(target);true}else false}}
-            .focusable()) {
-            drawMediaProgressTrack((shown-range.start)/span,Color.White.copy(alpha=.22f),FilewayPalette.darkAccent,
-                thickness=if(focused)4.dp else 3.dp,thumbRadius=if(focused||dragging)6.dp else 4.dp)
+    val shown = preview ?: value
+    LaunchedEffect(value) {
+        if (!dragging && preview?.let { kotlin.math.abs(it - value) < step / 2 } == true) preview = null
+    }
+    LaunchedEffect(preview) {
+        if (preview != null) {
+            delay(5000)
+            if (!dragging) preview = null
+        }
+    }
+    fun set(next: Float) {
+        val bounded = next.coerceIn(range)
+        preview = bounded
+        commit(bounded)
+    }
+    val span = range.endInclusive - range.start
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, style = tvTextStyle(18, 26))
+            Text(format(shown), style = tvTextStyle(16, 22), color = Color.White.copy(alpha = .82f))
+        }
+        Canvas(
+            modifier.weight(.65f, fill = false).width(176.dp).height(48.dp)
+                .onFocusChanged { focused = it.isFocused }
+                .background(if (focused) Color.White.copy(alpha = .10f) else Color.Transparent, TvShape)
+                .border(2.dp, if (focused) PanelOutline else Color.Transparent, TvShape)
+                .pointerInput(range) {
+                    detectTapGestures { point ->
+                        set(range.start + span * (point.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
+                    }
+                }
+                .pointerInput(range) {
+                    detectHorizontalDragGestures(
+                        onDragStart = { dragging = true },
+                        onHorizontalDrag = { change, _ ->
+                            change.consume()
+                            preview = range.start + span * (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        },
+                        onDragEnd = { dragging = false; preview?.let(commit) },
+                        onDragCancel = { dragging = false; preview = null },
+                    )
+                }
+                .tvRemoteKeys { event ->
+                    when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> { set(shown - step); true }
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> { set(shown + step); true }
+                        else -> false
+                    }
+                }
+                .semantics {
+                    contentDescription = label
+                    stateDescription = format(shown)
+                    progressBarRangeInfo = ProgressBarRangeInfo(shown, range)
+                    setProgress { target -> if (target.isFinite()) { set(target); true } else false }
+                }
+                .focusable().padding(horizontal = 10.dp),
+        ) {
+            drawMediaProgressTrack((shown - range.start) / span, Color.White.copy(alpha = .22f), FilewayPalette.darkAccent,
+                thickness = if (focused) 4.dp else 3.dp, thumbRadius = if (focused || dragging) 6.dp else 4.dp)
         }
     }
 }

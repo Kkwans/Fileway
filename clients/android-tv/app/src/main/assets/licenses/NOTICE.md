@@ -5,7 +5,7 @@ AndroidX Compose/TV, Lifecycle, Room and Media3 are Android Open Source Project 
 
 The Material Symbols Rounded vectors are shared with the phone application through clients/shared/android/design-foundation. Existing phone geometry, including outlined transport controls, is retained. Base icons retain the source and hashes recorded in clients/android/licenses/material-symbols.md. Additional home and volume_up exports come from google/material-design-icons/symbols/android/<symbol>/materialsymbolsrounded/<symbol>_24px.xml; theme tint is removed, geometry is retained. Volume-up Git blob: 67f1915078156257372faedd9c4a37f1b7188736.
 
-Wholphin's Controller/PlaybackControls and navigation/card composition are visual and interaction references. No Wholphin GPLv2 implementation, branding, screenshots or third-party movie artwork is embedded. JetStream Compose screenshot/source is a design reference, not packaged artwork.
+Wholphin's Controller/PlaybackControls and navigation/card composition are visual and interaction references. No Wholphin GPLv2 implementation, branding, screenshots or third-party movie artwork is embedded. The player main frame is adapted from Google JetStream Compose, Copyright 2024 Google LLC, Apache License 2.0. The license text is included in coil-APACHE-2.0.txt; JetStream artwork is not included.
 
 Verified release audio extension must be accompanied by its lock, build/package manifest, FFmpeg source bundle and license notices; a native-only diagnostic debug build does not claim the extension is present.
 

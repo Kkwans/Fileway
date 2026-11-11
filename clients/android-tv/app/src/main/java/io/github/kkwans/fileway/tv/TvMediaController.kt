@@ -2,6 +2,7 @@ package io.github.kkwans.fileway.tv
 
 import android.app.Application
 import android.os.SystemClock
+import androidx.annotation.MainThread
 import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import io.github.kkwans.nasfilebrowser.app.*
@@ -13,7 +14,12 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.Proxy
+import java.net.SocketTimeoutException
+import java.net.URL
 import java.net.URLEncoder
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 enum class TvHdrMode(val title: String) { AUTO("自动"), NATIVE("原生 HDR"), SDR("SDR 兼容") }
@@ -26,6 +32,7 @@ data class TvMediaState(
     val sourceOffsetMs: Long = 0, val sourceDurationMs: Long = 0, val imageUrl: String? = null,
     val sourceSubtitles: Boolean = false, val selectedSourceSubtitle: Int = -1, val sourceAudioOff: Boolean = false, val selectedSourceAudio: Int? = null,
     val sourcePGSStreaming: Boolean = false, val sourceASSStreaming: Boolean = false,
+    val scopedSubtitlePages: Boolean = false,
     val sourceAudio: List<TvSourceTrack> = emptyList(), val sourceText: List<TvSourceTrack> = emptyList(),
     val sidecars: List<ResourceRef> = emptyList(),
     val subtitleError: String? = null, val subtitleLoading: Boolean = false,
@@ -35,6 +42,14 @@ data class TvMediaState(
     val firstConfirmedPositionMs:Long?=null,
 )
 
+internal data class TvLocalSubtitleFence(val account: String, val mediaEpoch: Long, val decoder: Long, val selection: Long)
+internal class TvLocalSubtitleOperation(val result: Deferred<Boolean>, val cancel: () -> Unit)
+internal enum class TvRemoteSubtitleResult { APPLIED, CANCELLED, STALE, ACCESS_DENIED, UNAVAILABLE, TIMEOUT, LOAD_FAILED }
+internal class TvRemoteSubtitleOperation(val result: Deferred<TvRemoteSubtitleResult>, private val job: Job) {
+    @MainThread fun cancel() { job.cancel() }
+}
+private const val REMOTE_SUBTITLE_KEY_PREFIX = "external:remote:"
+
 /** Owns media resources independently of the TV's composition and focus tree. */
 class TvMediaController(
     private val application: Application, private val scope: CoroutineScope, private val history: PlaybackHistory,
@@ -43,6 +58,7 @@ class TvMediaController(
     internal val cache=TvVideoCache(application,scope)
     val player = NativePlayer(application, MediaResourcePolicy.LowMemoryTv)
     val playbackPreferences = PlaybackPreferences(application, VideoDecodePolicy.HARDWARE)
+    internal val localSubtitles = TvLocalSubtitleStorage(application)
     private val prefs = application.getSharedPreferences("tv-playback", 0)
     private val mutable = MutableStateFlow(TvMediaState(mode = TvHdrMode.entries.firstOrNull { it.name == prefs.getString("hdr_mode", "AUTO") } ?: TvHdrMode.AUTO))
     val state = mutable.asStateFlow()
@@ -66,16 +82,24 @@ class TvMediaController(
     private data class Window(val lease: PreviewLease, val startMs: Long, val durationMs: Long,val id:String)
     private var window: Window? = null
     private sealed interface SubtitleIntent {
+        sealed interface Imported : SubtitleIntent { val key: String }
         data object Auto : SubtitleIntent
         data object Off : SubtitleIntent
         data class Source(val index: Int) : SubtitleIntent
         data class Native(val identity: DecoderTrackIdentity) : SubtitleIntent
-        data class External(val file: ResourceRef, val key: String, val trackKey: String? = null, val version: String? = null) : SubtitleIntent
+        data class External(val file: ResourceRef, override val key: String, val trackKey: String? = null, val version: String? = null,
+            val resourceVersion: String? = null) : Imported
+        data class Local(val node: TvLocalSubtitleStorage.Node, override val key: String, val trackKey: String? = null, val version: String? = null) : Imported
     }
     private var subtitleIntent: SubtitleIntent = SubtitleIntent.Auto
     private var subtitleFallbackIntent: SubtitleIntent = SubtitleIntent.Auto
     private var subtitleFallbackSource = -1
-    private val externalRefs = mutableMapOf<String, ResourceRef>()
+    private data class ExternalRef(val file: ResourceRef, val resourceVersion: String?)
+    private val externalRefs = mutableMapOf<String, ExternalRef>()
+    private val localRefs = mutableMapOf<String, TvLocalSubtitleStorage.Node>()
+    private var pendingLocal: SubtitleIntent.Local? = null
+    private var pendingRemoteSubtitleRevision: Long? = null
+    private var pendingRemoteLocalGrant: String? = null
     private val nativeFontKeys = mutableSetOf<String>()
     private var fontGeneration = -1L
     private var nativeSubtitleRecovery: Pair<Long, Int>? = null
@@ -94,6 +118,7 @@ class TvMediaController(
         val queue = MediaQueue.snapshot(++sequence, owner.owner, file, candidates, MediaQueueSource.DIRECTORY)
         val mode = mutable.value.mode
         val expected = ++epoch
+        pendingLocal = null
         pendingNativeAudio=null;switchInProgress=false;requestedPresentation=null
         subtitleIntent = when(requested?.restore?.subtitleMode) {
             DecoderSubtitleMode.OFF -> SubtitleIntent.Off
@@ -147,6 +172,7 @@ class TvMediaController(
                     val sourceTextAvailable = capabilities.optBoolean("sourceSubtitles")
                     openingStage = "准备播放资源"
                     mutable.update { it.copy(info = info, sourceAudio = audio, sourceText = text, sourceSubtitles = sourceTextAvailable, sdrAvailable = capabilities.optBoolean("sdrCompatibility"),
+                        scopedSubtitlePages = (capabilities.opt("resourceSubtitlePagesVersion") as? Number)?.toString()?.toIntOrNull() == 1,
                         sourcePGSStreaming = capabilities.optInt("sourcePGSStreaming") >= 1,
                         sourceASSStreaming = capabilities.optInt("sourceASSStreaming") >= 1,
                         sourceDurationMs = (info.optDouble("duration", remote.durationMs / 1000.0) * 1000).toLong(),
@@ -230,6 +256,10 @@ class TvMediaController(
         val url = owner.api.lease(file.path, file.wirePath)
         return PreviewLease(url, owner.api.id) { NativeTransport.call(JSONObject().put("op", "revoke").put("url", url)); Unit }
     }
+    private suspend fun subtitleLease(owner: SessionContext, intent: SubtitleIntent.External): PreviewLease =
+        intent.resourceVersion?.let { version ->
+            owner.api.assetLease(ScopedSubtitleResources.contentEndpoint(ScopedSubtitleEntry(intent.file, version)))
+        } ?: originalLease(owner, intent.file)
     private fun accepts(owner: SessionContext, expected: Long) = current() === owner && epoch == expected
     private fun sourceQuery(file: ResourceRef): String {
         val wire = file.wirePath.ifEmpty { SearchResult.encodePath(file.path) }
@@ -278,7 +308,7 @@ class TvMediaController(
     private fun subtitleForPath(sdr: Boolean): SubtitleIntent {
         val intent = if (subtitleIntent == SubtitleIntent.Auto && window != null && mutable.value.selectedSourceSubtitle >= 0)
             SubtitleIntent.Source(mutable.value.selectedSourceSubtitle) else subtitleIntent
-        if (!sdr || intent == SubtitleIntent.Off || intent is SubtitleIntent.External) return intent
+        if (!sdr || intent == SubtitleIntent.Off || intent is SubtitleIntent.External || intent is SubtitleIntent.Local) return intent
         if (intent is SubtitleIntent.Source) {
             check(mutable.value.sourceSubtitles) { "服务端未提供源字幕，已保留原播放路径" }
             return intent
@@ -411,7 +441,9 @@ class TvMediaController(
                 val rate = player.state.value.rate; val delay = player.state.value.subtitleDelayMs
                 val autoplay=player.playWhenReady;val volume=player.state.value.volume
                 ++subtitleRevision; subtitleJob?.cancel(); subtitleJob = null
+                pendingLocal = null
                 player.open(next.lease.url,autoplay=autoplay,videoDecodePolicy = playbackPreferences.videoDecodePolicy.value,dataSourceFactory=dataSource)
+                if (subtitleIntent is SubtitleIntent.Local) player.subtitle(-1)
                 player.volume(volume)
                 player.subtitleSourceOffset(next.startMs); player.rate(rate); player.subtitleDelay(delay)
                 player.textSubtitleAppearance(playbackPreferences.textSubtitleAppearance.value)
@@ -477,9 +509,11 @@ class TvMediaController(
                 val autoplay = player.wantsPlay
                 val nextSubtitle = subtitleForPath(useSdr)
                 ++subtitleRevision; subtitleJob?.cancel(); subtitleJob = null
+                pendingLocal = null
                 openAttempted = true
                 if (!useSdr && carry != null && !previous.compatible) player.openRestoring(candidate.url, subtitleRestore(carry.copy(positionMs = carryPosition), nextSubtitle), autoplay, playbackPreferences.videoDecodePolicy.value,dataSource)
                 else player.open(candidate.url, localPosition, autoplay, playbackPreferences.videoDecodePolicy.value,dataSource)
+                if (nextSubtitle is SubtitleIntent.Local) player.subtitle(-1)
                 player.subtitleSourceOffset(prepared?.startMs ?: 0)
                 if (carry != null) { player.rate(carry.baseRate); player.volume(carry.volume); player.subtitleDelay(carry.subtitleDelayMs) }
                 player.textSubtitleAppearance(playbackPreferences.textSubtitleAppearance.value)
@@ -568,8 +602,12 @@ class TvMediaController(
         when {
             source != null -> selectSubtitleIntent(SubtitleIntent.Source(source.index))
             imported != null && externalRefs[imported.sourceKey] != null -> {
-                val file = externalRefs.getValue(imported.sourceKey)
-                selectSubtitleIntent(SubtitleIntent.External(file, imported.sourceKey, imported.trackKey, imported.sourceVersion))
+                val reference = externalRefs.getValue(imported.sourceKey)
+                selectSubtitleIntent(SubtitleIntent.External(reference.file, imported.sourceKey, imported.trackKey, imported.sourceVersion, reference.resourceVersion))
+            }
+            imported != null && localRefs[imported.sourceKey] != null -> {
+                val node = localRefs.getValue(imported.sourceKey)
+                selectSubtitleIntent(SubtitleIntent.Local(node, imported.sourceKey, imported.trackKey, imported.sourceVersion))
             }
             else -> mutable.update { it.copy(subtitleError = "字幕轨道已变化或不受支持，请重新选择") }
         }
@@ -596,15 +634,18 @@ class TvMediaController(
 
     fun selectSourceSubtitle(index: Int) = selectSubtitleIntent(SubtitleIntent.Source(index))
 
-    private fun selectSubtitleIntent(intent: SubtitleIntent) {
-        if (intent == subtitleIntent && subtitleJob?.isActive == true) return
+    private fun selectSubtitleIntent(intent: SubtitleIntent, result: CompletableDeferred<Boolean>? = null) {
+        if (intent == subtitleIntent && subtitleJob?.isActive == true && result == null &&
+            pendingRemoteSubtitleRevision != subtitleRevision) return
         val selection = ++subtitleRevision
         val expected = epoch
         val generation = player.state.value.mediaGeneration
         val previous = if (subtitleJob?.isActive == true) subtitleFallbackIntent else subtitleIntent
         val previousSource = if (subtitleJob?.isActive == true) subtitleFallbackSource else mutable.value.selectedSourceSubtitle
         subtitleFallbackIntent = previous; subtitleFallbackSource = previousSource
-        subtitleIntent = intent
+        pendingLocal = intent as? SubtitleIntent.Local
+        // A local candidate does not become the restore intent until it is accepted.
+        subtitleIntent = if (pendingLocal != null) previous else intent
         mutable.update { it.copy(subtitleError = null, subtitleNotice = null, subtitleLoading = intent != SubtitleIntent.Off) }
         subtitleJob?.cancel(); subtitleJob = null
         if (intent == SubtitleIntent.Off) {
@@ -613,10 +654,12 @@ class TvMediaController(
             return
         }
         subtitleJob = scope.launch {
+            var applied = false
             try {
                 restoreSubtitle(intent)
                 if (selection == subtitleRevision && expected == epoch) {
-                    subtitleFallbackIntent = intent; subtitleFallbackSource = mutable.value.selectedSourceSubtitle
+                    subtitleFallbackIntent = subtitleIntent; subtitleFallbackSource = mutable.value.selectedSourceSubtitle
+                    applied = true
                 }
             }
             catch (error: Exception) {
@@ -628,11 +671,13 @@ class TvMediaController(
             }
             finally {
                 if (selection == subtitleRevision && expected == epoch) {
+                    pendingLocal = null
                     player.finishDecoderRestore(generation, emptyList())
                     mutable.update { it.copy(subtitleLoading = false) }
                 }
+                result?.complete(applied)
             }
-        }
+        }.also { job -> if (result != null) job.invokeOnCompletion { result.complete(false) } }
     }
 
     private suspend fun restoreSubtitle(intent: SubtitleIntent = subtitleIntent) {
@@ -643,6 +688,7 @@ class TvMediaController(
             }
             is SubtitleIntent.Source -> importSourceSubtitle(intent.index)
             is SubtitleIntent.External -> importExternal(intent)
+            is SubtitleIntent.Local -> importLocalSubtitle(intent)
             is SubtitleIntent.Native -> {
                 val generation = player.state.value.mediaGeneration
                 val selection = subtitleRevision
@@ -821,7 +867,332 @@ class TvMediaController(
         checkCurrent()
         mutable.update { it.copy(subtitleNotice = if (complete) null else "部分字幕字体未能载入，文字可能缺失；重新选择字幕可重试") }
     }
-    fun selectExternalSubtitle(file: ResourceRef) = selectSubtitleIntent(SubtitleIntent.External(file, "external:${file.mediaKey}"))
+    fun selectExternalSubtitle(file: ResourceRef) {
+        val key = "external:${file.mediaKey}"
+        val resourceVersion = externalRefs[key]?.takeIf { it.file.wirePath == file.wirePath }?.resourceVersion
+        selectSubtitleIntent(SubtitleIntent.External(file, key, resourceVersion = resourceVersion))
+    }
+    internal fun selectScopedSubtitle(entry: ScopedSubtitleEntry) {
+        ScopedSubtitleResources.contentEndpoint(entry) // Validate before starting any media operation.
+        selectSubtitleIntent(SubtitleIntent.External(entry.file, "external:${entry.file.mediaKey}", resourceVersion = entry.version))
+    }
+
+    @MainThread internal fun serverSubtitleSource(): Pair<SessionContext, ResourceRef>? =
+        serverSubtitleBinding()?.let { it.owner to it.file }
+
+    @MainThread internal fun subtitleTrackPublished(id: Int): Boolean {
+        val key = player.importedSubtitleIdentity(id)?.sourceKey ?: return true
+        return !key.startsWith(REMOTE_SUBTITLE_KEY_PREFIX) || key in externalRefs || key in localRefs
+    }
+
+    private fun serverSubtitleBinding(): Binding? = binding?.takeIf {
+        accepts(it.owner, it.epoch) && it.file.mediaKind() == MediaKind.VIDEO &&
+            playbackLease != null && !mutable.value.busy && !switchInProgress && player.state.value.error == null
+    }
+
+    /** Remote arbitrary-directory selection always carries the server's scoped version. */
+    @MainThread internal fun prepareRemoteScopedSubtitle(
+        entry: ScopedSubtitleEntry,
+        expectedMediaEpoch: Long,
+        expectedSelection: Long? = null,
+        authorized: suspend () -> Boolean,
+    ): TvRemoteSubtitleOperation? {
+        try { ScopedSubtitleResources.contentEndpoint(entry) } catch (_: IllegalArgumentException) { return null }
+        return prepareRemoteSubtitle(SubtitleIntent.External(entry.file, "$REMOTE_SUBTITLE_KEY_PREFIX${UUID.randomUUID()}",
+            resourceVersion = entry.version), expectedMediaEpoch, expectedSelection, authorized)
+    }
+
+    @MainThread internal fun prepareRemoteLocalSubtitle(
+        node: TvLocalSubtitleStorage.Node,
+        expectedMediaEpoch: Long,
+        expectedSelection: Long? = null,
+        authorized: suspend () -> Boolean,
+    ): TvRemoteSubtitleOperation? {
+        if (node.directory || node.source is TvLocalSubtitleStorage.Source.Single || !isExternalSubtitle(node.label)) return null
+        return prepareRemoteSubtitle(SubtitleIntent.Local(node, "$REMOTE_SUBTITLE_KEY_PREFIX${UUID.randomUUID()}"),
+            expectedMediaEpoch, expectedSelection, authorized)
+    }
+
+    private fun prepareRemoteSubtitle(
+        intent: SubtitleIntent.Imported,
+        expectedMediaEpoch: Long,
+        expectedSelection: Long?,
+        authorized: suspend () -> Boolean,
+    ): TvRemoteSubtitleOperation? {
+        val source = serverSubtitleBinding() ?: return null
+        if (source.epoch != expectedMediaEpoch || expectedSelection != null && expectedSelection != subtitleRevision) return null
+
+        // The previous intent remains authoritative during the read and if a decoder transition supersedes it.
+        val priorJob = subtitleJob
+        if (priorJob?.isActive == true) subtitleIntent = subtitleFallbackIntent
+        else {
+            subtitleFallbackIntent = subtitleIntent
+            subtitleFallbackSource = mutable.value.selectedSourceSubtitle
+        }
+        val selection = ++subtitleRevision
+        pendingRemoteSubtitleRevision = selection
+        val generation = player.state.value.mediaGeneration
+        pendingLocal = null
+        priorJob?.cancel()
+        mutable.update { it.copy(subtitleError = null, subtitleNotice = null, subtitleLoading = true) }
+        pendingRemoteLocalGrant = (intent as? SubtitleIntent.Local)?.node?.grantId
+        val result = CompletableDeferred<TvRemoteSubtitleResult>()
+        fun currentSelection() = serverSubtitleBinding() === source && selection == subtitleRevision &&
+            generation == player.state.value.mediaGeneration
+        val job = scope.launch(Dispatchers.Main.immediate, start = CoroutineStart.LAZY) {
+            var outcome = TvRemoteSubtitleResult.CANCELLED
+            var committed = false
+            try {
+                outcome = withTimeout(90_000) {
+                    if (!currentSelection() || !authorized() || !currentSelection()) return@withTimeout TvRemoteSubtitleResult.STALE
+                    val readOutcome = when (intent) {
+                        is SubtitleIntent.External -> prepareRemoteSubtitleTrack(source, intent, current = ::currentSelection)
+                        is SubtitleIntent.Local -> prepareRemoteLocalTrack(source, intent, current = ::currentSelection)
+                    }
+                    if (readOutcome != null) return@withTimeout readOutcome
+                    val track = player.state.value.subtitles.firstNotNullOfOrNull { row ->
+                        player.importedSubtitleIdentity(row.id)?.takeIf { it.sourceKey == intent.key }?.let { row.id to it }
+                    } ?: return@withTimeout TvRemoteSubtitleResult.LOAD_FAILED
+
+                    if (intent is SubtitleIntent.Local) localSubtitles.remoteReadableUri(source.owner.account.key, intent.node)
+                    if (!authorized() || !currentSelection()) return@withTimeout TvRemoteSubtitleResult.STALE
+                    currentCoroutineContext().ensureActive()
+                    val previous = player.state.value.selectedSubtitle
+                    val (id, identity) = track
+                    val selected = player.selectImportedSubtitle(identity.sourceKey, identity.trackKey, identity.sourceVersion)
+                    if (!selected || player.state.value.selectedSubtitle != id) {
+                        if (previous == -1 || player.state.value.subtitles.any { it.id == previous }) player.subtitle(previous)
+                        return@withTimeout TvRemoteSubtitleResult.LOAD_FAILED
+                    }
+                    subtitleIntent = when (intent) {
+                        is SubtitleIntent.External -> {
+                            externalRefs[intent.key] = ExternalRef(intent.file, intent.resourceVersion)
+                            intent.copy(trackKey = identity.trackKey, version = identity.sourceVersion)
+                        }
+                        is SubtitleIntent.Local -> {
+                            localRefs[intent.key] = intent.node
+                            intent.copy(trackKey = identity.trackKey, version = identity.sourceVersion)
+                        }
+                    }
+                    subtitleFallbackIntent = subtitleIntent
+                    subtitleFallbackSource = -1
+                    committed = true
+                    mutable.update { it.copy(selectedSourceSubtitle = -1, subtitleError = null) }
+                    discardOlderRemoteImports(intent)
+                    TvRemoteSubtitleResult.APPLIED
+                }
+            } catch (_: TimeoutCancellationException) {
+                outcome = TvRemoteSubtitleResult.TIMEOUT
+            } catch (cancelled: CancellationException) {
+                if (!currentSelection()) outcome = TvRemoteSubtitleResult.STALE
+                throw cancelled
+            } catch (failure: ServiceException) {
+                outcome = remoteSubtitleReadStatus(failure.status)
+            } catch (failure: TvLocalSubtitleFailure) {
+                outcome = when (failure.issue) {
+                    TvLocalSubtitleIssue.ACCESS_DENIED -> TvRemoteSubtitleResult.ACCESS_DENIED
+                    TvLocalSubtitleIssue.STORAGE_REMOVED, TvLocalSubtitleIssue.FILE_CHANGED -> TvRemoteSubtitleResult.UNAVAILABLE
+                    else -> TvRemoteSubtitleResult.LOAD_FAILED
+                }
+            } catch (_: SocketTimeoutException) {
+                outcome = TvRemoteSubtitleResult.TIMEOUT
+            } catch (_: Exception) {
+                outcome = TvRemoteSubtitleResult.LOAD_FAILED
+            } finally {
+                if (pendingRemoteSubtitleRevision == selection) {
+                    pendingRemoteSubtitleRevision = null
+                    pendingRemoteLocalGrant = null
+                }
+                if (!committed && generation == player.state.value.mediaGeneration) player.discardImportedSubtitle(intent.key)
+                if (selection == subtitleRevision && source.epoch == epoch && binding === source) {
+                    val error = when (outcome.takeUnless { committed }) {
+                        TvRemoteSubtitleResult.ACCESS_DENIED -> "当前 TV 账号没有读取字幕的权限"
+                        TvRemoteSubtitleResult.UNAVAILABLE -> "字幕已不可用，请重新选择"
+                        TvRemoteSubtitleResult.TIMEOUT -> "字幕读取超时，请重试"
+                        TvRemoteSubtitleResult.LOAD_FAILED -> "字幕未能载入，请重新选择"
+                        else -> null
+                    }
+                    mutable.update { it.copy(subtitleLoading = false, subtitleError = error) }
+                }
+                result.complete(if (committed) TvRemoteSubtitleResult.APPLIED else outcome)
+            }
+        }
+        subtitleJob = job
+        job.invokeOnCompletion { result.complete(TvRemoteSubtitleResult.CANCELLED) }
+        job.start()
+        return TvRemoteSubtitleOperation(result, job)
+    }
+
+    private suspend fun prepareRemoteLocalTrack(source: Binding, intent: SubtitleIntent.Local,
+        current: () -> Boolean): TvRemoteSubtitleResult? {
+        val uri = localSubtitles.remoteReadableUri(source.owner.account.key, intent.node)
+        while (!player.canAddExternalSubtitle) {
+            if (!current()) return TvRemoteSubtitleResult.STALE
+            delay(100)
+        }
+        if (!current()) return TvRemoteSubtitleResult.STALE
+        return if (player.importSubtitle(uri.toString(), intent.node.label, intent.key, selectOnReady = false)) null
+        else TvRemoteSubtitleResult.LOAD_FAILED
+    }
+
+    private suspend fun prepareRemoteSubtitleTrack(source: Binding, intent: SubtitleIntent.External, current: () -> Boolean): TvRemoteSubtitleResult? {
+        val lease = subtitleLease(source.owner, intent)
+        try {
+            return readAsset(lease) {
+                val response = probeRemoteSubtitle(lease, intent.file)
+                if (response != null) return@readAsset response
+                while (!player.canAddExternalSubtitle) {
+                    if (!current()) return@readAsset TvRemoteSubtitleResult.STALE
+                    delay(100)
+                }
+                if (!current()) return@readAsset TvRemoteSubtitleResult.STALE
+                if (player.importSubtitle(lease.url, intent.file.name, intent.key, selectOnReady = false)) null
+                else TvRemoteSubtitleResult.LOAD_FAILED
+            }
+        } finally { lease.release() }
+    }
+
+    private suspend fun probeRemoteSubtitle(lease: PreviewLease, file: ResourceRef): TvRemoteSubtitleResult? = withContext(Dispatchers.IO) {
+        val request = URL(lease.url).openConnection(Proxy.NO_PROXY) as HttpURLConnection
+        try {
+            // The broker maps HEAD to a one-byte upstream read and turns an empty permission response into HTTP 403.
+            request.requestMethod = "HEAD"
+            request.instanceFollowRedirects = false
+            request.connectTimeout = 5_000
+            request.readTimeout = 10_000
+            val status = request.responseCode
+            if (status != HttpURLConnection.HTTP_OK) return@withContext remoteSubtitleReadStatus(status)
+            val length = request.contentLengthLong
+            val limit = if (file.name.substringAfterLast('.').equals("sup", ignoreCase = true)) EXTERNAL_SUP_BYTES_LIMIT else EXTERNAL_TEXT_BYTES_LIMIT
+            when {
+                length == 0L || length > limit || file.size > limit -> TvRemoteSubtitleResult.LOAD_FAILED
+                length >= 0 && file.size >= 0 && length != file.size -> TvRemoteSubtitleResult.STALE
+                else -> null
+            }
+        } finally { request.disconnect() }
+    }
+
+    private fun remoteSubtitleReadStatus(status: Int): TvRemoteSubtitleResult = when (status) {
+        401, 403 -> TvRemoteSubtitleResult.ACCESS_DENIED
+        409 -> TvRemoteSubtitleResult.STALE
+        404, 410, in 500..599 -> TvRemoteSubtitleResult.UNAVAILABLE
+        408 -> TvRemoteSubtitleResult.TIMEOUT
+        else -> TvRemoteSubtitleResult.LOAD_FAILED
+    }
+
+    private fun discardOlderRemoteImports(intent: SubtitleIntent.Imported) {
+        val older = when (intent) {
+            is SubtitleIntent.External -> externalRefs.filterValues { it.file.mediaKey == intent.file.mediaKey }.keys
+            is SubtitleIntent.Local -> localRefs.filterValues { it.source == intent.node.source }.keys
+        }.filter { it != intent.key && it.startsWith(REMOTE_SUBTITLE_KEY_PREFIX) }
+        older.forEach { key ->
+            player.discardImportedSubtitle(key)
+            externalRefs.remove(key)
+            localRefs.remove(key)
+        }
+    }
+
+    internal fun localSubtitleFence(): TvLocalSubtitleFence? {
+        val source = binding ?: return null
+        if (!accepts(source.owner, source.epoch) || source.file.mediaKind() != MediaKind.VIDEO ||
+            mutable.value.busy || player.state.value.error != null) return null
+        return TvLocalSubtitleFence(source.owner.account.key, epoch, player.state.value.mediaGeneration, subtitleRevision)
+    }
+
+    internal fun acceptsLocalSubtitle(fence: TvLocalSubtitleFence): Boolean = localSubtitleFence() == fence
+
+    internal fun acceptsLocalMedia(fence: TvLocalSubtitleFence): Boolean {
+        val source = binding ?: return false
+        return fence.mediaEpoch == source.epoch && accepts(source.owner, source.epoch) && source.owner.account.key == fence.account &&
+            player.state.value.mediaGeneration == fence.decoder
+    }
+
+    internal fun selectLocalSubtitle(node: TvLocalSubtitleStorage.Node, fence: TvLocalSubtitleFence): TvLocalSubtitleOperation? {
+        if (!acceptsLocalSubtitle(fence) || node.directory) return null
+        val result = CompletableDeferred<Boolean>()
+        val candidate = SubtitleIntent.Local(node, "external:local:${java.util.UUID.randomUUID()}")
+        selectSubtitleIntent(candidate, result)
+        return TvLocalSubtitleOperation(result) { cancelLocalSubtitle(candidate) }
+    }
+
+    private fun cancelLocalSubtitle(candidate: SubtitleIntent.Local) {
+        if (pendingLocal !== candidate) return
+        ++subtitleRevision
+        pendingLocal = null
+        subtitleJob?.cancel(); subtitleJob = null
+        subtitleIntent = subtitleFallbackIntent
+        mutable.update { it.copy(selectedSourceSubtitle = subtitleFallbackSource, subtitleLoading = false) }
+    }
+
+    internal fun revokeLocalSubtitleTree(account: String, grantId: String): Boolean {
+        if (binding?.owner?.let { it === current() && it.account.key == account } != true) return false
+        if (!localSubtitles.revoke(account, grantId)) return false
+        pendingLocal?.takeIf { it.node.grantId == grantId }?.let(::cancelLocalSubtitle)
+        if (pendingRemoteLocalGrant == grantId && pendingRemoteSubtitleRevision == subtitleRevision) subtitleJob?.cancel()
+        if ((subtitleFallbackIntent as? SubtitleIntent.Local)?.node?.grantId == grantId) {
+            subtitleFallbackIntent = SubtitleIntent.Off
+            subtitleFallbackSource = -1
+        }
+        if ((subtitleIntent as? SubtitleIntent.Local)?.node?.grantId == grantId) {
+            if (pendingLocal == null && subtitleJob?.isActive != true) ++subtitleRevision
+            subtitleIntent = SubtitleIntent.Off
+            mutable.update { it.copy(selectedSourceSubtitle = -1,
+                subtitleLoading = pendingLocal != null || pendingRemoteSubtitleRevision == subtitleRevision) }
+        }
+        val revokedKeys = localRefs.filterValues { it.grantId == grantId }.keys.toList()
+        revokedKeys.forEach { key ->
+            player.discardImportedSubtitle(key)
+            localRefs.remove(key)
+        }
+        return true
+    }
+
+    private suspend fun importLocalSubtitle(intent: SubtitleIntent.Local) {
+        val source = binding ?: throw CancellationException("Media source changed")
+        val expected = epoch
+        val selection = subtitleRevision
+        val generation = player.state.value.mediaGeneration
+        fun checkCurrent() {
+            if (!accepts(source.owner, expected) || source.epoch != expected || selection != subtitleRevision ||
+                generation != player.state.value.mediaGeneration) throw CancellationException("Subtitle selection changed")
+        }
+        var newImport = false
+        var committed = false
+        try {
+            withTimeout(90_000) {
+                val uri = localSubtitles.readableUri(source.owner.account.key, intent.node)
+                while (!player.canAddExternalSubtitle) { checkCurrent(); delay(100) }
+                checkCurrent()
+                fun targetTrack() = player.state.value.subtitles.firstOrNull { track ->
+                    val identity = player.importedSubtitleIdentity(track.id)
+                    identity != null && identity.sourceKey == intent.key &&
+                        (intent.trackKey == null || identity.trackKey == intent.trackKey) &&
+                        (intent.version == null || identity.sourceVersion == intent.version)
+                }
+                val track = targetTrack() ?: run {
+                    newImport = true
+                    check(player.importSubtitle(uri.toString(), intent.node.label, intent.key, selectOnReady = false, expectedVersion = intent.version)) {
+                        player.state.value.operationError ?: "本机字幕未能载入"
+                    }
+                    checkCurrent()
+                    // Do not publish a track after a folder is revoked or the file moves while parsing.
+                    localSubtitles.readableUri(source.owner.account.key, intent.node)
+                    checkCurrent()
+                    targetTrack() ?: error("原字幕语言已变化，请重新选择")
+                }
+                val identity = checkNotNull(player.importedSubtitleIdentity(track.id))
+                selectSubtitleAndWait(track.id, expected, selection, generation)
+                checkCurrent()
+                localRefs[intent.key] = intent.node
+                subtitleIntent = intent.copy(trackKey = identity.trackKey, version = identity.sourceVersion)
+                committed = true
+                mutable.update { it.copy(selectedSourceSubtitle = -1, subtitleError = null) }
+            }
+        } finally {
+            if (!committed && newImport && generation == player.state.value.mediaGeneration)
+                player.discardImportedSubtitle(intent.key)
+        }
+    }
 
     private suspend fun importExternal(intent: SubtitleIntent.External) {
         val source = binding ?: return
@@ -835,17 +1206,21 @@ class TvMediaController(
         val file = intent.file
         val key = intent.key
         checkCurrent()
+        intent.resourceVersion?.let { version ->
+            ScopedSubtitleResources(source.owner.api).verify(ScopedSubtitleEntry(file, version))
+            checkCurrent()
+        }
         if (intent.trackKey != null && player.selectImportedSubtitle(key, intent.trackKey, intent.version)) {
             mutable.update { it.copy(selectedSourceSubtitle = -1, subtitleError = null) }; return
         }
-        val lease = originalLease(source.owner, file)
+        val lease = subtitleLease(source.owner, intent)
         try {
             readAsset(lease, retain = true) {
                 checkCurrent()
                 check(player.importSubtitle(lease.url, file.name, key, intent.trackKey == null, intent.version)) { "外挂字幕未能载入" }
                 checkCurrent()
                 if (intent.trackKey != null) check(player.selectImportedSubtitle(key, intent.trackKey, intent.version)) { "原外挂字幕语言已变化，请重新选择" }
-                externalRefs[key] = file
+                externalRefs[key] = ExternalRef(file, intent.resourceVersion)
                 val restored = player.decoderRestoreSnapshot()
                 subtitleIntent = intent.copy(trackKey = restored?.externalSubtitle?.trackKey, version = restored?.externalSources?.get(key))
                 leases += lease; mutable.update { it.copy(selectedSourceSubtitle = -1, subtitleError = null) }
@@ -939,6 +1314,7 @@ class TvMediaController(
         cache.stop();window = null
         leases.forEach { it.release() }; leases.clear()
         externalRefs.clear()
+        localRefs.clear()
     }
     fun release() { ++epoch; operation?.cancel(); subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel(); binding?.subtitleAssets?.close(); player.release();cache.release(); CoroutineScope(Dispatchers.IO).launch { playbackLease?.release(); leases.forEach { it.release() }; binding?.writer?.close() } }
 }

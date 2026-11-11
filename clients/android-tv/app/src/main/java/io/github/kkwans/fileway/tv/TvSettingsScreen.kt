@@ -113,6 +113,11 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                     item { Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
                         (2..6).forEach { columns -> TvButton("${columns}列",{model.setColumns(columns)},Modifier.weight(1f),selected=state.gridColumns==columns) }
                     } }
+                    item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Text("遥控器详情长按 ${state.detailsHoldMillis / 1000.0} 秒",Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge)
+                        TvButton("减小",{model.setDetailsHold(state.detailsHoldMillis-250)},enabled=state.detailsHoldMillis>500)
+                        TvButton("增大",{model.setDetailsHold(state.detailsHoldMillis+250)},enabled=state.detailsHoldMillis<2000)
+                    } }
                     item { TvSectionTitle("显示区域") }
                     item { Text("四周安全边距 ${state.safePercent}%",style=MaterialTheme.typography.bodyLarge) }
                     item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {

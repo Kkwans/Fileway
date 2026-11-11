@@ -4,21 +4,17 @@ import android.view.KeyEvent as AndroidKey
 import androidx.media3.common.C
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.*
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
@@ -27,7 +23,7 @@ import androidx.compose.ui.input.pointer.*
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.*
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -44,6 +40,8 @@ import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.player.*
 import kotlinx.coroutines.*
 
+private val PlayerFeedbackSurface = Color(0xFF262626)
+
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable fun TvMediaScreen(model: TvModel) {
     val state by model.media.state.collectAsStateWithLifecycle()
@@ -53,54 +51,150 @@ import kotlinx.coroutines.*
     val interfaceState by model.state.collectAsStateWithLifecycle()
     val cache by model.media.cache.state.collectAsStateWithLifecycle()
     val textAppearance by model.media.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
-    val fontCatalog by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
     val audio = file.mediaKind() == MediaKind.AUDIO
     val mediaEpoch=model.media.controlEpoch
     var controls by remember(mediaEpoch) { mutableStateOf(audio) }
     var exitPrompt by remember(mediaEpoch) { mutableStateOf(false) }
-    val pages=remember(model.sessionEpoch,file.mediaKey){mutableStateListOf<TvPlayerPage>()}
-    val panel=pages.lastOrNull()
-    val focusMemory=remember(model.sessionEpoch,file.mediaKey){mutableMapOf<TvPlayerPage,String>()}
-    var restoring by remember(file.mediaKey){mutableStateOf(false)}
-    var browserBack by remember(model.sessionEpoch,file.mediaKey){mutableStateOf<(() -> Unit)?>(null)}
+    val pages = remember(model.sessionEpoch, file.mediaKey) { mutableStateListOf<TvPlayerPage>() }
+    val panel = pages.lastOrNull()
+    var quickPanel by remember(mediaEpoch) { mutableStateOf(false) }
+    val quickAnchors = remember(mediaEpoch) { mutableStateMapOf<TvPlayerPage, Rect>() }
+    var returnToHud by remember(mediaEpoch) { mutableStateOf(false) }
+    var lastMenu by remember(mediaEpoch) { mutableStateOf(TvPlayerPage.SETTINGS) }
+    val focusMemory = remember(model.sessionEpoch, file.mediaKey) { mutableMapOf<TvPlayerPage, String>() }
+    var restoring by remember(file.mediaKey) { mutableStateOf(false) }
+    var browserBack by remember(model.sessionEpoch, file.mediaKey) { mutableStateOf<(() -> Unit)?>(null) }
+    var capturedBack by remember(file.mediaKey) { mutableStateOf(false) }
     var stageHeight by remember{mutableFloatStateOf(1f)}
     var controlsHeight by remember{mutableFloatStateOf(0f)}
     var pulse by remember { mutableIntStateOf(0) }
     var seekTarget by remember(mediaEpoch) { mutableStateOf<Long?>(null) }
     var seekPulse by remember { mutableIntStateOf(0) }
     var resize by remember { mutableIntStateOf(0) }
-    val stage = remember { FocusRequester() }; val play = remember { FocusRequester() }
-    LaunchedEffect(player.mediaGeneration,resize){withFrameNanos{};model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,AspectRatioFrameLayout.RESIZE_MODE_FILL,AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[resize])}
-    val retry = remember { FocusRequester() }
-    val actions = remember(file.mediaKey) { mutableMapOf<TvPlayerPage, FocusRequester>() }
-    var trigger by remember(file.mediaKey) { mutableStateOf<FocusRequester?>(null) }
-    val showPanel: (TvPlayerPage) -> Unit = { page -> pages.clear();pages.add(page);trigger=actions[page];pulse++ }
-    val closePanel: () -> Unit = { browserBack=null;pages.clear();controls=true;restoring=true;pulse++ }
-    val backPanel: () -> Unit = { if(browserBack!=null)browserBack?.invoke() else if(pages.size>1){pages.removeAt(pages.lastIndex);pulse++}else closePanel() }
-    val back: () -> Unit = {
-        when { panel!=null->backPanel();exitPrompt->model.media.close();else->{if(!audio)controls=false;exitPrompt=true} }
+    val stage = remember { FocusRequester() }
+    val play = remember { FocusRequester() }
+    LaunchedEffect(player.mediaGeneration, resize) {
+        withFrameNanos {}
+        model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_FILL,
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[resize])
     }
-    BackHandler(onBack=back)
+    val retry = remember { FocusRequester() }
+    val actions = remember(file.mediaKey) { TvPlayerPage.entries.associateWith { FocusRequester() } }
+    var trigger by remember(file.mediaKey) { mutableStateOf<FocusRequester?>(null) }
+    fun showPanel(page: TvPlayerPage, quick: Boolean = false, origin: FocusRequester? = null) {
+        browserBack = null
+        focusMemory.clear()
+        pages.clear()
+        pages.add(page)
+        quickPanel = quick
+        returnToHud = controls
+        if (!quick && page in listOf(TvPlayerPage.QUEUE, TvPlayerPage.SETTINGS, TvPlayerPage.SUBTITLE, TvPlayerPage.AUDIO, TvPlayerPage.INFO)) lastMenu = page
+        trigger = if (returnToHud) origin ?: actions.getValue(if (quick) page else TvPlayerPage.SETTINGS) else null
+        exitPrompt = false
+        pulse++
+    }
+    fun navigatePanel(page: TvPlayerPage) {
+        browserBack = null
+        pages.add(page)
+        pulse++
+    }
+    fun switchPanelTab(page: TvPlayerPage) {
+        browserBack = null
+        pages.clear()
+        pages.add(page)
+        lastMenu = page
+        pulse++
+    }
+    fun selectSubtitleSection(page: TvPlayerPage) {
+        browserBack = null
+        while (pages.size > 1) pages.removeAt(pages.lastIndex)
+        if (page == TvPlayerPage.SUBTITLE) {
+            // An explicit group activation enters the choices; Back restores the group itself.
+            if (focusMemory[page]?.startsWith("group/") == true) focusMemory.remove(page)
+        } else {
+            focusMemory[TvPlayerPage.SUBTITLE] = tvSubtitleGroupKey(page)
+            if (focusMemory[page]?.startsWith("group/") == true) focusMemory.remove(page)
+            pages.add(page)
+        }
+        pulse++
+    }
+    fun closePanel() {
+        browserBack = null
+        pages.clear()
+        controls = returnToHud
+        restoring = returnToHud
+        quickPanel = false
+        pulse++
+    }
+    fun traceBack(source: String, action: String) {
+        if (BuildConfig.DEBUG) android.util.Log.d("FilewayTvBack",
+            "source=$source action=$action panel=${pages.lastOrNull()?.name ?: "none"} depth=${pages.size} hud=$controls exitPrompt=$exitPrompt")
+    }
+    fun backPanel(source: String) {
+        val browser = browserBack
+        when {
+            pages.isEmpty() -> traceBack(source, "dialog-already-closed")
+            browser != null -> { traceBack(source, "parent-directory"); browser() }
+            pages.size > 1 -> { traceBack(source, "parent-page"); pages.removeAt(pages.lastIndex); pulse++ }
+            else -> { traceBack(source, if (returnToHud) "restore-hud" else "return-to-video"); closePanel() }
+        }
+    }
+    fun back(source: String) {
+        when {
+            pages.isNotEmpty() -> backPanel(source)
+            controls -> { traceBack(source, "hide-hud"); controls = false; exitPrompt = false }
+            exitPrompt -> { traceBack(source, "exit-player"); model.media.close() }
+            else -> { traceBack(source, "arm-exit"); exitPrompt = true }
+        }
+    }
+    BackHandler { back("activity-dispatcher") }
     LaunchedEffect(exitPrompt) { if(exitPrompt) { delay(2000);exitPrompt=false } }
-    LaunchedEffect(controls,textAppearance,player.mediaGeneration,controlsHeight,stageHeight) {
-        model.media.player.textSubtitleAppearance(if(controls)textAppearance.copy(bottomPadding=maxOf(textAppearance.bottomPadding,((controlsHeight+12f)/stageHeight).coerceIn(0f,.4f))) else textAppearance)
+    LaunchedEffect(controls,panel,textAppearance,player.mediaGeneration,controlsHeight,stageHeight) {
+        model.media.player.textSubtitleAppearance(if(controls&&(panel==null||quickPanel))textAppearance.copy(bottomPadding=maxOf(textAppearance.bottomPadding,((controlsHeight+12f)/stageHeight).coerceIn(0f,.4f))) else textAppearance)
     }
     LaunchedEffect(controls, player.playing, panel, pulse,interfaceState.controlsTimeoutSeconds) {
         if (controls && player.playing && panel == null && !audio) { delay(interfaceState.controlsTimeoutSeconds*1000L); controls = false }
     }
-    LaunchedEffect(controls,state.busy,state.error,player.error,panel) {
-        if(panel!=null)return@LaunchedEffect
-        withFrameNanos{}
+    val playEnabled = !state.busy || player.durationMs > 0
+    val hudVisible = controls && (panel == null || quickPanel) && state.error == null && player.error == null
+    LaunchedEffect(hudVisible, panel, state.busy, state.error, player.error) {
+        if (panel != null) return@LaunchedEffect
+        withFrameNanos {}
         when {
-            !state.busy&&(state.error!=null||player.error!=null)->retry.requestFocus()
-            controls&&state.error==null&&player.error==null->{(if(restoring)trigger?:play else play).requestFocus();restoring=false}
-            else->stage.requestFocus()
+            !state.busy && (state.error != null || player.error != null) -> retry.requestFocus()
+            hudVisible -> {
+                val fallback = if (playEnabled) play else actions.getValue(TvPlayerPage.SETTINGS)
+                (if (restoring) trigger ?: fallback else fallback).requestFocus()
+                restoring = false
+            }
+            else -> stage.requestFocus()
         }
     }
     LaunchedEffect(player.seekError) { if(player.seekError!=null)controls=true }
     LaunchedEffect(mediaEpoch,seekPulse) { val target = seekTarget; if(target != null) { delay(350); model.media.seek(target); seekTarget = null } }
     val requestSeek: (Long) -> Unit = { delta -> seekTarget = ((seekTarget ?: model.media.sourcePosition()) + delta).coerceIn(0,state.sourceDurationMs.coerceAtLeast(0)); seekPulse++; pulse++ }
-    Box(Modifier.fillMaxSize().onSizeChanged{stageHeight=it.height.toFloat().coerceAtLeast(1f)}.background(Color.Black).focusRequester(stage).tvRemoteKeys { event ->
+    Box(Modifier.fillMaxSize().onSizeChanged{stageHeight=it.height.toFloat().coerceAtLeast(1f)}.background(Color.Black).focusRequester(stage)
+        .focusProperties { canFocus = panel == null && !hudVisible }
+        .onPreviewKeyEvent { event ->
+            val key = event.nativeKeyEvent
+            if (BuildConfig.DEBUG && key.keyCode in listOf(AndroidKey.KEYCODE_DPAD_UP, AndroidKey.KEYCODE_DPAD_DOWN)) {
+                android.util.Log.d("FilewayTvInput", "dpad key=${key.keyCode} action=${key.action} hud=$controls panel=${pages.isNotEmpty()}")
+            }
+            if (BuildConfig.DEBUG && key.keyCode == AndroidKey.KEYCODE_DPAD_CENTER && key.repeatCount == 0) {
+                android.util.Log.d("FilewayTvInput", "center action=${key.action} hud=$controls panel=${pages.isNotEmpty()}")
+            }
+            if (key.keyCode != AndroidKey.KEYCODE_BACK) return@onPreviewKeyEvent false
+            when (event.type) {
+                KeyEventType.KeyDown -> (pages.isEmpty() || capturedBack).also { capturedBack = it }
+                KeyEventType.KeyUp -> {
+                    val handled = capturedBack
+                    capturedBack = false
+                    if (handled && !event.nativeKeyEvent.isCanceled) back("activity-key")
+                    handled
+                }
+                else -> false
+            }
+        }.tvRemoteKeys { event ->
         run {
             pulse++
             when(event.nativeKeyEvent.keyCode) {
@@ -113,8 +207,20 @@ import kotlinx.coroutines.*
                 AndroidKey.KEYCODE_MEDIA_REWIND -> {requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}
                 AndroidKey.KEYCODE_DPAD_LEFT -> if(!controls && panel==null){requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
                 AndroidKey.KEYCODE_DPAD_RIGHT -> if(!controls && panel==null){requestSeek(tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
-                AndroidKey.KEYCODE_DPAD_DOWN -> if(!controls && panel==null){controls=true;true}else false
-                AndroidKey.KEYCODE_DPAD_CENTER, AndroidKey.KEYCODE_ENTER, AndroidKey.KEYCODE_NUMPAD_ENTER, AndroidKey.KEYCODE_BUTTON_A -> if(!controls && panel==null){if(event.nativeKeyEvent.repeatCount==0)model.media.player.toggle();true}else false
+                AndroidKey.KEYCODE_DPAD_UP -> if(!controls && panel==null){controls=true;true}else false
+                AndroidKey.KEYCODE_DPAD_DOWN -> if(!controls && panel==null){showPanel(lastMenu);true}else false
+                AndroidKey.KEYCODE_DPAD_CENTER, AndroidKey.KEYCODE_ENTER, AndroidKey.KEYCODE_NUMPAD_ENTER, AndroidKey.KEYCODE_BUTTON_A -> {
+                    if (controls || panel != null) false else {
+                        if (event.nativeKeyEvent.repeatCount == 0) {
+                            val nativePlayer = model.media.player
+                            val before = if (BuildConfig.DEBUG) "${nativePlayer.wantsPlay}/${nativePlayer.state.value.playing}" else null
+                            nativePlayer.toggle()
+                            if (before != null) android.util.Log.d("FilewayTvInput",
+                                "hidden toggle wantsPlay/playing $before -> ${nativePlayer.wantsPlay}/${nativePlayer.state.value.playing}")
+                        }
+                        true
+                    }
+                }
                 else -> false
             }
         }
@@ -139,54 +245,92 @@ import kotlinx.coroutines.*
         Box(Modifier.matchParentSize().pointerInput(file.mediaKey) {
             detectTapGestures(onTap = { controls = !controls; pulse++ }, onDoubleTap = { model.media.player.toggle(); pulse++ })
         })
-        if(controls) {
-            val infoFocus=remember{FocusRequester()};actions[TvPlayerPage.INFO]=infoFocus
-            TvPlaybackTitle(if(audio)"音乐"else file.name,onBack=back,onInfo={showPanel(TvPlayerPage.INFO)},infoFocus=infoFocus)
-        }
-        TvPlaybackTelemetry(interfaceState.clockAlways||controls,!audio&&(interfaceState.speedAlways||controls),cache.bytesPerSecond)
-        if(controls && state.error==null && player.error==null) {
+        if (hudVisible) {
             TvPlaybackControls(
-                playing=player.playing,enabled=!state.busy||player.durationMs>0,seekable=model.media.canSeek,audio=audio,rate=player.rate,
-                previous=state.queue?.hasPrevious==true,next=state.queue?.hasNext==true,
-                position=seekTarget?:model.media.sourcePosition(),duration=state.sourceDurationMs,
-                buffered=player.bufferedPositionMs+state.sourceOffsetMs,cachedRanges=cache.ranges,playFocus=play,
-                actions=actions,onToggle={model.media.player.toggle();pulse++},onSeek=requestSeek,
-                onSeekTo={target->seekTarget=target.coerceIn(0,state.sourceDurationMs.coerceAtLeast(0));seekPulse++;pulse++},
-                onPrevious={model.media.navigateQueue(-1)},onNext={model.media.navigateQueue(1)},onPanel=showPanel,
-                modifier=Modifier.align(Alignment.BottomCenter).onSizeChanged{controlsHeight=it.height.toFloat()},
-                seekStepSeconds=interfaceState.seekStepSeconds,safePercent=interfaceState.safePercent,
+                playing = player.playing, enabled = playEnabled, seekable = model.media.canSeek, audio = audio, rate = player.rate,
+                previous = state.queue?.hasPrevious == true, next = state.queue?.hasNext == true,
+                position = seekTarget ?: model.media.sourcePosition(), duration = state.sourceDurationMs,
+                buffered = player.bufferedPositionMs + state.sourceOffsetMs, cachedRanges = cache.ranges, playFocus = play,
+                actions = actions, onToggle = { model.media.player.toggle(); pulse++ }, onSeek = requestSeek,
+                onSeekTo = { target -> seekTarget = target.coerceIn(0, state.sourceDurationMs.coerceAtLeast(0)); seekPulse++; pulse++ },
+                onPrevious = { model.media.navigateQueue(-1) }, onNext = { model.media.navigateQueue(1) },
+                onQuick = { showPanel(it, quick = true) },
+                onQuickAnchor = { page, bounds -> if (quickAnchors[page] != bounds) quickAnchors[page] = bounds },
+                onMenu = { showPanel(lastMenu, origin = it) },
+                onSettings = { showPanel(TvPlayerPage.SETTINGS) }, activeQuick = panel.takeIf { quickPanel },
+                modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { controlsHeight = it.height.toFloat() },
+                seekStepSeconds = interfaceState.seekStepSeconds, safePercent = interfaceState.safePercent,
             )
         }
-        if(delayedBusy(state.subtitleLoading||player.subtitleLoading))Text("正在加载字幕…",Modifier.align(Alignment.CenterEnd).padding(32.dp),style=MaterialTheme.typography.bodySmall,color=Color.White)
+        TvPlaybackHeader(
+            title = file.name.takeIf { hudVisible || panel != null },
+            showTime = interfaceState.clockAlways || controls || panel != null,
+            showSpeed = !audio && (interfaceState.speedAlways || controls || panel != null),
+            bytesPerSecond = cache.bytesPerSecond, safePercent = interfaceState.safePercent,
+        )
+        if(panel==null&&delayedBusy(state.subtitleLoading||player.subtitleLoading))Text("正在加载字幕…",Modifier.align(Alignment.CenterEnd).padding(32.dp),style=MaterialTheme.typography.bodySmall,color=Color.White)
         (state.subtitleError?:player.seekError?:state.subtitleNotice?:state.notice?:player.operationError)?.let{notice->
-            Text(notice,Modifier.align(Alignment.BottomStart).padding(start=48.dp,end=48.dp,bottom=if(controls)156.dp else 24.dp),style=MaterialTheme.typography.bodySmall,color=Color.White,maxLines=2,overflow=TextOverflow.Ellipsis)
+            val inSubtitlePanel=panel==TvPlayerPage.SUBTITLE||panel==TvPlayerPage.EXTERNAL||panel==TvPlayerPage.LOCAL_SUBTITLE
+            val shownInSubtitlePanel=notice==state.subtitleError||notice==state.subtitleNotice||
+                (notice==player.operationError&&notice.contains("字幕"))
+            if(!inSubtitlePanel||!shownInSubtitlePanel) {
+                val noticeBottom = if (hudVisible) with(LocalDensity.current) { controlsHeight.toDp() } else 24.dp
+                val placement=if(panel==null)Modifier.align(Alignment.BottomStart).padding(start=48.dp,end=48.dp,bottom=noticeBottom)
+                    else Modifier.align(Alignment.TopStart).padding(start=48.dp,end=48.dp,top=96.dp)
+                Text(notice,placement.background(PlayerFeedbackSurface.copy(alpha=.94f),TvShape).padding(horizontal=12.dp,vertical=8.dp),
+                    style=MaterialTheme.typography.bodySmall,color=Color.White,maxLines=2,overflow=TextOverflow.Ellipsis)
+            }
         }
-        if(delayedBusy(state.busy||((player.waitingForBuffer||player.seeking)&&player.seekError==null)))Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.48f),RoundedCornerShape(12.dp)).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        if(delayedBusy(state.busy||((player.waitingForBuffer||player.seeking)&&player.seekError==null)))Column(Modifier.align(Alignment.Center).background(PlayerFeedbackSurface.copy(alpha=.86f),TvShape).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(if(state.busy)"正在准备播放…" else if(player.seeking)"正在跳转…" else "正在缓冲…",style=MaterialTheme.typography.bodyLarge)
             if(!state.busy&&player.waitingForBuffer)Text("缓冲 ${player.buffering.toInt()}%",style=MaterialTheme.typography.bodySmall,color=Color.White.copy(alpha=.8f))
         }
-        if((player.error!=null||state.error!=null)&&!state.busy)Column(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha=.78f),RoundedCornerShape(12.dp)).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        if((player.error!=null||state.error!=null)&&!state.busy)Column(Modifier.align(Alignment.Center).background(PlayerFeedbackSurface.copy(alpha=.97f),TvShape).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             LaunchedEffect(state.error,player.error) { withFrameNanos {}; retry.requestFocus() }
             Text(state.error?:player.error.orEmpty(),color=MaterialTheme.colorScheme.error)
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){TvButton("重试",model.media::retry,Modifier.focusRequester(retry));TvButton("原生播放",{model.media.switchMode(TvHdrMode.NATIVE)});if(state.sdrAvailable)TvButton("SDR 兼容",{model.media.switchMode(TvHdrMode.SDR)});TvButton("返回",model.media::close)}
         }
-        seekTarget?.let{target->if(!controls)Text("跳转到 ${tvTime(target)}",Modifier.align(Alignment.BottomCenter).padding(30.dp).background(Color(0xE614181E),RoundedCornerShape(12.dp)).padding(14.dp),style=MaterialTheme.typography.titleMedium)}
-        if(exitPrompt)Text("再按一次返回退出播放",Modifier.align(Alignment.BottomCenter).padding(bottom=28.dp).background(Color.Black.copy(alpha=.6f),TvShape).padding(horizontal=20.dp,vertical=12.dp),style=MaterialTheme.typography.bodyLarge,color=Color.White)
+        seekTarget?.let{target->if(!controls)Text("跳转到 ${tvTime(target)}",Modifier.align(Alignment.BottomCenter).padding(30.dp).background(PlayerFeedbackSurface.copy(alpha=.94f),TvShape).padding(14.dp),style=MaterialTheme.typography.titleMedium)}
+        if(exitPrompt)Text("再按一次返回退出播放",Modifier.align(Alignment.BottomCenter).padding(bottom=28.dp).background(PlayerFeedbackSurface.copy(alpha=.94f),TvShape).padding(horizontal=20.dp,vertical=12.dp),style=MaterialTheme.typography.bodyLarge,color=Color.White)
     }
     panel?.let { page ->
-        val labels=when(page) {
-            TvPlayerPage.AUDIO->if(state.compatible)state.sourceAudio.map{it.title}else player.audio.map{it.title}
-            TvPlayerPage.SUBTITLE->state.sourceText.map{it.title}+player.subtitles.map{it.title}+state.sidecars.map{it.name}
-            TvPlayerPage.QUEUE->state.queue?.items?.map{it.name}.orEmpty()
-            TvPlayerPage.FONT->fontCatalog.options.map{it.label}
-            TvPlayerPage.APPEARANCE->listOf("字号","垂直位置","文字背景","位置参考",fontCatalog.resolve(textAppearance.fontKey).label,"恢复默认外观")
-            TvPlayerPage.SETTINGS->listOf("播放速度","画面比例","动态范围","应用音量","播放信息")
-            TvPlayerPage.SPEED->listOf("自定义速度（0.1–5）","1.25×")
-            else->listOf(page.title)
+        val quickLabels = remember(page, state.queue, state.sourceAudio, state.sourceText, state.sidecars,
+            player.audio, player.subtitles, state.compatible) {
+            when (page) {
+                TvPlayerPage.QUEUE -> state.queue?.items.orEmpty().map { it.name }
+                TvPlayerPage.SPEED -> listOf("0.5×", "0.75×", "1.0×", "1.25×", "1.5×", "2.0×")
+                TvPlayerPage.AUDIO -> if (state.compatible) state.sourceAudio.flatMap { listOf(it.title, "${it.language} · ${it.codec}") }
+                    else player.audio.flatMap { listOf(it.title, "${it.language} · ${it.codec}") }
+                TvPlayerPage.SUBTITLE -> listOf("关闭字幕") + state.sourceText.map { it.title } +
+                    player.subtitles.map { it.title } + state.sidecars.map { it.name }
+                else -> emptyList()
+            }
         }
-        TvPlayerPanel(if(page==TvPlayerPage.QUEUE)"播放列表 · ${state.queue?.items?.size?:0}"else page.title,labels,pages.size>1,backPanel,closePanel) {
-            TvPlayerMenuContent(model,page,state,player,cache,resize,onResize={index->resize=index;model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,AspectRatioFrameLayout.RESIZE_MODE_FILL,AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[index])},
-                onNavigate={next->browserBack=null;pages.add(next);pulse++},onBack=backPanel,onClose=closePanel,onBrowserBack={browserBack=it},initialKey=focusMemory[page],onFocused={focusMemory[page]=it})
+        TvPlayerPanel(
+            page = page, safePercent = interfaceState.safePercent,
+            child = pages.size > 1, audio = audio,
+            quick = quickPanel, hudHeight = with(LocalDensity.current) { controlsHeight.toDp() },
+            quickAnchor = quickAnchors[page], quickLabels = quickLabels,
+            settingsUnderlay = tvPlayerSettingsRows(state, player, resize, onExit = {}) {},
+            initialKey = focusMemory[page], onFocused = { key ->
+                val tab = if (page in setOf(TvPlayerPage.SUBTITLE, TvPlayerPage.SUBTITLE_SOURCE, TvPlayerPage.SUBTITLE_ADJUST))
+                    TvPlayerPage.SUBTITLE else page
+                if (!key.startsWith("header/tab/") || key == "header/tab/${tab.name}") focusMemory[page] = key
+            },
+            onTab = ::switchPanelTab, onSubtitleSection = ::selectSubtitleSection,
+            onBack = ::backPanel, onClose = ::closePanel,
+        ) { focus ->
+            TvPlayerMenuContent(
+                model, page, state, player, cache, resize, quickPanel, focus,
+                onResize = { index ->
+                    resize = index
+                    model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,
+                        AspectRatioFrameLayout.RESIZE_MODE_FILL, AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[index])
+                },
+                onNavigate = ::navigatePanel, onBack = { backPanel("dialog-choice") }, onClose = ::closePanel,
+                onExit = { traceBack("settings-exit", "exit-player"); model.media.close() },
+                onBrowserBack = { browserBack = it },
+            )
         }
     }
 }
@@ -281,21 +425,21 @@ fun tvOutputSignal(player:PlayerState):String {
             .padding(start=48.dp,end=48.dp,top=36.dp,bottom=24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text(file.name,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
             Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.Center,verticalAlignment=Alignment.CenterVertically) {
-                TvPlaybackAction("返回文件",Art.drawable.fileway_ic_arrow_back,model.media::close)
+                TvImageAction("返回文件",Art.drawable.fileway_ic_arrow_back,model.media::close)
                 Spacer(Modifier.width(12.dp))
-                TvPlaybackAction("上一张",Art.drawable.fileway_ic_skip_previous,{model.media.navigateQueue(-1)},if(state.queue?.hasPrevious==true)Modifier.focusRequester(imageAction)else Modifier,enabled=state.queue?.hasPrevious==true)
+                TvImageAction("上一张",Art.drawable.fileway_ic_skip_previous,{model.media.navigateQueue(-1)},if(state.queue?.hasPrevious==true)Modifier.focusRequester(imageAction)else Modifier,enabled=state.queue?.hasPrevious==true)
                 Spacer(Modifier.width(12.dp))
-                TvPlaybackAction("下一张",Art.drawable.fileway_ic_skip_next,{model.media.navigateQueue(1)},if(state.queue?.hasPrevious!=true&&state.queue?.hasNext==true)Modifier.focusRequester(imageAction)else Modifier,enabled=state.queue?.hasNext==true)
+                TvImageAction("下一张",Art.drawable.fileway_ic_skip_next,{model.media.navigateQueue(1)},if(state.queue?.hasPrevious!=true&&state.queue?.hasNext==true)Modifier.focusRequester(imageAction)else Modifier,enabled=state.queue?.hasNext==true)
                 Spacer(Modifier.width(24.dp))
-                TvPlaybackAction("放大",Art.drawable.fileway_ic_zoom_in,{if(zoom==1f)model.media.requestOriginalImage();zoom=(zoom+.5f).coerceAtMost(3f);controls=false},if(state.queue?.hasPrevious!=true&&state.queue?.hasNext!=true)Modifier.focusRequester(imageAction)else Modifier)
+                TvImageAction("放大",Art.drawable.fileway_ic_zoom_in,{if(zoom==1f)model.media.requestOriginalImage();zoom=(zoom+.5f).coerceAtMost(3f);controls=false},if(state.queue?.hasPrevious!=true&&state.queue?.hasNext!=true)Modifier.focusRequester(imageAction)else Modifier)
                 Spacer(Modifier.width(12.dp))
-                TvPlaybackAction("缩小",Art.drawable.fileway_ic_zoom_out,{zoom=(zoom-.5f).coerceAtLeast(1f);if(zoom==1f){x=0f;y=0f}},enabled=zoom>1f)
+                TvImageAction("缩小",Art.drawable.fileway_ic_zoom_out,{zoom=(zoom-.5f).coerceAtLeast(1f);if(zoom==1f){x=0f;y=0f}},enabled=zoom>1f)
                 Spacer(Modifier.width(12.dp))
-                TvPlaybackAction("适合屏幕",Art.drawable.fileway_ic_fit_screen,{zoom=1f;x=0f;y=0f})
+                TvImageAction("适合屏幕",Art.drawable.fileway_ic_fit_screen,{zoom=1f;x=0f;y=0f})
                 Spacer(Modifier.width(24.dp))
-                TvPlaybackAction("图片信息",Art.drawable.fileway_ic_info,{imageInfo=true})
+                TvImageAction("图片信息",Art.drawable.fileway_ic_info,{imageInfo=true})
                 Spacer(Modifier.width(12.dp))
-                TvPlaybackAction("关闭操作栏",Art.drawable.fileway_ic_close,{controls=false})
+                TvImageAction("关闭操作栏",Art.drawable.fileway_ic_close,{controls=false})
             }
         }
 
