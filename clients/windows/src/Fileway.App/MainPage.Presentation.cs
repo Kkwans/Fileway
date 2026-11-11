@@ -9,9 +9,13 @@ namespace Fileway.App;
 
 public sealed partial class MainPage
 {
+    private const double CompactToastTopInset = 12;
+    private const double BrowserToastContentGap = 6;
     private readonly HashSet<BrowserFileTypeFilter> _typeFilters = [];
     private readonly Dictionary<(AccountKey Account, string WirePath), BrowserFileTypeFilter[]> _directoryTypeFilters = [];
-    private readonly Dictionary<InfoBar, (long Callback, int StatusRow)> _noticeLayouts = [];
+    private readonly Dictionary<InfoBar, (long Callback, int StatusRow, TranslateTransform Offset)> _noticeLayouts = [];
+    private long? _workspaceToastVisibilityCallback;
+    private bool _trackingBrowserToastLayout;
     private bool _typeFiltersEdited;
     private PlayerSettingsWindow? _detailsPopup;
     private StackPanel? _typeFilterOptions;
@@ -30,10 +34,17 @@ public sealed partial class MainPage
         foreach (var bar in FeedbackLayout.Children.OfType<InfoBar>())
         {
             Controls.FloatingNotice.Attach(bar, automatic: false);
+            var offset = new TranslateTransform();
+            bar.RenderTransform = offset;
             var callback = bar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, (_, _) =>
-                bar.Visibility = bar.IsOpen ? Visibility.Visible : Visibility.Collapsed);
-            _noticeLayouts.Add(bar, (callback, Grid.GetRow(bar)));
+            {
+                bar.Visibility = bar.IsOpen ? Visibility.Visible : Visibility.Collapsed;
+                UpdateCompactToastAnchors();
+            });
+            _noticeLayouts.Add(bar, (callback, Grid.GetRow(bar), offset));
         }
+        _workspaceToastVisibilityCallback = Workspace.RegisterPropertyChangedCallback(UIElement.VisibilityProperty,
+            (_, _) => UpdateCompactToastAnchors());
         AttachChoices(ViewOptionsButton);
         _typeFilterOptions = (TypeFilterBox.Flyout as Flyout)?.Content as StackPanel;
         AttachChoices(TypeFilterBox);
@@ -77,15 +88,48 @@ public sealed partial class MainPage
             Canvas.SetZIndex(bar, compact ? 10 : 0);
             bar.HorizontalAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Left;
             bar.VerticalAlignment = compact ? VerticalAlignment.Top : VerticalAlignment.Stretch;
-            bar.Margin = compact ? new Thickness(12, 12, 12, 0) : new Thickness(16, 0, 16, 8);
+            bar.Margin = compact ? new Thickness(12, CompactToastTopInset, 12, 0) : new Thickness(16, 0, 16, 8);
             bar.MaxWidth = compact ? 400 : 580;
         }
         // Transfer snapshots refresh their bytes frequently. A dismissed toast
         // must not reappear on every tick; only a new task/stage opens it again.
-        if (!Controls.FloatingNotice.Show(bar, key, repeat, compact) || !compact) return;
+        var shown = Controls.FloatingNotice.Show(bar, key, repeat, compact);
+        if (hasLayout) UpdateCompactToastAnchors();
+        if (!shown || !compact) return;
         foreach (var other in _noticeLayouts.Keys)
             if (other != bar && other.IsOpen && Controls.FloatingNotice.IsCompact(other))
                 other.IsOpen = false;
+    }
+
+    private void BrowserToastLayoutUpdated(object? sender, object args) => UpdateCompactToastAnchors();
+
+    private void UpdateCompactToastAnchors()
+    {
+        if (_disposed) return;
+        var trackLayout = Workspace.Visibility == Visibility.Visible &&
+            _noticeLayouts.Keys.Any(bar => bar.IsOpen && Controls.FloatingNotice.IsCompact(bar));
+        if (trackLayout != _trackingBrowserToastLayout)
+        {
+            if (trackLayout) BrowserBody.LayoutUpdated += BrowserToastLayoutUpdated;
+            else BrowserBody.LayoutUpdated -= BrowserToastLayoutUpdated;
+            _trackingBrowserToastLayout = trackLayout;
+        }
+
+        // Apply the browser offset after layout so the toast cannot resize the work area.
+        var browserOffset = 0.0;
+        if (trackLayout)
+        {
+            var bodyTop = BrowserCommands.Height;
+            if (BrowserBody.IsLoaded && BrowserBody.ActualHeight > 0 &&
+                BrowserBody.XamlRoot is { } root && root == FeedbackLayout.XamlRoot)
+                bodyTop = Math.Max(bodyTop, BrowserBody.TransformToVisual(FeedbackLayout).TransformPoint(new(0, 0)).Y);
+            browserOffset = bodyTop + BrowserToastContentGap - CompactToastTopInset;
+        }
+        foreach (var (bar, layout) in _noticeLayouts)
+        {
+            var offset = trackLayout && bar.IsOpen && Controls.FloatingNotice.IsCompact(bar) ? browserOffset : 0;
+            if (layout.Offset.Y != offset) layout.Offset.Y = offset;
+        }
     }
 
     private static void ResetToast(InfoBar bar) => Controls.FloatingNotice.Reset(bar);
@@ -94,6 +138,11 @@ public sealed partial class MainPage
     {
         _detailsPopup?.Dispose(); _detailsPopup = null;
 
+        if (_workspaceToastVisibilityCallback is { } callback)
+            Workspace.UnregisterPropertyChangedCallback(UIElement.VisibilityProperty, callback);
+        _workspaceToastVisibilityCallback = null;
+        if (_trackingBrowserToastLayout) BrowserBody.LayoutUpdated -= BrowserToastLayoutUpdated;
+        _trackingBrowserToastLayout = false;
         Controls.FloatingNotice.Detach(LoginNotice);
         foreach (var (bar, layout) in _noticeLayouts)
         {
