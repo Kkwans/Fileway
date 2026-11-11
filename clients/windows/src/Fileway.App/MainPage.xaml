@@ -203,6 +203,9 @@
      <ui:FwEmptyState.Action><Button x:Name="RetryLoadButton" Content="重新加载" Click="Refresh_Click" Visibility="Collapsed" HorizontalAlignment="Center" Style="{StaticResource FwSecondaryButtonStyle}"/></ui:FwEmptyState.Action>
     </ui:FwEmptyState>
     <ProgressRing x:Name="LoadingRing" Grid.RowSpan="2" IsActive="False" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+    <Canvas x:Name="MoveDropTargetLayer" Grid.Row="1" IsHitTestVisible="False">
+     <Border x:Name="MoveDropTarget" Visibility="Collapsed" CornerRadius="10" BorderThickness="2" BorderBrush="{ThemeResource FwPrimaryButtonBackgroundBrush}"/>
+    </Canvas>
     <Border x:Name="DropOverlay" Grid.RowSpan="2" Visibility="Collapsed" IsHitTestVisible="False" BorderThickness="2" CornerRadius="8" Margin="6" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" Background="{ThemeResource AccentFillColorSecondaryBrush}"><StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8"><ui:LucideIcon IconName="upload-simple" Width="34" Height="34" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="DropOverlayText" Text="松开以上传到当前目录" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
     </Grid>
     <Border x:Name="DetailsPanel" Visibility="Collapsed" Padding="20,16,20,18" Background="{ThemeResource FwGlassBrush}" KeyDown="DetailsPanel_KeyDown">

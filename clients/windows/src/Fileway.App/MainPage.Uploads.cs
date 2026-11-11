@@ -327,6 +327,13 @@ public sealed partial class MainPage
 
     private void FilesArea_DragOver(object sender, DragEventArgs args)
     {
+        if (IsFileMove(args))
+        {
+            DropOverlay.Visibility = Visibility.Collapsed;
+            MoveFilesDragOver(args);
+            return;
+        }
+        ClearMoveDropTarget();
         if (!CanSubmitUpload || args.DataView is null ||
             !args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
         {
@@ -346,11 +353,20 @@ public sealed partial class MainPage
         DropOverlay.Visibility = Visibility.Visible;
     }
 
-    private void FilesArea_DragLeave(object sender, DragEventArgs args) => DropOverlay.Visibility = Visibility.Collapsed;
+    private void FilesArea_DragLeave(object sender, DragEventArgs args)
+    {
+        DropOverlay.Visibility = Visibility.Collapsed;
+        ClearMoveDropTarget();
+    }
 
     private async void FilesArea_Drop(object sender, DragEventArgs args)
     {
         DropOverlay.Visibility = Visibility.Collapsed;
+        if (IsFileMove(args))
+        {
+            await MoveFilesDropAsync(args);
+            return;
+        }
         if (!CanSubmitUpload || _uploads is not { } service || _session is not { } session ||
             _directory is not { } parent || ActiveUploadContext is not { } context || args.DataView is null ||
             !args.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems)) return;

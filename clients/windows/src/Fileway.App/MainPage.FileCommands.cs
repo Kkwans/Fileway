@@ -274,13 +274,14 @@ public sealed partial class MainPage
         foreach (var operation in references) if (!pending.Contains(operation)) pending.Add(operation);
     }
 
-    private async Task<bool> RefreshOriginAsync(ConnectionSession session, RemoteResourceRef directory, long generation)
+    private async Task<bool> RefreshOriginAsync(ConnectionSession session, RemoteResourceRef directory, long generation,
+        bool requireLoaded = false)
     {
         if (!SameBrowser(session, directory, generation)) return false;
         var refresh = LoadAsync(directory);
         var refreshGeneration = _generation;
-        await refresh;
-        return SameBrowser(session, directory, refreshGeneration);
+        var loaded = await refresh;
+        return (!requireLoaded || loaded) && SameBrowser(session, directory, refreshGeneration);
     }
     private void ConsumeReceipt(AccountKey account, OperationReceipt? receipt)
     {
@@ -382,13 +383,7 @@ public sealed partial class MainPage
             try { result = await management.SubmitTransferAsync(new FileTransferRequest(action, destination.Resource, transferItems), _lifetime.Token); }
             catch { if (clipboard is not null) _remoteClipboard.Clear(); throw; }
             if (clipboard is not null && result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown) _remoteClipboard.Clear();
-            ConsumeReceipt(session.Account, result.Receipt);
-            if (result.Outcome == ServerTaskSubmissionOutcome.Accepted && result.AcceptedTask is { } accepted)
-            {
-                _submittedTasks[session.Account] = accepted.Reference;
-                if (_transferPolls.Add(accepted.Reference)) _ = PollTransferAsync(session, directory, generation, accepted.Reference);
-            }
-            if (result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown) TrackUnknown(session.Account, result.Receipt is { } receipt ? [new OperationRef(session.Account, receipt.OperationId)] : []);
+            RecordTransferSubmission(session, directory, generation, result);
             if (!SameBrowser(session, directory, generation)) return;
             if (result.Outcome == ServerTaskSubmissionOutcome.Accepted && result.AcceptedTask is { } task)
             {
@@ -398,11 +393,36 @@ public sealed partial class MainPage
                 else
                     SetNotice("已提交服务器任务", $"{operation}已提交 {resources.Length - skipped} 项，跳过 {skipped} 项；尚未确认完成。当前状态：{TaskStatusLabel(task.Status)}。" + (conflict == FileConflictPolicy.Skip ? " 核实后新出现的同名冲突仍会被拒绝，请查看任务状态。" : ""), InfoBarSeverity.Informational);
             }
-            else SetNotice(result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown ? "任务提交结果未知" : "任务未提交", (result.Error?.Message ?? "服务器未确认任务接受。") + (result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown ? " 请先核实，不要重复提交。" : ""), InfoBarSeverity.Warning);
+            else ShowTransferSubmissionFailure(result);
             UpdateOperationAction();
         }
         catch (Exception error) { PresentWriteException(session, directory, generation, action == FileTransferAction.Copy ? "复制" : "移动", error); }
         finally { _fileWriteBusy = false; UpdateBrowserCommands(); }
+    }
+
+    private void RecordTransferSubmission(ConnectionSession session, RemoteResourceRef directory, long generation,
+        ServerTaskSubmissionResult result)
+    {
+        // Rejected or unknown requests have no acknowledgement to persist.
+        if (result.Outcome == ServerTaskSubmissionOutcome.Accepted || result.Receipt?.PersistenceWarning is not null)
+            ConsumeReceipt(session.Account, result.Receipt);
+        if (result.Outcome == ServerTaskSubmissionOutcome.Accepted && result.AcceptedTask is { } accepted)
+        {
+            _submittedTasks[session.Account] = accepted.Reference;
+            if (_transferPolls.Add(accepted.Reference))
+                _ = PollTransferAsync(session, directory, generation, accepted.Reference);
+        }
+        if (result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown)
+            TrackUnknown(session.Account, result.Receipt is { } receipt ? [new OperationRef(session.Account, receipt.OperationId)] : []);
+    }
+
+    private void ShowTransferSubmissionFailure(ServerTaskSubmissionResult result)
+    {
+        var unknown = result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown;
+        var message = result.Error?.Message ?? (unknown
+            ? "请先核实服务器状态，不要重复提交。"
+            : "服务器未确认任务接受。");
+        SetNotice(unknown ? "任务提交结果未知" : "任务未提交", message, InfoBarSeverity.Warning);
     }
 
     /// <summary>Server copy/move runs asynchronously; refresh the origin as soon as it completes instead of asking the user to poll.</summary>
@@ -422,7 +442,7 @@ public sealed partial class MainPage
                 if (state.Status is ServerTaskStatus.Queued or ServerTaskStatus.Running) continue;
                 if (SameBrowser(session, origin, generation))
                 {
-                    await RefreshOriginAsync(session, origin, generation);
+                    if (!await RefreshOriginAsync(session, origin, generation, requireLoaded: true)) return;
                     if (state.Status == ServerTaskStatus.Completed)
                         SetNotice("服务器任务", $"{TaskStatusLabel(state.Status)} · 已刷新当前目录。", InfoBarSeverity.Success);
                     else

@@ -260,6 +260,9 @@ components:
 
 ### Lists & tables
 
+- 文件列表和网格内移动时，在可接收的目录卡片或行上显示主题描边，并在指针旁显示目标名称。拖影保持简洁。文件落点、失效目标和取消应清除描边。
+- 拖放移动与菜单移动共用写入门控、服务器任务受理和结果核实。拖放遇同名时停止，用户可通过「移动到」选择同名处理方式。资源管理器拖入文件和文件夹使用独立的上传确认。
+
 - 行高 40，图标 20，名称 13.5，右侧元信息 12/muted。
 - 表头使用 `surface-raised`，单元格 220px 起，允许横向滚动；不截断到无法阅读。
 - 选中态使用 `surface-hover`，不使用系统蓝色高亮块；可选择的列表一律以 `FwListViewItemStyle` 为基底（含文件任务、搜索、最近访问、传输中心、收藏/标签、压缩包条目），行卡片使用 `FwSurfaceBrush` + `FwItemBorderThickness`（常规 1px、高对比度 2px）`FwStrokeBrush` 描边（浅色下白卡不再与页面同色）；选中时底色 `FwSelectionBrush`、卡片描边改 `FwSelectionStrokeBrush`，**不得再使用左侧 3px 强调条**（0.8.161 删除）。焦点只保留自研双色圆角焦点环（外层 `FwCanvasBrush` 2px 光晕 + 内层 `FwTextPrimaryBrush` 2px 环），并关闭系统焦点视觉；键盘聚焦时隐藏卡片描边，避免「选中描边 + 焦点环」两条轮廓线同时出现（0.8.161）。同一项任何时刻最多一条轮廓线，不得同时出现卡片描边、系统焦点矩形、自研焦点环与强调条中的两种以上。
@@ -456,5 +459,5 @@ components:
 - [ ] 拖到文件夹移动需真实鼠标验收；拖出到资源管理器未开始。
 - [~] 文件夹“整组上传”（0.8.15 部分完成）：`UploadBatchInfo` 已随任务持久化并透传为 `X-Upload-Batch-*`/`X-Upload-Folder`，0.8.30 起传输中心按批次聚合展示；旧记录若仅有 `batch_id` 而 `record_json.Plan.Batch` 为空，按单文件显示（兼容回退）。仍缺真人端到端验收：2026-10-30 再次尝试打开“选择文件夹…”后枚举 UIA，探测脚本在模态选择器上阻塞超时，确认无法自动化。不能只改 UI 文案就算完成。
 - [~] 主题走查：浅色已全量截图；深色已复核连接页、主界面（`20261029-ui0823/screens/ui-dark/`）、传输中心/回收站/存储工具/最近访问（`screens/ui-dark-panels/`）、搜索/收藏（`screens/ui-dark-search/`）与设置对话框（`20261029-ui0827/screens/ui-dark-dialogs/`）；2026-10-30 用应用内“视图→界面主题→深色”补验本批新增组件：文件任务卡片与选中态（`20261030-ui0835/screens/dark-nas.png`）、缓存与存储对话框（`20261030-ui0835/screens/dark-storage.png`）。深色 ToolTip 已于 0.8.50 补拍（`20261031-ui0850/screens/tooltip-dark.png`）；同日补验自研复选框深色选中/未选中（`20261030-ui0840/screens/checkbox-dark-checked.png`、`checkbox-dark-unchecked.png`）；0.8.42 主题持久化后补验深色搜索结果列表与滚动条（`20261031-ui0842/screens/theme-restart.png`、`dark-search.png`）、传输中心/收藏/最近访问（`dark-transfer.png`、`dark-collections.png`、`dark-recent.png`）；0.8.49 复核深色下对话框主按钮悬停与次按钮样式（`20261031-ui0849/screens/primary-hover-dark.png`）；0.8.44 复核深色下卡片描边与双色焦点环（`20261031-ui0844/screens/dark-search-focus.png`）及真实下载记录的传输中心（`dark-download-rows.png`）；0.8.51 补验图标/文字图标按钮的浅色与深色键盘焦点环（`20261031-ui0851/screens/icon-button-focus-light-crop.png`、`text-icon-button-focus-light-crop.png`、`icon-button-focus-dark-crop.png`、`text-icon-button-focus-dark-crop.png`），同时发现深色 ToolTip 弹层仍取浅色资源，列入 0.8.52；高对比度主题仍待走查。
-- [ ] 桌面拖放（拖入上传、拖到文件夹移动、拖出）尚未设计交互细节。
+- [ ] 拖放的边缘滚动、路径面包屑落点与拖出仍待设计与实机验收。
 - [x] 深色 ToolTip 主题（0.8.66 解决）：WinUI ToolTip 在独立 popup 上按系统主题解析 `ThemeResource`；强制 `RequestedTheme`、替换隐式样式、自定义模板与 Flyout 宿主均无效。0.8.66 改用应用自有的可变 `SolidColorBrush`（`StaticResource` 注入，`MainWindow.Appearance` 随应用主题更新颜色，高对比度用系统色），浅色、深色与应用内切换三条路径均实拍通过（`20261031-ui0866/screens/`）。

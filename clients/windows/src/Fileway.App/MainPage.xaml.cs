@@ -514,6 +514,7 @@ public sealed partial class MainPage : Page, IDisposable
     private void ClearActiveWorkspace()
     {
         _remoteClipboard.Clear();
+        ClearFileMoveDrag();
         HideCollections();
         ClearUploadPresentation();
         ClearDownloadPresentation();
@@ -557,6 +558,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async Task<bool> LoadAsync(RemoteResourceRef directory)
     {
         if (_files is null || _session is not { } session || _disposed) return false;
+        ClearFileMoveDrag();
         _loadCancellation?.Cancel(); _loadCancellation?.Dispose();
         _loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _loadCancellation.Token;
@@ -987,6 +989,7 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private void ApplyBrowserPresentation()
     {
+        ClearFileMoveDrag();
         if (FileList is null) return;
         var selected = ActiveFiles.SelectedItems.Cast<FileRow>().Select(row => row.File.Resource).ToHashSet();
         _changingView = true;
