@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -47,6 +49,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
@@ -62,6 +65,8 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.*
 import coil3.compose.AsyncImage
@@ -1281,20 +1286,41 @@ private fun TvSearchPanel(
 ) {
     var query by remember { mutableStateOf(initialQuery) }
     var scope by remember { mutableStateOf(initialScope) }
+    fun submit() {
+        val keyword = query.trim()
+        if (keyword.isNotEmpty()) onSearch(keyword, scope)
+    }
+
     TvPanel("搜索", onClose) {
+        val focusManager = LocalFocusManager.current
+        val view = LocalView.current
+        val submitFocus = remember { FocusRequester() }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
-                TvField("文件名或关键词", query, { query = it },
-                    options = KeyboardOptions(imeAction = ImeAction.Done))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Bottom) {
+                    val field = Modifier.weight(1f).tvRemoteKeys { event ->
+                        val direction = when (event.nativeKeyEvent.keyCode) {
+                            KeyEvent.KEYCODE_DPAD_DOWN -> FocusDirection.Down
+                            KeyEvent.KEYCODE_DPAD_RIGHT -> FocusDirection.Right
+                            else -> return@tvRemoteKeys false
+                        }
+                        val editing = ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                        !editing && focusManager.moveFocus(direction)
+                    }
+                    TvField("文件名或关键词", query, { query = it }, field,
+                        options = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { submit() }))
+                    TvButton("开始搜索", ::submit, Modifier.focusRequester(submitFocus).heightIn(min = 50.dp),
+                        enabled = query.isNotBlank())
+                }
             }
             if (!globalOnly) {
                 item { Text("搜索范围", style = MaterialTheme.typography.bodySmall, color = LocalTvSurfaces.current.secondaryText) }
-                items(SearchScope.entries, key = { it.name }) { value ->
-                    TvOptionRow(value.label, { scope = value }, selected = scope == value)
+                itemsIndexed(SearchScope.entries, key = { _, value -> value.name }) { index, value ->
+                    val modifier = if (index == 0 && query.isNotBlank()) Modifier.focusProperties { up = submitFocus } else Modifier
+                    TvOptionRow(value.label, { scope = value }, modifier, selected = scope == value)
                 }
-            }
-            item {
-                TvButton("开始搜索", { onSearch(query.trim(), scope) }, Modifier.fillMaxWidth(), enabled = query.isNotBlank())
             }
         }
     }

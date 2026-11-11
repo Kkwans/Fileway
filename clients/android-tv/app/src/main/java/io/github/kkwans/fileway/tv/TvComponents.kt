@@ -6,6 +6,7 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -128,7 +129,8 @@ private val TvTypography = Typography(
 
 @Composable fun TvField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier,
     password: Boolean = false, options: KeyboardOptions = KeyboardOptions.Default,
-    focusedBorderColor: Color = MaterialTheme.colorScheme.primary) {
+    focusedBorderColor: Color = MaterialTheme.colorScheme.primary,
+    keyboardActions: KeyboardActions = KeyboardActions.Default) {
     var focused by remember { mutableStateOf(false) }
     val gateway=LocalTvRemoteGateway.current
     val interactive=LocalTvInteractive.current
@@ -143,7 +145,7 @@ private val TvTypography = Typography(
             .padding(12.dp), singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-            keyboardOptions = options)
+            keyboardOptions = options, keyboardActions = keyboardActions)
     }
 }
 

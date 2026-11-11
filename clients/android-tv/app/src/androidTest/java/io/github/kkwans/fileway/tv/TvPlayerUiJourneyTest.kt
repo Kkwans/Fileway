@@ -11,8 +11,10 @@ import android.os.SystemClock
 import android.view.PixelCopy
 import android.view.View
 import android.view.ViewGroup
+import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
+import android.view.inputmethod.EditorInfo
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -22,6 +24,7 @@ import androidx.test.uiautomator.Configurator
 import androidx.test.uiautomator.UiDevice
 import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.data.TextSubtitleAppearance
+import io.github.kkwans.nasfilebrowser.data.SearchScope
 import io.github.kkwans.nasfilebrowser.data.VideoDecodePolicy
 import io.github.kkwans.nasfilebrowser.player.PlayerViewport
 import java.io.File
@@ -65,6 +68,103 @@ class TvPlayerUiJourneyTest {
     @Test fun systemSubtitleFolderGrantSupportsRemoteImport() = verifyOwnedLocalSubtitle(legacy = false)
 
     @Test fun androidNineSharedStorageGrantSupportsSubtitleImport() = verifyOwnedLocalSubtitle(legacy = true)
+
+    @Test fun ownedSearchWithAndroidNineTvKeyboard() {
+        val args = InstrumentationRegistry.getArguments()
+        val runId = args.getString("ownedSearchRun")
+        assumeTrue("Use the owned Android 9 TV with its search fixture",
+            Build.VERSION.SDK_INT == 28 && runId?.matches(Regex("[a-z0-9]+")) == true)
+        fixtureUrl = requireNotNull(args.getString("fixture_url"))
+        val uri = URI(fixtureUrl)
+        check(uri.scheme == "http" && uri.host == "10.0.2.2" && uri.port in 1..65535 && uri.rawPath.isEmpty())
+        evidence = File(requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)), "tv-search-$runId")
+            .apply { check(mkdir()) }
+        val config = Configurator.getInstance()
+        val priorIdle = config.waitForIdleTimeout
+        config.waitForIdleTimeout = 0
+        val scenario = ActivityScenario.launch(TvActivity::class.java)
+        val keyword = "FilewayVisual"
+        val movie = "$keyword.mp4"
+        fun keyboardShown() = "mInputShown=true" in device.executeShellCommand("dumpsys input_method")
+        fun enterQuery() {
+            touch("搜索", leftmost = true)
+            waitFor("TV keyboard opens", test = ::keyboardShown)
+            assertFalse(node("开始搜索", actionable = true)?.isEnabled == true)
+            device.executeShellCommand("input text $keyword")
+            waitFor("search action is enabled") { node("开始搜索", actionable = true)?.isEnabled == true }
+        }
+        fun results(scope: SearchScope) {
+            waitFor("search returns the owned result") {
+                requireNotNull(model).state.value.let { it.search && it.searchDone && it.searchQuery == keyword &&
+                    it.searchScope == scope && it.files.any { file -> file.name == movie } }
+            }
+            waitFor("search hides keyboard") { !keyboardShown() }
+            waitVisible("搜索结果")
+            waitVisible(movie, actionable = true)
+        }
+        fun backToCinema() {
+            assertTrue(device.pressBack())
+            waitFor("return to the same directory") {
+                requireNotNull(model).state.value.let { it.path == "/Cinema" && !it.search && !it.busy }
+            }
+        }
+        try {
+            scenario.onActivity { model = ViewModelProvider(it)[TvModel::class.java] }
+            val tv = requireNotNull(model)
+            waitFor("saved fixture login", 35_000) { !tv.state.value.restoring && tv.state.value.connected && !tv.state.value.busy }
+            val owner = requireNotNull(tv.context)
+            check(owner.profile.address.trimEnd('/') == fixtureUrl && owner.account.username == "tv-fixture")
+            touch("文件", leftmost = true)
+            waitFor("root ready") { tv.state.value.route == TvRoute.FILES && tv.state.value.path == "/" && !tv.state.value.busy }
+            touch("Cinema")
+            waitFor("Cinema ready") { tv.state.value.path == "/Cinema" && !tv.state.value.busy }
+
+            enterQuery()
+            val submit = bounds("开始搜索")
+            val windowDump = device.executeShellCommand("dumpsys window windows")
+            val window = Regex("mCurrentFocus=Window\\{([^ ]+)").find(windowDump)!!.groupValues[1]
+            val windowBlock = windowDump.substringAfter("Window{$window ").substringBefore("Window #")
+            val bottom = Regex("visible=\\[0,0]\\[\\d+,(\\d+)]").find(windowBlock)!!.groupValues[1].toInt()
+            val density = instrumentation.targetContext.resources.displayMetrics.density
+            assertTrue("Submit must fit entirely above the keyboard: $submit / $bottom", submit.bottom <= bottom)
+            assertTrue("Submit retains its full target height", submit.height() >= (48 * density).toInt())
+            capture("01-search-keyboard.png")
+            touch("开始搜索")
+            results(SearchScope.CURRENT)
+            capture("02-search-results.png")
+            backToCinema()
+
+            enterQuery()
+            assertTrue(device.pressBack())
+            waitFor("Back only closes the keyboard") { !keyboardShown() && node("开始搜索", actionable = true)?.isEnabled == true }
+            moveUntil("包含子目录", "down", 3)
+            assertTrue(device.pressDPadCenter())
+            capture("03-search-scope.png")
+            moveUntil("开始搜索", "up", 3)
+            assertTrue(device.pressDPadCenter())
+            results(SearchScope.RECURSIVE)
+            backToCinema()
+
+            val scopeBeforeImeSearch = tv.state.value.searchScope
+            enterQuery()
+            val options = Regex("imeOptions=0x([0-9a-f]+)").findAll(device.executeShellCommand("dumpsys input_method"))
+                .last().groupValues[1].toInt(16)
+            assertEquals(EditorInfo.IME_ACTION_SEARCH, options and EditorInfo.IME_MASK_ACTION)
+            assertTrue(device.pressKeyCode(KeyEvent.KEYCODE_ENTER))
+            results(scopeBeforeImeSearch)
+            backToCinema()
+            File(evidence, "result.json").writeText(JSONObject().put("status", "PASS").put("keyboardTop", bottom)
+                .put("submitBounds", submit.toShortString()).put("imeAction", options and EditorInfo.IME_MASK_ACTION)
+                .put("checks", JSONArray(listOf("touch while keyboard open", "Back retains query", "D-pad changes scope and submits",
+                    "IME search", "visible result", "return to Cinema"))).toString(2))
+        } catch (failure: Throwable) {
+            runCatching { capture("failure.png") }
+            throw failure
+        } finally {
+            scenario.close()
+            config.waitForIdleTimeout = priorIdle
+        }
+    }
 
     private fun verifyOwnedLocalSubtitle(legacy: Boolean) {
         val args = InstrumentationRegistry.getArguments()
