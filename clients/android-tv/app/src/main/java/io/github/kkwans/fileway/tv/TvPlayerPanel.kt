@@ -223,14 +223,19 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                 val baseHeight = (maxHeight * .32f).coerceIn(128.dp, 256.dp)
                     .coerceAtMost((maxHeight - bottom - 56.dp).coerceAtLeast(0.dp))
                 val panelWidth = if (compactChoice) minOf(availableWidth, (availableWidth * .28f).coerceIn(224.dp, 300.dp)) else availableWidth
-                val panelLeft = horizontal + if (compactChoice && availableWidth >= 560.dp) availableWidth * .15f else 0.dp
                 // The underlay also has a 48dp tab row and a 6dp gap above
                 // its body. Keep the choice panel above the entire row.
-                val panelBottom = if (compactChoice) bottom + baseHeight + 48.dp + 6.dp + 12.dp
+                val stackedBottom = bottom + baseHeight + 48.dp + 6.dp + 12.dp
+                val showSettingsUnderlay = compactChoice && maxHeight - stackedBottom - 56.dp >= 112.dp
+                val keyboardEditor = page == TvPlayerPage.SPEED && maxHeight < 220.dp &&
+                    WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                val panelLeft = horizontal + if (showSettingsUnderlay && availableWidth >= 560.dp) availableWidth * .15f else 0.dp
+                val panelBottom = if (keyboardEditor) 4.dp else if (showSettingsUnderlay) stackedBottom
                     else if (page == TvPlayerPage.QUEUE) bottom + 16.dp else bottom
                 val heightFraction = if (browser) .43f else if (compactChoice) .30f else if (page == TvPlayerPage.QUEUE) .28f else .32f
+                val headerSpace = if (keyboardEditor) 0.dp else 56.dp
                 val panelHeight = (maxHeight * heightFraction).coerceIn(if (page == TvPlayerPage.QUEUE) 140.dp else 128.dp, 256.dp)
-                    .coerceAtMost((maxHeight - panelBottom - 56.dp).coerceAtLeast(0.dp))
+                    .coerceAtMost((maxHeight - panelBottom - headerSpace).coerceAtLeast(0.dp))
                 val dismiss by rememberUpdatedState(if (compactChoice && child) ({ onBack("dialog-outside") }) else onClose)
                 Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { dismiss() } })
                 if (page == TvPlayerPage.QUEUE) {
@@ -238,7 +243,7 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                         .background(Brush.verticalGradient(0f to Color.Transparent,
                             .22f to Color.Black.copy(alpha = .42f), .65f to Color.Black.copy(alpha = .66f),
                             1f to Color.Black.copy(alpha = .80f))))
-                } else if (hasTabs || compactChoice) {
+                } else if (hasTabs || showSettingsUnderlay) {
                     // Fade around the tab labels only: the translucent panel below
                     // must not be darkened a second time across the video frame.
                     val headerBottom = if (compactChoice) baseHeight + bottom else panelHeight + panelBottom
@@ -249,12 +254,13 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                             .40f to Color.Black.copy(alpha = .30f), .65f to Color.Black.copy(alpha = .40f),
                             1f to Color.Transparent)))
                 }
-                if (compactChoice) TvPlayerSettingsUnderlay(
+                if (showSettingsUnderlay) TvPlayerSettingsUnderlay(
                     settingsUnderlay, page, audio, availableWidth, baseHeight, horizontal, bottom,
                     Modifier.align(Alignment.BottomStart),
                 )
                 saveable.SaveableStateProvider(page.name) {
                     val focus = remember(page) { TvPlayerPanelFocus(initialKey, onFocused).apply { hasSection = subtitleSection } }
+                    focus.hasHeader = !keyboardEditor
                     Column(
                         Modifier.align(Alignment.BottomStart).padding(start = panelLeft, bottom = panelBottom)
                             .width(panelWidth)
@@ -262,7 +268,7 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                                 .border(1.dp, Color.White.copy(alpha = .09f), TvShape) else Modifier),
                         verticalArrangement = Arrangement.spacedBy(if (compactChoice || page == TvPlayerPage.QUEUE) 0.dp else 6.dp),
                     ) {
-                        Row(
+                        if (!keyboardEditor) Row(
                             Modifier.width(panelWidth).heightIn(min = 48.dp)
                                 .pointerInput(Unit) { detectTapGestures { } },
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -320,7 +326,12 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                             val leftInset = 12.dp
                             val rightInset = 12.dp
                             val columnGap = 12.dp
-                            val verticalInset = if (page == TvPlayerPage.QUEUE) 0.dp else if (structured) tvPlayerPanelVerticalInset(panelHeight) else 7.dp
+                            val verticalInset = when {
+                                page == TvPlayerPage.QUEUE -> 0.dp
+                                keyboardEditor -> 4.dp
+                                structured -> tvPlayerPanelVerticalInset(panelHeight)
+                                else -> 7.dp
+                            }
                             Row(
                                 Modifier.width(panelWidth).height(panelHeight)
                                     .then(if (compactChoice || page == TvPlayerPage.QUEUE) Modifier else Modifier.background(PanelSurface, TvShape)
