@@ -11,7 +11,7 @@ namespace Fileway.App.Controls.StorageTools;
 /// Server-side storage analysis panel: one bounded scan task per run, polled through the server's
 /// own task status, with the completed report rendered from server-provided numbers only.
 /// </summary>
-public sealed class StorageAnalysisControl : UserControl, IDisposable
+public sealed partial class StorageAnalysisControl : UserControl, IDisposable
 {
     internal event EventHandler? CloseRequested;
     private readonly CancellationTokenSource _lifetime = new();
@@ -39,6 +39,9 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
     private readonly Dictionary<string, List<RadioButton>> _keepChoices = [];
     private IAdminUserService? _adminUsers;
     private bool _isAdmin;
+    private bool? _enableExec;
+    private bool _adminRequiresPassword;
+    private readonly Action<int> _selectTab;
     private readonly ToggleButton _adminTabButton = new() { Content = "用户管理", Visibility = Visibility.Collapsed, Width = 120, HorizontalContentAlignment = HorizontalAlignment.Center };
     private readonly Grid _adminHost = new();
     private readonly StackPanel _adminRoot = new() { Spacing = 12 };
@@ -46,6 +49,8 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
     private readonly ListView _adminList = new() { SelectionMode = ListViewSelectionMode.Single, MaxHeight = 460 };
     private readonly Button _adminCreate = new() { Content = "新建用户…" };
     private readonly Button _adminPassword = new() { Content = "重置密码…", IsEnabled = false };
+    private readonly Button _adminPolicy = new() { Content = "权限与规则…", IsEnabled = false };
+    private readonly Button _adminRefresh = new() { Content = "刷新列表" };
     private readonly Button _adminToggleAdmin = new() { Content = "切换管理员", IsEnabled = false };
     private readonly Button _adminToggleLock = new() { Content = "切换密码锁定", IsEnabled = false };
     private readonly Button _adminDelete = new() { Content = "删除用户…", IsEnabled = false };
@@ -65,7 +70,8 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
             (_adminList, "StorageAdminUsers"), (_adminCreate, "StorageAdminCreate"),
             (_adminNotice, "StorageAdminNotice"),
             (_adminPassword, "StorageAdminPassword"), (_adminToggleAdmin, "StorageAdminToggleAdmin"),
-            (_adminToggleLock, "StorageAdminToggleLock"), (_adminDelete, "StorageAdminDelete") })
+            (_adminToggleLock, "StorageAdminToggleLock"), (_adminDelete, "StorageAdminDelete"),
+            (_adminPolicy, "EditServerUserPolicy"), (_adminRefresh, "RefreshServerUsers") })
             AutomationProperties.SetAutomationId(element, id);
         var resources = Application.Current.Resources;
         _start.Style = (Style)resources["FwPrimaryButtonStyle"];
@@ -129,6 +135,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
             _adminTabButton.IsChecked = selected == 2;
             if (selected == 2) _ = RefreshAdminAsync();
         }
+        _selectTab = SelectTab;
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
         foreach (var (button, index) in new[] { (_analysisTabButton, 0), (_duplicatesTabButton, 1), (_adminTabButton, 2) })
         {
@@ -366,19 +373,23 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
     {
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         _adminCreate.Click += async (_, _) => await CreateAdminUserAsync();
+        _adminPolicy.Click += async (_, _) => await EditUserPolicyAsync();
+        _adminRefresh.Click += async (_, _) => await RefreshAdminAsync();
         _adminPassword.Click += async (_, _) => await MutateSelectedAsync(MutationKind.ResetPassword);
         _adminToggleAdmin.Click += async (_, _) => await MutateSelectedAsync(MutationKind.ToggleAdmin);
         _adminToggleLock.Click += async (_, _) => await MutateSelectedAsync(MutationKind.ToggleLock);
         _adminDelete.Click += async (_, _) => await MutateSelectedAsync(MutationKind.Delete);
         actions.Children.Add(_adminCreate);
+        actions.Children.Add(_adminPolicy);
         actions.Children.Add(_adminPassword);
         actions.Children.Add(_adminToggleAdmin);
         actions.Children.Add(_adminToggleLock);
         actions.Children.Add(_adminDelete);
+        actions.Children.Add(_adminRefresh);
         var actionsScroll = new ScrollViewer { Content = actions, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollMode = ScrollMode.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollMode = ScrollMode.Disabled };
         _adminRoot.Children.Add(FormCard(
-            "服务器用户管理：列表、创建、重置密码、权限与删除。每次改动需要输入管理员（当前账户）密码以确认身份；所有操作由服务器校验权限。",
+            "在当前服务器创建用户、管理权限与规则。密码认证的服务器在保存敏感设置时需要验证当前管理员密码。",
             actionsScroll));
         _adminRoot.Children.Add(_adminNotice);
         FloatingNotice.Attach(_adminNotice);
@@ -390,8 +401,10 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
     {
         bool active = _isAdmin && !_busy && !_token.IsCancellationRequested;
         _adminCreate.IsEnabled = active;
+        _adminRefresh.IsEnabled = active;
         bool has = active && _adminList.SelectedItem is StackPanel;
         _adminPassword.IsEnabled = has;
+        _adminPolicy.IsEnabled = has;
         _adminToggleAdmin.IsEnabled = has;
         _adminToggleLock.IsEnabled = has;
         _adminDelete.IsEnabled = has;
@@ -418,8 +431,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
                 var row = new StackPanel
                 {
                     Orientation = Orientation.Horizontal, Spacing = 10, Padding = new Thickness(8, 3, 8, 3),
-                    Tag = new AdminUser(user.Id, user.Username, user.IsAdmin, user.LockPassword, user.HideDotfiles,
-                        user.SingleClick, user.Permissions),
+                    Tag = user,
                 };
                 row.Children.Add(new TextBlock { Text = user.Username, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, MinWidth = 160, TextTrimming = TextTrimming.CharacterEllipsis });
                 row.Children.Add(new TextBlock { Text = user.IsAdmin ? "管理员" : "普通用户", FontSize = 12, Opacity = 0.75, MinWidth = 70 });
@@ -437,10 +449,13 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
 
     private async Task<string?> RequireAdminPasswordAsync(string title, string confirmLabel)
     {
+        if (!_adminRequiresPassword) return "";
         var password = new PasswordBox { Header = "管理员（当前账户）密码", Width = 320 };
         var confirm = new ContentDialog { Title = title, Content = password, PrimaryButtonText = confirmLabel, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
         if (await ShowDialogAsync(confirm) != ContentDialogResult.Primary || _token.IsCancellationRequested) return null;
-        return password.Password;
+        string value = password.Password;
+        password.Password = "";
+        return value.Length == 0 ? null : value;
     }
 
     private enum MutationKind { ResetPassword, ToggleAdmin, ToggleLock, Delete }
@@ -453,12 +468,15 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         var admin = new CheckBox { Content = "管理员权限", };
         var perms = new StackPanel { Spacing = 4 };
         var download = new CheckBox { Content = "下载", IsChecked = true };
+        var share = new CheckBox { Content = "分享", IsChecked = false };
+        download.Unchecked += (_, _) => { share.IsChecked = false; share.IsEnabled = false; };
+        download.Checked += (_, _) => share.IsEnabled = true;
         var create = new CheckBox { Content = "上传/新建" };
         var modify = new CheckBox { Content = "修改" };
         var rename = new CheckBox { Content = "重命名" };
         var delete = new CheckBox { Content = "删除" };
         var execute = new CheckBox { Content = "执行命令" };
-        perms.Children.Add(download); perms.Children.Add(create); perms.Children.Add(modify);
+        perms.Children.Add(download); perms.Children.Add(share); perms.Children.Add(create); perms.Children.Add(modify);
         perms.Children.Add(rename); perms.Children.Add(delete); perms.Children.Add(execute);
         var panel = new StackPanel { Spacing = 10, MinWidth = 320 };
         panel.Children.Add(username); panel.Children.Add(password); panel.Children.Add(admin);
@@ -474,7 +492,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
         try
         {
             var permissions = new PermissionSet(download.IsChecked == true, create.IsChecked == true, rename.IsChecked == true,
-                modify.IsChecked == true, delete.IsChecked == true, execute.IsChecked == true);
+                modify.IsChecked == true, delete.IsChecked == true, execute.IsChecked == true, Share: share.IsChecked == true);
             var id = await _adminUsers.CreateAsync(_directory?.Account ?? default,
                 new AdminUserCreate(username.Text.Trim(), password.Password, admin.IsChecked == true, permissions), adminPassword, _token);
             AddAdminStatus($"用户 {username.Text.Trim()}（#{id}）已创建。", InfoBarSeverity.Success);
@@ -524,10 +542,10 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
             TextWrapping = TextWrapping.Wrap,
         });
         var password = new PasswordBox { Header = "管理员（当前账户）密码", Width = 320 };
-        panel.Children.Add(password);
+        if (_adminRequiresPassword) panel.Children.Add(password);
         var confirm = new ContentDialog { Title = title, Content = panel, PrimaryButtonText = confirmLabel, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary };
         if (await ShowDialogAsync(confirm) != ContentDialogResult.Primary || _token.IsCancellationRequested) return;
-        if (password.Password.Length == 0) return;
+        if (_adminRequiresPassword && password.Password.Length == 0) return;
         SetBusy(true);
         try
         {
@@ -677,6 +695,7 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
     {
         if (_token.IsCancellationRequested || _activeDialog is not null || XamlRoot is null) return ContentDialogResult.None;
         dialog.XamlRoot = XamlRoot;
+        dialog.RequestedTheme = ActualTheme;
         _activeDialog = dialog;
         try { return await dialog.ShowAsync(); }
         finally
@@ -706,12 +725,38 @@ public sealed class StorageAnalysisControl : UserControl, IDisposable
     }
 
     /// <summary>Enables the admin tab when the signed-in session carries the server admin flag.</summary>
-    public void AttachAdmin(IAdminUserService service, string adminUsername)
+    public void AttachAdmin(IAdminUserService service, string adminUsername, bool? enableExec, bool requiresPassword)
     {
         _adminUsers = service;
         _sessionAdminUsername = adminUsername;
-        try { _isAdmin = service.IsAvailable(_directory?.Account ?? default); }
-        catch (Exception) { _isAdmin = false; }
+        bool isAdmin;
+        try { isAdmin = service.IsAvailable(_directory?.Account ?? default); }
+        catch (Exception) { isAdmin = false; }
+        SetAdminAvailability(isAdmin, enableExec, requiresPassword);
+    }
+
+    internal void ShowUsers()
+    {
+        if (_isAdmin) _selectTab(2);
+    }
+
+    internal void SetAdminAvailability(bool admin, bool? enableExec, bool requiresPassword)
+    {
+        _enableExec = enableExec;
+        _adminRequiresPassword = requiresPassword;
+        bool wasAdmin = _isAdmin;
+        _isAdmin = admin && _adminUsers is not null;
+        if (wasAdmin && !_isAdmin)
+        {
+            _adminReadRevision++;
+            _adminUsersCache.Clear();
+            _adminList.Items.Clear();
+            if (_adminTabButton.IsChecked == true)
+            {
+                _activeDialog?.Hide();
+                _selectTab(0);
+            }
+        }
         _adminTabButton.Visibility = _isAdmin ? Visibility.Visible : Visibility.Collapsed;
         UpdateAdminButtons();
     }

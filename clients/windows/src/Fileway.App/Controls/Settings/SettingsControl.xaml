@@ -77,10 +77,22 @@
    <Border Style="{StaticResource FwFormCardStyle}">
     <StackPanel Spacing="10">
      <TextBlock Text="连接与服务器" FontSize="15" FontWeight="SemiBold"/>
-     <TextBlock Text="本地服务端部署/端口/局域网访问，以及服务器存储分析与用户管理。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+     <TextBlock Text="管理本地服务端部署与局域网访问，或分析服务器存储。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
      <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-      <Button Content="存储工具…" Click="ServerTools_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开存储工具与用户管理"/>
+      <Button Content="存储工具…" Click="ServerTools_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开存储工具"/>
       <Button Content="本地服务端…" Click="LocalServer_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开本地服务端管理"/>
+     </StackPanel>
+    </StackPanel>
+   </Border>
+
+   <Border x:Name="ServerManagementCard" Style="{StaticResource FwFormCardStyle}" Visibility="Collapsed">
+    <StackPanel Spacing="10">
+     <TextBlock Text="服务器管理" FontSize="15" FontWeight="SemiBold"/>
+     <TextBlock x:Name="ServerManagementCaption" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+     <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+      <Button x:Name="ServerSharesButton" Content="分享管理…" Click="ServerShares_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerShares"/>
+      <Button x:Name="ServerUsersButton" Content="用户管理…" Click="ServerUsers_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerUsers"/>
+      <Button x:Name="ServerSettingsButton" Content="全局设置…" Click="ServerSettings_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerSettings"/>
      </StackPanel>
     </StackPanel>
    </Border>

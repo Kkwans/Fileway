@@ -12,6 +12,9 @@ public sealed partial class MainPage
         SettingsPane.StorageRequested += (_, _) => StorageSettings_Click(this, new RoutedEventArgs());
         SettingsPane.CacheGalleryRequested += (_, _) => CacheGallery_Click(this, new RoutedEventArgs());
         SettingsPane.ServerToolsRequested += (_, _) => StorageTools_Click(this, new RoutedEventArgs());
+        SettingsPane.ServerSettingsRequested += (_, _) => ServerSettings_Click(this, new RoutedEventArgs());
+        SettingsPane.ServerUsersRequested += (_, _) => OpenStorageTools(showUsers: true);
+        SettingsPane.ServerSharesRequested += (_, _) => ShareManager_Click(this, new RoutedEventArgs());
         SettingsPane.LocalServerRequested += (_, _) => LocalServer_Click(this, new RoutedEventArgs());
         SettingsPane.AboutRequested += (_, _) => AboutApplication_Click(this, new RoutedEventArgs());
         SettingsPane.ThemeRequested += (_, theme) =>

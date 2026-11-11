@@ -705,6 +705,9 @@ var resourceGetRecursiveHandler = withUser(func(w http.ResponseWriter, r *http.R
 	if rootPath == "" {
 		rootPath = "/"
 	}
+	if !d.Check(rootPath) {
+		return http.StatusForbidden, fberrors.ErrPermissionDenied
+	}
 
 	// Make sure the root itself exists and is a directory.
 	info, err := d.user.Fs.Stat(rootPath)
@@ -718,6 +721,9 @@ var resourceGetRecursiveHandler = withUser(func(w http.ResponseWriter, r *http.R
 	entries := make([]RecursiveEntry, 0)
 
 	err = afero.Walk(d.user.Fs, rootPath, func(fPath string, info os.FileInfo, err error) error {
+		if canceled := r.Context().Err(); canceled != nil {
+			return canceled
+		}
 		if err != nil {
 			return nil // skip entries we cannot read
 		}
@@ -727,8 +733,10 @@ var resourceGetRecursiveHandler = withUser(func(w http.ResponseWriter, r *http.R
 			return nil
 		}
 
-		// Respect user rules.
-		if !d.Check(fPath) {
+		// Walk returns OS separators, while rules and API paths use '/'.
+		// Normalize the trusted filesystem path, never an incoming Windows path.
+		wirePath := filepath.ToSlash(fPath)
+		if !d.Check(wirePath) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
@@ -736,7 +744,7 @@ var resourceGetRecursiveHandler = withUser(func(w http.ResponseWriter, r *http.R
 		}
 
 		entries = append(entries, RecursiveEntry{
-			Path:    fPath,
+			Path:    wirePath,
 			Name:    info.Name(),
 			Size:    info.Size(),
 			ModTime: info.ModTime(),

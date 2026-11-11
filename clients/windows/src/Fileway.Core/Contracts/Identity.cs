@@ -52,7 +52,8 @@ public sealed record ServerCapabilities(
     bool ResourceWireOperations = false,
     /// <summary>Server auth mode ("json"/"noauth"/...); empty on servers that predate the field.</summary>
     string AuthMethod = "",
-    int MinimumPasswordLength = 0);
+    int MinimumPasswordLength = 0,
+    bool? EnableExec = null);
 
 public sealed record ConnectionSession(
     Guid Id,

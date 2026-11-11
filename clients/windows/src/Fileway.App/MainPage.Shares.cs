@@ -182,7 +182,9 @@ public sealed partial class MainPage
         if (_browserDialog is not null || _shareDialog is not null || _files is not IShareService service || _session is not { } session) return;
         if (!session.Permissions.Share || !session.Permissions.Download) { SetNotice("没有分享权限", "当前账户需要分享与下载权限。", InfoBarSeverity.Warning); return; }
         var account = session.Account; var sessionId = session.Id;
-        bool Current() => !_disposed && _session?.Id == sessionId && _session?.Account == account;
+        bool Current() => !_disposed && _session is { } current && current.Id == sessionId &&
+            current.Account == account && current.Permissions.Share && current.Permissions.Download &&
+            current.Permissions.Admin == session.Permissions.Admin;
         var resources = Application.Current.Resources;
         var caption = (Style)resources["FwCaptionTextStyle"];
         var closed = false;

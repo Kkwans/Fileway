@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 
@@ -21,7 +22,7 @@ public sealed partial class FilewayClientServices : IAdminUserService
 
     private static PermissionSet ParsePermissions(JsonElement perm) => new(
         Flag(perm, "download"), Flag(perm, "create"), Flag(perm, "rename"),
-        Flag(perm, "modify"), Flag(perm, "delete"), Flag(perm, "execute"));
+        Flag(perm, "modify"), Flag(perm, "delete"), Flag(perm, "execute"), Flag(perm, "admin"), Flag(perm, "share"));
 
     private static AdminUser ParseAdminUser(JsonElement row)
     {
@@ -34,7 +35,10 @@ public sealed partial class FilewayClientServices : IAdminUserService
                 row.TryGetProperty("lockPassword", out var locked) && locked.GetBoolean(),
                 row.TryGetProperty("hideDotfiles", out var hidden) && hidden.GetBoolean(),
                 row.TryGetProperty("singleClick", out var click) && click.GetBoolean(),
-                ParsePermissions(row.GetProperty("perm")));
+                ParsePermissions(row.GetProperty("perm")),
+                OptionalText(row, "scope") ?? "",
+                row.TryGetProperty("commands", out var commands) ? ReadServerStrings(JsonNode.Parse(commands.GetRawText())) : [],
+                row.TryGetProperty("rules", out var rules) ? ReadServerRules(JsonNode.Parse(rules.GetRawText())) : []);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException)
         { throw InvalidResponse(); }
@@ -45,12 +49,13 @@ public sealed partial class FilewayClientServices : IAdminUserService
     /// never drop fields Windows does not yet manage.
     /// </summary>
     private static object AdminUserData(string username, string password, bool isAdmin, PermissionSet permissions,
-        bool lockPassword, ulong id = 0, Dictionary<string, bool>? permissionData = null) => new
+        bool lockPassword, ulong id = 0, Dictionary<string, bool>? permissionData = null, string? scope = null,
+        IReadOnlyList<string>? allowedCommands = null, JsonArray? pathRules = null) => new
     {
         id,
         username,
         password,
-        scope = "",
+        scope = scope ?? "",
         locale = "",
         viewMode = "mosaic",
         singleClick = false,
@@ -66,23 +71,24 @@ public sealed partial class FilewayClientServices : IAdminUserService
             ["rename"] = permissions.Rename,
             ["modify"] = permissions.Modify,
             ["delete"] = permissions.Delete,
-            ["share"] = false,
+            ["share"] = permissions.Share,
             ["download"] = permissions.Download,
         },
-        commands = Array.Empty<string>(),
-        rules = Array.Empty<object>(),
+        commands = allowedCommands ?? Array.Empty<string>(),
+        rules = pathRules ?? new JsonArray(),
     };
 
     async Task<IReadOnlyList<AdminUser>> IAdminUserService.ListAsync(AccountKey account, CancellationToken cancellationToken)
     {
         var state = GetState(account);
+        RequireServerAdmin(state);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         try
         {
             var response = await RequestAsync(state, "/api/users", linked.Token).ConfigureAwait(false);
             RequireExactStatus(response, 200);
             using var body = ParseBody(response);
-            EnsureActive(state);
+            RequireServerAdmin(state);
             var users = new List<AdminUser>();
             foreach (var row in body.RootElement.EnumerateArray()) users.Add(ParseAdminUser(row));
             return users;
@@ -97,6 +103,9 @@ public sealed partial class FilewayClientServices : IAdminUserService
     {
         ArgumentNullException.ThrowIfNull(create);
         var state = GetState(account);
+        RequireServerAdmin(state);
+        if (create.Permissions.Share && !create.Permissions.Download)
+            throw Safe(ErrorCode.InvalidRequest, "分享权限需要同时启用下载权限。");
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         try
         {
@@ -111,7 +120,8 @@ public sealed partial class FilewayClientServices : IAdminUserService
                     current_password = adminPassword ?? "",
                     data = AdminUserData(create.Username, create.Password, create.IsAdmin, create.Permissions, lockPassword: false),
                 },
-            }, requireDownload: false, HostCallSafety.Mutation, cancellationToken, operation: "request").ConfigureAwait(false);
+            }, requireDownload: false, HostCallSafety.Mutation, cancellationToken, operation: "request",
+                authorizeSend: () => RequireServerAdmin(state)).ConfigureAwait(false);
             RequireExactStatus(response, 201);
             // The Location header is not proxied; resolve the new id from the username listing.
             var users = await ((IAdminUserService)this).ListAsync(account, linked.Token).ConfigureAwait(false);
@@ -133,18 +143,31 @@ public sealed partial class FilewayClientServices : IAdminUserService
     {
         ArgumentNullException.ThrowIfNull(update);
         var state = GetState(account);
+        RequireServerAdmin(state);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         try
         {
             var which = new List<string>();
             if (update.Password is not null) which.Add("password");
-            if (update.IsAdmin is not null || update.Permissions is not null) which.Add("perm");
+            if (update.IsAdmin is not null || update.Permissions is not null || update.SharePermission is not null) which.Add("perm");
             if (update.LockPassword is not null) which.Add("lockPassword");
+            if (update.Scope is { } scope)
+            {
+                if (scope.Length > 4096 || scope.Contains('\0')) throw InvalidServerSetting();
+                which.Add("scope");
+            }
+            if (update.Commands is { } commands)
+            {
+                if (commands.Count > 256 || commands.Any(command => command.Length > 4096 || command.Contains('\0')))
+                    throw InvalidServerSetting();
+                which.Add("commands");
+            }
+            if (update.Rules is not null) which.Add("rules");
             if (which.Count == 0) throw Safe(ErrorCode.InvalidRequest, Message(ErrorCode.InvalidRequest));
             Dictionary<string, bool>? permissionData = which.Contains("perm") ? new(StringComparer.Ordinal) : null;
-            Func<CancellationToken, Task>? beforeSend = null;
-            if (permissionData is { } retained)
-                beforeSend = token => ReadAdminPermissionUpdateAsync(state, update, retained, token);
+            JsonArray? rulesData = update.Rules is not null ? new() : null;
+            Func<CancellationToken, Task>? beforeSend = permissionData is not null || rulesData is not null || update.ExpectedPolicy is not null
+                ? token => ReadAdminPolicyUpdateAsync(state, update, permissionData, rulesData, token) : null;
             // which fields are sensitive for JSON-auth servers: the admin's current password is required.
             var response = await SessionRequestAsync(state, new
             {
@@ -157,9 +180,11 @@ public sealed partial class FilewayClientServices : IAdminUserService
                     current_password = adminPassword ?? "",
                     data = AdminUserData(username: "", password: update.Password ?? "", isAdmin: update.IsAdmin ?? false,
                         permissions: update.Permissions ?? new PermissionSet(true, false, false, false, false, false),
-                        lockPassword: update.LockPassword ?? false, id: update.Id, permissionData: permissionData),
+                        lockPassword: update.LockPassword ?? false, id: update.Id, permissionData: permissionData,
+                        scope: update.Scope, allowedCommands: update.Commands, pathRules: rulesData),
                 },
-            }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request", beforeSend: beforeSend).ConfigureAwait(false);
+            }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request", beforeSend: beforeSend,
+                authorizeSend: () => RequireServerAdmin(state)).ConfigureAwait(false);
             RequireExactStatus(response, 200);
         }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
@@ -169,21 +194,39 @@ public sealed partial class FilewayClientServices : IAdminUserService
 
     // Called under SessionRequestAsync. The server's `which=perm` replaces the
     // whole permission object, so preserve every current flag not explicitly edited.
-    private async Task ReadAdminPermissionUpdateAsync(SessionState state, AdminUserUpdate update,
-        Dictionary<string, bool> permissions, CancellationToken cancellationToken)
+    private async Task ReadAdminPolicyUpdateAsync(SessionState state, AdminUserUpdate update,
+        Dictionary<string, bool>? permissions, JsonArray? rules, CancellationToken cancellationToken)
     {
+        RequireServerAdmin(state);
         var response = await RequestAsync(state.CoreSession,
             "/api/users/" + update.Id.ToString(CultureInfo.InvariantCulture), cancellationToken).ConfigureAwait(false);
         RequireExactStatus(response, 200);
         using var body = ParseBody(response);
         var row = body.RootElement;
         if (!row.GetProperty("id").TryGetUInt64(out ulong id) || id != update.Id) throw InvalidResponse();
+        if (update.ExpectedPolicy is { } expected)
+        {
+            var current = ParseAdminUser(row);
+            if (expected.Id != current.Id || expected.Username != current.Username ||
+                permissions is not null && expected.Permissions != current.Permissions ||
+                update.Scope is not null && expected.Scope != current.Scope ||
+                update.Commands is not null && !(expected.Commands ?? []).SequenceEqual(current.Commands ?? []) ||
+                rules is not null && !(expected.Rules ?? []).SequenceEqual(current.Rules ?? []))
+                throw Safe(ErrorCode.Conflict, "此用户的策略已在其他位置修改，请重新读取后编辑。");
+        }
+        if (rules is not null && update.Rules is not null)
+        {
+            var original = row.TryGetProperty("rules", out var raw) ? JsonNode.Parse(raw.GetRawText()) : null;
+            foreach (var rule in WriteServerRules(update.Rules, original)) rules.Add(rule?.DeepClone());
+        }
+        if (permissions is null) return;
         foreach (var flag in row.GetProperty("perm").EnumerateObject())
         {
             if (flag.Value.ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
                 !permissions.TryAdd(flag.Name, flag.Value.GetBoolean())) throw InvalidResponse();
         }
         if (update.IsAdmin is { } admin) permissions["admin"] = admin;
+        if (update.SharePermission is { } share) permissions["share"] = share;
         if (update.Permissions is { } requested)
         {
             permissions["download"] = requested.Download;
@@ -193,11 +236,14 @@ public sealed partial class FilewayClientServices : IAdminUserService
             permissions["delete"] = requested.Delete;
             permissions["execute"] = requested.Execute;
         }
+        if (permissions.GetValueOrDefault("share") && !permissions.GetValueOrDefault("download"))
+            throw Safe(ErrorCode.InvalidRequest, "分享权限需要同时启用下载权限。");
     }
 
     async Task IAdminUserService.DeleteAsync(AccountKey account, ulong userId, string adminPassword, CancellationToken cancellationToken)
     {
         var state = GetState(account);
+        RequireServerAdmin(state);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
         try
         {
@@ -206,7 +252,8 @@ public sealed partial class FilewayClientServices : IAdminUserService
                 method = "DELETE",
                 endpoint = "/api/users/" + userId.ToString(CultureInfo.InvariantCulture),
                 body = new { current_password = adminPassword ?? "" },
-            }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request").ConfigureAwait(false);
+            }, requireDownload: false, HostCallSafety.Mutation, linked.Token, operation: "request",
+                authorizeSend: () => RequireServerAdmin(state)).ConfigureAwait(false);
             RequireExactStatus(response, 200);
         }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }

@@ -512,7 +512,9 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
                         Flag(capabilities, "searchWirePathV1"), Flag(capabilities, "resourceWireOperations"),
                         OptionalText(capabilities, "authMethod") ?? "",
                         capabilities.TryGetProperty("minimumPasswordLength", out var minimum) && minimum.ValueKind == JsonValueKind.Number
-                            ? minimum.GetInt32() : 0));
+                            ? minimum.GetInt32() : 0,
+                        capabilities.TryGetProperty("enableExec", out var exec) && exec.ValueKind is JsonValueKind.True or JsonValueKind.False
+                            ? exec.GetBoolean() : null));
                 return new VerifiedConnection(session, ParseResumePreferences(user), currentToken);
             }
             throw Safe(ErrorCode.AuthenticationExpired, "登录状态在核验期间持续变化，请重新连接。");

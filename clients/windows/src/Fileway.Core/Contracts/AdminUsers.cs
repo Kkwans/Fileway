@@ -3,16 +3,24 @@ namespace Fileway.Core.Contracts;
 /// <summary>One server user as returned by the admin user API (no password is ever returned).</summary>
 public sealed record AdminUser(
     ulong Id, string Username, bool IsAdmin, bool LockPassword, bool HideDotfiles, bool SingleClick,
-    PermissionSet Permissions)
+    PermissionSet Permissions, string Scope = "", IReadOnlyList<string>? Commands = null, IReadOnlyList<ServerPathRule>? Rules = null)
 {
     public override string ToString() => "AdminUser (server user redacted)";
 }
 
 /// <summary>New-user payload for creation; preferences take server-compatible defaults.</summary>
-public sealed record AdminUserCreate(string Username, string Password, bool IsAdmin, PermissionSet Permissions);
+public sealed record AdminUserCreate(string Username, string Password, bool IsAdmin, PermissionSet Permissions)
+{
+    public override string ToString() => "AdminUserCreate (credentials redacted)";
+}
 
 /// <summary>Selected admin edits for one user; only the named fields are written.</summary>
-public sealed record AdminUserUpdate(ulong Id, string? Password, bool? IsAdmin, bool? LockPassword, PermissionSet? Permissions);
+public sealed record AdminUserUpdate(ulong Id, string? Password, bool? IsAdmin, bool? LockPassword, PermissionSet? Permissions,
+    bool? SharePermission = null, string? Scope = null, IReadOnlyList<string>? Commands = null, IReadOnlyList<ServerPathRule>? Rules = null,
+    AdminUser? ExpectedPolicy = null)
+{
+    public override string ToString() => "AdminUserUpdate (configuration redacted)";
+}
 
 /// <summary>
 /// Administrator user management over the server's own user API. Every mutating call carries the

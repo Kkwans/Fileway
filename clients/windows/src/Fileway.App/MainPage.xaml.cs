@@ -882,6 +882,10 @@ public sealed partial class MainPage : Page, IDisposable
         DetailsName.Text = row?.Name ?? (count > 1 ? $"已选择 {count} 个项目" : "选择一个项目");
         DetailsKindText.Text = row?.Kind ?? (count > 1 ? $"{count} 个项目" : "—");
         DetailsSizeText.Text = row?.Size ?? "—";
+        bool folder = row?.File.IsDirectory == true;
+        DetailsFileSize.Visibility = folder ? Visibility.Collapsed : Visibility.Visible;
+        Grid.SetColumn(DetailsModified, folder ? 0 : 1);
+        UpdateFolderStatsContext(folder ? row?.File.Resource : null);
         DetailsModifiedText.Text = row?.Modified ?? "—";
         DetailsCreatedText.Text = row?.File.Created is { } created ? created.LocalDateTime.ToString("yyyy/M/d HH:mm", System.Globalization.CultureInfo.CurrentCulture) : "—";
         DetailsLocationButton.IsEnabled = row is not null && !_connecting;
@@ -900,6 +904,7 @@ public sealed partial class MainPage : Page, IDisposable
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
         MenuShareManagerItem.IsEnabled = !_connecting && _session is { } shareSession && shareSession.Permissions.Share && shareSession.Permissions.Download && _files is IShareService;
         UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateRemoteToolsContext(); UpdateChecksumContext(); UpdateShareContext(); UpdateMediaInfoContext(); UpdateCacheGalleryContext();
+        UpdateServerSettingsContext();
         UpdateApplicationMenus();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)
@@ -1055,13 +1060,13 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private void SetDetailsVisible(bool visible)
     {
-        if (!visible) { _detailsPopup?.Dispose(); _detailsPopup = null; _detailsVisible = false; return; }
+        if (!visible) { _detailsPopup?.Dispose(); _detailsPopup = null; _detailsVisible = false; UpdateFolderStatsContext(null); return; }
         if (_detailsPopup is not null || _storageOwnerHwnd == 0 || XamlRoot is null) return;
         _detailsVisible = true; DetailsPanel.Visibility = Visibility.Visible;
         try
         {
             _detailsPopup = new MediaSurfaces.PlayerSettingsWindow(_storageOwnerHwnd, DetailsPanel, null,
-                () => { _detailsPopup = null; _detailsVisible = false; if (!_disposed) UpdateApplicationMenus(); },
+                () => { _detailsPopup = null; _detailsVisible = false; UpdateFolderStatsContext(null); if (!_disposed) UpdateApplicationMenus(); },
                 theme: ActualTheme == ElementTheme.Dark ? ElementTheme.Dark : ElementTheme.Light, wrapContent: false, lightDismiss: false, movable: true);
             _detailsPopup.Title = "详细信息";
             _detailsPopup.ShowCentered();

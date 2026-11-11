@@ -13,6 +13,9 @@ public sealed partial class SettingsControl : UserControl
     public event EventHandler? StorageRequested;
     public event EventHandler? CacheGalleryRequested;
     public event EventHandler? ServerToolsRequested;
+    public event EventHandler? ServerSettingsRequested;
+    public event EventHandler? ServerUsersRequested;
+    public event EventHandler? ServerSharesRequested;
     public event EventHandler? LocalServerRequested;
     public event EventHandler? AboutRequested;
     public event EventHandler<ElementTheme>? ThemeRequested;
@@ -77,12 +80,27 @@ public sealed partial class SettingsControl : UserControl
         _loading = false;
     }
 
+    public void SetServerManagement(bool canConfigure, bool canManageUsers, bool canManageShares)
+    {
+        bool canAdminister = canConfigure || canManageUsers;
+        ServerManagementCard.Visibility = canAdminister || canManageShares ? Visibility.Visible : Visibility.Collapsed;
+        ServerSettingsButton.Visibility = canConfigure ? Visibility.Visible : Visibility.Collapsed;
+        ServerUsersButton.Visibility = canManageUsers ? Visibility.Visible : Visibility.Collapsed;
+        ServerSharesButton.Visibility = canManageShares ? Visibility.Visible : Visibility.Collapsed;
+        ServerManagementCaption.Text = canAdminister
+            ? "配置当前服务器的安全策略、用户权限、路径规则与允许命令。"
+            : "查看或撤销当前账户创建的分享链接。";
+    }
+
     private void Close_Click(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Appearance_Click(object sender, RoutedEventArgs e) => AppearanceRequested?.Invoke(this, EventArgs.Empty);
     private void OpenWith_Click(object sender, RoutedEventArgs e) => OpenWithRequested?.Invoke(this, EventArgs.Empty);
     private void Storage_Click(object sender, RoutedEventArgs e) => StorageRequested?.Invoke(this, EventArgs.Empty);
     private void CacheGallery_Click(object sender, RoutedEventArgs e) => CacheGalleryRequested?.Invoke(this, EventArgs.Empty);
     private void ServerTools_Click(object sender, RoutedEventArgs e) => ServerToolsRequested?.Invoke(this, EventArgs.Empty);
+    private void ServerSettings_Click(object sender, RoutedEventArgs e) => ServerSettingsRequested?.Invoke(this, EventArgs.Empty);
+    private void ServerUsers_Click(object sender, RoutedEventArgs e) => ServerUsersRequested?.Invoke(this, EventArgs.Empty);
+    private void ServerShares_Click(object sender, RoutedEventArgs e) => ServerSharesRequested?.Invoke(this, EventArgs.Empty);
     private void LocalServer_Click(object sender, RoutedEventArgs e) => LocalServerRequested?.Invoke(this, EventArgs.Empty);
     private void About_Click(object sender, RoutedEventArgs e) => AboutRequested?.Invoke(this, EventArgs.Empty);
 }
