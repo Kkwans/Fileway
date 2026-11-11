@@ -1,4 +1,6 @@
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using Fileway.Core.Contracts;
 using Fileway.App.Views;
 using Fileway.App.Branding;
@@ -47,7 +49,9 @@ public sealed partial class MainPage : Page, IDisposable
     private readonly List<RemoteResourceRef> _trail = [];
     private readonly Stack<RemoteResourceRef[]> _history = [];
     private readonly List<RemoteFile> _items = [];
-    private readonly ObservableCollection<FileRow> _rows = [];
+    private readonly BrowserRows _rows = new();
+    private RemoteFile[]? _sortedItems;
+    private (FileSortField Field, bool Descending) _sortedOrder;
     private readonly HashSet<ImageWindow> _imageWindows = [];
     private readonly HashSet<TextWindow> _textWindows = [];
     private readonly HashSet<ArchiveWindow> _archiveWindows = [];
@@ -517,12 +521,12 @@ public sealed partial class MainPage : Page, IDisposable
         CollectionsPanel.SetContext(null, null, null, null);
         SidebarCollections.SetSnapshot(null); SidebarCollections.IsEnabled = false;
         UpdateThumbnailContext();
-        _items.Clear(); _rows.Clear(); _trail.Clear(); _history.Clear();
+        _items.Clear(); _sortedItems = null; _rows.Clear(); _trail.Clear(); _history.Clear();
         NavigationCommands.IsEnabled = false; LogoutButton.Visibility = DismissConnection.Visibility = Visibility.Collapsed;
         ConnectionLabel.Text = "尚未连接"; SidebarConnectionActionLabel.Text = "连接服务器"; PathBox.Text = "尚未连接";
         UpdateBreadcrumbs(); ResetOperationContext();
         _loadStateTitle = _loadStateDescription = null;
-        SetLoading(false); SetDetailsVisible(false); UpdateSelection(); ApplyFilter();
+        SetLoading(false); SetDetailsVisible(false); ApplyFilter();
     }
 
     private void Connection_SessionUpdated(object? sender, ConnectionSession session) => DispatcherQueue.TryEnqueue(() =>
@@ -553,14 +557,14 @@ public sealed partial class MainPage : Page, IDisposable
         _loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         var token = _loadCancellation.Token;
         var generation = ++_generation;
-        _thumbnailController.Invalidate();
+        _thumbnailController.Invalidate(dropPreviews: true);
         bool CurrentLoad() => !_disposed && generation == _generation && _session?.Id == session.Id && _session.Account == session.Account;
         _loadStateTitle = _loadStateDescription = null;
         _directory = directory; PathBox.Text = directory.WirePath; UpdateBreadcrumbs(); CloseSidebarOverlay();
+        _items.Clear(); _sortedItems = null; _rows.Clear(); SearchBox.Text = "";
         var preferenceRevision = ++_preferenceRevision;
         RestoreDirectoryTypeFilters(directory); _browserPreferences = new BrowserPreferences(); ApplyBrowserPresentation();
         _ = ReadBrowserPreferencesAsync(directory, session, generation, preferenceRevision, token);
-        _items.Clear(); _rows.Clear(); SearchBox.Text = "";
         SetLoading(true); Notice.IsOpen = false; EmptyState.Visibility = Visibility.Collapsed;
         bool loaded = false;
         try
@@ -573,11 +577,10 @@ public sealed partial class MainPage : Page, IDisposable
                 var page = await _files.ListAsync(directory, query with { Cursor = cursor }, token);
                 if (!CurrentLoad()) return false;
                 token.ThrowIfCancellationRequested();
-                _items.AddRange(page.Items); cursor = page.NextCursor;
+                _items.AddRange(page.Items); _sortedItems = null; cursor = page.NextCursor;
                 if (cursor is not null && !seenCursors.Add(cursor)) throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "服务器返回了重复的分页标记。"));
                 ApplyFilter();
             } while (cursor is not null);
-            UpdateSelection();
             loaded = true;
             if (CurrentLoad() && _files is INavigationStateService navigation)
             {
@@ -604,22 +607,36 @@ public sealed partial class MainPage : Page, IDisposable
         return loaded && CurrentLoad();
     }
     private DirectoryQuery Query() => new(_browserPreferences.SortBy, _browserPreferences.Descending);
-    private void ApplyFilter()
+    private void ApplyFilter(bool rebuild = false)
     {
         var filter = SearchBox.Text.Trim();
-        var filtered = _items.Where(item => item.Resource.DisplayName.Contains(filter, StringComparison.CurrentCultureIgnoreCase) && MatchesTypeFilters(item));
-        var matching = SortFiles(filtered).ToArray();
-        var append = _rows.Count <= matching.Length && _rows.Select((row, index) => ReferenceEquals(row.File, matching[index])).All(same => same);
-        var selected = ActiveFiles.SelectedItems.Cast<FileRow>().Select(row => row.File.Resource).ToHashSet();
-        _changingView = true;
-        try
+        var sorted = GetSortedFiles();
+        var matching = filter.Length == 0 && _typeFilters.Count == 0
+            ? sorted
+            : sorted.Where(item => item.Resource.DisplayName.Contains(filter, StringComparison.CurrentCultureIgnoreCase) && MatchesTypeFilters(item)).ToArray();
+        var prefixMatches = !rebuild && _rows.Count <= matching.Length;
+        for (int index = 0; prefixMatches && index < _rows.Count; index++)
+            prefixMatches = ReferenceEquals(_rows[index].File, matching[index]);
+        if (!prefixMatches || _rows.Count != matching.Length)
         {
-            if (!append) { _thumbnailController.Invalidate(); _rows.Clear(); }
-            for (var index = _rows.Count; index < matching.Length; index++) _rows.Add(new FileRow(matching[index], _browserPreferences));
-            if (!append)
-                foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource))) ActiveFiles.SelectedItems.Add(row);
+            _changingView = true;
+            try
+            {
+                if (!prefixMatches || _rows.Count == 0)
+                {
+                    var selected = ActiveFiles.SelectedItems.Cast<FileRow>().Select(row => row.File.Resource.WirePath).ToHashSet(StringComparer.Ordinal);
+                    _thumbnailController.Invalidate();
+                    _rows.ReplaceAll(matching.Select(file => new FileRow(file, _browserPreferences)));
+                    if (selected.Count > 0)
+                        foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource.WirePath)))
+                            ActiveFiles.SelectedItems.Add(row);
+                }
+                else
+                    for (int index = _rows.Count; index < matching.Length; index++)
+                        _rows.Add(new FileRow(matching[index], _browserPreferences));
+            }
+            finally { _changingView = false; }
         }
-        finally { _changingView = false; }
         UpdateSelection();
         if (LoadingRing.IsActive) return;
         EmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -1035,22 +1052,16 @@ public sealed partial class MainPage : Page, IDisposable
         }
         panel.ItemHeight = mode == BrowserViewMode.CompactList ? 64 : mode == BrowserViewMode.Mosaic ? 216 : visual + 96;
     }
-    private void RebuildPresentation()
+    private void RebuildPresentation() => ApplyFilter(rebuild: true);
+
+    private RemoteFile[] GetSortedFiles()
     {
-        var selected = ActiveFiles.SelectedItems.Cast<FileRow>().Select(row => row.File.Resource).ToHashSet();
-        _thumbnailController.Invalidate(); _changingView = true;
-        try { _rows.Clear(); }
-        finally { _changingView = false; }
-        ApplyFilter();
-        foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource))) ActiveFiles.SelectedItems.Add(row);
-    }
-    private IEnumerable<RemoteFile> SortFiles(IEnumerable<RemoteFile> files)
-    {
-        var preferences = _browserPreferences;
+        var orderKey = (_browserPreferences.SortBy, _browserPreferences.Descending);
+        if (_sortedItems is not null && _sortedOrder == orderKey) return _sortedItems;
         var comparer = Comparer<RemoteFile>.Create((left, right) =>
         {
             if (left.IsDirectory != right.IsDirectory) return left.IsDirectory ? -1 : 1;
-            var order = preferences.SortBy switch
+            var order = orderKey.SortBy switch
             {
                 FileSortField.Size => left.Size.CompareTo(right.Size),
                 FileSortField.Modified => Nullable.Compare(left.Modified, right.Modified),
@@ -1058,9 +1069,23 @@ public sealed partial class MainPage : Page, IDisposable
                 _ => StringComparer.OrdinalIgnoreCase.Compare(left.Resource.DisplayName, right.Resource.DisplayName),
             };
             if (order == 0) order = StringComparer.Ordinal.Compare(left.Resource.WirePath, right.Resource.WirePath);
-            return preferences.Descending ? -Math.Sign(order) : order;
+            return orderKey.Descending ? -Math.Sign(order) : order;
         });
-        return files.OrderBy(item => item, comparer);
+        _sortedOrder = orderKey;
+        return _sortedItems = _items.OrderBy(item => item, comparer).ToArray();
+    }
+
+    private sealed class BrowserRows : ObservableCollection<FileRow>
+    {
+        internal void ReplaceAll(IEnumerable<FileRow> rows)
+        {
+            CheckReentrancy();
+            Items.Clear();
+            foreach (var row in rows) Items.Add(row);
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
     }
     private async Task ReadBrowserPreferencesAsync(RemoteResourceRef directory, ConnectionSession session, long generation, long revision, CancellationToken token)
     {

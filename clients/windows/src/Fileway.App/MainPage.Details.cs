@@ -83,9 +83,11 @@ public sealed partial class MainPage
         {
             var metadata = await _files.GetAsync(source, _lifetime.Token);
             if (_disposed || _generation != generation || _session?.Id != session.Id) return;
-            var index = _rows.IndexOf(row);
-            if (index >= 0) _rows[index] = new FileRow(metadata, _browserPreferences);
-            UpdateSelection();
+            var index = _items.FindIndex(item => item.Resource.WirePath == source.WirePath && item.Resource.Account == source.Account);
+            if (index < 0) return;
+            _items[index] = metadata;
+            _sortedItems = null;
+            ApplyFilter();
             SetNotice("元数据已刷新", metadata.Resource.DisplayName, Microsoft.UI.Xaml.Controls.InfoBarSeverity.Success);
         }
         catch (OperationCanceledException) { }

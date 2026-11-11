@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Dispatching;
 
 namespace Fileway.App.Controls;
 
@@ -45,24 +46,40 @@ public static class DialogOrdering
 
     private static void OnEnableChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)
     {
-        if (element is not ContentDialog dialog || args.NewValue is not true) return;
-        dialog.Opened += (_, _) => ScheduleReorder(dialog);
+        if (element is not ContentDialog dialog) return;
+        if (args.NewValue is true) dialog.Opened += DialogOpened;
+        else dialog.Opened -= DialogOpened;
     }
 
-    private static void ScheduleReorder(ContentDialog dialog)
+    private static void DialogOpened(ContentDialog dialog, ContentDialogOpenedEventArgs args)
     {
         if (Reorder(dialog)) return;
         // Dialogs opened from a menu can raise Opened before the button panel is realized.
-        dialog.DispatcherQueue.TryEnqueue(() =>
-        {
-            if (!Reorder(dialog))
-                dialog.DispatcherQueue.TryEnqueue(() => Reorder(dialog));
-        });
         var timer = dialog.DispatcherQueue.CreateTimer();
         timer.Interval = TimeSpan.FromMilliseconds(140);
         timer.IsRepeating = false;
-        timer.Tick += (_, _) => { timer.Stop(); Reorder(dialog); };
+        timer.Tick += Retry;
+        dialog.Closed += Closed;
         timer.Start();
+        dialog.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (timer.IsRunning && Reorder(dialog)) Finish();
+        });
+
+        void Retry(DispatcherQueueTimer sender, object args)
+        {
+            Finish();
+            Reorder(dialog);
+        }
+
+        void Closed(ContentDialog sender, ContentDialogClosedEventArgs args) => Finish();
+
+        void Finish()
+        {
+            timer.Stop();
+            timer.Tick -= Retry;
+            dialog.Closed -= Closed;
+        }
     }
 
     private static bool Reorder(ContentDialog dialog)
@@ -89,14 +106,16 @@ public static class DialogOrdering
         {
             var primaryColumn = Grid.GetColumn(primaryElement);
             var closeColumn = Grid.GetColumn(closeElement);
-            if (primaryColumn == closeColumn || primaryColumn > closeColumn) return false;
+            if (primaryColumn == closeColumn) return false;
+            if (primaryColumn > closeColumn) return true;
             Grid.SetColumn(primaryElement, closeColumn);
             Grid.SetColumn(closeElement, primaryColumn);
             return true;
         }
         var index = container.Children.IndexOf(primaryItem);
         var closeIndex = container.Children.IndexOf(closeItem);
-        if (index < 0 || closeIndex < 0 || index > closeIndex) return false;
+        if (index < 0 || closeIndex < 0) return false;
+        if (index > closeIndex) return true;
         container.Children.RemoveAt(index);
         container.Children.Add(primaryItem);
         return true;

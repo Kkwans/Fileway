@@ -1,6 +1,5 @@
 ﻿using Fileway.App.MediaSurfaces;
 using Fileway.Core.Contracts;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -16,7 +15,6 @@ public sealed partial class MainPage
     private PlayerSettingsWindow? _detailsPopup;
     private StackPanel? _typeFilterOptions;
     private StackPanel? _sortOptions;
-    private readonly Dictionary<InfoBar, (DispatcherQueueTimer Timer, string Key)> _toasts = [];
 
     private void InitializePresentation()
     {
@@ -27,11 +25,11 @@ public sealed partial class MainPage
         DetailsPanel.Padding = new Thickness(20, 16, 20, 18);
         DetailsPanel.BorderThickness = new Thickness(0);
         Notice.IsOpen = false;
-        LoginNotice.IsClosable = true;
-        Controls.FloatingNotice.Attach(Notice);
-        Controls.FloatingNotice.Attach(ReceiptWarning);
-        Controls.FloatingNotice.Attach(UploadNotice);
-        Controls.FloatingNotice.Attach(DownloadNotice);
+        Controls.FloatingNotice.Attach(LoginNotice, automatic: false, floating: false);
+        Controls.FloatingNotice.Attach(Notice, automatic: false);
+        Controls.FloatingNotice.Attach(ReceiptWarning, automatic: false);
+        Controls.FloatingNotice.Attach(UploadNotice, automatic: false);
+        Controls.FloatingNotice.Attach(DownloadNotice, automatic: false);
         AttachChoices(ViewOptionsButton);
         _typeFilterOptions = (TypeFilterBox.Flyout as Flyout)?.Content as StackPanel;
         AttachChoices(TypeFilterBox);
@@ -56,40 +54,22 @@ public sealed partial class MainPage
     private static void ConfigurePopupMaterial(FlyoutBase flyout) => Controls.SurfaceStyles.Attach(flyout);
     private void ShowToast(InfoBar bar, string key, bool repeat = false)
     {
-        if (_disposed) return;
-        if (!_toasts.TryGetValue(bar, out var state))
-        {
-            var timer = DispatcherQueue.CreateTimer();
-            timer.IsRepeating = false;
-            timer.Tick += (_, _) => { timer.Stop(); bar.IsOpen = false; };
-            state = (timer, "");
-            _toasts.Add(bar, state);
-            bar.Closed += (_, _) => timer.Stop();
-        }
         // Transfer snapshots refresh their bytes frequently. A dismissed toast
         // must not reappear on every tick; only a new task/stage opens it again.
-        if (!repeat && state.Key == key) return;
-        bar.IsClosable = true;
-        bar.IsOpen = true;
-        state.Timer.Stop();
-        state.Timer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ToastSeconds);
-        state.Timer.Start();
-        _toasts[bar] = (state.Timer, key);
+        if (!_disposed) Controls.FloatingNotice.Show(bar, key, repeat);
     }
 
-    private void ResetToast(InfoBar bar)
-    {
-        if (!_toasts.TryGetValue(bar, out var state)) return;
-        state.Timer.Stop();
-        _toasts[bar] = (state.Timer, "");
-    }
+    private static void ResetToast(InfoBar bar) => Controls.FloatingNotice.Reset(bar);
 
     private void DisposePresentation()
     {
         _detailsPopup?.Dispose(); _detailsPopup = null;
 
-        foreach (var state in _toasts.Values) state.Timer.Stop();
-        _toasts.Clear();
+        Controls.FloatingNotice.Detach(LoginNotice);
+        Controls.FloatingNotice.Detach(Notice);
+        Controls.FloatingNotice.Detach(ReceiptWarning);
+        Controls.FloatingNotice.Detach(UploadNotice);
+        Controls.FloatingNotice.Detach(DownloadNotice);
     }
 
     private void TypeFilter_Click(object sender, RoutedEventArgs args)

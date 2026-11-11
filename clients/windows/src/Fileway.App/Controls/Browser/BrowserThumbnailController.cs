@@ -16,15 +16,19 @@ internal sealed class BrowserThumbnailController : IDisposable
     private const long EncodedByteBudget = 8L * 1024 * 1024;
     private const uint MaximumEdge = 512;
     private const double PixelBudget = 512 * 512;
+    // Sixteen decoded previews cap the retained pixel payload at 16 MiB.
+    private const int RetainedPreviewLimit = 16;
     private readonly ListViewBase[] _views;
     private readonly Dictionary<SelectorItem, ContainerState> _containers = [];
     private readonly Dictionary<ListViewBase, ScrollViewer> _scrolls = [];
     private readonly SemaphoreSlim _parallel = new(4, 4);
+    private readonly LinkedList<(RemoteFile File, SoftwareBitmapSource Source)> _recentPreviews = [];
     private readonly CancellationToken _lifetime;
     private IThumbnailContentService? _service;
     private ConnectionSession? _session;
     private long _generation;
     private bool _refreshQueued;
+    private bool _waitingForTemplate;
     private bool _disposed;
     private int _outstanding;
     private bool _parallelDisposed;
@@ -46,14 +50,15 @@ internal sealed class BrowserThumbnailController : IDisposable
     {
         if (_disposed || ReferenceEquals(_service, service) && _session?.Id == session?.Id && _session?.Account == session?.Account) return;
         _service = service; _session = session;
-        Invalidate();
+        Invalidate(dropPreviews: true);
     }
 
     // Call before a directory replacement or filter rebuild, including same-account refreshes.
-    public void Invalidate()
+    public void Invalidate(bool dropPreviews = false)
     {
         if (_disposed) return;
         ++_generation;
+        if (dropPreviews) _recentPreviews.Clear();
         foreach (var state in _containers.Values) Stop(state);
         QueueRefresh();
     }
@@ -76,7 +81,7 @@ internal sealed class BrowserThumbnailController : IDisposable
             if (!args.InRecycleQueue && ReferenceEquals(previous.Row, args.Item)) { QueueRefresh(); return; }
             ReleaseContainer(previous); _containers.Remove(container);
         }
-        if (!args.InRecycleQueue && args.Item is FileRow row)
+        if (!args.InRecycleQueue && args.Item is FileRow row && (row.IsImage || row.IsVideo))
         {
             _containers.Add(container, new ContainerState(sender, container, row));
             QueueRefresh();
@@ -85,27 +90,37 @@ internal sealed class BrowserThumbnailController : IDisposable
 
     private void ViewLoaded(object sender, RoutedEventArgs args)
     {
-        if (sender is ListViewBase view && !_scrolls.ContainsKey(view) && Find<ScrollViewer>(view) is { } scroll)
-        {
-            _scrolls.Add(view, scroll); scroll.ViewChanged += ScrollViewChanged;
-        }
+        if (sender is ListViewBase view) AttachScrollViewer(view);
         QueueRefresh();
+    }
+
+    private void AttachScrollViewer(ListViewBase view)
+    {
+        if (_scrolls.ContainsKey(view) || Find<ScrollViewer>(view) is not { } scroll) return;
+        _scrolls.Add(view, scroll);
+        scroll.ViewChanged += ScrollViewChanged;
     }
 
     private void ViewUnloaded(object sender, RoutedEventArgs args)
     {
         if (sender is not ListViewBase view) return;
         if (_scrolls.Remove(view, out var scroll)) scroll.ViewChanged -= ScrollViewChanged;
-        foreach (var state in _containers.Values.Where(state => ReferenceEquals(state.View, view))) Stop(state);
+        foreach (var state in _containers.Values.Where(state => ReferenceEquals(state.View, view))) ReleaseContainer(state);
     }
 
     private void ViewSizeChanged(object sender, SizeChangedEventArgs args) => QueueRefresh();
-    private void ViewLayoutUpdated(object? sender, object args) => QueueRefresh();
+    private void ViewLayoutUpdated(object? sender, object args)
+    {
+        // LayoutUpdated does not always supply the list as sender.
+        foreach (var view in _views)
+            if (view.IsLoaded && view.Visibility == Visibility.Visible) AttachScrollViewer(view);
+        if (_waitingForTemplate) QueueRefresh();
+    }
     private void ScrollViewChanged(object? sender, ScrollViewerViewChangedEventArgs args) => RefreshVisibility();
 
     private void QueueRefresh()
     {
-        if (_disposed || _refreshQueued) return;
+        if (_disposed || _refreshQueued || _containers.Count == 0) return;
         _refreshQueued = true;
         if (!_views[0].DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
         {
@@ -116,21 +131,56 @@ internal sealed class BrowserThumbnailController : IDisposable
 
     private void Refresh()
     {
+        _waitingForTemplate = false;
         foreach (var state in _containers.Values)
         {
-            if (_service is null || _session is null || state.Resource.Account != _session.Account || !IsVisible(state))
+            if (_service is null || _session is null || state.Resource.Account != _session.Account)
             { Stop(state); continue; }
-            if (state.Attempted || !state.Row.IsImage && !state.Row.IsVideo) continue;
+            if (!IsVisible(state))
+            {
+                Stop(state);
+                // ContentChanging can arrive before the container has completed its first layout.
+                if (state.View.IsLoaded && state.View.Visibility == Visibility.Visible &&
+                    (!state.Container.IsLoaded || state.Container.ActualWidth <= 0 || state.Container.ActualHeight <= 0))
+                    _waitingForTemplate = true;
+                continue;
+            }
+            if (state.Attempted) continue;
             // ContentChanging can precede template creation. LayoutUpdated retries only visual lookup.
             state.Image ??= Find<Image>(state.Container, "ThumbnailImage");
             state.Icon ??= Find<FrameworkElement>(state.Container, "ThumbnailIcon");
-            if (state.Image is null || state.Icon is null) continue;
+            if (state.Image is null || state.Icon is null)
+            {
+                _waitingForTemplate = true;
+                continue;
+            }
             state.Attempted = true;
+            if (TryShowRecentPreview(state)) continue;
             var request = new Request(_generation, CancellationTokenSource.CreateLinkedTokenSource(_lifetime));
             state.Request = request;
             ++_outstanding;
             _ = LoadAsync(state, request, _service);
         }
+    }
+
+    private bool TryShowRecentPreview(ContainerState state)
+    {
+        for (var node = _recentPreviews.First; node is not null; node = node.Next)
+        {
+            if (node.Value.File != state.Row.File) continue;
+            _recentPreviews.Remove(node);
+            _recentPreviews.AddFirst(node);
+            ShowPreview(state, node.Value.Source);
+            return true;
+        }
+        return false;
+    }
+
+    private static void ShowPreview(ContainerState state, SoftwareBitmapSource source)
+    {
+        state.Image!.Source = source;
+        state.Image.Visibility = Visibility.Visible;
+        state.Icon!.Visibility = Visibility.Collapsed;
     }
 
     private static bool IsVisible(ContainerState state)
@@ -169,9 +219,9 @@ internal sealed class BrowserThumbnailController : IDisposable
             var source = new SoftwareBitmapSource();
             await source.SetBitmapAsync(bitmap);
             if (!Current(state, request)) return;
-            state.Image!.Source = source;
-            state.Image.Visibility = Visibility.Visible;
-            state.Icon!.Visibility = Visibility.Collapsed;
+            if (_recentPreviews.Count >= RetainedPreviewLimit) _recentPreviews.RemoveLast();
+            _recentPreviews.AddFirst((state.Row.File, source));
+            ShowPreview(state, source);
         }
         catch (OperationCanceledException) { }
         catch (Exception) { /* Preview is best effort: keep the type icon and never request raw content. */ }
@@ -224,6 +274,7 @@ internal sealed class BrowserThumbnailController : IDisposable
 
     private static void Stop(ContainerState state)
     {
+        if (!state.Attempted) return;
         state.Request?.Cancellation.Cancel(); state.Request = null; state.Attempted = false;
         if (state.Image is not null) { state.Image.Source = null; state.Image.Visibility = Visibility.Collapsed; }
         if (state.Icon is not null) state.Icon.Visibility = Visibility.Visible;
@@ -248,6 +299,7 @@ internal sealed class BrowserThumbnailController : IDisposable
         _disposed = true; ++_generation;
         foreach (var state in _containers.Values) ReleaseContainer(state);
         _containers.Clear();
+        _recentPreviews.Clear();
         foreach (var scroll in _scrolls.Values) scroll.ViewChanged -= ScrollViewChanged;
         _scrolls.Clear();
         foreach (var view in _views)
