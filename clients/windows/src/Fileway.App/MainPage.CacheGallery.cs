@@ -44,6 +44,6 @@ public sealed partial class MainPage
         try { result = await ShowBrowserDialogAsync(dialog); }
         finally { _cacheGalleryDialog = null; _cacheGalleryCurrent = null; }
         if (result == ContentDialogResult.Primary && IsCurrent())
-            StorageSettings_Click(this, new RoutedEventArgs());
+            await ShowStorageSettingsAsync(showUsage: true);
     }
 }

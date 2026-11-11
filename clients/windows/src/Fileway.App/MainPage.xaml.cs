@@ -141,11 +141,14 @@ public sealed partial class MainPage : Page, IDisposable
         if (!_disposed) SetNotice("本地缓存暂不可用", message, InfoBarSeverity.Warning);
     }
 
-    private async void StorageSettings_Click(object sender, RoutedEventArgs args)
+    private async void StorageSettings_Click(object sender, RoutedEventArgs args) => await ShowStorageSettingsAsync(showUsage: false);
+
+    private async Task ShowStorageSettingsAsync(bool showUsage)
     {
         if (_disposed || _storageSettings is null || _storageOwnerHwnd == 0 || _storageDialog is not null) return;
         using var control = new StorageSettingsControl(_storageSettings, _storageOwnerHwnd, _lifetime.Token);
         control.SetMaxContentHeight(Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 560));
+        if (showUsage) control.ShowCacheUsage();
         var dialog = new ContentDialog
         {
             XamlRoot = XamlRoot, Title = "缓存与存储", Content = control,

@@ -87,9 +87,13 @@ public sealed partial class LocalStorageSettingsService : ILocalStorageSettingsS
             // The durable write is confirmed. A later cache failure cannot turn it into a failed save.
             _pending = normalized;
             var active = _active ?? throw Unavailable();
-            if (StorageSettingsValidation.SameDirectory(active.CacheDirectory, normalized.CacheDirectory))
+            // Resume preference does not depend on cache reconfiguration.
+            if (active.AutoResumeDownloads != normalized.AutoResumeDownloads)
+                _active = active = active with { AutoResumeDownloads = normalized.AutoResumeDownloads };
+            if (StorageSettingsValidation.SameDirectory(active.CacheDirectory, normalized.CacheDirectory) &&
+                active.MaximumCacheBytes != normalized.MaximumCacheBytes)
             {
-                var updated = active with { MaximumCacheBytes = normalized.MaximumCacheBytes, AutoResumeDownloads = normalized.AutoResumeDownloads };
+                var updated = active with { MaximumCacheBytes = normalized.MaximumCacheBytes };
                 if (!_cacheConfigured) _active = updated;
                 else
                 {
@@ -103,12 +107,6 @@ public sealed partial class LocalStorageSettingsService : ILocalStorageSettingsS
                         Trace.TraceWarning("Fileway saved cache capacity is pending ({0}).", error.Error.Code);
                     }
                 }
-            }
-            else
-            {
-                // Directory-dependent capacity stays pending until restart; the resume preference
-                // is orthogonal to the cache pool and takes effect immediately.
-                _active = active with { AutoResumeDownloads = normalized.AutoResumeDownloads };
             }
             return State();
         }
