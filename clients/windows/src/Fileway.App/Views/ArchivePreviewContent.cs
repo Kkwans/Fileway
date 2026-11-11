@@ -8,7 +8,7 @@ internal sealed class ArchiveTextContentService(TextContent content) : ITextCont
     public Task<TextContent> OpenAsync(RemoteResourceRef resource, CancellationToken cancellationToken) =>
         Task.FromResult(content with { Resource = resource });
 
-    public Task<TextEditExpectation> SaveAsync(RemoteResourceRef resource, TextEditExpectation expected,
+    public Task<TextSaveResult> SaveAsync(RemoteResourceRef resource, TextEditExpectation expected,
         string newText, CancellationToken cancellationToken) =>
         throw new NotSupportedException("Archive previews are read-only.");
 }

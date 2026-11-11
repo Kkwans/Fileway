@@ -20,6 +20,9 @@ public sealed record TextEditExpectation(long Size, string ModifiedRaw)
     public override string ToString() => "TextEditExpectation (private observation redacted)";
 }
 
+/// <summary>A confirmed write and the optional observation needed to enable another edit.</summary>
+public sealed record TextSaveResult(long SavedSize, TextEditExpectation? NextExpectation);
+
 /// <summary>
 /// Read-only remote text viewing. Opening never starts a transfer or writes anything; the decoded
 /// budget bounds memory and the caller presents the text as-is.
@@ -31,9 +34,9 @@ public interface ITextContentService
     /// <summary>
     /// Conditional text save: the server stages the bytes and publishes only if its current
     /// observation still equals <paramref name="expected"/>. A changed source throws
-    /// SourceChanged instead of overwriting; the result carries the fresh observation for
-    /// further edits. The text is written as UTF-8 (BOM preserved only for BOM sources).
+    /// SourceChanged instead of overwriting. A confirmed write may lack a fresh observation
+    /// for further edits. The text is written as UTF-8.
     /// </summary>
-    Task<TextEditExpectation> SaveAsync(RemoteResourceRef resource, TextEditExpectation expected,
+    Task<TextSaveResult> SaveAsync(RemoteResourceRef resource, TextEditExpectation expected,
         string newText, CancellationToken cancellationToken);
 }

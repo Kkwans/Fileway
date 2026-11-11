@@ -77,7 +77,7 @@ public sealed partial class FilewayClientServices : ITextContentService
         { return null; }
     }
 
-    async Task<TextEditExpectation> ITextContentService.SaveAsync(RemoteResourceRef resource, TextEditExpectation expected,
+    async Task<TextSaveResult> ITextContentService.SaveAsync(RemoteResourceRef resource, TextEditExpectation expected,
         string newText, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(resource);
@@ -85,11 +85,11 @@ public sealed partial class FilewayClientServices : ITextContentService
         ArgumentNullException.ThrowIfNull(newText);
         var state = GetResourceState(resource);
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, state.LifetimeToken);
+        byte[] bytes = Encoding.UTF8.GetBytes(newText);
+        if (bytes.LongLength > MaximumTextBytes)
+            throw Safe(ErrorCode.ResponseTooLarge, "文本超过本次编辑的 4 MB 上限。");
         try
         {
-            byte[] bytes = Encoding.UTF8.GetBytes(newText);
-            if (bytes.LongLength > MaximumTextBytes)
-                throw Safe(ErrorCode.ResponseTooLarge, "文本超过本次编辑的 4 MB 上限。");
             string endpoint = "/api/resources" + resource.WirePath +
                 "?conditional=true&expectedSize=" + expected.Size.ToString(CultureInfo.InvariantCulture) +
                 "&expectedModified=" + Uri.EscapeDataString(expected.ModifiedRaw);
@@ -104,14 +104,19 @@ public sealed partial class FilewayClientServices : ITextContentService
                 RequireModify(state);
             }).ConfigureAwait(false);
             RequireExactStatus(response, 200);
-            // Refresh the observation so the next save is conditioned on the file we just wrote.
-            var next = await ExpectationAsync(state, resource, bytes.LongLength, linked.Token).ConfigureAwait(false)
-                ?? throw Safe(ErrorCode.SourceChanged, "保存已确认，但无法取得最新文件状态；请重新打开后再编辑。");
-            return next;
         }
         catch (FilewayException error) when (error.Error.HttpStatus == 409)
         { throw Safe(ErrorCode.SourceChanged, "文件已在服务器上变化；本次修改未写入，请重新打开后再编辑。", 409); }
         catch (OperationCanceledException) { throw SessionCanceled(state, cancellationToken); }
+
+        // A missing observation prevents another edit. The server has already confirmed the write.
+        TextEditExpectation? next = null;
+        try
+        {
+            next = await ExpectationAsync(state, resource, bytes.LongLength, linked.Token).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is FilewayException or OperationCanceledException) { }
+        return new TextSaveResult(bytes.LongLength, next);
     }
 
     private void RequireModify(SessionState state)
