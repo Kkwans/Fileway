@@ -37,6 +37,7 @@ data class TvMediaState(
     val sidecars: List<ResourceRef> = emptyList(),
     val subtitleError: String? = null, val subtitleLoading: Boolean = false,
     val subtitleNotice: String? = null,
+    val subtitleLoadDetail: String? = null,
     val sdrAvailable: Boolean = false,
     val imageReady:Boolean=false,
     val firstConfirmedPositionMs:Long?=null,
@@ -646,7 +647,7 @@ class TvMediaController(
         pendingLocal = intent as? SubtitleIntent.Local
         // A local candidate does not become the restore intent until it is accepted.
         subtitleIntent = if (pendingLocal != null) previous else intent
-        mutable.update { it.copy(subtitleError = null, subtitleNotice = null, subtitleLoading = intent != SubtitleIntent.Off) }
+        mutable.update { it.copy(subtitleError = null, subtitleNotice = null, subtitleLoading = intent != SubtitleIntent.Off, subtitleLoadDetail = null) }
         subtitleJob?.cancel(); subtitleJob = null
         if (intent == SubtitleIntent.Off) {
             player.subtitle(-1)
@@ -709,7 +710,7 @@ class TvMediaController(
         val expected = epoch
         val selection = subtitleRevision
         val generation = player.state.value.mediaGeneration
-        mutable.update { it.copy(subtitleLoading = subtitleIntent != SubtitleIntent.Off) }
+        mutable.update { it.copy(subtitleLoading = subtitleIntent != SubtitleIntent.Off, subtitleLoadDetail = null) }
         try {
             restoreSubtitle()
             player.finishDecoderRestore(player.state.value.mediaGeneration, emptyList())
@@ -771,14 +772,35 @@ class TvMediaController(
             coroutineScope {
                 var prepared: SourceSubtitleAssets.Lease? = null
                 val progressive = mutable.value.sourceASSStreaming
+                fun showDetail(message: String?) {
+                    checkCurrent()
+                    mutable.update { it.copy(subtitleLoadDetail = message) }
+                }
+                if (progressive) showDetail("正在等待字幕数据…")
                 val endpoint = "/api/subtitle${source.file.wirePath}?streamIndex=$index&format=source&identity=${encode(source.identity)}"
                 val download = async {
                     (if (progressive) sourceAssStream(source, sourceKey, "$endpoint&stream=1")
                     else sourceAsset(source, sourceKey, endpoint, EXTERNAL_TEXT_BYTES_LIMIT)).also { prepared = it }
                 }
                 val fonts = async { loadFonts(source, expected, selection) }
+                var observer: Job? = null
                 try {
                     val asset = download.await()
+                    if (progressive) observer = launch {
+                        // The writer can report every chunk. Keep UI and WSS
+                        // updates independent of that I/O cadence.
+                        while (isActive) {
+                            val progress = asset.progress.value
+                            if (progress.failure != null) break
+                            showDetail(when {
+                                !progress.complete && progress.bytes == 0L -> "正在等待字幕数据…"
+                                !progress.complete -> "已接收字幕 ${tvSize(progress.bytes)}"
+                                !fonts.isCompleted -> "正在准备字幕字体…"
+                                else -> "正在准备字幕画面…"
+                            })
+                            delay(500)
+                        }
+                    }
                     // Source bytes keep arriving while fonts are prepared. A
                     // preview must not flash with a substitute font first.
                     fonts.await()
@@ -794,6 +816,11 @@ class TvMediaController(
                     mutable.update { it.copy(selectedSourceSubtitle = index, subtitleError = null) }
                 } finally {
                     withContext(NonCancellable) {
+                        observer?.cancelAndJoin()
+                        if (progressive && expected == epoch && selection == subtitleRevision &&
+                            player.state.value.mediaGeneration == generation) {
+                            mutable.update { it.copy(subtitleLoadDetail = null) }
+                        }
                         download.cancelAndJoin()
                         fonts.cancelAndJoin()
                         withContext(Dispatchers.IO) { prepared?.close() }
@@ -934,7 +961,7 @@ class TvMediaController(
         val generation = player.state.value.mediaGeneration
         pendingLocal = null
         priorJob?.cancel()
-        mutable.update { it.copy(subtitleError = null, subtitleNotice = null, subtitleLoading = true) }
+        mutable.update { it.copy(subtitleError = null, subtitleNotice = null, subtitleLoading = true, subtitleLoadDetail = null) }
         pendingRemoteLocalGrant = (intent as? SubtitleIntent.Local)?.node?.grantId
         val result = CompletableDeferred<TvRemoteSubtitleResult>()
         fun currentSelection() = serverSubtitleBinding() === source && selection == subtitleRevision &&

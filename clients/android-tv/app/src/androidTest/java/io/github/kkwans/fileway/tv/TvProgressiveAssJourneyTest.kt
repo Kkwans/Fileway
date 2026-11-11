@@ -6,7 +6,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import io.github.kkwans.nasfilebrowser.data.VideoDecodePolicy
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -17,6 +19,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import kotlin.math.abs
@@ -26,8 +29,13 @@ import kotlin.math.abs
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @RunWith(AndroidJUnit4::class)
 class TvProgressiveAssJourneyTest {
-    @Test fun coldResumeUsesAuthenticatedProgressiveAssAndKeepsFontOnReselect(): Unit = runBlocking {
+    @Test fun coldResumeUsesAuthenticatedProgressiveAssAndKeepsFontOnReselect() = runJourney(checkLoadFeedback = false)
+
+    @Test fun showsActualBytesAndClearsFeedbackWhenCancelled() = runJourney(checkLoadFeedback = true)
+
+    private fun runJourney(checkLoadFeedback: Boolean): Unit = runBlocking {
         val ins = InstrumentationRegistry.getInstrumentation(); val args = InstrumentationRegistry.getArguments()
+        assumeTrue("A throttled owned fixture is required for byte feedback", !checkLoadFeedback || args.getString("fixture_ass_progress") == "true")
         val url = requireNotNull(args.getString("fixture_url")); val username = requireNotNull(args.getString("fixture_username"))
         val password = requireNotNull(args.getString("fixture_password")); check(username == "tv-fixture")
         val device = UiDevice.getInstance(ins)
@@ -94,10 +102,37 @@ class TvProgressiveAssJourneyTest {
             }
             stage = "cold resume"
             main { model.open(movie, listOf(movie)) }
-            waitFor(30_000) { model.media.player.state.value.firstFrameRendered }
+            if (checkLoadFeedback) {
+                waitFor(30_000) { model.media.state.value.let { it.info != null && it.sdrAvailable && !it.busy } }
+                main { model.media.switchMode(TvHdrMode.SDR, targetMs = 2000) }
+            }
+            waitFor(30_000) {
+                (!checkLoadFeedback || model.media.state.value.compatible) && model.media.player.state.value.firstFrameRendered
+            }
             main { model.media.player.pause() }
             assertTrue("Fixture must expose the ASS streaming capability", model.media.state.value.sourceASSStreaming)
             val ass = model.media.state.value.sourceText.single { it.codec in setOf("ass", "ssa") }
+            if (checkLoadFeedback) {
+                val generation = model.media.player.state.value.mediaGeneration
+                main { model.media.selectSourceSubtitle(ass.index) }
+                stage = "waiting for source subtitle bytes"
+                waitFor { model.media.state.value.subtitleLoadDetail == "正在等待字幕数据…" }
+                stage = "received source subtitle bytes"
+                waitFor { model.media.state.value.subtitleLoadDetail?.startsWith("已接收字幕 ") == true }
+                stage = "show received source subtitle bytes"
+                assertTrue("received bytes must be visible on TV", device.wait(Until.hasObject(By.textStartsWith("已接收字幕 ")), 2_000))
+                main {
+                    val playback = model.remoteGateway.snapshot().getJSONObject("content").getJSONObject("playback")
+                    assertTrue(playback.getBoolean("subtitleLoading"))
+                    assertTrue(playback.getString("subtitleLoadDetail").startsWith("已接收字幕 "))
+                }
+                pixels("subtitle-receiving.png")
+                stage = "cancel subtitle reception"
+                main { model.media.subtitlesOff() }
+                waitFor { !model.media.state.value.subtitleLoading && !model.media.player.state.value.subtitleLoading }
+                assertNull(model.media.state.value.subtitleLoadDetail)
+                assertEquals(generation, model.media.player.state.value.mediaGeneration)
+            }
             stage = "source subtitle"
             main { model.media.selectSourceSubtitle(ass.index) }
             waitFor(60_000) {
@@ -120,6 +155,7 @@ class TvProgressiveAssJourneyTest {
             visible("reselected.png", true)
             assertEquals(generation, native.state.value.mediaGeneration)
             assertTrue(abs(model.media.sourcePosition() - 2000) < 2500)
+            if (checkLoadFeedback) return@runBlocking
 
             val originalPosition = model.media.sourcePosition()
             stage = "SDR compatibility"
@@ -149,8 +185,8 @@ class TvProgressiveAssJourneyTest {
         } catch (failure: Throwable) {
             val media = model.media.state.value; val player = model.media.player.state.value
             runCatching { pixels("failure.png") }
-            throw AssertionError("TV ASS stage=$stage connected=${model.state.value.connected} loginError=${model.state.value.error} mediaError=${media.error} " +
-                "subtitleError=${media.subtitleError} loading=${media.subtitleLoading || player.subtitleLoading} " +
+            throw AssertionError("TV ASS stage=$stage connected=${model.state.value.connected} loginError=${model.state.value.error} mediaError=${media.error} playerError=${player.error} " +
+                "subtitleError=${media.subtitleError} loading=${media.subtitleLoading || player.subtitleLoading} subtitleLoadDetail=${media.subtitleLoadDetail} " +
                 "source=${media.selectedSourceSubtitle} selected=${player.selectedSubtitle} position=${player.positionMs}", failure)
         } finally { withContext(NonCancellable + Dispatchers.Main) { model.media.closeAndSave(); activity.finish() } }
     }

@@ -283,7 +283,9 @@ private fun RemoteSubtitleSheet(
     val status: @Composable () -> Unit = {
         if (subtitleLoading || tvNotice != null || commandNotice != null) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (subtitleLoading) RemoteSubtitleLoading("电视正在准备字幕…")
+                if (subtitleLoading) RemoteSubtitleLoading(
+                    player.optString("subtitleLoadDetail").take(80).ifBlank { "电视正在准备字幕…" },
+                )
                 tvNotice?.let { RemoteSubtitleNote(it) }
                 commandNotice?.takeUnless { it == tvNotice }?.let { RemoteSubtitleNote(it, error = true) }
             }

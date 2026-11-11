@@ -489,7 +489,7 @@ private fun TvSpeedEditor(
 }
 
 @Composable private fun TvSubtitleStatus(state: TvMediaState, player: PlayerState) {
-    if (delayedBusy(state.subtitleLoading || player.subtitleLoading)) TvPlayerNote("正在加载字幕…")
+    if (delayedBusy(state.subtitleLoading || player.subtitleLoading)) TvPlayerNote(state.subtitleLoadDetail ?: "正在加载字幕…")
     (state.subtitleError ?: player.operationError?.takeIf { it.contains("字幕") })?.let { TvPlayerNote(it, error = true) }
         ?: state.subtitleNotice?.let { TvPlayerNote(it) }
 }

@@ -137,6 +137,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             .put("bufferedMs",player.bufferedPositionMs+media.sourceOffsetMs).put("volume",player.volume).put("rate",player.rate).put("seekable",model.media.canSeek)
             .put("seeking",player.seeking).put("seekError",player.seekError).put("buffering",player.buffering).put("preparing",media.busy)
             .put("firstFrameRendered",player.firstFrameRendered).put("audioDecoder",player.audioDecoder.take(120)).put("subtitleLoading",player.subtitleLoading||media.subtitleLoading).put("waitingForBuffer",player.waitingForBuffer)
+            .put("subtitleLoadDetail", media.subtitleLoadDetail.takeIf { media.subtitleLoading })
             .put("audioRenderedBuffers",player.audioRenderedBuffers).put("audioSkippedBuffers",player.audioSkippedBuffers)
             .put("hdrMode",media.mode.name).put("sdrAvailable",media.sdrAvailable).put("subtitleDelayMs",player.subtitleDelayMs)
             .put("audioCount",audioRows().size).put("subtitleCount",subtitleRows().size).put("sidecarCount",media.sidecars.size)

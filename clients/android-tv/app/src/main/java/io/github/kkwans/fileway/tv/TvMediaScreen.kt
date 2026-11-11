@@ -268,7 +268,12 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
             showSpeed = !audio && (interfaceState.speedAlways || controls || panel != null),
             bytesPerSecond = cache.bytesPerSecond, safePercent = interfaceState.safePercent,
         )
-        if(panel==null&&delayedBusy(state.subtitleLoading||player.subtitleLoading))Text("正在加载字幕…",Modifier.align(Alignment.CenterEnd).padding(32.dp),style=MaterialTheme.typography.bodySmall,color=Color.White)
+        if (panel == null && delayedBusy(state.subtitleLoading || player.subtitleLoading)) {
+            Text(state.subtitleLoadDetail ?: "正在加载字幕…",
+                Modifier.align(Alignment.CenterEnd).padding(32.dp)
+                    .background(PlayerFeedbackSurface.copy(alpha = .94f), TvShape).padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall, color = Color.White)
+        }
         (state.subtitleError?:player.seekError?:state.subtitleNotice?:state.notice?:player.operationError)?.let{notice->
             val inSubtitlePanel=panel==TvPlayerPage.SUBTITLE||panel==TvPlayerPage.EXTERNAL||panel==TvPlayerPage.LOCAL_SUBTITLE
             val shownInSubtitlePanel=notice==state.subtitleError||notice==state.subtitleNotice||
