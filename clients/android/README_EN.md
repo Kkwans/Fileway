@@ -50,7 +50,15 @@ bash scripts/build-native.sh
 ./gradlew :app:assembleDebug
 ```
 
-On Windows, use the corresponding Gradle Wrapper and configured native toolchain. Keep signing identities, credentials, databases and private media outside the source tree.
+On Windows, build the same API 29 embedded core from `clients/android` with PowerShell. Put the Go version required by `../shared/core/go.mod` on `PATH` and set `ANDROID_HOME` to the SDK directory:
+
+```powershell
+$env:ORG_GRADLE_PROJECT_filewayFfmpegManifest = 'C:\path\to\ffmpeg-probe.json'
+python ..\shared\android\build-native.py --ndk "$env:ANDROID_HOME\ndk\28.2.13676358" --api 29 --mode embedded --abis arm64-v8a,x86_64 --output-dir ..\shared\core\generated
+.\gradlew.bat :app:assembleDebug
+```
+
+Keep signing identities, credentials, databases and private media outside the source tree.
 
 Candidates bind to an exact source commit and retain the original signing identity. Code checks, UI acceptance and hardware/media evidence are recorded separately.
 

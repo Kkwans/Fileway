@@ -13,10 +13,12 @@ def main():
     parser.add_argument("--api", type=int, default=28)
     parser.add_argument("--mode", choices=("direct", "embedded"), default="direct")
     parser.add_argument("--abis", default="armeabi-v7a,arm64-v8a")
+    parser.add_argument("--output-dir", type=Path, help="Override the root containing the ABI subdirectories")
     args = parser.parse_args()
     if args.api < 28:
         parser.error("The supported Android baseline is API28")
     core = Path(__file__).resolve().parent.parent / "core"
+    output_root = (args.output_dir or core / "generated" / f"api{args.api}-{args.mode}").resolve()
     host = {"Windows": "windows-x86_64", "Linux": "linux-x86_64", "Darwin": "darwin-x86_64"}[platform.system()]
     compiler = args.ndk / "toolchains/llvm/prebuilt" / host / "bin" / ("clang.exe" if os.name == "nt" else "clang")
     if not compiler.is_file():
@@ -27,7 +29,7 @@ def main():
         if abi not in targets:
             parser.error("Unsupported ABI: " + abi)
         arch, target, arm = targets[abi]
-        output = core / "generated" / f"api{args.api}-{args.mode}" / abi
+        output = output_root / abi
         output.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
         env.update(CGO_ENABLED="1", GOOS="android", GOARCH=arch, GOARM=arm,

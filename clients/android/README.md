@@ -50,7 +50,15 @@ bash scripts/build-native.sh
 ./gradlew :app:assembleDebug
 ```
 
-Windows 使用对应的 Gradle Wrapper 和已配置的原生工具链。不要把签名身份、账户凭据、数据库或私有媒体放入源码目录。
+Windows 在 `clients/android` 下用 PowerShell 构建同一套 API 29 embedded 核心。`PATH` 应指向 `../shared/core/go.mod` 要求的 Go 版本，`ANDROID_HOME` 应指向已配置的 SDK：
+
+```powershell
+$env:ORG_GRADLE_PROJECT_filewayFfmpegManifest = 'C:\path\to\ffmpeg-probe.json'
+python ..\shared\android\build-native.py --ndk "$env:ANDROID_HOME\ndk\28.2.13676358" --api 29 --mode embedded --abis arm64-v8a,x86_64 --output-dir ..\shared\core\generated
+.\gradlew.bat :app:assembleDebug
+```
+
+不要把签名身份、账户凭据、数据库或私有媒体放入源码目录。
 
 正式候选由明确源码提交构建，使用原签名并附带验证记录；代码构建、界面验收和硬件媒体能力分别记录。
 
