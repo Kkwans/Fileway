@@ -40,23 +40,29 @@ public sealed partial class MainPage
         content.Children.Add(new TextBlock { Text = source.DisplayName, FontSize = 18,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
         content.Children.Add(new TextBlock { Text = source.DisplayPath, FontSize = 12, TextWrapping = TextWrapping.Wrap });
-        var algorithm = new Fileway.App.Controls.ChoiceBox { Header = "算法", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var algorithm = new Fileway.App.Controls.ChoiceBox { HorizontalAlignment = HorizontalAlignment.Stretch };
         foreach (var label in new[] { "MD5", "SHA-1", "SHA-256", "SHA-512" }) algorithm.Items.Add(label);
         algorithm.SelectedIndex = 2;
-        var expected = new TextBox { Header = "预期校验和（可选）", MaxLength = 1024, PlaceholderText = "十六进制字符；留空只计算" };
+        var expected = new TextBox { MaxLength = 1024, PlaceholderText = "十六进制字符；留空只计算", Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
         var validation = new TextBlock { Text = "预期校验和必须与算法长度一致，且只包含十六进制字符。", FontSize = 12,
             TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
-        content.Children.Add(algorithm); content.Children.Add(expected); content.Children.Add(validation);
+        content.Children.Add(Fileway.App.Controls.DialogOrdering.FieldRow("算法", algorithm));
+        content.Children.Add(Fileway.App.Controls.DialogOrdering.FieldRow("预期校验和", expected));
+        content.Children.Add(validation);
         content.Children.Add(new TextBlock { Text = "校验和用于文件一致性核对，不保证来源可信。计算需要读取远端文件；不会下载或修改文件。",
             FontSize = 12, TextWrapping = TextWrapping.Wrap });
         var activity = new Grid { ColumnSpacing = 8, Visibility = Visibility.Collapsed };
         activity.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         activity.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        activity.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var progress = new ProgressRing { Width = 20, Height = 20 };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(progress, "正在计算文件校验和");
         var activityText = new TextBlock { Text = "正在计算，大文件可能需要等待…", TextWrapping = TextWrapping.Wrap };
         Grid.SetColumn(activityText, 1); activity.Children.Add(progress); activity.Children.Add(activityText);
-        var stop = new Button { Content = "停止计算", HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
+        var stop = new Button { Content = "停止计算", Visibility = Visibility.Collapsed,
+            Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"] };
+        Grid.SetColumn(stop, 2);
+        activity.Children.Add(stop);
         var resultPanel = new StackPanel { Spacing = 8, Visibility = Visibility.Collapsed };
         var digest = new TextBlock { IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap,
             FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas") };
@@ -64,7 +70,7 @@ public sealed partial class MainPage
         var metadata = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap };
         resultPanel.Children.Add(comparison); resultPanel.Children.Add(digest); resultPanel.Children.Add(metadata);
         var error = new InfoBar { IsOpen = false, IsClosable = false, Severity = InfoBarSeverity.Warning, Title = "校验未能完成" };
-        content.Children.Add(activity); content.Children.Add(stop); content.Children.Add(resultPanel); content.Children.Add(error);
+        content.Children.Add(activity); content.Children.Add(resultPanel); content.Children.Add(error);
         var dialog = new ContentDialog
         {
             Title = "文件校验和", Content = new ScrollViewer { Content = content, MaxHeight = 400,

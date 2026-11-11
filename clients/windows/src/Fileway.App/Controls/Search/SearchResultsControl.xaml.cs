@@ -170,7 +170,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         SearchActivityRing.IsActive = searching || opening;
         SearchActivityRing.Visibility = searching || opening ? Visibility.Visible : Visibility.Collapsed;
         SearchActivityText.Text = opening ? "正在核对资源…" : searching ? "正在搜索…" : "";
-        SearchActions.Visibility = searching || opening || _lastQuery is not null ? Visibility.Visible : Visibility.Collapsed;
+        SearchActions.Visibility = searching || opening ? Visibility.Visible : Visibility.Collapsed;
         SearchNotice.IsOpen = error is not null || end is not null || _suspended && _lastQuery is not null;
         SearchNotice.Visibility = SearchNotice.IsOpen ? Visibility.Visible : Visibility.Collapsed;
         SearchNotice.Title = _suspended && error is null ? "搜索已暂停" : error is not null && _lastActionOpening ? "无法打开搜索结果"
@@ -241,7 +241,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         RetrySearchButton.Visibility = !string.IsNullOrWhiteSpace(_lastQuery) ? Visibility.Visible : Visibility.Collapsed;
         RetrySearchButton.IsEnabled = HasContext && !busy;
         CancelSearchButton.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
-        OpenSelectedButton.Visibility = _lastQuery is null ? Visibility.Collapsed : Visibility.Visible;
+        OpenSelectedButton.Visibility = SearchRecords.SelectedItem is SearchResultRow ? Visibility.Visible : Visibility.Collapsed;
         OpenSelectedButton.IsEnabled = _viewActive && !_suspended && Visibility == Visibility.Visible
             && _openResourceAsync is not null && SearchRecords.SelectedItem is SearchResultRow row && _controller.CanOpen(row.Hit);
     }

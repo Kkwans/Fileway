@@ -92,6 +92,8 @@ internal sealed class ServerSettingsContent : UserControl, IDisposable
     private readonly Button _review;
     private readonly Button _save;
     private readonly Button _edit;
+    private readonly Button _close;
+    private readonly ScrollViewer _scroll;
     private readonly Grid _layout;
     private readonly double _editorHeight;
     private readonly List<FrameworkElement> _sectionContents = [];
@@ -103,6 +105,7 @@ internal sealed class ServerSettingsContent : UserControl, IDisposable
     private bool _mustRefresh;
 
     internal bool IsSaving { get; private set; }
+    internal event EventHandler? CloseRequested;
     private bool Current => !_token.IsCancellationRequested && _isCurrent();
 
     internal ServerSettingsContent(IServerSettingsService service, AccountKey account, Func<bool> isCurrent, double height, CancellationToken lifetime)
@@ -117,6 +120,9 @@ internal sealed class ServerSettingsContent : UserControl, IDisposable
         _capabilities.Style = (Style)resources["FwCaptionTextStyle"];
         AutomationProperties.SetAutomationId(_status, "ServerSettingsStatus");
         AutomationProperties.SetLiveSetting(_status, AutomationLiveSetting.Polite);
+        _status.Visibility = Visibility.Collapsed;
+        _status.RegisterPropertyChangedCallback(TextBlock.TextProperty, (_, _) =>
+            _status.Visibility = _status.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible);
         AutomationProperties.SetAutomationId(_section, "ServerSettingsSection");
         AutomationProperties.SetName(_section, "服务器设置分组");
         foreach (var item in Sections) _section.Items.Add(new ComboBoxItem { Content = item.Title });
@@ -125,20 +131,23 @@ internal sealed class ServerSettingsContent : UserControl, IDisposable
         _review = CreateButton("检查更改…", "ReviewServerSettings", primary: true);
         _save = CreateButton("保存服务器设置", "SaveServerSettings", primary: true);
         _edit = CreateButton("继续编辑", "EditServerSettings");
+        _close = CreateButton("关闭", "CloseServerSettings");
         _reload.Click += async (_, _) => await ReloadAsync();
         _review.Click += (_, _) => Review();
         _edit.Click += (_, _) => { _pending = null; _status.Text = ""; RenderSection(); UpdateActions(); };
         _save.Click += async (_, _) => await SaveAsync();
+        _close.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
         var header = new StackPanel { Spacing = 8 };
         header.Children.Add(_capabilities);
         header.Children.Add(_section);
         header.Children.Add(_status);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, HorizontalAlignment = HorizontalAlignment.Right };
+        actions.Children.Add(_close);
         actions.Children.Add(_reload);
         actions.Children.Add(_edit);
         actions.Children.Add(_review);
         actions.Children.Add(_save);
-        var scroll = new ScrollViewer
+        _scroll = new ScrollViewer
         {
             Content = _body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
@@ -147,8 +156,8 @@ internal sealed class ServerSettingsContent : UserControl, IDisposable
         _layout.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         _layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _layout.Children.Add(header);
-        Grid.SetRow(scroll, 1);
-        _layout.Children.Add(scroll);
+        Grid.SetRow(_scroll, 1);
+        _layout.Children.Add(_scroll);
         Grid.SetRow(actions, 2);
         _layout.Children.Add(actions);
         Content = _layout;
@@ -320,7 +329,10 @@ internal sealed class ServerSettingsContent : UserControl, IDisposable
     {
         bool ready = _snapshot is not null && !_busy;
         bool reviewing = _pending is not null;
-        _layout.Height = reviewing ? Math.Min(_editorHeight, 304) : _editorHeight;
+        bool compact = reviewing || _snapshot is null;
+        _layout.Height = compact ? double.NaN : _editorHeight;
+        _layout.RowDefinitions[1].Height = compact ? GridLength.Auto : new GridLength(1, GridUnitType.Star);
+        _scroll.MaxHeight = compact ? Math.Max(96, Math.Min(_editorHeight - 120, 224)) : double.PositiveInfinity;
         _section.Visibility = reviewing ? Visibility.Collapsed : Visibility.Visible;
         _section.IsEnabled = ready && !reviewing;
         _body.IsEnabled = !_busy && !_mustRefresh;
@@ -331,6 +343,7 @@ internal sealed class ServerSettingsContent : UserControl, IDisposable
         _review.IsEnabled = ready && !_mustRefresh;
         _save.Visibility = _edit.Visibility = reviewing ? Visibility.Visible : Visibility.Collapsed;
         _save.IsEnabled = _edit.IsEnabled = ready;
+        _close.IsEnabled = !IsSaving;
     }
 
     public void Dispose()

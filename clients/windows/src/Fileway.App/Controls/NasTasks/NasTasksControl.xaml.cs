@@ -151,10 +151,6 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             Filters.Visibility = _historyMode ? Visibility.Collapsed : Visibility.Visible;
             LoadingRing.IsActive = Busy;
             RefreshLabel.Text = _historyMode ? "刷新记录" : "刷新任务";
-            DetailRefreshButton.Visibility = TaskActionSeparator.Visibility = CancelTaskButton.Visibility =
-                RetryTaskButton.Visibility = MoreCommandsButton.Visibility = ArchiveTaskButton.Visibility = UnarchiveTaskButton.Visibility =
-                    _historyMode ? Visibility.Collapsed : Visibility.Visible;
-            ReconcileButton.Visibility = _historyMode ? Visibility.Visible : Visibility.Collapsed;
             RefreshButton.IsEnabled = Active && !Busy;
             StatusFilter.IsEnabled = TypeFilter.IsEnabled = ArchivedFilter.IsEnabled = Active && !Busy;
             TasksTab.IsEnabled = Active && !Busy;
@@ -306,6 +302,15 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
         UnarchiveTaskButton.IsEnabled = available && _controller.CanAct(task!, ServerTaskActionKind.Unarchived);
         ReconcileButton.IsEnabled = Active && !Busy && _historyMode && OperationRecords.SelectedItem is NasTaskOperationRow row &&
             !NasTaskPresentationPolicy.IsResolved(row.Observation) && _controller.CanReconcile(row.Record);
+        DetailRefreshButton.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+        CancelTaskButton.Visibility = CancelTaskButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        RetryTaskButton.Visibility = RetryTaskButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        MoreCommandsButton.Visibility = available && (ArchiveTaskButton.IsEnabled || UnarchiveTaskButton.IsEnabled) ? Visibility.Visible : Visibility.Collapsed;
+        ArchiveTaskButton.Visibility = ArchiveTaskButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        UnarchiveTaskButton.Visibility = UnarchiveTaskButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        ReconcileButton.Visibility = ReconcileButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
+        TaskActionSeparator.Visibility = available && (CancelTaskButton.IsEnabled || RetryTaskButton.IsEnabled) ? Visibility.Visible : Visibility.Collapsed;
+        Commands.Visibility = available || ReconcileButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
         NewRetryButton.IsEnabled = Active && !Busy;
     }
 
@@ -516,9 +521,6 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
         if (!_ready) return;
         _narrow = e.NewSize.Width < 880;
         PanelRoot.Padding = new Thickness(e.NewSize.Width < 560 ? 12 : 20, 12, e.NewSize.Width < 560 ? 12 : 20, 12);
-        bool wrapArchive = e.NewSize.Width < 600;
-        Grid.SetRow(ArchivedFilter, wrapArchive ? 1 : 0); Grid.SetColumn(ArchivedFilter, wrapArchive ? 0 : 2);
-        Grid.SetColumnSpan(ArchivedFilter, wrapArchive ? 3 : 1);
         UpdateLayoutState();
     }
 

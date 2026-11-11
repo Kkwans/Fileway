@@ -253,9 +253,10 @@ public sealed partial class MainPage : Page, IDisposable
 
     private void ConnectionPanel_SizeChanged(object sender, SizeChangedEventArgs args)
     {
-        if (ConnectionBrand is null || ConnectionBrandColumn is null || ConnectionCardColumn is null) return;
+        if (ConnectionBrandHost is null || ConnectionBrandColumn is null || ConnectionCardColumn is null) return;
         var wide = args.NewSize.Width >= 1000;
-        ConnectionBrand.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionBrandHost.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionBrandHost.MaxHeight = Math.Max(0, args.NewSize.Height - 56);
         ConnectionBrandColumn.Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         ConnectionCardColumn.Width = new GridLength(wide ? 440 : Math.Clamp(args.NewSize.Width - 96, 300, 440));
         ConnectionFormGrid.ColumnSpacing = wide ? 64 : 0;
@@ -277,7 +278,7 @@ public sealed partial class MainPage : Page, IDisposable
         var login = AuthenticationBox.SelectedIndex == 1
             ? new LoginInput(AuthenticationMode.NoAuthentication, KeepSignedIn: KeepSignedInBox.IsChecked == true)
             : new LoginInput(AuthenticationMode.Password, UsernameBox.Text, PasswordBox.Password, KeepSignedInBox.IsChecked == true);
-        var displayName = string.IsNullOrWhiteSpace(ConnectionNameBox.Text) ? address.Host : ConnectionNameBox.Text.Trim();
+        var displayName = string.IsNullOrWhiteSpace(ConnectionNameBox.Text) ? ConnectionChoice.DefaultDisplayName(address) : ConnectionNameBox.Text.Trim();
         var network = SelectedConnectionNetwork;
         if (network == NetworkMode.EmbeddedTailnet && _tailnetStatus?.State != EmbeddedTailnetState.Running)
         {
@@ -369,6 +370,9 @@ public sealed partial class MainPage : Page, IDisposable
         UpdateNetworkPane();
         UsernameBox.IsEnabled = PasswordBox.IsEnabled = KeepSignedInBox.IsEnabled = !connecting;
         CancelConnectionButton.Visibility = connecting ? Visibility.Visible : Visibility.Collapsed;
+        RestoreSavedButton.Visibility = !connecting && SavedConnectionBox.SelectedItem is ConnectionChoice { Saved.KeepSignedIn: true }
+            ? Visibility.Visible : Visibility.Collapsed;
+        DismissConnection.Visibility = !connecting && _session is not null ? Visibility.Visible : Visibility.Collapsed;
         NavigationCommands.IsEnabled = !connecting && _session is not null;
         SortBox.IsEnabled = !connecting;
         UpdateSelection();
@@ -414,7 +418,7 @@ public sealed partial class MainPage : Page, IDisposable
         var saved = choice.Saved;
         _selectedProfile = saved.Profile;
         ConnectionModeTitle.Text = "编辑已保存连接";
-        ConnectionNameBox.Text = saved.Profile.DisplayName;
+        ConnectionNameBox.Text = choice.DisplayName;
         ServerBox.Text = saved.Profile.BaseAddress.AbsoluteUri;
         ConnectionNetworkBox.SelectedIndex = (int)saved.Profile.Network;
         AuthenticationBox.SelectedIndex = saved.AuthenticationMode == AuthenticationMode.NoAuthentication ? 1 : 0;
@@ -1110,9 +1114,17 @@ public sealed partial class MainPage : Page, IDisposable
 
 public sealed record ConnectionChoice(SavedConnection Saved)
 {
+    public string DisplayName => string.Equals(Saved.Profile.DisplayName, Saved.Profile.BaseAddress.Host, StringComparison.OrdinalIgnoreCase)
+        ? DefaultDisplayName(Saved.Profile.BaseAddress) : Saved.Profile.DisplayName;
+
     public string Label => string.IsNullOrWhiteSpace(Saved.Username)
-        ? $"{Saved.Profile.DisplayName} · 无需认证"
-        : $"{Saved.Profile.DisplayName} · {Saved.Username}";
+        ? $"{DisplayName} · 无需认证"
+        : $"{DisplayName} · {Saved.Username}";
+
+    internal static string DefaultDisplayName(Uri address) =>
+        System.Net.IPAddress.TryParse(address.IdnHost, out var ip)
+            ? System.Net.IPAddress.IsLoopback(ip) ? "本地文件空间" : "服务器文件空间"
+            : address.IdnHost;
     public override string ToString() => "ConnectionChoice (profile redacted)";
 }
 

@@ -24,6 +24,11 @@ public sealed class FwBlurBrush : XamlCompositionBrushBase
     protected override void OnConnected()
     {
         if (_effectBrush is not null) return;
+        var settings = new Windows.UI.ViewManagement.UISettings();
+        bool highContrast = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+        FallbackColor = highContrast ? settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background)
+            : Windows.UI.Color.FromArgb(255, Tint.R, Tint.G, Tint.B);
+        if (highContrast || !settings.AdvancedEffectsEnabled) return;
         var compositor = CompositionTarget.GetCompositorForCurrentThread();
         var graph = new ArithmeticCompositeEffect
         {

@@ -54,6 +54,7 @@ public sealed partial class CacheGalleryContent : UserControl, IDisposable
         Progress.IsIndeterminate = true;
         StatusText.Text = "正在读取本机缓存…";
         Tiles.Children.Clear();
+        Tiles.Visibility = Visibility.Collapsed;
         try
         {
             if (refresh || _gallery is null)
@@ -86,6 +87,7 @@ public sealed partial class CacheGalleryContent : UserControl, IDisposable
                     : $"{gallery.Images.Count} 张缩略图 · 第 {_page + 1} / {pages} 页";
             if (missing > 0) _summary += $"。本页 {missing} 张已清理或无法读取，请刷新。";
             StatusText.Text = _summary;
+            Tiles.Visibility = index > 0 ? Visibility.Visible : Visibility.Collapsed;
             Pager.Visibility = pages > 1 ? Visibility.Visible : Visibility.Collapsed;
             PreviousButton.IsEnabled = _page > 0;
             NextButton.IsEnabled = _page + 1 < pages;

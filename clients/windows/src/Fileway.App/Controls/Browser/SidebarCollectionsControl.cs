@@ -57,7 +57,7 @@ public sealed class SidebarCollectionsControl : UserControl
             _favorites.Children.Add(Empty("分组不可用"));
             foreach (var favorite in missing) _favorites.Children.Add(FavoriteButton(favorite));
         }
-        if (snapshot.Favorites.Count == 0 && snapshot.FavoriteGroups.Count == 0) _favorites.Children.Add(Empty("尚无收藏。选中文件即可添加。"));
+        if (snapshot.Favorites.Count == 0 && snapshot.FavoriteGroups.Count == 0) _favorites.Children.Add(Empty("选中文件后即可收藏。"));
         foreach (var tag in snapshot.Tags)
         {
             var content = new Grid { ColumnSpacing = 8 };
@@ -74,7 +74,7 @@ public sealed class SidebarCollectionsControl : UserControl
             button.Click += (_, _) => { if (generation == _generation && _account == tag.Account) TagRequested?.Invoke(this, tag); };
             _tags.Children.Add(button);
         }
-        if (snapshot.Tags.Count == 0) _tags.Children.Add(Empty("尚无标签。\n选中资源后可直接标记。"));
+        if (snapshot.Tags.Count == 0) _tags.Children.Add(Empty("选中文件后可添加标签。"));
     }
 
     private static Expander FavoriteGroup(string name, int count, UIElement content, bool expanded)

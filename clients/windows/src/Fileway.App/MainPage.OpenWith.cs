@@ -77,33 +77,23 @@ public sealed partial class MainPage
     private async void OpenWithSettings_Click(object sender, RoutedEventArgs args)
     {
         var preferences = OpenWith;
-        var panel = new StackPanel { Spacing = 12, MinWidth = 520, MaxWidth = 560 };
+        var panel = new StackPanel { Spacing = 8, MinWidth = 344, MaxWidth = 440 };
         panel.Children.Add(new TextBlock
         {
             Text = "系统默认应用会先下载到默认目录，再交给 Windows 打开。",
-            TextWrapping = TextWrapping.Wrap, FontSize = 12, Opacity = 0.75,
+            TextWrapping = TextWrapping.Wrap, Style = (Style)Application.Current.Resources["FwCaptionTextStyle"],
         });
-        var columns = new Grid { ColumnSpacing = 24, RowSpacing = 0 };
-        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var left = new StackPanel { Spacing = 8 };
-        var right = new StackPanel { Spacing = 8 };
-        columns.Children.Add(left); columns.Children.Add(right);
-        Grid.SetColumn(right, 1);
-        panel.Children.Add(columns);
         var choices = new List<(OpenWithCategory Category, ChoiceBox Box)>();
-        var index = 0;
         foreach (var category in Enum.GetValues<OpenWithCategory>())
         {
             var box = new ChoiceBox
             {
-                Header = OpenWithPreferences.Label(category),
                 SelectedIndex = preferences.For(category) == OpenPreference.BuiltIn ? 0 : 1,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
             };
             box.Items.Add("内置查看器");
             box.Items.Add("系统默认应用");
-            (index++ < 4 ? left : right).Children.Add(box);
+            panel.Children.Add(DialogOrdering.FieldRow(OpenWithPreferences.Label(category), box, 104));
             choices.Add((category, box));
         }
         var dialog = new ContentDialog
@@ -111,7 +101,8 @@ public sealed partial class MainPage
             XamlRoot = XamlRoot,
             RequestedTheme = ActualTheme,
             Title = "打开方式",
-            Content = new ScrollViewer { Content = panel, MaxHeight = DialogOrdering.ContentMaxHeight(this, 520), VerticalScrollBarVisibility = ScrollBarVisibility.Auto },
+            Content = new ScrollViewer { Content = panel, MaxHeight = DialogOrdering.ContentMaxHeight(this, 520),
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled },
             PrimaryButtonText = "保存",
             CloseButtonText = "取消",
             DefaultButton = ContentDialogButton.Primary,

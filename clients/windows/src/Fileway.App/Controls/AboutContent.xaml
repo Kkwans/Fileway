@@ -19,36 +19,40 @@
                 BorderThickness="1" CornerRadius="10" Padding="14,10">
             <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel Spacing="3">
-                    <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="版本" />
-                    <TextBlock x:Name="VersionText" FontSize="15" FontWeight="SemiBold" />
+                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="版本" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="VersionText" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
-                <TextBlock Grid.Column="1" Text="本地未签名预览" FontSize="12" VerticalAlignment="Center"
-                           Foreground="{ThemeResource FwTextSecondaryBrush}" />
+                <TextBlock Grid.Column="1" Text="本地未签名预览" Style="{StaticResource FwCaptionTextStyle}" VerticalAlignment="Center"/>
             </Grid>
         </Border>
         <Border Style="{StaticResource FwFormCardStyle}">
             <StackPanel Spacing="8">
-                <TextBlock Text="应用更新" FontWeight="SemiBold"/>
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="应用更新" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                        <HyperlinkButton x:Name="ReleaseLink" Content="查看发布" Visibility="Collapsed"
+                                         AutomationProperties.AutomationId="OpenWindowsRelease"/>
+                        <Button x:Name="CheckButton" Content="检查更新" Click="CheckUpdate_Click"
+                                Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="CheckAppUpdate"/>
+                    </StackPanel>
+                </Grid>
                 <TextBlock Text="版本来源：栖卷在 GitHub 上的公开 Windows x64 发布。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
                 <TextBlock x:Name="UpdateStatus" Text="可手动检查可用版本。" TextWrapping="Wrap"
                            AutomationProperties.AutomationId="AppUpdateStatus" AutomationProperties.LiveSetting="Polite"/>
                 <ProgressBar x:Name="UpdateProgress" IsIndeterminate="False" Visibility="Collapsed"/>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
-                    <HyperlinkButton x:Name="ReleaseLink" Content="查看发布" Visibility="Collapsed"
-                                     AutomationProperties.AutomationId="OpenWindowsRelease"/>
-                    <Button x:Name="CheckButton" Content="检查更新" Click="CheckUpdate_Click"
-                            Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="CheckAppUpdate"/>
-                </StackPanel>
             </StackPanel>
         </Border>
-        <StackPanel Orientation="Horizontal" Spacing="8">
-            <Button Content="项目主页与源代码" Click="OpenSource_Click" Style="{StaticResource FwSecondaryButtonStyle}"
-                    Height="32" Padding="12,0" FontSize="13" />
-            <Button Content="许可证" Click="OpenLicense_Click" Style="{StaticResource FwSecondaryButtonStyle}"
-                    Height="32" Padding="12,0" FontSize="13" />
-        </StackPanel>
         <TextBlock Text="文件浏览、预览与传输均在本机完成；登录凭据保存在当前 Windows 用户下。"
-                   FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource FwTextSecondaryBrush}" />
+                   Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="项目主页" Click="OpenSource_Click" Style="{StaticResource FwSecondaryButtonStyle}"/>
+                <Button Content="许可证" Click="OpenLicense_Click" Style="{StaticResource FwSecondaryButtonStyle}"/>
+            </StackPanel>
+            <Button Grid.Column="1" Content="关闭" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}"/>
+        </Grid>
     </StackPanel>
 </UserControl>

@@ -77,8 +77,12 @@ public sealed partial class RecentAccessControl : UserControl, IDisposable
         UpdateCommands();
     }
 
-    private void UpdateCommands() => OpenSelectedButton.IsEnabled = !_disposed && OpenResourceAsync is not null
-        && RecentRecords.SelectedItem is RecentAccessRow row && _controller.CanOpen(row.Entry);
+    private void UpdateCommands()
+    {
+        OpenSelectedButton.Visibility = RecentRecords.SelectedItem is RecentAccessRow ? Visibility.Visible : Visibility.Collapsed;
+        OpenSelectedButton.IsEnabled = !_disposed && OpenResourceAsync is not null
+            && RecentRecords.SelectedItem is RecentAccessRow row && _controller.CanOpen(row.Entry);
+    }
 
     private async Task OpenSelectedAsync()
     {

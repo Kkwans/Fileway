@@ -7,7 +7,11 @@
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <ui:FwPageHeader x:Name="SearchHeader" Title="搜索文件" Subtitle="按名称搜索当前目录及子目录">
    <ui:FwPageHeader.Actions>
-    <Button Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开搜索，返回文件"/>
+    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+     <Button x:Name="OpenSelectedButton" Content="打开" IsEnabled="False" Click="Open_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="核对并打开选中结果 (Enter)" AutomationProperties.Name="打开选中的搜索结果"/>
+     <Button x:Name="RetrySearchButton" Content="重新搜索" Visibility="Collapsed" Click="Retry_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="重新执行上次确认的搜索条件和范围 (F5)" AutomationProperties.Name="重新执行上次搜索"/>
+     <Button Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开搜索，返回文件"/>
+    </StackPanel>
    </ui:FwPageHeader.Actions>
   </ui:FwPageHeader>
   <StackPanel Grid.Row="1" Spacing="8">
@@ -18,7 +22,7 @@
    </Grid>
    <Grid x:Name="SearchActions" Visibility="Collapsed" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><ProgressRing x:Name="SearchActivityRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" AutomationProperties.Name="搜索活动"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="SearchActivityText" VerticalAlignment="Center"/></StackPanel>
-    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"><Button x:Name="OpenSelectedButton" Content="打开" IsEnabled="False" Click="Open_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="核对并打开选中结果 (Enter)" AutomationProperties.Name="打开选中的搜索结果"/><Button x:Name="CancelSearchButton" Content="取消" Visibility="Collapsed" Click="Cancel_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="取消搜索或资源核对，保留已收到的结果"/><Button x:Name="RetrySearchButton" Content="重新搜索" Visibility="Collapsed" Click="Retry_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="重新执行上次确认的搜索条件和范围 (F5)" AutomationProperties.Name="重新执行上次搜索"/></StackPanel>
+    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"><Button x:Name="CancelSearchButton" Content="取消" Visibility="Collapsed" Click="Cancel_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="取消搜索或资源核对，保留已收到的结果"/></StackPanel>
    </Grid>
    <InfoBar x:Name="SearchNotice" Visibility="Collapsed" IsOpen="False" IsClosable="False" Severity="Informational"/>
   </StackPanel>

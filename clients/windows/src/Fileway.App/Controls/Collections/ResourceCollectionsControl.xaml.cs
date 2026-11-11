@@ -236,10 +236,16 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         ContextEdit.IsEnabled = ContextRemove.IsEnabled = EditButton.IsEnabled;
         EditGroupButton.IsEnabled = RemoveGroupButton.IsEnabled = CanWrite && !TagMode && SelectedGroup is not null;
         GroupMoreButton.IsEnabled = EditGroupButton.IsEnabled;
+        GroupMoreButton.Visibility = !TagMode && SelectedGroup is not null ? Visibility.Visible : Visibility.Collapsed;
         OpenButton.IsEnabled = !_busy && Selected?.Reference?.Resource is not null && connected;
         ContextOpen.IsEnabled = OpenButton.IsEnabled;
         OpenTagResourceButton.IsEnabled = !_busy && (TagResources.SelectedItem as CollectionRow)?.Reference?.Resource is not null && connected;
         UnlinkButton.IsEnabled = CanWrite && (TagResources.SelectedItem as CollectionRow)?.Reference?.Resource is not null;
+        AddFavoriteButton.Visibility = ResourceTagsButton.Visibility = _currentResource is null ? Visibility.Collapsed : Visibility.Visible;
+        SelectionCommands.Visibility = Selected is null ? Visibility.Collapsed : Visibility.Visible;
+        OpenTagResourceButton.Visibility = UnlinkButton.Visibility =
+            TagMode && TagResourcesArea.Visibility == Visibility.Visible && TagResources.SelectedItem is CollectionRow
+                ? Visibility.Visible : Visibility.Collapsed;
         ModeBox.IsEnabled = GroupBox.IsEnabled = !_busy;
         _reconcileButton.Visibility = _unknownWrite ? Visibility.Visible : Visibility.Collapsed;
         _reconcileButton.IsEnabled = !_busy && _session is { } owner && AccountState(owner.Account).UnknownOperations.Count > 0 && (_files is IOperationHistoryService || _service is IOperationHistoryService);

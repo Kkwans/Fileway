@@ -20,7 +20,7 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
     private bool _contextAssigned;
     private ContentDialog? _activeDialog;
     private long _adminReadRevision;
-    private readonly TextBox _scopeBox = new() { Header = "分析范围（服务器路径）", IsReadOnly = true };
+    private readonly TextBox _scopeBox = new() { IsReadOnly = true };
     private readonly Button _start = new() { Content = "开始分析" };
     private readonly InfoBar _notice = new() { IsOpen = false, IsClosable = true, Severity = InfoBarSeverity.Informational };
     private readonly ProgressRing _progress = new() { IsActive = false, Visibility = Visibility.Collapsed };
@@ -31,7 +31,7 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
     private string? _duplicateReportId;
     private ServerTaskRef? _duplicateTask;
     private readonly StackPanel _duplicatesRoot = new() { Spacing = 12 };
-    private readonly TextBox _duplicateScopeBox = new() { Header = "扫描范围（服务器路径）", IsReadOnly = true };
+    private readonly TextBox _duplicateScopeBox = new() { IsReadOnly = true };
     private readonly Button _duplicateStart = new() { Content = "开始扫描" };
     private readonly ScrollViewer _duplicateScroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 560 };
     private readonly StackPanel _duplicateResults = new() { Spacing = 10 };
@@ -77,26 +77,22 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
         _start.Style = (Style)resources["FwPrimaryButtonStyle"];
         _duplicateStart.Style = (Style)resources["FwPrimaryButtonStyle"];
         _scopeBox.Style = (Style)resources["FwTextBoxStyle"];
-        _scopeBox.MinWidth = 480;
-        _scopeBox.MaxWidth = 720;
         _scopeBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         _duplicateScopeBox.Style = (Style)resources["FwTextBoxStyle"];
-        _duplicateScopeBox.MinWidth = 480;
-        _duplicateScopeBox.MaxWidth = 720;
         _duplicateScopeBox.HorizontalAlignment = HorizontalAlignment.Stretch;
         var analysisRoot = new StackPanel { Spacing = 12 };
         _start.Click += async (_, _) => await StartAsync();
-        analysisRoot.Children.Add(FormCard(
-            "由服务器统计范围内的文件数、目录数与总大小，并列出最大的文件与目录；分析在服务器后台执行，客户端只呈现服务器给出的数字。",
-            _scopeBox, _start));
+        analysisRoot.Children.Add(ScanCard(
+            "在服务器后台统计文件、文件夹和大小，并列出占用最多的项目。",
+            "分析范围", _scopeBox, _start));
         analysisRoot.Children.Add(_notice);
         analysisRoot.Children.Add(_progress);
         analysisRoot.Children.Add(_results);
 
         _duplicateStart.Click += async (_, _) => await StartDuplicateScanAsync();
-        _duplicatesRoot.Children.Add(FormCard(
-            "服务器按内容找出重复文件并给出保留建议；勾选每组要保留的副本后提交，其余副本移入回收站（可恢复）。绝不直接删除，也不会改动组外文件。",
-            _duplicateScopeBox, _duplicateStart));
+        _duplicatesRoot.Children.Add(ScanCard(
+            "按内容查找重复文件。确认保留的副本后，其余副本移入回收站，可恢复。",
+            "扫描范围", _duplicateScopeBox, _duplicateStart));
         _duplicatesRoot.Children.Add(_duplicateNotice);
         _duplicateScroll.Content = _duplicateResults;
         _duplicatesRoot.Children.Add(_duplicateScroll);
@@ -341,7 +337,7 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
     private static Border FormCard(string description, params UIElement[] fields)
     {
         var resources = Application.Current.Resources;
-        var content = new StackPanel { Spacing = 12 };
+        var content = new StackPanel { Spacing = 8 };
         var text = new TextBlock { Text = description, FontSize = 13, TextWrapping = TextWrapping.Wrap };
         text.Style = (Style)resources["FwCaptionTextStyle"];
         text.FontSize = 13;
@@ -349,13 +345,22 @@ public sealed partial class StorageAnalysisControl : UserControl, IDisposable
         foreach (var field in fields) content.Children.Add(field);
         var card = new Border
         {
-            Margin = new Thickness(0, 12, 0, 0),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            MaxWidth = 720,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
             Child = content
         };
         card.Style = (Style)resources["FwFormCardStyle"];
         return card;
+    }
+
+    private static Border ScanCard(string description, string label, TextBox path, Button action)
+    {
+        var row = DialogOrdering.FieldRow(label, path, 76);
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        action.HorizontalAlignment = HorizontalAlignment.Right;
+        action.VerticalAlignment = VerticalAlignment.Center;
+        Grid.SetColumn(action, 2);
+        row.Children.Add(action);
+        return FormCard(description, row);
     }
 
     private void BuildAdminRoot()

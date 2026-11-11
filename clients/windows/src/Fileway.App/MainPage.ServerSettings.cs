@@ -34,9 +34,9 @@ public sealed partial class MainPage
         var dialog = new ContentDialog
         {
             Title = "服务器全局设置",
-            CloseButtonText = "关闭",
             Content = content,
         };
+        content.CloseRequested += (_, _) => dialog.Hide();
         dialog.Closing += (_, args) => { if (content.IsSaving && IsCurrent()) args.Cancel = true; };
         _serverSettingsDialog = dialog;
         _serverSettingsCurrent = IsCurrent;

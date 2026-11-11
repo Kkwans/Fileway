@@ -143,10 +143,12 @@ public sealed partial class MainPage
     }
     private async Task<string?> AskNameAsync(string title, string initial = "", string primaryText = "确定")
     {
-        var name = new TextBox { Header = "名称", Text = initial, MinWidth = 320, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
+        var name = new TextBox { Text = initial, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
         var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
         var hint = new TextBlock { Text = "不能包含 /、\\、控制字符，或仅使用 .、..。同名项目会报告冲突。", TextWrapping = TextWrapping.Wrap, MaxWidth = 420, Style = caption };
-        var content = new StackPanel { Spacing = 12 }; content.Children.Add(name); content.Children.Add(hint);
+        var content = new StackPanel { Spacing = 10, MinWidth = 320 };
+        content.Children.Add(Fileway.App.Controls.DialogOrdering.FieldRow("名称", name, 64));
+        content.Children.Add(hint);
         var dialog = new ContentDialog { Title = title, Content = content, PrimaryButtonText = primaryText, CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = ValidNewName(initial) };
         name.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = ValidNewName(name.Text);
         dialog.Opened += (_, _) => { name.Focus(FocusState.Keyboard); name.SelectAll(); };
@@ -181,9 +183,12 @@ public sealed partial class MainPage
     {
         if (FileManagement is not { } management || rows.Length > 500) { SetNotice("无法批量重命名", "一次最多选择 500 个同目录项目。", InfoBarSeverity.Warning); return; }
         var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
-        var fields = rows.Select(row => new TextBox { Header = row.Name, Text = row.Name, MinWidth = 360, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] }).ToArray();
+        var fields = rows.Select(row => new TextBox { Text = row.Name, MaxLength = 255, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] }).ToArray();
         var hint = new TextBlock { Text = "可直接修改原名称；命名规则与单个重命名一致，提交前会先预览冲突。", Style = caption, TextWrapping = TextWrapping.Wrap };
-        var names = new StackPanel { Spacing = 12 }; names.Children.Add(hint); foreach (var field in fields) names.Children.Add(field);
+        var names = new StackPanel { Spacing = 8, MinWidth = 380, MaxWidth = 480 };
+        names.Children.Add(hint);
+        for (int index = 0; index < fields.Length; index++)
+            names.Children.Add(Fileway.App.Controls.DialogOrdering.FieldRow(rows[index].Name, fields[index], 132));
         var edit = new ContentDialog { Title = $"批量重命名 {rows.Length} 个项目", Content = new ScrollViewer { Content = names, MaxHeight = Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 360), VerticalScrollBarVisibility = ScrollBarVisibility.Auto }, PrimaryButtonText = "预览", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         foreach (var field in fields) field.TextChanged += (_, _) => edit.IsPrimaryButtonEnabled = fields.All(f => ValidNewName(f.Text));
         if (await ShowBrowserDialogAsync(edit) != ContentDialogResult.Primary || !SameBrowser(session, directory, generation) || !CanWrite(p => p.Rename)) return;

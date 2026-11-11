@@ -7,6 +7,7 @@ namespace Fileway.App.Controls;
 
 public sealed partial class AboutContent : UserControl, IDisposable
 {
+    internal event EventHandler? CloseRequested;
     private readonly IAppUpdateService _updates;
     private readonly Version? _installed;
     private readonly CancellationTokenSource _cancellation;
@@ -79,4 +80,6 @@ public sealed partial class AboutContent : UserControl, IDisposable
 
     private async void OpenLicense_Click(object sender, RoutedEventArgs e) =>
         await Launcher.LaunchUriAsync(new Uri("https://github.com/Kkwans/Fileway/blob/codex/windows-native-client/clients/windows/LICENSE"));
+
+    private void Close_Click(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
 }

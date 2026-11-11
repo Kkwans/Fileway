@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 
@@ -21,6 +22,25 @@ public static class DialogOrdering
     {
         var height = anchor.ActualHeight > 0 ? anchor.ActualHeight : anchor.XamlRoot?.Size.Height ?? 0;
         return height <= 0 ? preferred : Math.Clamp(height - reserved, minimum, preferred);
+    }
+
+    internal static Grid FieldRow(string label, Control input, double labelWidth = 112)
+    {
+        var row = new Grid { ColumnSpacing = 8 };
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(labelWidth) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var caption = new TextBlock
+        {
+            Text = label, Style = SurfaceGeometry.Style("FwCaptionTextStyle"),
+            VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        ToolTipService.SetToolTip(caption, label);
+        if (string.IsNullOrEmpty(AutomationProperties.GetName(input))) AutomationProperties.SetName(input, label);
+        input.HorizontalAlignment = HorizontalAlignment.Stretch;
+        row.Children.Add(caption);
+        Grid.SetColumn(input, 1);
+        row.Children.Add(input);
+        return row;
     }
 
     private static void OnEnableChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)
