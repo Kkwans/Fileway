@@ -601,8 +601,8 @@ public sealed partial class MainPage : Page, IDisposable
         if (LoadingRing.IsActive) return;
         EmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         var filtering = filter.Length > 0 || _typeFilters.Count > 0;
-        EmptyTitle.Text = _session is null ? "你的文件，在这里相遇" : _loadStateTitle ?? (filtering ? "没有匹配的文件" : "这个目录还没有文件");
-        EmptyDescription.Text = _session is null ? "连接服务器后即可浏览文件、打开图片和播放视频。" : _loadStateDescription ?? (filtering ? "可清除名称或类型筛选；筛选仅覆盖当前目录。" : "可以刷新目录，查看服务器上的最新内容。");
+        EmptyState.Title = _session is null ? "你的文件，在这里相遇" : _loadStateTitle ?? (filtering ? "没有匹配的文件" : "这个目录还没有文件");
+        EmptyState.Description = _session is null ? "连接服务器后即可浏览文件、打开图片和播放视频。" : _loadStateDescription ?? (filtering ? "可清除名称或类型筛选；筛选仅覆盖当前目录。" : "可以刷新目录，查看服务器上的最新内容。");
         RetryLoadButton.Visibility = _session is not null && _loadStateTitle is not null ? Visibility.Visible : Visibility.Collapsed;
     }
     private void SetLanguage(AppLanguage language)

@@ -91,7 +91,7 @@ public sealed partial class TrashControl : UserControl, IDisposable
             Notice.Severity = error is null ? InfoBarSeverity.Informational : InfoBarSeverity.Warning;
             EmptyHost.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             HeaderRow.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-            Empty.Text = _controller.IsLoading ? "正在读取回收站…" : _session is null ? "连接后查看回收站" : "暂无回收站项目";
+            EmptyHost.Title = _controller.IsLoading ? "正在读取回收站…" : _session is null ? "连接后查看回收站" : "暂无回收站项目";
             BusyRing.IsActive = Busy;
             RefreshButton.IsEnabled = _session is not null && !Busy;
             RestoreButton.IsEnabled = !Busy && Records.SelectedItem is TrashRow selectedRow && _controller.CanRestore(selectedRow.Item, Conflict);
@@ -269,6 +269,8 @@ public sealed class TrashRow(TrashItem item)
     public string Name => Path.TrimEnd('/').Split('/').LastOrDefault() ?? Path;
     public string IconName => Item.IsDirectory ? "folder" : "file";
     public string Size => Item.Size is { } value ? DownloadPresentationPolicy.FormatBytes(value) : "—";
+    public string RowDetail => Path + " · " + Status;
+    public string RowSummary => Size + " · " + Deleted;
     public string Deleted => Item.DeletedAt?.ToLocalTime().ToString("yyyy/M/d HH:mm", System.Globalization.CultureInfo.CurrentCulture) ?? "—";
     public string Status => Item.Status switch { "available" => "可恢复", "failed" => "上次操作未完成", "restoring" => "正在恢复", _ => "暂不可恢复" };
     public string Summary => (Item.IsDirectory ? "文件夹" : "文件") + " · " + (Item.Size is { } size ? DownloadPresentationPolicy.FormatBytes(size) : "大小待确认") + " · " + (Item.Status switch { "available" => "可恢复", "failed" => "上次操作失败", "restoring" => "正在恢复", _ => "当前状态不可恢复" });

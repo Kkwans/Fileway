@@ -5,10 +5,11 @@
  xmlns:search="using:Fileway.App.Controls.Search">
  <Grid Padding="20,12,20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged" KeyDown="Panel_KeyDown">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <StackPanel Spacing="4"><TextBlock Text="搜索文件" FontSize="22" FontWeight="SemiBold"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="按名称搜索当前目录及子目录" TextWrapping="Wrap"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="ConfirmedQueryText" Visibility="Collapsed" TextTrimming="CharacterEllipsis"/></StackPanel>
-   <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开搜索，返回文件"/>
-  </Grid>
+  <ui:FwPageHeader x:Name="SearchHeader" Title="搜索文件" Subtitle="按名称搜索当前目录及子目录">
+   <ui:FwPageHeader.Actions>
+    <Button Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开搜索，返回文件"/>
+   </ui:FwPageHeader.Actions>
+  </ui:FwPageHeader>
   <StackPanel Grid.Row="1" Spacing="8">
    <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
     <TextBox x:Name="QueryBox" MinWidth="120" Height="36" MaxLength="8192" PlaceholderText="输入文件名或搜索条件" TextChanged="Query_Changed" KeyDown="Query_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="服务器搜索条件，按 Enter 开始搜索"/>
@@ -29,14 +30,10 @@
     <TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="1" Text="大小/类型 · 修改时间" HorizontalAlignment="Right"/>
    </Grid>
    <ListView x:Name="SearchRecords" Grid.Row="1" SelectionMode="Single" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" PreviewKeyDown="Records_PreviewKeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="服务器搜索结果，选中后按 Enter 打开">
-    <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}"><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="64"/><Setter Property="Margin" Value="0,0,0,6"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListView.ItemContainerStyle>
-    <ListView.ItemTemplate><DataTemplate x:DataType="search:SearchResultRow"><Grid Padding="10,8" ColumnSpacing="12" AutomationProperties.Name="{x:Bind AccessibleName}"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-     <ui:LucideIcon IconName="{x:Bind IconName}" Width="22" Height="22" VerticalAlignment="Top" Margin="0,1,0,0" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
-     <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind DisplayPath}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind DisplayPath}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind IdentityHint}" Visibility="{x:Bind IdentityVisibility}" TextWrapping="Wrap"/></StackPanel>
-     <TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="2" Text="{x:Bind Summary}" TextAlignment="Right" VerticalAlignment="Top" Margin="12,2,0,0" Typography.NumeralAlignment="Tabular" ToolTipService.ToolTip="{x:Bind Summary}"/>
-    </Grid></DataTemplate></ListView.ItemTemplate>
+    <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource FwListRecordItemStyle}"><Setter Property="MinHeight" Value="64"/></Style></ListView.ItemContainerStyle>
+    <ListView.ItemTemplate><DataTemplate x:DataType="search:SearchResultRow"><ui:FwResourceRow IconName="{x:Bind IconName}" Title="{x:Bind Name}" Detail="{x:Bind DisplayPath}" Hint="{x:Bind IdentityHint}" Summary="{x:Bind Summary}" AutomationProperties.Name="{x:Bind AccessibleName}"/></DataTemplate></ListView.ItemTemplate>
    </ListView>
-   <StackPanel x:Name="SearchEmptyState" Grid.RowSpan="2" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Spacing="14" Margin="12"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="magnifying-glass" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="SearchEmptyTitle" Text="搜索服务器文件" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" Foreground="{ThemeResource FwTextPrimaryBrush}"/><TextBlock x:Name="SearchEmptyText" Text="输入条件并选择范围，然后开始搜索。" FontSize="13" LineHeight="20" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></StackPanel>
+   <ui:FwEmptyState x:Name="SearchEmptyState" Grid.RowSpan="2" IconName="magnifying-glass" Title="搜索服务器文件" Description="输入条件并选择范围，然后开始搜索。"/>
   </Grid>
   <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="SearchCount" Grid.Row="3" TextWrapping="Wrap"/>
  </Grid>

@@ -43,7 +43,7 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
         HintText.Text = direction == TransferDirection.Upload
             ? "上传进度显示服务器已确认的字节。打开记录不会开始上传；恢复与核实需要在详情中明确操作。"
             : "下载";
-        EmptyIcon.IconName = direction == TransferDirection.Upload ? "upload-simple" : "download-simple";
+        EmptyState.IconName = direction == TransferDirection.Upload ? "upload-simple" : "download-simple";
     }
 
     public void SetAvailability(bool uploads, bool downloads)
@@ -56,6 +56,7 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
         if (!ReferenceEquals(_rows, rows)) { _rows = rows; Records.ItemsSource = rows; }
         var count = rows.Count(row => !row.IsBatchHeader);
         HistoryLoadingRing.IsActive = loading;
+        HistoryLoadingRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
         RefreshButton.IsEnabled = !loading;
         MoreButton.IsEnabled = !loading;
         MoreButton.Visibility = hasLoaded && (canLoadMore || loading) ? Visibility.Visible : Visibility.Collapsed;
@@ -70,9 +71,9 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
         var emptyHint = _direction == TransferDirection.Upload
             ? "从文件列表上传文件后，可在这里查看服务器确认进度。"
             : "从文件列表下载文件后，可在这里查看接收进度与保存位置。";
-        EmptyTitle.Text = loading ? "正在读取记录" : error is not null ? "记录暂不可用" : !hasLoaded ? "等待加载记录"
+        EmptyState.Title = loading ? "正在读取记录" : error is not null ? "记录暂不可用" : !hasLoaded ? "等待加载记录"
             : canLoadMore ? "已加载范围内暂无记录" : emptyTitle;
-        EmptyText.Text = loading ? "已有任务会继续执行，请稍候。" : error is not null ? "可以重试读取记录，现有任务不会重新提交。"
+        EmptyState.Description = loading ? "已有任务会继续执行，请稍候。" : error is not null ? "可以重试读取记录，现有任务不会重新提交。"
             : canLoadMore && hasLoaded ? "还有未读取的记录，请选择“加载更多”。" : emptyHint;
         LoadedText.Text = count == 0 ? "仅显示当前账号记录" : $"已显示 {count} 条记录" + (canLoadMore ? " · 还有更多记录" : "");
     }

@@ -203,10 +203,10 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
 
         SearchHeaders.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         SearchEmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        SearchEmptyTitle.Text = !HasContext ? "连接服务器后搜索" : searching ? "正在搜索服务器"
+        SearchEmptyState.Title = !HasContext ? "连接服务器后搜索" : searching ? "正在搜索服务器"
             : error is not null ? "搜索需要处理" : end?.Reason == SearchEndReason.Completed ? "没有找到匹配项"
             : end?.Reason == SearchEndReason.SessionChanged ? "连接已变更" : "搜索服务器文件";
-        SearchEmptyText.Text = !HasContext ? "连接服务器后，输入条件并选择搜索范围。"
+        SearchEmptyState.Description = !HasContext ? "连接服务器后，输入条件并选择搜索范围。"
             : searching ? "结果会逐步显示，你可以随时取消。"
             : end?.Reason == SearchEndReason.Completed ? "可调整搜索条件，或选择含子目录后重试。"
             : error is not null ? "检查连接或调整搜索条件后重试。" : "输入条件并选择范围，然后开始搜索。";
@@ -311,10 +311,10 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
     private void Query_Changed(object sender, TextChangedEventArgs args) { UpdateConfirmedQuery(); UpdateCommands(); }
     private void UpdateConfirmedQuery()
     {
+        if (SearchHeader is null || QueryBox is null) return;
         var show = _lastQuery is not null && !string.Equals(_lastQuery, QueryBox.Text, StringComparison.Ordinal);
-        ConfirmedQueryText.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        ConfirmedQueryText.Text = show ? "搜索条件：" + _lastQuery : "";
-        ToolTipService.SetToolTip(ConfirmedQueryText, show ? _lastQuery : null);
+        SearchHeader.Subtitle = show ? "当前结果：" + _lastQuery : "按名称搜索当前目录及子目录";
+        ToolTipService.SetToolTip(SearchHeader, show ? _lastQuery : null);
     }
     private void Scope_Changed(object sender, SelectionChangedEventArgs args) => UpdateCommands();
     private void Record_Changed(object sender, SelectionChangedEventArgs args) { if (!_rendering) UpdateCommands(); }

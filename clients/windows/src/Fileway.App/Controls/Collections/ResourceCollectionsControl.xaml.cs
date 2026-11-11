@@ -91,8 +91,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         var nextResource = currentResource?.Account == session?.Account ? currentResource : null;
         if (_currentResource != nextResource) { ++_resourceGeneration; ++_openGeneration; }
         _currentResource = nextResource;
-        if (_browseTagId is null) CurrentResourceText.Text = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
-        EmptyTitle.Text = session is null ? "尚未连接" : "暂无记录"; EmptyText.Text = session is null ? "连接服务器后可在这里管理收藏与标签。" : "添加收藏或标签后会显示在这里。";
+        if (_browseTagId is null) CollectionsHeader.Subtitle = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
+        EmptyHost.Title = session is null ? "尚未连接" : "暂无记录"; EmptyHost.Description = session is null ? "连接服务器后可在这里管理收藏与标签。" : "添加收藏或标签后会显示在这里。";
         UpdateCommands();
     }
 
@@ -176,7 +176,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             TagResourcesArea.Visibility = showTagArea ? Visibility.Visible : Visibility.Collapsed;
             TagResourcesRow.Height = new GridLength(showTagArea ? 1 : 0, showTagArea ? GridUnitType.Star : GridUnitType.Pixel);
             EmptyHost.Visibility = _records.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyTitle.Text = TagMode ? "暂无标签" : "此分组暂无收藏"; EmptyText.Text = TagMode ? "新建标签后，可绑定选中资源。" : "可从文件列表选择资源后添加。";
+            EmptyHost.Title = TagMode ? "暂无标签" : "此分组暂无收藏"; EmptyHost.Description = TagMode ? "新建标签后，可绑定选中资源。" : "可从文件列表选择资源后添加。";
             RenderTagResources();
             ApplyPurpose();
         }
@@ -184,8 +184,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     }
     public void EnterManagementView()
     {
-        _browseTagId = null; CollectionHeading.Text = "收藏与标签";
-        CurrentResourceText.Text = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
+        _browseTagId = null; CollectionsHeader.Title = "收藏与标签";
+        CollectionsHeader.Subtitle = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
         Render();
     }
     public async Task ShowTagResourcesAsync(string tagId)
@@ -205,8 +205,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         if (!browse) return;
         EmptyHost.Visibility = Visibility.Collapsed; TagResourcesArea.Visibility = Visibility.Visible; TagResourcesRow.Height = new GridLength(1, GridUnitType.Star);
         var tag = Selected?.Tag;
-        CollectionHeading.Text = tag is null ? "标签不可用" : tag.Name;
-        CurrentResourceText.Text = tag is null ? "此标签已删除或当前账号不可见，请刷新或返回文件。"
+        CollectionsHeader.Title = tag is null ? "标签不可用" : tag.Name;
+        CollectionsHeader.Subtitle = tag is null ? "此标签已删除或当前账号不可见，请刷新或返回文件。"
             : tag.Resources.Count == 0 ? "0 个项目"
             : $"{tag.Resources.Count} 个项目 · 双击或按 Enter 打开";
     }
@@ -215,12 +215,12 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     {
         _resources.Clear();
         TagEmptyHost.Visibility = Visibility.Visible;
-        TagEmptyTitle.Text = "选择标签"; TagEmptyText.Text = "选择标签以查看关联资源。";
+        TagEmptyHost.Title = "选择标签"; TagEmptyHost.Description = "选择标签以查看关联资源。";
         if (Selected?.Tag is not { } tag) return;
         var index = 0;
         foreach (var reference in tag.Resources)
             _resources.Add(new CollectionRow($"{tag.Id}:{index++}", reference.DisplayPath.TrimEnd('/').Split('/').LastOrDefault() is { Length: > 0 } name ? name : "/", reference.DisplayPath, IdentityState(reference), reference, Tag: tag));
-        TagEmptyTitle.Text = "此标签暂无关联资源"; TagEmptyText.Text = "可用“设置资源标签”绑定当前选中资源。";
+        TagEmptyHost.Title = "此标签暂无关联资源"; TagEmptyHost.Description = "可用“设置资源标签”绑定当前选中资源。";
         TagEmptyHost.Visibility = _resources.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
     private static string IdentityState(CollectionResource reference) => reference.Resource is null ? "历史记录，资源身份暂不可用" : "";

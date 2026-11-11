@@ -62,8 +62,9 @@ internal static class FloatingNotice
         }
         private void Material()
         {
+            var background = SurfaceStyles.PopupBrush(_bar.ActualTheme);
             foreach (var severity in new[] { "Error", "Warning", "Success", "Informational" })
-                _bar.Resources["InfoBar" + severity + "SeverityBackgroundBrush"] = SurfaceStyles.PopupBrush(_bar.ActualTheme);
+                _bar.Resources["InfoBar" + severity + "SeverityBackgroundBrush"] = background;
         }
         private void OpenChanged()
         {

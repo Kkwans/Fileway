@@ -246,6 +246,20 @@
     <Setter Property="Foreground" Value="{ThemeResource FwTextSecondaryBrush}" />
     <Setter Property="TextWrapping" Value="Wrap" />
   </Style>
+  <Style x:Key="FwPageTitleStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="22"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}"/>
+  </Style>
+  <Style x:Key="FwLucideDefaultStyle" TargetType="ctl:LucideIcon">
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}"/>
+  </Style>
+  <Style x:Key="FwEmptyIconTileStyle" TargetType="Border">
+    <Setter Property="CornerRadius" Value="20"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}"/>
+  </Style>
   <Style x:Key="FwDangerTextStyle" TargetType="TextBlock">
     <Setter Property="FontSize" Value="12" />
     <Setter Property="Foreground" Value="{ThemeResource FwDangerBrush}" />
@@ -1244,7 +1258,7 @@
    <Setter Property="Template">
     <Setter.Value>
      <ControlTemplate TargetType="ToggleButton">
-      <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+      <Grid x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
        <VisualStateManager.VisualStateGroups>
         <VisualStateGroup x:Name="CommonStates">
          <VisualState x:Name="Normal"/>
@@ -1276,5 +1290,17 @@
      </ControlTemplate>
     </Setter.Value>
    </Setter>
+  </Style>
+  <Style x:Key="FwListRecordItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}">
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Margin" Value="0,0,0,6"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+  </Style>
+  <Style x:Key="FwSegmentedChoiceStyle" TargetType="ToggleButton" BasedOn="{StaticResource LayoutChoiceStyle}">
+    <Setter Property="MinHeight" Value="36"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}"/>
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
   </Style>
 </ResourceDictionary>

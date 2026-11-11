@@ -165,11 +165,11 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             ListHeaders.Visibility = count == 0 ? Visibility.Collapsed : Visibility.Visible;
             ListHeaderTitle.Text = _historyMode ? "操作" : "任务";
             ListHeaderTime.Text = _historyMode ? "时间" : "创建时间";
-            EmptyIcon.IconName = _historyMode ? "clipboard" : "file-code";
+            EmptyState.IconName = _historyMode ? "clipboard" : "file-code";
             EmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyTitle.Text = Busy ? "正在读取服务器记录" : !Active ? "连接后查看 文件任务" :
+            EmptyState.Title = Busy ? "正在读取服务器记录" : !Active ? "连接后查看 文件任务" :
                 _historyMode ? "暂无任务操作记录" : "暂无匹配的文件任务";
-            EmptyDescription.Text = _historyMode ? "这里保留任务提交与操作确认。结果未知时可选择记录进行核实。" :
+            EmptyState.Description = _historyMode ? "这里保留任务提交与操作确认。结果未知时可选择记录进行核实。" :
                 "服务器接受复制或移动请求后会建立任务。可调整状态筛选或刷新查看。";
             LoadedText.Text = _historyMode
                 ? _controller.HasLoadedOperations ? $"当前账号 · 已加载 {_operations.Count.ToString(CultureInfo.CurrentCulture)} 条任务操作记录" : "尚未读取操作记录"

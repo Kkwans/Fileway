@@ -4,7 +4,7 @@
              xmlns:ui="using:Fileway.App.Controls"
              AutomationProperties.Name="本地服务端" SizeChanged="Panel_SizeChanged">
  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
- <Grid Padding="20,16" RowSpacing="12">
+ <Grid Padding="20,12" RowSpacing="12">
   <Grid.RowDefinitions>
    <RowDefinition Height="Auto"/>
    <RowDefinition Height="Auto"/>
@@ -13,19 +13,15 @@
    <RowDefinition Height="*" MinHeight="190"/>
   </Grid.RowDefinitions>
 
-  <!-- 页面头部：标题 + 说明 + 操作组，与回收站/文件任务同一节奏 -->
-  <Grid ColumnSpacing="8">
-   <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <StackPanel Spacing="4" VerticalAlignment="Center">
-    <TextBlock Text="本地服务端" FontSize="22" FontWeight="SemiBold"/>
-    <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="在本机运行栖卷服务端，用于离线共享或局域网访问；默认端口 8888，可修改。" TextWrapping="Wrap"/>
-   </StackPanel>
-   <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+  <ui:FwPageHeader Title="本地服务端" Subtitle="在本机运行栖卷服务端，供本机或局域网访问。默认端口 8888。">
+   <ui:FwPageHeader.Actions>
+    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
     <ProgressRing x:Name="BusyRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" VerticalAlignment="Center"/>
     <Button x:Name="CloseButton" Content="返回文件" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开本地服务端，返回文件"/>
     <Button x:Name="RefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="刷新状态" AutomationProperties.Name="刷新本地服务端状态"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>
-   </StackPanel>
-  </Grid>
+    </StackPanel>
+   </ui:FwPageHeader.Actions>
+  </ui:FwPageHeader>
 
   <StackPanel Grid.Row="1" Spacing="12">
    <!-- 本机已有服务端：不论是谁启动的，先如实回显再决定动作 -->

@@ -13,6 +13,8 @@ public sealed class LucideIcon : UserControl
     public LucideIcon()
     {
         Content = _image; IsHitTestVisible = false; IsTabStop = false;
+        if (Application.Current.Resources.TryGetValue("FwLucideDefaultStyle", out var value) && value is Style style)
+            Style = style;
         _image.SetBinding(IconElement.ForegroundProperty, new Binding { Source = this, Path = new PropertyPath(nameof(Foreground)) });
         Refresh();
     }

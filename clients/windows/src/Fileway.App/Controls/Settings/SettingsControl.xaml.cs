@@ -92,6 +92,22 @@ public sealed partial class SettingsControl : UserControl
             : "查看或撤销当前账户创建的分享链接。";
     }
 
+    private void Cards_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (SecondarySettings is null || SecondarySettingsColumn is null) return;
+        // Leave enough width for the three server actions and the labels at
+        // the same time. An overlay sidebar can leave the whole narrow window
+        // available, so select columns by usable card width.
+        bool wide = args.NewSize.Width >= 820;
+        int column = wide ? 1 : 0;
+        if (Grid.GetColumn(SecondarySettings) == column) return;
+        SecondarySettingsColumn.Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        CardsHost.ColumnSpacing = wide ? 12 : 0;
+        CardsHost.RowSpacing = wide ? 0 : 12;
+        Grid.SetColumn(SecondarySettings, column);
+        Grid.SetRow(SecondarySettings, wide ? 0 : 1);
+    }
+
     private void Close_Click(object sender, RoutedEventArgs e) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Appearance_Click(object sender, RoutedEventArgs e) => AppearanceRequested?.Invoke(this, EventArgs.Empty);
     private void OpenWith_Click(object sender, RoutedEventArgs e) => OpenWithRequested?.Invoke(this, EventArgs.Empty);
