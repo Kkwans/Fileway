@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -91,7 +92,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         var nextResource = currentResource?.Account == session?.Account ? currentResource : null;
         if (_currentResource != nextResource) { ++_resourceGeneration; ++_openGeneration; }
         _currentResource = nextResource;
-        if (_browseTagId is null) CollectionsHeader.Subtitle = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
+        if (_browseTagId is null) UpdateManagementHeader();
         EmptyHost.Title = session is null ? "尚未连接" : "暂无记录"; EmptyHost.Description = session is null ? "连接服务器后可在这里管理收藏与标签。" : "添加收藏或标签后会显示在这里。";
         UpdateCommands();
     }
@@ -184,9 +185,15 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     }
     public void EnterManagementView()
     {
-        _browseTagId = null; CollectionsHeader.Title = "收藏与标签";
-        CollectionsHeader.Subtitle = _currentResource is { } resource ? $"选中资源：{resource.DisplayPath}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
+        _browseTagId = null;
+        UpdateManagementHeader();
         Render();
+    }
+    private void UpdateManagementHeader()
+    {
+        CollectionsHeader.Title = "收藏与标签";
+        CollectionsHeader.Subtitle = _currentResource is { } resource ? $"选中资源：{resource.DisplayName}" : "管理当前账号的收藏、分组与标签；可从文件列表添加。";
+        ToolTipService.SetToolTip(CollectionsHeader, _currentResource?.DisplayPath);
     }
     public async Task ShowTagResourcesAsync(string tagId)
     {
@@ -201,7 +208,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         OpenTagResourceButton.Visibility = UnlinkButton.Visibility = TagMode ? Visibility.Visible : Visibility.Collapsed;
         ManagementSelection.Visibility = Records.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
         RecordsRow.Height = new GridLength(browse ? 0 : 1, browse ? GridUnitType.Pixel : GridUnitType.Star);
-        AddFavoriteButton.Visibility = ResourceTagsButton.Visibility = CreateGroupButton.Visibility = CreateTagButton.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
+        CollectionsMoreButton.Visibility = browse ? Visibility.Collapsed : Visibility.Visible;
         if (!browse) return;
         EmptyHost.Visibility = Visibility.Collapsed; TagResourcesArea.Visibility = Visibility.Visible; TagResourcesRow.Height = new GridLength(1, GridUnitType.Star);
         var tag = Selected?.Tag;
@@ -209,6 +216,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         CollectionsHeader.Subtitle = tag is null ? "此标签已删除或当前账号不可见，请刷新或返回文件。"
             : tag.Resources.Count == 0 ? "0 个项目"
             : $"{tag.Resources.Count} 个项目 · 双击或按 Enter 打开";
+        ToolTipService.SetToolTip(CollectionsHeader, tag?.Name);
     }
 
     private void RenderTagResources()
@@ -238,10 +246,12 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
         GroupMoreButton.IsEnabled = EditGroupButton.IsEnabled;
         GroupMoreButton.Visibility = !TagMode && SelectedGroup is not null ? Visibility.Visible : Visibility.Collapsed;
         OpenButton.IsEnabled = !_busy && Selected?.Reference?.Resource is not null && connected;
+        OpenButton.Visibility = TagMode ? Visibility.Collapsed : Visibility.Visible;
         ContextOpen.IsEnabled = OpenButton.IsEnabled;
         OpenTagResourceButton.IsEnabled = !_busy && (TagResources.SelectedItem as CollectionRow)?.Reference?.Resource is not null && connected;
         UnlinkButton.IsEnabled = CanWrite && (TagResources.SelectedItem as CollectionRow)?.Reference?.Resource is not null;
-        AddFavoriteButton.Visibility = ResourceTagsButton.Visibility = _currentResource is null ? Visibility.Collapsed : Visibility.Visible;
+        AddFavoriteButton.Visibility = ResourceTagsButton.Visibility = _browseTagId is null && _currentResource is not null
+            ? Visibility.Visible : Visibility.Collapsed;
         SelectionCommands.Visibility = Selected is null ? Visibility.Collapsed : Visibility.Visible;
         OpenTagResourceButton.Visibility = UnlinkButton.Visibility =
             TagMode && TagResourcesArea.Visibility == Visibility.Visible && TagResources.SelectedItem is CollectionRow
@@ -350,8 +360,11 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
 
     private async Task<ContentDialogResult> ShowDialogAsync(Scope scope, ContentDialog dialog)
     {
-        if (!Current(scope) || _dialog is not null) return ContentDialogResult.None;
-        dialog.XamlRoot = XamlRoot; dialog.RequestedTheme = RequestedTheme;
+        if (!Current(scope) || _dialog is not null || XamlRoot is not { Content: FrameworkElement owner } root)
+            return ContentDialogResult.None;
+        // Browser and detail commands also use this control while its management pane is collapsed.
+        dialog.XamlRoot = root;
+        dialog.RequestedTheme = owner.RequestedTheme == ElementTheme.Default ? owner.ActualTheme : owner.RequestedTheme;
         _dialog = dialog;
         try { return await dialog.ShowAsync(); }
         catch (OperationCanceledException) { return ContentDialogResult.None; }
@@ -361,27 +374,55 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
 
     private async Task<(string Name, string? GroupId, string? Color)?> EditDialogAsync(Scope scope, string title, string initialName, bool chooseGroup = false, string? groupId = null, bool chooseColor = false, string? color = null)
     {
-        var name = new TextBox { Header = "名称", Text = initialName };
-        var panel = new StackPanel { Spacing = 16, MinWidth = 260 }; panel.Children.Add(name);
-        ComboBox? groups = null; ComboBox? colors = null;
+        const double labelWidth = 80;
+        var name = new TextBox { Text = initialName, Style = SurfaceGeometry.Style("FwTextBoxStyle") };
+        AutomationProperties.SetAutomationId(name, "CollectionNameInput");
+        ToolTipService.SetToolTip(name, initialName);
+        var panel = new StackPanel { Spacing = 10, MinWidth = 320, MaxWidth = 496 };
+        panel.Children.Add(DialogOrdering.FieldRow("名称", name, labelWidth));
+        ChoiceBox? groups = null;
+        ChoiceBox? colors = null;
         if (chooseGroup)
         {
             var choices = new List<GroupChoice> { new("", "未分组") };
             choices.AddRange((_snapshot?.FavoriteGroups ?? []).Select(item => new GroupChoice(item.Id, item.Name, item)));
-            if (!string.IsNullOrEmpty(groupId) && choices.All(item => item.Id != groupId)) panel.Children.Add(new TextBlock { Text = "原分组已不可用，保存时请选择现有分组或未分组。", TextWrapping = TextWrapping.Wrap });
-            groups = new Fileway.App.Controls.ChoiceBox { Header = "收藏分组", ItemsSource = choices, DisplayMemberPath = "Label", HorizontalAlignment = HorizontalAlignment.Stretch };
-            groups.SelectedItem = choices.FirstOrDefault(item => item.Id == groupId) ?? choices[0]; panel.Children.Add(groups);
+            groups = new ChoiceBox
+            {
+                ItemsSource = choices,
+                ItemTemplate = (DataTemplate)Resources["GroupChoiceTemplate"],
+                SelectedItem = choices.FirstOrDefault(item => item.Id == groupId) ?? choices[0],
+            };
+            AutomationProperties.SetAutomationId(groups, "CollectionGroupSelector");
+            panel.Children.Add(DialogOrdering.FieldRow("收藏分组", groups, labelWidth));
+            if (!string.IsNullOrEmpty(groupId) && choices.All(item => item.Id != groupId))
+            {
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "原分组已不可用，保存时请选择现有分组或未分组。",
+                    Style = SurfaceGeometry.Style("FwCaptionTextStyle"),
+                    Margin = new Thickness(labelWidth + 8, 0, 0, 0),
+                });
+            }
         }
         if (chooseColor)
         {
             var choices = Colors.Select(item => new ColorChoice(item.Name, item.Value)).ToList();
             if (!string.IsNullOrEmpty(color) && choices.All(item => !StringComparer.OrdinalIgnoreCase.Equals(item.Value, color))) choices.Insert(0, new("保留原颜色", color));
-            colors = new Fileway.App.Controls.ChoiceBox { Header = "标签颜色", ItemsSource = choices, HorizontalAlignment = HorizontalAlignment.Stretch };
-            colors.SelectedItem = choices.FirstOrDefault(item => StringComparer.OrdinalIgnoreCase.Equals(item.Value, color)) ?? choices[0];
-            colors.ItemTemplate = (DataTemplate)Resources["TagColorTemplate"]; panel.Children.Add(colors);
+            colors = new ChoiceBox
+            {
+                ItemsSource = choices,
+                ItemTemplate = (DataTemplate)Resources["TagColorTemplate"],
+                SelectedItem = choices.FirstOrDefault(item => StringComparer.OrdinalIgnoreCase.Equals(item.Value, color)) ?? choices[0],
+            };
+            AutomationProperties.SetAutomationId(colors, "CollectionColorSelector");
+            panel.Children.Add(DialogOrdering.FieldRow("标签颜色", colors, labelWidth));
         }
         var dialog = new ContentDialog { Title = title, Content = panel, PrimaryButtonText = "保存", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(initialName) };
-        name.TextChanged += (_, _) => dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(name.Text);
+        name.TextChanged += (_, _) =>
+        {
+            dialog.IsPrimaryButtonEnabled = !string.IsNullOrWhiteSpace(name.Text);
+            ToolTipService.SetToolTip(name, name.Text);
+        };
         if (await ShowDialogAsync(scope, dialog) != ContentDialogResult.Primary || !Current(scope)) return null;
         return (name.Text.Trim(), groups is null ? groupId : (groups.SelectedItem as GroupChoice)?.Id, colors is null ? color : (colors.SelectedItem as ColorChoice)?.Value);
     }
@@ -442,18 +483,29 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
     {
         if (!CanWrite || Capture() is not { } scope || _currentResource is not { } resource || _snapshot is not { } snapshot) return;
         var resourceGeneration = _resourceGeneration;
-        var rows = new StackPanel { Spacing = 8, MinWidth = 260 };
+        var rows = new StackPanel { Spacing = 6 };
         var localStatus = new InfoBar { IsOpen = false, IsClosable = true };
         Fileway.App.Controls.FloatingNotice.Attach(localStatus);
-        var panel = new StackPanel { Spacing = 12 }; panel.Children.Add(new TextBlock { Text = resource.DisplayName, TextWrapping = TextWrapping.Wrap }); panel.Children.Add(localStatus);
-        panel.Children.Add(new ScrollViewer { Content = rows, MaxHeight = 360, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
-        var create = new Button { Content = "新建标签", HorizontalAlignment = HorizontalAlignment.Left }; panel.Children.Add(create);
-        var dialog = new ContentDialog { Title = "标记资源", Content = panel, CloseButtonText = "关闭" };
-        var createRequested = false;
-        create.Click += (_, _) => { createRequested = true; dialog.Hide(); };
+        var resourceName = new TextBlock
+        {
+            Text = resource.DisplayName, TextWrapping = TextWrapping.Wrap, MaxLines = 2,
+            TextTrimming = TextTrimming.CharacterEllipsis, IsTextSelectionEnabled = true,
+        };
+        AutomationProperties.SetAutomationId(resourceName, "CollectionTagResourceName");
+        ToolTipService.SetToolTip(resourceName, resource.DisplayPath);
+        var panel = new StackPanel { Spacing = 10, MinWidth = 320, MaxWidth = 496 };
+        panel.Children.Add(resourceName);
+        panel.Children.Add(localStatus);
+        panel.Children.Add(new ScrollViewer
+        {
+            Content = rows, MaxHeight = DialogOrdering.ContentMaxHeight(this, 360),
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        });
+        var dialog = new ContentDialog { Title = "标记资源", Content = panel, SecondaryButtonText = "新建标签", CloseButtonText = "关闭" };
         void Populate(ResourceCollectionsSnapshot state)
         {
-            rows.Children.Clear(); create.IsEnabled = CanWrite;
+            rows.Children.Clear();
+            dialog.IsSecondaryButtonEnabled = CanWrite;
             if (state.Tags.Count == 0) rows.Children.Add(new TextBlock { Text = "暂无标签。可以新建标签后标记此资源。", TextWrapping = TextWrapping.Wrap });
             foreach (var tag in state.Tags)
             {
@@ -462,15 +514,24 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
                 content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 var dot = new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 12, Height = 12, Fill = new ColorChoice("", tag.Color).Brush, StrokeThickness = 1 };
                 dot.SetBinding(Microsoft.UI.Xaml.Shapes.Shape.StrokeProperty, new Microsoft.UI.Xaml.Data.Binding { Source = this, Path = new PropertyPath(nameof(Foreground)) }); content.Children.Add(dot);
-                var name = new TextBlock { Text = tag.Name, TextTrimming = TextTrimming.CharacterEllipsis }; Grid.SetColumn(name, 1); content.Children.Add(name);
-                var assignment = new TextBlock { Text = linked ? "已标记" : "未标记" }; Grid.SetColumn(assignment, 2); content.Children.Add(assignment);
-                var button = new Button { Content = content, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, IsEnabled = CanWrite };
-                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(button, $"{tag.Name}，{(linked ? "已标记，单击取消关联" : "未标记，单击绑定")}");
+                var name = new TextBlock { Text = tag.Name, TextTrimming = TextTrimming.CharacterEllipsis };
+                ToolTipService.SetToolTip(name, tag.Name);
+                Grid.SetColumn(name, 1);
+                content.Children.Add(name);
+                var assignment = new TextBlock { Text = linked ? "已标记" : "未标记", Style = SurfaceGeometry.Style("FwCaptionTextStyle") };
+                Grid.SetColumn(assignment, 2);
+                content.Children.Add(assignment);
+                var button = new Button
+                {
+                    Content = content, Style = SurfaceGeometry.Style("FwSecondaryButtonStyle"),
+                    HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch, IsEnabled = CanWrite,
+                };
+                AutomationProperties.SetName(button, $"{tag.Name}，{(linked ? "已标记，单击取消关联" : "未标记，单击绑定")}");
                 button.Click += async (_, _) =>
                 {
                     if (!Current(scope) || resourceGeneration != _resourceGeneration || !CanWrite || !ReferenceEquals(_dialog, dialog)) return;
                     foreach (var child in rows.Children.OfType<Button>()) child.IsEnabled = false;
-                    create.IsEnabled = false;
+                    dialog.IsSecondaryButtonEnabled = false;
                     await WriteAsync(scope, token => linked ? _service!.RemoveTagResourceAsync(tag.Id, resource, token) : _service!.AddTagResourceAsync(tag.Id, resource, token), linked ? "标签关联已取消。" : "标签已绑定。");
                     if (!Current(scope) || !ReferenceEquals(_dialog, dialog)) return;
                     localStatus.Message = Status.Message; localStatus.Severity = Status.Severity; localStatus.IsOpen = true;
@@ -480,8 +541,8 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             }
         }
         Populate(snapshot);
-        await ShowDialogAsync(scope, dialog);
-        if (!createRequested || !Current(scope) || resourceGeneration != _resourceGeneration || !CanWrite) return;
+        if (await ShowDialogAsync(scope, dialog) != ContentDialogResult.Secondary ||
+            !Current(scope) || resourceGeneration != _resourceGeneration || !CanWrite) return;
         await CreateTagAsync();
         if (Current(scope) && resourceGeneration == _resourceGeneration && CanWrite) await ManageCurrentResourceTagsAsync();
     }
@@ -640,6 +701,7 @@ public sealed record CollectionRow(string Id, string Name, string Detail, string
     public string IconName => Favorite is not null ? "heart" : "file";
     public Visibility IconVisibility => Tag is not null && Reference is null ? Visibility.Collapsed : Visibility.Visible;
     public Visibility TagColorVisibility => Tag is not null && Reference is null ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility StateVisibility => State.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     public SolidColorBrush TagColorBrush => new ColorChoice("", Tag?.Color ?? "").Brush;
 }
 

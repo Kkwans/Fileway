@@ -90,6 +90,9 @@ public static class DialogOrdering
         var close = commandSpace is not null ? Find(commandSpace, "CloseButton") : Find(dialog, "CloseButton");
         if (primary is Button primaryButton && close is Button closeButton)
             ApplyButtonStyles(primaryButton, secondary as Button, closeButton);
+        // Secondary + Close already share the SDK's two-button columns.
+        if (string.IsNullOrWhiteSpace(dialog.PrimaryButtonText) || string.IsNullOrWhiteSpace(dialog.CloseButtonText))
+            return true;
         if (primary is null || close is null) return false;
         var ancestors = new HashSet<DependencyObject>();
         for (DependencyObject? node = VisualTreeHelper.GetParent(primary); node is not null; node = VisualTreeHelper.GetParent(node))
