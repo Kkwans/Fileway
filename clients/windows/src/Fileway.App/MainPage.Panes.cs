@@ -24,6 +24,8 @@ public sealed partial class MainPage
     private void ShowPane(MainPane pane)
     {
         if (_disposed || Workspace is null || ConnectionPanel is null) return;
+        var collectionStatusChanged = _currentPane != pane &&
+            (_currentPane == MainPane.Collections || pane == MainPane.Collections);
         _currentPane = pane;
 
         Workspace.Visibility = pane == MainPane.Browser ? Visibility.Visible : Visibility.Collapsed;
@@ -36,6 +38,7 @@ public sealed partial class MainPage
         if (StorageToolsHost is not null && pane != MainPane.Storage) RetireStorageAnalysis();
         if (StorageToolsHost is not null) StorageToolsHost.Visibility = pane == MainPane.Storage ? Visibility.Visible : Visibility.Collapsed;
         if (CollectionsPanel is not null) CollectionsPanel.Visibility = pane == MainPane.Collections ? Visibility.Visible : Visibility.Collapsed;
+        if (collectionStatusChanged) UpdateReceiptWarning();
         if (LocalServerPane is not null) LocalServerPane.Visibility = pane == MainPane.LocalServer ? Visibility.Visible : Visibility.Collapsed;
         if (SettingsPane is not null) SettingsPane.Visibility = pane == MainPane.Settings ? Visibility.Visible : Visibility.Collapsed;
 

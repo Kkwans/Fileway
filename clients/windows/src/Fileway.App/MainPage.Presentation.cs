@@ -11,6 +11,7 @@ public sealed partial class MainPage
 {
     private readonly HashSet<BrowserFileTypeFilter> _typeFilters = [];
     private readonly Dictionary<(AccountKey Account, string WirePath), BrowserFileTypeFilter[]> _directoryTypeFilters = [];
+    private readonly Dictionary<InfoBar, long> _noticeVisibilityCallbacks = [];
     private bool _typeFiltersEdited;
     private PlayerSettingsWindow? _detailsPopup;
     private StackPanel? _typeFilterOptions;
@@ -25,11 +26,13 @@ public sealed partial class MainPage
         DetailsPanel.Padding = new Thickness(20, 16, 20, 18);
         DetailsPanel.BorderThickness = new Thickness(0);
         Notice.IsOpen = false;
-        Controls.FloatingNotice.Attach(LoginNotice, automatic: false, floating: false);
-        Controls.FloatingNotice.Attach(Notice, automatic: false);
-        Controls.FloatingNotice.Attach(ReceiptWarning, automatic: false);
-        Controls.FloatingNotice.Attach(UploadNotice, automatic: false);
-        Controls.FloatingNotice.Attach(DownloadNotice, automatic: false);
+        Controls.FloatingNotice.Attach(LoginNotice, automatic: false);
+        foreach (var bar in ToastHost.Children.OfType<InfoBar>())
+        {
+            Controls.FloatingNotice.Attach(bar, automatic: false);
+            _noticeVisibilityCallbacks.Add(bar,
+                bar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, (_, _) => UpdateNoticeHost()));
+        }
         AttachChoices(ViewOptionsButton);
         _typeFilterOptions = (TypeFilterBox.Flyout as Flyout)?.Content as StackPanel;
         AttachChoices(TypeFilterBox);
@@ -52,11 +55,25 @@ public sealed partial class MainPage
     }
 
     private static void ConfigurePopupMaterial(FlyoutBase flyout) => Controls.SurfaceStyles.Attach(flyout);
+
+    private void UpdateNoticeHost() => ToastHost.Visibility =
+        _noticeVisibilityCallbacks.Keys.Any(bar => bar.IsOpen) ? Visibility.Visible : Visibility.Collapsed;
+
     private void ShowToast(InfoBar bar, string key, bool repeat = false)
     {
+        if (_disposed) return;
+        var compact = _noticeVisibilityCallbacks.ContainsKey(bar) && !string.IsNullOrWhiteSpace(bar.Title) &&
+            string.IsNullOrWhiteSpace(bar.Message) &&
+            bar.Severity is InfoBarSeverity.Success or InfoBarSeverity.Informational;
+        if (compact && _noticeVisibilityCallbacks.Keys.Any(other =>
+                other != bar && other.IsOpen && Controls.FloatingNotice.IsCompact(other) &&
+                Controls.FloatingNotice.IsInteracting(other))) return;
         // Transfer snapshots refresh their bytes frequently. A dismissed toast
         // must not reappear on every tick; only a new task/stage opens it again.
-        if (!_disposed) Controls.FloatingNotice.Show(bar, key, repeat);
+        if (!Controls.FloatingNotice.Show(bar, key, repeat, compact) || !compact) return;
+        foreach (var other in _noticeVisibilityCallbacks.Keys)
+            if (other != bar && other.IsOpen && Controls.FloatingNotice.IsCompact(other))
+                other.IsOpen = false;
     }
 
     private static void ResetToast(InfoBar bar) => Controls.FloatingNotice.Reset(bar);
@@ -66,10 +83,12 @@ public sealed partial class MainPage
         _detailsPopup?.Dispose(); _detailsPopup = null;
 
         Controls.FloatingNotice.Detach(LoginNotice);
-        Controls.FloatingNotice.Detach(Notice);
-        Controls.FloatingNotice.Detach(ReceiptWarning);
-        Controls.FloatingNotice.Detach(UploadNotice);
-        Controls.FloatingNotice.Detach(DownloadNotice);
+        foreach (var (bar, callback) in _noticeVisibilityCallbacks)
+        {
+            bar.UnregisterPropertyChangedCallback(InfoBar.IsOpenProperty, callback);
+            Controls.FloatingNotice.Detach(bar);
+        }
+        _noticeVisibilityCallbacks.Clear();
     }
 
     private void TypeFilter_Click(object sender, RoutedEventArgs args)

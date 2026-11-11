@@ -13,7 +13,6 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
 {
     private TransferDirection _direction = TransferDirection.Download;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _clock;
-    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _noticeTimer;
     private ObservableCollection<TransferCenterRow>? _rows;
     public event EventHandler? CloseRequested;
     public event EventHandler? DirectionChanged;
@@ -29,11 +28,9 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
         InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(LoadError);
         _clock = DispatcherQueue.CreateTimer(); _clock.Interval = TimeSpan.FromSeconds(1);
         _clock.Tick += (_, _) => { if (_rows is not null) foreach (var row in _rows) row.RefreshClock(); };
-        _noticeTimer = DispatcherQueue.CreateTimer(); _noticeTimer.IsRepeating = false;
-        _noticeTimer.Tick += (_, _) => LoadError.IsOpen = false;
         Loaded += (_, _) => _clock.Start(); Unloaded += (_, _) => _clock.Stop();
     }
-    public void Dispose() { _clock.Stop(); _noticeTimer.Stop(); }
+    public void Dispose() { _clock.Stop(); FloatingNotice.Detach(LoadError); }
 
     public void SelectDirection(TransferDirection direction)
     {
@@ -63,7 +60,6 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
         if (error != LoadError.Message)
         {
             LoadError.IsOpen = error is not null;
-            if (error is not null) { _noticeTimer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ToastSeconds); _noticeTimer.Start(); }
         }
         LoadError.Message = error;
         EmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;

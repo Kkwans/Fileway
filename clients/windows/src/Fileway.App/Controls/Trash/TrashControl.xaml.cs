@@ -18,7 +18,6 @@ public sealed partial class TrashControl : UserControl, IDisposable
     private ContentDialog? _dialog;
     private ITrashService? _trash;
     private PlayerSettingsWindow? _detailsPopup;
-    private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _noticeTimer;
     private bool _deleting;
     private ConnectionSession? _session;
     private long _epoch;
@@ -32,7 +31,6 @@ public sealed partial class TrashControl : UserControl, IDisposable
     public TrashControl()
     {
         InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(Notice); Records.ItemsSource = _rows; UnknownRecords.ItemsSource = _unknown;
-        _noticeTimer = DispatcherQueue.CreateTimer(); _noticeTimer.IsRepeating = false; _noticeTimer.Tick += (_, _) => Notice.IsOpen = false;
         _ready = true; Unloaded += (_, _) => SuspendView(); Render();
     }
     public void SetContext(ITrashService? trash, IOperationHistoryService? history, ConnectionSession? session)
@@ -85,10 +83,11 @@ public sealed partial class TrashControl : UserControl, IDisposable
             }
             var error = _controller.Error ?? _controller.OperationsError;
             var message = _message ?? error ?? "";
-            if (Notice.Message != message) { Notice.IsOpen = message.Length > 0; if (Notice.IsOpen) { _noticeTimer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ToastSeconds); _noticeTimer.Start(); } }
+            var messageChanged = Notice.Message != message;
             Notice.Title = error is null ? "操作结果" : "回收站需要处理";
-            Notice.Message = message;
             Notice.Severity = error is null ? InfoBarSeverity.Informational : InfoBarSeverity.Warning;
+            Notice.Message = message;
+            if (messageChanged) Notice.IsOpen = message.Length > 0;
             EmptyHost.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             HeaderRow.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
             EmptyHost.Title = _controller.IsLoading ? "正在读取回收站…" : _session is null ? "连接后查看回收站" : "暂无回收站项目";
@@ -253,7 +252,7 @@ public sealed partial class TrashControl : UserControl, IDisposable
     }
     private void Retire() { ++_epoch; _detailsPopup?.Dispose(); _detailsPopup = null; var dialog = _dialog; _dialog = null; try { dialog?.Hide(); } catch (Exception) { } }
     public void SuspendView() { if (_disposed) return; Retire(); _controller.SuspendView(); }
-    public void Dispose() { if (_disposed) return; Retire(); _noticeTimer.Stop(); _disposed = true; _controller.Dispose(); _rows.Clear(); _unknown.Clear(); CloseRequested = null; }
+    public void Dispose() { if (_disposed) return; Retire(); FloatingNotice.Detach(Notice); _disposed = true; _controller.Dispose(); _rows.Clear(); _unknown.Clear(); CloseRequested = null; }
     private async void Refresh_Click(object sender, RoutedEventArgs args) => await RefreshAsync();
     private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Selection_Changed(object sender, SelectionChangedEventArgs args) { if (_ready && !_rendering) Render(synchronize: false); }

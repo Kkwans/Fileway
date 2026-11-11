@@ -234,8 +234,8 @@ components:
 - 复选框使用自研模板：20px 方框、6px 圆角、选中填充强调色并显示自绘勾线；不得直接使用系统 CheckBox 外观。
 - 展开面板统一 `FwSurfaceBrush` + 1px `FwStrokeBrush` + 10px 圆角；滚动条使用 App.xaml 的 `ScrollBarThumbFill`/`ScrollBarTrackFill` 令牌（透明轨道、分级半透明滑块），高对比度走系统色。
 - 主题偏好持久化在数据根的 `ui-preferences.json`（仅 `theme`），不写注册表或全局 AppData；文件缺失/损坏时回退“跟随系统”。
-- 明确保留系统外观的控件：窗口菜单栏（`MenuBar`/`MenuBarItem`）与 `ProgressRing` 保留系统模板、键盘与无障碍语义，不再自绘；`InfoBar` 保留系统严重度图标与语义配色，浮层形态由 `FloatingNotice` 统一圆角、底色与超时行为。除此之外的按钮、选择器、弹层、列表、复选框、展开面板与滚动条均使用自研样式。
-- 浮动通知使用主题实色底以保持叠放在文字与按钮上方时的可读性，保留关闭按钮与自动消失行为。
+- 窗口菜单栏（`MenuBar`/`MenuBarItem`）、`ProgressRing` 和 `InfoBar` 保留系统模板和无障碍语义。`FloatingNotice` 统一反馈控件的主题底色和计时，位置由页面及弹窗布局决定。
+- 主窗 Toast 在工作区底部的布局行显示一句操作反馈，可附一个相关入口，同一时刻显示一条。背景使用带主题色保护的 Acrylic，系统回退为对应主题实色。保留关闭及自动消失，鼠标悬停和键盘焦点进入时延后消失。进度、路径、异常详情和核实结果留在对应任务或页面的内联状态区。
 
 ## Components
 

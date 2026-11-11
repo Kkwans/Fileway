@@ -394,29 +394,30 @@ public sealed partial class MainPage
         if (_downloadErrorMessage is { } error && ActiveDownloadContext is not null)
         {
             DownloadNotice.Title = _downloadErrorTitle; DownloadNotice.Message = error;
-            ShowToast(DownloadNotice, _downloadErrorTitle + error);
             DownloadNotice.Severity = InfoBarSeverity.Warning; DownloadDetailsButton.IsEnabled = _latestDownload is not null && !_downloadOperationBusy;
+            ShowToast(DownloadNotice, _downloadErrorTitle + error);
             return;
         }
         if (_downloadPreparing && ActiveDownloadContext is not null)
         {
             DownloadNotice.Title = "正在核对下载目标";
-            ShowToast(DownloadNotice, "preparing");
-            DownloadNotice.Message = "正在读取文件信息与已生效的默认下载目录…";
+            DownloadNotice.Message = string.Empty;
             DownloadNotice.Severity = InfoBarSeverity.Informational; DownloadDetailsButton.IsEnabled = false;
+            ShowToast(DownloadNotice, "preparing");
             return;
         }
         if (_latestDownload is not { } item || !IsCurrentDownloadContext(item.Context)) { DownloadNotice.IsOpen = false; return; }
         DownloadNotice.Title = DownloadPolicy.Stage(item);
-        ShowToast(DownloadNotice, item.Snapshot.Task.Id.ToString() + DownloadNotice.Title);
-        DownloadNotice.Message = $"{item.Name}\n{DownloadPolicy.Progress(item).ActivityText}";
         DownloadNotice.Severity = DownloadPolicy.Tone(item) switch
         {
             DownloadPresentationTone.Success => InfoBarSeverity.Success,
             DownloadPresentationTone.Warning => InfoBarSeverity.Warning,
             _ => InfoBarSeverity.Informational,
         };
+        DownloadNotice.Message = DownloadNotice.Severity == InfoBarSeverity.Warning
+            ? $"{item.Name}\n{DownloadPolicy.Progress(item).ActivityText}" : string.Empty;
         DownloadDetailsButton.IsEnabled = !_downloadOperationBusy;
+        ShowToast(DownloadNotice, item.Snapshot.Task.Id.ToString() + DownloadNotice.Title);
     }
 
     private async void DownloadDetails_Click(object sender, RoutedEventArgs args)

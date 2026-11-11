@@ -11,7 +11,7 @@
   </DataTemplate>
  </UserControl.Resources>
  <Grid Padding="20,12" RowSpacing="12">
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <ui:FwPageHeader x:Name="CollectionsHeader" Title="收藏与标签" Subtitle="管理当前账号的收藏、分组与标签。">
    <ui:FwPageHeader.Actions>
     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -45,6 +45,8 @@
     <ui:FwEmptyState x:Name="TagEmptyHost" IconName="tag" Title="选择标签" Description="选择标签以查看关联资源。"/>
    </Grid>
   </Grid>
-  <InfoBar x:Name="Status" IsOpen="False" IsClosable="True"/>
+  <StackPanel x:Name="CollectionStatusHost" Grid.Row="3">
+   <InfoBar x:Name="Status" IsOpen="False" IsClosable="True"/>
+  </StackPanel>
  </Grid>
 </UserControl>

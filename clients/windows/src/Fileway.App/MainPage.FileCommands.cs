@@ -295,6 +295,12 @@ public sealed partial class MainPage
     private void UpdateReceiptWarning()
     {
         if (ReceiptWarning is null) return;
+        if (_currentPane == MainPane.Collections)
+        {
+            ReceiptWarning.IsOpen = false;
+            ResetToast(ReceiptWarning);
+            return;
+        }
         var warnings = _session is { } session ? _receiptWarnings.GetValueOrDefault(session.Account) : null;
         ReceiptWarning.Message = warnings is null ? "" : "此提示不改变服务器已返回的操作结果，请勿因此重复提交。\n" + string.Join("\n", warnings);
         if (warnings is { Count: > 0 }) ShowToast(ReceiptWarning, ReceiptWarning.Message);
@@ -386,7 +392,11 @@ public sealed partial class MainPage
             if (!SameBrowser(session, directory, generation)) return;
             if (result.Outcome == ServerTaskSubmissionOutcome.Accepted && result.AcceptedTask is { } task)
             {
-                SetNotice("已提交服务器任务", $"{(action == FileTransferAction.Copy ? "复制" : "移动")}已提交 {resources.Length - skipped} 项，跳过 {skipped} 项；尚未确认完成。当前状态：{TaskStatusLabel(task.Status)}。" + (conflict == FileConflictPolicy.Skip ? " 核实后新出现的同名冲突仍会被拒绝，请查看任务状态。" : ""), InfoBarSeverity.Informational);
+                var operation = action == FileTransferAction.Copy ? "复制" : "移动";
+                if (skipped == 0 && conflict != FileConflictPolicy.Skip)
+                    SetNotice($"已提交 {resources.Length} 项{operation}", string.Empty, InfoBarSeverity.Informational);
+                else
+                    SetNotice("已提交服务器任务", $"{operation}已提交 {resources.Length - skipped} 项，跳过 {skipped} 项；尚未确认完成。当前状态：{TaskStatusLabel(task.Status)}。" + (conflict == FileConflictPolicy.Skip ? " 核实后新出现的同名冲突仍会被拒绝，请查看任务状态。" : ""), InfoBarSeverity.Informational);
             }
             else SetNotice(result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown ? "任务提交结果未知" : "任务未提交", (result.Error?.Message ?? "服务器未确认任务接受。") + (result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown ? " 请先核实，不要重复提交。" : ""), InfoBarSeverity.Warning);
             UpdateOperationAction();

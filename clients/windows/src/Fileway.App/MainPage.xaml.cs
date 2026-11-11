@@ -517,6 +517,10 @@ public sealed partial class MainPage : Page, IDisposable
         HideCollections();
         ClearUploadPresentation();
         ClearDownloadPresentation();
+        Notice.IsOpen = false;
+        ReceiptWarning.IsOpen = false;
+        ResetToast(Notice);
+        ResetToast(ReceiptWarning);
         _session = null; _root = null; _directory = null; ++_generation; _loadCancellation?.Cancel();
         CollectionsPanel.SetContext(null, null, null, null);
         SidebarCollections.SetSnapshot(null); SidebarCollections.IsEnabled = false;

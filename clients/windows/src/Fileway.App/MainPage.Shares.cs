@@ -59,12 +59,12 @@ public sealed partial class MainPage
         Grid.SetColumn(actions, 1);
         var copy = new Button { Content = new Controls.LucideIcon { IconName = "link", Width = 18, Height = 18 }, Style = iconStyle, Width = 36, Height = 36, Padding = new Thickness(0) };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(copy, "复制分享链接"); ToolTipService.SetToolTip(copy, "复制分享链接");
-        copy.Click += (_, _) => { CopyShareText(link.ShareUrl); SetNotice("已复制分享链接", "链接已复制到剪贴板。", InfoBarSeverity.Success); };
+        copy.Click += (_, _) => { CopyShareText(link.ShareUrl); SetNotice("已复制分享链接", string.Empty, InfoBarSeverity.Success); };
         actions.Children.Add(copy);
         var download = new Button { Content = new Controls.LucideIcon { IconName = "download-simple", Width = 18, Height = 18 }, Style = iconStyle, Width = 36, Height = 36, Padding = new Thickness(0), IsEnabled = link.DirectDownloadUrl is not null };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(download, "复制下载链接");
         ToolTipService.SetToolTip(download, link.HasPassword ? "有密码的分享不支持直接下载链接" : "复制下载链接");
-        download.Click += (_, _) => { if (link.DirectDownloadUrl is { } url) { CopyShareText(url); SetNotice("已复制下载链接", "链接已复制到剪贴板。", InfoBarSeverity.Success); } };
+        download.Click += (_, _) => { if (link.DirectDownloadUrl is { } url) { CopyShareText(url); SetNotice("已复制下载链接", string.Empty, InfoBarSeverity.Success); } };
         actions.Children.Add(download);
         var delete = new Button { Content = new Controls.LucideIcon { IconName = "trash", Width = 18, Height = 18 }, Style = iconStyle, Width = 36, Height = 36, Padding = new Thickness(0) };
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(delete, "删除分享"); ToolTipService.SetToolTip(delete, "删除分享，链接立即失效");

@@ -18,7 +18,7 @@ public sealed partial class MainPage
             if (inProcess)
             {
                 AcceptDownloadItem(await service.SetPausedAsync(item.Context, task, item.CanPause, _lifetime.Token));
-                if (item.CanPause && IsCurrentDownloadContext(item.Context)) SetNotice("下载已暂停", "暂停保留当前进度，可随时继续；关闭应用后也会从已确认的保存位置续传。", InfoBarSeverity.Informational);
+                if (item.CanPause && IsCurrentDownloadContext(item.Context)) SetNotice("下载已暂停", string.Empty, InfoBarSeverity.Informational);
             }
             else
             {

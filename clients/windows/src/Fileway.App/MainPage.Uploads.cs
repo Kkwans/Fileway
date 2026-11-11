@@ -267,7 +267,10 @@ public sealed partial class MainPage
                 // The remote folder tree exists as soon as the first file is accepted;
                 // refresh once so the new folder appears without waiting for every file.
                 if (SameBrowser(session, parent, generation)) await RefreshOriginAsync(session, parent, generation);
-                SetNotice("文件夹上传", $"已提交 {added} 个文件。" + (unconfirmed > 0 ? $"{unconfirmed} 个文件因目录冲突或未确认未提交，请到传输中心核实，勿重复提交。" : ""), unconfirmed > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+                if (unconfirmed == 0)
+                    SetNotice($"已提交 {added} 个文件", string.Empty, InfoBarSeverity.Success);
+                else
+                    SetNotice("文件夹上传", $"已提交 {added} 个文件。{unconfirmed} 个文件因目录冲突或未确认未提交，请到传输中心核实，勿重复提交。", InfoBarSeverity.Warning);
             }
         }
         catch (OperationCanceledException) { }
@@ -496,21 +499,22 @@ public sealed partial class MainPage
         if (_uploadErrorMessage is { } message && ActiveUploadContext is not null)
         {
             UploadNotice.Title = _uploadErrorTitle; UploadNotice.Message = message;
-            ShowToast(UploadNotice, _uploadErrorTitle + message);
             UploadNotice.Severity = InfoBarSeverity.Warning; UploadDetailsButton.IsEnabled = _latestUpload is not null && !_uploadCommandBusy;
+            ShowToast(UploadNotice, _uploadErrorTitle + message);
             return;
         }
         if (_latestUpload is not { } item || !IsCurrentUploadContext(item.Context)) { UploadNotice.IsOpen = false; return; }
         UploadNotice.Title = UploadItemStatusLabel(item);
-        ShowToast(UploadNotice, item.Snapshot.Task.Id.ToString() + UploadNotice.Title);
-        UploadNotice.Message = $"{item.Name}\n{ConfirmedBytesLabel(item)}";
         UploadNotice.Severity = Tone(item) switch
         {
             UploadPresentationTone.Success => InfoBarSeverity.Success,
             UploadPresentationTone.Warning => InfoBarSeverity.Warning,
             _ => InfoBarSeverity.Informational,
         };
+        UploadNotice.Message = UploadNotice.Severity == InfoBarSeverity.Warning
+            ? $"{item.Name}\n{ConfirmedBytesLabel(item)}" : string.Empty;
         UploadDetailsButton.IsEnabled = !_uploadCommandBusy;
+        ShowToast(UploadNotice, item.Snapshot.Task.Id.ToString() + UploadNotice.Title);
     }
 
     private async void UploadDetails_Click(object sender, RoutedEventArgs args)
