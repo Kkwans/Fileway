@@ -899,7 +899,7 @@ public sealed partial class MainPage : Page, IDisposable
         CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
         SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
         MenuShareManagerItem.IsEnabled = !_connecting && _session is { } shareSession && shareSession.Permissions.Share && shareSession.Permissions.Download && _files is IShareService;
-        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateRemoteToolsContext(); UpdateChecksumContext(); UpdateShareContext();
+        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateRemoteToolsContext(); UpdateChecksumContext(); UpdateShareContext(); UpdateMediaInfoContext();
         UpdateApplicationMenus();
     }
     private void ViewMode_Click(object sender, RoutedEventArgs e)
