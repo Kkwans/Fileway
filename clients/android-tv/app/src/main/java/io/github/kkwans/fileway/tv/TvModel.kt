@@ -57,6 +57,7 @@ class TvModel(application: Application) : AndroidViewModel(application) {
     private val anchors = mutableMapOf<String, TvAnchor>()
     val favorites = FavoritesController(viewModelScope) { context === it }
     val recentAccess = RecentAccessController(viewModelScope) { context === it }
+    internal val updates = TvUpdateRuntime.get(application)
     val media = TvMediaController(application, viewModelScope, history) { context }
     val imageLoader = ImageLoader.Builder(application).memoryCache { MemoryCache.Builder().maxSizeBytes(16L * 1024 * 1024).build() }.build()
     val remoteGateway = TvRemoteGateway(this, application)
@@ -132,18 +133,20 @@ class TvModel(application: Application) : AndroidViewModel(application) {
         if(generation!=bound.generation){store.deactivate(account,bound.owner);throw CancellationException("登录来源已变化")}
         mutable.update { it.copy(connected = false, restoring = true, files = emptyList(), recentPlayback = emptyList(), health = null) }
         context = null
+        updates.unbind(erase = true)
         imageLoader.memoryCache?.clear()
         media.closeAndSave()
         runCatching { old?.api?.close() }
         if(generation!=bound.generation){store.deactivate(account,bound.owner);throw CancellationException("登录来源已变化")}
         sessionJob?.cancel(); recentJob?.cancel(); navigationJob?.cancel();sessionRecoveryJob?.cancel();recoveryRevision=-1
         context = bound
+        updates.bind(bound)
         api.persistTokens { token -> check(store.refreshToken(profile, account, token)) { "登录来源已变化" } }
         favorites.bind(bound); recentAccess.bind(bound)
         stack.clear(); anchors.clear();directoryOrigin=null
         mutable.update { it.copy(connected = true, restoring = false, busy = false, profile = profile, route = TvRoute.HOME, path = "/", wirePath = "/", files = emptyList(), error = null, rootEntries=directoryFiles(root),recentPlayback = emptyList()) }
         sessionJob = viewModelScope.launch { api.observeSessionState().collect { health ->
-            if(context===bound){mutable.update{it.copy(health=health)};if(health?.code==SessionHealthCode.EXPIRED)recoverSession(bound)}
+            if(context===bound){updates.bind(bound);mutable.update{it.copy(health=health)};if(health?.code==SessionHealthCode.EXPIRED)recoverSession(bound)}
         } }
         recentJob = viewModelScope.launch { history.recent(account).collect { local ->
             if (context === bound) mutable.update { it.copy(recentPlayback = (local + it.recentPlayback).distinctBy { row -> row.resourceKey }.sortedByDescending { row -> row.updatedAt }.take(100)) }
@@ -334,6 +337,7 @@ class TvModel(application: Application) : AndroidViewModel(application) {
         val bound = context
         media.pause()
         context = null
+        updates.unbind(erase = true)
         favorites.bind(null); recentAccess.bind(null)
         imageLoader.memoryCache?.clear()
         mutable.update { TvState(restoring = false, dark = it.dark, safePercent = it.safePercent, grid = it.grid,gridColumns=it.gridColumns,clockAlways=it.clockAlways,speedAlways=it.speedAlways,seekStepSeconds=it.seekStepSeconds,controlsTimeoutSeconds=it.controlsTimeoutSeconds) }
@@ -360,7 +364,7 @@ class TvModel(application: Application) : AndroidViewModel(application) {
                     bound.api.recoverDeviceAuthentication(device.getString("token"));true
                 }else recoverBoundSession(store,bound.profile,bound.account,bound.api)
                 if(context===bound) {
-                    if(restored){mutable.update{it.copy(health=null)};if(media.state.value.file==null)refresh() else if(media.player.state.value.error!=null)media.retry()}
+                    if(restored){updates.bind(bound);mutable.update{it.copy(health=null)};if(media.state.value.file==null)refresh() else if(media.player.state.value.error!=null)media.retry()}
                     else mutable.update{it.copy(error="保存的登录已失效，请重新登录")}
                 }
             } catch(error:Exception){if(error is CancellationException)throw error;if(context===bound)mutable.update{it.copy(error=error.message?:"自动登录暂不可用")}}
@@ -369,7 +373,12 @@ class TvModel(application: Application) : AndroidViewModel(application) {
     fun reconnect(){context?.let{recoverSession(it,true)}?:restoreLogin()}
     fun pause() {inForeground=false;remote.stop(); media.pause();media.cache.background() }
     fun foreground() {inForeground=true;remote.start();media.cache.foreground();context?.takeIf{it.api.sessionHealth.value?.code==SessionHealthCode.EXPIRED}?.let{recoverSession(it)}}
-    override fun onCleared() {remote.stop(); media.release(); imageLoader.shutdown(); val bound = context; CoroutineScope(Dispatchers.IO).launch { bound?.api?.close() } }
+    override fun onCleared() {
+        remote.stop(); media.release(); imageLoader.shutdown()
+        val bound = context
+        if (bound != null) updates.unbind(erase = false, session = bound)
+        CoroutineScope(Dispatchers.IO).launch { bound?.api?.close() }
+    }
 
     companion object {
         fun directoryFiles(value: JSONObject): List<ResourceRef> {

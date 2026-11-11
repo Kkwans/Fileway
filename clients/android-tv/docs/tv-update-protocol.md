@@ -1,6 +1,6 @@
-# TV 在线更新契约（实施中）
+# TV 在线更新契约
 
-TV 使用当前栖卷服务的认证会话检查更新、请求准备和接收 APK；TV 不需要访问 GitHub。此文描述开发中的 v1 契约，不代表服务已部署或更新已可用。旧服务缺少能力字段时，TV 显示不支持并保留其他功能。
+TV 使用当前栖卷服务的认证会话检查更新、请求准备和接收 APK；TV 不需要访问 GitHub。功能可用性取决于服务端部署和符合本契约的公开 Release。旧服务缺少能力字段时，TV 显示不支持并保留其他功能。
 
 ## 发布清单
 
@@ -29,6 +29,8 @@ TV 使用当前栖卷服务的认证会话检查更新、请求准备和接收 A
 示例仅说明结构，不是可安装版本。`channel` 为 `stable` 或 `preview`，与 GitHub prerelease 状态一致；实际 APK `versionName`、`versionCode` 与频道分别校验。清单和说明有尺寸上限；标签和 APK 名称须和同一公开 Release 的附件完全匹配。Go 服务端只接受固定仓库的真实上传附件，不接收客户端 URL、路径或摘要。
 
 签名算法为 `SHA256withRSA`，输入为 ASCII `Fileway-TV-Update/v1`、一个 NUL 字节、完整清单原始字节。发布工具使用现有 TV APK 发布身份，服务端验原 TV 公共证书及其 SHA-256，TV 以当前已安装的原签名证书验签。安装前 TV 再校验 APK 文件 SHA-256、长度、包名、实际版本、minSdk、ABI 和签名集合。当前版本不引入新的发布私钥，也不自动迁移签名身份。历史 Release 未提供此清单时不得伪称可在线更新；首个支持更新的版本需要先用原签 APK 手动安装。
+
+Android 9 和 10 解析尚未安装的 APK 时，同时请求 `GET_SIGNATURES` 和 `GET_SIGNING_CERTIFICATES`，使系统收集并校验归档证书；身份判断仍使用 `SigningInfo` 当前签名集合与已安装应用及固定证书比对。仅请求新标志在这些系统上可能得不到归档签名。[Android 9 包解析实现](https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-9.0.0_r47/core/java/android/content/pm/PackageManager.java)
 
 ## 同源 API v1
 

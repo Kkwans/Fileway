@@ -6,6 +6,7 @@ import android.hardware.display.DisplayManager
 import android.media.MediaCodecList
 import android.os.Build
 import android.view.Display
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -24,6 +25,7 @@ import androidx.compose.ui.platform.LocalDensity
 import io.github.kkwans.fileway.design.R as Art
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -39,6 +41,7 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
     CACHE("视频缓存",Art.drawable.fileway_ic_storage),
     REMOTE("手机遥控",Art.drawable.fileway_ic_phone),
     DEVICE("设备信息",Art.drawable.fileway_ic_info),
+    UPDATES("应用更新",Art.drawable.fileway_ic_update),
     ACCOUNT("登录信息",Art.drawable.fileway_ic_person),
 }
 
@@ -54,18 +57,38 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
     val body=remember { FocusRequester() }
     val navigation=remember { TvSettingsSection.entries.associateWith { FocusRequester() } }
     val scope=rememberCoroutineScope()
+    var updatesOpen by rememberSaveable { mutableStateOf(false) }
+    var returnToUpdates by remember { mutableStateOf(false) }
+    if (updatesOpen) {
+        val close = { updatesOpen = false; returnToUpdates = true }
+        BackHandler(enabled = interactive, onBack = close)
+        TvUpdateScreen(model, close)
+        return
+    }
     LaunchedEffect(Unit) { model.media.cache.inspect() }
+    val settingsNavigation = rememberLazyListState()
+    LaunchedEffect(returnToUpdates, interactive) {
+        if (returnToUpdates && interactive) {
+            settingsNavigation.scrollToItem(TvSettingsSection.UPDATES.ordinal)
+            withFrameNanos {}
+            navigation.getValue(TvSettingsSection.UPDATES).requestFocus()
+            returnToUpdates = false
+        }
+    }
     val measurer=rememberTextMeasurer()
     val density=LocalDensity.current
     val style=MaterialTheme.typography.bodyLarge
     // Width follows the actual labels plus icon/check slots, including font scale.
     val measuredWidth=with(density) { TvSettingsSection.entries.maxOf { measurer.measure(AnnotatedString(it.title),style).size.width }.toDp() } + 66.dp
     Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
-        LazyColumn(Modifier.width(measuredWidth),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+        LazyColumn(Modifier.width(measuredWidth),state=settingsNavigation,verticalArrangement=Arrangement.spacedBy(4.dp)) {
             items(TvSettingsSection.entries,key={it.name}) { category ->
                 TvOptionRow(category.title,{
-                    section=category
-                    scope.launch { withFrameNanos {};body.requestFocus() }
+                    if (category == TvSettingsSection.UPDATES) updatesOpen = true
+                    else {
+                        section=category
+                        scope.launch { withFrameNanos {};body.requestFocus() }
+                    }
                 },Modifier.focusRequester(navigation.getValue(category)).focusProperties { right=body },
                     icon=category.icon,selected=section==category,showSelection=false)
             }
@@ -148,6 +171,7 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                     item { TvOptionRow("退出登录",model::disconnect,icon=Art.drawable.fileway_ic_arrow_back) }
                     item { Text("栖卷 TV ${BuildConfig.VERSION_NAME}",style=MaterialTheme.typography.bodySmall,color=LocalTvSurfaces.current.secondaryText) }
                 }
+                TvSettingsSection.UPDATES -> Unit
             }
         }
         }

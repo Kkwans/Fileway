@@ -15,8 +15,14 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
+import kotlinx.coroutines.launch
 
 class TvActivity : ComponentActivity() {
     private lateinit var model: TvModel
@@ -24,6 +30,14 @@ class TvActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         window.decorView.systemUiVisibility = 5894
         model = ViewModelProvider(this)[TvModel::class.java]
+        lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) { model.updates.reconcileInstall() }
+        })
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                model.updates.installerPrompt.collect { if (it != null) model.updates.openInstaller(this@TvActivity) }
+            }
+        }
         model.remoteGateway.key={code->
             val time=SystemClock.uptimeMillis()
             window.decorView.rootView.dispatchKeyEvent(KeyEvent(time,time,KeyEvent.ACTION_DOWN,code,0))
