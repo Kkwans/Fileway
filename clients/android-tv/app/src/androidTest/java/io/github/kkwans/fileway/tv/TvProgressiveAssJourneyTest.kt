@@ -1,6 +1,11 @@
 package io.github.kkwans.fileway.tv
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.net.Uri
+import android.view.View
+import android.view.ViewGroup
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -10,10 +15,16 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import io.github.kkwans.nasfilebrowser.data.VideoDecodePolicy
+import io.github.kkwans.nasfilebrowser.player.MediaResourcePolicy
+import io.github.kkwans.nasfilebrowser.player.MediaSubtitleLayer
+import io.github.kkwans.nasfilebrowser.player.NativePlayer
+import io.github.kkwans.nasfilebrowser.player.PlayerViewport
+import io.github.kkwans.nasfilebrowser.player.SourceSubtitleAssets
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -32,6 +43,145 @@ class TvProgressiveAssJourneyTest {
     @Test fun coldResumeUsesAuthenticatedProgressiveAssAndKeepsFontOnReselect() = runJourney(checkLoadFeedback = false)
 
     @Test fun showsActualBytesAndClearsFeedbackWhenCancelled() = runJourney(checkLoadFeedback = true)
+
+    @Test fun embeddedFontsShareBudgetAndKeepSubtitleDrawing(): Unit = runBlocking {
+        val ins = InstrumentationRegistry.getInstrumentation()
+        assumeTrue("Use the project-owned extracted font on an isolated TV", InstrumentationRegistry.getArguments().getString("ownedAssFontBudget") == "true")
+        val context = ins.targetContext
+        val output = requireNotNull(context.getExternalFilesDir(null))
+        val font = File(output, "NfbFixtureBars.ttf").readBytes()
+        assertEquals(1184, font.size)
+        val root = File(context.cacheDir, "ass-font-budget-${System.nanoTime()}").apply { check(mkdir()) }
+        val movie = File(root, "owned.mp4")
+        ins.context.assets.open("media/tv-owned-source.mp4").use { input -> movie.outputStream().use { input.copyTo(it) } }
+        val encoded = encodeAssFont(font)
+        val script = File(root, "embedded.ass").apply { writeText("""[Script Info]
+ScriptType: v4.00+
+PlayResX: 640
+PlayResY: 360
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Bars,NfbFixtureBars,60,&H000000FF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
+[Fonts]
+fontname: NfbFixtureBars.ttf
+$encoded
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.50,0:00:11.00,Bars,,0,0,0,,{\an7\pos(80,40)}I
+Dialogue: 0,0:00:00.50,0:00:11.00,Bars,,0,0,0,,{\an7\pos(300,60)\1c&HFF0000&\p1}m 0 0 l 80 0 80 40 0 40{\p0}
+""".replace("\n", "\r")) }
+        val assets = SourceSubtitleAssets()
+        val lease = assets.acquire("owned-font-stream", 16_384L) { script.copyTo(File(root, "stream.ass")) }
+        val scenario = androidx.test.core.app.ActivityScenario.launch(TvActivity::class.java)
+        var player: NativePlayer? = null
+        var viewport: PlayerViewport? = null
+        fun subtitleLayer(view: View): MediaSubtitleLayer? {
+            if (view is MediaSubtitleLayer) return view
+            return if (view is ViewGroup) (0 until view.childCount).firstNotNullOfOrNull { subtitleLayer(view.getChildAt(it)) } else null
+        }
+        fun red(pixel: Int) = Color.alpha(pixel) > 100 && Color.red(pixel) > 180 && Color.green(pixel) < 60 && Color.blue(pixel) < 60
+        fun blue(pixel: Int) = Color.alpha(pixel) > 100 && Color.blue(pixel) > 180 && Color.red(pixel) < 60 && Color.green(pixel) < 60
+        suspend fun frame(expectedBars: Boolean, name: String) = withTimeout(10_000) {
+            while (true) {
+                val visible = withContext(Dispatchers.Main) {
+                    val view = subtitleLayer(requireNotNull(viewport)) ?: return@withContext false
+                    if (view.width <= 0 || view.height <= 0) return@withContext false
+                    val bitmap = Bitmap.createBitmap(320, 180, Bitmap.Config.ARGB_8888)
+                    try {
+                        val canvas = Canvas(bitmap)
+                        canvas.scale(320f / view.width, 180f / view.height)
+                        view.draw(canvas)
+                        val pixels = IntArray(320 * 180)
+                        bitmap.getPixels(pixels, 0, 320, 0, 0, 320, 180)
+                        var bars = 0
+                        var previous = false
+                        for (x in 0 until 140) {
+                            val current = (0 until 180).count { y -> red(pixels[y * 320 + x]) } > 3
+                            if (current && !previous) bars++
+                            previous = current
+                        }
+                        val valid = pixels.count(::blue) > 150 && (bars == 2) == expectedBars
+                        if (valid) File(output, name).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                        valid
+                    } finally { bitmap.recycle() }
+                }
+                if (visible) break
+                delay(40)
+            }
+        }
+        suspend fun open(budget: Long): NativePlayer {
+            scenario.onActivity { activity ->
+                player?.release()
+                viewport?.let { (it.parent as? ViewGroup)?.removeView(it) }
+                viewport = PlayerViewport(activity).also { (activity.window.decorView as ViewGroup).addView(it, ViewGroup.LayoutParams(640, 360)) }
+                player = NativePlayer(activity, MediaResourcePolicy.LowMemoryTv.copy(assFontBytes = budget)).also {
+                    it.attach(requireNotNull(viewport))
+                    it.open(Uri.fromFile(movie).toString(), 2_000, autoplay = false, videoDecodePolicy = VideoDecodePolicy.SOFTWARE)
+                }
+            }
+            return requireNotNull(player).also { native ->
+                withTimeout(25_000) { native.state.first { it.firstFrameRendered && abs(it.positionMs - 2_000L) < 250L } }
+            }
+        }
+        try {
+            val accepted = open(font.size.toLong())
+            val acceptedGeneration = accepted.state.value.mediaGeneration
+            withContext(Dispatchers.Main) {
+                assertTrue(accepted.importSubtitle(Uri.fromFile(script).toString(), "owned.ass", "owned-full", true))
+                assertTrue("An embedded font and a matching attachment share a registration", accepted.addSubtitleFont("NfbFixtureBars.ttf", font))
+                assertFalse("Another registration would exceed the shared font budget", accepted.addSubtitleFont("other.ttf", font))
+            }
+            frame(true, "ass-font-budget-accepted.png")
+            assertNull(accepted.state.value.subtitleFontNotice)
+            assertEquals(acceptedGeneration, accepted.state.value.mediaGeneration)
+
+            val limited = open(font.size.toLong() - 1)
+            val limitedGeneration = limited.state.value.mediaGeneration
+            withContext(Dispatchers.Main) {
+                assertTrue(limited.importSubtitle(Uri.fromFile(script).toString(), "owned.ass", "owned-full", true))
+            }
+            withTimeout(5_000) { limited.state.first { it.subtitleFontNotice != null && !it.subtitleLoading } }
+            frame(false, "ass-font-budget-full-fallback.png")
+            withContext(Dispatchers.Main) { limited.subtitle(-1) }
+            withTimeout(5_000) { limited.state.first { it.subtitleFontNotice == null && it.selectedSubtitle == -1 } }
+            withContext(Dispatchers.Main) { assertTrue(limited.importAssStream(lease, "owned.ass", "owned-stream") {}) }
+            withTimeout(5_000) { limited.state.first { it.subtitleFontNotice != null && !it.subtitleLoading } }
+            frame(false, "ass-font-budget-stream-fallback.png")
+            assertEquals(limitedGeneration, limited.state.value.mediaGeneration)
+            assertFalse(limited.state.value.playing)
+            assertTrue(abs(limited.state.value.positionMs - 2_000L) < 250L)
+        } finally {
+            withContext(NonCancellable) {
+                scenario.onActivity {
+                    player?.release()
+                    viewport?.let { view -> (view.parent as? ViewGroup)?.removeView(view) }
+                }
+                scenario.close()
+                lease.close()
+                assets.close()
+                script.delete()
+                movie.delete()
+                root.delete()
+            }
+        }
+    }
+
+    private fun encodeAssFont(data: ByteArray): String = buildString {
+        var buffer = 0
+        var bits = 0
+        var lineLength = 0
+        for (byte in data) {
+            buffer = (buffer shl 8) or (byte.toInt() and 255)
+            bits += 8
+            while (bits >= 6) {
+                bits -= 6
+                append(((buffer shr bits) + 33).toChar())
+                buffer = buffer and ((1 shl bits) - 1)
+                if (++lineLength == 80) { append('\n'); lineLength = 0 }
+            }
+        }
+        if (bits > 0) append(((buffer shl (6 - bits)) + 33).toChar())
+    }
 
     private fun runJourney(checkLoadFeedback: Boolean): Unit = runBlocking {
         val ins = InstrumentationRegistry.getInstrumentation(); val args = InstrumentationRegistry.getArguments()

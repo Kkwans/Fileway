@@ -41,6 +41,7 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
     private var library: Ass? = null
     private val fontKeys = mutableSetOf<String>()
     private var fontBytes = 0L
+    private val reducedAssTracks = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private var renderer: io.github.peerless2012.ass.AssRender? = null
     private val tracks = mutableMapOf<String, AssTrack>()
     private class StreamedAss(var bytes: Long = 0, var coveredUntilMs: Long = -1, var complete: Boolean = false)
@@ -112,6 +113,15 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
         requestFrame(timeMs.get())
         return true
     }
+    private fun readAss(id: String, track: AssTrack, data: ByteArray) {
+        val fonts = extractAssFonts(data, minOf(resources.assFontBytes, SUBTITLE_FONT_BYTES_LIMIT.toLong()), ::registerFont)
+        if (fonts.reduced) reducedAssTracks += id
+        if (fonts.script.isNotEmpty()) track.readBuffer(fonts.script)
+    }
+
+    internal fun subtitleFontNotice(): String? = assId?.takeIf { it in reducedAssTracks }
+        ?.let { "部分内嵌字幕字体未能载入，将使用可用字体" }
+
     override fun font(name: String, bytes: ByteArray) = submit { registerFont(name, bytes); Unit }
     /** Acknowledgement runs on the serialized worker and does not depend on
      * View.post/attachment. The caller releases its ByteArray before the next font. */
@@ -125,9 +135,10 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
         val old = headers[id]
         if (old != null && old.size == format.initializationData.size && old.zip(format.initializationData).all { (a, b) -> a.contentEquals(b) }) return@submit
         tracks.remove(id)?.release()
+        reducedAssTracks -= id
         headers[id] = format.initializationData.map { it.copyOf() }
         tracks[id] = ass().createTrack().also { track ->
-            track.readBuffer(requireNotNull(format.initializationData.lastOrNull { it.decodeToString().contains("[Script Info]") }))
+            readAss(id, track, requireNotNull(format.initializationData.lastOrNull { it.decodeToString().contains("[Script Info]") }))
         }
     }
     override fun dialogue(trackId: String, startMs: Long, durationMs: Long, packet: ByteArray) = submit {
@@ -188,7 +199,8 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
     }
     fun externalAss(id: String, data: ByteArray, onFailure: (() -> Unit)? = null, ready: () -> Unit) = submit(onFailure) {
         tracks.remove(id)?.release()
-        tracks[id] = ass().createTrack().also { it.readBuffer(data) }
+        reducedAssTracks -= id
+        tracks[id] = ass().createTrack().also { readAss(id, it, data) }
         post { if (!closed.get()) ready() }
     }
     /** Acknowledged worker append: no unbounded queue and no video recreation.
@@ -202,10 +214,9 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
                 val state = streamedAss.getOrPut(id) { StreamedAss() }
                 val oldCoverage = state.coveredUntilMs
                 val track = tracks.getOrPut(id) { ass().createTrack() }
-                if (update.data.isNotEmpty()) track.readBuffer(update.data)
+                if (update.data.isNotEmpty()) readAss(id, track, update.data)
                 state.bytes += update.data.size; streamedAssBytes += update.data.size
                 state.coveredUntilMs = update.coveredUntilMs; state.complete = update.complete
-                if (update.fontsChanged) { renderer?.release(); renderer = null; lastNative = null; lastTrack = null }
                 // Future events do not change the current frame. Re-render on
                 // coverage changes at the clock, disorder, fonts or completion.
                 val at = timeMs.get() - delayMs
@@ -218,6 +229,7 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
         } } catch (_: RejectedExecutionException) { result(false) }
     }
     fun discardAssStream(id: String) = submit {
+        reducedAssTracks -= id
         streamedAss.remove(id)?.let {
             streamedAssBytes -= it.bytes
             val track = tracks.remove(id)
@@ -293,6 +305,7 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
     }
     internal fun discardImportedSubtitles(ids: List<String>) = submit {
         ids.forEach { id ->
+            reducedAssTracks -= id
             cues.remove(id)?.let { cueBytes -= it.sumOf(::bytes) }
             indexedPgs[id]?.let { removeIndexed(id, it) }
             val track = tracks.remove(id)
@@ -428,7 +441,7 @@ class MediaSubtitleLayer(context: Context, private val resources: MediaResourceP
             renderer?.release(); tracks.values.forEach { it.release() }; library?.release()
             tracks.clear(); cues.clear(); pgs.clear(); headers.clear(); lastNative = null
             streamedAss.clear(); streamedAssBytes = 0
-            fontKeys.clear(); fontBytes = 0
+            fontKeys.clear(); fontBytes = 0; reducedAssTracks.clear()
             lastPgsPacket = null; lastIndexedPgs = null; lastIndexedEvent = -1; decodedPgs = null
         }
         worker.shutdown()

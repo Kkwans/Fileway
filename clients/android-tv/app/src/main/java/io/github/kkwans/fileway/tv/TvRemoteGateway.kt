@@ -120,7 +120,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         val filePreview = remoteBrowsePage(files(), offset = 0, count = 24)
         val content=JSONObject().put("route",ui.route.name).put("directory",ui.path.take(400)).put("busy",ui.busy||media.busy)
             .put("connected",ui.connected).put("error",media.error?:player.error?:ui.error?:JSONObject.NULL)
-            .put("notice",media.subtitleError?:media.subtitleNotice?:media.notice?:player.operationError?:ui.notice?:JSONObject.NULL)
+            .put("notice",media.subtitleError?:media.subtitleNotice?:player.subtitleFontNotice?:media.notice?:player.operationError?:ui.notice?:JSONObject.NULL)
             .put("files",filePreview.getJSONArray("files")).put("total",filePreview.getInt("total"))
             .put("preferences",JSONObject().put("dark",ui.dark).put("gridColumns",ui.gridColumns).put("safePercent",ui.safePercent).put("clockAlways",ui.clockAlways).put("speedAlways",ui.speedAlways).put("seekStepSeconds",ui.seekStepSeconds).put("controlsTimeoutSeconds",ui.controlsTimeoutSeconds).put("detailsHoldMillis",ui.detailsHoldMillis))
         if (scene == "VIDEO") content.put("subtitleStorageRevision", model.media.localSubtitles.remoteRevision())

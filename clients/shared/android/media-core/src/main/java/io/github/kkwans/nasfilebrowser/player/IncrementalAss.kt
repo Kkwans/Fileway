@@ -36,7 +36,7 @@ class IncrementalAss(private val limit: Long = EXTERNAL_TEXT_BYTES_LIMIT) {
         for (index in bytes.indices) {
             val byte = bytes[index]
             require(byte != 0.toByte()) { "ASS 字幕包含无效字符" }
-            if (byte == 10.toByte()) {
+            if (byte == 10.toByte() || byte == 13.toByte()) {
                 line.write(bytes, start, index - start + 1)
                 consumeLine(output); start = index + 1
             }
@@ -59,12 +59,12 @@ class IncrementalAss(private val limit: Long = EXTERNAL_TEXT_BYTES_LIMIT) {
     private fun consumeLine(output: ByteArrayOutputStream) {
         val raw = line.toByteArray(); line.reset()
         val text = decoder.reset().decode(ByteBuffer.wrap(raw)).toString().trim().removePrefix("\uFEFF")
-        val section = text.takeIf { it.startsWith('[') && it.endsWith(']') }?.lowercase()
+        val section = AssSection.read(raw)
         if (section != null) {
             flushFonts(output)
-            inFonts = section == "[fonts]"
-            inEvents = section == "[events]"
-            if (section == "[script info]") scriptInfo = true
+            inFonts = section == AssSection.FONTS
+            inEvents = section == AssSection.EVENTS
+            if (section == AssSection.INFO) scriptInfo = true
             if (inEvents) eventHeader = true
         }
         if (inFonts) fonts.write(raw) else output.write(raw)

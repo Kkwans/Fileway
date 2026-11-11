@@ -60,6 +60,7 @@ data class PlayerState(
     val canSavePosition: Boolean = false, val ended: Boolean = false,
     /** Renderer buffers delivered to the audio sink; not proof of audible output. */
     val audioRenderedBuffers: Int = 0, val audioSkippedBuffers: Int = 0,
+    val subtitleFontNotice: String? = null,
 )
 
 /** Main-thread session facade. Track/rate/subtitle commands never reopen the media or rebind video. */
@@ -422,6 +423,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0),
             subtitleLoading = streamingAss?.let { !it.complete } ?:
                 streamingPgs?.let { !it.ready || subtitlePositionUs(player.currentPosition) >= it.coveredUntilUs } ?: previous.subtitleLoading,
+            subtitleFontNotice = layer?.subtitleFontNotice(),
             nativeSubtitleNeedsSource = previous.selectedSubtitle >= 0 && nativeSubtitleIdentity(previous.selectedSubtitle) != null && !nativeSubtitleCovered(previous.selectedSubtitle),
             audioRenderedBuffers = audioCounters?.renderedOutputBufferCount ?: 0,
             audioSkippedBuffers = audioCounters?.skippedOutputBufferCount ?: 0,

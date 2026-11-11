@@ -251,6 +251,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     LaunchedEffect(state.operationError) {
         state.operationError?.let { message -> feedback.showSnackbar(message); model.player.clearOperationError(message) }
     }
+    LaunchedEffect(state.subtitleFontNotice) {
+        state.subtitleFontNotice?.let { feedback.showSnackbar(it) }
+    }
     LaunchedEffect(client.busy, file) {
         showRequest = false
         if (client.busy) { delay(350); showRequest = true }

@@ -53,6 +53,11 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
     val textAppearance by model.media.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
     val audio = file.mediaKind() == MediaKind.AUDIO
     val mediaEpoch=model.media.controlEpoch
+    var fontNotice by remember(mediaEpoch) { mutableStateOf<String?>(null) }
+    LaunchedEffect(mediaEpoch, player.subtitleFontNotice) {
+        fontNotice = player.subtitleFontNotice
+        if (fontNotice != null) { delay(5_000); fontNotice = null }
+    }
     var controls by remember(mediaEpoch) { mutableStateOf(audio) }
     var exitPrompt by remember(mediaEpoch) { mutableStateOf(false) }
     val pages = remember(model.sessionEpoch, file.mediaKey) { mutableStateListOf<TvPlayerPage>() }
@@ -274,9 +279,9 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                     .background(PlayerFeedbackSurface.copy(alpha = .94f), TvShape).padding(horizontal = 12.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall, color = Color.White)
         }
-        (state.subtitleError?:player.seekError?:state.subtitleNotice?:state.notice?:player.operationError)?.let{notice->
+        (state.subtitleError?:player.seekError?:state.subtitleNotice?:fontNotice?:state.notice?:player.operationError)?.let{notice->
             val inSubtitlePanel=panel==TvPlayerPage.SUBTITLE||panel==TvPlayerPage.EXTERNAL||panel==TvPlayerPage.LOCAL_SUBTITLE
-            val shownInSubtitlePanel=notice==state.subtitleError||notice==state.subtitleNotice||
+            val shownInSubtitlePanel=notice==state.subtitleError||notice==state.subtitleNotice||notice==player.subtitleFontNotice||
                 (notice==player.operationError&&notice.contains("字幕"))
             if(!inSubtitlePanel||!shownInSubtitlePanel) {
                 val noticeBottom = if (hudVisible) with(LocalDensity.current) { controlsHeight.toDp() } else 24.dp
