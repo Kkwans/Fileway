@@ -226,11 +226,6 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
                             TvButton("重试", ::retry)
                         }
                     }
-                    state.notice?.let {
-                        Text(it, Modifier.padding(bottom = 6.dp), style = MaterialTheme.typography.bodySmall,
-                            color = LocalTvSurfaces.current.secondaryText)
-                    }
-
                     Box(
                         Modifier.weight(1f).fillMaxWidth().focusRequester(bodyFocus)
                             .focusRestorer(if (atHome) homeEntryFocus else FocusRequester.Default).focusGroup()
@@ -255,6 +250,16 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
                                     onFiles = { selectRoute(TvRoute.FILES) },
                                     onDetails = { file, candidates -> details = file; detailCandidates = candidates })
                             }
+                        }
+                    }
+                }
+                if (active && !panelOpen) state.notice?.let { notice ->
+                    TvBrowseNotice(notice, Modifier.align(Alignment.BottomEnd)
+                        .padding(end = horizontal + 8.dp, start = horizontal + 8.dp, bottom = vertical + 8.dp)) { focused ->
+                        model.dismissNotice(notice)
+                        if (focused) {
+                            if (state.route == TvRoute.SETTINGS && !state.search) returnFocus()
+                            else restoreRequest++
                         }
                     }
                 }
@@ -337,6 +342,28 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TvBrowseNotice(message: String, modifier: Modifier, onDismiss: (Boolean) -> Unit) {
+    var focused by remember { mutableStateOf(false) }
+    val dismiss by rememberUpdatedState(onDismiss)
+    LaunchedEffect(message) {
+        delay(5_000)
+        dismiss(focused)
+    }
+    val surfaces = LocalTvSurfaces.current
+    Row(
+        modifier.widthIn(max = 480.dp).background(surfaces.raised, TvShape)
+            .border(1.dp, surfaces.outline, TvShape).padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(message, Modifier.weight(1f, fill = false).padding(vertical = 10.dp),
+            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        TvToolbarAction("关闭提示", Art.drawable.fileway_ic_close, { dismiss(focused) },
+            Modifier.onFocusChanged { focused = it.isFocused })
     }
 }
 
@@ -983,17 +1010,8 @@ private fun gridColumnsAtWidth(width: Dp, preferred: Int): Int {
 @Composable
 private fun TvBrowseLoading(state: TvState) {
     val label = if (state.search) "正在搜索…" else "正在读取内容…"
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val columns = if (state.grid) gridColumnsAtWidth(maxWidth, state.gridColumns) else 1
-        val width = (maxWidth - tileGap * (columns - 1)) / columns
-        val height = if (state.grid) tileHeight(width, LocalTvCompact.current) else 58.dp
-        Box(
-            Modifier.width(width).height(height).background(MaterialTheme.colorScheme.surface, TvShape)
-                .padding(horizontal = 8.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(label, style = MaterialTheme.typography.bodySmall, color = LocalTvSurfaces.current.secondaryText)
-        }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = LocalTvSurfaces.current.secondaryText)
     }
 }
 

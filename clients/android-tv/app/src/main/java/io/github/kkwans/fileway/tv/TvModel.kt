@@ -576,7 +576,7 @@ class TvModel(application: Application) : AndroidViewModel(application) {
                     val resolved = file.copy(directory = value.getBoolean("isDir"), type = value.optString("type"), size = value.optLong("size"), modified = value.optString("modified"))
                     if (resolved.directory) open(resolved,candidates)
                     else if (resolved.mediaKind() != null) open(resolved, candidates)
-                    else mutable.update { it.copy(notice = "TV 首版支持视频、音乐和图片；可在详情查看完整信息") }
+                    else mutable.update { it.copy(notice = "TV 无法打开此文件。可在详情查看名称和路径。") }
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
                     if (context === bound && openRequest == requested) mutable.update { it.copy(error = error.message ?: "无法确认文件信息") }
@@ -609,7 +609,9 @@ class TvModel(application: Application) : AndroidViewModel(application) {
     fun setControlsTimeout(value:Int) {val valid=value.coerceIn(2,30);preferences.edit().putInt("controls_timeout_seconds",valid).apply();mutable.update{it.copy(controlsTimeoutSeconds=valid)} }
     fun setDetailsHold(value:Int) {val valid=value.coerceIn(500,2000);preferences.edit().putInt("details_hold_millis",valid).apply();mutable.update{it.copy(detailsHoldMillis=valid)} }
     fun toggleOrder() { mutable.update { it.copy(sortAscending = !it.sortAscending) } }
-    fun clearNotice() { failedDirectory = null; failedSearchRestore = null; mutable.update { it.copy(notice = null, error = null) } }
+    fun dismissNotice(expected: String) {
+        mutable.update { if (it.notice == expected) it.copy(notice = null) else it }
+    }
     fun disconnect() {
         authenticationJob?.cancel(); cancelNavigation(); failedDirectory = null; sessionJob?.cancel(); recentJob?.cancel();sessionRecoveryJob?.cancel(); generation++
         stack.clear(); directoryOrigin = null; settingsOrigin = null; anchors.clear()
