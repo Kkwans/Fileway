@@ -126,6 +126,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
                 args.Cancel = true;
                 CloseRequested?.Invoke(this, EventArgs.Empty);
             };
+            Controls.PopupMaterials.Changed += UpdatePopupBackdropFactory;
         }
         catch
         {
@@ -552,11 +553,14 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private void UpdateBackdropFactory()
     {
         if (_disposed) return;
-        Func<SystemBackdrop>? popupFactory = null;
-        if (NativePlayerAcrylicBackdrop.IsSupported && _policySettings.AdvancedEffectsEnabled && !_policyAccessibility.HighContrast)
-            popupFactory = static () => new DesktopAcrylicBackdrop();
-        _controls.SetFlyoutBackdropFactory(popupFactory);
+        UpdatePopupBackdropFactory();
         UpdateMaterialVisibility();
+    }
+
+    private void UpdatePopupBackdropFactory()
+    {
+        if (_disposed) return;
+        _controls.SetFlyoutBackdropFactory(Controls.PopupMaterials.NativeBackdrop);
     }
 
     private void PolicySettings_Changed(UISettings sender, object args) => DispatcherQueue.TryEnqueue(UpdateBackdropFactory);
@@ -813,6 +817,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        Controls.PopupMaterials.Changed -= UpdatePopupBackdropFactory;
         _resizeTimer?.Stop();
         CloseNativeSettings();
         NativeVideoWindow.ShowWindow(_window, 0);

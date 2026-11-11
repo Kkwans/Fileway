@@ -41,11 +41,24 @@ public partial class App : Application, IAsyncDisposable
         InitializeComponent();
     }
 
+    internal PopupMaterial PopupMaterial { get; private set; }
+
+    internal void SetPopupMaterial(PopupMaterial material)
+    {
+        if (!Enum.IsDefined(material)) throw new ArgumentOutOfRangeException(nameof(material));
+        if (PopupMaterial == material) return;
+        UiPreferences.SavePopupMaterial(material);
+        PopupMaterial = material;
+        Controls.PopupMaterials.SetSelection(material);
+    }
+
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         try
         {
             UiPreferences.Configure(DataDirectory());
+            PopupMaterial = UiPreferences.LoadPopupMaterial();
+            Controls.PopupMaterials.Initialize(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread(), PopupMaterial);
             _window = new MainWindow();
             _window.CloseRequested += MainWindow_CloseRequested;
             _window.ExitRequested += (_, _) => RequestExit();
@@ -285,6 +298,7 @@ public partial class App : Application, IAsyncDisposable
         try { if (_playback is not null) await _playback.DisposeAsync(); }
         catch (Exception) { /* The Host Job Object still bounds process lifetime. */ }
         ShutdownDiagnostics.Record(ShutdownDiagnosticStage.PlaybackDisposeReturned, _window?.DispatcherQueue.HasThreadAccess == true);
+        Controls.PopupMaterials.Shutdown();
         try { if (_services is not null) await _services.DisposeAsync(); }
         catch (Exception) { }
         try

@@ -1,60 +1,64 @@
+using System.Runtime.InteropServices;
 using Microsoft.Graphics.Canvas.Effects;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace Fileway.App.Controls;
 
-/// <summary>Real content blur for in-window surfaces: samples the XAML backdrop behind the
-/// brush and gaussian-blurs it, then lays a readable tint over the result.</summary>
+/// <summary>Samples in-window content with a gentle Gaussian blur and a readable tint.</summary>
 public sealed class FwBlurBrush : XamlCompositionBrushBase
 {
-    public static readonly DependencyProperty TintProperty = DependencyProperty.Register(
-        nameof(Tint), typeof(Windows.UI.Color), typeof(FwBlurBrush),
-        new PropertyMetadata(Microsoft.UI.Colors.Transparent, (_, _) => { }));
+    private CompositionBackdropBrush? _source;
 
-    private CompositionEffectBrush? _effectBrush;
-
-    public Windows.UI.Color Tint
-    {
-        get => (Windows.UI.Color)GetValue(TintProperty);
-        set => SetValue(TintProperty, value);
-    }
+    public Color Tint { get; init; }
 
     protected override void OnConnected()
     {
-        if (_effectBrush is not null) return;
-        var settings = new Windows.UI.ViewManagement.UISettings();
-        bool highContrast = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
-        FallbackColor = highContrast ? settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background)
-            : Windows.UI.Color.FromArgb(255, Tint.R, Tint.G, Tint.B);
-        if (highContrast || !settings.AdvancedEffectsEnabled) return;
-        var compositor = CompositionTarget.GetCompositorForCurrentThread();
-        var graph = new ArithmeticCompositeEffect
+        FallbackColor = Tint;
+        try
         {
-            MultiplyAmount = 0,
-            Source1Amount = 0.72f,
-            Source2Amount = 0.28f,
-            Source1 = new GaussianBlurEffect
+            var compositor = CompositionTarget.GetCompositorForCurrentThread();
+            var graph = new ArithmeticCompositeEffect
             {
-                Name = "Blur",
-                BlurAmount = 18f,
-                BorderMode = EffectBorderMode.Hard,
-                Optimization = EffectOptimization.Balanced,
-                Source = new CompositionEffectSourceParameter("backdrop"),
-            },
-            Source2 = new ColorSourceEffect { Color = Tint },
-        };
-        var factory = compositor.CreateEffectFactory(graph);
-        _effectBrush = factory.CreateBrush();
-        _effectBrush.SetSourceParameter("backdrop", compositor.CreateBackdropBrush());
-        CompositionBrush = _effectBrush;
+                MultiplyAmount = 0,
+                Source1Amount = 0.24f,
+                Source2Amount = 0.76f,
+                Source1 = new GaussianBlurEffect
+                {
+                    BlurAmount = 12f,
+                    BorderMode = EffectBorderMode.Hard,
+                    Optimization = EffectOptimization.Balanced,
+                    Source = new CompositionEffectSourceParameter("backdrop"),
+                },
+                Source2 = new ColorSourceEffect { Color = Tint },
+            };
+            using var factory = compositor.CreateEffectFactory(graph);
+            var effect = factory.CreateBrush();
+            try
+            {
+                _source = compositor.CreateBackdropBrush();
+                effect.SetSourceParameter("backdrop", _source);
+                CompositionBrush = effect;
+            }
+            catch
+            {
+                effect.Dispose();
+                _source?.Dispose();
+                _source = null;
+                throw;
+            }
+        }
+        catch (COMException) { }
     }
 
     protected override void OnDisconnected()
     {
-        _effectBrush?.Dispose();
-        _effectBrush = null;
+        var brush = CompositionBrush;
         CompositionBrush = null;
+        brush?.Dispose();
+        _source?.Dispose();
+        _source = null;
     }
 }

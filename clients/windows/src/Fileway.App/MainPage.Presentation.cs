@@ -47,9 +47,9 @@ public sealed partial class MainPage
         if (button.Flyout is not Flyout { Content: FrameworkElement content } flyout) return;
         content.Margin = new Thickness(0); content.Width = 136; content.MinWidth = 0;
         flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft;
+        Controls.SurfaceStyles.Apply(flyout);
         flyout.Opening += (_, _) =>
         {
-            Controls.SurfaceStyles.Apply(flyout, ActualTheme);
             if (content is Panel panel)
                 foreach (var choice in panel.Children.OfType<ToggleButton>()) Controls.SurfaceStyles.Soften(choice, "ToggleButton", ActualTheme);
         };

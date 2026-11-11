@@ -17,7 +17,6 @@
       <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
       <AcrylicBrush x:Key="FlyoutBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
       <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
-      <ctl:FwBlurBrush x:Key="ContentDialogBackground" Tint="#CC24272C" />
       <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
       <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#14FFFFFF" />
       <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59FFFFFF" />
@@ -29,8 +28,6 @@
       <Color x:Key="FwShellWarmColor">#FF242220</Color>
       <Color x:Key="FwShellCoolColor">#FF1F252D</Color>
       <Color x:Key="FwShellCustomBaseColor">#FF181818</Color>
-      <Color x:Key="FwTooltipBaseColor">#F21B1E23</Color>
-      <Color x:Key="FwPopupBlurColor">#CC24272C</Color>
       <Color x:Key="FwVideoMatteColor">#FF000000</Color>
       <Color x:Key="FwPlayerNativeTintColor">#FF101012</Color>
       <Color x:Key="FwOwnedPanelFallbackColor">#FF2C2C2C</Color>
@@ -85,7 +82,6 @@
       <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
       <AcrylicBrush x:Key="FlyoutBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
       <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
-      <ctl:FwBlurBrush x:Key="ContentDialogBackground" Tint="#CCF9FAFC" />
       <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
       <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#0F000000" />
       <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59000000" />
@@ -97,8 +93,6 @@
       <Color x:Key="FwShellWarmColor">#FFEEEAE5</Color>
       <Color x:Key="FwShellCoolColor">#FFE6EBF0</Color>
       <Color x:Key="FwShellCustomBaseColor">#FFE1E1E1</Color>
-      <Color x:Key="FwTooltipBaseColor">#F2FBFCFD</Color>
-      <Color x:Key="FwPopupBlurColor">#CCF9FAFC</Color>
       <Color x:Key="FwVideoMatteColor">#FF000000</Color>
       <Color x:Key="FwPlayerNativeTintColor">#FF101012</Color>
       <Color x:Key="FwOwnedPanelFallbackColor">#FFF8F8F8</Color>
@@ -193,12 +187,6 @@
       <Thickness x:Key="FwNavSelectedBorderThickness">1</Thickness>
     </ResourceDictionary>
   </ResourceDictionary.ThemeDictionaries>
-
-  <!-- ToolTips render in a popup that resolves ThemeResource against the system theme;
-       these shared brushes are updated from the app theme at runtime instead. -->
-  <ctl:FwBlurBrush x:Key="FwToolTipBackgroundBrush" Tint="#CCFBFCFD" />
-  <SolidColorBrush x:Key="FwToolTipBorderBrush" Color="#29000000" />
-  <SolidColorBrush x:Key="FwToolTipForegroundBrush" Color="#FF1B1F24" />
 
   <ctl:FwBoolToVisibilityConverter x:Key="FwBoolToVisibilityConverter" />
 
@@ -743,7 +731,7 @@
 
   <!-- Dialogs: frosted surface, generous radius and app-wide button styles. -->
   <Style TargetType="ContentDialog" BasedOn="{StaticResource DefaultContentDialogStyle}">
-    <Setter Property="Background" Value="{ThemeResource FwPanelBrush}" />
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="18" />
@@ -752,6 +740,7 @@
     <Setter Property="CloseButtonStyle" Value="{StaticResource FwSecondaryButtonStyle}" />
     <Setter Property="SecondaryButtonStyle" Value="{StaticResource FwSecondaryButtonStyle}" />
     <Setter Property="ctl:DialogOrdering.Enable" Value="True" />
+    <Setter Property="ctl:SurfaceStyles.UsePopupMaterial" Value="True" />
   </Style>
 
   <!-- Expander: uses the same surface card language as the rest of the app. -->
@@ -894,15 +883,23 @@
     <Setter Property="CornerRadius" Value="10" />
   </Style>
 
+  <Style TargetType="MenuFlyoutPresenter" BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}">
+    <Setter Property="ctl:SurfaceStyles.UsePopupMaterial" Value="True" />
+  </Style>
+  <Style TargetType="FlyoutPresenter" BasedOn="{StaticResource DefaultFlyoutPresenterStyle}">
+    <Setter Property="ctl:SurfaceStyles.UsePopupMaterial" Value="True" />
+  </Style>
+
   <!-- Tooltips share the frosted popup language with dialogs and menus. -->
   <Style TargetType="ToolTip">
-    <Setter Property="Background" Value="{StaticResource FwToolTipBackgroundBrush}" />
-    <Setter Property="BorderBrush" Value="{StaticResource FwToolTipBorderBrush}" />
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
+    <Setter Property="ctl:SurfaceStyles.UsePopupMaterial" Value="True" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="CornerRadius" Value="8" />
     <Setter Property="Padding" Value="10,6" />
     <Setter Property="FontSize" Value="12" />
-    <Setter Property="Foreground" Value="{StaticResource FwToolTipForegroundBrush}" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
     <Setter Property="MaxWidth" Value="360" />
   </Style>
 

@@ -75,7 +75,7 @@ internal static class FloatingNotice
             bar.ActualThemeChanged += ActualThemeChanged;
             bar.PointerEntered += PointerEntered;
             bar.PointerExited += PointerExited;
-            if (bar.IsLoaded) Material();
+            if (bar.IsLoaded) ObserveMaterial();
         }
 
         private void TimerTick(DispatcherQueueTimer sender, object args)
@@ -104,11 +104,18 @@ internal static class FloatingNotice
         {
             _pointerOver = false;
             _timer.Stop();
+            PopupMaterials.Changed -= Material;
         }
         private void Loaded(object sender, RoutedEventArgs args)
         {
-            Material();
+            ObserveMaterial();
             if (_bar.IsOpen) OpenChanged();
+        }
+        private void ObserveMaterial()
+        {
+            PopupMaterials.Changed -= Material;
+            PopupMaterials.Changed += Material;
+            Material();
         }
         private void ActualThemeChanged(FrameworkElement sender, object args) => Material();
 
@@ -142,6 +149,7 @@ internal static class FloatingNotice
 
         public void Dispose()
         {
+            PopupMaterials.Changed -= Material;
             _timer.Stop();
             _timer.Tick -= TimerTick;
             _bar.Unloaded -= Unloaded;
@@ -164,18 +172,7 @@ internal static class FloatingNotice
             _bar.BorderBrush = ThemePalette.Brush("FwStrokeBrush", theme);
             _bar.BorderThickness = new Thickness(1);
             _bar.CornerRadius = new CornerRadius(Compact ? 16 : 10);
-            if (!Compact || new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
-            {
-                _bar.Background = background;
-                return;
-            }
-            _bar.Background = new AcrylicBrush
-            {
-                TintColor = background.Color,
-                TintOpacity = 0.88,
-                TintLuminosityOpacity = 0.92,
-                FallbackColor = background.Color,
-            };
+            _bar.Background = Compact ? PopupMaterials.InWindowBrush(theme) : background;
         }
         private void OpenChanged()
         {

@@ -77,6 +77,7 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     internal event EventHandler? CloseRequested;
     internal event EventHandler? ExitRequested;
+    internal event EventHandler? SystemAppearanceChanged;
 
     private void ApplyFrame()
     {
@@ -211,6 +212,8 @@ internal sealed class FramelessWindowChrome : IDisposable
     private nint WindowProcedure(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference)
     {
         if (_disposed) return DefSubclassProc(window, message, wParam, lParam);
+        if (message is 0x0015 or 0x001a or 0x031a or 0x0218)
+            SystemAppearanceChanged?.Invoke(this, EventArgs.Empty);
         if (ExitMessage != 0 && message == ExitMessage)
         {
             ExitRequested?.Invoke(this, EventArgs.Empty);

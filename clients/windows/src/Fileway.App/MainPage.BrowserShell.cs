@@ -32,7 +32,7 @@ public sealed partial class MainPage
     private void InitializeBrowserShell()
     {
         _sidebarCollapsed = UiPreferences.LoadSidebarCollapsed();
-        SearchBox.Loaded += (_, _) => Controls.SurfaceStyles.AttachPopupBackdrop(SearchBox);
+        SearchBox.Loaded += (_, _) => Controls.SurfaceStyles.AttachSelectorPopup(SearchBox);
         AddNavigationAccelerators(this);
         KeyDown += Overlay_KeyDown;
         UpdateSidebarLayout();

@@ -233,8 +233,9 @@ components:
 - 主按钮悬停/按下必须使用 `AccentFillColorSecondaryBrush`/`AccentFillColorTertiaryBrush` 保持实心强调色，禁止用半透明 `FwSelectionBrush` 替换背景（白字会失去对比度）。
 - 复选框使用自研模板：20px 方框、6px 圆角、选中填充强调色并显示自绘勾线；不得直接使用系统 CheckBox 外观。
 - 展开面板统一 `FwSurfaceBrush` + 1px `FwStrokeBrush` + 10px 圆角；滚动条使用 App.xaml 的 `ScrollBarThumbFill`/`ScrollBarTrackFill` 令牌（透明轨道、分级半透明滑块），高对比度走系统色。
-- 主题偏好持久化在数据根的 `ui-preferences.json`（仅 `theme`），不写注册表或全局 AppData；文件缺失/损坏时回退“跟随系统”。
+- 主题和弹窗材质偏好持久化在数据根的 `ui-preferences.json`。配置缺失或损坏时分别使用「跟随系统」和「高级毛玻璃」。
 - 窗口菜单栏（`MenuBar`/`MenuBarItem`）、`ProgressRing` 和 `InfoBar` 保留系统模板和无障碍语义。`FloatingNotice` 统一反馈控件的主题底色和计时，位置由页面及弹窗布局决定。
+- 「设置 → 外观 → 弹窗材质」提供高级毛玻璃、柔和模糊和实色，即时应用到活动弹层。应用内表面分别使用原生 Acrylic 和 Gaussian，独立弹层使用系统 Acrylic 的 Base 或 Thin。系统关闭透明效果、启用高对比度或省电时回退到对应主题实色。用户选择保存在本地 UI 偏好，与外壳背景独立。
 - 主窗 Toast 在工作区顶部居中浮现一句操作反馈，出现和消失时保持页面布局，可附一个有边框的明确操作入口，同一时刻显示一条。背景使用带主题色保护的 Acrylic，系统回退为对应主题实色。保留关闭及自动消失，鼠标悬停和键盘焦点进入时延后消失。进度、路径、异常详情和核实结果留在对应任务或页面的内联状态区。
 
 ## Components

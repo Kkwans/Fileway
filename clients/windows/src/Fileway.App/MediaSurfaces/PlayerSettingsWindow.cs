@@ -16,10 +16,11 @@ using Windows.UI.ViewManagement;
 
 namespace Fileway.App.MediaSurfaces;
 
-/// <summary>An owned, interactive settings surface with a whole-window acrylic target.</summary>
+/// <summary>An owned, interactive settings or details surface.</summary>
 internal sealed class PlayerSettingsWindow : Window, IDisposable
 {
     private readonly Grid _root = new() { RequestedTheme = ElementTheme.Dark };
+    private readonly SolidColorBrush _transparentBackground = new(Microsoft.UI.Colors.Transparent);
     private readonly FrameworkElement _presenter;
     private readonly SettingsAcrylicBackdrop _backdrop;
     private readonly NativeVideoWindow.SubclassProc _procedure;
@@ -49,7 +50,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         _responsiveness = responsiveness;
         _owner = owner; _lightDismiss = lightDismiss; _movable = movable;
         _root.RequestedTheme = theme;
-        _backdrop = new SettingsAcrylicBackdrop(theme);
+        _backdrop = new SettingsAcrylicBackdrop(theme, SetAcrylicAvailable);
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(onClosed);
         _onClosed = onClosed;
@@ -65,10 +66,10 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             if (presenterStyle is not null) _presenter.Style = presenterStyle;
             if (_presenter is Control control)
             {
-                control.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                control.Background = _transparentBackground;
                 control.BorderThickness = new Thickness(0);
             }
-            _root.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            SetAcrylicAvailable(false);
             _root.Children.Add(_presenter);
             Content = _root;
             if (AppWindow.Presenter is OverlappedPresenter presenter)
@@ -89,21 +90,14 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             SetDwmAttribute(20, theme == ElementTheme.Dark ? 1 : 0);
             SetDwmAttribute(33, 2); // DWMWCP_ROUND; DWM retains its native shadow.
             SetDwmAttribute(34, unchecked((int)0xfffffffeu)); // DWMWA_COLOR_NONE.
-            if (DesktopAcrylicController.IsSupported()) SystemBackdrop = _backdrop;
-            else
-            {
-                // Material availability must never disable playback settings.
-                var fallback = new AccessibilitySettings().HighContrast
-                    ? new UISettings().GetColorValue(UIColorType.Background)
-                    : Controls.ThemePalette.Color("FwOwnedPanelFallbackColor", theme);
-                _root.Background = new SolidColorBrush(fallback);
-            }
+            UpdatePopupMaterial();
             _root.AddHandler(UIElement.KeyDownEvent, _keyHandler, true);
             _root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(Root_PointerPressed), true);
             _root.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(Root_PointerReleased), true);
             _root.PointerCaptureLost += Root_PointerCaptureLost;
             Activated += Window_Activated;
             Closed += Window_Closed;
+            Controls.PopupMaterials.Changed += UpdatePopupMaterial;
         }
         catch (Exception creationError)
         {
@@ -118,6 +112,51 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     }
 
     internal nint Hwnd => _closed ? 0 : _window;
+
+    private void UpdatePopupMaterial()
+    {
+        if (_closed || _closing || _released) return;
+        var material = Controls.PopupMaterials.Effective;
+        if (material != PopupMaterial.Solid && DesktopAcrylicController.IsSupported())
+        {
+            try
+            {
+                _backdrop.SetKind(material == PopupMaterial.SoftBlur ? DesktopAcrylicKind.Thin : DesktopAcrylicKind.Base);
+                if (!_backdrop.IsAttached)
+                {
+                    // Keep a readable surface even when composition connects on a later layout pass.
+                    SetAcrylicAvailable(false);
+                    SystemBackdrop = null;
+                    SystemBackdrop = _backdrop;
+                }
+                return;
+            }
+            catch (Exception) { /* An optional backdrop must not disable this window. */ }
+        }
+
+        SetAcrylicAvailable(false);
+        if (SystemBackdrop is not null)
+        {
+            try { SystemBackdrop = null; }
+            catch (Exception) { /* The opaque root already covers any detached material. */ }
+        }
+    }
+
+    private void SetAcrylicAvailable(bool available)
+    {
+        if (_closed || _closing || _released) return;
+        if (available)
+        {
+            _root.Background = _transparentBackground;
+            return;
+        }
+
+        var theme = _root.RequestedTheme == ElementTheme.Default ? _root.ActualTheme : _root.RequestedTheme;
+        var fallback = new AccessibilitySettings().HighContrast
+            ? new UISettings().GetColorValue(UIColorType.Background)
+            : Controls.ThemePalette.Color("FwOwnedPanelFallbackColor", theme);
+        _root.Background = new SolidColorBrush(fallback);
+    }
 
     internal void ShowCentered()
     {
@@ -354,6 +393,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     {
         if (_released) return;
         _released = true;
+        Controls.PopupMaterials.Changed -= UpdatePopupMaterial;
         _root.RemoveHandler(UIElement.KeyDownEvent, _keyHandler);
         _root.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(Root_PointerPressed));
         _root.RemoveHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(Root_PointerReleased));
@@ -402,12 +442,23 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
 
     private static Win32Exception NativeFailure(string operation) => new(Marshal.GetLastPInvokeError(), $"{operation} 失败。");
 
-    internal sealed class SettingsAcrylicBackdrop(ElementTheme theme) : SystemBackdrop, IDisposable
+    internal sealed class SettingsAcrylicBackdrop(ElementTheme theme, Action<bool> setAvailable) : SystemBackdrop, IDisposable
     {
         private DesktopAcrylicController? _controller;
         private ICompositionSupportsSystemBackdrop? _target;
         private SystemBackdropConfiguration? _configuration;
+        private DesktopAcrylicKind _kind = DesktopAcrylicKind.Thin;
         private bool _disposed;
+        internal bool IsAttached { get; private set; }
+
+        internal void SetKind(DesktopAcrylicKind kind)
+        {
+            if (_kind == kind) return;
+            _kind = kind;
+            if (_controller is not { } controller) return;
+            controller.Kind = kind;
+            ApplyPalette();
+        }
 
         protected override void OnTargetConnected(ICompositionSupportsSystemBackdrop connectedTarget, XamlRoot xamlRoot)
         {
@@ -417,16 +468,23 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             _target = connectedTarget;
             try
             {
+                Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread().EnsureSystemDispatcherQueue();
                 _configuration = new SystemBackdropConfiguration { Theme = SystemBackdropTheme.Dark, IsInputActive = true };
                 CopySystemPolicy(connectedTarget, xamlRoot);
-                _controller = new DesktopAcrylicController { Kind = DesktopAcrylicKind.Thin };
+                _controller = new DesktopAcrylicController { Kind = _kind };
                 _controller.SetSystemBackdropConfiguration(_configuration);
                 ApplyPalette();
-                // Keep the SDK's Thin luminosity/noise recipe and system fallback.
+                // Keep the SDK's luminosity/noise recipe and system fallback for the selected kind.
                 if (!_controller.AddSystemBackdropTarget(connectedTarget))
                     throw new InvalidOperationException("无法连接设置窗口的 Acrylic 背景。");
+                IsAttached = true;
             }
-            catch { Disconnect(); throw; }
+            catch (Exception)
+            {
+                try { ReleaseController(); }
+                catch (Exception) { /* The root remains opaque if composition is unavailable. */ }
+            }
+            setAvailable(IsAttached);
         }
 
         protected override void OnDefaultSystemBackdropConfigurationChanged(ICompositionSupportsSystemBackdrop target, XamlRoot xamlRoot)
@@ -459,17 +517,24 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
 
         private void Disconnect()
         {
-            var controller = _controller;
             var target = _target;
-            _controller = null;
             _target = null;
-            _configuration = null;
-            try { controller?.RemoveAllSystemBackdropTargets(); }
+            try { ReleaseController(); }
             finally
             {
-                try { controller?.Dispose(); }
-                finally { if (target is not null) base.OnTargetDisconnected(target); }
+                if (target is not null) base.OnTargetDisconnected(target);
+                setAvailable(false);
             }
+        }
+
+        private void ReleaseController()
+        {
+            var controller = _controller;
+            _controller = null;
+            _configuration = null;
+            IsAttached = false;
+            try { controller?.RemoveAllSystemBackdropTargets(); }
+            finally { controller?.Dispose(); }
         }
 
         public void Dispose()

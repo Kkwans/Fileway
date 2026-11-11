@@ -76,6 +76,7 @@ internal sealed class ViewerChrome : Grid
         Grid.SetColumn(_topActions, 1);
         topGrid.Children.Add(_topActions);
         _topBar = new Border { VerticalAlignment = VerticalAlignment.Top, Style = (Style)Application.Current.Resources["FwChromeBarStyle"], Child = topGrid };
+        SurfaceStyles.SetUsePopupMaterial(_topBar, true);
         _topBar.PointerEntered += (_, _) => _pointerOverChrome = true;
         _topBar.PointerExited += (_, _) => _pointerOverChrome = false;
         Children.Add(_topBar);
@@ -108,14 +109,14 @@ internal sealed class ViewerChrome : Grid
         _toast = new Border
         {
             Style = (Style)Application.Current.Resources["FwToastStyle"],
-            Background = SurfaceStyles.PopupBrush(ActualTheme),
             HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 16, 16, 0),
             VerticalAlignment = VerticalAlignment.Top,
             Visibility = Visibility.Collapsed,
             Child = _toastText,
         };
-        ActualThemeChanged += (_, _) => _toast.Background = SurfaceStyles.PopupBrush(ActualTheme);
+        SurfaceStyles.SetUsePopupMaterial(_toast, true);
+        SurfaceStyles.SetUsePopupMaterial(_bottomPill, true);
         Children.Add(_toast);
 
         _loadingHost = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };

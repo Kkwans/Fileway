@@ -10,10 +10,12 @@ public sealed partial class MainWindow
     private void InitializeAppearance()
     {
         PresentationPreferences.AppearanceChanged += ApplyAppearance;
+        _chrome.SystemAppearanceChanged += SystemAppearanceChanged;
         AppTitleBar.ActualThemeChanged += AppearanceThemeChanged;
         ApplyAppearance();
     }
     private void AppearanceThemeChanged(FrameworkElement sender, object args) => ApplyAppearance();
+    private static void SystemAppearanceChanged(object? sender, EventArgs args) => PopupMaterials.QueueRefresh();
     private void ApplyAppearance()
     {
         if (MainRoot.RequestedTheme != AppTitleBar.ActualTheme) MainRoot.RequestedTheme = AppTitleBar.ActualTheme;
@@ -45,32 +47,11 @@ public sealed partial class MainWindow
         }
         MainRoot.Background = material != 0 ? new SolidColorBrush(Microsoft.UI.Colors.Transparent) : contrast
             ? ThemePalette.Brush("FwCanvasBrush", theme) : new SolidColorBrush(neutral);
-        ApplyToolTipPalette(theme, contrast);
-    }
-    private static void ApplyToolTipPalette(ElementTheme theme, bool contrast)
-    {
-        var background = contrast ? ThemePalette.Brush("FwSurfaceBrush", theme).Color : ThemePalette.Color("FwTooltipBaseColor", theme);
-        var border = ThemePalette.Brush("FwStrokeStrongBrush", theme).Color;
-        var foreground = ThemePalette.Brush("FwTextPrimaryBrush", theme).Color;
-        if (FindResource(Application.Current.Resources, "FwToolTipBackgroundBrush") is FwBlurBrush blur) blur.Tint = background;
-        else SetBrushColor("FwToolTipBackgroundBrush", background);
-        SetBrushColor("FwToolTipBorderBrush", border);
-        SetBrushColor("FwToolTipForegroundBrush", foreground);
-    }
-    private static void SetBrushColor(string key, Windows.UI.Color color)
-    {
-        if (FindResource(Application.Current.Resources, key) is SolidColorBrush brush) brush.Color = color;
-    }
-    private static object? FindResource(ResourceDictionary resources, string key)
-    {
-        if (resources.TryGetValue(key, out var value)) return value;
-        foreach (var merged in resources.MergedDictionaries)
-            if (FindResource(merged, key) is { } found) return found;
-        return null;
     }
     private void DisposeAppearance()
     {
         PresentationPreferences.AppearanceChanged -= ApplyAppearance;
+        _chrome.SystemAppearanceChanged -= SystemAppearanceChanged;
         AppTitleBar.ActualThemeChanged -= AppearanceThemeChanged;
     }
 }

@@ -20,6 +20,7 @@ public sealed partial class SettingsControl : UserControl
     public event EventHandler? AboutRequested;
     public event EventHandler<ElementTheme>? ThemeRequested;
     public event EventHandler<bool>? TrayRequested;
+    internal event EventHandler<PopupMaterial>? PopupMaterialRequested;
 
     public SettingsControl()
     {
@@ -39,6 +40,12 @@ public sealed partial class SettingsControl : UserControl
         {
             if (_loading) return;
             PresentationPreferences.ShellTone = ToneBox.SelectedIndex;
+        };
+        PopupMaterialBox.SelectionChanged += (_, _) =>
+        {
+            if (_loading || PopupMaterialBox.SelectedIndex < 0) return;
+            PopupMaterialError.IsOpen = false;
+            PopupMaterialRequested?.Invoke(this, (PopupMaterial)PopupMaterialBox.SelectedIndex);
         };
         TraySwitch.Toggled += (_, _) =>
         {
@@ -64,13 +71,15 @@ public sealed partial class SettingsControl : UserControl
         };
     }
 
-    public void Initialize(ElementTheme theme, bool closeToTray)
+    internal void Initialize(ElementTheme theme, bool closeToTray, PopupMaterial popupMaterial)
     {
         _loading = true;
         ThemeBox.SelectedIndex = theme switch { ElementTheme.Light => 1, ElementTheme.Dark => 2, _ => 0 };
         MaterialBox.SelectedIndex = PresentationPreferences.ShellMaterial;
         ToneBox.SelectedIndex = PresentationPreferences.ShellTone;
         ToneBox.IsEnabled = MaterialBox.SelectedIndex == 0;
+        PopupMaterialBox.SelectedIndex = (int)popupMaterial;
+        PopupMaterialError.IsOpen = false;
         TraySwitch.IsOn = closeToTray;
         ToastSlider.Value = PresentationPreferences.ToastSeconds;
         ControlsSlider.Value = PresentationPreferences.ControlsHideSeconds;
@@ -78,6 +87,15 @@ public sealed partial class SettingsControl : UserControl
         ControlsValue.Text = $"{PresentationPreferences.ControlsHideSeconds} 秒";
         RememberPlayerSwitch.IsOn = PresentationPreferences.RememberPlayerSize;
         _loading = false;
+    }
+
+    internal void ShowPopupMaterialSaveError(PopupMaterial currentMaterial)
+    {
+        var wasLoading = _loading;
+        _loading = true;
+        try { PopupMaterialBox.SelectedIndex = (int)currentMaterial; }
+        finally { _loading = wasLoading; }
+        PopupMaterialError.IsOpen = true;
     }
 
     public void SetServerManagement(bool canConfigure, bool canManageUsers, bool canManageShares)

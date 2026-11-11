@@ -7,6 +7,8 @@ internal readonly record struct WindowBounds(int X, int Y, int Width, int Height
 
 internal readonly record struct WindowState(WindowBounds? Bounds, bool Maximized);
 
+internal enum PopupMaterial { Acrylic, SoftBlur, Solid }
+
 internal static class UiPreferences
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -19,6 +21,7 @@ internal static class UiPreferences
     private sealed class Preferences
     {
         public string? Theme { get; set; }
+        public string? PopupMaterial { get; set; }
         public WindowBounds? Window { get; set; }
         public bool Maximized { get; set; }
         public bool SidebarCollapsed { get; set; }
@@ -38,6 +41,17 @@ internal static class UiPreferences
         var preferences = Read();
         preferences.Theme = theme.ToString();
         Write(preferences);
+    }
+
+    internal static PopupMaterial LoadPopupMaterial() =>
+        Enum.TryParse<PopupMaterial>(Read().PopupMaterial, out var material) && Enum.IsDefined(material)
+            ? material : PopupMaterial.Acrylic;
+
+    internal static void SavePopupMaterial(PopupMaterial material)
+    {
+        var preferences = Read();
+        preferences.PopupMaterial = material.ToString();
+        WriteAtomically(preferences);
     }
 
     internal static WindowState LoadWindowState()
@@ -75,11 +89,24 @@ internal static class UiPreferences
 
     private static void Write(Preferences preferences)
     {
+        try { WriteAtomically(preferences); }
+        catch (Exception) { }
+    }
+
+    private static void WriteAtomically(Preferences preferences)
+    {
+        var path = _path ?? throw new InvalidOperationException("Preferences are not configured.");
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            if (_path is null) return;
-            File.WriteAllText(_path, JsonSerializer.Serialize(preferences, JsonOptions));
+            File.WriteAllText(temporary, JsonSerializer.Serialize(preferences, JsonOptions));
+            File.Move(temporary, path, overwrite: true);
         }
-        catch (Exception) { }
+        finally
+        {
+            try { File.Delete(temporary); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
     }
 }

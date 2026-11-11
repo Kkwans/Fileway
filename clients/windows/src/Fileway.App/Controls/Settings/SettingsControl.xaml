@@ -51,6 +51,18 @@
          <ComboBoxItem Content="雾灰"/><ComboBoxItem Content="暖灰"/><ComboBoxItem Content="冷灰"/><ComboBoxItem Content="自定义取色"/>
         </ui:ChoiceBox>
        </Grid>
+       <Grid ColumnSpacing="8">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <TextBlock Text="弹窗材质" Style="{StaticResource SettingsLabel}"/>
+        <ui:ChoiceBox x:Name="PopupMaterialBox" Grid.Column="1" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="弹窗材质" AutomationProperties.AutomationId="PopupMaterialChoice">
+         <ComboBoxItem Content="高级毛玻璃"/><ComboBoxItem Content="柔和模糊"/><ComboBoxItem Content="实色"/>
+        </ui:ChoiceBox>
+        <InfoBar x:Name="PopupMaterialError" Grid.Row="1" Grid.ColumnSpan="2" IsOpen="False" IsClosable="True"
+                 Severity="Error" Title="弹窗材质未保存" Message="已恢复原选项。请检查设置写入权限后重试。"
+                 AutomationProperties.AutomationId="PopupMaterialSaveError"/>
+       </Grid>
       </StackPanel>
      </Border>
 

@@ -68,7 +68,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private double? _lastQueuedSubtitleSafeArea;
     private double? _pendingSubtitleSafeArea;
     private bool _subtitleSafeAreaRunning;
-    private Func<SystemBackdrop>? _flyoutBackdropFactory;
+    private Func<SystemBackdrop?>? _flyoutBackdropFactory;
     private Action<FrameworkElement, FrameworkElement, Style?, Action>? _showNativeSettings;
     private Action? _closeNativeSettings;
     private Action? _activeSettingsClosed;
@@ -158,11 +158,11 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     /// <summary>Supplies a fresh native backdrop for each popup. Null restores
     /// the presenter App Acrylic style; toolbar material belongs to the window.</summary>
-    public void SetFlyoutBackdropFactory(Func<SystemBackdrop>? factory)
+    public void SetFlyoutBackdropFactory(Func<SystemBackdrop?>? factory)
     {
         if (_disposed) return;
         _flyoutBackdropFactory = factory;
-        if (_activeFlyout is { } flyout) ApplyFlyoutBackdrop(flyout);
+        if (!_nativeSettingsOpen && _activeFlyout is { } flyout) ApplyFlyoutBackdrop(flyout);
     }
 
     /// <summary>Pure title space in this control's local DIPs, excluding buttons.
@@ -850,8 +850,22 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     }
     private void ApplyFlyoutBackdrop(FlyoutBase flyout)
     {
-        var hostBackdrop = _flyoutBackdropFactory is not null;
-        flyout.SystemBackdrop = _flyoutBackdropFactory?.Invoke();
+        var backdrop = _flyoutBackdropFactory?.Invoke();
+        if (backdrop is PopupMaterials.SoftPopupBackdrop soft)
+        {
+            soft.ConnectionFailed += () => DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_activeFlyout != flyout || !ReferenceEquals(flyout.SystemBackdrop, soft)) return;
+                flyout.SystemBackdrop = null;
+                ApplyFlyoutBackgroundStyle(flyout, hostBackdrop: false);
+            });
+        }
+        flyout.SystemBackdrop = backdrop;
+        ApplyFlyoutBackgroundStyle(flyout, backdrop is not null);
+    }
+
+    private void ApplyFlyoutBackgroundStyle(FlyoutBase flyout, bool hostBackdrop)
+    {
         if (flyout is Flyout contentFlyout)
             contentFlyout.FlyoutPresenterStyle = (Style)Resources[hostBackdrop ? "PlayerHostFlyoutStyle" : "PlayerFlyoutStyle"];
         if (flyout is MenuFlyout menuFlyout)

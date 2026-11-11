@@ -28,13 +28,20 @@ public sealed partial class MainPage
             try { ((App)Application.Current).SetCloseToTray(on); }
             catch { SetNotice("设置未保存", "无法保存关闭偏好，请检查当前用户的设置权限。", Microsoft.UI.Xaml.Controls.InfoBarSeverity.Error); }
         };
+        SettingsPane.PopupMaterialRequested += (_, material) =>
+        {
+            var app = (App)Application.Current;
+            try { app.SetPopupMaterial(material); }
+            catch { SettingsPane.ShowPopupMaterialSaveError(app.PopupMaterial); }
+        };
     }
 
     private void Settings_Click(object sender, RoutedEventArgs e)
     {
         if (_disposed || _connecting) return;
         CloseSidebarOverlay();
-        SettingsPane.Initialize(_applicationTheme, ((App)Application.Current).CloseToTray);
+        var app = (App)Application.Current;
+        SettingsPane.Initialize(_applicationTheme, app.CloseToTray, app.PopupMaterial);
         ShowPane(MainPane.Settings);
     }
 
