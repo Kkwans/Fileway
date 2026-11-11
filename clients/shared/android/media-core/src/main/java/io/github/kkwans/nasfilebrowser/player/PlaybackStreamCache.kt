@@ -47,7 +47,7 @@ data class PlaybackCacheLimits(
     }
 }
 data class PlaybackCacheState(val limitBytes:Long,val usedBytes:Long=0,val bytesPerSecond:Long=0,
-    val ranges:List<CachedPlaybackRange> = emptyList(),val error:String?=null)
+    val ranges:List<CachedPlaybackRange> = emptyList(),val error:String?=null,val releasing:Boolean=false)
 
 /** One bounded writer, independent foreground reads, and per-open-generation
  * ownership. Nothing here owns a player, account, subtitle or UI component. */
@@ -67,6 +67,7 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
     private val sequence=AtomicLong()
     private val lifecycle=Any()
     private var stopFence=0L
+    private var releaseFence: Long? = null
     private var lastOpened=0L
     private val readings=ConcurrentHashMap<Long,Reading>()
     @Volatile private var disk:SimpleCache?=null
@@ -201,6 +202,10 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
             if(closing||reading.retired||reading.serial<=stopFence||reading.serial<lastOpened)return false
             if(!reading.opened.compareAndSet(false,true))return true
             lastOpened=reading.serial;displayed=reading
+            if (releaseFence != null) {
+                releaseFence = null
+                mutable.update { it.copy(releasing = false) }
+            }
         }
         if(!reading.hls&&reading.size>0)runCatching{
             reading.cache.applyContentMetadataMutations(reading.nativeKey,ContentMetadataMutations().also{ContentMetadataMutations.setContentLength(it,reading.size)})
@@ -414,22 +419,39 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
                 try{reading.cache.keys.filter{it.startsWith(reading.prefix)}.forEach(reading.cache::removeResource)}
                 catch(_:Exception){mutable.update{it.copy(error="视频缓存清理未完成，可在设置中重试")}}
                 finally{
-                    readings.remove(reading.serial,reading)
-                    mutable.update{it.copy(usedBytes=reading.cache.cacheSpace)}
+                    val usedBytes = reading.cache.cacheSpace
+                    synchronized(lifecycle) {
+                        readings.remove(reading.serial, reading)
+                        val fence = releaseFence
+                        if (fence != null && readings.keys.none { it < fence }) releaseFence = null
+                        mutable.update { it.copy(usedBytes = usedBytes, releasing = releaseFence != null) }
+                    }
                     reading.disposed.complete(Unit)
                 }
             }
         }
     }
     suspend fun stop(){
-        val retired=workerLock.withLock {
-            val old=synchronized(lifecycle){stopFence=sequence.incrementAndGet();displayed=null;readings.values.toList().also{it.forEach(::retire)}}
+        val (fence, retired) = workerLock.withLock {
+            val batch = synchronized(lifecycle) {
+                val fence = sequence.incrementAndGet()
+                stopFence = fence
+                displayed = null
+                fence to readings.values.toList().also { it.forEach(::retire) }
+            }
             stopWorker();current=null
-            old
+            batch
         }
         // Never destroy a cache file while a player still owns its read handle.
-        if(withTimeoutOrNull(1500){retired.forEach{it.disposed.await()};true}!=true)
-            mutable.update{it.copy(error="视频缓存正在释放，关闭读取后将自动清理")}
+        if (withTimeoutOrNull(1500) { retired.forEach { it.disposed.await() }; true } != true) {
+            synchronized(lifecycle) {
+                // A completion or a new playback may have won the timeout race.
+                if (stopFence == fence && displayed == null && readings.keys.any { it < fence }) {
+                    releaseFence = fence
+                    mutable.update { it.copy(releasing = true) }
+                }
+            }
+        }
         mutable.update{if(displayed==null)it.copy(bytesPerSecond=0,ranges=emptyList(),usedBytes=disk?.cacheSpace?:0)else it.copy(usedBytes=disk?.cacheSpace?:0)}
     }
     fun inspect(){scope.launch(Dispatchers.IO){

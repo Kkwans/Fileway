@@ -113,8 +113,12 @@ class PlaybackStreamCacheTest {
         val before=server.requests.get();prime(next,server.url).close();assertEquals(before,server.requests.get())
         cache.stop()
         assertTrue("Live generation was deleted before reader close",cache.state.value.usedBytes>0)
+        assertTrue("A held reader must keep release feedback visible",cache.state.value.releasing)
+        assertNull("Waiting for a reader is not a cache error",cache.state.value.error)
         newReader.close()
-        withTimeout(5000){cache.state.first{it.usedBytes==0L}}
+        val released=withTimeout(5000){cache.state.first{it.usedBytes==0L}}
+        assertFalse("Release feedback must disappear after the old reader closes",released.releasing)
+        assertNull(released.error)
     }}
 
     @Test fun blockedPrefetchDoesNotBlockForegroundOrCancellation()=runBlocking {fixture {cache,server,position->

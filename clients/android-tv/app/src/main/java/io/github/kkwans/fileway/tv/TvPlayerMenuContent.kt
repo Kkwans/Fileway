@@ -469,7 +469,7 @@ private fun TvSpeedEditor(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         TvPlayerInfoField("名称",state.file?.name.orEmpty());TvPlayerInfoField("路径",state.file?.path.orEmpty())
-        TvPlayerInfoField("媒体缓存","${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}${cache.error?.let{"\n$it"}.orEmpty()}")
+        TvPlayerInfoField("媒体缓存","${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}${cache.feedback?.let{"\n$it"}.orEmpty()}")
         if(state.file?.mediaKind()==MediaKind.VIDEO) {
             TvPlayerInfoField("片源动态范围",state.info?.optString("dynamicRange","未知").orEmpty())
             TvPlayerInfoField("请求模式 / 实际路径","${state.mode.title} / ${if(state.compatible)"SDR 兼容"else"原文件"}")

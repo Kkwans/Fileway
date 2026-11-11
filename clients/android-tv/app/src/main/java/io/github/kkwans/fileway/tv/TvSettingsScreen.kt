@@ -156,7 +156,10 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                     } }
                     item { TvField("自定义容量（MB）",cacheInput,{cacheInput=it},options=KeyboardOptions(keyboardType=KeyboardType.Number)) }
                     item { TvButton("应用容量",{cacheInput.toLongOrNull()?.takeIf { it in 64..65536 }?.let { model.media.cache.setLimit(it*1048576) }},enabled=cacheInput.toLongOrNull()?.let { it in 64L..65536L }==true) }
-                    cache.error?.let { message -> item { Text(message,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.error) } }
+                    cache.feedback?.let { message -> item {
+                        Text(message, style = MaterialTheme.typography.bodyMedium,
+                            color = if (cache.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    } }
                 }
                 TvSettingsSection.REMOTE -> {
                     item { TvOptionRow("连接手机",model.remote::requestPairing,supporting=host.error,icon=Art.drawable.fileway_ic_phone,destination=true) }

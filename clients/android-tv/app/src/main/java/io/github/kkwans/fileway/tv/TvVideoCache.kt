@@ -8,6 +8,9 @@ import kotlinx.coroutines.CoroutineScope
 internal typealias TvCachedRange=io.github.kkwans.nasfilebrowser.player.CachedPlaybackRange
 internal typealias TvCacheState=io.github.kkwans.nasfilebrowser.player.PlaybackCacheState
 
+internal val TvCacheState.feedback: String?
+    get() = error ?: "正在清理视频缓存…".takeIf { releasing }
+
 /** Retains the TV settings/directory; shared media owns the bounded writer,
  * source generations and reader-aware cleanup. */
 internal class TvVideoCache(context:Context,scope:CoroutineScope) {
