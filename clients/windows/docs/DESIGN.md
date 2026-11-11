@@ -278,6 +278,7 @@ components:
 - 顶部信息条：文件名 14/600 + 一行元信息 12/muted；2.6 秒无操作自动隐藏。
 - 底部胶囊：图标/文字按钮 34–40 高，间距 2，分割线 1px `glass-stroke`。
 - 图片/PDF：滚轮以光标为锚点缩放，双击切换适应/放大，拖拽平移，Esc 关闭。
+- 图片查看器保留独立画布。底部同一行显示图片序号、尺寸、文件大小与缩放操作。多图的左右导航位于画布两侧。适应模式随视口尺寸更新，实际大小以一个解码像素对应一个屏幕像素为准。
 - 文本：工具栏固定，不自动隐藏；源码与渲染切换不得丢失滚动位置以外的最小状态。
 - **每个查看器窗口都必须能用 Esc 关窗**（图片 0.8.131 起、文本/压缩包/PDF 自 0.8.160）。
   窗口根接 `PreviewKeyDown`，不要把这类全局键挂在某个内容控件上：0.8.159 之后初始焦点在根容器，
@@ -332,7 +333,7 @@ components:
 ## Implementation Mapping
 
 - 令牌与控件样式：`clients/windows/src/Fileway.App/Styles/Design.xaml`（`FwCanvasBrush`、`FwSurfaceBrush`、`FwGlassBrush`、`FwPrimaryButtonStyle`、`FwIconButtonStyle`、`FwActionTileStyle`、`FwPillStyle` 等）。
-- 查看器外壳：`Controls/ViewerChrome.cs`（顶部条、底部胶囊、自动隐藏、加载/错误层）。
+- 图片查看器外壳：`Controls/ViewerChrome.cs`（独立画布、侧边导航、底部工具栏、加载与错误状态）。
 - 播放器 HUD 材质为有界 region acrylic（0.9.0 M05 恢复 e3610896 方案，用户确认 HUD 与原生模糊菜单两者都要）；渐变 scrim 仅作为不支持 acrylic/HC/透明效果关闭时的回退；全屏时标题、时间与控件必须落在有效暗化区域内，白字不得直接压在彩条/高亮画面上。
 - 对话框排序：`Controls/DialogOrdering.cs`，由 ContentDialog 隐式样式自动启用。动作按钮可能被包裹，且对话框内容（如 InfoBar）也可能含同名 `CloseButton`；必须先在 `CommandSpace` 动作面板内解析 Primary/Secondary/Close，再交换共同容器中的直接子元素或 Grid 列，不得按整棵视觉树按名字查找。高内容对话框的滚动区统一 `DialogOrdering.ContentMaxHeight(anchor, preferred)`，不得写死 400/480；批量下载确认框与下载另存为的文件项使用“名称 · 大小”13px 主色 + 目标路径 12px 次级，并按“将添加/未添加”分组，文件项与失败项不得使用同一视觉层级；对话框打开期间收起“正在核对下载目标”浮条。
 - 文件写入类代码对话框（新建文件夹/空文件、单个重命名、批量重命名、移动到/复制到）：输入框统一 `FwTextBoxStyle`，说明/校验统一 12px 次级色；批量重命名给出命名规则提示，列表与确认摘要用 `DialogOrdering.ContentMaxHeight` 自适应；主按钮文案按动作使用“创建/重命名/预览/提交任务”，不得统一成“确定”。

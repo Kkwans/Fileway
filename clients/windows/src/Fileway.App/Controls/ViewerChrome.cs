@@ -1,319 +1,166 @@
-﻿using Microsoft.UI.Dispatching;
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
 
 namespace Fileway.App.Controls;
 
-/// <summary>
-/// Shared immersive viewer shell: a full-bleed content host with an auto-hiding acrylic
-/// caption, a floating pill toolbar and centered loading/error surfaces. Content owns the
-/// canvas; chrome never reflows it.
-/// </summary>
+/// <summary>Image viewer canvas with separate space for navigation and zoom controls.</summary>
 internal sealed class ViewerChrome : Grid
 {
-    private readonly Grid _content = new();
-    private readonly Border _topBar;
-    private readonly Border _bottomPill;
-    private readonly Grid _bottomHost;
-    private readonly StackPanel _topActions = new() { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-    private readonly StackPanel _bottomActions = new() { Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
-    private readonly TextBlock _title = new() { Style = (Style)Application.Current.Resources["FwScrimTitleTextStyle"] };
-    private readonly TextBlock _subtitle = new() { Style = (Style)Application.Current.Resources["FwScrimMutedTextStyle"] };
-    private readonly Button _previous;
-    private readonly Button _next;
-    private readonly ProgressRing _progress = new() { IsActive = true, Width = 38, Height = 38 };
-    private readonly TextBlock _progressText = new() { Style = (Style)Application.Current.Resources["FwScrimMutedTextStyle"], TextAlignment = TextAlignment.Center };
-    private readonly StackPanel _loadingHost;
-    private readonly Border _errorCard;
-    private readonly TextBlock _errorTitle = new() { Style = (Style)Application.Current.Resources["FwBodyTextStyle"], FontSize = 15, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap };
-    private readonly TextBlock _errorMessage;
-    private readonly Button _retry;
-    private readonly Border _toast;
-    private readonly TextBlock _toastText = new() { Style = (Style)Application.Current.Resources["FwScrimBodyTextStyle"] };
-    private readonly DispatcherQueueTimer _idle;
-    private bool _chromeVisible = true;
-    private bool _pointerOverChrome;
-    private bool _holdsChrome;
+    private readonly Grid _content = new() { Margin = new Thickness(8) };
+    private readonly ColumnDefinition _previousColumn = new() { Width = GridLength.Auto };
+    private readonly ColumnDefinition _nextColumn = new() { Width = GridLength.Auto };
+    private readonly StackPanel _zoomActions = new()
+    {
+        Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center,
+    };
+    private readonly TextBlock _metadata = new()
+    {
+        Style = SurfaceGeometry.Style("FwCaptionTextStyle"), VerticalAlignment = VerticalAlignment.Center,
+        TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
+    };
+    private readonly Button _previous = NavigationButton("上一张", false);
+    private readonly Button _next = NavigationButton("下一张", true);
+    private readonly ProgressRing _progress = new() { Width = 32, Height = 32 };
+    private readonly TextBlock _progressText = new()
+    {
+        Style = SurfaceGeometry.Style("FwCaptionTextStyle"), TextAlignment = TextAlignment.Center,
+        TextWrapping = TextWrapping.Wrap,
+    };
+    private readonly StackPanel _loading;
+    private readonly Border _error;
+    private readonly TextBlock _errorTitle = new()
+    {
+        Style = SurfaceGeometry.Style("FwBodyTextStyle"), TextAlignment = TextAlignment.Center,
+    };
+    private readonly TextBlock _errorMessage = new()
+    {
+        Style = SurfaceGeometry.Style("FwCaptionTextStyle"), TextWrapping = TextWrapping.Wrap,
+        TextAlignment = TextAlignment.Center,
+    };
 
     internal Grid ContentHost => _content;
-    internal StackPanel TopActions => _topActions;
-    internal StackPanel BottomActions => _bottomActions;
-    internal Border BottomPill => _bottomPill;
-
-    internal bool AutoHideChrome { get; set; } = true;
-
-    private bool _showsZoomBar = true;
-
-    /// <summary>Zoom controls are meaningless before an image decodes, so hide the pill rather than show dead buttons.</summary>
-    internal bool ShowsZoomBar
-    {
-        get => _showsZoomBar;
-        set
-        {
-            if (_showsZoomBar == value) return;
-            _showsZoomBar = value;
-            if (value) { if (_chromeVisible) Fade(_bottomHost, true, animate: false); }
-            else { _bottomHost.Opacity = 0; _bottomHost.Visibility = Visibility.Collapsed; }
-        }
-    }
+    internal StackPanel ZoomActions => _zoomActions;
+    internal event EventHandler? RetryRequested;
 
     internal ViewerChrome()
     {
-        Style = (Style)Application.Current.Resources["FwViewerChromeStyle"];
-        _content.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        Children.Add(_content);
+        Style = SurfaceGeometry.Style("FwViewerChromeStyle");
+        RowDefinitions.Add(new RowDefinition());
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        var titleStack = new StackPanel { Spacing = 1, VerticalAlignment = VerticalAlignment.Center };
-        titleStack.Children.Add(_title);
-        titleStack.Children.Add(_subtitle);
-        var topGrid = new Grid { Padding = new Thickness(18, 0, 10, 0), Height = 60 };
-        topGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        topGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        topGrid.Children.Add(titleStack);
-        Grid.SetColumn(_topActions, 1);
-        topGrid.Children.Add(_topActions);
-        _topBar = new Border { VerticalAlignment = VerticalAlignment.Top, Style = (Style)Application.Current.Resources["FwChromeBarStyle"], Child = topGrid };
-        SurfaceStyles.SetUsePopupMaterial(_topBar, true);
-        _topBar.PointerEntered += (_, _) => _pointerOverChrome = true;
-        _topBar.PointerExited += (_, _) => _pointerOverChrome = false;
-        Children.Add(_topBar);
+        var stage = new Grid();
+        stage.ColumnDefinitions.Add(_previousColumn);
+        stage.ColumnDefinitions.Add(new ColumnDefinition());
+        stage.ColumnDefinitions.Add(_nextColumn);
+        SetColumn(_content, 1);
+        SetColumn(_next, 2);
+        stage.Children.Add(_content);
+        stage.Children.Add(_previous);
+        stage.Children.Add(_next);
+        Children.Add(stage);
+        AutomationProperties.SetAutomationId(_previous, "ImagePrevious");
+        AutomationProperties.SetAutomationId(_next, "ImageNext");
 
-        _previous = NavButton("arrow-left", "上一张", false);
-        _next = NavButton("arrow-left", "下一张", true);
-        _previous.HorizontalAlignment = HorizontalAlignment.Left;
-        _next.HorizontalAlignment = HorizontalAlignment.Right;
-        _previous.Margin = new Thickness(14, 0, 0, 0);
-        _next.Margin = new Thickness(0, 0, 14, 0);
-        _previous.Visibility = Visibility.Collapsed;
-        _next.Visibility = Visibility.Collapsed;
-        _previous.Click += NavClick;
-        _next.Click += NavClick;
-        Children.Add(_previous);
-        Children.Add(_next);
-
-        _bottomPill = new Border
+        var footer = new Grid { MinHeight = 56, Padding = new Thickness(16, 4, 16, 4), ColumnSpacing = 12 };
+        footer.ColumnDefinitions.Add(new ColumnDefinition());
+        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        footer.ColumnDefinitions.Add(new ColumnDefinition());
+        var controls = new Border
         {
-            Style = (Style)Application.Current.Resources["FwPillStyle"],
-            HorizontalAlignment = HorizontalAlignment.Center,
-            Child = _bottomActions,
+            Style = SurfaceGeometry.Style("FwPillStyle"), VerticalAlignment = VerticalAlignment.Center,
+            Padding = new Thickness(4), Child = _zoomActions,
         };
-        _bottomHost = new Grid { VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 0, 22) };
-        _bottomHost.Children.Add(_bottomPill);
-        _bottomHost.PointerEntered += (_, _) => _pointerOverChrome = true;
-        _bottomHost.PointerExited += (_, _) => _pointerOverChrome = false;
-        Children.Add(_bottomHost);
+        SurfaceStyles.SetUsePopupMaterial(controls, true);
+        SetColumn(controls, 1);
+        footer.Children.Add(_metadata);
+        footer.Children.Add(controls);
+        SetRow(footer, 1);
+        Children.Add(footer);
+        AutomationProperties.SetAutomationId(_metadata, "ImageMetadata");
+        AutomationProperties.SetAutomationId(_zoomActions, "ImageZoomBar");
 
-        _toast = new Border
+        _loading = new StackPanel
         {
-            Style = (Style)Application.Current.Resources["FwToastStyle"],
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 16, 16, 0),
-            VerticalAlignment = VerticalAlignment.Top,
-            Visibility = Visibility.Collapsed,
-            Child = _toastText,
+            Spacing = 12, Margin = new Thickness(12), HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed,
         };
-        SurfaceStyles.SetUsePopupMaterial(_toast, true);
-        SurfaceStyles.SetUsePopupMaterial(_bottomPill, true);
-        Children.Add(_toast);
+        _loading.Children.Add(_progress);
+        _loading.Children.Add(_progressText);
+        Canvas.SetZIndex(_loading, 1);
+        _content.Children.Add(_loading);
 
-        _loadingHost = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed };
-        _loadingHost.Children.Add(_progress);
-        _loadingHost.Children.Add(_progressText);
-        Children.Add(_loadingHost);
-
-        _errorMessage = new TextBlock { Style = (Style)Application.Current.Resources["FwCaptionTextStyle"], FontSize = 13, TextWrapping = TextWrapping.Wrap };
-        var errorIcon = new Border
+        var retry = new Button
         {
-            Width = 56,
-            Height = 56,
-            Style = (Style)Application.Current.Resources["FwIconTileStyle"],
+            Content = "重试", Style = SurfaceGeometry.Style("FwSecondaryButtonStyle"),
             HorizontalAlignment = HorizontalAlignment.Center,
         };
-        errorIcon.Child = new LucideIcon { IconName = "alert-triangle", Width = 26, Height = 26, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Style = (Style)Application.Current.Resources["FwDangerIconStyle"] };
+        retry.Click += (_, _) => RetryRequested?.Invoke(this, EventArgs.Empty);
         var errorBody = new StackPanel { Spacing = 10 };
-        errorBody.Children.Add(errorIcon);
+        errorBody.Children.Add(new LucideIcon
+        {
+            IconName = "alert-triangle", Width = 24, Height = 24, HorizontalAlignment = HorizontalAlignment.Center,
+            Style = SurfaceGeometry.Style("FwDangerIconStyle"),
+        });
         errorBody.Children.Add(_errorTitle);
         errorBody.Children.Add(_errorMessage);
-        _retry = new Button { Content = "重试", Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"], HorizontalAlignment = HorizontalAlignment.Center };
-        _retry.Click += (_, _) => RetryRequested?.Invoke(this, EventArgs.Empty);
-        errorBody.Children.Add(_retry);
-        _errorCard = new Border
+        errorBody.Children.Add(retry);
+        _error = new Border
         {
-            Style = (Style)Application.Current.Resources["FwErrorCardStyle"],
-            MaxWidth = 420,
-            HorizontalAlignment = HorizontalAlignment.Center,
-            VerticalAlignment = VerticalAlignment.Center,
-            Visibility = Visibility.Collapsed,
-            Child = errorBody,
+            Style = SurfaceGeometry.Style("FwErrorCardStyle"), MaxWidth = 420, Margin = new Thickness(12),
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            Visibility = Visibility.Collapsed, Child = errorBody,
         };
-        Children.Add(_errorCard);
-
-        _idle = DispatcherQueue.CreateTimer();
-        _idle.IsRepeating = false;
-        _idle.Interval = TimeSpan.FromMilliseconds(2600);
-        _idle.Tick += (_, _) => { if (AutoHideChrome && !_pointerOverChrome && !_holdsChrome) SetChromeVisible(false, animate: true); };
-        PointerMoved += (_, _) => { if (AutoHideChrome) { if (!_chromeVisible) SetChromeVisible(true, animate: true); RestartIdle(); } };
+        SurfaceStyles.SetUsePopupMaterial(_error, true);
+        Canvas.SetZIndex(_error, 1);
+        _content.Children.Add(_error);
     }
 
-    internal event EventHandler? RetryRequested;
-
-    internal void SetTitle(string title, string subtitle = "")
+    internal void SetMetadata(string metadata)
     {
-        _title.Text = title;
-        ToolTipService.SetToolTip(_title, title);
-        SetSubtitle(subtitle);
-    }
-
-    internal void SetSubtitle(string subtitle)
-    {
-        _subtitle.Text = subtitle;
-        _subtitle.Visibility = string.IsNullOrEmpty(subtitle) ? Visibility.Collapsed : Visibility.Visible;
+        _metadata.Text = metadata;
+        ToolTipService.SetToolTip(_metadata, metadata);
     }
 
     internal void SetNavigation(Action? previous, Action? next)
     {
+        _previousColumn.Width = new GridLength(previous is null ? 0 : 56);
+        _nextColumn.Width = new GridLength(next is null ? 0 : 56);
         _previous.Tag = previous;
         _next.Tag = next;
         _previous.Visibility = previous is null ? Visibility.Collapsed : Visibility.Visible;
         _next.Visibility = next is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private void NavClick(object sender, RoutedEventArgs args)
-    {
-        if (sender is FrameworkElement { Tag: Action action }) action();
-    }
-
-    internal void SetChromeVisible(bool visible, bool animate)
-    {
-        if (_chromeVisible == visible) { if (visible) RestartIdle(); return; }
-        _chromeVisible = visible;
-        Fade(_topBar, visible, animate);
-        if (_showsZoomBar) Fade(_bottomHost, visible, animate);
-        if (_previous.Tag is not null) Fade(_previous, visible, animate);
-        if (_next.Tag is not null) Fade(_next, visible, animate);
-        if (visible) RestartIdle(); else _idle.Stop();
-    }
-
-    internal void ToggleChrome()
-    {
-        SetChromeVisible(!_chromeVisible, animate: true);
-        if (_chromeVisible) RestartIdle();
-    }
-
-    internal void RestartIdle()
-    {
-        if (!AutoHideChrome || _holdsChrome) return;
-        _idle.Stop();
-        _idle.Start();
-    }
-
     internal void SetLoading(bool loading, string message = "")
     {
-        _loadingHost.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        _loading.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
         _progress.IsActive = loading;
         _progressText.Text = message;
-        _progressText.Visibility = string.IsNullOrEmpty(message) ? Visibility.Collapsed : Visibility.Visible;
-        _holdsChrome = loading || _errorCard.Visibility == Visibility.Visible;
-        if (loading)
-        {
-            _errorCard.Visibility = Visibility.Collapsed;
-            Canvas.SetZIndex(_loadingHost, 20);
-            SetChromeVisible(true, animate: false);
-        }
+        if (loading) _error.Visibility = Visibility.Collapsed;
     }
 
     internal void ShowError(string title, string message)
     {
+        SetLoading(false);
         _errorTitle.Text = title;
         _errorMessage.Text = message;
-        _errorCard.Visibility = Visibility.Visible;
-        _loadingHost.Visibility = Visibility.Collapsed;
-        _progress.IsActive = false;
-        Canvas.SetZIndex(_errorCard, 30);
-        _holdsChrome = true;
-        _idle.Stop();
-        SetChromeVisible(true, animate: false);
+        _error.Visibility = Visibility.Visible;
     }
 
-    internal void ClearError()
+    private static Button NavigationButton(string label, bool next)
     {
-        _errorCard.Visibility = Visibility.Collapsed;
-        _holdsChrome = false;
-        RestartIdle();
-    }
-
-    internal void ShowToast(string message, int seconds = 0)
-    {
-        _toastText.Text = message;
-        _toast.Visibility = Visibility.Visible;
-        Canvas.SetZIndex(_toast, 25);
-        var timer = DispatcherQueue.CreateTimer();
-        timer.IsRepeating = false;
-        timer.Interval = TimeSpan.FromSeconds(seconds > 0 ? seconds : PresentationPreferences.ToastSeconds);
-        timer.Tick += (_, _) => { timer.Stop(); _toast.Visibility = Visibility.Collapsed; };
-        timer.Start();
-    }
-
-    internal static Button IconButton(string icon, string tooltip, Action click, bool scrim = true, double size = 36)
-    {
+        var glyph = new LucideIcon { IconName = "arrow-left", Width = 20, Height = 20 };
+        if (next) glyph.RenderTransform = new RotateTransform { Angle = 180, CenterX = 10, CenterY = 10 };
         var button = new Button
         {
-            Style = (Style)Application.Current.Resources[scrim ? "FwScrimIconButtonStyle" : "FwIconButtonStyle"],
-            Width = size,
-            Height = size,
-            Content = new LucideIcon { IconName = icon, Width = 18, Height = 18 },
+            Style = SurfaceGeometry.Style("FwNavButtonStyle"), HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center, Content = glyph, Visibility = Visibility.Collapsed,
         };
-        ToolTipService.SetToolTip(button, tooltip);
-        AutomationProperties.SetName(button, tooltip);
-        button.Click += (_, _) => click();
+        ToolTipService.SetToolTip(button, label);
+        AutomationProperties.SetName(button, label);
+        button.Click += (_, _) => { if (button.Tag is Action action) action(); };
         return button;
-    }
-
-    internal static Button LabelButton(string text, string tooltip, Action click)
-    {
-        var button = new Button
-        {
-            Style = (Style)Application.Current.Resources["FwTextIconButtonStyle"],
-            Content = new TextBlock { Text = text, Style = (Style)Application.Current.Resources["FwScrimBodyTextStyle"] },
-        };
-        ToolTipService.SetToolTip(button, tooltip);
-        AutomationProperties.SetName(button, tooltip);
-        button.Click += (_, _) => click();
-        return button;
-    }
-
-    private static Button NavButton(string icon, string tooltip, bool mirror)
-    {
-        var glyph = new LucideIcon { IconName = icon, Width = 20, Height = 20 };
-        if (mirror) glyph.RenderTransform = new RotateTransform { Angle = 180, CenterX = 10, CenterY = 10 };
-        var button = new Button
-        {
-            Style = (Style)Application.Current.Resources["FwNavButtonStyle"],
-            VerticalAlignment = VerticalAlignment.Center,
-            Content = glyph,
-        };
-        ToolTipService.SetToolTip(button, tooltip);
-        AutomationProperties.SetName(button, tooltip);
-        return button;
-    }
-
-    private static void Fade(UIElement element, bool visible, bool animate)
-    {
-        if (visible) element.Visibility = Visibility.Visible;
-        var animation = new DoubleAnimation
-        {
-            To = visible ? 1 : 0,
-            Duration = new Duration(TimeSpan.FromMilliseconds(animate ? 170 : 1)),
-            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
-        };
-        Storyboard.SetTarget(animation, element);
-        Storyboard.SetTargetProperty(animation, "Opacity");
-        var storyboard = new Storyboard();
-        storyboard.Children.Add(animation);
-        storyboard.Completed += (_, _) => { if (!visible) element.Visibility = Visibility.Collapsed; };
-        storyboard.Begin();
     }
 }

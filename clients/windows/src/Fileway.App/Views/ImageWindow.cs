@@ -6,6 +6,7 @@ using Fileway.App.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -22,6 +23,10 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     private const double PixelBudget = 16_000_000;
     private const float MinimumZoom = 0.1f;
     private const float MaximumZoom = 8f;
+    // Keep long previews inside the ScrollViewer's legal zoom range.
+    private const double LongEdgeLayoutLimit = 2400;
+
+    private enum ZoomModeSelection { Fit, Actual, Manual }
     private readonly IImageContentService _service;
     private readonly IRecentAccessService? _recentAccess;
     private readonly WindowTitleBar _titleBar = new();
@@ -33,11 +38,22 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
         HorizontalScrollMode = ScrollMode.Enabled, VerticalScrollMode = ScrollMode.Enabled,
         IsTabStop = true,
+        FocusVisualPrimaryThickness = new Thickness(1), FocusVisualSecondaryThickness = new Thickness(0),
     };
     private readonly Grid _canvas = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly Image _image = new() { Stretch = Stretch.Uniform };
     private readonly TextBlock _zoomLabel = new() { Style = (Style)Application.Current.Resources["FwScrimBodyTextStyle"], MinWidth = 44, TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly ToggleButton _fitButton = new();
+    private readonly ToggleButton _actualButton = new();
     private readonly Grid _root = new();
+    private XamlRoot? _xamlRoot;
+    private ZoomModeSelection _zoomMode;
+    private double _rasterizationScale = 1;
+    private double _layoutScale = 1;
+    private bool _zoomRefreshPending;
+    private bool _updatingZoomMode;
+    private readonly HashSet<uint> _touchContacts = [];
+    private float? _gestureStartZoom;
     private RemoteResourceRef _resource;
     private readonly IReadOnlyList<RemoteResourceRef> _resources;
     private readonly CancellationTokenSource _lifetime = new();
@@ -85,23 +101,35 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         windowRoot.Children.Add(_viewer);
         Content = windowRoot;
         _chrome = new FramelessWindowChrome(this, _titleBar);
-        windowRoot.KeyDown += OnKeyDown;
-        windowRoot.IsTabStop = true;
+        windowRoot.PreviewKeyDown += OnKeyDown;
         _viewer.RetryRequested += async (_, _) => await NavigateAsync(_index);
         windowRoot.Loaded += async (_, _) =>
         {
             if (_started) return;
             _started = true;
-            windowRoot.Focus(FocusState.Programmatic);
+            _xamlRoot = windowRoot.XamlRoot;
+            if (_xamlRoot is not null)
+            {
+                _rasterizationScale = _xamlRoot.RasterizationScale;
+                _xamlRoot.Changed += OnXamlRootChanged;
+            }
+            _scroll.Focus(FocusState.Programmatic);
             await NavigateAsync(_index);
         };
-        _scroll.ViewChanged += (_, _) => UpdateZoomLabel();
+        _scroll.ViewChanged += OnViewChanged;
+        _scroll.SizeChanged += (_, _) => QueueZoomRefresh();
+        _image.SizeChanged += (_, _) => QueueZoomRefresh();
+        _scroll.DirectManipulationStarted += (_, _) =>
+        {
+            if (_touchContacts.Count > 0) _gestureStartZoom = _scroll.ZoomFactor;
+        };
+        _scroll.DirectManipulationCompleted += (_, _) => _gestureStartZoom = null;
         _scroll.DoubleTapped += OnDoubleTapped;
-        _scroll.Tapped += OnTapped;
         _scroll.PointerWheelChanged += OnWheel;
-        _scroll.PointerPressed += OnPointerPressed;
+        _scroll.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(OnPointerPressed), true);
         _scroll.PointerMoved += OnPointerMoved;
-        _scroll.PointerReleased += OnPointerReleased;
+        _scroll.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(OnPointerReleased), true);
+        _scroll.AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(OnPointerReleased), true);
         _scroll.PointerCaptureLost += (_, _) => _dragging = false;
         Closed += OnClosed;
     }
@@ -111,31 +139,99 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         _viewer.SetNavigation(
             _resources.Count > 1 ? () => _ = NavigateAsync((_index + _resources.Count - 1) % _resources.Count) : null,
             _resources.Count > 1 ? () => _ = NavigateAsync((_index + 1) % _resources.Count) : null);
-        _viewer.BottomActions.Children.Add(ViewerChrome.LabelButton("−", "缩小", () => ZoomBy(0.8f)));
-        _viewer.BottomActions.Children.Add(_zoomLabel);
-        _viewer.BottomActions.Children.Add(ViewerChrome.LabelButton("+", "放大", () => ZoomBy(1.25f)));
-        _viewer.BottomActions.Children.Add(Separator());
-        _viewer.BottomActions.Children.Add(ViewerChrome.LabelButton("适应", "适应窗口 (0)", Fit));
-        _viewer.BottomActions.Children.Add(ViewerChrome.LabelButton("1:1", "实际大小 (1)", ActualSize));
+        _viewer.ZoomActions.Children.Add(ZoomButton("minus", "缩小", () => ZoomBy(0.8f)));
+        _viewer.ZoomActions.Children.Add(_zoomLabel);
+        _viewer.ZoomActions.Children.Add(ZoomButton("plus", "放大", () => ZoomBy(1.25f)));
+        _viewer.ZoomActions.Children.Add(new Border
+        {
+            Width = 1, Height = 18, Margin = new Thickness(4, 0, 4, 0),
+            Style = SurfaceGeometry.Style("FwDividerStrongStyle"), VerticalAlignment = VerticalAlignment.Center,
+        });
+        ConfigurePreset(_fitButton, "适应", "适应窗口 (0)", Fit);
+        ConfigurePreset(_actualButton, "1:1", "实际大小 (1)", ActualSize);
         AutomationProperties.SetAutomationId(_zoomLabel, "ViewerZoomLabel");
+        SetZoomControlsEnabled(false);
+        SetZoomMode(ZoomModeSelection.Fit);
     }
 
-    private static Border Separator() => new()
+    private static Button ZoomButton(string icon, string label, Action click)
     {
-        Width = 1, Height = 18, Margin = new Thickness(4, 0, 4, 0),
-        Style = (Style)Application.Current.Resources["FwDividerStrongStyle"],
-        VerticalAlignment = VerticalAlignment.Center,
-    };
+        var button = new Button
+        {
+            Width = 36, Height = 36, Style = SurfaceGeometry.Style("FwIconButtonStyle"),
+            Content = new LucideIcon { IconName = icon, Width = 16, Height = 16 },
+        };
+        AutomationProperties.SetName(button, label);
+        ToolTipService.SetToolTip(button, label);
+        button.Click += (_, _) => click();
+        return button;
+    }
+
+    private void ConfigurePreset(ToggleButton button, string text, string label, Action click)
+    {
+        button.Style = SurfaceGeometry.Style("FwSegmentedChoiceStyle");
+        button.Content = text;
+        button.MinWidth = 48;
+        AutomationProperties.SetName(button, label);
+        ToolTipService.SetToolTip(button, label);
+        button.Checked += (_, _) => { if (!_updatingZoomMode) click(); };
+        button.Unchecked += (_, _) => { if (!_updatingZoomMode) SetZoomMode(_zoomMode); };
+        _viewer.ZoomActions.Children.Add(button);
+    }
+
+    private void SetZoomControlsEnabled(bool enabled)
+    {
+        foreach (var control in _viewer.ZoomActions.Children.OfType<Control>()) control.IsEnabled = enabled;
+    }
+
+    private void SetZoomMode(ZoomModeSelection mode)
+    {
+        _zoomMode = mode;
+        _updatingZoomMode = true;
+        try
+        {
+            _fitButton.IsChecked = mode == ZoomModeSelection.Fit;
+            _actualButton.IsChecked = mode == ZoomModeSelection.Actual;
+        }
+        finally { _updatingZoomMode = false; }
+    }
+
+    private float ActualZoom => (float)(1 / (_layoutScale * _rasterizationScale));
+
+    private void OnViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    {
+        if (_gestureStartZoom is { } start && Math.Abs(_scroll.ZoomFactor - start) >= 0.0005)
+            SetZoomMode(ZoomModeSelection.Manual);
+        UpdateZoomLabel();
+    }
 
     private void UpdateZoomLabel()
     {
-        if (_image.Width <= 0) { _zoomLabel.Text = "—"; return; }
-        _zoomLabel.Text = $"{(int)Math.Round(_scroll.ZoomFactor * 100)}%";
+        if (_image.Source is null) { _zoomLabel.Text = "—"; return; }
+        _zoomLabel.Text = $"{(int)Math.Round(_scroll.ZoomFactor / ActualZoom * 100)}%";
+    }
+
+    private void OnXamlRootChanged(XamlRoot sender, XamlRootChangedEventArgs args)
+    {
+        if (_rasterizationScale == sender.RasterizationScale) return;
+        _rasterizationScale = sender.RasterizationScale;
+        QueueZoomRefresh();
+        UpdateZoomLabel();
+    }
+
+    private void QueueZoomRefresh()
+    {
+        if (_zoomRefreshPending || _closed || _image.Source is null || _zoomMode == ZoomModeSelection.Manual) return;
+        _zoomRefreshPending = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () =>
+        {
+            _zoomRefreshPending = false;
+            ApplyPreset();
+        });
     }
 
     private void OnWheel(object sender, PointerRoutedEventArgs args)
     {
-        if (_image.Width <= 0 || _closed) return;
+        if (_image.Source is null || _closed) return;
         var point = args.GetCurrentPoint(_scroll);
         var delta = point.Properties.MouseWheelDelta;
         if (delta == 0) return;
@@ -148,7 +244,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
 
     private void ZoomTo(float target, Point? anchor)
     {
-        if (_image.Width <= 0) return;
+        if (_image.Source is null) return;
         target = Math.Clamp(target, MinimumZoom, MaximumZoom);
         var old = _scroll.ZoomFactor;
         if (Math.Abs(target - old) < 0.0005) return;
@@ -156,51 +252,63 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         var viewportHeight = _scroll.ViewportHeight;
         if (viewportWidth <= 0 || viewportHeight <= 0) return;
         var point = anchor ?? new Point(viewportWidth / 2, viewportHeight / 2);
-        var contentX = (_scroll.HorizontalOffset + point.X) / old;
-        var contentY = (_scroll.VerticalOffset + point.Y) / old;
-        _scroll.ChangeView(contentX * target - point.X, contentY * target - point.Y, target);
+        var horizontal = AnchorOffset(point.X, viewportWidth, _image.Width, _scroll.HorizontalOffset, old, target);
+        var vertical = AnchorOffset(point.Y, viewportHeight, _image.Height, _scroll.VerticalOffset, old, target);
+        SetZoomMode(ZoomModeSelection.Manual);
+        _scroll.ChangeView(horizontal, vertical, target, disableAnimation: true);
+    }
+
+    private static double AnchorOffset(double pointer, double viewport, double image, double scroll, float old, float target)
+    {
+        var oldInset = Math.Max(0, (viewport - image * old) / 2);
+        var newInset = Math.Max(0, (viewport - image * target) / 2);
+        var imagePoint = Math.Clamp((scroll + pointer - oldInset) / old, 0, image);
+        return Math.Clamp(imagePoint * target + newInset - pointer, 0, Math.Max(0, image * target - viewport));
     }
 
     private void Fit()
     {
-        if (_image.Width <= 0 || _scroll.ViewportWidth <= 0 || _scroll.ViewportHeight <= 0) return;
-        var zoom = (float)Math.Clamp(Math.Min(
-            (_scroll.ViewportWidth - 32) / _image.Width,
-            (_scroll.ViewportHeight - 32) / _image.Height), MinimumZoom, 1d);
-        CenterAt(zoom);
+        SetZoomMode(ZoomModeSelection.Fit);
+        ApplyPreset();
     }
 
-    private void ActualSize() => CenterAt(1f);
-
-    private void CenterAt(float zoom)
+    private void ActualSize()
     {
-        var width = _image.Width * zoom;
-        var height = _image.Height * zoom;
-        var horizontal = Math.Max(0, (width - _scroll.ViewportWidth) / 2);
-        var vertical = Math.Max(0, (height - _scroll.ViewportHeight) / 2);
-        _scroll.ChangeView(horizontal, vertical, zoom);
+        SetZoomMode(ZoomModeSelection.Actual);
+        ApplyPreset();
+    }
+
+    private void ApplyPreset()
+    {
+        if (_closed || _image.Source is null || _zoomMode == ZoomModeSelection.Manual) return;
+        var viewportWidth = _scroll.ActualWidth;
+        var viewportHeight = _scroll.ActualHeight;
+        if (viewportWidth <= 0 || viewportHeight <= 0) return;
+        var zoom = _zoomMode == ZoomModeSelection.Actual ? ActualZoom : Math.Min(ActualZoom,
+            (float)Math.Min(viewportWidth / _image.Width, viewportHeight / _image.Height));
+        zoom = Math.Clamp(zoom, MinimumZoom, MaximumZoom);
+        var horizontal = Math.Max(0, (_image.Width * zoom - viewportWidth) / 2);
+        var vertical = Math.Max(0, (_image.Height * zoom - viewportHeight) / 2);
+        _scroll.ChangeView(horizontal, vertical, zoom, disableAnimation: true);
+        UpdateZoomLabel();
     }
 
     private void OnDoubleTapped(object sender, DoubleTappedRoutedEventArgs args)
     {
-        if (_image.Width <= 0) return;
+        if (_image.Source is null) return;
         args.Handled = true;
-        if (_scroll.ZoomFactor > 1.02f) Fit();
-        else
-        {
-            var point = args.GetPosition(_scroll);
-            ZoomTo(2f, point);
-        }
-    }
-
-    private void OnTapped(object sender, TappedRoutedEventArgs args)
-    {
-        if (_dragging) return;
-        _viewer.ToggleChrome();
+        if (_zoomMode != ZoomModeSelection.Fit) Fit();
+        else ZoomTo(_scroll.ZoomFactor < ActualZoom * 0.98f ? ActualZoom : 2 * ActualZoom, args.GetPosition(_scroll));
     }
 
     private void OnPointerPressed(object sender, PointerRoutedEventArgs args)
     {
+        if (args.Pointer.PointerDeviceType == Microsoft.UI.Input.PointerDeviceType.Touch)
+        {
+            _touchContacts.Add(args.Pointer.PointerId);
+            return;
+        }
+        if (args.Handled) return;
         var point = args.GetCurrentPoint(_scroll);
         if (!point.Properties.IsLeftButtonPressed || !CanPan()) return;
         _dragging = true;
@@ -224,17 +332,23 @@ public sealed class ImageWindow : Window, IAsyncDisposable
 
     private void OnPointerReleased(object sender, PointerRoutedEventArgs args)
     {
+        if (_touchContacts.Remove(args.Pointer.PointerId)) return;
         if (!_dragging) return;
         _dragging = false;
         _scroll.ReleasePointerCapture(args.Pointer);
     }
 
-    private bool CanPan() =>
-        _image.Width * _scroll.ZoomFactor > _scroll.ViewportWidth + 1 ||
-        _image.Height * _scroll.ZoomFactor > _scroll.ViewportHeight + 1;
+    private bool CanPan() => _image.Source is not null &&
+        (_image.Width * _scroll.ZoomFactor > _scroll.ViewportWidth + 1 ||
+         _image.Height * _scroll.ZoomFactor > _scroll.ViewportHeight + 1);
 
     private void OnKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        if (args.Key is VirtualKey.Left or VirtualKey.Right or VirtualKey.Up or VirtualKey.Down)
+            for (var element = args.OriginalSource as DependencyObject; element is not null && element != _root;
+                 element = VisualTreeHelper.GetParent(element))
+                if (element is ButtonBase) return;
+
         switch (args.Key)
         {
             case VirtualKey.Left: if (_resources.Count > 1) _ = NavigateAsync((_index + _resources.Count - 1) % _resources.Count); break;
@@ -276,9 +390,11 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         _imageCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
         _resource = _resources[index]; Title = _titleBar.Caption = _resource.DisplayName + " · " + AppBranding.DisplayName;
         _image.Source = null;
-        _viewer.SetTitle(_resources.Count > 1 ? $"{_index + 1} / {_resources.Count}" : "");
-        _viewer.ClearError();
-        _viewer.ShowsZoomBar = false;
+        _touchContacts.Clear();
+        _gestureStartZoom = null;
+        SetZoomMode(ZoomModeSelection.Fit);
+        SetZoomControlsEnabled(false);
+        _viewer.SetMetadata(_resources.Count > 1 ? $"{_index + 1}/{_resources.Count}" : "");
         _viewer.SetLoading(true, $"正在加载 {_resource.DisplayName}…");
         _zoomLabel.Text = "—";
         _loadTask = LoadAsync(generation, _imageCancellation.Token);
@@ -315,16 +431,16 @@ public sealed class ImageWindow : Window, IAsyncDisposable
             var source = new SoftwareBitmapSource();
             await source.SetBitmapAsync(bitmap);
             if (_closed || generation != _generation || token.IsCancellationRequested) return;
+            _layoutScale = Math.Min(1, LongEdgeLayoutLimit / Math.Max(bitmap.PixelWidth, bitmap.PixelHeight));
+            _image.Width = bitmap.PixelWidth * _layoutScale;
+            _image.Height = bitmap.PixelHeight * _layoutScale;
             _image.Source = source;
-            _image.Width = bitmap.PixelWidth;
-            _image.Height = bitmap.PixelHeight;
             _viewer.SetLoading(false);
-            _viewer.ShowsZoomBar = true;
-            _viewer.SetTitle(
-                $"{(_resources.Count > 1 ? $"{_index + 1} / {_resources.Count} · " : "")}{bitmap.PixelWidth} × {bitmap.PixelHeight}" +
+            SetZoomControlsEnabled(true);
+            _viewer.SetMetadata(
+                $"{(_resources.Count > 1 ? $"{_index + 1}/{_resources.Count} · " : "")}{bitmap.PixelWidth}×{bitmap.PixelHeight}" +
                 (content.Length > 0 ? $" · {DownloadPresentationPolicy.FormatBytes(content.Length)}" : ""));
-            DispatcherQueue.TryEnqueue(() => { Fit(); UpdateZoomLabel(); });
-            _viewer.RestartIdle();
+            QueueZoomRefresh();
             if (_recentAccess is not null)
                 _ = new RecentOpenRecording(_recentAccess, resource, generation).ConfirmOpenedAsync(generation, token);
         }
@@ -351,6 +467,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     {
         if (_closed) return;
         _closed = true; ++_generation; _lifetime.Cancel(); _imageCancellation?.Cancel(); _image.Source = null;
+        if (_xamlRoot is not null) _xamlRoot.Changed -= OnXamlRootChanged;
         if (_loadTask is not null) await _loadTask;
         var content = _content; _content = null;
         if (content is not null) await content.DisposeAsync();
