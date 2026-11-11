@@ -214,7 +214,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         SubtitleText.Visibility = hasMediaExtension ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(TitleText, snapshot.DisplayName);
         var pauseAction = PlaybackPausePolicy.GetAction(snapshot);
-        PlayIcon.IconName = pauseAction.IconName.ToLowerInvariant();
+        PlayIcon.IconName = pauseAction.IconName;
         AutomationProperties.SetName(PlayButton, pauseAction.AutomationName);
         PlayButton.IsEnabled = snapshot.Status is PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Ended or PlaybackStatus.Buffering;
         SeekSlider.IsEnabled = snapshot.Seekable && snapshot.Duration is { TotalSeconds: > 0 };

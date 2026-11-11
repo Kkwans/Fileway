@@ -294,6 +294,8 @@ components:
 
 ### Icons
 
+- 播放器左侧的播放/暂停、后退十秒、前进十秒保留用户认可的原版 Screenbox 矢量图标与 20 DIP 画布；播放器其余位置使用 Lucide。
+
 - 只使用仓库内 Lucide 单色 PNG（`Assets/Lucide/light`），尺寸 16/18/20/22/30；颜色继承 `Foreground`。
 - 不再混用 `SymbolIcon`/Segoe 字形；新增图标必须先补 Lucide 资源再使用。
 - 同一个动作在全局使用同一个图标名（下载 `download-simple`、回收站 `trash`、更多 `dots-three`）；不同侧栏入口不得复用同一图标（文件任务 `file-code`、存储工具 `gear`、本地服务端 `server`、连接 `floppy-disk`）。0.8.152 起资源共 41 个（新增 `server`/`activity`/`terminal`/`alert-triangle`/`hard-drive`/`power`），由 `eng/Import-LucideIcons.cjs` 从固定 commit 复现，旧 35 个逐字节不变。

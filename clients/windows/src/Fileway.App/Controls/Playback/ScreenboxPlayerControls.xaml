@@ -218,12 +218,12 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <Button x:Name="PlayButton" Style="{StaticResource PlayerButtonStyle}" Click="Play_Click"
                                 AutomationProperties.Name="暂停播放" ToolTipService.ToolTip="播放 / 暂停（Space）">
-                            <ui:LucideIcon Foreground="{ThemeResource FwTextPrimaryBrush}" x:Name="PlayIcon" IconName="pause" Width="20" Height="20" />
+                            <local:PlaybackTransportIcon Foreground="{ThemeResource FwTextPrimaryBrush}" x:Name="PlayIcon" IconName="Pause" Width="20" Height="20" />
                         </Button>
                         <Button x:Name="BackTenButton" Grid.Column="1" Style="{StaticResource PlayerButtonStyle}" Click="BackTen_Click"
-                                AutomationProperties.Name="后退十秒" ToolTipService.ToolTip="后退十秒"><ui:LucideIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="rewind" Width="20" Height="20" /></Button>
+                                AutomationProperties.Name="后退十秒" ToolTipService.ToolTip="后退十秒"><local:PlaybackTransportIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="SkipBack10" Width="20" Height="20" /></Button>
                         <Button x:Name="ForwardTenButton" Grid.Column="2" Style="{StaticResource PlayerButtonStyle}" Click="ForwardTen_Click"
-                                AutomationProperties.Name="前进十秒" ToolTipService.ToolTip="前进十秒"><ui:LucideIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="fast-forward" Width="20" Height="20" /></Button>
+                                AutomationProperties.Name="前进十秒" ToolTipService.ToolTip="前进十秒"><local:PlaybackTransportIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="SkipForward10" Width="20" Height="20" /></Button>
                         <Grid Grid.Column="3" ColumnSpacing="8" Margin="8,0,12,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <StackPanel Spacing="1" VerticalAlignment="Center">
