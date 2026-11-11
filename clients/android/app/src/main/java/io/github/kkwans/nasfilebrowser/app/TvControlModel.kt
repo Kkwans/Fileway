@@ -96,7 +96,7 @@ class TvControlModel(application:Application):AndroidViewModel(application){
             runAction(expected) {
                 val saved=client.store.dao.device(device.id)
                 if(saved?.trusted==true&&saved.fingerprint==device.fingerprint)connect(device,true,expected)
-                else select(device,predecessor=expected){client.requestPairing(latest(device))}
+                else select(device,predecessor=expected){client.requestTvConsent(latest(device))}
             }
         }
     }
@@ -114,10 +114,14 @@ class TvControlModel(application:Application):AndroidViewModel(application){
         }
     }
     fun pair(text:String){
-        val invitation=try{TvInvitation.parse(text)}catch(error:Exception){noticeMutable.value=error.message?:"配对码无法识别";return}
-        select(invitation.device){client.pair(invitation)}
+        val invitation=try{TvInvitation.parse(text)}catch(error:Exception){noticeMutable.value=error.message?:"TV 二维码无法识别";return}
+        select(invitation.device) {
+            val saved = client.store.dao.device(invitation.device.id)
+            if (saved?.trusted == true && saved.fingerprint == invitation.device.fingerprint) client.connect(invitation.device)
+            else client.requestTvConsent(invitation.device, invitation)
+        }
     }
-    fun requestPairing(device:TvDescriptor){select(device){client.requestPairing(latest(device))}}
+    fun requestPairing(device:TvDescriptor){select(device){client.requestTvConsent(latest(device))}}
     private fun select(device:TvDescriptor,resetBackoff:Boolean=true,predecessor:Long?=null,action:suspend ()->Unit){
         val next=synchronized(selectionLock){
             if(predecessor!=null&&predecessor!=revision)return

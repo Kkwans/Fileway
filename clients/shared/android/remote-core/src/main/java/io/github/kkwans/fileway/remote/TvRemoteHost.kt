@@ -103,7 +103,8 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
                     observedLan=network to address
                     val controllers = pairingSaves.withLock { store.dao.currentControllers() }
                     val config = JSONObject().put("identity", store.tvIdentity()).put("name", Build.MODEL.take(40).ifBlank { "栖卷 TV" })
-                        .put("listenAddress", address).put("controllers", JSONArray(controllers.map { it.json() })).put("approvalPairing",true)
+                        .put("listenAddress", address).put("controllers", JSONArray(controllers.map { it.json() }))
+                        .put("approvalPairing", true).put("qrApproval", true)
                     localHandle = NativeTransport.call(JSONObject().put("op", "remote_start").put("remoteConfig", config)) as String
                     handle = localHandle
                     val device = TvDescriptor.from(call("remote_descriptor") as JSONObject)
@@ -169,7 +170,8 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
                 val allowed=status.getString("status")=="PAIRED"
                 if(status.getString("status")!="PENDING"&&!allowed)break
                 if(allowed&&status.getInt("expiresIn")<=0)break
-                val code=status.getString("verificationCode")
+                val code = status.optString("verificationCode")
+                if (allowed && code.isEmpty()) break
                 mutable.update { state->
                     val previous=state.approval?.takeIf{it.id==id}
                     val approved=allowed||previous?.allowed==true
@@ -214,7 +216,14 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
             try {
                 if(allow)persistPair(owner,request.id,request.controller)
                 else ownedCall(owner,"remote_pair_deny",JSONObject().put("remotePairRequestId",request.id))
-                if(handle==owner)mutable.update{if(it.approval?.id==request.id)it.copy(approval=if(allow)request.copy(busy=false,allowed=true)else null)else it}
+                if (handle == owner) {
+                    if (request.code.isEmpty()) dismissPairing()
+                    mutable.update { state ->
+                        if (state.approval?.id == request.id) {
+                            state.copy(approval = if (allow && request.code.isNotEmpty()) request.copy(busy = false, allowed = true) else null)
+                        } else state
+                    }
+                }
             }catch(failure:Exception){
                 if(failure is CancellationException)throw failure
                 if(handle==owner)mutable.update{state->if(state.approval?.id==request.id)state.copy(approval=request.copy(error="连接未能完成，请重新申请"))else state}

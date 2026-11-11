@@ -22,6 +22,12 @@ NAS discovery and TV discovery share the bounded API28-compatible
 advertisement is only a candidate. A changed fingerprint requires explicit
 pairing again; it never authorizes forwarding an existing credential.
 
+Current TV builds advertise consent pairing version 3. The phone uses the
+same TV allow/deny prompt for discovery and QR, then connects after the TV
+saves consent. QR supplies a pinned endpoint and a one-use invitation, not
+authorization to control the TV. Saved device identities continue to use the
+existing key challenge and WSS reconnect flow.
+
 The phone's CameraX scanner belongs in the phone application, not this module or
 the TV. ZXing provides QR encoding/decoding; OkHttp provides the phone's WSS/TLS
 transport. Native control uses the existing Go core, separate from media leases.

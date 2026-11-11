@@ -298,12 +298,8 @@ private fun tvFileIcon(file:JSONObject):Int = if(file.optBoolean("directory"))R.
         Text(connection.device?.name.orEmpty(),style=MaterialTheme.typography.titleMedium)
         when(connection.phase){
             RemotePhase.PAIRING->{
-                Text(if(connection.pairingAwaitingConfirmation)"TV 已允许，请核对号码"else"等待 TV 允许连接",style=MaterialTheme.typography.bodyMedium)
-                connection.pairingCode?.let{code->
-                    Text(code.chunked(3).joinToString(" "),style=MaterialTheme.typography.headlineMedium)
-                    Text("确认号码与 TV 上显示的一致",style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                if(connection.pairingAwaitingConfirmation)FilewayButton(onClick=model.client::confirmPairing,modifier=Modifier.fillMaxWidth()){Text("号码一致，连接")}
+                Text("等待 TV 允许连接", style = MaterialTheme.typography.bodyMedium)
+                LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             RemotePhase.CONNECTING->{Text("正在连接…",style=MaterialTheme.typography.bodyMedium);LinearProgressIndicator(Modifier.fillMaxWidth())}
             RemotePhase.CONNECTED->{

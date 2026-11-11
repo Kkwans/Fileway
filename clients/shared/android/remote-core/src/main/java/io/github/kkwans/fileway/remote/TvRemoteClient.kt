@@ -55,7 +55,10 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
     // Do not let an old request's bounded cancellation cancel a new request
     // that reused the same signed approval attempt.
     private val pairingRequests = Mutex()
-    private data class ApprovalAttempt(val device:String,val fingerprint:String,val controller:String,val nonce:String,val signature:String)
+    private data class ApprovalAttempt(
+        val device: String, val fingerprint: String, val controller: String, val nonce: String,
+        val signature: String, val version: Int, val invitationId: String?,
+    )
     private var approvalAttempt:ApprovalAttempt?=null
 
     fun confirmPairing() {
@@ -64,36 +67,54 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
     }
 
     /** Discovery is not trust. The TV must approve this exact installation key. */
-    suspend fun requestPairing(device: TvDescriptor) {
+    suspend fun requestPairing(device: TvDescriptor) = requestPairing(device, null, false)
+
+    suspend fun requestTvConsent(device: TvDescriptor, invitation: TvInvitation? = null) =
+        requestPairing(device, invitation, true)
+
+    private suspend fun requestPairing(device: TvDescriptor, invitation: TvInvitation?, requireConsent: Boolean) {
         val expected = requireNotNull(reserve(device, RemotePhase.PAIRING))
         try {
-            pairingRequests.withLock { requestPairing(device,expected) }
+            pairingRequests.withLock { requestPairing(device, expected, invitation, requireConsent) }
         } catch(failure:Exception) {
             failPairing(expected,failure)
             throw failure
         }
     }
 
-    private suspend fun requestPairing(device:TvDescriptor,expected:Long) {
+    private suspend fun requestPairing(device: TvDescriptor, expected: Long, invitation: TvInvitation?, requireConsent: Boolean) {
         val transport=activate(expected,device)
         var auth:JSONObject?=null
         var paired=false
         try {
             val descriptor=TvDescriptor.from(post(transport,device,"/v1/identity",JSONObject(),useGet=true))
             check(descriptor.id==device.id&&descriptor.fingerprint==device.fingerprint){"TV 身份已变化，请重新选择"}
+            val version = if (descriptor.pairingVersion >= 3) 3 else 0
+            if (requireConsent && version != 3) throw RemoteFailure("PAIRING_UNSUPPORTED", "请先将 TV 更新到支持首次授权连接的版本")
+            require(invitation == null || (invitation.device.id == descriptor.id && invitation.device.fingerprint == descriptor.fingerprint)) {
+                "二维码与当前 TV 不一致"
+            }
             if(descriptor.pairingVersion<2){
                 post(transport,device,"/v1/pairing/request",JSONObject())
                 throw RemoteFailure("PAIRING_UNSUPPORTED","此 TV 版本请使用扫码配对，升级后可直接授权连接")
             }
             val controller=identity.publicController()
             val id=controller.getString("id")
-            val cached=synchronized(lifecycle){approvalAttempt?.takeIf{it.device==device.id&&it.fingerprint==device.fingerprint&&it.controller==id}}
+            val cached = synchronized(lifecycle) {
+                approvalAttempt?.takeIf {
+                    it.device == device.id && it.fingerprint == device.fingerprint && it.controller == id &&
+                        it.version == version && it.invitationId == invitation?.id
+                }
+            }
             val nonce=cached?.nonce?:ByteArray(32).also{SecureRandom().nextBytes(it)}.let{Base64.getUrlEncoder().withoutPadding().encodeToString(it)}
             val signature=cached?.signature?:identity.sign(device.id,id,nonce,"pair-request")
-            val attempt=cached?:ApprovalAttempt(device.id,device.fingerprint,id,nonce,signature)
+            val attempt = cached ?: ApprovalAttempt(device.id, device.fingerprint, id, nonce, signature, version, invitation?.id)
             if(!withGeneration(expected){approvalAttempt=attempt})throw CancellationException("TV selection changed")
-            val code=approvalCode(device.id,id,nonce)
+            val code = if (version == 3) null else approvalCode(device.id, id, nonce)
             val request=JSONObject().put("controller",controller).put("nonce",nonce).put("signature",signature)
+            if (version == 3) request.put("version", version)
+            if (invitation != null) request.put("invitationId", invitation.id)
+                .put("invitationProof", invitationProof(invitation, id, nonce))
             rememberDevice(expected,device,false)
             var response=try { post(transport,device,"/v1/pairing/start",request) }
                 catch(failure:RemoteFailure){
@@ -103,22 +124,24 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
                 }
             val ticket=JSONObject().put("id",response.getString("id")).put("controllerId",id).put("nonce",nonce).put("signature",signature)
             auth=ticket
-            val confirmation=CompletableDeferred<Unit>()
-            if(!withGeneration(expected){pairingConfirmation=expected to confirmation})throw CancellationException("TV selection changed")
+            val confirmation = if (code != null) CompletableDeferred<Unit>() else null
+            if (!withGeneration(expected) { pairingConfirmation = confirmation?.let { expected to it } })
+                throw CancellationException("TV selection changed")
             withTimeout(125_000){
                 while(true){
                     ensureActive()
                     if(generation!=expected)throw CancellationException("TV selection changed")
-                    check(response.getString("deviceId")==device.id&&response.getString("controllerId")==id&&response.getString("verificationCode")==code){"配对请求身份不匹配"}
+                    check(response.getString("deviceId") == device.id && response.getString("controllerId") == id &&
+                        response.optString("verificationCode") == code.orEmpty()) { "配对请求身份不匹配" }
                     check(response.getString("id")==ticket.getString("id")){"配对申请已变化"}
                     if(response.getString("status")!="PENDING")synchronized(lifecycle){if(approvalAttempt===attempt)approvalAttempt=null}
                     when(response.getString("status")){
                         "PAIRED"->{
                             paired=true
-                            // A discovered endpoint cannot authenticate itself
-                            // merely by claiming that its TV user approved.
-                            withGeneration(expected){mutable.value=mutable.value.copy(pairingCode=code,pairingAwaitingConfirmation=true)}
-                            confirmation.await()
+                            if (confirmation != null) {
+                                withGeneration(expected) { mutable.value = mutable.value.copy(pairingCode = code, pairingAwaitingConfirmation = true) }
+                                confirmation.await()
+                            }
                             break
                         }
                         "PENDING"->withGeneration(expected){mutable.value=mutable.value.copy(pairingCode=code)}
@@ -162,11 +185,7 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
             val controller = identity.publicController()
             val id = controller.getString("id")
             val nonce = ByteArray(32).also { SecureRandom().nextBytes(it) }.let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
-            val secret = Base64.getUrlDecoder().decode(invitation.secret)
-            val proof = try {
-                val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(secret, "HmacSHA256")) }
-                Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(proofMessage("pair", device.id, id, nonce)))
-            } finally { secret.fill(0) }
+            val proof = invitationProof(invitation, id, nonce)
             // Preserve the scanned identity before sending the request so a lost
             // pair response can be resolved by a key challenge rather than re-pairing.
             rememberDevice(expected,device,false)
@@ -187,6 +206,16 @@ class TvRemoteClient(context: Context, private val scope: CoroutineScope, val st
             else fail(expected, error.message ?: "配对未完成，请重试")
             throw error
         }
+    }
+
+    private fun invitationProof(invitation: TvInvitation, controllerId: String, nonce: String): String {
+        val secret = Base64.getUrlDecoder().decode(invitation.secret)
+        return try {
+            val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(secret, "HmacSHA256")) }
+            Base64.getUrlEncoder().withoutPadding().encodeToString(
+                mac.doFinal(proofMessage("pair", invitation.device.id, controllerId, nonce)),
+            )
+        } finally { secret.fill(0) }
     }
 
     suspend fun connect(descriptor: TvDescriptor) = connect(descriptor, null)

@@ -1,18 +1,24 @@
 package io.github.kkwans.nasfilebrowser
 
 import android.os.Build
+import android.net.Uri
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.lifecycle.ViewModelProvider
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
 import androidx.test.runner.lifecycle.Stage
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Configurator
+import androidx.test.uiautomator.Until
 import io.github.kkwans.fileway.remote.*
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.ui.ClientTheme
 import io.github.kkwans.nasfilebrowser.ui.TvControlScreen
+import io.github.kkwans.nasfilebrowser.ui.tvQrFromImage
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 import org.json.JSONArray
@@ -27,7 +33,81 @@ import java.io.File
  * authorization is covered by Go TLS tests, not inferred from this paired phone. */
 @RunWith(AndroidJUnit4::class)
 class TvPairApprovalUiTest {
-    @Test fun approvalDenialCancellationAndComparison()=runBlocking {
+    /** A separate task-owned TV emulator must show the consent prompt and allow the request. */
+    @Test fun firstConnectionWithTVConsent() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val args = InstrumentationRegistry.getArguments()
+        val mode = args.getString("filewayLocalConsentMode")
+        assumeTrue("Local two-emulator consent opt-in required", mode in setOf("discovery", "qr"))
+        require(Build.VERSION.SDK_INT == 35 && Build.HARDWARE.contains("ranchu"))
+        val address = requireNotNull(args.getString("filewayLocalConsentTvAddress"))
+        val name = requireNotNull(args.getString("filewayLocalConsentTvName"))
+        val relay = args.getString("filewayLocalConsentRelay")
+        require(localAddress(address) != null)
+        require(relay == null || (mode == "qr" && relay == "10.0.2.2"))
+        val files = requireNotNull(instrumentation.targetContext.getExternalFilesDir(null))
+        val evidence = File(files, "fileway-local-consent-$mode.json")
+        check(evidence.createNewFile()) { "A fresh task-owned run is required" }
+        fun record(status: String) = evidence.writeText(JSONObject().put("status", status).put("mode", mode)
+            .put("route", if (relay == null) "local-network" else "owned-emulator-byte-relay").toString())
+        val device = UiDevice.getInstance(instrumentation)
+        val configuration = Configurator.getInstance()
+        val previousIdleTimeout = configuration.waitForIdleTimeout
+        configuration.waitForIdleTimeout = 0
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        lateinit var control: TvControlModel
+        lateinit var phone: ClientModel
+        var initialized = false
+        try {
+            scenario.onActivity {
+                val models = ViewModelProvider(it)
+                control = models[TvControlModel::class.java]
+                phone = models[ClientModel::class.java]
+                initialized = true
+            }
+            require(control.client.store.dao.devices().first().none { it.trusted }) { "Use an unpaired test phone" }
+            scenario.onActivity { it.setContent { ClientTheme { TvControlScreen(phone, {}, control) } } }
+            val target = if (mode == "discovery") {
+                val seen = withTimeout(30_000) {
+                    control.discovery.first { result -> result.devices.any { it.address == address && it.name == name } }
+                }.devices.single { it.address == address && it.name == name }
+                require(seen.pairingVersion >= 3)
+                requireNotNull(device.wait(Until.findObject(By.text(name)), 10_000)).click()
+                seen
+            } else {
+                val image = File(files, "fileway-local-consent-qr.png")
+                val text = tvQrFromImage(instrumentation.targetContext, Uri.fromFile(image))
+                val invite = TvInvitation.parse(text)
+                require(invite.device.address == address && invite.device.name == name)
+                // API 28 and API 35 images can expose different virtual networks.
+                // A lab relay may change the numeric route while retaining the TV identity and invitation.
+                val routed = if (relay == null) text else invite.copy(device = invite.device.at(relay, invite.device.port)).uri()
+                scenario.onActivity { control.pair(routed) }
+                invite.device
+            }
+            val pending = withTimeout(10_000) { control.connection.first { it.phase == RemotePhase.PAIRING && it.device?.id == target.id } }
+            assertNull(pending.snapshot)
+            assertNull(pending.pairingCode)
+            assertFalse(control.client.store.dao.device(target.id)?.trusted == true)
+            requireNotNull(device.wait(Until.findObject(By.text("等待 TV 允许连接")), 10_000))
+            record("WAITING_FOR_TV")
+
+            val connected = withTimeout(115_000) { control.connection.first { it.phase == RemotePhase.CONNECTED && it.snapshot != null } }
+            assertEquals(target.id, connected.device?.id)
+            assertTrue(control.client.store.dao.device(target.id)?.trusted == true)
+            assertFalse(device.hasObject(By.text("号码一致，连接")))
+            record("PASS")
+        } catch (failure: Throwable) {
+            record("FAIL")
+            throw failure
+        } finally {
+            if (initialized) scenario.onActivity { control.disconnect() }
+            scenario.close()
+            configuration.waitForIdleTimeout = previousIdleTimeout
+        }
+    }
+
+    @Test fun approvalDenialCancellationAndAutomaticConnection()=runBlocking {
         val instrumentation=InstrumentationRegistry.getInstrumentation()
         val context=instrumentation.targetContext
         val optIn=File(context.getExternalFilesDir(null),"fileway-pairing-approval-acceptance.json")
@@ -84,27 +164,28 @@ class TvPairApprovalUiTest {
         }
         suspend fun request() {
             click(original.name,phonePackage)
-            val state=withTimeout(10000){control.connection.first{it.phase==RemotePhase.PAIRING&&it.pairingCode!=null}}
-            val code=state.pairingCode!!.chunked(3).joinToString(" ")
-            visible(code,phonePackage)
+            val state=withTimeout(10000){control.connection.first{it.phase==RemotePhase.PAIRING}}
+            visible("等待 TV 允许连接",phonePackage)
             withContext(Dispatchers.Main){activity.moveTaskToBack(true)}
-            visible("允许手机连接？",tvPackage);visible(code,tvPackage)
-            assertFalse("TV result alone must not establish phone trust",state.pairingAwaitingConfirmation)
+            visible("允许手机连接？",tvPackage)
+            assertNull("New pairing must not ask for a comparison code",state.pairingCode)
+            assertNull(state.snapshot)
+            assertFalse(control.client.store.dao.device(original.id)!!.trusted)
         }
         try {
             withContext(Dispatchers.Main){control.disconnect()}
             // Preserve/restore this exact hint. Never delete TV keys or account data.
             control.client.store.dao.saveDevice(original.copy(trusted=false))
             withContext(Dispatchers.Main){activity.setContent{ClientTheme{TvControlScreen(phone,{},control)}};control.startView(owner)}
-            withTimeout(20000){control.discovery.first{it.devices.any{row->row.id==original.id&&row.fingerprint==original.fingerprint&&row.pairingVersion>=2}}}
+            withTimeout(20000){control.discovery.first{it.devices.any{row->row.id==original.id&&row.fingerprint==original.fingerprint&&row.pairingVersion>=3}}}
             visible("配对待确认",phonePackage)
             step="deny";request();device.takeScreenshot(File(evidence,"pending.png"));click("拒绝",tvPackage)
             withTimeout(10000){control.connection.first{it.phase==RemotePhase.FAILED&&it.error?.contains("拒绝")==true}}
             assertFalse(control.client.store.dao.device(original.id)!!.trusted)
-            checks+="matching comparison codes and TV denial; no camera or phone trust";record()
+            checks+="TV denial preserves untrusted state without showing a comparison code";record()
             delay(5200)
             step="restore phone after denial";record();showPhone()
-            step="cancel";request();showPhone();click("取消申请",phonePackage)
+            step="cancel";request();showPhone();click("取消连接",phonePackage)
             withContext(Dispatchers.Main){activity.moveTaskToBack(true)}
             withTimeout(10000){while(node("允许手机连接？",tvPackage)!=null)delay(100)}
             assertEquals(RemotePhase.OFFLINE,control.connection.value.phase)
@@ -112,17 +193,13 @@ class TvPairApprovalUiTest {
             checks+="phone cancellation retires TV prompt and preserves untrusted status";record()
             delay(5200)
             showPhone()
-            step="allow and compare";request();click("允许",tvPackage)
-            val waiting=withTimeout(10000){control.connection.first{it.pairingAwaitingConfirmation}}
-            visible("已允许连接",tvPackage);visible(waiting.pairingCode!!.chunked(3).joinToString(" "),tvPackage)
-            assertEquals(RemotePhase.PAIRING,waiting.phase)
-            assertNull(waiting.snapshot)
-            assertFalse(control.client.store.dao.device(original.id)!!.trusted)
-            device.takeScreenshot(File(evidence,"compare.png"));showPhone();click("号码一致，连接",phonePackage)
+            step="allow on TV";request();click("允许",tvPackage)
             val ready=withTimeout(15000){control.connection.first{it.phase==RemotePhase.CONNECTED&&it.snapshot!=null}}
             assertEquals(original.id,ready.device!!.id)
             assertTrue(control.client.store.dao.device(original.id)!!.trusted)
-            checks+="TV durable approval alone cannot connect; phone comparison confirmation establishes exact-device trust and control";record()
+            showPhone()
+            assertNull(node("号码一致，连接",phonePackage))
+            checks+="TV durable approval connects the same phone without another interaction";record()
             step="explicit disconnect required"
             val other=ready.device!!.copy(id="0".repeat(32))
             val rejected=runCatching{control.client.connect(other)}.exceptionOrNull()

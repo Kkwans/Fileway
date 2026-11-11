@@ -66,7 +66,15 @@ class TvCompanionControlTest {
             deviceId=trusted.id
             // Discovery is checked against the independently QR-trusted key.
             val discovered=withTimeout(15000){TvServiceDiscovery(context).scan().first{scan->scan.devices.any{it.id==trusted.id&&it.fingerprint==trusted.fingerprint}}}.devices.first{it.id==trusted.id}
-            if(resume)client.connect(trusted.at(discovered.address,discovered.port)) else client.pair(TvInvitation.parse(tvQrFromImage(context,Uri.fromFile(qrInput))))
+            if (resume) {
+                client.connect(trusted.at(discovered.address, discovered.port))
+            } else {
+                val invitation = TvInvitation.parse(tvQrFromImage(context, Uri.fromFile(qrInput)))
+                if (discovered.pairingVersion >= 3) {
+                    record("waiting for TV user to allow the QR connection")
+                    client.requestTvConsent(invitation.device, invitation)
+                } else client.pair(invitation)
+            }
             val initial=state{true}
             record(if(resume)"reconnected previously verified durable pairing via real DNS-SD" else "physical DNS-SD, actual QR decode, pinned TLS, durable pairing and WSS snapshot")
             assertTrue("Refuse replacing an unrelated active TV session",initial.scene=="LOGIN"||initial.scene=="BROWSE"&&initial.content.getJSONObject("session").optString("username")==source.identity.username)

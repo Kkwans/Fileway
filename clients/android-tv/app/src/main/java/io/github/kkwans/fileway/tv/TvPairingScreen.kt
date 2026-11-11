@@ -44,8 +44,13 @@ private data class TvPairingImage(val bitmap:Bitmap?=null,val error:String?=null
             Column(Modifier.widthIn(max=480.dp).background(MaterialTheme.colorScheme.surface,TvShape).padding(28.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
                 Text(if(request.allowed)"已允许连接"else"允许手机连接？",style=MaterialTheme.typography.titleLarge)
                 Text(request.controller.name,style=MaterialTheme.typography.titleMedium)
-                Text(request.code.chunked(3).joinToString(" "),style=MaterialTheme.typography.displayMedium)
-                Text(if(request.allowed)"在手机上确认核对码。"else"核对手机上的号码，连接后可操控栖卷。",style=MaterialTheme.typography.bodyMedium,color=LocalTvSurfaces.current.secondaryText)
+                if (request.code.isNotEmpty()) Text(request.code.chunked(3).joinToString(" "), style = MaterialTheme.typography.displayMedium)
+                val description = when {
+                    request.allowed -> "在手机上确认核对码。"
+                    request.code.isNotEmpty() -> "核对手机上的号码，连接后可控制栖卷。"
+                    else -> "允许后，这部手机可控制栖卷。"
+                }
+                Text(description, style = MaterialTheme.typography.bodyMedium, color = LocalTvSurfaces.current.secondaryText)
                 request.error?.let{Text(it,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp,Alignment.End)) {
                     TvButton(if(request.allowed)"关闭"else"拒绝",reject,Modifier.focusRequester(deny),enabled=!request.busy)
