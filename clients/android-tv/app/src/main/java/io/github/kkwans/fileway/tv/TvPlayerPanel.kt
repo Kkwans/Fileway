@@ -13,8 +13,13 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.gestures.BringIntoViewSpec
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -91,6 +96,7 @@ internal class TvPlayerPanelFocus(initialKey: String?, val onFocused: (String) -
     val appearanceScale = FocusRequester()
     var hasSection = false
     var hasHeader = true
+    var compactSpeedGrid = false
     private val initial = FocusRequester()
     var initialKey by mutableStateOf(initialKey)
         private set
@@ -224,24 +230,27 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                 val baseHeight = (maxHeight * .32f).coerceIn(128.dp, 256.dp)
                     .coerceAtMost((maxHeight - bottom - 56.dp).coerceAtLeast(0.dp))
                 val speedEditor = page == TvPlayerPage.SPEED
-                val panelWidth = when {
-                    speedEditor -> minOf(availableWidth, 336.dp)
-                    compactChoice -> minOf(availableWidth, (availableWidth * .28f).coerceIn(224.dp, 300.dp))
-                    else -> availableWidth
-                }
                 // The underlay also has a 48dp tab row and a 6dp gap above
                 // its body. Keep the choice panel above the entire row.
                 val stackedBottom = bottom + baseHeight + 48.dp + 6.dp + 12.dp
                 val keyboardEditor = speedEditor && WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                val minimumStackedBody = if (speedEditor) 200.dp else 112.dp
+                val showSettingsUnderlay = compactChoice && !keyboardEditor &&
+                    maxHeight - stackedBottom - 56.dp >= minimumStackedBody
+                val compactSpeedGrid = speedEditor && !showSettingsUnderlay && !keyboardEditor
+                val panelWidth = when {
+                    keyboardEditor || compactSpeedGrid -> minOf(availableWidth, 336.dp)
+                    speedEditor -> minOf(availableWidth, (availableWidth * .28f).coerceIn(264.dp, 300.dp))
+                    compactChoice -> minOf(availableWidth, (availableWidth * .28f).coerceIn(224.dp, 300.dp))
+                    else -> availableWidth
+                }
                 val minimumBody = when {
                     keyboardEditor -> 96.dp
-                    speedEditor -> 216.dp
+                    compactSpeedGrid -> 216.dp
+                    speedEditor -> minimumStackedBody
                     page == TvPlayerPage.QUEUE -> 140.dp
                     else -> 128.dp
                 }
-                val minimumStackedBody = if (speedEditor) minimumBody else 112.dp
-                val showSettingsUnderlay = compactChoice && !keyboardEditor &&
-                    maxHeight - stackedBottom - 56.dp >= minimumStackedBody
                 val panelLeft = horizontal + when {
                     speedEditor && !showSettingsUnderlay -> (availableWidth - panelWidth) / 2
                     showSettingsUnderlay && availableWidth >= 560.dp -> availableWidth * .15f
@@ -278,10 +287,11 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                 saveable.SaveableStateProvider(page.name) {
                     val focus = remember(page) { TvPlayerPanelFocus(initialKey, onFocused).apply { hasSection = subtitleSection } }
                     focus.hasHeader = !keyboardEditor
+                    focus.compactSpeedGrid = compactSpeedGrid
                     Column(
                         Modifier.align(Alignment.BottomStart).padding(start = panelLeft, bottom = panelBottom)
                             .width(panelWidth)
-                            .then(if (compactChoice) Modifier.background(if (speedEditor) SpeedPanelSurface else PanelSurface, TvShape)
+                            .then(if (compactChoice) Modifier.background(if (speedEditor && !showSettingsUnderlay) SpeedPanelSurface else PanelSurface, TvShape)
                                 .border(1.dp, Color.White.copy(alpha = .09f), TvShape) else Modifier),
                         verticalArrangement = Arrangement.spacedBy(if (compactChoice || page == TvPlayerPage.QUEUE) 0.dp else 6.dp),
                     ) {
@@ -504,15 +514,19 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable internal fun TvPlayerChoiceList(
     rows: List<TvPlayerRow>, focus: TvPlayerPanelFocus, modifier: Modifier = Modifier,
+    afterLast: FocusRequester? = null,
+    alignSelectedRow: Boolean = false,
 ) {
-    val scroll = rememberLazyListState()
     val choices = remember(rows) { rows.filterIsInstance<TvPlayerRow.Choice>() }
     val first = choices.firstOrNull { it.enabled }?.key
+    val last = choices.lastOrNull { it.enabled }?.key
     val preferred = choices.firstOrNull { it.enabled && it.key == focus.initialKey }?.key
         ?: choices.firstOrNull { it.enabled && it.selected }?.key ?: first
     val index = rows.indexOfFirst { it.key == preferred }
+    val scroll = rememberLazyListState(initialFirstVisibleItemIndex = if (alignSelectedRow) index.coerceAtLeast(0) else 0)
     val prefersChrome = focus.initialKey?.let { it.startsWith("header/") || it.startsWith("group/") } == true
     LaunchedEffect(index, focus.pending, prefersChrome) {
         if (index >= 0 && focus.pending && !prefersChrome) {
@@ -532,6 +546,7 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
                     focus.target(row.key, row.key == preferred && !prefersChrome,
                         Modifier.focusProperties {
                             if (row.key == first && focus.hasHeader) up = focus.header
+                            if (row.key == last && afterLast != null) down = afterLast
                             left = if (focus.hasSection) focus.section else FocusRequester.Cancel
                             right = FocusRequester.Cancel
                         }),
@@ -539,8 +554,22 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
             }
         }
     }
-    LazyColumn(modifier.fillMaxWidth(), state = scroll, contentPadding = PaddingValues(0.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp), content = listContent)
+    val visibility = if (alignSelectedRow) FullRowVisibility else LocalBringIntoViewSpec.current
+    val fling = if (alignSelectedRow) rememberSnapFlingBehavior(scroll, SnapPosition.Start) else ScrollableDefaults.flingBehavior()
+    CompositionLocalProvider(LocalBringIntoViewSpec provides visibility) {
+        LazyColumn(modifier.fillMaxWidth(), state = scroll, contentPadding = PaddingValues(0.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp), flingBehavior = fling, content = listContent)
+    }
+}
+
+// A fully visible row does not need to be repositioned by the TV focus pivot.
+private object FullRowVisibility : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = when {
+        containerSize <= 0 -> 0f
+        size >= containerSize || offset < 0 -> offset
+        offset + size > containerSize -> offset + size - containerSize
+        else -> 0f
+    }
 }
 
 @Composable internal fun TvPlayerChoiceRow(row: TvPlayerRow.Choice, modifier: Modifier = Modifier) {
