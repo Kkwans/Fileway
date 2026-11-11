@@ -22,6 +22,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private readonly IPlaybackSession _session;
     private readonly Fileway.Core.Contracts.IRemoteSubtitleSource? _remoteSubtitles;
     private readonly Fileway.Core.Contracts.IRemoteEpisodeSource? _remoteEpisodes;
+    private readonly IRemoteVideoSequence? _videoSequence;
+    private RemoteResourceRef? _sequenceOrigin;
+    private RemoteResourceRef? _nextVideo;
+    private CancellationTokenSource? _sequenceRead;
+    private bool _switchingNeighbor;
     private readonly Fileway.Core.Contracts.ICompatibilityPlaybackSource? _compatibility;
     private Fileway.Core.Contracts.RemoteResourceRef? _compatibilityMedia;
     private string? _compatibilityTaskId;
@@ -74,6 +79,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _session = session;
         _remoteSubtitles = remoteSubtitles;
         _remoteEpisodes = remoteSubtitles as Fileway.Core.Contracts.IRemoteEpisodeSource;
+        _videoSequence = remoteSubtitles as IRemoteVideoSequence;
         _compatibility = compatibility;
         _bufferingTimer = DispatcherQueue.CreateTimer(); _bufferingTimer.IsRepeating = false; _bufferingTimer.Interval = TimeSpan.FromMilliseconds(500);
         _bufferingTimer.Tick += (_, _) => { if (!_closing && !_disposed && _hasFrame && _session.Snapshot.Status is PlaybackStatus.Seeking or PlaybackStatus.Buffering) _overlay?.ApplySnapshot(_session.Snapshot, transientLoading: true); };
@@ -142,6 +148,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _overlay.AddSubtitleRequested += Overlay_AddSubtitleRequested;
         _overlay.RemoteSubtitleRequested += Overlay_RemoteSubtitleRequested;
         _overlay.EpisodeRequested += Overlay_EpisodeRequested;
+        _overlay.NextVideoRequested += Overlay_NextVideoRequested;
         _overlay.SupportsRemoteSubtitles = remoteSubtitles is not null;
         _overlay.SupportsEpisodes = _remoteEpisodes is not null && session.Snapshot.Origin is not null;
         _overlay.SupportsCompatibilityPlayback = compatibility is not null && session.Snapshot.Origin is not null;
@@ -583,6 +590,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         if (!waiting) { _bufferingSince = null; _bufferingTimer.Stop(); }
         var transientLoading = waiting && _bufferingSince is { } since && TimeProvider.System.GetElapsedTime(since) >= TimeSpan.FromMilliseconds(500);
         _overlay.ApplySnapshot(snapshot, transientLoading);
+        ObserveVideoSequence(snapshot.Origin);
         // Stop retains any prior failure metadata. Closing must still happen.
         if (_systemMedia is { } systemMedia)
         {
@@ -832,6 +840,68 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
 
     private void Overlay_EpisodeRequested(object? sender, EventArgs args) => _ = ShowEpisodePickerAsync();
 
+    private void Overlay_NextVideoRequested(object? sender, EventArgs args) => _ = PlayNextVideoAsync();
+
+    private static bool SameSource(RemoteResourceRef? first, RemoteResourceRef? second) =>
+        first is null ? second is null : second is not null && first.Account == second.Account && first.WirePath == second.WirePath;
+
+    private void ObserveVideoSequence(RemoteResourceRef? origin)
+    {
+        if (SameSource(origin, _sequenceOrigin)) return;
+        _sequenceRead?.Cancel();
+        _sequenceRead = null;
+        _sequenceOrigin = origin;
+        _nextVideo = null;
+        _overlay.SetNextVideoAvailable(false);
+        if (!_closing && origin is not null && _videoSequence is not null)
+            _ = LoadNextVideoAsync(_videoSequence, origin);
+    }
+
+    private async Task LoadNextVideoAsync(IRemoteVideoSequence source, RemoteResourceRef origin)
+    {
+        using var read = CancellationTokenSource.CreateLinkedTokenSource(_watchCancellation.Token);
+        _sequenceRead = read;
+        try
+        {
+            var next = await source.FindNextVideoAsync(origin, read.Token);
+            if (ReferenceEquals(_sequenceRead, read) && !read.IsCancellationRequested && !_closing &&
+                !_disposed && !_detached && SameSource(origin, _session.Snapshot.Origin))
+            {
+                _nextVideo = next;
+                UpdateNextVideoAvailability();
+            }
+        }
+        catch (Exception) { /* A failed optional list read does not interrupt playback. */ }
+        finally
+        {
+            if (ReferenceEquals(_sequenceRead, read)) _sequenceRead = null;
+        }
+    }
+
+    private void UpdateNextVideoAvailability()
+    {
+        if (!_closing && !_disposed && !_detached)
+            _overlay.SetNextVideoAvailable(!_switchingNeighbor && _nextVideo is not null &&
+                SameSource(_sequenceOrigin, _session.Snapshot.Origin));
+    }
+
+    private async Task PlayNextVideoAsync()
+    {
+        if (_closing || _disposed || _detached || _switchingNeighbor || _nextVideo is not { } target ||
+            !SameSource(_sequenceOrigin, _session.Snapshot.Origin)) return;
+        _switchingNeighbor = true;
+        UpdateNextVideoAvailability();
+        try
+        {
+            await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(target), _watchCancellation.Token));
+        }
+        finally
+        {
+            _switchingNeighbor = false;
+            UpdateNextVideoAvailability();
+        }
+    }
+
     private async Task<IReadOnlyList<Fileway.Core.Contracts.RemoteMediaOption>?> EpisodesAsync()
     {
         if (_remoteEpisodes is null) return null;
@@ -913,24 +983,35 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private async Task PlayEpisodeOffsetAsync(int offset, bool announce)
     {
         var origin = _session.Snapshot.Origin;
-        if (origin is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested) return;
-        var options = await EpisodesAsync();
-        if (options is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested) return;
-        int index = -1;
-        for (int position = 0; position < options.Count; position++)
-            if (options[position].Resource.WirePath == origin.WirePath) { index = position; break; }
-        if (index < 0) return;
-        if (_systemMedia is { } media)
+        if (origin is null || _disposed || _detached || _closing || _switchingNeighbor || _watchCancellation.IsCancellationRequested) return;
+        _switchingNeighbor = true;
+        UpdateNextVideoAvailability();
+        try
         {
-            media.NextEnabled = index + 1 < options.Count;
-            media.PreviousEnabled = index - 1 >= 0;
+            var options = await EpisodesAsync();
+            if (options is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested ||
+                !SameSource(origin, _session.Snapshot.Origin)) return;
+            int index = -1;
+            for (int position = 0; position < options.Count; position++)
+                if (options[position].Resource.WirePath == origin.WirePath) { index = position; break; }
+            if (index < 0) return;
+            if (_systemMedia is { } media)
+            {
+                media.NextEnabled = index + 1 < options.Count;
+                media.PreviousEnabled = index - 1 >= 0;
+            }
+            int target = index + offset;
+            if (target < 0 || target >= options.Count) return;
+            var neighbor = options[target];
+            await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(neighbor.Resource), _watchCancellation.Token));
+            if (announce)
+                await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError((offset > 0 ? "已切换下一集：" : "已切换上一集：") + neighbor.Resource.DisplayName); });
         }
-        int target = index + offset;
-        if (target < 0 || target >= options.Count) return;
-        var neighbor = options[target];
-        await RunCommandAsync(() => _session.PlayAsync(new RemotePlaybackInput(neighbor.Resource), _watchCancellation.Token));
-        if (announce)
-            await OnUiAsync(() => { if (!_closing && !_disposed && !_detached) _overlay.ReportError((offset > 0 ? "已切换下一集：" : "已切换上一集：") + neighbor.Resource.DisplayName); });
+        finally
+        {
+            _switchingNeighbor = false;
+            UpdateNextVideoAvailability();
+        }
     }
 
     private async Task AddRemoteSubtitleAsync()

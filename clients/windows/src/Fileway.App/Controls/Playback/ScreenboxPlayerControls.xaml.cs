@@ -119,6 +119,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public event EventHandler? AddSubtitleRequested;
     public event EventHandler? RemoteSubtitleRequested;
     public event EventHandler? EpisodeRequested;
+    internal event EventHandler? NextVideoRequested;
     public event EventHandler<string>? QualitySelected;
     public event EventHandler? MiniWindowRequested;
     internal bool SupportsRemoteSubtitles { get; set; }
@@ -218,8 +219,6 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         AutomationProperties.SetName(PlayButton, pauseAction.AutomationName);
         PlayButton.IsEnabled = snapshot.Status is PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Ended or PlaybackStatus.Buffering;
         SeekSlider.IsEnabled = snapshot.Seekable && snapshot.Duration is { TotalSeconds: > 0 };
-        BackTenButton.IsEnabled = snapshot.Seekable;
-        ForwardTenButton.IsEnabled = snapshot.Seekable;
         if (_seekTarget is { } pending && (Math.Abs((snapshot.ConfirmedPosition ?? TimeSpan.MinValue).TotalSeconds - pending) <= 1.5 && snapshot.Status != PlaybackStatus.Seeking ||
             TimeProvider.System.GetElapsedTime(_seekRequestedAt) > TimeSpan.FromSeconds(15) || snapshot.Error is not null)) _seekTarget = null;
         if (!_seeking)
@@ -522,9 +521,10 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (action.Restart) await _session.SeekAsync(TimeSpan.Zero, token);
         await _session.SetPausedAsync(action.TargetPaused, token);
     });
-    private async void BackTen_Click(object sender, RoutedEventArgs args) => await SeekRelativeAsync(-10);
-    private async void ForwardTen_Click(object sender, RoutedEventArgs args) => await SeekRelativeAsync(10);
-    private Task SeekRelativeAsync(double delta) => RunAsync(token => _session.SeekAsync(TimeSpan.FromSeconds(Math.Clamp((_snapshot.ConfirmedPosition ?? _snapshot.Position).TotalSeconds + delta, 0, _snapshot.Duration?.TotalSeconds ?? double.MaxValue)), token));
+    private void NextVideo_Click(object sender, RoutedEventArgs args) => NextVideoRequested?.Invoke(this, EventArgs.Empty);
+
+    internal void SetNextVideoAvailable(bool available) =>
+        NextVideoButton.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
     private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Minimize_Click(object sender, RoutedEventArgs args) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
     private void Maximize_Click(object sender, RoutedEventArgs args)

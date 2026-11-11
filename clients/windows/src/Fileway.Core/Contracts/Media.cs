@@ -177,6 +177,12 @@ public interface IRemoteEpisodeSource
     Task<IReadOnlyList<RemoteMediaOption>> ListEpisodesAsync(RemoteResourceRef media, CancellationToken cancellationToken);
 }
 
+/// <summary>Finds the next video in the current server folder without changing playback.</summary>
+public interface IRemoteVideoSequence
+{
+    Task<RemoteResourceRef?> FindNextVideoAsync(RemoteResourceRef current, CancellationToken cancellationToken);
+}
+
 public interface IPlaybackSession : IAsyncDisposable
 {
     Guid Id { get; }

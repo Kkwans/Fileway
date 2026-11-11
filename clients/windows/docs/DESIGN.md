@@ -294,7 +294,7 @@ components:
 
 ### Icons
 
-- 播放器左侧的播放/暂停、后退十秒、前进十秒保留用户认可的原版 Screenbox 矢量图标与 20 DIP 画布；播放器其余位置使用 Lucide。
+- 播放器左侧保留原版 Screenbox 播放/暂停图标。在当前目录有下一段视频时，紧邻播放/暂停显示一个「播放下一个视频」按钮（单三角加竖线）；不显示十秒快进/快退按钮。
 
 - 只使用仓库内 Lucide 单色 PNG（`Assets/Lucide/light`），尺寸 16/18/20/22/30；颜色继承 `Foreground`。
 - 不再混用 `SymbolIcon`/Segoe 字形；新增图标必须先补 Lucide 资源再使用。

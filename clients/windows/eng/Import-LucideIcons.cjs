@@ -15,9 +15,9 @@ const names = {
   'upload-simple':'upload','x':'x',
   'server':'server','activity':'activity','terminal':'terminal','alert-triangle':'triangle-alert',
   'hard-drive':'hard-drive','power':'power',
-  'book-open':'book-open','captions':'captions','cloud-download':'cloud-download','fast-forward':'fast-forward',
+  'book-open':'book-open','captions':'captions','cloud-download':'cloud-download','skip-forward':'skip-forward',
   'gauge':'gauge','list-video':'list-video','maximize':'maximize','minimize':'minimize','minus':'minus',
-  'audio-lines':'audio-lines','picture-in-picture':'picture-in-picture','rewind':'rewind','square':'square','type':'type',
+  'audio-lines':'audio-lines','picture-in-picture':'picture-in-picture','square':'square','type':'type',
   'volume-1':'volume-1','volume-2':'volume-2','volume-x':'volume-x',
 };
 const base = `https://raw.githubusercontent.com/lucide-icons/lucide/${commit}`;

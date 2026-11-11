@@ -215,16 +215,16 @@
                         </local:ScreenboxSeekSlider>
                     </Grid>
                     <Grid x:Name="TransportRow" Grid.Row="3" ColumnSpacing="4">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <Button x:Name="PlayButton" Style="{StaticResource PlayerButtonStyle}" Click="Play_Click"
                                 AutomationProperties.Name="暂停播放" ToolTipService.ToolTip="播放 / 暂停（Space）">
                             <local:PlaybackTransportIcon Foreground="{ThemeResource FwTextPrimaryBrush}" x:Name="PlayIcon" IconName="Pause" Width="20" Height="20" />
                         </Button>
-                        <Button x:Name="BackTenButton" Grid.Column="1" Style="{StaticResource PlayerButtonStyle}" Click="BackTen_Click"
-                                AutomationProperties.Name="后退十秒" ToolTipService.ToolTip="后退十秒"><local:PlaybackTransportIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="SkipBack10" Width="20" Height="20" /></Button>
-                        <Button x:Name="ForwardTenButton" Grid.Column="2" Style="{StaticResource PlayerButtonStyle}" Click="ForwardTen_Click"
-                                AutomationProperties.Name="前进十秒" ToolTipService.ToolTip="前进十秒"><local:PlaybackTransportIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="SkipForward10" Width="20" Height="20" /></Button>
-                        <Grid Grid.Column="3" ColumnSpacing="8" Margin="8,0,12,0">
+                        <Button x:Name="NextVideoButton" Grid.Column="1" Style="{StaticResource PlayerButtonStyle}" Click="NextVideo_Click" Visibility="Collapsed"
+                                AutomationProperties.Name="播放下一个视频" AutomationProperties.AutomationId="PlayNextVideo" ToolTipService.ToolTip="播放下一个视频">
+                            <ui:LucideIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="skip-forward" Width="20" Height="20" />
+                        </Button>
+                        <Grid Grid.Column="2" ColumnSpacing="8" Margin="8,0,12,0">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <StackPanel Spacing="1" VerticalAlignment="Center">
                                 <TextBlock x:Name="TimeText" Text="00:00 / --:--" Foreground="{ThemeResource PlayerForeground}"
@@ -244,7 +244,7 @@
                             </Button>
                             </Grid>
                         </Grid>
-                        <StackPanel x:Name="Tools" Grid.Column="4" Orientation="Horizontal" Spacing="4">
+                        <StackPanel x:Name="Tools" Grid.Column="3" Orientation="Horizontal" Spacing="4">
                             <ContentControl x:Name="InlineVolumeHost" VerticalAlignment="Center" Margin="0,0,8,0" IsTabStop="False" />
                             <Button x:Name="VolumeButton" Style="{StaticResource PlayerButtonStyle}" Click="Volume_Click"
                                     AutomationProperties.Name="音量" ToolTipService.ToolTip="音量与静音"><ui:LucideIcon Foreground="{ThemeResource FwTextPrimaryBrush}" x:Name="VolumeIcon" IconName="volume-2" Width="20" Height="20" /></Button>
