@@ -156,6 +156,8 @@ class TvPlayerUiJourneyTest {
                 waitFor("visual fixture frame", 30_000) { tv.media.sourcePosition() in 14_000L..22_000L }
             }
             decodedPattern(launched)
+            waitFor("owned audio track") { tv.media.player.state.value.audio.isNotEmpty() }
+            val audioTitle = tv.media.player.state.value.audio.first().title
             waitFor("owned external subtitle listing") { tv.media.state.value.sidecars.any { it.name == subtitleName } }
             check(tv.media.state.value.scopedSubtitlePages) { "The fixture server must advertise scoped subtitle resources" }
             val movie = requireNotNull(tv.media.state.value.file)
@@ -266,7 +268,7 @@ class TvPlayerUiJourneyTest {
             checks += "a failed replacement retains the previously accepted subtitle"
             touch("音轨")
             waitVisible("音轨")
-            waitVisible("en", actionable = true)
+            waitVisible(audioTitle, actionable = true)
             capture("quick-audio.png")
             assertTrue(device.pressBack()); waitFocus("音轨")
             touch("倍速 1.0×")
@@ -343,7 +345,7 @@ class TvPlayerUiJourneyTest {
             assertTrue("subtitle list must use the available panel width",
                 device.displayWidth - selectedTrack.right < device.displayWidth * .12f)
             touch("音频")
-            waitVisible("en", actionable = true)
+            waitVisible(audioTitle, actionable = true)
             capture("full-audio.png")
             touch("列表")
             waitVisible("播放列表")
