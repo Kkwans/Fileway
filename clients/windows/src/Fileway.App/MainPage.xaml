@@ -340,6 +340,27 @@
         <Grid ColumnSpacing="10"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions><Button x:Name="ForgetSavedButton" Content="忘记连接" Click="ForgetSaved_Click" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="RestoreSavedButton" Grid.Column="1" Content="恢复已保存登录" Click="RestoreSaved_Click" HorizontalAlignment="Stretch" Style="{StaticResource FwSecondaryButtonStyle}"/></Grid>
        </StackPanel>
        <StackPanel Spacing="6"><TextBlock Text="服务器地址" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/><TextBox x:Name="ServerBox" Height="36" PlaceholderText="https://你的服务器地址" TextChanged="Server_Changed" InputScope="Url" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="服务器地址"/></StackPanel>
+       <StackPanel Spacing="6">
+        <TextBlock Text="连接方式" Style="{StaticResource FwCaptionTextStyle}"/>
+        <ui:ChoiceBox x:Name="ConnectionNetworkBox" Height="36" SelectedIndex="0" HorizontalAlignment="Stretch"
+                      SelectionChanged="ConnectionNetwork_Changed" AutomationProperties.Name="连接方式" AutomationProperties.AutomationId="ConnectionNetworkMode">
+         <ComboBoxItem Content="系统网络（直接）"/><ComboBoxItem Content="系统 Tailscale"/><ComboBoxItem Content="内嵌 Tailscale"/>
+        </ui:ChoiceBox>
+        <TextBlock x:Name="SystemTailnetHint" Text="先在 Windows 的 Tailscale 应用中登录，再输入 Tailnet 内的服务器地址。"
+                   Visibility="Collapsed" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+        <Border x:Name="EmbeddedTailnetCard" Visibility="Collapsed" Style="{StaticResource FwFormCardStyle}" Padding="12">
+         <StackPanel Spacing="8">
+          <TextBlock x:Name="TailnetStateText" TextWrapping="Wrap" AutomationProperties.AutomationId="EmbeddedTailnetState" AutomationProperties.LiveSetting="Polite"/>
+          <TextBlock x:Name="TailnetAddressText" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap" Visibility="Collapsed"/>
+          <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="6">
+           <Button x:Name="TailnetLogoutButton" Content="注销设备…" Click="LogoutTailnet_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="LogoutEmbeddedTailnet"/>
+           <Button x:Name="TailnetStopButton" Content="停止" Click="StopTailnet_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="StopEmbeddedTailnet"/>
+           <Button x:Name="TailnetAuthorizeButton" Content="登录授权" Click="AuthorizeTailnet_Click" Style="{StaticResource FwPrimaryButtonStyle}" AutomationProperties.AutomationId="AuthorizeEmbeddedTailnet"/>
+           <Button x:Name="TailnetStartButton" Content="启动" Click="StartTailnet_Click" Style="{StaticResource FwPrimaryButtonStyle}" AutomationProperties.AutomationId="StartEmbeddedTailnet"/>
+          </StackPanel>
+         </StackPanel>
+        </Border>
+       </StackPanel>
        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <StackPanel Spacing="6"><TextBlock Text="连接名称（可选）" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/><TextBox x:Name="ConnectionNameBox" Height="36" PlaceholderText="家里的文件空间" KeyDown="ConnectionField_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="连接名称，可选"/></StackPanel>
         <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="认证方式" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/><ui:ChoiceBox x:Name="AuthenticationBox" Height="36" SelectedIndex="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" SelectionChanged="Authentication_Changed"><ComboBoxItem Content="账号密码"/><ComboBoxItem Content="无需认证"/></ui:ChoiceBox></StackPanel>

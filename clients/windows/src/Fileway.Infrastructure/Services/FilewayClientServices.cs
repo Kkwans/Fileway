@@ -71,13 +71,14 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
     public FilewayClientServices(IHostControlClient host) : this(host, new InMemoryProfileStore(), new InMemoryCredentialVault()) { }
 
     public FilewayClientServices(IHostControlClient host, IProfileStore profiles, ICredentialVault credentials,
-        LocalStorageSettingsService? storageSettings = null)
+        LocalStorageSettingsService? storageSettings = null, string? tailnetDirectory = null)
     {
         _host = host ?? throw new ArgumentNullException(nameof(host));
         _profiles = profiles ?? throw new ArgumentNullException(nameof(profiles));
         _credentials = credentials ?? throw new ArgumentNullException(nameof(credentials));
         _passwords = credentials as IPasswordVault;
         _storageSettings = storageSettings;
+        _tailnetDirectory = tailnetDirectory;
     }
 
     public async Task<ConnectionSession> ConnectAsync(ConnectionProfile profile, LoginInput login, CancellationToken cancellationToken)
@@ -97,8 +98,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
                     previous.Profile.Network != profile.Network || previous.Profile.Proxy != profile.Proxy))
                 throw Safe(ErrorCode.SourceChanged, "服务器地址或安全路由已变化，请使用新的连接来源。");
             await RetireAllAsync().ConfigureAwait(false);
-            var opened = await CallAsync("open", new { baseUrl = profile.BaseAddress.AbsoluteUri, network = "direct", token = "" }, null, cancellationToken).ConfigureAwait(false);
-            coreSession = RequiredText(opened);
+            coreSession = await OpenCoreSessionAsync(profile, "", cancellationToken).ConfigureAwait(false);
             var authenticated = await CallAsync("login", new
             {
                 username = login.Mode == AuthenticationMode.Password ? login.Username : "",
@@ -166,10 +166,7 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
                 }
             }
             await RetireAllAsync().ConfigureAwait(false);
-            coreSession = RequiredText(await CallAsync("open", new
-            {
-                baseUrl = saved.Profile.BaseAddress.AbsoluteUri, network = "direct", token,
-            }, null, cancellationToken).ConfigureAwait(false));
+            coreSession = await OpenCoreSessionAsync(saved.Profile, token, cancellationToken).ConfigureAwait(false);
             if (saved.AuthenticationMode == AuthenticationMode.Password && string.IsNullOrWhiteSpace(token))
             {
                 passwordLoginAttempted = true;
@@ -725,8 +722,8 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
             profile.BaseAddress.Scheme is not ("http" or "https") || profile.BaseAddress.UserInfo.Length != 0 ||
             profile.BaseAddress.Query.Length != 0 || profile.BaseAddress.Fragment.Length != 0)
             throw Safe(ErrorCode.InvalidRequest, "服务器地址无效，请输入 HTTP 或 HTTPS 地址。");
-        if (profile.Network is not (NetworkMode.SystemNetwork or NetworkMode.SystemTailnet))
-            throw Safe(ErrorCode.CapabilityMissing, "首预览仅支持系统网络或系统 Tailscale 连接。");
+        if (!Enum.IsDefined(profile.Network))
+            throw Safe(ErrorCode.InvalidRequest, "请选择有效的连接方式。");
         if (profile.Proxy.Mode != ProxyMode.Direct)
             throw Safe(ErrorCode.CapabilityMissing, "首预览尚未接入系统或手动代理，请明确选择直接连接。");
         if (login.Mode is not (AuthenticationMode.Password or AuthenticationMode.NoAuthentication))

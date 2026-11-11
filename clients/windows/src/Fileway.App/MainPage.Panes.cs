@@ -61,6 +61,7 @@ public sealed partial class MainPage
         }
 
         UpdateApplicationMenus();
+        UpdateNetworkPane();
         UpdateThumbnailContext();
         UpdateSelection();
     }

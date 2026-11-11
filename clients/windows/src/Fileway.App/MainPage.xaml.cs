@@ -181,6 +181,7 @@ public sealed partial class MainPage : Page, IDisposable
         IStorageAnalysisService? storageAnalysis = null, IAccountSecurityService? accountSecurity = null)
     {
         _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts; _archiveBrowse = archiveBrowse; _fileBytes = fileBytes; _storageAnalysis = storageAnalysis; _accountSecurity = accountSecurity; _sessionPasswordMinimum = Math.Clamp(_session?.Capabilities.MinimumPasswordLength ?? 0, 1, 128);
+        UpdateNetworkPane();
         UpdateThumbnailContext();
         _connection.SessionUpdated += Connection_SessionUpdated;
         _connection.ConnectionIssue += Connection_Issue;
@@ -214,6 +215,8 @@ public sealed partial class MainPage : Page, IDisposable
         if (_disposed) return;
         IsEnabled = false;
         _connectionCancellation?.Cancel();
+        StopTailnetObservation();
+        _tailnetActionCancellation?.Cancel();
         _loadCancellation?.Cancel();
         // Accepted transfer work shares the page lifetime. Let its application
         // service suspend writers before Dispose cancels that lifetime.
@@ -268,16 +271,23 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async Task ConnectFromFormAsync()
     {
-        if (_connection is null || _files is null || _connecting) return;
+        if (_connection is null || _files is null || _connecting || _tailnetBusy) return;
         if (!Uri.TryCreate(ServerBox.Text.Trim(), UriKind.Absolute, out var address) || (address.Scheme != "https" && address.Scheme != "http") || !string.IsNullOrEmpty(address.UserInfo) || !string.IsNullOrEmpty(address.Query) || !string.IsNullOrEmpty(address.Fragment))
         { LoginError("请输入有效的 HTTP 或 HTTPS 服务器地址，且不要包含账号、查询参数或片段。"); return; }
         var login = AuthenticationBox.SelectedIndex == 1
             ? new LoginInput(AuthenticationMode.NoAuthentication, KeepSignedIn: KeepSignedInBox.IsChecked == true)
             : new LoginInput(AuthenticationMode.Password, UsernameBox.Text, PasswordBox.Password, KeepSignedInBox.IsChecked == true);
         var displayName = string.IsNullOrWhiteSpace(ConnectionNameBox.Text) ? address.Host : ConnectionNameBox.Text.Trim();
+        var network = SelectedConnectionNetwork;
+        if (network == NetworkMode.EmbeddedTailnet && _tailnetStatus?.State != EmbeddedTailnetState.Running)
+        {
+            LoginError("请先启动内嵌 Tailscale 并完成授权，再连接服务器。");
+            return;
+        }
         var profile = _selectedProfile is { } saved
-            ? saved with { DisplayName = displayName, BaseAddress = address, SourceRevision = saved.BaseAddress.AbsoluteUri == address.AbsoluteUri ? saved.SourceRevision : Guid.NewGuid() }
-            : new ConnectionProfile(Guid.NewGuid(), Guid.NewGuid(), displayName, address, NetworkMode.SystemNetwork, new ProxyPolicy(ProxyMode.Direct));
+            ? saved with { DisplayName = displayName, BaseAddress = address, Network = network,
+                SourceRevision = saved.BaseAddress.AbsoluteUri == address.AbsoluteUri && saved.Network == network ? saved.SourceRevision : Guid.NewGuid() }
+            : new ConnectionProfile(Guid.NewGuid(), Guid.NewGuid(), displayName, address, network, new ProxyPolicy(ProxyMode.Direct));
         await RunConnectionAsync(token => _connection.ConnectAsync(profile, login, token), "正在连接服务器…");
     }
 
@@ -356,6 +366,7 @@ public sealed partial class MainPage : Page, IDisposable
         NewConnectionButton.IsEnabled = !connecting && _connection is not null;
         RestoreSavedButton.IsEnabled = ForgetSavedButton.IsEnabled = SavedConnectionBox.IsEnabled = !connecting;
         ConnectionNameBox.IsEnabled = ServerBox.IsEnabled = AuthenticationBox.IsEnabled = !connecting;
+        UpdateNetworkPane();
         UsernameBox.IsEnabled = PasswordBox.IsEnabled = KeepSignedInBox.IsEnabled = !connecting;
         CancelConnectionButton.Visibility = connecting ? Visibility.Visible : Visibility.Collapsed;
         NavigationCommands.IsEnabled = !connecting && _session is not null;
@@ -405,6 +416,7 @@ public sealed partial class MainPage : Page, IDisposable
         ConnectionModeTitle.Text = "编辑已保存连接";
         ConnectionNameBox.Text = saved.Profile.DisplayName;
         ServerBox.Text = saved.Profile.BaseAddress.AbsoluteUri;
+        ConnectionNetworkBox.SelectedIndex = (int)saved.Profile.Network;
         AuthenticationBox.SelectedIndex = saved.AuthenticationMode == AuthenticationMode.NoAuthentication ? 1 : 0;
         UsernameBox.Text = saved.Username;
         PasswordBox.Password = "";
@@ -417,7 +429,7 @@ public sealed partial class MainPage : Page, IDisposable
 
     private async Task RestoreSelectedAsync(bool silent = false)
     {
-        if (_connection is null || SavedConnectionBox.SelectedItem is not ConnectionChoice choice || _connecting) return;
+        if (_connection is null || SavedConnectionBox.SelectedItem is not ConnectionChoice choice || _connecting || _tailnetBusy) return;
         if (!choice.Saved.KeepSignedIn) { LoginError("此连接未保持登录，请输入密码重新连接。"); return; }
         await RunConnectionAsync(token => _connection.RestoreAsync(choice.Saved.Profile.Id, token), silent ? null : "正在恢复已保存连接…", silent);
     }
@@ -432,6 +444,7 @@ public sealed partial class MainPage : Page, IDisposable
         ConnectionModeTitle.Text = "新建连接";
         ConnectionNameBox.Text = string.Empty;
         ServerBox.Text = string.Empty;
+        ConnectionNetworkBox.SelectedIndex = (int)NetworkMode.SystemNetwork;
         AuthenticationBox.SelectedIndex = 0;
         UsernameBox.Text = string.Empty;
         PasswordBox.Password = string.Empty;

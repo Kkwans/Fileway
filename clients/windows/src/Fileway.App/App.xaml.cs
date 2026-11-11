@@ -115,7 +115,8 @@ public partial class App : Application, IAsyncDisposable
                 new ClientStorageSettings(Path.Combine(dataDirectory, "cache"), DefaultDownloadDirectory()), _host);
             _storageSettings = storageSettings;
             _services = new FilewayClientServices(_host, profiles,
-                new DpapiCredentialVault(Path.Combine(dataDirectory, "credentials")), storageSettings);
+                new DpapiCredentialVault(Path.Combine(dataDirectory, "credentials")), storageSettings,
+                Path.Combine(dataDirectory, "tailnet"));
             var executionDirectory = Path.Combine(dataDirectory, "transfer-locks");
             Directory.CreateDirectory(executionDirectory);
             var uploadFiles = new WindowsUploadFileAccess(executionDirectory);
