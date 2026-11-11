@@ -409,6 +409,10 @@ class TvRemoteUiVisualTest {
                 }
                 assertTrue("Login entry must remain to the right of the D-pad",
                     requireNotNull(login).bounds.left >= dpad.maxOf { it.bounds.right })
+                val back = touchTarget("返回", description = true).bounds
+                val rail = selectedTab("遥控").bounds
+                assertTrue("Back and the selected rail item must share their horizontal axis",
+                    kotlin.math.abs(back.centerX() - rail.centerX()) <= 2)
                 capture("landscape-login-system-font-1.8.png")
                 for (label in listOf("上", "下", "左", "右", "确认")) tap(label, description = true)
                 assertNull("Synthetic test must never have a TV transport", field(requireNotNull(control).client, "socket"))

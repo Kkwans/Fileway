@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,6 +53,8 @@ import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import org.json.JSONObject
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -112,19 +115,15 @@ import kotlin.math.roundToInt
     Dialog(onDismissRequest=::closeControl,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)){
         TvPhoneSystemBars()
         Surface(Modifier.fillMaxSize(),color=MaterialTheme.colorScheme.background){
-            BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+            BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).imePadding()) {
             val landscape = maxWidth >= 560.dp && maxWidth > maxHeight * 1.35f
+            val hasRail = landscape && !scanning && connection.phase == RemotePhase.CONNECTED && connection.snapshot != null
             Column(Modifier.fillMaxSize()) {
-                FilewayTopAppBar(if(scanning)"扫描 TV 二维码" else "TV 遥控",if(scanning||landscape)null else tvConnectionSubtitle(connection),R.drawable.ic_arrow_back,"返回",{if(scanning)scanning=false else closeControl()}){
+                if (hasRail) TvPhoneLandscapeHeader(tvConnectionSubtitle(connection), ::closeControl, { devicesOpen = true })
+                else FilewayTopAppBar(if(scanning)"扫描 TV 二维码" else "TV 遥控",if(scanning)null else tvConnectionSubtitle(connection),R.drawable.ic_arrow_back,"返回",{if(scanning)scanning=false else closeControl()}){
                     if(scanning)FilewayTextButton(onClick={image.launch("image/*")}){Text("从图片识别")}
-                    else {
-                        if (landscape) Text(
-                            tvConnectionSubtitle(connection), Modifier.widthIn(max = 238.dp).padding(end = 8.dp),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        )
-                        FilewayTextButton(onClick={devicesOpen=true}){Text("设备");FilewayIcon(R.drawable.ic_expand_more,null,Modifier.size(20.dp))}
-                    }
+                    else FilewayTextButton(onClick={devicesOpen=true}){Text("设备");FilewayIcon(R.drawable.ic_expand_more,null,Modifier.size(20.dp))}
                 }
                 if(scanning){
                     BackHandler{scanning=false}
@@ -290,6 +289,32 @@ import kotlin.math.roundToInt
 }
 
 @Composable
+private fun TvPhoneLandscapeHeader(status: String, onBack: () -> Unit, onDevices: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = FilewaySpace.appBar), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(TvPhoneRailWidth), contentAlignment = Alignment.Center) {
+            FilewayIconButton(onBack, Modifier.size(FilewaySpace.target)) {
+                FilewayIcon(R.drawable.ic_arrow_back, "返回")
+            }
+        }
+        Spacer(Modifier.width(TvPhoneRailDivider))
+        Row(Modifier.weight(1f).padding(horizontal = FilewaySpace.page), verticalAlignment = Alignment.CenterVertically) {
+            Text("TV 遥控", Modifier.weight(1f).semantics { heading() }, style = FilewayTheme.text.appBar,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(status, Modifier.widthIn(max = 238.dp).padding(end = 8.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            FilewayTextButton(onClick = onDevices) {
+                Text("设备")
+                FilewayIcon(R.drawable.ic_expand_more, null, Modifier.size(20.dp))
+            }
+        }
+    }
+}
+
+private val TvPhoneRailWidth = 110.dp
+private val TvPhoneRailDivider = 1.dp
+
+@Composable
 private fun TvPhonePages(
     pager: PagerState, sections: List<String>, landscape: Boolean, modifier: Modifier,
     page: @Composable (Int, Boolean) -> Unit,
@@ -300,7 +325,7 @@ private fun TvPhonePages(
             if (landscape) {
                 val scope = rememberCoroutineScope()
                 Column(
-                    Modifier.width(110.dp).fillMaxHeight().selectableGroup().padding(horizontal = 10.dp, vertical = 8.dp),
+                    Modifier.width(TvPhoneRailWidth).fillMaxHeight().selectableGroup().padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
                 ) {
                     sections.forEachIndexed { index, label ->
@@ -318,7 +343,8 @@ private fun TvPhonePages(
                         }
                     }
                 }
-                VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 16.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                VerticalDivider(Modifier.fillMaxHeight().padding(vertical = 16.dp), thickness = TvPhoneRailDivider,
+                    color = MaterialTheme.colorScheme.outlineVariant)
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                 val compactHeight = maxHeight < 360.dp
