@@ -11,7 +11,7 @@ public sealed class FwBlurBrush : XamlCompositionBrushBase
 {
     public static readonly DependencyProperty TintProperty = DependencyProperty.Register(
         nameof(Tint), typeof(Windows.UI.Color), typeof(FwBlurBrush),
-        new PropertyMetadata(Windows.UI.Color.FromArgb(0xCC, 0x24, 0x27, 0x2C), (_, _) => { }));
+        new PropertyMetadata(Microsoft.UI.Colors.Transparent, (_, _) => { }));
 
     private CompositionEffectBrush? _effectBrush;
 

@@ -15,6 +15,10 @@ const names = {
   'upload-simple':'upload','x':'x',
   'server':'server','activity':'activity','terminal':'terminal','alert-triangle':'triangle-alert',
   'hard-drive':'hard-drive','power':'power',
+  'book-open':'book-open','captions':'captions','cloud-download':'cloud-download','fast-forward':'fast-forward',
+  'gauge':'gauge','list-video':'list-video','maximize':'maximize','minimize':'minimize','minus':'minus',
+  'audio-lines':'audio-lines','picture-in-picture':'picture-in-picture','rewind':'rewind','square':'square','type':'type',
+  'volume-1':'volume-1','volume-2':'volume-2','volume-x':'volume-x',
 };
 const base = `https://raw.githubusercontent.com/lucide-icons/lucide/${commit}`;
 const root = path.resolve(__dirname, '../src/Fileway.App/Assets/Lucide');
@@ -25,7 +29,10 @@ async function download(relative) {
 }
 (async () => {
   for (const sub of ['source','light','dark']) await fs.mkdir(path.join(root, sub),{recursive:true});
-  const entries = Object.entries(names);
+  const requested = process.argv.slice(2);
+  for (const name of requested)
+    if (!Object.hasOwn(names, name)) throw new Error(`Unknown Lucide alias: ${name}`);
+  const entries = Object.entries(names).filter(([name]) => requested.length === 0 || requested.includes(name));
   for (let i=0;i<entries.length;i+=5) await Promise.all(entries.slice(i,i+5).map(async ([alias,name]) => {
     const svg = await download(`icons/${name}.svg`);
     await fs.writeFile(path.join(root,'source',`${alias}.svg`),svg);
@@ -34,8 +41,10 @@ async function download(relative) {
         .png().toFile(path.join(root,theme,`${alias}.png`));
     }
   }));
-  await fs.writeFile(path.resolve(__dirname,'../licenses/Lucide-LICENSE.txt'),await download('LICENSE'));
-  await fs.writeFile(path.resolve(__dirname,'../licenses/lucide-icons.md'),
+  if (requested.length === 0) {
+    await fs.writeFile(path.resolve(__dirname,'../licenses/Lucide-LICENSE.txt'),await download('LICENSE'));
+    await fs.writeFile(path.resolve(__dirname,'../licenses/lucide-icons.md'),
     `# Lucide Icons\n\nSource: https://github.com/lucide-icons/lucide/tree/${commit}\n\nOriginal SVG strokes are rendered to transparent PNG for native ImageIcon support. Light and dark variants preserve the original geometry and stroke width. Reproduce with eng/Import-LucideIcons.cjs and sharp. ISC / MIT notices are in Lucide-LICENSE.txt.\n`);
+  }
   console.log('Imported Lucide icons: '+entries.length);
 })().catch(error => { console.error(error); process.exitCode=1; });

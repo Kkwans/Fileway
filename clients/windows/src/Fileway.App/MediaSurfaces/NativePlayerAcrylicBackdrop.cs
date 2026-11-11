@@ -26,7 +26,7 @@ internal sealed class NativePlayerAcrylicBackdrop : SystemBackdrop
         var controller = new DesktopAcrylicController
         {
             Kind = DesktopAcrylicKind.Thin,
-            TintColor = Windows.UI.Color.FromArgb(255, 16, 16, 18),
+            TintColor = Controls.ThemePalette.Color("FwPlayerNativeTintColor", ElementTheme.Dark),
             TintOpacity = 0.72f,
             LuminosityOpacity = 0f,
         };

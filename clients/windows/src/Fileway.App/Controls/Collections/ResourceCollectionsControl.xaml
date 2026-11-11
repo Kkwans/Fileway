@@ -11,14 +11,14 @@
    <Grid Padding="10,8" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <ui:LucideIcon IconName="{x:Bind IconName}" Width="22" Height="22" VerticalAlignment="Center" Visibility="{x:Bind IconVisibility}"/>
     <Ellipse Width="12" Height="12" Fill="{x:Bind TagColorBrush}" Visibility="{x:Bind TagColorVisibility}" VerticalAlignment="Center"/>
-    <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/><TextBlock Text="{x:Bind Detail}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind State}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind Detail}" TextTrimming="CharacterEllipsis"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind State}" TextWrapping="Wrap"/></StackPanel>
    </Grid>
   </DataTemplate>
  </UserControl.Resources>
  <Grid Padding="20,12" RowSpacing="12">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock x:Name="CollectionHeading" Text="收藏与标签" FontSize="22" FontWeight="SemiBold"/><TextBlock x:Name="CurrentResourceText" Text="选择文件后添加收藏或标签" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+   <StackPanel Spacing="4" VerticalAlignment="Center"><TextBlock x:Name="CollectionHeading" Text="收藏与标签" FontSize="22" FontWeight="SemiBold"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="CurrentResourceText" Text="选择文件后添加收藏或标签" TextTrimming="CharacterEllipsis"/></StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
     <Button Content="返回文件" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开收藏与标签，返回文件"/>
     <Button x:Name="RefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="刷新" AutomationProperties.Name="刷新"><ui:LucideIcon IconName="arrows-clockwise" Width="18" Height="18"/></Button>

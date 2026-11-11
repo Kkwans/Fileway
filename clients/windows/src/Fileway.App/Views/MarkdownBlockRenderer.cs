@@ -216,7 +216,6 @@ internal static partial class MarkdownBlockRenderer
                     {
                         FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
                         FontSize = 13.5,
-                        Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 105, 168, 255)),
                         Inlines = { new Run { Text = text[(next + 1)..end] } },
                     });
                     consumed = end + 1;

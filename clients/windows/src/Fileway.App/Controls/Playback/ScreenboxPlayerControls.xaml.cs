@@ -194,7 +194,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     public void SetWindowMaximized(bool maximized)
     {
-        MaximizeIcon.IconName = maximized ? "SquareMultiple" : "Square";
+        MaximizeIcon.IconName = maximized ? "copy" : "square";
         AutomationProperties.SetName(MaximizeButton, maximized ? "还原视频窗口" : "最大化视频窗口");
         ToolTipService.SetToolTip(MaximizeButton, maximized ? "还原" : "最大化");
     }
@@ -214,7 +214,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         SubtitleText.Visibility = hasMediaExtension ? Visibility.Visible : Visibility.Collapsed;
         ToolTipService.SetToolTip(TitleText, snapshot.DisplayName);
         var pauseAction = PlaybackPausePolicy.GetAction(snapshot);
-        PlayIcon.IconName = pauseAction.IconName;
+        PlayIcon.IconName = pauseAction.IconName.ToLowerInvariant();
         AutomationProperties.SetName(PlayButton, pauseAction.AutomationName);
         PlayButton.IsEnabled = snapshot.Status is PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Ended or PlaybackStatus.Buffering;
         SeekSlider.IsEnabled = snapshot.Seekable && snapshot.Duration is { TotalSeconds: > 0 };
@@ -236,7 +236,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         SpeedButton.Content = FormatRate(snapshot.PlaybackRate);
         AutomationProperties.SetName(SpeedButton, "播放速度 " + FormatRate(snapshot.PlaybackRate));
         AutomationProperties.SetName(VolumeButton, $"音量 {snapshot.Volume:0}%");
-        VolumeIcon.Symbol = ScreenboxVolumeControl.IconFor(snapshot.Volume, snapshot.IsMuted);
+        VolumeIcon.IconName = ScreenboxVolumeControl.IconFor(snapshot.Volume, snapshot.IsMuted);
         _speedControl?.ApplyConfirmedRate(snapshot.PlaybackRate, _rateRunning);
         _volumeControl?.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
         _inlineVolumeControl.ApplyConfirmed(snapshot.Volume, snapshot.IsMuted, _volumeRunning);
@@ -275,7 +275,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         _fullscreen = fullscreen;
         WindowButtons.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
-        FullscreenIcon.IconName = fullscreen ? "FullScreenMinimize" : "FullScreenMaximize";
+        FullscreenIcon.IconName = fullscreen ? "minimize" : "maximize";
         AutomationProperties.SetName(FullscreenButton, fullscreen ? "退出全屏" : "全屏");
     }
 
@@ -583,10 +583,10 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             menu.Items.Add(SourceResolutionItem(resolution));
             menu.Items.Add(new MenuFlyoutSeparator());
         }
-        if (_snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio)) Add("音轨", "MusicNote2", () => ShowTracks(MoreButton, MediaTrackKind.Audio));
-        Add("字幕", "ClosedCaption", () => ShowTracks(MoreButton, MediaTrackKind.Subtitle));
-        if (SupportsEpisodes) Add("选集…", "ListVideo", () => EpisodeRequested?.Invoke(this, EventArgs.Empty));
-        Add("小窗模式", "PictureInPicture", () => MiniWindowRequested?.Invoke(this, EventArgs.Empty));
+        if (_snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio)) Add("音轨", "audio-lines", () => ShowTracks(MoreButton, MediaTrackKind.Audio));
+        Add("字幕", "captions", () => ShowTracks(MoreButton, MediaTrackKind.Subtitle));
+        if (SupportsEpisodes) Add("选集…", "list-video", () => EpisodeRequested?.Invoke(this, EventArgs.Empty));
+        Add("小窗模式", "picture-in-picture", () => MiniWindowRequested?.Invoke(this, EventArgs.Empty));
         if (SupportsCompatibilityPlayback)
         {
             var qualities = new MenuFlyoutSubItem { Text = "兼容画质" };
@@ -599,24 +599,19 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             }
             menu.Items.Add(qualities);
         }
-        if (SupportsRemoteSubtitles) Add("从服务器加载字幕…", "CloudDownload", () => RemoteSubtitleRequested?.Invoke(this, EventArgs.Empty));
-        if (SubtitleStyleButton.Visibility == Visibility.Visible) Add("字幕样式", "TextFontSize", () => SubtitleStyle_Click(MoreButton, args));
-        Add("播放速度 · " + FormatRate(_snapshot.PlaybackRate), "TopSpeed", () => Speed_Click(MoreButton, args));
-        if (_snapshot.Chapters is { Count: > 0 }) Add("章节", "BookOpen", () => Chapter_Click(MoreButton, args));
+        if (SupportsRemoteSubtitles) Add("从服务器加载字幕…", "cloud-download", () => RemoteSubtitleRequested?.Invoke(this, EventArgs.Empty));
+        if (SubtitleStyleButton.Visibility == Visibility.Visible) Add("字幕样式", "type", () => SubtitleStyle_Click(MoreButton, args));
+        Add("播放速度 · " + FormatRate(_snapshot.PlaybackRate), "gauge", () => Speed_Click(MoreButton, args));
+        if (_snapshot.Chapters is { Count: > 0 }) Add("章节", "book-open", () => Chapter_Click(MoreButton, args));
         menu.Items.Add(new MenuFlyoutSeparator());
-        Add("控件与提示", "TextFontSize", ShowPresentationSettings);
+        Add("控件与提示", "type", ShowPresentationSettings);
         ShowFlyout(menu, MoreButton);
 
         void Add(string label, string iconName, Action action)
         {
-            if (!ScreenboxVectorIcon.TryFindResource(Resources, iconName + "Geometry", out var iconResource) || iconResource is not string pathString)
-            {
-                System.Diagnostics.Trace.TraceError($"Menu icon resource failed: {iconName}Geometry; resource={iconResource?.GetType().FullName ?? "missing"}");
-                ReportError("图标暂不可用，请重新打开播放窗口");
-                return;
-            }
-            var geometry = (Geometry)XamlBindingHelper.ConvertValue(typeof(Geometry), pathString);
-            var item = new MenuFlyoutItem { Text = label, Icon = new PathIcon { Data = geometry, Width = 20, Height = 20 } };
+            var icon = LucideIcon.Action(iconName);
+            icon.Foreground = ThemePalette.Brush("FwTextPrimaryBrush", ElementTheme.Dark);
+            var item = new MenuFlyoutItem { Text = label, Icon = icon };
             // Let native MenuFlyout light-dismiss finish before showing its child.
             item.Click += (_, _) => DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => { if (!_disposed) action(); });
             menu.Items.Add(item);

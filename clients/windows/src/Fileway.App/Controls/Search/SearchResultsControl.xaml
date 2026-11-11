@@ -6,7 +6,7 @@
  <Grid Padding="20,12,20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged" KeyDown="Panel_KeyDown">
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <StackPanel Spacing="4"><TextBlock Text="搜索文件" FontSize="22" FontWeight="SemiBold"/><TextBlock Text="按名称搜索当前目录及子目录" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="ConfirmedQueryText" Visibility="Collapsed" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+   <StackPanel Spacing="4"><TextBlock Text="搜索文件" FontSize="22" FontWeight="SemiBold"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="按名称搜索当前目录及子目录" TextWrapping="Wrap"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="ConfirmedQueryText" Visibility="Collapsed" TextTrimming="CharacterEllipsis"/></StackPanel>
    <Button Grid.Column="1" Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开搜索，返回文件"/>
   </Grid>
   <StackPanel Grid.Row="1" Spacing="8">
@@ -16,7 +16,7 @@
     <Button x:Name="SearchButton" Grid.Column="2" Content="搜索" Height="36" Click="Search_Click" IsEnabled="False" Style="{StaticResource FwPrimaryButtonStyle}" AutomationProperties.Name="开始服务器搜索" ToolTipService.ToolTip="在服务器搜索指定范围 (Enter)"/>
    </Grid>
    <Grid x:Name="SearchActions" Visibility="Collapsed" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><ProgressRing x:Name="SearchActivityRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" AutomationProperties.Name="搜索活动"/><TextBlock x:Name="SearchActivityText" FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
+    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><ProgressRing x:Name="SearchActivityRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" AutomationProperties.Name="搜索活动"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="SearchActivityText" VerticalAlignment="Center"/></StackPanel>
     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right"><Button x:Name="OpenSelectedButton" Content="打开" IsEnabled="False" Click="Open_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="核对并打开选中结果 (Enter)" AutomationProperties.Name="打开选中的搜索结果"/><Button x:Name="CancelSearchButton" Content="取消" Visibility="Collapsed" Click="Cancel_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="取消搜索或资源核对，保留已收到的结果"/><Button x:Name="RetrySearchButton" Content="重新搜索" Visibility="Collapsed" Click="Retry_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="重新执行上次确认的搜索条件和范围 (F5)" AutomationProperties.Name="重新执行上次搜索"/></StackPanel>
    </Grid>
    <InfoBar x:Name="SearchNotice" Visibility="Collapsed" IsOpen="False" IsClosable="False" Severity="Informational"/>
@@ -25,19 +25,19 @@
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
    <Grid x:Name="SearchHeaders" Padding="10,0,10,6" ColumnSpacing="12" MinHeight="24">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-    <TextBlock Text="名称" FontSize="12" Margin="40,0,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-    <TextBlock Grid.Column="1" Text="大小/类型 · 修改时间" FontSize="12" HorizontalAlignment="Right" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+    <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="名称" Margin="40,0,0,0"/>
+    <TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="1" Text="大小/类型 · 修改时间" HorizontalAlignment="Right"/>
    </Grid>
    <ListView x:Name="SearchRecords" Grid.Row="1" SelectionMode="Single" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" PreviewKeyDown="Records_PreviewKeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="服务器搜索结果，选中后按 Enter 打开">
     <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}"><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="64"/><Setter Property="Margin" Value="0,0,0,6"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style></ListView.ItemContainerStyle>
     <ListView.ItemTemplate><DataTemplate x:DataType="search:SearchResultRow"><Grid Padding="10,8" ColumnSpacing="12" AutomationProperties.Name="{x:Bind AccessibleName}"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
      <ui:LucideIcon IconName="{x:Bind IconName}" Width="22" Height="22" VerticalAlignment="Top" Margin="0,1,0,0" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
-     <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/><TextBlock Text="{x:Bind DisplayPath}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorSecondaryBrush}" ToolTipService.ToolTip="{x:Bind DisplayPath}"/><TextBlock Text="{x:Bind IdentityHint}" Visibility="{x:Bind IdentityVisibility}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-     <TextBlock Grid.Column="2" Text="{x:Bind Summary}" FontSize="12" TextAlignment="Right" VerticalAlignment="Top" Margin="12,2,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Typography.NumeralAlignment="Tabular" ToolTipService.ToolTip="{x:Bind Summary}"/>
+     <StackPanel Grid.Column="1" Spacing="3"><TextBlock Text="{x:Bind Name}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind DisplayPath}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind DisplayPath}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind IdentityHint}" Visibility="{x:Bind IdentityVisibility}" TextWrapping="Wrap"/></StackPanel>
+     <TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="2" Text="{x:Bind Summary}" TextAlignment="Right" VerticalAlignment="Top" Margin="12,2,0,0" Typography.NumeralAlignment="Tabular" ToolTipService.ToolTip="{x:Bind Summary}"/>
     </Grid></DataTemplate></ListView.ItemTemplate>
    </ListView>
    <StackPanel x:Name="SearchEmptyState" Grid.RowSpan="2" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="420" Spacing="14" Margin="12"><Border Width="72" Height="72" CornerRadius="20" HorizontalAlignment="Center" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><ui:LucideIcon IconName="magnifying-glass" Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></Border><TextBlock x:Name="SearchEmptyTitle" Text="搜索服务器文件" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" Foreground="{ThemeResource FwTextPrimaryBrush}"/><TextBlock x:Name="SearchEmptyText" Text="输入条件并选择范围，然后开始搜索。" FontSize="13" LineHeight="20" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}"/></StackPanel>
   </Grid>
-  <TextBlock x:Name="SearchCount" Grid.Row="3" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+  <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="SearchCount" Grid.Row="3" TextWrapping="Wrap"/>
  </Grid>
 </UserControl>

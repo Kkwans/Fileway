@@ -30,33 +30,28 @@ public sealed partial class MainWindow
             };
             _material = material;
         }
-        var dark = AppTitleBar.ActualTheme == ElementTheme.Dark;
+        var theme = AppTitleBar.ActualTheme;
         var tone = PresentationPreferences.ShellTone;
-        var light = tone switch { 1 => Windows.UI.Color.FromArgb(255,238,234,229), 2 => Windows.UI.Color.FromArgb(255,230,235,240), _ => Windows.UI.Color.FromArgb(255,232,232,232) };
-        var dim = tone switch { 1 => Windows.UI.Color.FromArgb(255,36,34,32), 2 => Windows.UI.Color.FromArgb(255,31,37,45), _ => Windows.UI.Color.FromArgb(255,32,33,36) };
+        var neutral = ThemePalette.Color(tone switch
+        {
+            1 => "FwShellWarmColor", 2 => "FwShellCoolColor", 3 => "FwShellCustomBaseColor", _ => "FwShellNeutralColor",
+        }, theme);
         if (tone == 3)
         {
             var tint = PresentationPreferences.ShellTint;
-            light = Windows.UI.Color.FromArgb(255,(byte)(225+tint.R*0.1),(byte)(225+tint.G*0.1),(byte)(225+tint.B*0.1));
-            dim = Windows.UI.Color.FromArgb(255,(byte)(24+tint.R*0.08),(byte)(24+tint.G*0.08),(byte)(24+tint.B*0.08));
+            var mix = ThemePalette.Number("FwShellCustomMix", theme);
+            neutral = Windows.UI.Color.FromArgb(neutral.A,
+                (byte)(neutral.R + tint.R * mix), (byte)(neutral.G + tint.G * mix), (byte)(neutral.B + tint.B * mix));
         }
-        MainRoot.Background = material == 0 ? new SolidColorBrush(contrast
-            ? new Windows.UI.ViewManagement.UISettings().GetColorValue(Windows.UI.ViewManagement.UIColorType.Background)
-            : dark ? dim : light) : new SolidColorBrush(Microsoft.UI.Colors.Transparent);
-        ApplyToolTipPalette(dark, contrast);
+        MainRoot.Background = material != 0 ? new SolidColorBrush(Microsoft.UI.Colors.Transparent) : contrast
+            ? ThemePalette.Brush("FwCanvasBrush", theme) : new SolidColorBrush(neutral);
+        ApplyToolTipPalette(theme, contrast);
     }
-    private static void ApplyToolTipPalette(bool dark, bool contrast)
+    private static void ApplyToolTipPalette(ElementTheme theme, bool contrast)
     {
-        var background = dark ? Windows.UI.Color.FromArgb(0xF2, 0x1B, 0x1E, 0x23) : Windows.UI.Color.FromArgb(0xF2, 0xFB, 0xFC, 0xFD);
-        var border = dark ? Windows.UI.Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF) : Windows.UI.Color.FromArgb(0x29, 0x00, 0x00, 0x00);
-        var foreground = dark ? Windows.UI.Color.FromArgb(0xFF, 0xF4, 0xF6, 0xF8) : Windows.UI.Color.FromArgb(0xFF, 0x1B, 0x1F, 0x24);
-        if (contrast)
-        {
-            var settings = new Windows.UI.ViewManagement.UISettings();
-            background = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
-            foreground = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Foreground);
-            border = foreground;
-        }
+        var background = contrast ? ThemePalette.Brush("FwSurfaceBrush", theme).Color : ThemePalette.Color("FwTooltipBaseColor", theme);
+        var border = ThemePalette.Brush("FwStrokeStrongBrush", theme).Color;
+        var foreground = ThemePalette.Brush("FwTextPrimaryBrush", theme).Color;
         if (FindResource(Application.Current.Resources, "FwToolTipBackgroundBrush") is FwBlurBrush blur) blur.Tint = background;
         else SetBrushColor("FwToolTipBackgroundBrush", background);
         SetBrushColor("FwToolTipBorderBrush", border);

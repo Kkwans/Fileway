@@ -13,7 +13,16 @@ internal static class PresentationPreferences
     internal static int ShellTone { get => ReadChoice("ShellTone",3); set { Registry.SetValue(Key,"ShellTone",Math.Clamp(value,0,3)); AppearanceChanged?.Invoke(); } }
     internal static Windows.UI.Color ShellTint
     {
-        get { try { var value = Registry.GetValue(Key,"ShellTint",0x808080) is int rgb ? rgb : 0x808080; return Windows.UI.Color.FromArgb(255,(byte)(value>>16),(byte)(value>>8),(byte)value); } catch (Exception) { return Windows.UI.Color.FromArgb(255,128,128,128); } }
+        get
+        {
+            try
+            {
+                if (Registry.GetValue(Key, "ShellTint", null) is int rgb)
+                    return Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+            }
+            catch (Exception) { }
+            return Controls.ThemePalette.Color("FwShellCustomDefaultColor", Microsoft.UI.Xaml.ElementTheme.Default);
+        }
         set { Registry.SetValue(Key,"ShellTint",value.R<<16|value.G<<8|value.B); AppearanceChanged?.Invoke(); }
     }
     private static int ReadChoice(string name, int maximum = 2)

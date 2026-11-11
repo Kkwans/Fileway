@@ -39,13 +39,13 @@ public sealed partial class ScreenboxVolumeControl : UserControl
         _commandPending = commandPending;
         if (!commandPending && !_editing) { _updating = true; VolumeSlider.Value = Math.Clamp(volume, 0, 200); _updating = false; }
         MuteToggle.IsChecked = muted;
-        VolumeGlyph.Symbol = IconFor(volume, muted);
+        VolumeGlyph.IconName = IconFor(volume, muted);
         AutomationProperties.SetName(MuteToggle, muted ? "取消静音" : "静音");
         VolumeValue.Text = $"{volume:0}%";
         ToolTipService.SetToolTip(VolumeSlider, $"音量 {volume:0}%");
     }
 
-    internal static Symbol IconFor(double volume, bool muted) => muted || volume <= 0 ? Symbol.Mute : Symbol.Volume;
+    internal static string IconFor(double volume, bool muted) => muted || volume <= 0 ? "volume-x" : volume < 50 ? "volume-1" : "volume-2";
 
     public void UseInlineLayout()
     {

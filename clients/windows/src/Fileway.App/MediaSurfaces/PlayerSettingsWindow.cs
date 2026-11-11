@@ -95,7 +95,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
                 // Material availability must never disable playback settings.
                 var fallback = new AccessibilitySettings().HighContrast
                     ? new UISettings().GetColorValue(UIColorType.Background)
-                    : theme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 44, 44, 44) : Windows.UI.Color.FromArgb(255, 248, 248, 248);
+                    : Controls.ThemePalette.Color("FwOwnedPanelFallbackColor", theme);
                 _root.Background = new SolidColorBrush(fallback);
             }
             _root.AddHandler(UIElement.KeyDownEvent, _keyHandler, true);
@@ -448,8 +448,8 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         private void ApplyPalette()
         {
             if (_controller is null || _configuration is null) return;
-            var color = _configuration.Theme == SystemBackdropTheme.Dark
-                ? Windows.UI.Color.FromArgb(255, 44, 44, 44) : Windows.UI.Color.FromArgb(255, 248, 248, 248);
+            var theme = _configuration.Theme == SystemBackdropTheme.Dark ? ElementTheme.Dark : ElementTheme.Light;
+            var color = Controls.ThemePalette.Color("FwOwnedPanelFallbackColor", theme);
             _controller.TintColor = color;
             _controller.TintOpacity = 0.15f;
             _controller.FallbackColor = _configuration.IsHighContrast && _configuration.HighContrastBackgroundColor is { } contrast ? contrast : color;

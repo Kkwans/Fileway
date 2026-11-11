@@ -228,6 +228,8 @@ components:
 - 主浏览页筛选栏右侧的图标动作组与搜索框、状态栏使用同一右边界，不得额外内缩；左端与筛选按钮同左边界。
 - 详细列表右列“大小 / 修改时间”（含列头）必须在 130 DIP 列内右对齐，与最近访问/搜索/文件任务的时间列一致。
 - 主/次按钮、图标/文字图标按钮与分段/选项按钮统一使用自研双色圆角焦点环（`UseSystemFocusVisuals=False`，外层 `FwCanvasBrush` 2px + 内层 `FwTextPrimaryBrush`/前景色 2px）；图标/文字图标按钮的内层环取 `Foreground`，以适配视频遮罩等深色表面。
+- 原生焦点例外：MenuBar、菜单项、文字编辑器、原生下拉、滑块、侧栏拖拽柄、窗口标题栏与播放器 HUD 保留控件的键盘焦点行为。播放器按钮的原生环使用 `FwTextPrimaryBrush` 与 `FwCanvasBrush`；滑块保留原生拇指与键盘增减反馈。只读内容默认把焦点交给可阅读区域。
+- 普通次级文字使用 `FwCaptionTextStyle`，程序化弹层和窗口材质从 `Styles/Design.xaml` 取所在窗口主题的令牌。受控视频遮罩、透明命中区域、用户选色和系统高对比度是独立的语义来源。
 - 主按钮悬停/按下必须使用 `AccentFillColorSecondaryBrush`/`AccentFillColorTertiaryBrush` 保持实心强调色，禁止用半透明 `FwSelectionBrush` 替换背景（白字会失去对比度）。
 - 复选框使用自研模板：20px 方框、6px 圆角、选中填充强调色并显示自绘勾线；不得直接使用系统 CheckBox 外观。
 - 展开面板统一 `FwSurfaceBrush` + 1px `FwStrokeBrush` + 10px 圆角；滚动条使用 App.xaml 的 `ScrollBarThumbFill`/`ScrollBarTrackFill` 令牌（透明轨道、分级半透明滑块），高对比度走系统色。

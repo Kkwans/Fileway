@@ -3,7 +3,7 @@
      Fileway binding, precise input and 0.125–5 range are modifications. GPL-3.0. -->
 <UserControl x:Class="Fileway.App.Controls.Playback.ScreenboxSpeedControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App.Controls.Playback" RequestedTheme="Dark">
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App.Controls.Playback" xmlns:ui="using:Fileway.App.Controls" RequestedTheme="Dark">
     <Grid Width="328" Padding="20,0,20,20" RowSpacing="12">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid MinHeight="48" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
@@ -13,9 +13,9 @@
         <!-- Upstream repeat-button + slider interaction, with native RangeValue UIA. -->
         <Grid Grid.Row="2" ColumnSpacing="8">
             <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
-            <RepeatButton MinWidth="40" Height="40" Padding="0" Background="Transparent" BorderThickness="0" Click="Decrease_Click" AutomationProperties.Name="降低播放速度"><local:ScreenboxVectorIcon IconName="Subtract" Width="20" Height="20"/></RepeatButton>
+            <RepeatButton MinWidth="40" Height="40" Padding="0" Background="Transparent" BorderThickness="0" Click="Decrease_Click" AutomationProperties.Name="降低播放速度"><ui:LucideIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="minus" Width="20" Height="20"/></RepeatButton>
             <Slider x:Name="RateSlider" Grid.Column="1" Minimum="0.125" Maximum="5" SmallChange="0.125" StepFrequency="0.125" IsThumbToolTipEnabled="False" VerticalAlignment="Center" ValueChanged="RateSlider_ValueChanged" AutomationProperties.Name="播放速度"/>
-            <RepeatButton Grid.Column="2" MinWidth="40" Height="40" Padding="0" Background="Transparent" BorderThickness="0" Click="Increase_Click" AutomationProperties.Name="提高播放速度"><local:ScreenboxVectorIcon IconName="Add" Width="20" Height="20"/></RepeatButton>
+            <RepeatButton Grid.Column="2" MinWidth="40" Height="40" Padding="0" Background="Transparent" BorderThickness="0" Click="Increase_Click" AutomationProperties.Name="提高播放速度"><ui:LucideIcon Foreground="{ThemeResource FwTextPrimaryBrush}" IconName="plus" Width="20" Height="20"/></RepeatButton>
         </Grid>
         <Grid Grid.Row="3" ColumnSpacing="6">
             <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>

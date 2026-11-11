@@ -10,9 +10,9 @@ internal static class SurfaceStyles
     internal static void Soften(Control control, string prefix, ElementTheme? theme = null)
     {
         if (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast) return;
-        var dark = (theme ?? control.ActualTheme) == ElementTheme.Dark;
-        var fill = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(255,61,68,79) : Windows.UI.Color.FromArgb(255,229,233,239));
-        var text = new SolidColorBrush(dark ? Windows.UI.Color.FromArgb(255,241,244,248) : Windows.UI.Color.FromArgb(255,35,43,53));
+        var actual = theme ?? control.ActualTheme;
+        var fill = ThemePalette.Brush("FwSoftChoiceFillBrush", actual);
+        var text = ThemePalette.Brush("FwSoftChoiceTextBrush", actual);
         foreach (var suffix in new[] { "", "PointerOver", "Pressed", "Unfocused" })
         {
             control.Resources[prefix + "Background" + (prefix == "ToggleButton" ? "Checked" : "Selected") + suffix] = fill;
@@ -21,16 +21,11 @@ internal static class SurfaceStyles
     }
     internal static Brush PopupBrush(ElementTheme theme)
     {
-        var tint = theme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 36, 39, 44) : Windows.UI.Color.FromArgb(255, 249, 250, 252);
         if (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
-            return new SolidColorBrush(new Windows.UI.ViewManagement.UISettings().GetColorValue(Windows.UI.ViewManagement.UIColorType.Background));
-        return new FwBlurBrush { Tint = Windows.UI.Color.FromArgb(0xCC, tint.R, tint.G, tint.B) };
+            return ThemePalette.Brush("FwSurfaceBrush", theme);
+        return new FwBlurBrush { Tint = ThemePalette.Color("FwPopupBlurColor", theme) };
     }
-    internal static SolidColorBrush TranslucentTint(ElementTheme theme)
-    {
-        var tint = theme == ElementTheme.Dark ? Windows.UI.Color.FromArgb(255, 36, 39, 44) : Windows.UI.Color.FromArgb(255, 249, 250, 252);
-        return new SolidColorBrush(Windows.UI.Color.FromArgb(0x66, tint.R, tint.G, tint.B));
-    }
+    internal static SolidColorBrush TranslucentTint(ElementTheme theme) => ThemePalette.Brush("FwPopupPresenterBrush", theme);
     internal static void AttachPopupBackdrop(DependencyObject root)
     {
         if (!Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicController.IsSupported()) return;
@@ -49,14 +44,7 @@ internal static class SurfaceStyles
             for (var i = 0; i < count; i++) queue.Enqueue(VisualTreeHelper.GetChild(node, i));
         }
     }
-    private static SolidColorBrush PopupBorder(ElementTheme theme)
-    {
-        if (new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
-            return new SolidColorBrush(new Windows.UI.ViewManagement.UISettings().GetColorValue(Windows.UI.ViewManagement.UIColorType.Foreground));
-        return new SolidColorBrush(theme == ElementTheme.Dark
-            ? Windows.UI.Color.FromArgb(0x33, 255, 255, 255)
-            : Windows.UI.Color.FromArgb(0x29, 0, 0, 0));
-    }
+    private static SolidColorBrush PopupBorder(ElementTheme theme) => ThemePalette.Brush("FwStrokeStrongBrush", theme);
     internal static void Apply(FlyoutBase flyout, ElementTheme theme)
     {
         var isMenu = flyout is MenuFlyout;

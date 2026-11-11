@@ -527,7 +527,9 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             var errors = new List<string>();
             void Collect(DependencyObject element)
             {
-                if (element is ScreenboxVectorIcon { LoadDiagnostic: { } diagnostic }) errors.Add(diagnostic);
+                if (element is Controls.LucideIcon { IconName: { } name } &&
+                    !File.Exists(Path.Combine(AppContext.BaseDirectory, "Assets", "Lucide", "light", name + ".png")))
+                    errors.Add("Missing player icon: " + name);
                 for (var index = 0; index < VisualTreeHelper.GetChildrenCount(element); index++)
                     Collect(VisualTreeHelper.GetChild(element, index));
             }

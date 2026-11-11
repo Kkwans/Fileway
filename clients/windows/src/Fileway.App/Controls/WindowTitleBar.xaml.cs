@@ -56,7 +56,7 @@ public sealed partial class WindowTitleBar : UserControl
 
     public void SetMaximized(bool maximized)
     {
-        MaximizeIcon.IconName = maximized ? "SquareMultiple" : "Square";
+        MaximizeIcon.IconName = maximized ? "copy" : "square";
         SetButtonLabel(MaximizeButton, maximized
             ? AppBranding.IsChinese ? "还原" : "Restore"
             : AppBranding.IsChinese ? "最大化" : "Maximize");

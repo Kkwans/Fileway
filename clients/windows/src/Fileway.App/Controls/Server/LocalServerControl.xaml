@@ -18,7 +18,7 @@
    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
    <StackPanel Spacing="4" VerticalAlignment="Center">
     <TextBlock Text="本地服务端" FontSize="22" FontWeight="SemiBold"/>
-    <TextBlock Text="在本机运行栖卷服务端，用于离线共享或局域网访问；默认端口 8888，可修改。" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}" TextWrapping="Wrap"/>
+    <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="在本机运行栖卷服务端，用于离线共享或局域网访问；默认端口 8888，可修改。" TextWrapping="Wrap"/>
    </StackPanel>
    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
     <ProgressRing x:Name="BusyRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" VerticalAlignment="Center"/>
@@ -95,11 +95,11 @@
     <Grid ColumnSpacing="12">
      <Grid.ColumnDefinitions><ColumnDefinition Width="140"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
      <StackPanel Spacing="6">
-      <TextBlock Text="端口" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="端口"/>
       <TextBox x:Name="PortBox" Height="36" MinHeight="36" MaxLength="5" Text="8888" InputScope="Number" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="监听端口"/>
      </StackPanel>
      <StackPanel Grid.Column="1" Spacing="6">
-      <TextBlock Text="管理员用户名" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+      <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="管理员用户名"/>
       <TextBox x:Name="AccountBox" Height="36" MinHeight="36" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="管理员用户名"/>
      </StackPanel>
     </Grid>
@@ -110,7 +110,7 @@
     <Grid ColumnSpacing="12" RowSpacing="6">
      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="36"/></Grid.RowDefinitions>
-     <TextBlock Text="管理员密码" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+     <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="管理员密码"/>
      <PasswordBox x:Name="SecretBox" Grid.Row="1" Height="36" MinHeight="36" PasswordRevealMode="Hidden" PlaceholderText="编辑时留空保留当前密码" Style="{StaticResource FwPasswordBoxStyle}" AutomationProperties.Name="管理员密码"/>
      <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
       <Button x:Name="RevealSecretButton" Click="RevealSecret_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" ToolTipService.ToolTip="显示密码" AutomationProperties.Name="显示管理员密码"><ui:LucideIcon IconName="eye" Width="18" Height="18"/></Button>
@@ -127,7 +127,7 @@
        <Grid x:Name="RestrictRootRow" ColumnSpacing="12" RowSpacing="6" Visibility="Collapsed">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="36"/></Grid.RowDefinitions>
-        <TextBlock Text="文件夹路径" FontSize="12" Foreground="{ThemeResource FwTextSecondaryBrush}"/>
+        <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="文件夹路径"/>
         <TextBox x:Name="RootBox" Grid.Row="1" Height="36" MinHeight="36" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="要共享的文件夹路径"/>
         <Button x:Name="BrowseRootButton" Grid.Row="1" Grid.Column="1" Content="选择…" Click="BrowseRoot_Click" Style="{StaticResource FwSecondaryButtonStyle}" VerticalAlignment="Center" AutomationProperties.Name="选择要共享的文件夹"/>
        </Grid>

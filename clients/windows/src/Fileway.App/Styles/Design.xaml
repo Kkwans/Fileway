@@ -6,6 +6,39 @@
 
   <ResourceDictionary.ThemeDictionaries>
     <ResourceDictionary x:Key="Default">
+      <SolidColorBrush x:Key="FileContentSurfaceBrush" Color="#FF1B1D21"/>
+      <SolidColorBrush x:Key="FileContentEdgeBrush" Color="#18FFFFFF"/>
+      <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#354356" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#40516A" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#304055" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#F1F5FA" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#F1F5FA" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#F1F5FA" />
+      <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+      <AcrylicBrush x:Key="FlyoutBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+      <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+      <ctl:FwBlurBrush x:Key="ContentDialogBackground" Tint="#CC24272C" />
+      <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
+      <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#14FFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59FFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#8CFFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#B3FFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#26FFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#59FFFFFF" />
+      <Color x:Key="FwShellNeutralColor">#FF202124</Color>
+      <Color x:Key="FwShellWarmColor">#FF242220</Color>
+      <Color x:Key="FwShellCoolColor">#FF1F252D</Color>
+      <Color x:Key="FwShellCustomBaseColor">#FF181818</Color>
+      <Color x:Key="FwTooltipBaseColor">#F21B1E23</Color>
+      <Color x:Key="FwPopupBlurColor">#CC24272C</Color>
+      <Color x:Key="FwVideoMatteColor">#FF000000</Color>
+      <Color x:Key="FwPlayerNativeTintColor">#FF101012</Color>
+      <Color x:Key="FwOwnedPanelFallbackColor">#FF2C2C2C</Color>
+      <Color x:Key="FwShellCustomDefaultColor">#FF808080</Color>
+      <SolidColorBrush x:Key="FwSoftChoiceFillBrush" Color="#FF3D444F"/>
+      <SolidColorBrush x:Key="FwSoftChoiceTextBrush" Color="#FFF1F4F8"/>
+      <SolidColorBrush x:Key="FwPopupPresenterBrush" Color="#6624272C"/>
+      <x:Double x:Key="FwShellCustomMix">0.08</x:Double>
       <SolidColorBrush x:Key="FwCanvasBrush" Color="#FF0B0C0F" />
       <SolidColorBrush x:Key="FwSurfaceBrush" Color="#FF17191D" />
       <SolidColorBrush x:Key="FwSurfaceRaisedBrush" Color="#FF1F2228" />
@@ -14,7 +47,7 @@
       <SolidColorBrush x:Key="FwStrokeStrongBrush" Color="#33FFFFFF" />
       <SolidColorBrush x:Key="FwTextPrimaryBrush" Color="#FFF4F6F8" />
       <SolidColorBrush x:Key="FwTextSecondaryBrush" Color="#FFA8AEB8" />
-      <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF757C87" />
+      <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF939BA7" />
       <SolidColorBrush x:Key="FwScrimTextBrush" Color="#FFFFFFFF" />
       <SolidColorBrush x:Key="FwScrimMutedBrush" Color="#FFC9CED6" />
       <SolidColorBrush x:Key="FwDangerBrush" Color="#FFFF6B6B" />
@@ -41,6 +74,39 @@
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
     </ResourceDictionary>
     <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="FileContentSurfaceBrush" Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="FileContentEdgeBrush" Color="#10000000"/>
+      <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E7EDF5" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#DCE5F1" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#D1DDEC" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#26364B" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#26364B" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#26364B" />
+      <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+      <AcrylicBrush x:Key="FlyoutBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+      <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+      <ctl:FwBlurBrush x:Key="ContentDialogBackground" Tint="#CCF9FAFC" />
+      <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
+      <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#0F000000" />
+      <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59000000" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#8C000000" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#B3000000" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#26000000" />
+      <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#59000000" />
+      <Color x:Key="FwShellNeutralColor">#FFE8E8E8</Color>
+      <Color x:Key="FwShellWarmColor">#FFEEEAE5</Color>
+      <Color x:Key="FwShellCoolColor">#FFE6EBF0</Color>
+      <Color x:Key="FwShellCustomBaseColor">#FFE1E1E1</Color>
+      <Color x:Key="FwTooltipBaseColor">#F2FBFCFD</Color>
+      <Color x:Key="FwPopupBlurColor">#CCF9FAFC</Color>
+      <Color x:Key="FwVideoMatteColor">#FF000000</Color>
+      <Color x:Key="FwPlayerNativeTintColor">#FF101012</Color>
+      <Color x:Key="FwOwnedPanelFallbackColor">#FFF8F8F8</Color>
+      <Color x:Key="FwShellCustomDefaultColor">#FF808080</Color>
+      <SolidColorBrush x:Key="FwSoftChoiceFillBrush" Color="#FFE5E9EF"/>
+      <SolidColorBrush x:Key="FwSoftChoiceTextBrush" Color="#FF232B35"/>
+      <SolidColorBrush x:Key="FwPopupPresenterBrush" Color="#66F9FAFC"/>
+      <x:Double x:Key="FwShellCustomMix">0.1</x:Double>
       <SolidColorBrush x:Key="FwCanvasBrush" Color="#FFF3F4F6" />
       <SolidColorBrush x:Key="FwSurfaceBrush" Color="#FFFFFFFF" />
       <SolidColorBrush x:Key="FwSurfaceRaisedBrush" Color="#FFFFFFFF" />
@@ -49,7 +115,7 @@
       <SolidColorBrush x:Key="FwStrokeStrongBrush" Color="#29000000" />
       <SolidColorBrush x:Key="FwTextPrimaryBrush" Color="#FF1B1F24" />
       <SolidColorBrush x:Key="FwTextSecondaryBrush" Color="#FF5C6470" />
-      <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF8A929E" />
+      <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF606B77" />
       <SolidColorBrush x:Key="FwScrimTextBrush" Color="#FF1B1F24" />
       <SolidColorBrush x:Key="FwScrimMutedBrush" Color="#FF5C6470" />
       <SolidColorBrush x:Key="FwDangerBrush" Color="#FFC42B1C" />
@@ -76,6 +142,22 @@
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
     </ResourceDictionary>
     <ResourceDictionary x:Key="HighContrast">
+      <SolidColorBrush x:Key="FileContentSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+      <SolidColorBrush x:Key="FileContentEdgeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="SystemColorHighlightTextColorBrush" />
+      <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="SystemColorHighlightTextColorBrush" />
+      <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="SystemColorHighlightTextColorBrush" />
+      <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
+      <StaticResource x:Key="ScrollBarThumbFill" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="ScrollBarThumbFillPointerOver" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ScrollBarThumbFillPressed" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ScrollBarPanningThumbBackground" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwPopupPresenterBrush" ResourceKey="SystemColorWindowColorBrush"/>
+      <StaticResource x:Key="FwSoftChoiceFillBrush" ResourceKey="SystemColorHighlightColorBrush"/>
+      <StaticResource x:Key="FwSoftChoiceTextBrush" ResourceKey="SystemColorHighlightTextColorBrush"/>
       <StaticResource x:Key="FwCanvasBrush" ResourceKey="SystemColorWindowColorBrush" />
       <StaticResource x:Key="FwSurfaceBrush" ResourceKey="SystemColorWindowColorBrush" />
       <StaticResource x:Key="FwSurfaceRaisedBrush" ResourceKey="SystemColorWindowColorBrush" />

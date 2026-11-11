@@ -7,59 +7,6 @@
         <ResourceDictionary Source="ms-appx:///Styles/Design.xaml" />
         <!-- Other merged dictionaries here -->
       </ResourceDictionary.MergedDictionaries>
-      <ResourceDictionary.ThemeDictionaries>
-        <ResourceDictionary x:Key="HighContrast">
-          <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="SystemColorHighlightColorBrush" />
-          <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="SystemColorHighlightColorBrush" />
-          <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="SystemColorHighlightColorBrush" />
-          <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="SystemColorHighlightTextColorBrush" />
-          <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="SystemColorHighlightTextColorBrush" />
-          <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="SystemColorHighlightTextColorBrush" />
-          <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
-          <StaticResource x:Key="ScrollBarThumbFill" ResourceKey="SystemColorWindowTextColorBrush" />
-          <StaticResource x:Key="ScrollBarThumbFillPointerOver" ResourceKey="SystemColorHighlightColorBrush" />
-          <StaticResource x:Key="ScrollBarThumbFillPressed" ResourceKey="SystemColorHighlightColorBrush" />
-          <StaticResource x:Key="ScrollBarPanningThumbBackground" ResourceKey="SystemColorWindowTextColorBrush" />
-        </ResourceDictionary>
-        <ResourceDictionary x:Key="Light">
-          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E7EDF5" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#DCE5F1" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#D1DDEC" />
-          <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#26364B" />
-          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#26364B" />
-          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#26364B" />
-          <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
-          <AcrylicBrush x:Key="FlyoutBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
-          <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
-          <ui:FwBlurBrush x:Key="ContentDialogBackground" Tint="#CCF9FAFC" />
-          <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
-          <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#0F000000" />
-          <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59000000" />
-          <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#8C000000" />
-          <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#B3000000" />
-          <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#26000000" />
-          <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#59000000" />
-        </ResourceDictionary>
-        <ResourceDictionary x:Key="Default">
-          <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#354356" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#40516A" />
-          <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#304055" />
-          <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#F1F5FA" />
-          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#F1F5FA" />
-          <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#F1F5FA" />
-          <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
-          <AcrylicBrush x:Key="FlyoutBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
-          <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
-          <ui:FwBlurBrush x:Key="ContentDialogBackground" Tint="#CC24272C" />
-          <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
-          <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#14FFFFFF" />
-          <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59FFFFFF" />
-          <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#8CFFFFFF" />
-          <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#B3FFFFFF" />
-          <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#26FFFFFF" />
-          <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#59FFFFFF" />
-        </ResourceDictionary>
-      </ResourceDictionary.ThemeDictionaries>
       <DataTemplate x:Key="FilewayChoiceLabelTemplate">
         <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="8,6" ToolTipService.ToolTip="{Binding}" />
       </DataTemplate>

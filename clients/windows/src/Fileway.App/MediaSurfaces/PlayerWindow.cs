@@ -37,11 +37,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private readonly long _videoGestureStarted = TimeProvider.System.GetTimestamp();
     private PlaybackVideoGesturePolicy? _videoGestures;
     private readonly CancellationTokenSource _watchCancellation = new();
-    private readonly Grid _root = new() { Background = new SolidColorBrush(Microsoft.UI.Colors.Black), RequestedTheme = ElementTheme.Dark };
+    private readonly Grid _root = new() { Background = new SolidColorBrush(Controls.ThemePalette.Color("FwVideoMatteColor", ElementTheme.Dark)), RequestedTheme = ElementTheme.Dark };
     private readonly Grid _video = new();
     private readonly StackPanel _state = new() { Spacing = 16, MaxWidth = 440, Margin = new Thickness(40), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _stateTitle = new() { FontSize = 24, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
-    private readonly TextBlock _stateDescription = new() { FontSize = 14, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 184, 184, 184)) };
+    private readonly TextBlock _stateDescription = new() { TextWrapping = TextWrapping.Wrap, Style = (Style)Application.Current.Resources["FwCaptionTextStyle"] };
     private readonly ProgressBar _progress = new() { IsIndeterminate = true, Width = 160, HorizontalAlignment = HorizontalAlignment.Left };
     private readonly Button _closeState = new() { Content = "关闭窗口", HorizontalAlignment = HorizontalAlignment.Left };
     private readonly NativeVideoWindow.SubclassProc _windowProcedure;
@@ -88,7 +88,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _windowedPresenter = AppWindow.Presenter as OverlappedPresenter;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         _root.Children.Add(_video);
-        _state.Children.Add(new FontIcon { Glyph = "\uE714", FontSize = 32, HorizontalAlignment = HorizontalAlignment.Left });
+        _state.Children.Add(new Controls.LucideIcon
+        {
+            IconName = "film-strip", Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Left,
+            Foreground = Controls.ThemePalette.Brush("FwTextPrimaryBrush", ElementTheme.Dark),
+        });
         _state.Children.Add(_stateTitle);
         _state.Children.Add(_stateDescription);
         _state.Children.Add(_progress);

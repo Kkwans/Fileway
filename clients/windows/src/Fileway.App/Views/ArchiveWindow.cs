@@ -359,16 +359,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         ApplyTheme(theme);
     }
 
-    private Brush ThemeBrush(string key)
-    {
-        var name = _theme == ElementTheme.Light ? "Light" : "Default";
-        if (Application.Current.Resources.ThemeDictionaries.TryGetValue(name, out var dictionary) &&
-            dictionary is ResourceDictionary resources && resources.TryGetValue(key, out var value) && value is Brush brush)
-            return brush;
-        return Application.Current.Resources.TryGetValue(key, out var fallback) && fallback is Brush brushValue
-            ? brushValue
-            : new SolidColorBrush(_theme == ElementTheme.Light ? Windows.UI.Color.FromArgb(255, 243, 244, 246) : Windows.UI.Color.FromArgb(255, 23, 25, 29));
-    }
+    private SolidColorBrush ThemeBrush(string key) => Controls.ThemePalette.Brush(key, _theme);
 
     private void ApplyTheme(ElementTheme theme)
     {
