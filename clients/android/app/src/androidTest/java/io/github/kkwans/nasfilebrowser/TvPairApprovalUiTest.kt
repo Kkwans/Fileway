@@ -33,6 +33,68 @@ import java.io.File
  * authorization is covered by Go TLS tests, not inferred from this paired phone. */
 @RunWith(AndroidJUnit4::class)
 class TvPairApprovalUiTest {
+    /** The host is restarted by the local runner after the phone's first DNS-SD window. */
+    @Test fun trustedTvRecoversAfterInitialDiscoveryEnds() = runBlocking {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val runId = InstrumentationRegistry.getArguments().getString("ownedTvDelayedResume")
+        assumeTrue("A task-owned paired two-emulator run is required", runId?.matches(Regex("[a-z0-9]+")) == true)
+        require(Build.VERSION.SDK_INT == 35 && Build.HARDWARE.contains("ranchu"))
+        val context = instrumentation.targetContext
+        val evidence = File(requireNotNull(context.getExternalFilesDir(null)), "fileway-delayed-tv-$runId.json")
+        check(evidence.createNewFile())
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        lateinit var control: TvControlModel
+        lateinit var phone: ClientModel
+        val report = JSONObject()
+        fun record(status: String) = evidence.writeText(report.put("status", status).toString())
+        try {
+            scenario.onActivity {
+                val models = ViewModelProvider(it)
+                control = models[TvControlModel::class.java]
+                phone = models[ClientModel::class.java]
+            }
+            val trusted = control.client.store.dao.devices().first().single { it.trusted }.descriptor()
+            report.put("savedPort", trusted.port)
+            scenario.onActivity { it.setContent { ClientTheme { TvControlScreen(phone, {}, control) } } }
+            val failed = withTimeout(20_000) { control.connection.first { it.phase == RemotePhase.FAILED && it.retryable } }
+            assertEquals(trusted.id, failed.device?.id)
+            withTimeout(20_000) { control.discovery.first { !it.searching } }
+            record("START_TV")
+
+            val restored = withTimeoutOrNull(35_000) {
+                control.connection.first { it.phase == RemotePhase.CONNECTED && it.snapshot != null }
+            }
+            if (restored == null) {
+                val phase = control.connection.value
+                report.put("phaseAfterRestart", phase.phase.name).put("retryable", phase.retryable)
+                // Observe the advertisement only after the product's recovery window.
+                val late = withTimeoutOrNull(13_000) {
+                    TvServiceDiscovery(context).scan().first { state ->
+                        state.devices.any { it.id == trusted.id && it.fingerprint == trusted.fingerprint && it.port != trusted.port }
+                    }.devices.first { it.id == trusted.id && it.fingerprint == trusted.fingerprint && it.port != trusted.port }
+                }
+                report.put("lateAdvertisedPort", late?.port ?: JSONObject.NULL)
+                error("The paired TV did not reconnect after the initial DNS-SD window")
+            }
+            val actual = requireNotNull(restored.device)
+            assertEquals(trusted.id, actual.id)
+            assertEquals(trusted.fingerprint, actual.fingerprint)
+            assertTrue("Exercise a changed listener port", trusted.port != actual.port)
+            report.put("reconnectedPort", actual.port)
+            scenario.onActivity { control.disconnect() }
+            withTimeout(5_000) { control.connection.first { it.phase == RemotePhase.OFFLINE } }
+            assertNull("Explicit disconnect suppresses rediscovery recovery", withTimeoutOrNull(4_000) {
+                control.connection.first { it.phase != RemotePhase.OFFLINE }
+            })
+            record("PASS")
+        } catch (failure: Throwable) {
+            record("FAIL")
+            throw failure
+        } finally {
+            scenario.close()
+        }
+    }
+
     /** A separate task-owned TV emulator must show the consent prompt and allow the request. */
     @Test fun firstConnectionWithTVConsent() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()

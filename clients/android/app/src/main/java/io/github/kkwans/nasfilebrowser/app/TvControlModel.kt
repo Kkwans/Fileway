@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.*
 import org.json.JSONObject
 import kotlin.random.Random
 
+private const val TV_DISCOVERY_HEAD_START_MS = 1_500L
+
 internal enum class TvSubtitleSource(val wireName: String, private val capability: String) {
     SERVER("server", "subtitleBrowseServerCursor"),
     LOCAL("tvLocal", "subtitleBrowseLocal");
@@ -75,15 +77,20 @@ class TvControlModel(application:Application):AndroidViewModel(application){
             }
             if (remembered != null) launch {
                 // Give discovery a brief chance to refresh an address or port.
-                delay(1_500)
+                delay(TV_DISCOVERY_HEAD_START_MS)
                 restore(remembered)
             }
-            TvServiceDiscovery(getApplication()).scan().collect{result->
-                discoveryMutable.value=result
+            discover { result ->
                 if (remembered != null) result.devices.firstOrNull {
                     it.id == remembered.id && it.fingerprint == remembered.fingerprint
                 }?.let { restore(remembered.at(it.address, it.port)) }
             }
+        }
+    }
+    private suspend fun discover(keepPreviousWhileSearching: Boolean = false, onResult: (TvDiscoveryState) -> Unit) {
+        TvServiceDiscovery(getApplication()).scan().collect { result ->
+            if (!keepPreviousWhileSearching || result.devices.isNotEmpty() || !result.searching) discoveryMutable.value = result
+            onResult(result)
         }
     }
     fun stopSearch(){visible=false;scan?.cancel();scan=null;reconnect?.cancel();reconnect=null}
@@ -121,6 +128,18 @@ class TvControlModel(application:Application):AndroidViewModel(application){
         reconnect=viewModelScope.launch{
             delay(waitMs)
             if(expected!=revision||!visible||!automatic||connection.value.phase!=RemotePhase.FAILED||!connection.value.retryable)return@launch
+            // A restarted host can advertise a new listener after the first scan ends.
+            if (scan?.isActive != true) {
+                val rediscovered = CompletableDeferred<Unit>()
+                scan = viewModelScope.launch {
+                    discover(keepPreviousWhileSearching = true) { result ->
+                        if (!result.searching || result.devices.any { it.id == device.id && it.fingerprint == device.fingerprint }) {
+                            rediscovered.complete(Unit)
+                        }
+                    }
+                }
+                withTimeoutOrNull(TV_DISCOVERY_HEAD_START_MS) { rediscovered.await() }
+            }
             connect(device,false,expected)
         }
     }
