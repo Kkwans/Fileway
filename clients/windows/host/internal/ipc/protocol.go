@@ -244,6 +244,8 @@ var operations = map[string]operation{
 	"cache_cleanup":       {parameters: "clear"},
 	"cache_stats":         {parameters: "cacheRoot cacheOwner"},
 	"cache_cleanup_owner": {parameters: "cacheOwner cacheRoot inactiveOnly"},
+	"cache_gallery_list":  {parameters: "cacheOwner"},
+	"cache_gallery_read":  {parameters: "cacheOwner cacheItem"},
 	"network_platform":    {parameters: "platformNetwork"},
 	"network_configure":   {parameters: "stateDir hostname storageKey"},
 	"network_start":       {},

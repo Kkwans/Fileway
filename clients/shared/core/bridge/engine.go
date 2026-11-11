@@ -20,6 +20,7 @@ type Command struct {
 	CacheKey        string                  `json:"cacheKey"`
 	CacheOwner      string                  `json:"cacheOwner,omitempty"`
 	CacheRoot       string                  `json:"cacheRoot,omitempty"`
+	CacheItem       string                  `json:"cacheItem,omitempty"`
 	InactiveOnly    bool                    `json:"inactiveOnly,omitempty"`
 	Clear           bool                    `json:"clear"`
 	Op              string                  `json:"op"`
@@ -275,6 +276,10 @@ func (e *Engine) execute(c Command) (any, error) {
 		return b.CacheStatsForRootContext(ctx, c.CacheRoot, c.CacheOwner)
 	case "cache_cleanup_owner":
 		return b.CleanCacheOwnerInRootContext(ctx, c.CacheOwner, c.CacheRoot, c.InactiveOnly)
+	case "cache_gallery_list":
+		return b.CacheGalleryList(ctx, c.CacheOwner)
+	case "cache_gallery_read":
+		return b.CacheGalleryRead(ctx, c.CacheOwner, c.CacheItem)
 	case "lease_stats":
 		return b.CacheLeaseStats(c.Session, c.URL)
 	case "upload_lease":
@@ -336,7 +341,7 @@ func (e *Engine) execute(c Command) (any, error) {
 			endpoint += "?fit=contain"
 		}
 		if c.CacheKey != "" {
-			return b.LeaseCachedForOwner(c.Session, endpoint, c.CacheKey, c.CacheOwner)
+			return b.LeaseCachedPreviewForOwner(c.Session, endpoint, c.CacheKey, c.CacheOwner)
 		}
 		return b.Lease(c.Session, endpoint, false)
 	case "revoke":

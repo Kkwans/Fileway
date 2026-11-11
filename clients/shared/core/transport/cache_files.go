@@ -123,6 +123,10 @@ func ownedCacheFile(name string, managed bool) (owned, partial bool) {
 		if !found {
 			return false, false
 		}
+		if strings.HasPrefix(name, galleryChunkMarker) {
+			_, valid := galleryChunkSize(name)
+			return valid, false
+		}
 	}
 	parts := strings.Split(name, "-")
 	if len(parts) != 3 || !cacheHex(parts[0]) {

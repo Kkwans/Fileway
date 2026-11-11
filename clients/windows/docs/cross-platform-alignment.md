@@ -71,6 +71,10 @@
 
 ## 应用更新
 
+0.9.0 补记：Windows 已提供手动检查 GitHub 公开发布的入口，并明确区分目录无 Windows 包与检查失败。
+仅匹配版本一致的 `windows-<版本>` / `windows-preview-<版本>` 标签及 Windows x64 客户端安装包；查看更新只打开发布页。
+本地未签名候选包不进入目录；下表保留 0.8 收敛时的判断。
+
 | 功能 | Android | Windows | 状态 |
 | --- | --- | --- | --- |
 | 更新检查（GitHub Releases 双通道、免凭据） | AppUpdatesScreen（api.github.com/Kkwans/fileway/releases） | ❌ | **用户质疑成立**：Windows 安装包从未发布到 GitHub Releases，检查无可检查对象。仅当未来 Windows 包正式发布到 GitHub Releases 且签名后才可实现；当前排除 |

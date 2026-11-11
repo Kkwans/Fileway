@@ -46,6 +46,7 @@ type Lease struct {
 	telemetry          leaseTelemetry
 	cacheKey           string
 	cacheOwner         string
+	cachePreview       bool
 	cacheManaged       bool
 	cacheWriteFailures atomic.Int64
 	prefetch           chan struct{}

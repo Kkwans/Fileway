@@ -97,6 +97,15 @@ func (b *Broker) LeaseCached(id, endpoint, identity string) (string, error) {
 // The optional owner is supplied only by a trusted account-aware control client.
 // Legacy callers retain their existing identity key behavior in the legacy namespace.
 func (b *Broker) LeaseCachedForOwner(id, endpoint, identity, owner string) (string, error) {
+	return b.leaseCachedForOwner(id, endpoint, identity, owner, false)
+}
+
+// Only the bridge's preview route may mark a cache block as gallery content.
+func (b *Broker) LeaseCachedPreviewForOwner(id, endpoint, identity, owner string) (string, error) {
+	return b.leaseCachedForOwner(id, endpoint, identity, owner, true)
+}
+
+func (b *Broker) leaseCachedForOwner(id, endpoint, identity, owner string, preview bool) (string, error) {
 	b.mu.RLock()
 	configured := b.cache != nil && b.cache.config.Directory != ""
 	b.mu.RUnlock()
@@ -119,6 +128,7 @@ func (b *Broker) LeaseCachedForOwner(id, endpoint, identity, owner string) (stri
 		l.cacheKey = identity
 		l.cacheOwner = cacheHash(owner)
 		l.cacheManaged = b.cache.config.Managed
+		l.cachePreview = preview && l.cacheManaged && owner != ""
 		l.prefetch = make(chan struct{}, 1)
 	} else {
 		return "", errors.New("session closed")
@@ -169,6 +179,17 @@ func (c *mediaCache) read(group, key string, n int64) ([]byte, bool) {
 		return nil, false
 	}
 	path := c.chunkPath(group, key, n)
+	// Old preview blocks have the same authenticated group and source version.
+	// Promote on a verified cache hit without copying bytes or changing quota.
+	if legacyKey, marked := strings.CutPrefix(key, galleryChunkMarker); marked {
+		_, markerErr := os.Lstat(path)
+		legacy := c.chunkPath(group, legacyKey, n)
+		if os.IsNotExist(markerErr) && regularCacheFile(legacy) {
+			if err := os.Rename(legacy, path); err != nil {
+				path = legacy
+			}
+		}
+	}
 	if !regularCacheFile(path) {
 		return nil, false
 	}
@@ -275,6 +296,9 @@ func cachedChunk(ctx context.Context, l *Lease, c *mediaCache, version string, s
 	end := min(start+chunkSize, total) - 1
 	n := end - start + 1
 	key := version + "-" + strconv.FormatInt(start, 10)
+	if l.cachePreview && start == 0 && n == total {
+		key = galleryChunkMarker + key
+	}
 	if data, ok := c.read(l.cacheGroup(), key, n); ok {
 		l.telemetry.add(0, int64(len(data)), 0, 0)
 		return data, nil

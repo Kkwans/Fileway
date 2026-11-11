@@ -10,6 +10,7 @@ public sealed partial class MainPage
         SettingsPane.AppearanceRequested += (_, _) => PresentationSettings_Click(this, new RoutedEventArgs());
         SettingsPane.OpenWithRequested += (_, _) => OpenWithSettings_Click(this, new RoutedEventArgs());
         SettingsPane.StorageRequested += (_, _) => StorageSettings_Click(this, new RoutedEventArgs());
+        SettingsPane.CacheGalleryRequested += (_, _) => CacheGallery_Click(this, new RoutedEventArgs());
         SettingsPane.ServerToolsRequested += (_, _) => StorageTools_Click(this, new RoutedEventArgs());
         SettingsPane.LocalServerRequested += (_, _) => LocalServer_Click(this, new RoutedEventArgs());
         SettingsPane.AboutRequested += (_, _) => AboutApplication_Click(this, new RoutedEventArgs());

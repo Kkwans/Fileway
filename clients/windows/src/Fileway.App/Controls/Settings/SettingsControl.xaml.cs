@@ -11,6 +11,7 @@ public sealed partial class SettingsControl : UserControl
     public event EventHandler? AppearanceRequested;
     public event EventHandler? OpenWithRequested;
     public event EventHandler? StorageRequested;
+    public event EventHandler? CacheGalleryRequested;
     public event EventHandler? ServerToolsRequested;
     public event EventHandler? LocalServerRequested;
     public event EventHandler? AboutRequested;
@@ -80,6 +81,7 @@ public sealed partial class SettingsControl : UserControl
     private void Appearance_Click(object sender, RoutedEventArgs e) => AppearanceRequested?.Invoke(this, EventArgs.Empty);
     private void OpenWith_Click(object sender, RoutedEventArgs e) => OpenWithRequested?.Invoke(this, EventArgs.Empty);
     private void Storage_Click(object sender, RoutedEventArgs e) => StorageRequested?.Invoke(this, EventArgs.Empty);
+    private void CacheGallery_Click(object sender, RoutedEventArgs e) => CacheGalleryRequested?.Invoke(this, EventArgs.Empty);
     private void ServerTools_Click(object sender, RoutedEventArgs e) => ServerToolsRequested?.Invoke(this, EventArgs.Empty);
     private void LocalServer_Click(object sender, RoutedEventArgs e) => LocalServerRequested?.Invoke(this, EventArgs.Empty);
     private void About_Click(object sender, RoutedEventArgs e) => AboutRequested?.Invoke(this, EventArgs.Empty);

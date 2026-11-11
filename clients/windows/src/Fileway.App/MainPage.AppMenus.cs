@@ -162,12 +162,16 @@ public sealed partial class MainPage
     private async void AboutApplication_Click(object sender, RoutedEventArgs args)
     {
         if (_disposed) return;
-        var version = typeof(App).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion.Split('+')[0]
-            ?? typeof(App).Assembly.GetName().Version?.ToString() ?? "未知";
+        var version = typeof(App).Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version;
+        using var content = new Fileway.App.Controls.AboutContent(version, new Fileway.Infrastructure.Services.GitHubAppUpdateService(), _lifetime.Token);
         await ShowBrowserDialogAsync(new ContentDialog
         {
             Title = "关于栖卷",
-            Content = new Fileway.App.Controls.AboutContent(version),
+            Content = new ScrollViewer
+            {
+                Content = content, MaxHeight = Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 530),
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            },
             CloseButtonText = "关闭",
         });
     }

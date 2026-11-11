@@ -76,6 +76,14 @@ behavior. Cleanup replies retain the preexisting remaining-pool totals; query
 owner statistics separately. Historical OS work uses a retained single-flight
 job with bounded caller waiting; this does not claim the OS call is cancellable.
 
+`cache_gallery_list` and `cache_gallery_read` are read-only operations for the
+current managed pool. The Windows service supplies the authorized account's
+`cacheOwner`; the read operation also requires the opaque `cacheItem` from a
+list result. The list contains up to 120 complete preview blocks, newest use
+first, and indicates truncation. Each read returns at most 2 MiB of JPEG or
+PNG content (base64 in JSON), with no upstream request or cache timestamp
+change. Eviction may remove an entry between listing and reading.
+
 See [cache storage](cache-storage.md) for version, quota and failure semantics.
 
 ## Verification
