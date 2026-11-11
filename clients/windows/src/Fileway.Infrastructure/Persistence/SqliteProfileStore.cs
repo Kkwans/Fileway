@@ -8,7 +8,7 @@ namespace Fileway.Infrastructure.Persistence;
 /// <summary>Versioned, credential-free profile storage with durable logout intent.</summary>
 public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettingsStore, ICacheRootStore, IBrowserPreferencesStore, IOperationJournalStore, ITransferTaskStore, INavigationStateStore
 {
-    private const int SchemaVersion = 8;
+    private const int SchemaVersion = 9;
     private const int BusyTimeoutSeconds = 3;
     private const string Columns = "profile_id, source_revision, display_name, base_address, network_mode, proxy_mode, proxy_address, authentication_mode, username, server_user_id, keep_signed_in, last_connected_at";
     private const string AccountPredicate = "profile_id = $profile AND source_revision = $revision AND server_user_id = $user";
@@ -361,7 +361,6 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
                     """, transaction);
                 migrate.ExecuteNonQuery();
             }
-            if (version < 5) CreateOperationJournal(connection, transaction);
             if (version < 6) CreateTransferTasks(connection, transaction);
             if (version < 7)
             {
@@ -386,6 +385,7 @@ public sealed partial class SqliteProfileStore : IProfileStore, IStorageSettings
                     """, transaction);
                 migrate.ExecuteNonQuery();
             }
+            if (version < 9) UpgradeOperationJournal(connection, transaction, version);
             if (version < SchemaVersion) CheckIntegrity(connection, transaction);
             transaction.Commit();
             using var journal = Command(connection, "PRAGMA journal_mode = WAL");

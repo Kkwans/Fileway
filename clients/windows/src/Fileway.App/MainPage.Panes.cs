@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace Fileway.App;
 
@@ -26,6 +27,12 @@ public sealed partial class MainPage
         if (_disposed || Workspace is null || ConnectionPanel is null) return;
         var collectionStatusChanged = _currentPane != pane &&
             (_currentPane == MainPane.Collections || pane == MainPane.Collections);
+        if (_currentPane != pane && pane is MainPane.Search or MainPane.Trash)
+        {
+            if (Notice.Severity == InfoBarSeverity.Success) Notice.IsOpen = false;
+            foreach (var notice in _noticeLayouts.Keys)
+                if (Controls.FloatingNotice.IsCompact(notice)) notice.IsOpen = false;
+        }
         _currentPane = pane;
 
         Workspace.Visibility = pane == MainPane.Browser ? Visibility.Visible : Visibility.Collapsed;

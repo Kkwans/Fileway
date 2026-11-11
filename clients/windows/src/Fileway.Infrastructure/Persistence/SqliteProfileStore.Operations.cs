@@ -260,16 +260,59 @@ public sealed partial class SqliteProfileStore
         command.Parameters.AddWithValue("$operation", operation.Id.ToString("D"));
     }
 
-    private static void CreateOperationJournal(SqliteConnection connection, SqliteTransaction transaction)
+    private static void UpgradeOperationJournal(SqliteConnection connection, SqliteTransaction transaction, long version)
     {
-        using var command = Command(connection, """
-            CREATE TABLE operation_journal (
+        if (version < 5)
+        {
+            CreateOperationJournalTables(connection, transaction, "operation_journal", "operation_journal_items");
+        }
+        else
+        {
+            // Rebuild both tables together so the old child is removed before its parent
+            // and the new child keeps a valid reference when the new parent is renamed.
+            CreateOperationJournalTables(connection, transaction, "operation_journal_v9", "operation_journal_items_v9");
+            using var migrate = Command(connection, """
+                INSERT INTO operation_journal_v9 (
+                    profile_id, source_revision, server_user_id, operation_id, origin_session_id, kind, phase, revision,
+                    created_at, created_ticks, updated_at, options_json, acknowledgement_json, error_code,
+                    error_http_status, error_retryable, reconciliation_json, reconciliation_resolution)
+                SELECT profile_id, source_revision, server_user_id, operation_id, origin_session_id, kind, phase, revision,
+                    created_at, created_ticks, updated_at, options_json, acknowledgement_json, error_code,
+                    error_http_status, error_retryable, reconciliation_json, reconciliation_resolution
+                FROM operation_journal;
+                INSERT INTO operation_journal_items_v9 (profile_id, source_revision, server_user_id, operation_id, ordinal, item_json)
+                SELECT profile_id, source_revision, server_user_id, operation_id, ordinal, item_json
+                FROM operation_journal_items;
+                DROP TABLE operation_journal_items;
+                DROP TABLE operation_journal;
+                ALTER TABLE operation_journal_v9 RENAME TO operation_journal;
+                ALTER TABLE operation_journal_items_v9 RENAME TO operation_journal_items;
+                """, transaction);
+            migrate.ExecuteNonQuery();
+            using var foreignKeys = Command(connection, "PRAGMA foreign_key_check(operation_journal_items)", transaction);
+            using var violations = foreignKeys.ExecuteReader();
+            if (violations.Read()) throw ProfileStoreValidation.Unavailable();
+        }
+
+        using var finish = Command(connection, """
+            CREATE INDEX operation_journal_history ON operation_journal
+                (profile_id, source_revision, server_user_id, created_ticks DESC, operation_id DESC);
+            PRAGMA user_version = 9;
+            """, transaction);
+        finish.ExecuteNonQuery();
+    }
+
+    private static void CreateOperationJournalTables(SqliteConnection connection, SqliteTransaction transaction,
+        string journalTable, string itemsTable)
+    {
+        using var command = Command(connection, $"""
+            CREATE TABLE {journalTable} (
                 profile_id TEXT NOT NULL CHECK(length(profile_id) = 36),
                 source_revision TEXT NOT NULL CHECK(length(source_revision) = 36),
                 server_user_id TEXT NOT NULL CHECK(length(server_user_id) > 0),
                 operation_id TEXT NOT NULL CHECK(length(operation_id) = 36),
                 origin_session_id TEXT NOT NULL CHECK(length(origin_session_id) = 36),
-                kind INTEGER NOT NULL CHECK(kind BETWEEN 0 AND 24),
+                kind INTEGER NOT NULL CHECK(kind BETWEEN 0 AND 25),
                 phase INTEGER NOT NULL CHECK(phase BETWEEN 0 AND 5),
                 revision INTEGER NOT NULL CHECK(typeof(revision) = 'integer' AND revision >= 0),
                 created_at TEXT NOT NULL, created_ticks INTEGER NOT NULL, updated_at TEXT NOT NULL,
@@ -281,17 +324,14 @@ public sealed partial class SqliteProfileStore
                 CHECK ((phase = 2 AND acknowledgement_json IS NOT NULL) OR (phase != 2 AND acknowledgement_json IS NULL)),
                 PRIMARY KEY (profile_id, source_revision, server_user_id, operation_id)
             );
-            CREATE INDEX operation_journal_history ON operation_journal
-                (profile_id, source_revision, server_user_id, created_ticks DESC, operation_id DESC);
-            CREATE TABLE operation_journal_items (
+            CREATE TABLE {itemsTable} (
                 profile_id TEXT NOT NULL, source_revision TEXT NOT NULL, server_user_id TEXT NOT NULL,
                 operation_id TEXT NOT NULL, ordinal INTEGER NOT NULL CHECK(typeof(ordinal) = 'integer' AND ordinal >= 0),
                 item_json TEXT NOT NULL,
                 PRIMARY KEY (profile_id, source_revision, server_user_id, operation_id, ordinal),
                 FOREIGN KEY (profile_id, source_revision, server_user_id, operation_id)
-                    REFERENCES operation_journal (profile_id, source_revision, server_user_id, operation_id)
+                    REFERENCES {journalTable} (profile_id, source_revision, server_user_id, operation_id)
             );
-            PRAGMA user_version = 5;
             """, transaction);
         command.ExecuteNonQuery();
     }

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
@@ -22,7 +23,7 @@ public sealed partial class TrashControl : UserControl, IDisposable
     private ConnectionSession? _session;
     private long _epoch;
     private bool _disposed, _ready, _rendering;
-    private string? _message;
+    private (string Title, string Detail, InfoBarSeverity Severity, string? Path)? _feedback;
     public event EventHandler? CloseRequested;
     public bool HasOpenDialog => _dialog is not null;
     private bool Busy => _deleting || _controller.IsLoading || _controller.IsRestoring || _controller.IsReconciling || HasOpenDialog;
@@ -30,7 +31,10 @@ public sealed partial class TrashControl : UserControl, IDisposable
 
     public TrashControl()
     {
-        InitializeComponent(); Fileway.App.Controls.FloatingNotice.Attach(Notice); Records.ItemsSource = _rows; UnknownRecords.ItemsSource = _unknown;
+        InitializeComponent();
+        FloatingNotice.Attach(Notice, automatic: false);
+        FloatingNotice.Attach(StatusToast, automatic: false);
+        Records.ItemsSource = _rows; UnknownRecords.ItemsSource = _unknown;
         _ready = true; Unloaded += (_, _) => SuspendView(); Render();
     }
     public void SetContext(ITrashService? trash, IOperationHistoryService? history, ConnectionSession? session)
@@ -38,22 +42,37 @@ public sealed partial class TrashControl : UserControl, IDisposable
         if (_disposed) return;
         var before = _controller.Generation; _session = session; _trash = trash;
         _controller.SetContext(trash, history, session);
-        if (before != _controller.Generation) { Retire(); _message = null; Render(); }
+        if (before != _controller.Generation) { Retire(); _feedback = null; Render(); }
         else Render(synchronize: false);
     }
     public async Task RefreshAsync()
     {
         if (_disposed || Visibility != Visibility.Visible || Busy || _session is null) return;
-        var epoch = _epoch; _message = null;
+        var epoch = _epoch; _feedback = null;
+        StatusToast.IsOpen = false;
         await RunAsync(() => _controller.RefreshAsync(), epoch);
     }
     private async Task RunAsync(Func<Task> action, long epoch)
     {
         try { var pending = action(); Render(synchronize: false); await pending; }
-        catch (Exception) { if (Current(epoch)) _message = "操作未能完成，请刷新并核实结果，不要重复提交。"; }
+        catch (Exception) { if (Current(epoch)) SetFeedback("操作未能完成", "请刷新并核实结果，不要重复提交。", InfoBarSeverity.Warning); }
         if (Current(epoch)) Render();
     }
     private bool Current(long epoch) => !_disposed && epoch == _epoch && Visibility == Visibility.Visible;
+
+    private void SetFeedback(string title, string detail, InfoBarSeverity severity, string? path = null)
+    {
+        if (severity == InfoBarSeverity.Success && detail.Length == 0 && path is null)
+        {
+            _feedback = null;
+            StatusToast.Title = title;
+            FloatingNotice.Show(StatusToast, title, repeat: true, compact: true);
+            return;
+        }
+        StatusToast.IsOpen = false;
+        _feedback = (title, detail, severity, path);
+    }
+
     private void Render(bool synchronize = true)
     {
         if (!_ready || _disposed) return;
@@ -81,19 +100,36 @@ public sealed partial class TrashControl : UserControl, IDisposable
                 foreach (var record in _controller.UnresolvedOperations) _unknown.Add(new(record));
                 UnknownRecords.SelectedItem = _unknown.FirstOrDefault(row => row.Record.Intent.Reference == operation);
             }
-            var error = _controller.Error ?? _controller.OperationsError;
-            var message = _message ?? error ?? "";
-            var messageChanged = Notice.Message != message;
-            Notice.Title = error is null ? "操作结果" : "回收站需要处理";
-            Notice.Severity = error is null ? InfoBarSeverity.Informational : InfoBarSeverity.Warning;
-            Notice.Message = message;
-            if (messageChanged) Notice.IsOpen = message.Length > 0;
+            var readError = _controller.ReadError;
+            var error = _controller.Error;
+            if (_rows.Count == 0 && readError == error) error = null;
+            error ??= _controller.OperationsError;
+            var status = _feedback ?? (Title: error is null ? "" : "回收站需要处理", Detail: error ?? "",
+                Severity: InfoBarSeverity.Warning, Path: (string?)null);
+            if (Notice.Title != status.Title || Notice.Message != status.Detail || Notice.Severity != status.Severity ||
+                RestoredPathBlock.Text != (status.Path ?? ""))
+            {
+                Notice.IsOpen = false;
+                Notice.Title = status.Title;
+                Notice.Message = status.Detail;
+                Notice.Severity = status.Severity;
+                RestoredPathBlock.Text = status.Path ?? "";
+                RestoredPathBlock.Visibility = status.Path is null ? Visibility.Collapsed : Visibility.Visible;
+                Notice.IsOpen = status.Title.Length > 0;
+            }
             EmptyHost.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
             HeaderRow.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-            EmptyHost.Title = _controller.IsLoading ? "正在读取回收站…" : _session is null ? "连接后查看回收站" : "暂无回收站项目";
+            EmptyHost.Title = _controller.IsLoading ? "正在读取回收站…" : _session is null ? "连接后查看回收站"
+                : readError is not null ? "无法读取回收站" : _controller.HasLoadedItems ? "暂无回收站项目" : "尚未读取回收站";
+            EmptyHost.Description = readError ?? (_controller.HasLoadedItems && !_controller.IsLoading
+                ? "删除的文件和文件夹会先出现在这里，可在彻底删除前恢复。" : "");
             BusyRing.IsActive = Busy;
             RefreshButton.IsEnabled = _session is not null && !Busy;
+            ReadRetryButton.Visibility = _session is not null && !_controller.IsLoading &&
+                (readError is not null || !_controller.HasLoadedItems) ? Visibility.Visible : Visibility.Collapsed;
+            ReadRetryButton.IsEnabled = RefreshButton.IsEnabled;
             RestoreButton.IsEnabled = !Busy && Records.SelectedItem is TrashRow selectedRow && _controller.CanRestore(selectedRow.Item, Conflict);
+            PermanentDeleteButton.IsEnabled = !Busy && Records.SelectedItem is TrashRow deleteRow && _controller.CanDelete(deleteRow.Item);
             ReconcileButton.IsEnabled = !Busy && UnknownRecords.SelectedItem is TrashOperationRow selectedOperation && _controller.CanReconcile(selectedOperation.Record);
             PendingPanel.Visibility = _unknown.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
@@ -104,33 +140,91 @@ public sealed partial class TrashControl : UserControl, IDisposable
         if (_disposed || Busy || Records.SelectedItem is not TrashRow row || _session is not { } session || !_controller.CanRestore(row.Item, Conflict)) return;
         _detailsPopup?.Dispose(); _detailsPopup = null;
         var epoch = _epoch; var generation = _controller.Generation;
-        var choice = new Fileway.App.Controls.ChoiceBox { Header = "遇到同名项目时", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var choice = new ChoiceBox { HorizontalAlignment = HorizontalAlignment.Stretch };
+        AutomationProperties.SetName(choice, "遇到同名项目时");
+        AutomationProperties.SetAutomationId(choice, "TrashRestorePolicy");
         foreach (var label in new[] { "不覆盖，报告冲突", "保留两份", "替换同名项目", "跳过同名项目" }) choice.Items.Add(label);
         choice.SelectedIndex = 0;
-        var panel = new StackPanel { Spacing = 16, MaxWidth = 440 };
-        panel.Children.Add(new TextBlock { Text = row.Name + "\n\n恢复到：" + row.Path, TextWrapping = TextWrapping.Wrap }); panel.Children.Add(choice);
+        var panel = new StackPanel { Spacing = 12, MaxWidth = 480 };
+        panel.Children.Add(TrashTarget(row));
+        panel.Children.Add(DialogOrdering.FieldRow("遇到同名项目时", choice, 128));
+        var policyHint = new TextBlock { Style = SurfaceGeometry.Style("FwCaptionTextStyle"), TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
+        panel.Children.Add(policyHint);
         var dialog = new ContentDialog { XamlRoot = XamlRoot, RequestedTheme = ActualTheme,
             Title = "恢复此项目？", Content = panel,
             PrimaryButtonText = "恢复", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary,
             PrimaryButtonStyle = Application.Current.Resources["FwPrimaryButtonStyle"] as Style,
             CloseButtonStyle = Application.Current.Resources["FwSecondaryButtonStyle"] as Style };
-        choice.SelectionChanged += (_, _) => { dialog.PrimaryButtonText = choice.SelectedIndex == 2 ? "覆盖并恢复" : "恢复"; dialog.IsPrimaryButtonEnabled = _controller.CanRestore(row.Item, (FileConflictPolicy)choice.SelectedIndex); };
+        choice.SelectionChanged += (_, _) =>
+        {
+            var selected = (FileConflictPolicy)choice.SelectedIndex;
+            dialog.PrimaryButtonText = selected == FileConflictPolicy.Replace ? "替换并恢复" : "恢复";
+            dialog.IsPrimaryButtonEnabled = _controller.CanRestore(row.Item, selected);
+            policyHint.Text = selected switch
+            {
+                FileConflictPolicy.KeepBoth => "原位置有同名项目时，为恢复项另取名称。",
+                FileConflictPolicy.Replace => "原位置的同名项目会移入回收站，再恢复此项目。",
+                FileConflictPolicy.Skip => "原位置有同名项目时，此记录留在回收站。",
+                _ => "",
+            };
+            policyHint.Visibility = policyHint.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        };
         _dialog = dialog; Render(synchronize: false);
         bool confirmed = false;
         try { confirmed = await dialog.ShowAsync() == ContentDialogResult.Primary; }
-        catch (Exception) { if (Current(epoch)) _message = "确认窗口未能打开，请关闭其他对话框后重试。"; }
+        catch (Exception) { if (Current(epoch)) SetFeedback("确认窗口未能打开", "请关闭其他对话框后重试。", InfoBarSeverity.Error); }
         finally { if (ReferenceEquals(_dialog, dialog)) _dialog = null; }
         var policy = (FileConflictPolicy)choice.SelectedIndex;
         if (!confirmed || !Current(epoch) || _controller.Generation != generation || _session?.Id != session.Id || _session.Account != session.Account ||
             !ReferenceEquals((Records.SelectedItem as TrashRow)?.Item, row.Item) || !_controller.CanRestore(row.Item, policy)) { if (Current(epoch)) Render(synchronize: false); return; }
         await RunAsync(async () =>
         {
+            var previous = policy == FileConflictPolicy.Replace
+                ? _controller.Items.Select(item => item.Reference).ToHashSet() : null;
             var result = await _controller.RestoreAsync(row.Item, policy);
             if (!Current(epoch) || result is null) return;
-            _message = result.Outcome == OperationOutcome.Confirmed ? result.Skipped == true ? "已确认跳过同名项目，未恢复。" : "服务器已确认恢复。" :
-                result.Outcome == OperationOutcome.OutcomeUnknown ? "恢复结果未知。请刷新后选择操作记录核实，不要重复恢复。" : "恢复未确认，请检查冲突或权限后重试。";
-            if (result.Receipt is { AckPersisted: false }) _message += " 本地确认记录未保存，请保留此结果并核实。";
+            if (result.Outcome == OperationOutcome.OutcomeUnknown)
+            {
+                SetFeedback("恢复结果尚未确认", "请刷新后核实操作记录，避免重复恢复。", InfoBarSeverity.Warning);
+                return;
+            }
+            if (result.Outcome != OperationOutcome.Confirmed)
+            {
+                if (result.Error?.Code == ErrorCode.Conflict)
+                    SetFeedback("恢复发生冲突", "原位置有同名项目时，可选择保留两份、替换或跳过。当前记录仍可刷新核对。", InfoBarSeverity.Warning);
+                else SetFeedback("恢复未能完成", result.Error?.Message ?? "请刷新后核对这条记录。", InfoBarSeverity.Error);
+                return;
+            }
+            var detail = result.Skipped == true ? "该记录仍在回收站。" : "";
+            if (previous is not null)
+            {
+                await _controller.RefreshAsync();
+                if (!Current(epoch)) return;
+                if (_controller.Items.Any(item => !previous.Contains(item.Reference) &&
+                    string.Equals(item.DisplayPath, row.Path, StringComparison.Ordinal)))
+                    detail = "原位置的同名项目已移入回收站。";
+            }
+            if (result.Receipt is { AckPersisted: false })
+                detail += "本地确认记录未保存，请保留此结果。";
+            var restoredPath = result.Skipped == false && result.RestoredDisplayPath != row.Path ? result.RestoredDisplayPath : null;
+            SetFeedback(result.Skipped == true ? "已跳过同名项目" : "恢复已完成", detail, InfoBarSeverity.Success, restoredPath);
         }, epoch);
+    }
+
+    private static StackPanel TrashTarget(TrashRow row)
+    {
+        var panel = new StackPanel { Spacing = 4 };
+        var path = new TextBlock
+        {
+            Text = row.Path, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true,
+            FontSize = 14, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        };
+        AutomationProperties.SetAutomationId(path, "TrashOriginalPath");
+        ToolTipService.SetToolTip(path, row.Path);
+        panel.Children.Add(path);
+        if (row.Item.DeletedAt is not null)
+            panel.Children.Add(new TextBlock { Text = $"删除于 {row.Deleted}", Style = SurfaceGeometry.Style("FwCaptionTextStyle") });
+        return panel;
     }
     private async void Reconcile_Click(object sender, RoutedEventArgs args)
     {
@@ -139,8 +233,13 @@ public sealed partial class TrashControl : UserControl, IDisposable
         await RunAsync(async () =>
         {
             var result = await _controller.ReconcileAsync(row.Record);
-            if (Current(epoch) && result is not null) _message = result.Resolution switch
-            { OperationResolution.Confirmed => "已核实原操作确认记录，可刷新回收站。", OperationResolution.NotSent => "已确认原操作未发送，可刷新后重新选择。", _ => "原操作结果仍待核实，未重新提交。" };
+            if (Current(epoch) && result is not null)
+                SetFeedback("核实结果", result.Resolution switch
+                {
+                    OperationResolution.Confirmed => "已核实原操作确认记录，可刷新回收站。",
+                    OperationResolution.NotSent => "已确认原操作未发送，可刷新后重新选择。",
+                    _ => "原操作结果仍待核实，未重新提交。",
+                }, InfoBarSeverity.Informational);
         }, epoch);
     }
     private void Records_RightTapped(object sender, RightTappedRoutedEventArgs args)
@@ -229,12 +328,15 @@ public sealed partial class TrashControl : UserControl, IDisposable
         string warning = row.Item.IsDirectory
             ? "将永久删除此文件夹及其全部内容，不经过回收站，且无法恢复。"
             : "将永久删除此文件，不经过回收站，且无法恢复。";
+        var panel = new StackPanel { Spacing = 12, MaxWidth = 480 };
+        panel.Children.Add(TrashTarget(row));
+        panel.Children.Add(new TextBlock { Text = warning, Style = SurfaceGeometry.Style("FwDangerTextStyle"), FontSize = 14 });
         var dialog = new ContentDialog { XamlRoot = XamlRoot, RequestedTheme = ActualTheme, Title = "永久删除此项目？",
-            Content = new TextBlock { Text = row.Name + "\n\n" + warning, TextWrapping = TextWrapping.Wrap }, PrimaryButtonText = "永久删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
+            Content = panel, PrimaryButtonText = "永久删除", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         Fileway.App.Controls.DialogOrdering.FocusCloseButton(dialog);
         _dialog = dialog; bool accepted = false;
         try { accepted = await dialog.ShowAsync() == ContentDialogResult.Primary; }
-        catch (Exception) { if (Current(epoch)) _message = "确认窗口未能打开。"; }
+        catch (Exception) { if (Current(epoch)) SetFeedback("确认窗口未能打开", "", InfoBarSeverity.Error); }
         finally { if (ReferenceEquals(_dialog,dialog)) _dialog = null; }
         if (!accepted || !Current(epoch) || _session?.Id != session.Id || _session.Account != session.Account || !_controller.CanDelete(row.Item)) { if(Current(epoch)) Render(false); return; }
         _deleting = true;
@@ -244,15 +346,29 @@ public sealed partial class TrashControl : UserControl, IDisposable
             {
                 var result = await _controller.DeleteAsync(row.Item);
                 if (!Current(epoch) || result is null) return;
-                _message = result.Outcome == OperationOutcome.Confirmed ? "已永久删除。" : result.Outcome == OperationOutcome.OutcomeUnknown ? "永久删除结果尚未确认，请刷新并核实，不要重复操作。" : result.Error?.Message ?? "永久删除未完成。";
+                if (result.Outcome == OperationOutcome.Confirmed)
+                    SetFeedback("已永久删除", result.Receipt is { AckPersisted: false } ? "本地确认记录未保存，请保留此结果。" : "", InfoBarSeverity.Success);
+                else if (result.Outcome == OperationOutcome.OutcomeUnknown)
+                    SetFeedback("永久删除结果尚未确认", "请刷新并核实记录，避免重复操作。", InfoBarSeverity.Warning);
+                else SetFeedback("永久删除未完成", result.Error?.Message ?? "请刷新并核对这条记录。", InfoBarSeverity.Error);
                 await _controller.RefreshAsync();
             }, epoch);
         }
         finally { _deleting = false; if (Current(epoch)) Render(); }
     }
-    private void Retire() { ++_epoch; _detailsPopup?.Dispose(); _detailsPopup = null; var dialog = _dialog; _dialog = null; try { dialog?.Hide(); } catch (Exception) { } }
+    private void Retire() { ++_epoch; StatusToast.IsOpen = false; _detailsPopup?.Dispose(); _detailsPopup = null; var dialog = _dialog; _dialog = null; try { dialog?.Hide(); } catch (Exception) { } }
     public void SuspendView() { if (_disposed) return; Retire(); _controller.SuspendView(); }
-    public void Dispose() { if (_disposed) return; Retire(); FloatingNotice.Detach(Notice); _disposed = true; _controller.Dispose(); _rows.Clear(); _unknown.Clear(); CloseRequested = null; }
+    public void Dispose() { if (_disposed) return; Retire(); FloatingNotice.Detach(Notice); FloatingNotice.Detach(StatusToast); _disposed = true; _controller.Dispose(); _rows.Clear(); _unknown.Clear(); CloseRequested = null; }
+    private void Delete_Click(object sender, RoutedEventArgs args)
+    {
+        if (Records.SelectedItem is TrashRow row) DeleteRow(row);
+    }
+    private void Records_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key != VirtualKey.Delete || args.Handled || !PermanentDeleteButton.IsEnabled) return;
+        args.Handled = true;
+        Delete_Click(this, new RoutedEventArgs());
+    }
     private async void Refresh_Click(object sender, RoutedEventArgs args) => await RefreshAsync();
     private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Selection_Changed(object sender, SelectionChangedEventArgs args) { if (_ready && !_rendering) Render(synchronize: false); }
@@ -279,6 +395,8 @@ public sealed class TrashRow(TrashItem item)
 public sealed class TrashOperationRow(OperationRecord record)
 {
     public OperationRecord Record { get; } = record;
-    public string Label => (Record.Intent.Kind == OperationKind.DeleteTrashPermanent ? "永久删除 · " : "恢复 · ") + (Record.Intent.Options?.DisplayPath?.TrimEnd('/' ).Split('/').LastOrDefault() ?? "结果待核实");
+    public string Label => (Record.Intent.Kind == OperationKind.DeleteTrashPermanent ? "永久删除 · " : "恢复 · ") +
+        (Record.Intent.Options?.DisplayPath ?? "原位置未知") + " · " +
+        Record.CreatedAt.ToLocalTime().ToString("yyyy/M/d HH:mm", System.Globalization.CultureInfo.CurrentCulture);
     public override string ToString() => "TrashOperationRow (details redacted)";
 }

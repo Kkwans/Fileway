@@ -28,9 +28,11 @@ internal sealed class TrashListController : IDisposable
     private bool _flightIsRestore;
     private string? _error;
     private string? _operationsError;
+    private string? _readError;
     private long _generation;
     private long _viewGeneration;
     private bool _hasVerifiedOperations;
+    private bool _hasLoadedItems;
     private bool _viewActive = true;
     private bool _disposed;
 
@@ -38,6 +40,8 @@ internal sealed class TrashListController : IDisposable
     internal IReadOnlyList<OperationRecord> UnresolvedOperations { get { lock (_gate) return _operations; } }
     internal string? Error { get { lock (_gate) return _error; } }
     internal string? OperationsError { get { lock (_gate) return _operationsError; } }
+    internal string? ReadError { get { lock (_gate) return _readError; } }
+    internal bool HasLoadedItems { get { lock (_gate) return _hasLoadedItems; } }
     internal bool IsLoading { get { lock (_gate) return _read is not null; } }
     internal bool IsRestoring { get { lock (_gate) return _flight is not null && _flightIsRestore; } }
     internal bool IsReconciling { get { lock (_gate) return _flight is not null && !_flightIsRestore; } }
@@ -74,7 +78,7 @@ internal sealed class TrashListController : IDisposable
             if (_disposed || _trash is null || _session is null || CurrentFlightCore()) return;
             _viewActive = true;
             previous = _read; request = new(cancellationToken); _read = request;
-            _hasVerifiedOperations = false; _error = _operationsError = null;
+            _hasVerifiedOperations = false; _error = _operationsError = _readError = null;
             context = CaptureContext();
         }
         previous?.Cancel();
@@ -92,6 +96,7 @@ internal sealed class TrashListController : IDisposable
             {
                 if (!IsCurrent(context, request, _read) || request.Token.IsCancellationRequested) return;
                 _items = Array.AsReadOnly(ValidateItems(rows, context.Account).Where(row => !_restoredItems.Contains(row.Reference)).ToArray());
+                _hasLoadedItems = true;
             }
             _ = await VerifyOperationsAsync(context, request, forRestore: false).ConfigureAwait(false);
         }
@@ -100,7 +105,7 @@ internal sealed class TrashListController : IDisposable
         {
             lock (_gate)
                 if (IsCurrent(context, request, _read) && !request.Token.IsCancellationRequested)
-                    _error = SafeError((error as FilewayException)?.Error, "暂时无法读取回收站，请重试。");
+                    _error = _readError = SafeError((error as FilewayException)?.Error, "暂时无法读取回收站，请重试。");
         }
         finally
         {
@@ -449,7 +454,8 @@ internal sealed class TrashListController : IDisposable
     private void ClearRowsCore()
     {
         _items = Array.Empty<TrashItem>(); _operations = Array.Empty<OperationRecord>();
-        _hasVerifiedOperations = false; _error = _operationsError = null;
+        _hasVerifiedOperations = _hasLoadedItems = false;
+        _error = _operationsError = _readError = null;
     }
     private void RememberRestoreCore(TrashItemRef item, TrashRestoreResult result)
     {
