@@ -2,6 +2,7 @@ using Fileway.Core.Contracts;
 using Microsoft.Windows.Storage.Pickers;
 using static Fileway.App.UploadPresentationPolicy;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 
@@ -578,7 +579,7 @@ public sealed partial class MainPage
         {
             _uploadNoticeTask = _latestUpload?.Snapshot.Task;
             _uploadNoticeOpensHistory = false;
-            UploadDetailsButton.Content = "上传详情";
+            SetUploadNoticeActionLabel("上传详情");
             UploadDetailsButton.Visibility = _uploadNoticeTask is null ? Visibility.Collapsed : Visibility.Visible;
             UploadDetailsButton.IsEnabled = _uploadNoticeTask is not null && !_uploadCommandBusy;
             UploadNotice.Title = _uploadErrorTitle;
@@ -602,7 +603,7 @@ public sealed partial class MainPage
 
         _uploadNoticeTask = item.Snapshot.Task;
         _uploadNoticeOpensHistory = false;
-        UploadDetailsButton.Content = "上传详情";
+        SetUploadNoticeActionLabel("上传详情");
         UploadDetailsButton.Visibility = Visibility.Visible;
         UploadDetailsButton.IsEnabled = !_uploadCommandBusy;
         UploadNotice.Title = UploadItemStatusLabel(item);
@@ -623,13 +624,19 @@ public sealed partial class MainPage
 
         _uploadNoticeTask = item.Snapshot.Task;
         _uploadNoticeOpensHistory = true;
-        UploadDetailsButton.Content = "上传记录";
+        SetUploadNoticeActionLabel("上传记录");
         UploadDetailsButton.Visibility = Visibility.Visible;
         UploadDetailsButton.IsEnabled = !_uploadCommandBusy;
         UploadNotice.Title = complete ? "文件夹上传已完成" : "文件夹上传有待处理项";
         UploadNotice.Message = string.Empty;
         UploadNotice.Severity = complete ? InfoBarSeverity.Success : InfoBarSeverity.Warning;
         ShowToast(UploadNotice, batch.Id.ToString() + UploadNotice.Title);
+    }
+
+    private void SetUploadNoticeActionLabel(string label)
+    {
+        UploadNoticeActionText.Text = label;
+        AutomationProperties.SetName(UploadDetailsButton, label);
     }
 
     private async void UploadDetails_Click(object sender, RoutedEventArgs args)

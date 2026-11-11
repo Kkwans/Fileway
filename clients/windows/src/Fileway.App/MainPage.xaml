@@ -396,7 +396,22 @@
     <InfoBar.Content><Button x:Name="NoticeErrorDetailsButton" Content="错误详情" Visibility="Collapsed" Click="NoticeErrorDetails_Click" Style="{StaticResource FwTextIconButtonStyle}"/></InfoBar.Content>
    </InfoBar>
    <InfoBar x:Name="ReceiptWarning" Grid.Row="2" IsOpen="False" IsClosable="True" Severity="Warning" Title="本机操作记录提示" Visibility="Collapsed"/>
-   <InfoBar x:Name="UploadNotice" Grid.Row="3" IsOpen="False" IsClosable="True" Title="文件上传" Visibility="Collapsed"><InfoBar.ActionButton><Button x:Name="UploadDetailsButton" Content="上传详情" Click="UploadDetails_Click" Style="{StaticResource FwSecondaryButtonStyle}" Height="32" MinHeight="32" Padding="12,0"/></InfoBar.ActionButton></InfoBar>
+   <InfoBar x:Name="UploadNotice" Grid.Row="3" IsOpen="False" IsClosable="True" Title="文件上传" Visibility="Collapsed">
+    <InfoBar.ActionButton>
+     <Button x:Name="UploadDetailsButton" Click="UploadDetails_Click" Style="{StaticResource FwSecondaryButtonStyle}"
+             AutomationProperties.AutomationId="UploadNoticeAction" AutomationProperties.Name="上传详情"
+             Background="{ThemeResource FwSoftChoiceFillBrush}" Foreground="{ThemeResource FwSoftChoiceTextBrush}"
+             BorderBrush="{ThemeResource FwStrokeStrongBrush}" Height="32" MinHeight="32" Padding="12,0">
+      <StackPanel Orientation="Horizontal" Spacing="6">
+       <TextBlock x:Name="UploadNoticeActionText" Text="上传详情" FontWeight="SemiBold" VerticalAlignment="Center"/>
+       <ui:LucideIcon IconName="arrow-left" Width="14" Height="14" VerticalAlignment="Center"
+                      AutomationProperties.AccessibilityView="Raw" RenderTransformOrigin="0.5,0.5">
+        <ui:LucideIcon.RenderTransform><RotateTransform Angle="180"/></ui:LucideIcon.RenderTransform>
+       </ui:LucideIcon>
+      </StackPanel>
+     </Button>
+    </InfoBar.ActionButton>
+   </InfoBar>
    <InfoBar x:Name="DownloadNotice" Grid.Row="4" IsOpen="False" IsClosable="True" Title="文件下载" Visibility="Collapsed"><InfoBar.ActionButton><Button x:Name="DownloadDetailsButton" Content="查看下载" Click="DownloadDetails_Click" Style="{StaticResource FwSecondaryButtonStyle}" Height="32" MinHeight="32" Padding="12,0"/></InfoBar.ActionButton></InfoBar>
    </Grid>
    </Border>
