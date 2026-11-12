@@ -57,8 +57,6 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private readonly NonClientInputGate _inputGate;
     private readonly PlayerOverlayWindow _overlay;
     private OverlappedPresenter? _windowedPresenter;
-    private RectInt32 _windowedBounds;
-    private bool _wasMaximized;
     private bool _hasFrame;
     private long? _bufferingSince;
     private readonly Microsoft.UI.Dispatching.DispatcherQueueTimer _bufferingTimer;

@@ -15,8 +15,6 @@ namespace Fileway.App.Windowing;
 internal sealed class FramelessWindowChrome : IDisposable
 {
     private const nuint SubclassId = 0x465743;
-    private const uint ShowNormal = 1;
-    private const uint ShowMaximized = 3;
     internal static readonly uint ExitMessage = RegisterWindowMessageW("Fileway.Preview.RequestExit.v1");
     private readonly Window _window;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _shutdownDispatcher;
@@ -36,7 +34,7 @@ internal sealed class FramelessWindowChrome : IDisposable
     private bool _disposed;
     private bool _preparedForClose;
     private bool _fullscreenFrame;
-    private (OverlappedPresenter Presenter, WindowPlacement Placement)? _windowedState;
+    private (OverlappedPresenter Presenter, WindowedPlacement Placement)? _windowedState;
 
     internal FramelessWindowChrome(Window window, WindowTitleBar titleBar, bool recordShutdownStages = false)
     {
@@ -91,9 +89,7 @@ internal sealed class FramelessWindowChrome : IDisposable
         if (_disposed || _preparedForClose) return;
         if (_appWindow.Presenter is OverlappedPresenter presenter)
         {
-            var placement = new WindowPlacement { Length = (uint)Marshal.SizeOf<WindowPlacement>() };
-            if (!GetWindowPlacement(_handle, ref placement)) throw NativeFailure("GetWindowPlacement");
-            _windowedState = (presenter, placement);
+            _windowedState = (presenter, WindowedPlacement.Capture(_handle));
             _fullscreenFrame = true;
             try
             {
@@ -130,12 +126,7 @@ internal sealed class FramelessWindowChrome : IDisposable
                     ApplyFrame();
                 }
             }
-            // Restore the normal rectangle first so maximizing recalculates the current work area.
-            var placement = state.Placement;
-            var wasMaximized = placement.ShowCommand == ShowMaximized;
-            placement.ShowCommand = ShowNormal;
-            if (!SetWindowPlacement(_handle, ref placement)) throw NativeFailure("SetWindowPlacement");
-            if (wasMaximized) state.Presenter.Maximize();
+            state.Placement.Restore(_handle, state.Presenter);
             RefreshWindowState();
             _windowedState = null;
         }
@@ -517,12 +508,6 @@ internal sealed class FramelessWindowChrome : IDisposable
     private delegate nint SubclassProc(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference);
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { internal int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { internal int Left, Top, Right, Bottom; }
-    [StructLayout(LayoutKind.Sequential)] private struct WindowPlacement
-    {
-        internal uint Length, Flags, ShowCommand;
-        internal NativePoint MinimumPosition, MaximumPosition;
-        internal NativeRect NormalPosition;
-    }
     [StructLayout(LayoutKind.Sequential)] private struct Margins { internal int Left, Right, Top, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct MinMaxInfo { internal NativePoint Reserved, MaximumSize, MaximumPosition, MinimumTrackSize, MaximumTrackSize; }
     [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { internal int Size; internal NativeRect Monitor, Work; internal uint Flags; }
@@ -540,10 +525,6 @@ internal sealed class FramelessWindowChrome : IDisposable
     private static extern nint SetWindowLongPtrW(nint window, int index, nint value);
     [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
-    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool GetWindowPlacement(nint window, ref WindowPlacement placement);
-    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool SetWindowPlacement(nint window, ref WindowPlacement placement);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(nint window, out NativeRect rectangle);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
