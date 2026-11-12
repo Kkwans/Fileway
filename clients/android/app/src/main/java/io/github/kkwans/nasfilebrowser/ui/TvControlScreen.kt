@@ -435,7 +435,8 @@ private fun TvPhonePortraitMedia(
                         FilewayIcon(if (name == null) Art.drawable.fileway_ic_play_arrow else Art.drawable.fileway_ic_playlist_play,
                             null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
                     }
-                    Text(name ?: "TV 暂无播放", Modifier.weight(1f), style = statusStyle,
+                    Text(name ?: if (showRecent && !showRecentText) "暂无播放" else "TV 暂无播放",
+                        Modifier.weight(1f), style = statusStyle,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (showRecent) {
                         if (showRecentText) {
@@ -530,7 +531,7 @@ private fun TvPhonePages(
     page: @Composable (Int, Boolean) -> Unit,
 ) {
     Column(modifier.fillMaxWidth()) {
-        if (!landscape) FilewayPagerTabs(pager, sections, enabled = connected)
+        if (!landscape) FilewayPagerTabs(pager, sections, enabled = connected, singleLine = true)
         Row(Modifier.fillMaxSize()) {
             if (landscape) {
                 val scope = rememberCoroutineScope()
@@ -709,20 +710,39 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
 
 @Composable private fun TvPhoneNavigationShortcuts(model: TvControlModel, onSearch: () -> Unit) {
     val view = LocalView.current
+    val style = MaterialTheme.typography.labelLarge
+    val measurer = rememberTextMeasurer()
     Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-            FilewayTextButton(onClick = {
-                view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                model.command("app.navigate", JSONObject().put("route", "FILES"))
-            }) { Text("TV 文件") }
-            FilewayTextButton(onClick = {
-                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                onSearch()
-            }) { Text("TV 搜索") }
-            FilewayTextButton(onClick = {
-                view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                model.command("app.navigate", JSONObject().put("route", "SETTINGS"))
-            }) { Text("TV 设置") }
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+            val labelWidth = with(LocalDensity.current) {
+                measurer.measure("TV 设置", style = style).size.width.toDp() + 16.dp
+            }
+            val showLabels = maxWidth / 3 >= labelWidth
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                @Composable fun shortcut(label: String, icon: Int, onClick: () -> Unit) {
+                    if (showLabels) {
+                        FilewayTextButton(onClick, Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp)) {
+                            Text(label, maxLines = 1, softWrap = false)
+                        }
+                    } else {
+                        FilewayIconButton(onClick, Modifier.size(48.dp)) {
+                            FilewayIcon(icon, label, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+                shortcut("TV 文件", Art.drawable.fileway_ic_folder) {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    model.command("app.navigate", JSONObject().put("route", "FILES"))
+                }
+                shortcut("TV 搜索", Art.drawable.fileway_ic_search) {
+                    view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                    onSearch()
+                }
+                shortcut("TV 设置", Art.drawable.fileway_ic_settings) {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                    model.command("app.navigate", JSONObject().put("route", "SETTINGS"))
+                }
+            }
         }
     }
 }

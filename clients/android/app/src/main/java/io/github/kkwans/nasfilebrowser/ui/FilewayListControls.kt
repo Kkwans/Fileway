@@ -64,7 +64,7 @@ import kotlinx.coroutines.delay
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun FilewayPagerTabs(pager: PagerState, labels: List<String>, enabled: Boolean = true) {
+@Composable internal fun FilewayPagerTabs(pager: PagerState, labels: List<String>, enabled: Boolean = true, singleLine: Boolean = false) {
     val scope = rememberCoroutineScope()
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cell = maxWidth / labels.size
@@ -74,9 +74,22 @@ import kotlinx.coroutines.delay
                     .width(cell * .5f).height(3.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
             } }) {
             labels.forEachIndexed { index, label ->
-                Tab(pager.currentPage == index, { scope.launch { pager.animateScrollToPage(index) } },
-                    enabled = enabled, text = { Text(label) }, selectedContentColor = MaterialTheme.colorScheme.primary,
-                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                val selected = pager.currentPage == index
+                val onClick: () -> Unit = { scope.launch { pager.animateScrollToPage(index) } }
+                val selectedColor = MaterialTheme.colorScheme.primary
+                val unselectedColor = MaterialTheme.colorScheme.onSurfaceVariant
+                if (singleLine) {
+                    Tab(selected, onClick, enabled = enabled, selectedContentColor = selectedColor,
+                        unselectedContentColor = unselectedColor) {
+                        Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 4.dp),
+                            contentAlignment = Alignment.Center) {
+                            Text(label, style = MaterialTheme.typography.titleSmall, maxLines = 1, softWrap = false)
+                        }
+                    }
+                } else {
+                    Tab(selected, onClick, enabled = enabled, text = { Text(label) }, selectedContentColor = selectedColor,
+                        unselectedContentColor = unselectedColor)
+                }
             }
         }
     }
