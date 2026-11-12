@@ -91,7 +91,10 @@ public sealed partial class MainPage
                 ConnectionAction.OpenWorkspace => "重试打开文件空间",
                 _ => "连接并浏览",
             };
-        ConnectButton.IsEnabled = !_connecting && !_tailnetBusy && _connection is not null && ConnectionNetworkReady;
+        bool networkReady = ConnectionNetworkReady;
+        ConnectButton.IsEnabled = !_connecting && !_tailnetBusy && _connection is not null && networkReady;
+        var style = Controls.SurfaceGeometry.Style(networkReady ? "FwPrimaryButtonStyle" : "FwSecondaryButtonStyle");
+        if (!ReferenceEquals(ConnectButton.Style, style)) ConnectButton.Style = style;
         UpdateConnectionSecondaryActions();
     }
 
@@ -179,7 +182,8 @@ public sealed partial class MainPage
         {
             FocusConnectionField(TailnetAuthorizeButton is { IsEnabled: true, Visibility: Visibility.Visible }
                 ? TailnetAuthorizeButton : TailnetStartButton is { IsEnabled: true, Visibility: Visibility.Visible }
-                    ? TailnetStartButton : ConnectionNetworkBox);
+                    ? TailnetStartButton : TailnetReadButton is { IsEnabled: true, Visibility: Visibility.Visible }
+                        ? TailnetReadButton : ConnectionNetworkBox);
             return;
         }
         var action = PrimaryConnectionAction();
