@@ -9,6 +9,9 @@ import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private const val MaxQrImageEdge = 2560
+private const val MaxQrImagePixels = 4L * 1024 * 1024
+
 /** The system picker grants only this image; no photo-library permission or
  * persistent copy is needed. Bound both compressed input and decoded pixels. */
 internal suspend fun tvQrFromImage(context:Context,uri:Uri):String=withContext(Dispatchers.Default){
@@ -20,7 +23,15 @@ internal suspend fun tvQrFromImage(context:Context,uri:Uri):String=withContext(D
     val bounds=BitmapFactory.Options().apply{inJustDecodeBounds=true}
     BitmapFactory.decodeByteArray(bytes,0,bytes.size,bounds)
     require(bounds.outWidth>0&&bounds.outHeight>0){"图片无法解码"}
-    var sample=1;while(bounds.outWidth/sample>1600||bounds.outHeight/sample>1600)sample*=2
+    // A QR code may occupy only part of a TV screenshot. Keep ordinary 1080p
+    // and 1440p screenshots at native resolution while bounding larger images.
+    var sample = 1
+    while (true) {
+        val width = (bounds.outWidth.toLong() + sample - 1) / sample
+        val height = (bounds.outHeight.toLong() + sample - 1) / sample
+        if (width <= MaxQrImageEdge && height <= MaxQrImageEdge && width * height <= MaxQrImagePixels) break
+        sample *= 2
+    }
     val bitmap=BitmapFactory.decodeByteArray(bytes,0,bytes.size,BitmapFactory.Options().apply{inSampleSize=sample})?:error("图片无法解码")
     try{
         val pixels=IntArray(bitmap.width*bitmap.height);bitmap.getPixels(pixels,0,bitmap.width,0,0,bitmap.width,bitmap.height)
