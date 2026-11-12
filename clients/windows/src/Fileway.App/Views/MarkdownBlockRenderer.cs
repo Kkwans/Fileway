@@ -204,8 +204,17 @@ internal static partial class MarkdownBlockRenderer
                 if (position < text.Length) target.Add(new Run { Text = text[position..] });
                 break;
             }
-            if (next > position) target.Add(new Run { Text = text[position..next] });
             char marker = text[next];
+            if (marker == '\n')
+            {
+                var paragraphBoundary = (next > 0 && text[next - 1] == '\n') ||
+                    (next + 1 < text.Length && text[next + 1] == '\n');
+                AppendProseBreak(target, text[position..next], paragraphBoundary);
+                position = next + 1;
+                while (position < text.Length && text[position] is ' ' or '\t') position++;
+                continue;
+            }
+            if (next > position) target.Add(new Run { Text = text[position..next] });
             int? consumed = null;
             if (marker == '`')
             {
@@ -216,7 +225,7 @@ internal static partial class MarkdownBlockRenderer
                     {
                         FontFamily = new FontFamily("Cascadia Code, Consolas, Courier New"),
                         FontSize = 13.5,
-                        Inlines = { new Run { Text = text[(next + 1)..end] } },
+                        Inlines = { new Run { Text = text[(next + 1)..end].Replace('\n', ' ') } },
                     });
                     consumed = end + 1;
                 }
@@ -264,12 +273,24 @@ internal static partial class MarkdownBlockRenderer
         }
     }
 
+    private static void AppendProseBreak(InlineCollection target, string lineEnd, bool paragraphBoundary)
+    {
+        var trailingBackslashes = 0;
+        while (trailingBackslashes < lineEnd.Length && lineEnd[^(trailingBackslashes + 1)] == '\\') trailingBackslashes++;
+        var escapedBreak = trailingBackslashes % 2 == 1;
+        var hardBreak = paragraphBoundary || escapedBreak || lineEnd.EndsWith("  ", StringComparison.Ordinal);
+        var text = escapedBreak ? lineEnd[..^1] : lineEnd.TrimEnd(' ', '\t');
+        if (text.Length > 0) target.Add(new Run { Text = text });
+        if (hardBreak) target.Add(new LineBreak());
+        else target.Add(new Run { Text = " " });
+    }
+
     private static int NextMarker(string text, int start)
     {
         for (int index = start; index < text.Length; index++)
         {
             char value = text[index];
-            if (value is '`' or '[' or '*' or '_' or '~')
+            if (value is '`' or '[' or '*' or '_' or '~' or '\n')
             {
                 // Underscore inside words is overwhelmingly identifier syntax, not emphasis.
                 if (value == '_' && index > start && (char.IsAsciiLetterOrDigit(text[index - 1]) || text[index - 1] == '_')) continue;
