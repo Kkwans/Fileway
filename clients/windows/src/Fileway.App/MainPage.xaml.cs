@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Windows.System;
+using Windows.UI.ViewManagement;
 
 namespace Fileway.App;
 
@@ -51,6 +52,7 @@ public sealed partial class MainPage : Page, IDisposable
     private readonly Stack<RemoteResourceRef[]> _history = [];
     private readonly List<RemoteFile> _items = [];
     private readonly BrowserRows _rows = new();
+    private readonly UISettings _browserTextSettings = new();
     private RemoteFile[]? _sortedItems;
     private (FileSortField Field, bool Descending) _sortedOrder;
     private readonly HashSet<ImageWindow> _imageWindows = [];
@@ -121,6 +123,7 @@ public sealed partial class MainPage : Page, IDisposable
         FileList.ItemsSource = FileGrid.ItemsSource = _rows;
         FileGrid.Loaded += (_, _) => QueueGridMetricsUpdate();
         FileGrid.SizeChanged += (_, _) => UpdateGridMetrics();
+        _browserTextSettings.TextScaleFactorChanged += BrowserTextScaleChanged;
         InitializeBrowserShell();
         InitializeTransferCenter();
         InitializeRecentAccess();
@@ -252,6 +255,7 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed) return;
         FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated;
+        _browserTextSettings.TextScaleFactorChanged -= BrowserTextScaleChanged;
         _remoteClipboard.Clear();
         DisposePresentation();
         DisposeApplicationMenus();
@@ -1145,6 +1149,11 @@ public sealed partial class MainPage : Page, IDisposable
         FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated;
         UpdateGridMetrics();
     }
+    private void BrowserTextScaleChanged(UISettings sender, object args) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (!_disposed) QueueGridMetricsUpdate();
+    });
+
     private void UpdateGridMetrics()
     {
         if (FileGrid.ItemsPanelRoot is not ItemsWrapGrid panel) return;
@@ -1159,18 +1168,28 @@ public sealed partial class MainPage : Page, IDisposable
         // content overflows; excluding it keeps the last column from wrapping.
         const double scrollbarAllowance = 10;
         var available = Math.Max(1, FilesArea.ActualWidth - scrollbarAllowance);
+        var textScale = Math.Max(1, _browserTextSettings.TextScaleFactor);
         if (mode == BrowserViewMode.CompactList)
         {
-            var columns = available >= 650 ? 2 : 1;
+            var columns = available >= 650 + (textScale - 1) * 160 ? 2 : 1;
             panel.ItemWidth = Math.Max(1, available / columns);
         }
         else
         {
             var preferred = mode == BrowserViewMode.Mosaic ? 180 : mode == BrowserViewMode.WindowsIcons ? size switch { BrowserIconSize.Small => 112, BrowserIconSize.Large => 224, BrowserIconSize.ExtraLarge => 288, _ => 160 } : size switch { BrowserIconSize.Small => 100, BrowserIconSize.Large => 168, BrowserIconSize.ExtraLarge => 228, _ => 124 };
-            var columns = Math.Max(1, (int)(available / preferred));
+            var textWidth = mode == BrowserViewMode.Mosaic ? 128 : 80;
+            var targetWidth = Math.Max(preferred, 20 + textWidth * textScale);
+            var columns = Math.Max(1, (int)(available / targetWidth));
             panel.ItemWidth = Math.Max(1, available / columns);
         }
-        panel.ItemHeight = mode == BrowserViewMode.CompactList ? 64 : mode == BrowserViewMode.Mosaic ? 216 : visual + 96;
+        // Grow the text region with accessibility scaling while keeping the chosen icon size.
+        var (height, textHeight) = mode switch
+        {
+            BrowserViewMode.CompactList => (64d, 36d),
+            BrowserViewMode.Mosaic => (216d, 56d),
+            _ => (visual + 96, 40d),
+        };
+        panel.ItemHeight = height + Math.Ceiling((textScale - 1) * textHeight);
     }
     private void RebuildPresentation() => ApplyFilter(rebuild: true);
 
