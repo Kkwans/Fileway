@@ -427,8 +427,19 @@ public sealed partial class FilewayClientServices : IConnectionService, IConnect
 
     public async Task<IImageContent> OpenAsync(RemoteResourceRef resource, CancellationToken cancellationToken)
     {
-        var lease = (ResourceLease)await AcquireCachedAsync(resource, cancellationToken).ConfigureAwait(false);
-        return await ReadImageContentAsync(resource, lease, MaximumImageBytes, thumbnail: false, cancellationToken).ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(resource);
+        ValidateWirePath(resource.WirePath);
+        var state = GetResourceState(resource);
+        try
+        {
+            var lease = (ResourceLease)await AcquireCachedAsync(resource, cancellationToken).ConfigureAwait(false);
+            return await ReadImageContentAsync(resource, lease, MaximumImageBytes, thumbnail: false, cancellationToken).ConfigureAwait(false);
+        }
+        catch (FilewayException error) when (error.Error.HttpStatus == (int)System.Net.HttpStatusCode.NotFound &&
+            !state.LifetimeToken.IsCancellationRequested)
+        {
+            throw Safe(ErrorCode.SourceChanged, "找不到原图。可返回文件列表刷新，或在文件恢复后重试。", error.Error.HttpStatus);
+        }
     }
 
     private async Task<IImageContent> ReadImageContentAsync(RemoteResourceRef resource, ResourceLease lease,
