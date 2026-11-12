@@ -59,7 +59,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import org.json.JSONObject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun TvControlScreen(phone:ClientModel,onClose:()->Unit,controlModel:TvControlModel?=null){
@@ -101,7 +103,7 @@ import kotlinx.coroutines.launch
         if(connection.phase in setOf(RemotePhase.CONNECTED,RemotePhase.OFFLINE))connectionNotice=null
         else connection.error?.let{connectionNotice=it}
     }
-    FilewayToast(connectionNotice)
+    FilewayToast(connectionNotice?.takeIf { connection.device == null || scanning })
     FilewayToast(notice?.takeUnless{it==connection.error||it==connectionNotice})
     val tvNotice=connection.snapshot?.content?.optString("notice")?.takeIf{it!="null"&&it.isNotBlank()}
     FilewayToast(tvNotice)
@@ -147,6 +149,7 @@ import kotlinx.coroutines.launch
                                 TvPhonePortraitRemote(phone, model, connection, snapshot, busy, portraitPad,
                                     onSearch = { target = "search"; inputOpen = true },
                                     onKeyboard = { inputOpen = true },
+                                    onBrowse = { section = "文件"; selectedTab = true },
                                     onPlayback = { section = "播放"; selectedTab = true })
                                 return@TvPhonePages
                             }
@@ -304,22 +307,14 @@ private fun TvPhonePortraitRemote(
     diameter: Dp,
     onSearch: () -> Unit,
     onKeyboard: () -> Unit,
+    onBrowse: () -> Unit,
     onPlayback: () -> Unit,
 ) {
-    val playback = snapshot?.content?.optJSONObject("playback")
-    val mediaName = snapshot?.content?.optJSONObject("media")?.optString("name")
-        ?.takeIf { it.isNotBlank() && it != "null" }
-    val playing = playback?.opt("playing") as? Boolean
     val detailsKey = snapshot?.scene == "BROWSE" && snapshot.capabilities.optInt("fileDetailsKey") > 0
-    val quickMedia = snapshot?.takeIf { it.scene == "VIDEO" || it.scene == "AUDIO" }
-        ?.let { current -> mediaName?.let { name -> playing?.let { active -> Triple(current, name, active) } } }
-    var recentQuickMedia by remember(connection.device?.id) {
-        mutableStateOf<Triple<RemoteSnapshot, String, Boolean>?>(null)
-    }
+    var recentSnapshot by remember(connection.device?.id) { mutableStateOf<RemoteSnapshot?>(null) }
     SideEffect {
-        if (snapshot != null) recentQuickMedia = quickMedia
+        if (snapshot != null) recentSnapshot = snapshot
     }
-    val shownMedia = if (snapshot != null) quickMedia else recentQuickMedia
     val summary: @Composable () -> Unit = {
         when {
             snapshot == null -> TvPhoneInlineConnection(connection, model)
@@ -330,8 +325,9 @@ private fun TvPhonePortraitRemote(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val deckWidth = minOf(maxWidth - 32.dp, 416.dp).coerceAtLeast(0.dp)
         val padSize = minOf(diameter, 268.dp, (deckWidth - 32.dp).coerceAtLeast(0.dp))
-        val statusSpace = (145 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
-        val compact = maxHeight < padSize + statusSpace + 186.dp
+        val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+        val roomForPad = maxHeight - (344 + 96 * (fontScale - 1)).dp
+        val compact = roomForPad < 168.dp
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
@@ -342,6 +338,8 @@ private fun TvPhonePortraitRemote(
                     .then(if (compact) Modifier else Modifier.fillParentMaxHeight())) {
                     if (!compact) {
                         summary()
+                        Spacer(Modifier.height(12.dp))
+                        TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onBrowse, onPlayback)
                         Spacer(Modifier.weight(1f))
                     }
                     Surface(
@@ -351,25 +349,102 @@ private fun TvPhonePortraitRemote(
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
                             TvPhoneDpad(model, compact = compact,
-                                diameter = if (compact) padSize.coerceAtMost(224.dp) else padSize,
+                                diameter = if (compact) padSize.coerceAtMost(224.dp) else padSize.coerceAtMost(roomForPad),
                                 detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
                             HorizontalDivider(Modifier.padding(top = 8.dp, bottom = 4.dp),
                                 color = MaterialTheme.colorScheme.outlineVariant)
                             TvPhoneActionRow(model, enabled = snapshot != null, onKeyboard = onKeyboard)
-                            shownMedia?.let { (mediaSnapshot, name, isPlaying) ->
-                                HorizontalDivider(Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
-                                TvPhoneQuickPlayback(model, mediaSnapshot, name, isPlaying, onPlayback,
-                                    compact = true, showProgress = true, enabled = snapshot != null)
-                            }
                         }
                     }
                     if (compact) {
                         Spacer(Modifier.height(16.dp))
                         summary()
+                        Spacer(Modifier.height(12.dp))
+                        TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onBrowse, onPlayback)
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun TvPhonePortraitMedia(
+    model: TvControlModel,
+    snapshot: RemoteSnapshot?,
+    connected: Boolean,
+    onBrowse: () -> Unit,
+    onPlayback: () -> Unit,
+) {
+    val player = snapshot?.content?.optJSONObject("playback")
+    val name = snapshot?.content?.optJSONObject("media")?.optString("name")
+        ?.takeIf { it.isNotBlank() && it != "null" }
+    val isPlaying = player?.opt("playing") as? Boolean
+    Surface(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            if (snapshot != null && snapshot.scene in setOf("VIDEO", "AUDIO") && name != null && isPlaying != null) {
+                TvPhoneQuickPlayback(model, snapshot, name, isPlaying, onPlayback,
+                    modifier = Modifier.heightIn(min = 64.dp), compact = true, showProgress = true, enabled = connected)
+            } else {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 64.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    FilewayIcon(if (name == null) Art.drawable.fileway_ic_play_arrow else Art.drawable.fileway_ic_playlist_play,
+                        null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(name ?: "TV 暂无播放", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    FilewayTextButton(onClick = if (name == null) onBrowse else onPlayback,
+                        enabled = connected && snapshot?.scene != "LOGIN") {
+                        Text(if (name == null) "浏览文件" else "查看")
+                    }
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            val volume = player?.optInt("volume", -1)?.takeIf { it in 0..100 }
+            if (snapshot != null && volume != null) {
+                TvPhoneVolume(model, snapshot, volume, connected)
+            } else {
+                Box(Modifier.fillMaxWidth().heightIn(min = 72.dp), contentAlignment = Alignment.CenterStart) {
+                    Text(if (connected) "此 TV 暂未提供应用音量" else "连接 TV 后可调节应用音量",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volume: Int, enabled: Boolean) {
+    var draft by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, enabled) { mutableStateOf<Float?>(null) }
+    var pending by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, enabled) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(volume, pending) { if (volume == pending) pending = null }
+    LaunchedEffect(pending) {
+        if (pending != null) { delay(3500); pending = null }
+    }
+    val shown = draft ?: (pending ?: volume).toFloat()
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            FilewayIcon(Art.drawable.fileway_ic_volume_up, null, Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("TV 应用音量", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+            Text("${shown.roundToInt()}%", style = MaterialTheme.typography.labelLarge)
+        }
+        Slider(shown, onValueChange = { draft = it }, modifier = Modifier.semantics { contentDescription = "TV 应用音量" },
+            enabled = enabled, valueRange = 0f..100f, onValueChangeFinished = {
+                draft?.roundToInt()?.let { value ->
+                    pending = value
+                    model.commandFor(snapshot, "playback.setVolume", JSONObject().put("volume", value))
+                }
+                draft = null
+            })
     }
 }
 
@@ -568,8 +643,11 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(name,style=MaterialTheme.typography.bodyMedium,maxLines=if(compact)1 else 2,overflow=TextOverflow.Ellipsis)
                     if (showProgress && playback != null && duration > 0) {
-                        val progress = (playback.optLong("positionMs").toDouble() / duration).coerceIn(0.0, 1.0).toFloat()
+                        val position = playback.optLong("positionMs").coerceIn(0L, duration)
+                        val progress = (position.toDouble() / duration).toFloat()
                         LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth().height(3.dp))
+                        Text("${tvRemoteTime(position)} / ${tvRemoteTime(duration)}",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
