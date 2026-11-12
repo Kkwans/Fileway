@@ -50,6 +50,7 @@ public sealed partial class MainPage
             await service.RemoveAsync(item.Context, task, local.IsChecked == true, _lifetime.Token);
             if (!IsCurrentDownloadContext(item.Context)) return;
             _removedDownloadTasks.Add(task); _downloadItems.Remove(task); _transferDownloads.Remove(task);
+            if (_pendingExternalDownloadOpens.Remove(task, out var pending)) pending.TrySetCanceled();
             if (_transferDownloadRowIndex.Remove(task, out var row)) _transferDownloadRows.Remove(row);
             _pendingDownloadNotices.Remove(task);
             RenderTransferCenter(synchronizeRows: false); UpdateDownloadContext();

@@ -170,6 +170,8 @@ public sealed partial class MainPage
         ++_downloadViewGeneration;
         _downloadDialog?.Hide(); _downloadDialog = null; _downloadDetails = null; _downloadDetailTask = null;
         _downloadContext = null; _downloadItems.Clear(); _downloadPreparing = false;
+        foreach (var pending in _pendingExternalDownloadOpens.Values) pending.TrySetCanceled();
+        _pendingExternalDownloadOpens.Clear();
         _pendingDownloadError = null; _downloadDetailError = null; _downloadAutoResumeApplied = null;
         _downloadNoticeResults.Clear();
         _pendingDownloadNotices.Clear();
@@ -475,6 +477,17 @@ public sealed partial class MainPage
         var task = item.Snapshot.Task;
         var status = DownloadPolicy.EffectiveStatus(item);
         var isOutcome = IsDownloadNoticeOutcome(status);
+        if (isOutcome && _pendingExternalDownloadOpens.TryGetValue(task, out var pending))
+        {
+            pending.TrySetResult(item);
+            if (status == DownloadStatus.Completed)
+            {
+                // The external handoff reports its own result. A download alone is not that result.
+                _downloadNoticeResults.Add((task, item.Snapshot.Generation, status));
+                _pendingDownloadNotices.Remove(task);
+                return;
+            }
+        }
         if (isOutcome && _batchDownloadToastTasks.Remove(task, out var feedback))
         {
             _downloadNoticeResults.Add((task, item.Snapshot.Generation, status));

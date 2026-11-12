@@ -10,6 +10,7 @@ namespace Fileway.App;
 public sealed partial class MainPage
 {
     private OpenWithPreferences? _openWith;
+    private readonly Dictionary<TransferTaskRef, TaskCompletionSource<DownloadItem>> _pendingExternalDownloadOpens = [];
 
     private OpenWithPreferences OpenWith => _openWith ??= OpenWithPreferencesStore.Load();
 
@@ -38,14 +39,15 @@ public sealed partial class MainPage
         bool useSelectedApplication = preference == OpenPreference.SelectedApplication;
         if (useSelectedApplication && !IsAvailableApplication(applicationPath))
         {
-            SetNotice("指定应用不可用", "请在「打开方式」中重新选择 Markdown 应用。", InfoBarSeverity.Warning);
+            SetNotice("指定应用不可用", string.Empty, InfoBarSeverity.Warning);
             return;
         }
         var applicationName = useSelectedApplication ? Path.GetFileNameWithoutExtension(applicationPath) : "Windows 默认应用";
         if (_downloads is not IDownloadService service || _downloads is not IDownloadControlService control ||
             ActiveDownloadContext is not { } context || _session?.Permissions.Download != true)
         {
-            SetNotice("无法使用外部应用打开", "当前连接没有下载权限，或下载服务尚未就绪。", InfoBarSeverity.Warning);
+            SetNotice(_session?.Permissions.Download == false ? "当前连接没有下载权限" : "下载服务尚未就绪",
+                string.Empty, InfoBarSeverity.Warning);
             return;
         }
         try
@@ -78,55 +80,64 @@ public sealed partial class MainPage
             if (await ShowBrowserDialogAsync(confirm) != ContentDialogResult.Primary ||
                 !isCurrentFile() || !IsCurrentDownloadContext(context) || _session?.Permissions.Download != true) return;
 
-            var item = await service.SubmitAsync(preview, _lifetime.Token);
-            if (!IsCurrentDownloadContext(context)) return;
-            SetNotice("正在下载本地副本", $"完成后用 {applicationName} 打开。", InfoBarSeverity.Informational);
-            var task = item.Snapshot.Task;
-            for (var attempt = 0; attempt < 1800 && IsCurrentDownloadContext(context); attempt++)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(400), _lifetime.Token);
-                if (!IsCurrentDownloadContext(context)) return;
-                var page = await service.ListAsync(context, null, 200, _lifetime.Token);
-                if (!IsCurrentDownloadContext(context)) return;
-                var current = page.Items.FirstOrDefault(candidate => candidate.Snapshot.Task == task);
-                if (current is null) continue;
-                if (current.Status == DownloadStatus.Completed && current.Snapshot.LocalPublished)
-                {
-                    bool verified = await control.VerifyLocalOpenAsync(context, task, _lifetime.Token);
-                    if (!IsCurrentDownloadContext(context)) return;
-                    if (!verified)
-                    {
-                        SetNotice("本地文件校验未通过", "请在传输中心核对下载后的本地副本。", InfoBarSeverity.Warning);
-                        return;
-                    }
-                    if (useSelectedApplication && !IsAvailableApplication(applicationPath))
-                    {
-                        SetNotice("指定应用不可用", "本地副本已保存。请在「打开方式」中重新选择 Markdown 应用。", InfoBarSeverity.Warning);
-                        return;
-                    }
-                    var opened = useSelectedApplication
-                        ? LaunchSelectedApplication(applicationPath!, current.DestinationDisplayPath)
-                        : await LaunchDefaultApplicationAsync(current.DestinationDisplayPath, () => IsCurrentDownloadContext(context));
-                    if (!IsCurrentDownloadContext(context)) return;
-                    SetNotice(opened ? useSelectedApplication ? "已交给指定应用" : "已交给系统应用" : "应用未能打开文件",
-                        opened ? $"{applicationName} 正在打开本地副本。" : "请检查本机的文件打开方式。",
-                        opened ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
-                    return;
-                }
-                if (current.Status is DownloadStatus.Failed or DownloadStatus.Canceled)
-                {
-                    SetNotice("下载未完成", "请在传输中心查看下载任务。", InfoBarSeverity.Warning);
-                    return;
-                }
-            }
+            await DownloadAndOpenExternalAsync(service, control, preview, useSelectedApplication ? applicationPath : null);
         }
         catch (OperationCanceledException) { }
         catch (Exception error)
         {
-            if (IsCurrentDownloadContext(context)) SetNotice("外部打开未完成",
-                useSelectedApplication ? "请检查指定应用，或从传输中心打开已下载的副本。" : ErrorMessage(error),
-                InfoBarSeverity.Warning);
+            if (IsCurrentDownloadContext(context)) ShowDownloadError("外部打开未完成", error);
         }
+    }
+
+    private async Task DownloadAndOpenExternalAsync(IDownloadService service, IDownloadControlService control,
+        DownloadPreview preview, string? applicationPath)
+    {
+        var context = preview.Context;
+        var task = new TransferTaskRef(context.Account, preview.Draft.Id);
+        var completion = new TaskCompletionSource<DownloadItem>(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool CanOpen() => IsCurrentDownloadContext(context) && _session?.Permissions.Download == true &&
+            _pendingExternalDownloadOpens.TryGetValue(task, out var current) && ReferenceEquals(current, completion);
+
+        // A fast download can publish before SubmitAsync returns. Observe it from admission,
+        // but wait for the acknowledged task before launching the application.
+        _pendingExternalDownloadOpens.Add(task, completion);
+        try
+        {
+            var item = await service.SubmitAsync(preview, _lifetime.Token);
+            if (!IsCurrentDownloadContext(context)) return;
+            if (item.Context != context || item.Snapshot.Task != task)
+                throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "下载任务与确认记录不一致。"));
+            AcceptDownloadItem(item);
+            if (!completion.Task.IsCompleted && !DownloadNotice.IsOpen && _downloadItems.TryGetValue(task, out var active))
+            {
+                var status = DownloadPresentationPolicy.EffectiveStatus(active);
+                if (DownloadPresentationPolicy.IsActive(status))
+                    ShowDownloadToast("正在下载本地副本", InfoBarSeverity.Informational, $"{task.Id}:external-open",
+                        new DownloadNoticeLink(context, task, null, active.Snapshot.Generation, status));
+            }
+
+            var result = await completion.Task.WaitAsync(_lifetime.Token);
+            if (!CanOpen() || DownloadPresentationPolicy.EffectiveStatus(result) != DownloadStatus.Completed) return;
+            var verified = await control.VerifyLocalOpenAsync(context, task, _lifetime.Token);
+            if (!CanOpen()) return;
+            if (!verified)
+            {
+                SetNotice("本地文件校验未通过", string.Empty, InfoBarSeverity.Warning);
+                return;
+            }
+            if (applicationPath is not null && !IsAvailableApplication(applicationPath))
+            {
+                SetNotice("指定应用不可用，本地副本已保存", string.Empty, InfoBarSeverity.Warning);
+                return;
+            }
+            var opened = applicationPath is not null
+                ? LaunchSelectedApplication(applicationPath, result.DestinationDisplayPath)
+                : await LaunchDefaultApplicationAsync(result.DestinationDisplayPath, CanOpen);
+            if (!CanOpen()) return;
+            var title = !opened ? "应用未能打开文件" : applicationPath is not null ? "已交给指定应用" : "已交给系统应用";
+            SetNotice(title, string.Empty, opened ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+        }
+        finally { _pendingExternalDownloadOpens.Remove(task); }
     }
 
     private static bool LaunchSelectedApplication(string applicationPath, string filePath)
