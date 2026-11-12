@@ -158,18 +158,19 @@ public static class SurfaceStyles
         {
             var theme = _element is ToolTip && _element.XamlRoot?.Content is FrameworkElement root
                 ? root.ActualTheme : _themeOwner.ActualTheme;
+            var menu = _element as MenuFlyoutPresenter;
+            var popup = _selector ?? (_element is FlyoutPresenter or ToolTip ? FindOwningPopup(_element) : null);
             Brush brush;
-            if (_selector is not null || _element is FlyoutPresenter or MenuFlyoutPresenter or ToolTip)
+            if (menu is not null || popup is { ShouldConstrainToRootBounds: false })
             {
-                var popup = _selector ?? (_element is MenuFlyoutPresenter ? null : FindOwningPopup(_element));
                 if (_applied != PopupMaterials.Effective || !ReferenceEquals(popup, _hostPopup))
                 {
                     DisconnectBackdrop();
                     _applied = PopupMaterials.Effective;
                     _hostPopup = popup;
-                    _backdrop = popup is not null || _element is MenuFlyoutPresenter ? PopupMaterials.NativeBackdrop() : null;
+                    _backdrop = PopupMaterials.NativeBackdrop();
                     if (_backdrop is PopupMaterials.SoftPopupBackdrop soft) soft.ConnectionFailed += NativeConnectionFailed;
-                    if (_element is MenuFlyoutPresenter menu) menu.SystemBackdrop = _backdrop;
+                    if (menu is not null) menu.SystemBackdrop = _backdrop;
                     else if (popup is not null) popup.SystemBackdrop = _backdrop;
                 }
                 brush = _backdrop is null or PopupMaterials.SoftPopupBackdrop { Failed: true } ? ThemePalette.Brush("FwSurfaceRaisedBrush", theme)
@@ -177,6 +178,9 @@ public static class SurfaceStyles
             }
             else
             {
+                if (_applied is not null) DisconnectBackdrop();
+                // Root-constrained popups share the app's composition tree. Sample that
+                // content directly so an unavailable native backdrop cannot expose sharp text.
                 brush = PopupMaterials.InWindowBrush(theme);
             }
 
