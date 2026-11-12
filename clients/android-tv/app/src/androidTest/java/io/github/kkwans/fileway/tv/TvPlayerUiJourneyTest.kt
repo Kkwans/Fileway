@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Rect
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.Build
@@ -26,6 +27,7 @@ import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.data.TextSubtitleAppearance
 import io.github.kkwans.nasfilebrowser.data.SearchScope
 import io.github.kkwans.nasfilebrowser.data.VideoDecodePolicy
+import io.github.kkwans.nasfilebrowser.player.NativePlayer
 import io.github.kkwans.nasfilebrowser.player.PlayerViewport
 import java.io.File
 import java.net.URI
@@ -33,6 +35,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -68,6 +71,60 @@ class TvPlayerUiJourneyTest {
     @Test fun systemSubtitleFolderGrantSupportsRemoteImport() = verifyOwnedLocalSubtitle(legacy = false)
 
     @Test fun androidNineSharedStorageGrantSupportsSubtitleImport() = verifyOwnedLocalSubtitle(legacy = true)
+
+    @Test fun seekingAfterPlaybackEndsKeepsTheVideoPausedUntilPlay() = runBlocking {
+        val movie = File(instrumentation.targetContext.cacheDir, "owned-eof-${System.nanoTime()}.mp4")
+        instrumentation.context.assets.open("media/tv-owned-source.mp4").use { input ->
+            movie.outputStream().use { input.copyTo(it) }
+        }
+        val scenario = ActivityScenario.launch(TvActivity::class.java)
+        var ownedPlayer: NativePlayer? = null
+        var ownedViewport: PlayerViewport? = null
+        try {
+            scenario.onActivity { activity ->
+                val viewport = PlayerViewport(activity).also { ownedViewport = it }
+                (activity.window.decorView as ViewGroup).addView(viewport, ViewGroup.LayoutParams(640, 360))
+                ownedPlayer = NativePlayer(activity).also {
+                    it.attach(viewport)
+                    it.open(Uri.fromFile(movie).toString(), videoDecodePolicy = VideoDecodePolicy.SOFTWARE)
+                }
+            }
+            val player = requireNotNull(ownedPlayer)
+            val ready = withTimeout(20_000) {
+                player.state.first { it.firstFrameRendered && it.playing && it.seekable && it.durationMs > 2_000 }
+            }
+            suspend fun finishPlayback() {
+                scenario.onActivity { player.seek(ready.durationMs - 500) }
+                withTimeout(15_000) { player.state.first { it.ended } }
+            }
+            finishPlayback()
+            scenario.onActivity { player.seek(1_000) }
+            val afterSeek = withTimeout(15_000) {
+                player.state.first { !it.ended && !it.seeking && it.positionMs in 750L..2_500L }
+            }
+            assertFalse("Seek from EOF restarted playback", afterSeek.playing)
+            scenario.onActivity {
+                assertFalse(player.wantsPlay)
+                player.toggle()
+            }
+            withTimeout(10_000) { player.state.first { it.playing && it.positionMs > 1_150 } }
+            finishPlayback()
+            scenario.onActivity { player.toggle() }
+            val replay = withTimeout(15_000) {
+                player.state.first { it.playing && !it.seeking && it.positionMs in 1L..2_000L }
+            }
+            assertEquals(ready.mediaGeneration, replay.mediaGeneration)
+        } finally {
+            withContext(NonCancellable) {
+                scenario.onActivity {
+                    ownedPlayer?.release()
+                    ownedViewport?.let { (it.parent as? ViewGroup)?.removeView(it) }
+                }
+                scenario.close()
+                movie.delete()
+            }
+        }
+    }
 
     @Test fun ownedSearchWithAndroidNineTvKeyboard() {
         val args = InstrumentationRegistry.getArguments()
@@ -381,10 +438,13 @@ class TvPlayerUiJourneyTest {
             }
             if (movieName == "FilewayVisual.mp4") {
                 waitFor("visual fixture seekable") { tv.media.canSeek }
-                launched.onActivity { tv.media.seek(15_000) }
-                waitFor("visual fixture frame", 30_000) { tv.media.sourcePosition() in 14_000L..22_000L }
+                launched.onActivity { tv.media.pause(); tv.media.seek(15_000) }
+                waitFor("paused visual fixture frame", 30_000) {
+                    val player = tv.media.player.state.value
+                    !player.playing && !player.seeking && tv.media.sourcePosition() in 14_000L..16_000L
+                }
             }
-            decodedPattern(launched)
+            waitFor("owned decoded frame has color variation") { hasDecodedColorVariation(launched) }
             waitFor("owned audio track") { tv.media.player.state.value.audio.isNotEmpty() }
             val audioTitle = tv.media.player.state.value.audio.first().title
             waitFor("owned external subtitle listing") { tv.media.state.value.sidecars.any { it.name == subtitleName } }
@@ -422,7 +482,7 @@ class TvPlayerUiJourneyTest {
             if (!tv.media.player.wantsPlay) {
                 assertTrue(device.pressDPadCenter())
                 waitFor("remote resumes playback") { tv.media.player.wantsPlay && tv.media.player.state.value.playing }
-                checks += "hidden OK resumes playback after the owned clip ends"
+                checks += "hidden OK resumes paused or ended playback"
             }
             val sourceDuration = tv.media.state.value.sourceDurationMs
             val endMargin = if (movieName == "FilewayVisual.mp4") 4_000L else 15_000L
@@ -1049,7 +1109,7 @@ class TvPlayerUiJourneyTest {
         return found
     }
 
-    private fun decodedPattern(scenario: ActivityScenario<TvActivity>) {
+    private fun hasDecodedColorVariation(scenario: ActivityScenario<TvActivity>): Boolean {
         val complete = CountDownLatch(1)
         val bitmap = Bitmap.createBitmap(160, 90, Bitmap.Config.ARGB_8888)
         var status = -1
@@ -1067,9 +1127,9 @@ class TvPlayerUiJourneyTest {
             assertEquals("decoded surface copy", PixelCopy.SUCCESS, status)
             val pixels = IntArray(160 * 90)
             bitmap.getPixels(pixels, 0, 160, 0, 0, 160, 90)
-            assertTrue("owned decoded frame has color variation", pixels.map {
+            return pixels.map {
                 Color.rgb(Color.red(it) / 16 * 16, Color.green(it) / 16 * 16, Color.blue(it) / 16 * 16)
-            }.distinct().size > 12)
+            }.distinct().size > 12
         } finally { bitmap.recycle() }
     }
 }

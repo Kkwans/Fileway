@@ -305,7 +305,11 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
                 if (!playWhenReady) { publish(); checkpoint?.invoke() }
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (current() && playbackState == Player.STATE_ENDED) { session.pause(); publish(); checkpoint?.invoke() }
+                if (!current() || playbackState != Player.STATE_ENDED) return
+                session.pause()
+                // Media3 retains playWhenReady at EOF. A later seek must preserve pause intent.
+                if (player.playWhenReady) player.pause()
+                else { publish(); checkpoint?.invoke() }
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (!current()) return
