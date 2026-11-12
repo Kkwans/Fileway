@@ -267,11 +267,26 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
         if (_historyMode && operationsError is not null && _controller.LastReconciliation is { Error: not null } result &&
             _operations.Any(row => row.Record.Intent.Reference == result.Reference && row.Stage == operationsError))
             operationsError = null;
-        string? message = _uiMessage ?? (_historyMode ? operationsError : _controller.Error ?? operationsError);
+        var uiMessage = _uiMessage;
+        var uiSeverity = _uiSeverity;
+        if (_controller.LastActionResult is { Kind: ServerTaskActionKind.CancellationRequested,
+                Outcome: OperationOutcome.Confirmed, Task: { } acknowledged } accepted &&
+            uiMessage == NasTaskPresentationPolicy.ActionText(accepted))
+        {
+            var current = _historyMode ? null : DetailTask;
+            if (current is null || current.Reference != acknowledged.Reference)
+                uiMessage = null;
+            else if (current.Status is not (ServerTaskStatus.Queued or ServerTaskStatus.Running))
+            {
+                uiMessage = accepted.Receipt is { AckPersisted: false } ? "本地确认记录未保存，可核实操作记录。" : null;
+                uiSeverity = InfoBarSeverity.Warning;
+            }
+        }
+        string? message = uiMessage ?? (_historyMode ? operationsError : _controller.Error ?? operationsError);
         Notice.IsOpen = message is not null;
         Notice.Message = message ?? string.Empty;
-        Notice.Title = _uiMessage is not null ? "最近操作" : "任务状态需要处理";
-        Notice.Severity = _uiMessage is not null ? _uiSeverity : InfoBarSeverity.Warning;
+        Notice.Title = uiMessage is not null ? "最近操作" : "任务状态需要处理";
+        Notice.Severity = uiMessage is not null ? uiSeverity : InfoBarSeverity.Warning;
     }
 
     private void RenderDetails()
@@ -397,6 +412,33 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             await ShowHistoryAsync();
         }
         Render(synchronizeRows: false);
+        if (action == ServerTaskActionKind.CancellationRequested && result.Outcome == OperationOutcome.Confirmed &&
+            result.Task is { Status: ServerTaskStatus.Queued or ServerTaskStatus.Running })
+            await ObserveAcceptedCancellationAsync(task.Reference, epoch);
+    }
+
+    private async Task ObserveAcceptedCancellationAsync(ServerTaskRef reference, long epoch)
+    {
+        var token = _viewCancellation.Token;
+        try
+        {
+            for (int attempt = 0; attempt < 12; attempt++)
+            {
+                await Task.Delay(500, token);
+                if (!IsCurrent(epoch) || _historyMode || DetailTask is not { } current ||
+                    current.Reference != reference || current.Status is not (ServerTaskStatus.Queued or ServerTaskStatus.Running))
+                    return;
+                if (Busy) continue;
+                await _controller.LoadDetailAsync(current, token);
+                if (!IsCurrent(epoch) || _historyMode || DetailTask?.Reference != reference) return;
+                if (_controller.Error is not null || DetailTask?.Status is not (ServerTaskStatus.Queued or ServerTaskStatus.Running))
+                {
+                    Render();
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
     }
 
     private async Task<bool> ConfirmAsync(ServerTask task, ServerTaskActionKind action)
@@ -415,6 +457,7 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             Content = new TextBlock { Text = new NasTaskRow(task).Name + "\n\n" + message, TextWrapping = TextWrapping.Wrap, MaxWidth = 440 },
             PrimaryButtonText = primary, CloseButtonText = "返回", DefaultButton = ContentDialogButton.None,
         };
+        DialogOrdering.FocusCloseButton(dialog);
         _confirmation = dialog; Render(synchronizeRows: false);
         try { return await dialog.ShowAsync() == ContentDialogResult.Primary; }
         catch (Exception)

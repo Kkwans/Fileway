@@ -144,6 +144,8 @@ public sealed partial class FilewayClientServices
             long totalBytes = row.GetProperty("totalBytes").GetInt64();
             long processedBytes = row.GetProperty("processedBytes").GetInt64();
             if (totalItems < 0 || processedItems < 0 || totalBytes < 0 || processedBytes < 0) throw InvalidResponse();
+            var reportedError = OptionalText(row, "error");
+            bool hasError = reportedError is { Length: > 0 } && (status != "canceled" || reportedError != "任务已取消");
             return new ServerTask(new ServerTaskRef(account, id), owner, type, status, status switch
             {
                 "queued" => ServerTaskStatus.Queued, "running" => ServerTaskStatus.Running,
@@ -155,7 +157,7 @@ public sealed partial class FilewayClientServices
                 ServiceOptionalDate(row, "startedAt"), ServiceOptionalDate(row, "finishedAt"),
                 ServiceOptionalDate(row, "undoUntil"), ServiceOptionalDate(row, "archivedAt"), OptionalText(row, "retryOf"),
                 OptionalText(row, "sourcePath"), OptionalText(row, "outputPath"),
-                OptionalText(row, "error") is { Length: > 0 } ? new ErrorInfo(ErrorCode.Unknown, "服务端任务出现错误，请核实任务状态。") : null);
+                hasError ? new ErrorInfo(ErrorCode.Unknown, "服务端任务出现错误，请核实任务状态。") : null);
         }
         catch (Exception error) when (error is JsonException or InvalidOperationException or FormatException or KeyNotFoundException or ArgumentOutOfRangeException)
         { throw InvalidResponse(); }
