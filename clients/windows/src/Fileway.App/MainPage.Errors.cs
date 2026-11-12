@@ -41,6 +41,11 @@ public sealed partial class MainPage
     private async void NoticeErrorDetails_Click(object sender, RoutedEventArgs args)
     {
         if (_disposed || sender is not Button { Tag: ErrorInfo error }) return;
+        await ShowErrorDetailsAsync(error);
+    }
+
+    private Task<ContentDialogResult> ShowErrorDetailsAsync(ErrorInfo error)
+    {
         string type = error.Code switch
         {
             ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable => "登录与凭据",
@@ -63,7 +68,7 @@ public sealed partial class MainPage
             IsTextSelectionEnabled = true,
             MaxWidth = 440,
         };
-        await ShowBrowserDialogAsync(new ContentDialog { Title = "错误详情", CloseButtonText = "关闭", Content = text });
+        return ShowBrowserDialogAsync(new ContentDialog { Title = "错误详情", CloseButtonText = "关闭", Content = text });
     }
 
     internal static string ErrorMessage(Exception exception) => DescribeError(exception).Message;

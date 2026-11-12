@@ -9,8 +9,9 @@ public sealed partial class MainPage
     private async Task ToggleDownloadPausedAsync(TransferTaskRef task)
     {
         if (_downloadOperationBusy || _downloads is not IDownloadControlService service || !_downloadItems.TryGetValue(task, out var item) || !IsCurrentDownloadContext(item.Context) || !item.CanPause && !item.CanResume) return;
+        var owner = _downloadDetails;
         _downloadOperationBusy = true;
-        _downloadErrorTitle = _downloadErrorMessage = null;
+        ClearDownloadDetailError(task);
         try
         {
             UpdateDownloadContext();
@@ -25,16 +26,13 @@ public sealed partial class MainPage
             {
                 AcceptDownloadItem(await service.ResumeAsync(item.Context, task, _lifetime.Token));
                 if (IsCurrentDownloadContext(item.Context) && _downloadDetailTask != task)
-                    SetNotice("继续下载", "已重新排队，将从上次确认的保存位置继续，并先核对远端文件版本。", InfoBarSeverity.Informational);
+                    SetNotice("下载已重新排队", string.Empty, InfoBarSeverity.Informational);
             }
         }
         catch (Exception error)
         {
             if (IsCurrentDownloadContext(item.Context))
-            {
-                if (_downloadDetailTask == task) ShowDownloadError("下载操作未完成", error);
-                else SetNotice("下载操作未完成", ErrorMessage(error), InfoBarSeverity.Warning);
-            }
+                ShowDownloadError("下载操作未完成", error, task, owner);
         }
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
@@ -53,11 +51,16 @@ public sealed partial class MainPage
             if (!IsCurrentDownloadContext(item.Context)) return;
             _removedDownloadTasks.Add(task); _downloadItems.Remove(task); _transferDownloads.Remove(task);
             if (_transferDownloadRowIndex.Remove(task, out var row)) _transferDownloadRows.Remove(row);
-            if (_latestDownload?.Snapshot.Task == task) _latestDownload = _downloadItems.Values.LastOrDefault(candidate => IsCurrentDownloadContext(candidate.Context));
+            _pendingDownloadNotices.Remove(task);
             RenderTransferCenter(synchronizeRows: false); UpdateDownloadContext();
-            SetNotice("已删除下载任务", local.IsChecked == true ? "本地文件与任务记录已删除。" : "任务记录已删除，NAS 原文件未改变。", InfoBarSeverity.Success);
+            SetNotice(local.IsChecked == true ? "下载记录和本地文件已删除" : "已删除下载记录",
+                string.Empty, InfoBarSeverity.Success);
         }
-        catch (Exception error) { if (IsCurrentDownloadContext(item.Context)) SetNotice("任务删除未完成", ErrorMessage(error), InfoBarSeverity.Warning); }
+        catch (Exception error)
+        {
+            if (IsCurrentDownloadContext(item.Context))
+                ShowDownloadError("任务删除未完成", error);
+        }
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
 }

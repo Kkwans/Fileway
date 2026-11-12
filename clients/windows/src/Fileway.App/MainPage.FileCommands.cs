@@ -141,7 +141,14 @@ public sealed partial class MainPage
         try { return await dialog.ShowAsync(); }
         catch (OperationCanceledException) { return ContentDialogResult.None; }
         catch (Exception) { if (!_disposed) SetNotice("对话框未能打开", "请关闭其他对话框后重试。", InfoBarSeverity.Warning); return ContentDialogResult.None; }
-        finally { if (ReferenceEquals(_browserDialog, dialog)) _browserDialog = null; }
+        finally
+        {
+            if (ReferenceEquals(_browserDialog, dialog))
+            {
+                _browserDialog = null;
+                RenderDownloadNotice();
+            }
+        }
     }
     private async Task<string?> AskNameAsync(string title, string initial = "", string primaryText = "确定")
     {

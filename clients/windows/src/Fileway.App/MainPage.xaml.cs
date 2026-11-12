@@ -156,6 +156,7 @@ public sealed partial class MainPage : Page, IDisposable
             RequestedTheme = Shell.RequestedTheme,
         };
         _storageDialog = dialog; _storageControl = control;
+        RenderDownloadNotice();
         dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(control.FocusInitial);
         dialog.Closed += (_, _) => control.Dispose();
         control.CloseRequested += (_, _) => dialog.Hide();
@@ -170,7 +171,11 @@ public sealed partial class MainPage : Page, IDisposable
         catch (Exception) { if (!_disposed) SetNotice("存储设置未能打开", "请关闭其他对话框后重试。", InfoBarSeverity.Error); }
         finally
         {
-            if (ReferenceEquals(_storageDialog, dialog)) { _storageDialog = null; _storageControl = null; }
+            if (ReferenceEquals(_storageDialog, dialog))
+            {
+                _storageDialog = null; _storageControl = null;
+                RenderDownloadNotice();
+            }
         }
         async Task LoadStorageControlAsync()
         {

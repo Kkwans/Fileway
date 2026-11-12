@@ -14,7 +14,8 @@ public sealed partial class MainPage
     private IDownloadService? _downloads;
     private DownloadContext? _downloadContext;
     private readonly Dictionary<TransferTaskRef, DownloadItem> _downloadItems = [];
-    private DownloadItem? _latestDownload;
+    private readonly HashSet<(TransferTaskRef Task, long Generation, DownloadStatus Status)> _downloadNoticeResults = [];
+    private readonly Dictionary<TransferTaskRef, (long Generation, DownloadStatus Status)> _pendingDownloadNotices = [];
     private ContentDialog? _downloadDialog;
     private DownloadDetailsView? _downloadDetails;
     private TransferTaskRef? _downloadDetailTask;
@@ -22,9 +23,12 @@ public sealed partial class MainPage
     private bool _downloadPreparing;
     private bool _downloadPlaybackOpening;
     private long _downloadViewGeneration;
-    private string? _downloadErrorTitle;
-    private string? _downloadErrorMessage;
+    private (string Title, ErrorInfo Error)? _pendingDownloadError;
+    private (TransferTaskRef Task, ErrorInfo Error)? _downloadDetailError;
     private DownloadContext? _downloadAutoResumeApplied;
+
+    private sealed record DownloadNoticeLink(DownloadContext Context, TransferTaskRef? Task, ErrorInfo? Error,
+        long Generation = 0, DownloadStatus Status = DownloadStatus.NotStarted);
 
     public void SetDownloadService(IDownloadService downloads)
     {
@@ -89,7 +93,7 @@ public sealed partial class MainPage
             if (!IsCurrentDownloadContext(context) || !state.Active.AutoResumeDownloads) return;
             var resumed = await service.ResumeEligibleAsync(context, _lifetime.Token);
             if (resumed.Count > 0 && IsCurrentDownloadContext(context))
-                SetNotice("已继续未完成的下载", $"{resumed.Count} 个中断任务已重新排队，将从已确认的保存位置继续并核对远端版本。", InfoBarSeverity.Informational);
+                SetNotice("已继续未完成的下载", string.Empty, InfoBarSeverity.Informational);
         }
         catch (Exception) { /* 自动继续是便利功能；单项失败由任务自身状态呈现。 */ }
     }
@@ -134,7 +138,7 @@ public sealed partial class MainPage
             {
                 progress.Hide();
                 if (ReferenceEquals(_downloadDialog, progress)) _downloadDialog = null;
-                SetNotice("ZIP 下载已取消", "正在停止服务器打包流；未完成的临时文件会被清理。", InfoBarSeverity.Informational);
+                SetNotice("ZIP 下载已取消", string.Empty, InfoBarSeverity.Informational);
                 try { await running.ConfigureAwait(true); }
                 catch (Exception) { /* 取消后的清理结果由服务端与本地删除路径负责。 */ }
                 return;
@@ -142,7 +146,7 @@ public sealed partial class MainPage
             await running.ConfigureAwait(true);
             if (ReferenceEquals(_downloadDialog, progress)) _downloadDialog = null;
             progress.Hide();
-            if (Current()) SetNotice("ZIP 已保存", name + " 已保存到已生效的下载目录。", InfoBarSeverity.Success);
+            if (Current()) SetNotice("ZIP 已保存", string.Empty, InfoBarSeverity.Success);
         }
         catch (Exception error)
         {
@@ -157,9 +161,16 @@ public sealed partial class MainPage
     {
         ++_downloadViewGeneration;
         _downloadDialog?.Hide(); _downloadDialog = null; _downloadDetails = null; _downloadDetailTask = null;
-        _downloadContext = null; _latestDownload = null; _downloadItems.Clear(); _downloadPreparing = false;
-        _downloadErrorTitle = _downloadErrorMessage = null; _downloadAutoResumeApplied = null;
-        if (DownloadNotice is not null) DownloadNotice.IsOpen = false;
+        _downloadContext = null; _downloadItems.Clear(); _downloadPreparing = false;
+        _pendingDownloadError = null; _downloadDetailError = null; _downloadAutoResumeApplied = null;
+        _downloadNoticeResults.Clear();
+        _pendingDownloadNotices.Clear();
+        if (DownloadNotice is not null)
+        {
+            DownloadNotice.IsOpen = false;
+            DownloadDetailsButton.Tag = null;
+            ResetToast(DownloadNotice);
+        }
         ClearTransferDownloadPresentation();
     }
 
@@ -186,7 +197,6 @@ public sealed partial class MainPage
             var selected = SelectedRows();
             return selected.Length == 1 && !selected[0].File.IsDirectory && selected[0].File.Resource == source;
         }
-        _downloadErrorTitle = _downloadErrorMessage = null;
         _downloadOperationBusy = true; _downloadPreparing = true; UpdateDownloadContext();
         try
         {
@@ -248,7 +258,6 @@ public sealed partial class MainPage
             var selected = SelectedRows();
             return selected.Length == 1 && !selected[0].File.IsDirectory && selected[0].File.Resource == source;
         }
-        _downloadErrorTitle = _downloadErrorMessage = null;
         _downloadOperationBusy = true; UpdateDownloadContext();
         try
         {
@@ -381,8 +390,8 @@ public sealed partial class MainPage
             UpdateDownloadContext();
             return;
         }
-        _downloadItems[item.Snapshot.Task] = item; _latestDownload = item;
-        _downloadErrorTitle = _downloadErrorMessage = null;
+        _downloadItems[item.Snapshot.Task] = item;
+        RecordDownloadNoticeOutcome(item);
         UpdateDownloadContext();
         ObserveTransferDownload(item);
     }
@@ -390,39 +399,96 @@ public sealed partial class MainPage
     private void RenderDownloadNotice()
     {
         if (DownloadNotice is null) return;
-        if (_downloadDialog is not null) { DownloadNotice.IsOpen = false; return; }
-        if (_downloadErrorMessage is { } error && ActiveDownloadContext is not null)
+        if (ActiveDownloadContext is not { } context)
         {
-            DownloadNotice.Title = _downloadErrorTitle; DownloadNotice.Message = error;
-            DownloadNotice.Severity = InfoBarSeverity.Warning; DownloadDetailsButton.IsEnabled = _latestDownload is not null && !_downloadOperationBusy;
-            ShowToast(DownloadNotice, _downloadErrorTitle + error);
+            DownloadNotice.IsOpen = false;
             return;
         }
-        if (_downloadPreparing && ActiveDownloadContext is not null)
+        if (_downloadDialog is not null || _browserDialog is not null || _storageDialog is not null)
         {
-            DownloadNotice.Title = "正在核对下载目标";
-            DownloadNotice.Message = string.Empty;
-            DownloadNotice.Severity = InfoBarSeverity.Informational; DownloadDetailsButton.IsEnabled = false;
-            ShowToast(DownloadNotice, "preparing");
+            DownloadNotice.IsOpen = false;
             return;
         }
-        if (_latestDownload is not { } item || !IsCurrentDownloadContext(item.Context)) { DownloadNotice.IsOpen = false; return; }
-        DownloadNotice.Title = DownloadPolicy.Stage(item);
-        DownloadNotice.Severity = DownloadPolicy.Tone(item) switch
+        if (DownloadNotice.IsOpen)
         {
-            DownloadPresentationTone.Success => InfoBarSeverity.Success,
-            DownloadPresentationTone.Warning => InfoBarSeverity.Warning,
-            _ => InfoBarSeverity.Informational,
-        };
-        DownloadNotice.Message = DownloadNotice.Severity == InfoBarSeverity.Warning
-            ? $"{item.Name}\n{DownloadPolicy.Progress(item).ActivityText}" : string.Empty;
-        DownloadDetailsButton.IsEnabled = !_downloadOperationBusy;
-        ShowToast(DownloadNotice, item.Snapshot.Task.Id.ToString() + DownloadNotice.Title);
+            var current = DownloadDetailsButton.Tag as DownloadNoticeLink;
+            if (current is null && _downloadPreparing) return;
+            if (current?.Error is not null) return;
+            if (current?.Task is { } shownTask && _downloadItems.TryGetValue(shownTask, out var shownItem) &&
+                shownItem.Snapshot.Generation == current.Generation && DownloadPolicy.EffectiveStatus(shownItem) == current.Status) return;
+            DownloadNotice.IsOpen = false;
+        }
+        if (_noticeLayouts.Keys.Any(bar => bar != DownloadNotice && bar.IsOpen && Controls.FloatingNotice.IsCompact(bar)))
+            return;
+        if (_pendingDownloadError is { } error)
+        {
+            if (ShowDownloadToast(error.Title, InfoBarSeverity.Warning, error.Title,
+                new DownloadNoticeLink(context, null, error.Error), repeat: true))
+                _pendingDownloadError = null;
+            return;
+        }
+        while (_pendingDownloadNotices.Count > 0)
+        {
+            var (task, result) = _pendingDownloadNotices.First();
+            if (!_downloadItems.TryGetValue(task, out var item) || item.Context != context ||
+                item.Snapshot.Generation != result.Generation || DownloadPolicy.EffectiveStatus(item) != result.Status)
+            {
+                _pendingDownloadNotices.Remove(task);
+                continue;
+            }
+            var severity = DownloadPolicy.Tone(item) switch
+            {
+                DownloadPresentationTone.Success => InfoBarSeverity.Success,
+                DownloadPresentationTone.Warning => InfoBarSeverity.Warning,
+                _ => InfoBarSeverity.Informational,
+            };
+            if (ShowDownloadToast(DownloadPolicy.Stage(item), severity, $"{task.Id}:{result.Generation}:{result.Status}",
+                new DownloadNoticeLink(context, task, null, result.Generation, result.Status)))
+                _pendingDownloadNotices.Remove(task);
+            return;
+        }
+        if (_downloadPreparing)
+            ShowDownloadToast("正在核对下载目标", InfoBarSeverity.Informational, "preparing", null);
+    }
+
+    private void RecordDownloadNoticeOutcome(DownloadItem item)
+    {
+        var task = item.Snapshot.Task;
+        var status = DownloadPolicy.EffectiveStatus(item);
+        var isOutcome = IsDownloadNoticeOutcome(status);
+        if (!isOutcome || _downloadDetailTask == task)
+            _pendingDownloadNotices.Remove(task);
+        if (isOutcome && _downloadNoticeResults.Add((task, item.Snapshot.Generation, status)) &&
+            _downloadDetailTask != task)
+        {
+            _pendingDownloadNotices[task] = (item.Snapshot.Generation, status);
+        }
+    }
+
+    private static bool IsDownloadNoticeOutcome(DownloadStatus status) => status is DownloadStatus.Completed or
+        DownloadStatus.Canceled or DownloadStatus.Stopped or DownloadStatus.WaitingNetwork or DownloadStatus.WaitingAuthentication or
+        DownloadStatus.Conflict or DownloadStatus.SourceChanged or DownloadStatus.Failed or DownloadStatus.OutcomeUnknown;
+
+    private bool ShowDownloadToast(string title, InfoBarSeverity severity, string key, DownloadNoticeLink? link, bool repeat = false)
+    {
+        DownloadNotice.Title = title;
+        DownloadNotice.Message = string.Empty;
+        DownloadNotice.Severity = severity;
+        DownloadDetailsButton.Tag = link;
+        DownloadDetailsButton.Visibility = link is null ? Visibility.Collapsed : Visibility.Visible;
+        var label = link?.Error is null ? "下载详情" : "错误详情";
+        DownloadNoticeActionText.Text = label;
+        AutomationProperties.SetName(DownloadDetailsButton, label);
+        return ShowToast(DownloadNotice, key, repeat);
     }
 
     private async void DownloadDetails_Click(object sender, RoutedEventArgs args)
     {
-        if (_latestDownload is { } item) await ShowDownloadDetailsAsync(item.Snapshot.Task);
+        if (sender is not Button { Tag: DownloadNoticeLink link } || !IsCurrentDownloadContext(link.Context) ||
+            _downloadDialog is not null || _browserDialog is not null || _storageDialog is not null) return;
+        DownloadNotice.IsOpen = false;
+        if (link.Task is { } task) await ShowDownloadDetailsAsync(task);
+        else if (link.Error is { } error) await ShowErrorDetailsAsync(error);
     }
 
     private async Task ShowDownloadDetailsAsync(TransferTaskRef task)
@@ -434,6 +500,7 @@ public sealed partial class MainPage
         catch (Exception error) { ShowDownloadError("下载详情未能打开", error); return; }
         var dialog = new ContentDialog { Title = "文件下载", Content = new ScrollViewer { Content = view.Content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None };
         _downloadDialog = dialog; _downloadDetails = view; _downloadDetailTask = task;
+        _pendingDownloadNotices.Remove(task);
         view.Play.Click += async (_, _) => { if (_downloadDetailTask is { } current) await PlayDownloadAsync(current); };
         dialog.SecondaryButtonClick += (_, click) =>
         {
@@ -472,8 +539,9 @@ public sealed partial class MainPage
         {
             if (ReferenceEquals(_downloadDialog, dialog))
             {
+                if (_downloadDetailTask is { } closedTask) ClearDownloadDetailError(closedTask);
                 _downloadDialog = null; _downloadDetails = null; _downloadDetailTask = null;
-                ResetToast(DownloadNotice); RenderDownloadNotice();
+                RenderDownloadNotice();
             }
         }
     }
@@ -503,7 +571,8 @@ public sealed partial class MainPage
         view.Activity.Visibility = view.Activity.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         view.Flushed.Text = showProgress ? progress.FlushedText : string.Empty;
         view.Flushed.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
-        view.Detail.Text = _downloadErrorMessage ?? (view.RetryInProgress ? "正在准备重新下载…" :
+        view.Detail.Text = (_downloadDetailError is { } error && error.Task == task ? error.Error.Message : null) ??
+            (view.RetryInProgress ? "正在准备重新下载…" :
             completed || reviewingRetry ? string.Empty : DownloadPolicy.Detail(item));
         view.Detail.Visibility = view.Detail.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         view.Play.Visibility = DownloadPolicy.CanPlay(item) && _downloads is IDownloadPlaybackSourceProvider && _playback is not null
@@ -531,17 +600,22 @@ public sealed partial class MainPage
         if (_downloadOperationBusy || _downloads is not { } service || !_downloadItems.TryGetValue(task, out var item)
             || !IsCurrentDownloadContext(item.Context) || (cancel ? !DownloadPolicy.CanCancel(item) : !DownloadPolicy.CanReconcile(item))) return;
         var context = item.Context;
-        _downloadErrorTitle = _downloadErrorMessage = null;
+        var owner = _downloadDetails;
+        ClearDownloadDetailError(task);
         _downloadOperationBusy = true; UpdateDownloadContext();
         try
         {
             var changed = cancel ? await service.CancelAsync(context, task, _lifetime.Token)
                 : await service.ReconcileLocalAsync(context, task, _lifetime.Token);
             AcceptDownloadItem(changed);
-            if (_downloadDetails is { } view) view.CancelConfirmation.Visibility = Visibility.Collapsed;
+            if (owner is not null && ReferenceEquals(_downloadDetails, owner) && _downloadDetailTask == task)
+                owner.CancelConfirmation.Visibility = Visibility.Collapsed;
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (IsCurrentDownloadContext(context)) ShowDownloadError("下载操作未能完成", error); }
+        catch (Exception error)
+        {
+            if (IsCurrentDownloadContext(context)) ShowDownloadError("下载操作未能完成", error, task, owner);
+        }
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
 
@@ -553,11 +627,11 @@ public sealed partial class MainPage
             || confirmed != owner.RetryPreview) return;
         if (DownloadPolicy.DestinationName(item) is not { } localName)
         {
-            ShowDownloadError("重新下载未能提交", "无法确认原保存文件名。请重新选择下载位置。");
+            ShowDownloadError("重新下载未能提交", "无法确认原保存文件名。请重新选择下载位置。", task, owner);
             return;
         }
         var context = item.Context;
-        _downloadErrorTitle = _downloadErrorMessage = null;
+        ClearDownloadDetailError(task);
         _downloadOperationBusy = true;
         owner.RetryInProgress = true;
         try
@@ -594,8 +668,7 @@ public sealed partial class MainPage
         catch (Exception error)
         {
             if (!IsCurrentDownloadContext(context)) return;
-            if (OwnsDetail()) ShowDownloadError("重新下载未能提交", error);
-            else SetNotice("重新下载未能提交", ErrorMessage(error), InfoBarSeverity.Warning);
+            ShowDownloadError("重新下载未能提交", error, task, owner);
         }
         finally
         {
@@ -640,8 +713,9 @@ public sealed partial class MainPage
         if (_downloadOperationBusy || _downloads is not IDownloadControlService service ||
             !_downloadItems.TryGetValue(task, out var item) || !IsCurrentDownloadContext(item.Context) ||
             DownloadPolicy.EffectiveStatus(item) != DownloadStatus.Completed) return;
+        var owner = _downloadDetails;
         _downloadOperationBusy = true;
-        _downloadErrorTitle = _downloadErrorMessage = null;
+        ClearDownloadDetailError(task);
         try
         {
             RenderDownloadDetails();
@@ -650,32 +724,44 @@ public sealed partial class MainPage
             if (!IsCurrentDownloadContext(item.Context)) return;
             if (!verified)
             {
-                ShowDownloadError("本地打开未完成", unavailable);
+                ShowDownloadError("本地打开未完成", unavailable, task, owner);
                 return;
             }
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(item.DestinationDisplayPath);
             if (!IsCurrentDownloadContext(item.Context)) return;
             var opened = await Windows.System.Launcher.LaunchFileAsync(file);
             if (!opened && IsCurrentDownloadContext(item.Context))
-                ShowDownloadError("本地打开未完成", "Windows 没有可用的应用来打开此文件。");
+                ShowDownloadError("本地打开未完成", "Windows 没有可用的应用来打开此文件。", task, owner);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
         catch (Exception)
         {
             if (IsCurrentDownloadContext(item.Context))
-                ShowDownloadError("本地打开未完成", unavailable);
+                ShowDownloadError("本地打开未完成", unavailable, task, owner);
         }
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
 
     private async void DownloadHistory_Click(object sender, RoutedEventArgs args) => await ShowTransferCenterAsync(TransferDirection.Download);
 
-    private void ShowDownloadError(string title, Exception error) => ShowDownloadError(title, ErrorMessage(error));
+    private void ShowDownloadError(string title, Exception error, TransferTaskRef? task = null, DownloadDetailsView? owner = null) =>
+        ShowDownloadError(title, DescribeError(error), task, owner);
 
-    private void ShowDownloadError(string title, string message)
+    private void ShowDownloadError(string title, string message, TransferTaskRef task, DownloadDetailsView? owner) =>
+        ShowDownloadError(title, new ErrorInfo(ErrorCode.Unknown, message), task, owner);
+
+    private void ShowDownloadError(string title, ErrorInfo error, TransferTaskRef? task, DownloadDetailsView? owner)
     {
-        _downloadErrorTitle = title; _downloadErrorMessage = message;
+        if (task is { } detailTask && owner is not null && ReferenceEquals(_downloadDetails, owner) && _downloadDetailTask == detailTask)
+            _downloadDetailError = (detailTask, error);
+        else
+            _pendingDownloadError = (title, error);
         RenderDownloadNotice(); RenderDownloadDetails();
+    }
+
+    private void ClearDownloadDetailError(TransferTaskRef task)
+    {
+        if (_downloadDetailError?.Task == task) _downloadDetailError = null;
     }
 
     private sealed class DownloadDetailsView

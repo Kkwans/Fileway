@@ -22,6 +22,7 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
     public event EventHandler<TransferTaskRef>? PauseRequested;
     public event EventHandler<TransferTaskRef>? RemoveRequested;
     public TransferDirection Direction => _direction;
+    internal FrameworkElement NoticeHeaderAnchor => HistoryFeedback.ActualHeight > 0 ? HistoryFeedback : TransferHeader;
 
     public TransferCenterControl()
     {
