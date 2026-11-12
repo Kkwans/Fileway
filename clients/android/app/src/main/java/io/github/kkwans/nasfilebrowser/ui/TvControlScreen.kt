@@ -126,7 +126,7 @@ import kotlin.math.roundToInt
             BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).imePadding()) {
             val landscape = maxWidth >= 560.dp && maxWidth > maxHeight * 1.35f
-            val portraitPad = (maxHeight * .38f).coerceIn(192.dp, 304.dp)
+            val portraitPad = (maxHeight * .40f).coerceIn(192.dp, 328.dp)
                 .coerceAtMost((maxWidth - 36.dp).coerceAtLeast(144.dp))
             val hasRail = landscape && !scanning && connection.phase == RemotePhase.CONNECTED && connection.snapshot != null
             Column(Modifier.fillMaxSize()) {
@@ -149,7 +149,22 @@ import kotlin.math.roundToInt
                                 TvPhonePortraitRemote(phone, model, connection, snapshot, busy, portraitPad,
                                     onSearch = { target = "search"; inputOpen = true },
                                     onKeyboard = { inputOpen = true },
-                                    onBrowse = { section = "文件"; selectedTab = true },
+                                    onBrowse = {
+                                        if (!browse.busy && browse.category != "FILES") {
+                                            browse.category = "FILES"
+                                            browse.pages = emptyList()
+                                            browse.error = null
+                                        }
+                                        section = "文件"; selectedTab = true
+                                    },
+                                    onRecent = {
+                                        if (!browse.busy) {
+                                            browse.category = "RECENT"
+                                            browse.pages = emptyList()
+                                            browse.error = null
+                                            section = "文件"; selectedTab = true
+                                        }
+                                    },
                                     onPlayback = { section = "播放"; selectedTab = true })
                                 return@TvPhonePages
                             }
@@ -308,6 +323,7 @@ private fun TvPhonePortraitRemote(
     onSearch: () -> Unit,
     onKeyboard: () -> Unit,
     onBrowse: () -> Unit,
+    onRecent: () -> Unit,
     onPlayback: () -> Unit,
 ) {
     val detailsKey = snapshot?.scene == "BROWSE" && snapshot.capabilities.optInt("fileDetailsKey") > 0
@@ -324,10 +340,9 @@ private fun TvPhonePortraitRemote(
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val deckWidth = minOf(maxWidth - 32.dp, 416.dp).coerceAtLeast(0.dp)
-        val padSize = minOf(diameter, 268.dp, (deckWidth - 32.dp).coerceAtLeast(0.dp))
+        val padSize = minOf(diameter, (deckWidth - 28.dp).coerceAtLeast(0.dp))
         val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
-        val roomForPad = maxHeight - (344 + 96 * (fontScale - 1)).dp
-        val compact = roomForPad < 168.dp
+        val compact = maxHeight < (462 + 96 * (fontScale - 1)).dp
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
@@ -336,31 +351,33 @@ private fun TvPhonePortraitRemote(
             item {
                 Column(Modifier.widthIn(max = 416.dp).fillMaxWidth()
                     .then(if (compact) Modifier else Modifier.fillParentMaxHeight())) {
-                    if (!compact) {
-                        summary()
-                        Spacer(Modifier.height(12.dp))
-                        TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onBrowse, onPlayback)
-                        Spacer(Modifier.weight(1f))
-                    }
+                    Box(Modifier.fillMaxWidth().heightIn(min = (64 + 16 * (fontScale - 1)).dp),
+                        contentAlignment = Alignment.Center) { summary() }
+                    Spacer(Modifier.height(12.dp))
                     Surface(
+                        modifier = Modifier.fillMaxWidth().then(if (compact) Modifier else Modifier.weight(1f)),
                         shape = RoundedCornerShape(24.dp),
                         color = MaterialTheme.colorScheme.surface,
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
-                            TvPhoneDpad(model, compact = compact,
-                                diameter = if (compact) padSize.coerceAtMost(224.dp) else padSize.coerceAtMost(roomForPad),
-                                detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
+                            TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null,
+                                onBrowse, onRecent, onPlayback)
+                            HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                            if (compact) {
+                                TvPhoneDpad(model, diameter = padSize.coerceAtMost(224.dp),
+                                    detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
+                            } else {
+                                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                                    val fittedPad = padSize.coerceAtMost((maxHeight - 16.dp).coerceAtLeast(0.dp))
+                                    TvPhoneDpad(model, diameter = fittedPad, detailsKey = detailsKey,
+                                        enabled = snapshot != null, insetSurface = true)
+                                }
+                            }
                             HorizontalDivider(Modifier.padding(top = 8.dp, bottom = 4.dp),
                                 color = MaterialTheme.colorScheme.outlineVariant)
                             TvPhoneActionRow(model, enabled = snapshot != null, onKeyboard = onKeyboard)
                         }
-                    }
-                    if (compact) {
-                        Spacer(Modifier.height(16.dp))
-                        summary()
-                        Spacer(Modifier.height(12.dp))
-                        TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onBrowse, onPlayback)
                     }
                 }
             }
@@ -374,6 +391,7 @@ private fun TvPhonePortraitMedia(
     snapshot: RemoteSnapshot?,
     connected: Boolean,
     onBrowse: () -> Unit,
+    onRecent: () -> Unit,
     onPlayback: () -> Unit,
 ) {
     val player = snapshot?.content?.optJSONObject("playback")
@@ -382,48 +400,43 @@ private fun TvPhonePortraitMedia(
     val isPlaying = player?.opt("playing") as? Boolean
     val hasPlayer = snapshot?.scene in setOf("VIDEO", "AUDIO")
     val canAdjustVolume = connected && hasPlayer && player?.optBoolean("preparing") == false
-    Surface(
-        Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-    ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            if (snapshot != null && snapshot.scene in setOf("VIDEO", "AUDIO") && name != null && isPlaying != null) {
-                TvPhoneQuickPlayback(model, snapshot, name, isPlaying, onPlayback,
-                    modifier = Modifier.heightIn(min = 64.dp), compact = true, showProgress = true, enabled = connected)
-            } else {
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 64.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    FilewayIcon(if (name == null) Art.drawable.fileway_ic_play_arrow else Art.drawable.fileway_ic_playlist_play,
-                        null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(name ?: "TV 暂无播放", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    FilewayTextButton(onClick = if (name == null) onBrowse else onPlayback,
-                        enabled = connected && snapshot?.scene != "LOGIN") {
-                        Text(if (name == null) "浏览文件" else "查看")
-                    }
+    Column(Modifier.fillMaxWidth()) {
+        if (snapshot != null && hasPlayer && name != null && isPlaying != null) {
+            TvPhoneQuickPlayback(model, snapshot, name, isPlaying, onPlayback,
+                modifier = Modifier.heightIn(min = 56.dp), compact = true, showProgress = true, enabled = connected)
+        } else {
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                FilewayIcon(if (name == null) Art.drawable.fileway_ic_play_arrow else Art.drawable.fileway_ic_playlist_play,
+                    null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(name ?: "TV 暂无播放", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                FilewayTextButton(onClick = if (name == null) onBrowse else onPlayback,
+                    enabled = connected && snapshot?.scene != "LOGIN") {
+                    Text(if (name == null) "浏览文件" else "查看")
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            val volume = player?.optInt("volume", -1)?.takeIf { it in 0..100 }
-            if (snapshot != null && volume != null) {
-                TvPhoneVolume(model, snapshot, volume, canAdjustVolume, showValue = hasPlayer)
-            } else {
-                Box(Modifier.fillMaxWidth().heightIn(min = 72.dp), contentAlignment = Alignment.CenterStart) {
-                    Text(if (connected) "此 TV 暂未提供应用音量" else "连接 TV 后可调节应用音量",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (name == null && (snapshot == null || snapshot.capabilities.optInt("fileBrowse") > 0)) {
+                FilewayTextButton(onClick = onRecent, modifier = Modifier.align(Alignment.Start),
+                    enabled = connected && snapshot?.scene != "LOGIN") {
+                    FilewayIcon(Art.drawable.fileway_ic_history, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("最近播放")
                 }
             }
+        }
+        val volume = player?.optInt("volume", -1)?.takeIf { it in 0..100 }
+        if (snapshot != null && hasPlayer && volume != null) {
+            TvPhoneVolume(model, snapshot, volume, canAdjustVolume)
         }
     }
 }
 
 @Composable
-private fun TvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volume: Int, enabled: Boolean, showValue: Boolean) {
+private fun TvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volume: Int, enabled: Boolean) {
     var draft by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, enabled) { mutableStateOf<Float?>(null) }
     var pending by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, enabled) { mutableStateOf<Int?>(null) }
     LaunchedEffect(volume, pending) { if (volume == pending) pending = null }
@@ -431,8 +444,8 @@ private fun TvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volum
         if (pending != null) { delay(3500); pending = null }
     }
     val shown = draft ?: (pending ?: volume).toFloat()
-    val valueLabel = if (showValue) "${shown.roundToInt()}%" else "播放时可调"
-    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+    val valueLabel = "${shown.roundToInt()}%"
+    Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             FilewayIcon(Art.drawable.fileway_ic_volume_up, null, Modifier.size(20.dp),

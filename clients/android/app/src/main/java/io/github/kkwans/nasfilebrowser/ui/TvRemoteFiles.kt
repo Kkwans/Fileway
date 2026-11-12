@@ -106,7 +106,7 @@ private suspend fun reservePreviewCommand() = previewWire.withLock {
             state.category = category
         }
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(state.category, state.pages.isEmpty()) {
         if (state.pages.isEmpty() && state.error == null) {
             request(payload = JSONObject().put("category", state.category)) { state.pages = listOf(TvBrowsePage.decode(it)) }
         }
@@ -222,7 +222,9 @@ private suspend fun reservePreviewCommand() = previewWire.withLock {
     }
     val image = bitmap
     val box = if (naturalAspect) modifier.aspectRatio(image?.let { it.width.toFloat() / it.height } ?: 4f / 3f) else modifier
-    Box(box.background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
+    val frame = if (browseId == null) box.background(MaterialTheme.colorScheme.surfaceContainer)
+        else box.fileThumbnailFrame()
+    Box(frame, contentAlignment = Alignment.Center) {
         if (image != null) Image(image.asImageBitmap(), name, Modifier.fillMaxSize(), contentScale = scale)
         else if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
         else FilewayIcon(Art.drawable.fileway_ic_video, null, Modifier.size(28.dp))

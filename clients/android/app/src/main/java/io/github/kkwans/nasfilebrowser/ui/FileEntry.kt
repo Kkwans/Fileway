@@ -55,8 +55,10 @@ import java.util.Locale
     val centered = layout == FileLayout.COVER || layout == FileLayout.COMPACT
     @Composable fun artwork(modifier: Modifier) {
         if (remoteArtwork != null && file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO, MediaKind.AUDIO)) {
-            remoteArtwork(modifier, if (layout == FileLayout.UNBOUNDED) ContentScale.Fit else ContentScale.Crop,
-                layout == FileLayout.UNBOUNDED)
+            MaterialTheme(colorScheme = colors) {
+                remoteArtwork(modifier, if (layout == FileLayout.UNBOUNDED) ContentScale.Fit else ContentScale.Crop,
+                    layout == FileLayout.UNBOUNDED)
+            }
         } else if (model != null && file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) {
             // Preview failures are signalled by the existing lease component; black media remains media.
             MaterialTheme(colorScheme = colors) {

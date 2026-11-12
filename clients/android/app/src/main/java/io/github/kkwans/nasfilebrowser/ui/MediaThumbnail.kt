@@ -37,6 +37,13 @@ import kotlinx.coroutines.delay
 
 internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<String, Float>?> { null }
 
+@Composable internal fun Modifier.fileThumbnailFrame(): Modifier {
+    val shape = RoundedCornerShape(12.dp)
+    val colors = MaterialTheme.colorScheme
+    return clip(shape).background(colors.surfaceContainer)
+        .border(.5.dp, colors.outlineVariant.copy(alpha = .65f), shape)
+}
+
 /** Every layout consumes the same uncropped bytes; only its viewport differs. */
 @Composable internal fun MediaThumbnail(model: ClientModel, file: ResourceRef, modifier: Modifier, showStatusText: Boolean = true,
     contentScale: ContentScale = ContentScale.Crop, naturalAspect: Boolean = false) {
@@ -77,10 +84,8 @@ internal val LocalNaturalPreviewAspects = staticCompositionLocalOf<MutableMap<St
             catch (_: Exception) { failed = true }
             finally { runCatching { owned?.release() } }
         }
-        val shape = RoundedCornerShape(12.dp)
         val frame = if (naturalAspect) modifier.aspectRatio(aspect.coerceIn(.2f, 5f)) else modifier
-        BoxWithConstraints(frame.clip(shape).background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f), shape).semantics {
+        BoxWithConstraints(frame.fileThumbnailFrame().semantics {
                 contentDescription = "${file.name} 预览"
                 stateDescription = if (decoded != null) "预览已加载" else if (failed) "暂无预览" else "预览加载中"
             }, contentAlignment = Alignment.Center) {
