@@ -15,6 +15,8 @@ namespace Fileway.App.Windowing;
 internal sealed class FramelessWindowChrome : IDisposable
 {
     private const nuint SubclassId = 0x465743;
+    private const uint ShowNormal = 1;
+    private const uint ShowMaximized = 3;
     internal static readonly uint ExitMessage = RegisterWindowMessageW("Fileway.Preview.RequestExit.v1");
     private readonly Window _window;
     private readonly Microsoft.UI.Dispatching.DispatcherQueue _shutdownDispatcher;
@@ -33,6 +35,8 @@ internal sealed class FramelessWindowChrome : IDisposable
     private bool _trackingNonClient;
     private bool _disposed;
     private bool _preparedForClose;
+    private bool _fullscreenFrame;
+    private (OverlappedPresenter Presenter, WindowPlacement Placement)? _windowedState;
 
     internal FramelessWindowChrome(Window window, WindowTitleBar titleBar, bool recordShutdownStages = false)
     {
@@ -79,9 +83,67 @@ internal sealed class FramelessWindowChrome : IDisposable
     internal event EventHandler? ExitRequested;
     internal event EventHandler? SystemAppearanceChanged;
 
+    internal bool IsFullscreen => _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
+
+    internal void ToggleFullscreen()
+    {
+        VerifyThread();
+        if (_disposed || _preparedForClose) return;
+        if (_appWindow.Presenter is OverlappedPresenter presenter)
+        {
+            var placement = new WindowPlacement { Length = (uint)Marshal.SizeOf<WindowPlacement>() };
+            if (!GetWindowPlacement(_handle, ref placement)) throw NativeFailure("GetWindowPlacement");
+            _windowedState = (presenter, placement);
+            _fullscreenFrame = true;
+            try
+            {
+                if (_nonClientPointerSource is { } source)
+                {
+                    ClearResizeRegions(source);
+                    source.ClearRegionRects(NonClientRegionKind.Passthrough);
+                }
+                _captionRegionsState = null;
+                _window.SetTitleBar(null);
+                if (GetCapture() == _handle) ReleaseCapture();
+                _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
+            }
+            finally
+            {
+                _fullscreenFrame = IsFullscreen;
+                if (_fullscreenFrame) _titleBar.Visibility = Visibility.Collapsed;
+                else
+                {
+                    _windowedState = null;
+                    ApplyFrame();
+                }
+            }
+        }
+        else if (IsFullscreen && _windowedState is { } state)
+        {
+            try { _appWindow.SetPresenter(state.Presenter); }
+            finally
+            {
+                _fullscreenFrame = IsFullscreen;
+                if (!_fullscreenFrame)
+                {
+                    _titleBar.Visibility = Visibility.Visible;
+                    ApplyFrame();
+                }
+            }
+            // Restore the normal rectangle first so maximizing recalculates the current work area.
+            var placement = state.Placement;
+            var wasMaximized = placement.ShowCommand == ShowMaximized;
+            placement.ShowCommand = ShowNormal;
+            if (!SetWindowPlacement(_handle, ref placement)) throw NativeFailure("SetWindowPlacement");
+            if (wasMaximized) state.Presenter.Maximize();
+            RefreshWindowState();
+            _windowedState = null;
+        }
+    }
+
     private void ApplyFrame()
     {
-        if (_disposed) return;
+        if (_disposed || _fullscreenFrame) return;
         _window.ExtendsContentIntoTitleBar = true;
         // Register caption input with the XAML island as well as the root HWND.
         _window.SetTitleBar(_titleBar.DragRegion);
@@ -151,6 +213,7 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     private void RefreshWindowState()
     {
+        if (_fullscreenFrame) return;
         UpdateMaximized();
         UpdateResizeRegions();
         UpdateCaptionRegions();
@@ -158,7 +221,7 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     private void UpdateCaptionRegions()
     {
-        if (_disposed || _preparedForClose || _windowClosed || _titleBar.InteractiveRegions.Count == 0 || _nonClientPointerSource is not { } source || _window.Content is not UIElement root) return;
+        if (_disposed || _preparedForClose || _windowClosed || _fullscreenFrame || _titleBar.InteractiveRegions.Count == 0 || _nonClientPointerSource is not { } source || _window.Content is not UIElement root) return;
         var rectangles = new List<RectInt32>();
         foreach (var element in _titleBar.InteractiveRegions)
         {
@@ -177,7 +240,7 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     private void UpdateResizeRegions()
     {
-        if (_disposed || _preparedForClose || _windowClosed || _nonClientPointerSource is not { } source
+        if (_disposed || _preparedForClose || _windowClosed || _fullscreenFrame || _nonClientPointerSource is not { } source
             || !GetClientRect(_handle, out var bounds)) return;
         var width = Math.Max(0, bounds.Right - bounds.Left);
         var height = Math.Max(0, bounds.Bottom - bounds.Top);
@@ -291,7 +354,7 @@ internal sealed class FramelessWindowChrome : IDisposable
         // suggested physical rectangle, so XAML and the HWND use the same DPI.
         var suggested = message == 0x02e0 ? Marshal.PtrToStructure<NativeRect>(lParam) : default;
         var result = DefSubclassProc(window, message, wParam, lParam);
-        if (message == 0x0024 && lParam != 0 && TryGetMonitor(out var monitor))
+        if (!_fullscreenFrame && message == 0x0024 && lParam != 0 && TryGetMonitor(out var monitor))
         {
             var limits = Marshal.PtrToStructure<MinMaxInfo>(lParam);
             limits.MaximumPosition = new NativePoint { X = monitor.Work.Left - monitor.Monitor.Left, Y = monitor.Work.Top - monitor.Monitor.Top };
@@ -301,7 +364,7 @@ internal sealed class FramelessWindowChrome : IDisposable
             if (_titleBar.MinimumWindowHeight > 0) limits.MinimumTrackSize.Y = (int)Math.Ceiling(_titleBar.MinimumWindowHeight * minimumScale);
             Marshal.StructureToPtr(limits, lParam, false);
         }
-        if (message == 0x02e0 && !_disposed)
+        if (message == 0x02e0 && !_disposed && !_fullscreenFrame)
         {
             if (IsZoomed(window) && TryGetMonitor(out var dpiMonitor)) suggested = dpiMonitor.Work;
             if (!IsIconic(window))
@@ -315,6 +378,7 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     private nint HitTest(NativePoint point)
     {
+        if (_fullscreenFrame) return 1; // HTCLIENT. The presenter owns the monitor bounds.
         if (!IsZoomed(_handle) && GetWindowRect(_handle, out var bounds))
         {
             var dpi = GetDpiForWindow(_handle);
@@ -453,6 +517,12 @@ internal sealed class FramelessWindowChrome : IDisposable
     private delegate nint SubclassProc(nint window, uint message, nuint wParam, nint lParam, nuint id, nuint reference);
     [StructLayout(LayoutKind.Sequential)] private struct NativePoint { internal int X, Y; }
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { internal int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] private struct WindowPlacement
+    {
+        internal uint Length, Flags, ShowCommand;
+        internal NativePoint MinimumPosition, MaximumPosition;
+        internal NativeRect NormalPosition;
+    }
     [StructLayout(LayoutKind.Sequential)] private struct Margins { internal int Left, Right, Top, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct MinMaxInfo { internal NativePoint Reserved, MaximumSize, MaximumPosition, MinimumTrackSize, MaximumTrackSize; }
     [StructLayout(LayoutKind.Sequential)] private struct MonitorInfo { internal int Size; internal NativeRect Monitor, Work; internal uint Flags; }
@@ -470,6 +540,10 @@ internal sealed class FramelessWindowChrome : IDisposable
     private static extern nint SetWindowLongPtrW(nint window, int index, nint value);
     [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);
+    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowPlacement(nint window, ref WindowPlacement placement);
+    [DllImport("user32.dll", ExactSpelling = true, SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPlacement(nint window, ref WindowPlacement placement);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetWindowRect(nint window, out NativeRect rectangle);
     [DllImport("user32.dll", ExactSpelling = true)] [return: MarshalAs(UnmanagedType.Bool)]

@@ -102,6 +102,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         Content = windowRoot;
         _chrome = new FramelessWindowChrome(this, _titleBar);
         windowRoot.PreviewKeyDown += OnKeyDown;
+        _viewer.FullscreenRequested += (_, _) => ToggleFullscreen();
         _viewer.RetryRequested += async (_, _) => await NavigateAsync(_index);
         windowRoot.Loaded += async (_, _) =>
         {
@@ -342,6 +343,31 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         (_image.Width * _scroll.ZoomFactor > _scroll.ViewportWidth + 1 ||
          _image.Height * _scroll.ZoomFactor > _scroll.ViewportHeight + 1);
 
+    private void ToggleFullscreen()
+    {
+        if (_closed || _root.XamlRoot is not { } root) return;
+        var focused = FocusManager.GetFocusedElement(root) as Control;
+        var focusState = focused?.FocusState ?? FocusState.Programmatic;
+        if (_dragging)
+        {
+            _dragging = false;
+            _scroll.ReleasePointerCaptures();
+        }
+        _viewer.ClearFullscreenFailure();
+        try { _chrome.ToggleFullscreen(); }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine(exception);
+            _viewer.ShowFullscreenFailure();
+        }
+        finally
+        {
+            _viewer.SetFullscreen(_chrome.IsFullscreen);
+            if (focused is null || !focused.Focus(focusState == FocusState.Unfocused ? FocusState.Programmatic : focusState))
+                _scroll.Focus(FocusState.Programmatic);
+        }
+    }
+
     private void OnKeyDown(object sender, KeyRoutedEventArgs args)
     {
         if (args.Key is VirtualKey.Left or VirtualKey.Right or VirtualKey.Up or VirtualKey.Down)
@@ -361,7 +387,16 @@ public sealed class ImageWindow : Window, IAsyncDisposable
             case (VirtualKey)187: ZoomBy(1.25f); break;
             case VirtualKey.Subtract:
             case (VirtualKey)189: ZoomBy(0.8f); break;
-            case VirtualKey.Escape: Close(); break;
+            case VirtualKey.F11:
+                if (!args.KeyStatus.WasKeyDown) ToggleFullscreen();
+                break;
+            case VirtualKey.Escape:
+                if (!args.KeyStatus.WasKeyDown)
+                {
+                    if (_chrome.IsFullscreen) ToggleFullscreen();
+                    else Close();
+                }
+                break;
             default: return;
         }
         args.Handled = true;
@@ -467,6 +502,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     {
         if (_closed) return;
         _closed = true; ++_generation; _lifetime.Cancel(); _imageCancellation?.Cancel(); _image.Source = null;
+        _viewer.DetachNotice();
         if (_xamlRoot is not null) _xamlRoot.Changed -= OnXamlRootChanged;
         if (_loadTask is not null) await _loadTask;
         var content = _content; _content = null;

@@ -2,6 +2,7 @@
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Fileway.App.Branding;
 
 namespace Fileway.App.Controls;
 
@@ -22,6 +23,17 @@ internal sealed class ViewerChrome : Grid
     };
     private readonly Button _previous = NavigationButton("上一张", false);
     private readonly Button _next = NavigationButton("下一张", true);
+    private readonly LucideIcon _fullscreenIcon = new() { Width = 18, Height = 18 };
+    private readonly Button _fullscreen = new()
+    {
+        Style = SurfaceGeometry.Style("FwIconButtonStyle"), Width = 36, Height = 36,
+        HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
+    };
+    private readonly InfoBar _fullscreenNotice = new()
+    {
+        Severity = InfoBarSeverity.Warning, HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(12),
+    };
     private readonly ProgressRing _progress = new() { Width = 32, Height = 32 };
     private readonly TextBlock _progressText = new()
     {
@@ -43,6 +55,7 @@ internal sealed class ViewerChrome : Grid
     internal Grid ContentHost => _content;
     internal StackPanel ZoomActions => _zoomActions;
     internal event EventHandler? RetryRequested;
+    internal event EventHandler? FullscreenRequested;
 
     internal ViewerChrome()
     {
@@ -62,6 +75,10 @@ internal sealed class ViewerChrome : Grid
         Children.Add(stage);
         AutomationProperties.SetAutomationId(_previous, "ImagePrevious");
         AutomationProperties.SetAutomationId(_next, "ImageNext");
+        FloatingNotice.Attach(_fullscreenNotice, automatic: false);
+        SetColumn(_fullscreenNotice, 1);
+        Canvas.SetZIndex(_fullscreenNotice, 2);
+        stage.Children.Add(_fullscreenNotice);
 
         var footer = new Grid { MinHeight = 56, Padding = new Thickness(16, 4, 16, 4), ColumnSpacing = 12 };
         footer.ColumnDefinitions.Add(new ColumnDefinition());
@@ -74,8 +91,14 @@ internal sealed class ViewerChrome : Grid
         };
         SurfaceStyles.SetUsePopupMaterial(controls, true);
         SetColumn(controls, 1);
+        SetColumn(_fullscreen, 2);
+        _fullscreen.Content = _fullscreenIcon;
+        _fullscreen.Click += (_, _) => FullscreenRequested?.Invoke(this, EventArgs.Empty);
+        AutomationProperties.SetAutomationId(_fullscreen, "ImageFullscreenButton");
+        SetFullscreen(false);
         footer.Children.Add(_metadata);
         footer.Children.Add(controls);
+        footer.Children.Add(_fullscreen);
         SetRow(footer, 1);
         Children.Add(footer);
         AutomationProperties.SetAutomationId(_metadata, "ImageMetadata");
@@ -122,6 +145,26 @@ internal sealed class ViewerChrome : Grid
         _metadata.Text = metadata;
         ToolTipService.SetToolTip(_metadata, metadata);
     }
+
+    internal void SetFullscreen(bool fullscreen)
+    {
+        _fullscreenIcon.IconName = fullscreen ? "minimize" : "maximize";
+        var label = AppBranding.IsChinese
+            ? fullscreen ? "退出全屏 (F11)" : "全屏 (F11)"
+            : fullscreen ? "Exit fullscreen (F11)" : "Fullscreen (F11)";
+        AutomationProperties.SetName(_fullscreen, label);
+        ToolTipService.SetToolTip(_fullscreen, label);
+    }
+
+    internal void ShowFullscreenFailure()
+    {
+        _fullscreenNotice.Title = AppBranding.IsChinese ? "全屏切换失败，请重试。" : "Couldn't switch fullscreen mode. Try again.";
+        FloatingNotice.Show(_fullscreenNotice, _fullscreenNotice.Title, repeat: true, compact: true);
+    }
+
+    internal void ClearFullscreenFailure() => _fullscreenNotice.IsOpen = false;
+
+    internal void DetachNotice() => FloatingNotice.Detach(_fullscreenNotice);
 
     internal void SetNavigation(Action? previous, Action? next)
     {
