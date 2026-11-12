@@ -477,6 +477,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         }
         if (!visible)
         {
+            _controls.CloseTransportToolTips();
             NativeVideoWindow.ShowWindow(_window, 0);
             return;
         }
@@ -610,6 +611,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             }
             current = NativeVideoWindow.GetWindow(root == 0 ? current : root, 4); // GW_OWNER.
         }
+        if (!active) _controls.CloseTransportToolTips();
         _backdropActivity.Update(active, _controls.ActualTheme);
         UpdateMaterialVisibility();
     }

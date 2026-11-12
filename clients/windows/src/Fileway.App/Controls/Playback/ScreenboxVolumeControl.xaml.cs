@@ -18,6 +18,9 @@ public sealed partial class ScreenboxVolumeControl : UserControl
     private bool _confirmedMuted;
     private bool _commandPending;
 
+    internal FrameworkElement[] InlineToolTipOwners => [MuteToggle, VolumeSlider];
+    internal Action<FrameworkElement, string>? InlineToolTipChanged { get; set; }
+
     public ScreenboxVolumeControl(double volume, bool muted, Action<double> setVolume, Action<bool> setMuted)
     {
         _setVolume = setVolume; _setMuted = setMuted;
@@ -42,7 +45,9 @@ public sealed partial class ScreenboxVolumeControl : UserControl
         VolumeGlyph.IconName = IconFor(volume, muted);
         AutomationProperties.SetName(MuteToggle, muted ? "取消静音" : "静音");
         VolumeValue.Text = $"{volume:0}%";
-        ToolTipService.SetToolTip(VolumeSlider, $"音量 {volume:0}%");
+        var toolTip = $"音量 {volume:0}%";
+        if (InlineToolTipChanged is { } update) update(VolumeSlider, toolTip);
+        else ToolTipService.SetToolTip(VolumeSlider, toolTip);
     }
 
     internal static string IconFor(double volume, bool muted) => muted || volume <= 0 ? "volume-x" : volume < 50 ? "volume-1" : "volume-2";

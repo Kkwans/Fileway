@@ -92,6 +92,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             async muted => await RunAsync(token => _session.SetMutedAsync(muted, token)));
         _inlineVolumeControl.UseInlineLayout();
         InlineVolumeHost.Content = _inlineVolumeControl;
+        InitializeTransportToolTips();
         _hideTimer = DispatcherQueue.CreateTimer();
         _hideTimer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ControlsHideSeconds);
         _hideTimer.IsRepeating = false;
@@ -274,7 +275,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         ChapterButton.Visibility = snapshot.Chapters is { Count: > 0 } ? Visibility.Visible : Visibility.Collapsed;
         var chapter = snapshot.Chapters?.LastOrDefault(item => item.Position <= (snapshot.ConfirmedPosition ?? snapshot.Position));
         ChapterTitle.Text = chapter?.Title ?? "章节";
-        ToolTipService.SetToolTip(ChapterButton, chapter?.Title ?? "选择章节");
+        SetTransportToolTipText(ChapterButton, chapter?.Title ?? "选择章节");
         SpeedButton.Content = FormatRate(snapshot.PlaybackRate);
         AutomationProperties.SetName(SpeedButton, "播放速度 " + FormatRate(snapshot.PlaybackRate));
         AutomationProperties.SetName(VolumeButton, $"音量 {snapshot.Volume:0}%");
@@ -339,6 +340,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         WindowButtons.Visibility = fullscreen ? Visibility.Collapsed : Visibility.Visible;
         FullscreenIcon.IconName = fullscreen ? "minimize" : "maximize";
         AutomationProperties.SetName(FullscreenButton, fullscreen ? "退出全屏" : "全屏");
+        SetTransportToolTipText(FullscreenButton, fullscreen ? "退出全屏（Esc）" : "全屏（F11）");
     }
 
     public void NotifyActivity()
@@ -378,6 +380,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Controls_Unloaded(object sender, RoutedEventArgs args)
     {
+        CloseTransportToolTips();
         CloseSettingsFlyout();
         _hideTimer.Stop();
         DismissResumePrompt(notifyActivity: false);
@@ -858,6 +861,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private void ShowFlyout(FlyoutBase flyout, FrameworkElement anchor)
     {
         _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsPresentBegin);
+        CloseTransportToolTips();
         CloseSettingsFlyout();
         _activeFlyout = flyout;
         var component = (flyout as Flyout)?.Content as FrameworkElement;
@@ -1029,8 +1033,18 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         if (moveVolumeFocus) VolumeButton.Focus(FocusState.Keyboard);
     }
     private void BottomBar_SizeChanged(object sender, SizeChangedEventArgs args) { UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged(); }
-    private void Controls_SafeAreaVisibilityChanged(object? sender, EventArgs args) { UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged(); }
-    private void NotifyMaterialBoundsChanged() { if (!_disposed) MaterialBoundsChanged?.Invoke(this, EventArgs.Empty); }
+    private void Controls_SafeAreaVisibilityChanged(object? sender, EventArgs args)
+    {
+        if (!ControlsVisible) CloseTransportToolTips();
+        UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged();
+    }
+
+    private void NotifyMaterialBoundsChanged()
+    {
+        if (_disposed) return;
+        RefreshOpenTransportToolTips();
+        MaterialBoundsChanged?.Invoke(this, EventArgs.Empty);
+    }
 
     private async void UpdateSubtitleSafeArea()
     {
@@ -1086,6 +1100,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         if (_disposed) return;
         _disposed = true; _pendingSubtitleSafeArea = null; BottomBar.SizeChanged -= BottomBar_SizeChanged;
+        DetachTransportToolTips();
         ResetSpritePreview();
         _resumeTimer.Stop(); _resumeTimer.Tick -= ResumeTimer_Tick;
         _noticeTimer.Stop();
