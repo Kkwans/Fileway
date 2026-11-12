@@ -11,7 +11,7 @@ internal sealed class CodePreview : IDisposable
     private const string Host = "fileway-code.local";
     private const string Page = "https://" + Host + "/preview.html";
     private static readonly Lazy<Task<CoreWebView2Environment>> Environment = new(() =>
-        CoreWebView2Environment.CreateWithOptionsAsync(null, Path.Combine(App.DataDirectory(), "code-preview-webview2"), null).AsTask());
+        DocumentWebView.CreateEnvironmentAsync("code-preview-webview2"));
     private readonly string _language;
     private CoreWebView2? _core;
     private string? _text;
@@ -43,13 +43,7 @@ internal sealed class CodePreview : IDisposable
             if (_disposed) return;
             var core = View.CoreWebView2;
             _core = core;
-            core.Settings.AreHostObjectsAllowed = false;
-            core.Settings.AreDevToolsEnabled = false;
-            core.Settings.AreDefaultScriptDialogsEnabled = false;
-            core.SetVirtualHostNameToFolderMapping(Host, assets, CoreWebView2HostResourceAccessKind.Deny);
-            core.NavigationStarting += (_, args) => args.Cancel = args.Uri != Page;
-            core.FrameNavigationStarting += (_, args) => args.Cancel = true;
-            core.NewWindowRequested += (_, args) => args.Handled = true;
+            DocumentWebView.UseLocalAssets(core, Host, Page, assets);
             core.NavigationCompleted += (_, args) => { if (!args.IsSuccess) Failed?.Invoke(); };
             core.ProcessFailed += (_, _) => Failed?.Invoke();
             core.WebMessageReceived += ReceiveMessage;

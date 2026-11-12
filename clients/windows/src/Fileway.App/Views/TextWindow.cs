@@ -74,6 +74,10 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private readonly Button? _codeOptions;
     private readonly string? _codeLanguage;
     private CodePreview? _codePreview;
+    private MarkdownVisualEditor? _markdownEditor;
+    private bool _visualEditing;
+    private bool _switchingMarkdown;
+    private string _visualDraft = "";
     private MenuFlyout? _codeMenu;
     private bool _codeMenuOpen;
     private readonly Grid _root;
@@ -136,7 +140,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
         };
 
-        _renderButton = ViewerAction("file-code", "查看源码", ToggleRendered);
+        _renderButton = ViewerAction("file-code", "查看源码", () => _ = ToggleRenderedAsync());
         _tableButton = ViewerAction("article", "查看纯文本", ToggleTable);
         _wrapButton = new ToggleButton
         {
@@ -255,8 +259,8 @@ public sealed class TextWindow : Window, IAsyncDisposable
         root_Loaded();
         AppWindow.Closing += (window, closingArgs) =>
         {
-            if (_saving) { closingArgs.Cancel = true; return; }
-            if (_closed || !_editing || !_dirty) return;
+            if (_saving || _switchingMarkdown) { closingArgs.Cancel = true; return; }
+            if (_closed || !_editing || (!_dirty && !_visualEditing)) return;
             closingArgs.Cancel = true;
             if (!_confirmingClose) _ = ConfirmDiscardAndCloseAsync();
         };
@@ -265,6 +269,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _closed = true;
             FloatingNotice.Detach(_toast);
             _codePreview?.Dispose();
+            _markdownEditor?.Dispose();
             _lifetime.Cancel();
             _chrome.Dispose();
             _lifetime.Dispose();
@@ -286,6 +291,11 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private void FocusContent()
     {
         if (_closed || _editing) return;
+        if (_markdownEditor is { IsReady: true, View.Visibility: Visibility.Visible } markdown)
+        {
+            markdown.Focus();
+            return;
+        }
         if (_codePreview is { IsReady: true, View.Visibility: Visibility.Visible } preview)
         {
             preview.Focus();
@@ -423,7 +433,15 @@ public sealed class TextWindow : Window, IAsyncDisposable
     public ValueTask DisposeAsync()
     {
         // The Closed handler owns teardown; this covers an explicit dispose before closing.
-        if (!_closed) { _closed = true; _codePreview?.Dispose(); _lifetime.Cancel(); _chrome.Dispose(); _lifetime.Dispose(); }
+        if (!_closed)
+        {
+            _closed = true;
+            _codePreview?.Dispose();
+            _markdownEditor?.Dispose();
+            _lifetime.Cancel();
+            _chrome.Dispose();
+            _lifetime.Dispose();
+        }
         return ValueTask.CompletedTask;
     }
 
@@ -478,11 +496,57 @@ public sealed class TextWindow : Window, IAsyncDisposable
         catch (Exception) { ShowBanner("复制未能完成，请重试。", error: true); }
     }
 
-    private void ToggleRendered()
+    private async Task ToggleRenderedAsync()
     {
-        _showRendered = !_showRendered;
-        ApplyViewMode();
+        if (!_editing)
+        {
+            _showRendered = !_showRendered;
+            ApplyViewMode();
+            UpdateCommands();
+            return;
+        }
+        if (_switchingMarkdown || _saving || _confirmingClose || _markdownEditor is not { IsConnected: true } editor) return;
+        _switchingMarkdown = true;
+        _text.IsReadOnly = true;
         UpdateCommands();
+        try
+        {
+            if (_visualEditing)
+            {
+                editor.SetEditable(false);
+                var draft = await editor.SnapshotAsync(_lifetime.Token);
+                if (_closed) return;
+                _visualEditing = false;
+                _showRendered = false;
+                _text.Text = draft;
+                _dirty = IsEdited(draft);
+                SetMarkdownSurfaceVisible(false);
+                _textFrame.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                var draft = NormalizeLineEndings(_text.Text);
+                if (!await editor.LoadAsync(draft, _lifetime.Token))
+                {
+                    if (!_closed) ShowBanner("此文档有未能往返保留的结构。可继续在源码中编辑。", error: false);
+                    return;
+                }
+                if (_closed) return;
+                _visualDraft = draft;
+                _visualEditing = true;
+                _showRendered = true;
+                _dirty = IsEdited(draft);
+                SetMarkdownSurfaceVisible(true);
+                _textFrame.Visibility = Visibility.Collapsed;
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { if (!_closed) ShowBanner("未能切换编辑视图，当前草稿已保留。", error: true); }
+        finally
+        {
+            _switchingMarkdown = false;
+            if (!_closed) { RestoreEditingInput(); UpdateCommands(); }
+        }
     }
 
     private void ToggleTable()
@@ -498,6 +562,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
         UpdateCommands();
         try
         {
+            if (_visualEditing && _markdownEditor is { } editor)
+            {
+                editor.SetEditable(false);
+                _visualDraft = await editor.SnapshotAsync(_lifetime.Token);
+                _dirty = IsEdited(_visualDraft);
+                if (!_dirty) { _editing = false; Close(); return; }
+            }
             var confirm = new ContentDialog
             {
                 XamlRoot = _text.XamlRoot, RequestedTheme = _text.ActualTheme,
@@ -508,26 +579,27 @@ public sealed class TextWindow : Window, IAsyncDisposable
             var choice = await confirm.ShowAsync();
             if (!_closed && choice == ContentDialogResult.Primary) { _editing = false; Close(); }
         }
-        catch (Exception) { if (!_closed) ShowBanner("确认窗口未能打开，请关闭其他对话框后重试。", error: true); }
+        catch (Exception) { if (!_closed) ShowBanner("未能核对当前草稿，请重试关闭。", error: true); }
         finally
         {
             _confirmingClose = false;
             if (!_closed)
             {
                 UpdateCommands();
-                if (_editing) _text.Focus(FocusState.Programmatic);
+                if (_editing) RestoreEditingInput();
             }
         }
     }
 
     private void UpdateCommands()
     {
-        var ready = _loaded && !_closed && !_saving && !_confirmingClose;
-        var rendered = _renderScroll.Visibility == Visibility.Visible;
+        var ready = _loaded && !_closed && !_saving && !_confirmingClose && !_switchingMarkdown;
+        var rendered = _renderScroll.Visibility == Visibility.Visible || _markdownEditor?.View.Visibility == Visibility.Visible;
         var table = _tableScroll.Visibility == Visibility.Visible;
         SetViewerActionIcon(_renderButton, rendered ? "file-code" : "book-open", rendered ? "查看源码" : "查看渲染");
         SetViewerActionIcon(_tableButton, table ? "article" : "table-2", table ? "查看纯文本" : "查看表格");
-        _renderButton.Visibility = _isMarkdown && !_editing ? Visibility.Visible : Visibility.Collapsed;
+        _renderButton.Visibility = _isMarkdown && (!_editing || _markdownEditor is { IsConnected: true })
+            ? Visibility.Visible : Visibility.Collapsed;
         _renderButton.IsEnabled = ready;
         _tableButton.Visibility = _grid is not null && !_editing ? Visibility.Visible : Visibility.Collapsed;
         _tableButton.IsEnabled = ready;
@@ -572,6 +644,15 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _editing = true;
         _dirty = false;
         _emptyState.Visibility = Visibility.Collapsed;
+        if (_showRendered && _markdownEditor is { IsReady: true, View.Visibility: Visibility.Visible } markdown)
+        {
+            _visualEditing = true;
+            _visualDraft = _rawText;
+            markdown.SetEditable(true);
+            UpdateCommands();
+            markdown.Focus();
+            return;
+        }
         _text.IsReadOnly = false;
         // Editing happens in plain text; rendering/table projections are suspended.
         _textFrame.Visibility = Visibility.Visible;
@@ -584,11 +665,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
 
     private void DiscardEdit()
     {
-        if (!_editing || _saving || _confirmingClose) return;
+        if (!_editing || _saving || _confirmingClose || _switchingMarkdown) return;
         _text.IsReadOnly = true;
+        _visualEditing = false;
         _editing = false;
         _dirty = false;
         _text.Text = _rawText;
+        if (_markdownEditor is not null) _ = ReloadMarkdownAsync(_rawText);
         ApplyViewMode();
         UpdateCommands();
         _banner.Visibility = Visibility.Collapsed;
@@ -600,14 +683,27 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private string NormalizeLineEndings(string text) => text.Replace("\r\n", "\n", StringComparison.Ordinal)
         .Replace('\r', '\n').Replace("\n", _lineEnding, StringComparison.Ordinal);
 
+    private bool IsEdited(string draft) => !string.Equals(NormalizeLineEndings(draft),
+        NormalizeLineEndings(_rawText), StringComparison.Ordinal);
+
     private async Task SaveAsync()
     {
-        if (!_loaded || !_editing || !_dirty || _expectation is not { } expected || _closed || _saving || _confirmingClose) return;
+        if (!_loaded || !_editing || (!_dirty && !_visualEditing) || _expectation is not { } expected ||
+            _closed || _saving || _confirmingClose || _switchingMarkdown) return;
         _saving = true;
         _text.IsReadOnly = true;
         UpdateCommands();
         try
         {
+            var editedText = _text.Text;
+            if (_visualEditing && _markdownEditor is { } editor)
+            {
+                editor.SetEditable(false);
+                editedText = _visualDraft = await editor.SnapshotAsync(_lifetime.Token);
+                _dirty = IsEdited(editedText);
+                if (!_dirty) return;
+            }
+            editedText = NormalizeLineEndings(editedText);
             bool reencode = ContentEncodingIsLegacy();
             var panel = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 420 };
             panel.Children.Add(new TextBlock { Text = "保存对服务器上文件的修改？" + (reencode ? "\n原文件不是 UTF-8：保存将以 UTF-8 重写。" : ""), TextWrapping = TextWrapping.Wrap });
@@ -616,9 +712,6 @@ public sealed class TextWindow : Window, IAsyncDisposable
             var choice = await confirm.ShowAsync();
             if (choice != ContentDialogResult.Primary || !_editing || _closed) return;
             ShowBanner("正在保存…", error: false);
-            // WinUI TextBox normalizes edited line breaks to CR. Keep the file's line format
-            // instead of sending CR-only text to the server or the Markdown/CSV projections.
-            var editedText = NormalizeLineEndings(_text.Text);
             var result = await _service.SaveAsync(_resource, expected, editedText, _lifetime.Token);
             if (_closed) return;
             _expectation = result.NextExpectation;
@@ -628,7 +721,10 @@ public sealed class TextWindow : Window, IAsyncDisposable
             if (_isTable) _grid = CsvGridParser.Parse(_rawText, CsvGridParser.DetectDelimiter(_rawText, _resource.DisplayName));
             _dirty = false;
             _text.IsReadOnly = true;
+            _visualEditing = false;
             _editing = false;
+            _text.Text = _rawText;
+            if (_markdownEditor is not null) _ = ReloadMarkdownAsync(_rawText);
             ApplyViewMode();
             UpdateCommands();
             FocusContent();
@@ -645,14 +741,24 @@ public sealed class TextWindow : Window, IAsyncDisposable
         {
             if (_closed) return;
             if (error is FilewayException { Error.Code: ErrorCode.SourceChanged or ErrorCode.OutcomeUnknown }) _expectation = null;
-            var message = error is FilewayException fileway ? fileway.Error.Message : "保存未能完成，请检查连接后重试。";
+            var message = error switch
+            {
+                FilewayException fileway => fileway.Error.Message,
+                TimeoutException when _visualEditing => "未能取得当前 Markdown 草稿，请重试保存。",
+                _ => "保存未能完成，请检查连接后重试。",
+            };
             ShowBanner(message, error: true);
             UpdateCommands();
         }
         finally
         {
             _saving = false;
-            if (!_closed) { _text.IsReadOnly = !_editing; UpdateCommands(); }
+            if (!_closed)
+            {
+                _text.IsReadOnly = !_editing || _visualEditing;
+                if (_visualEditing) RestoreEditingInput();
+                UpdateCommands();
+            }
         }
     }
 
@@ -660,6 +766,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private void ApplyViewMode()
     {
         if (_editing) return;
+        var useVisualMarkdown = _showRendered && _rawText.Length != 0 && _markdownEditor is { IsReady: true };
+        SetMarkdownSurfaceVisible(useVisualMarkdown);
+        if (useVisualMarkdown)
+        {
+            _emptyState.Visibility = _textFrame.Visibility = _renderScroll.Visibility = _tableScroll.Visibility = Visibility.Collapsed;
+            return;
+        }
         _emptyState.Visibility = _rawText.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (_isTable && _showTable && _grid is { } grid)
         {
@@ -768,10 +881,12 @@ public sealed class TextWindow : Window, IAsyncDisposable
             }
             _expectation = content.Edit;
             _encodingName = content.EncodingName;
-            _text.TextChanged += (_, _) => { if (_editing && !_saving) { _dirty = !string.Equals(NormalizeLineEndings(_text.Text), NormalizeLineEndings(_rawText), StringComparison.Ordinal); UpdateCommands(); } };
+            _text.TextChanged += (_, _) => { if (_editing && !_saving && !_visualEditing) { _dirty = IsEdited(_text.Text); UpdateCommands(); } };
             _banner.Visibility = Visibility.Collapsed;
             if (_codeLanguage is { } language && content.Text.Length != 0 && !new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
                 StartCodePreview(language);
+            if (_isMarkdown && !new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
+                StartMarkdownEditor();
             ApplyViewMode();
             UpdateCommands();
         }
@@ -869,5 +984,87 @@ public sealed class TextWindow : Window, IAsyncDisposable
     {
         _codePreview?.SetDocument(_rawText, _windowRoot.ActualTheme == ElementTheme.Dark,
             PresentationPreferences.CodeSyntaxHighlighting, PresentationPreferences.CodeLineNumbers, _wrapButton.IsChecked == true);
+    }
+
+    private void StartMarkdownEditor()
+    {
+        var editor = new MarkdownVisualEditor();
+        _markdownEditor = editor;
+        _editor.Children.Insert(1, editor.View);
+        editor.SetTheme(_windowRoot.ActualTheme == ElementTheme.Dark);
+        _windowRoot.ActualThemeChanged += (_, _) => _markdownEditor?.SetTheme(_windowRoot.ActualTheme == ElementTheme.Dark);
+        editor.DraftChanged += draft =>
+        {
+            if (_closed || !_visualEditing || _saving) return;
+            _visualDraft = draft;
+            _dirty = IsEdited(draft);
+            UpdateCommands();
+        };
+        editor.CloseRequested += () => { if (!_closed) Close(); };
+        editor.SaveRequested += () => { if (_visualEditing) _ = SaveAsync(); };
+        editor.LinkRequested += async uri =>
+        {
+            try { if (!_closed) await Windows.System.Launcher.LaunchUriAsync(uri); }
+            catch (Exception) { if (!_closed) ShowBanner("链接未能打开。", error: true); }
+        };
+        editor.Failed += () =>
+        {
+            if (_closed || !ReferenceEquals(_markdownEditor, editor)) return;
+            _markdownEditor = null;
+            _editor.Children.Remove(editor.View);
+            editor.Dispose();
+            if (_visualEditing)
+            {
+                _visualEditing = false;
+                _showRendered = false;
+                _text.Text = _visualDraft;
+                _dirty = IsEdited(_visualDraft);
+                _textFrame.Visibility = Visibility.Visible;
+                _text.IsReadOnly = _saving || _confirmingClose || _switchingMarkdown;
+                ShowBanner("图形编辑已停止，已在源码中保留最近同步的草稿。", error: true);
+            }
+            else ApplyViewMode();
+            UpdateCommands();
+        };
+        _ = ReloadMarkdownAsync(_rawText);
+    }
+
+    private async Task ReloadMarkdownAsync(string text)
+    {
+        if (_markdownEditor is not { } editor || _closed) return;
+        SetMarkdownSurfaceVisible(false);
+        try
+        {
+            if (!await editor.LoadAsync(text, _lifetime.Token) || _closed) return;
+            if (!_editing) ApplyViewMode();
+            UpdateCommands();
+            if (_root.XamlRoot is { } root && ReferenceEquals(FocusManager.GetFocusedElement(root), _root))
+                FocusContent();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { System.Diagnostics.Debug.WriteLine($"Markdown preview: {error.GetType().Name}"); }
+    }
+
+    private void SetMarkdownSurfaceVisible(bool visible)
+    {
+        if (_markdownEditor is not { } editor) return;
+        editor.View.Visibility = visible || !editor.IsConnected ? Visibility.Visible : Visibility.Collapsed;
+        editor.View.IsTabStop = editor.View.IsHitTestVisible = visible;
+        editor.View.Opacity = visible ? 1 : 0;
+    }
+
+    private void RestoreEditingInput()
+    {
+        if (!_editing) return;
+        if (_visualEditing && _markdownEditor is { } editor)
+        {
+            editor.SetEditable(true);
+            editor.Focus();
+        }
+        else
+        {
+            _text.IsReadOnly = false;
+            _text.Focus(FocusState.Programmatic);
+        }
     }
 }

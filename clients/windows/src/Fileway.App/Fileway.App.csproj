@@ -88,6 +88,8 @@
     <None Include="$(FilewayMediaRuntimeRoot)\licenses\**\*" Link="media\licenses\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(FilewayArtifactsRoot)\code-preview\ace\*.js" Link="Assets\CodePreview\ace\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="$(FilewayArtifactsRoot)\code-preview\ace\LICENSE" Link="licenses\Ace-BSD-3-Clause.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayArtifactsRoot)\code-preview\ace\LICENSE')" />
+    <None Include="$(FilewayArtifactsRoot)\markdown-editor-work\dist\**\*" Exclude="$(FilewayArtifactsRoot)\markdown-editor-work\dist\MarkdownEditor-LICENSE.md" Link="Assets\MarkdownEditor\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(FilewayArtifactsRoot)\markdown-editor-work\dist\MarkdownEditor-LICENSE.md" Link="licenses\MarkdownEditor-LICENSE.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayArtifactsRoot)\markdown-editor-work\dist\MarkdownEditor-LICENSE.md')" />
     <None Include="..\..\licenses\**\*" Link="licenses\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\LICENSE" Link="licenses\Fileway-GPL-3.0.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
