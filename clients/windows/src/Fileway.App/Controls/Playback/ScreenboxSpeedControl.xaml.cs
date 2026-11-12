@@ -33,6 +33,9 @@ public sealed partial class ScreenboxSpeedControl : UserControl
         SetRate(rate);
     }
 
+    internal bool TryFocusInitialControl(FocusState focusState) =>
+        IsLoaded && XamlRoot is not null && RateSlider.Focus(focusState);
+
     public void ApplyConfirmedRate(double rate, bool commandPending = false)
     {
         _confirmedRate = rate;

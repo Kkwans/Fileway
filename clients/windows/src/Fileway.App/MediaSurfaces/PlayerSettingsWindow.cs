@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Fileway.App.Branding;
+using Fileway.App.Controls.Playback;
 using Fileway.App.Windowing;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Composition;
@@ -19,9 +20,11 @@ namespace Fileway.App.MediaSurfaces;
 /// <summary>An owned, interactive settings or details surface.</summary>
 internal sealed class PlayerSettingsWindow : Window, IDisposable
 {
+    private const double MinimumMenuViewport = 160;
     private readonly Grid _root = new() { RequestedTheme = ElementTheme.Dark };
     private readonly SolidColorBrush _transparentBackground = new(Microsoft.UI.Colors.Transparent);
     private readonly FrameworkElement _presenter;
+    private readonly FrameworkElement? _playerMenuContent;
     private readonly SettingsAcrylicBackdrop _backdrop;
     private readonly NativeVideoWindow.SubclassProc _procedure;
     private readonly KeyEventHandler _keyHandler;
@@ -29,6 +32,10 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
     private readonly NonClientInputGate? _inputGate;
     private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private Action? _onClosed;
+    private Control? _returnFocusTarget;
+    private (FrameworkElement TopBar, FrameworkElement SeekBar)? _pictureBounds;
+    private bool _preferBelow;
+    private bool _trackLayoutQueued;
     private bool _subclassed;
     private bool _shown;
     private bool _closing;
@@ -69,6 +76,15 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
                 control.Background = _transparentBackground;
                 control.BorderThickness = new Thickness(0);
             }
+            if (_presenter is FlyoutPresenter && content is ScreenboxTrackPicker or ScreenboxSpeedControl)
+            {
+                _playerMenuContent = content;
+                // Give the menu's own scrollable region a finite viewport.
+                ScrollViewer.SetHorizontalScrollMode(_presenter, ScrollMode.Disabled);
+                ScrollViewer.SetHorizontalScrollBarVisibility(_presenter, ScrollBarVisibility.Disabled);
+                ScrollViewer.SetVerticalScrollMode(_presenter, ScrollMode.Disabled);
+                ScrollViewer.SetVerticalScrollBarVisibility(_presenter, ScrollBarVisibility.Disabled);
+            }
             SetAcrylicAvailable(false);
             _root.Children.Add(_presenter);
             Content = _root;
@@ -92,6 +108,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             SetDwmAttribute(34, unchecked((int)0xfffffffeu)); // DWMWA_COLOR_NONE.
             UpdatePopupMaterial();
             _root.AddHandler(UIElement.KeyDownEvent, _keyHandler, true);
+            if (_playerMenuContent is not null) _root.PreviewKeyDown += PlayerMenu_PreviewKeyDown;
             _root.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler(Root_PointerPressed), true);
             _root.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(Root_PointerReleased), true);
             _root.PointerCaptureLost += Root_PointerCaptureLost;
@@ -216,47 +233,46 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         _moveWatch?.Stop();
     }
 
-    internal void ShowAt(FrameworkElement anchor, bool preferBelow = false)
+    internal void ShowAt(FrameworkElement anchor, bool preferBelow = false,
+        (FrameworkElement TopBar, FrameworkElement SeekBar)? pictureBounds = null)
     {
         ArgumentNullException.ThrowIfNull(anchor);
         ObjectDisposedException.ThrowIf(_closed || _released, this);
         VerifyThread();
         if (_shown) { Activate(); return; }
-        var xamlRoot = anchor.XamlRoot ?? throw new InvalidOperationException("设置按钮尚未连接到窗口。");
-        var anchorWindow = Microsoft.UI.Win32Interop.GetWindowFromWindowId(xamlRoot.ContentIslandEnvironment.AppWindowId);
-        var origin = new NativeVideoWindow.NativePoint();
-        if (!ClientToScreen(anchorWindow, ref origin)) throw NativeFailure("ClientToScreen");
-        var logical = anchor.TransformToVisual(xamlRoot.Content).TransformPoint(new Point(0, 0));
-        var anchorScale = xamlRoot.RasterizationScale;
-        var anchorRight = checked(origin.X + (int)Math.Ceiling((logical.X + anchor.ActualWidth) * anchorScale));
-        var anchorLeft = checked(origin.X + (int)Math.Floor(logical.X * anchorScale));
-        var anchorTop = checked(origin.Y + (int)Math.Floor(logical.Y * anchorScale));
-        var anchorBottom = checked(origin.Y + (int)Math.Ceiling((logical.Y + anchor.ActualHeight) * anchorScale));
-        var monitor = MonitorFromPoint(new NativeVideoWindow.NativePoint { X = anchorRight, Y = anchorTop }, 2);
-        var information = new NativeVideoWindow.MonitorInfo { Size = Marshal.SizeOf<NativeVideoWindow.MonitorInfo>() };
-        if (monitor == 0 || !NativeVideoWindow.GetMonitorInfoW(monitor, ref information)) throw NativeFailure("GetMonitorInfoW");
-
         try
         {
+            _preferBelow = preferBelow;
+            if (_playerMenuContent is not null) _pictureBounds = pictureBounds;
+            var placement = GetAnchorPlacement(anchor);
             // Size before the first show, then finish XAML initialization without
             // activation. Re-measure once using the target window's actual DPI.
-            PlaceAndMeasure(information.Work, anchorRight, anchorTop, anchorBottom, anchorScale, preferBelow, anchorLeft);
+            PlaceAndMeasure(placement, placement.AnchorScale);
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsShowBegin);
             AppWindow.Show(false);
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsShowEnd);
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutBegin, 1);
             _root.UpdateLayout();
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutEnd, 1);
-            PlaceAndMeasure(information.Work, anchorRight, anchorTop, anchorBottom,
-                _root.XamlRoot?.RasterizationScale ?? anchorScale, preferBelow, anchorLeft);
+            PlaceAndMeasure(placement, _root.XamlRoot?.RasterizationScale ?? placement.AnchorScale);
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutBegin, 2);
             _root.UpdateLayout();
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsLayoutEnd, 2);
             _shown = true;
+            if (_playerMenuContent is not null) _returnFocusTarget = anchor as Control;
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsActivateBegin);
             Activate(); // This surface was explicitly opened for interaction.
-            FocusFirstControl(_root, anchor is Control { FocusState: FocusState.Keyboard }
-                ? FocusState.Keyboard : FocusState.Programmatic);
+            var focusState = anchor is Control { FocusState: FocusState.Keyboard }
+                ? FocusState.Keyboard : FocusState.Programmatic;
+            var focused = _playerMenuContent switch
+            {
+                ScreenboxTrackPicker tracks => tracks.TryFocusInitialControl(focusState),
+                ScreenboxSpeedControl speed => speed.TryFocusInitialControl(focusState),
+                _ => false,
+            };
+            if (!focused) FocusFirstControl(_root, focusState);
+            if (_playerMenuContent is ScreenboxTrackPicker trackPicker)
+                trackPicker.TrackLayoutChanged += Tracks_LayoutChanged;
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsActivateEnd);
         }
         catch
@@ -266,29 +282,112 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         }
     }
 
-    private void PlaceAndMeasure(NativePlayerOverlay.Rect work, int anchorRight, int anchorTop, int anchorBottom, double scale, bool preferBelow, int anchorLeft)
+    private readonly record struct AnchorPlacement(NativePlayerOverlay.Rect Work, int Left, int Top, int Right,
+        int Bottom, double AnchorScale, int ClientTop, int? PictureTop);
+
+    private AnchorPlacement GetAnchorPlacement(FrameworkElement anchor)
+    {
+        var xamlRoot = anchor.XamlRoot ?? throw new InvalidOperationException("设置按钮尚未连接到窗口。");
+        var anchorWindow = Microsoft.UI.Win32Interop.GetWindowFromWindowId(xamlRoot.ContentIslandEnvironment.AppWindowId);
+        var origin = new NativeVideoWindow.NativePoint();
+        if (!ClientToScreen(anchorWindow, ref origin)) throw NativeFailure("ClientToScreen");
+        var logical = anchor.TransformToVisual(xamlRoot.Content).TransformPoint(new Point(0, 0));
+        var scale = xamlRoot.RasterizationScale;
+        var right = checked(origin.X + (int)Math.Ceiling((logical.X + anchor.ActualWidth) * scale));
+        var left = checked(origin.X + (int)Math.Floor(logical.X * scale));
+        var top = checked(origin.Y + (int)Math.Floor(logical.Y * scale));
+        var bottom = checked(origin.Y + (int)Math.Ceiling((logical.Y + anchor.ActualHeight) * scale));
+        var monitor = MonitorFromPoint(new NativeVideoWindow.NativePoint { X = right, Y = top }, 2);
+        var information = new NativeVideoWindow.MonitorInfo { Size = Marshal.SizeOf<NativeVideoWindow.MonitorInfo>() };
+        if (monitor == 0 || !NativeVideoWindow.GetMonitorInfoW(monitor, ref information)) throw NativeFailure("GetMonitorInfoW");
+        int? pictureTop = null;
+        if (_pictureBounds is { } picture)
+        {
+            var seekTop = picture.SeekBar.TransformToVisual(xamlRoot.Content).TransformPoint(new Point(0, 0)).Y;
+            var titleBottom = picture.TopBar.TransformToVisual(xamlRoot.Content).TransformPoint(new Point(0, picture.TopBar.ActualHeight)).Y;
+            top = Math.Min(top, checked(origin.Y + (int)Math.Floor(seekTop * scale)));
+            pictureTop = checked(origin.Y + (int)Math.Ceiling(titleBottom * scale));
+        }
+        return new AnchorPlacement(information.Work, left, top, right, bottom, scale, origin.Y, pictureTop);
+    }
+
+    private void PlaceAndMeasure(AnchorPlacement anchor, double scale)
     {
         _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsMeasureBegin);
+        var work = anchor.Work;
         var gap = Math.Max(1, (int)Math.Ceiling(8 * scale));
         var availableWidth = Math.Max(1, work.Right - work.Left - gap * 2);
         var availableHeight = Math.Max(1, work.Bottom - work.Top - gap * 2);
+        var (width, height) = MeasurePanel(scale, availableWidth, availableHeight);
+        var roomAbove = anchor.Top - work.Top - gap * 2;
+        var roomBelow = work.Bottom - anchor.Bottom - gap * 2;
+        var roomInPicture = anchor.PictureTop is { } pictureTop ? anchor.Top - Math.Max(work.Top, pictureTop) - gap * 2 : 0;
+        var roomInPlayer = anchor.PictureTop is not null ? anchor.Top - Math.Max(work.Top, anchor.ClientTop) - gap * 2 : 0;
+        var minimumViewport = MinimumMenuViewport * scale;
+        var roomInside = roomInPicture >= minimumViewport ? roomInPicture : roomInPlayer;
+        var below = height <= roomBelow && (_preferBelow || height > roomAbove);
+        var largerSide = Math.Max(roomAbove, roomBelow);
+        if (roomInside >= minimumViewport)
+        {
+            below = false;
+            if (height > roomInside) (width, height) = MeasurePanel(scale, availableWidth, roomInside);
+        }
+        else if (_playerMenuContent is not null && height > largerSide && largerSide >= minimumViewport)
+        {
+            below = roomBelow > roomAbove || (roomBelow == roomAbove && _preferBelow);
+            (width, height) = MeasurePanel(scale, availableWidth, largerSide);
+        }
+        var left = Math.Clamp(_preferBelow ? anchor.Left : anchor.Right - width, work.Left + gap, work.Right - gap - width);
+        var top = Math.Clamp(below ? anchor.Bottom + gap : anchor.Top - gap - height, work.Top + gap, work.Bottom - gap - height);
+        if ((!NativePlayerOverlay.GetWindowRect(_window, out var current) ||
+            current.Left != left || current.Top != top || current.Right != left + width || current.Bottom != top + height) &&
+            !NativeVideoWindow.SetWindowPos(_window, 0, left, top, width, height, 0x0214)) // NOACTIVATE | NOZORDER | NOOWNERZORDER.
+            throw NativeFailure("SetWindowPos");
+        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsMeasureEnd);
+    }
+
+    private (int Width, int Height) MeasurePanel(double scale, int availableWidth, int availableHeight)
+    {
         var maxWidth = Math.Min(double.IsFinite(_presenter.Width) ? _presenter.Width : 420, availableWidth / scale);
         var maxHeight = availableHeight / scale;
         _root.MaxWidth = _presenter.MaxWidth = maxWidth;
         _root.MaxHeight = _presenter.MaxHeight = maxHeight;
         _presenter.MinWidth = Math.Min(_presenter.MinWidth, maxWidth);
         _presenter.MinHeight = Math.Min(_presenter.MinHeight, maxHeight);
+        if (_playerMenuContent is { } content && _presenter is FlyoutPresenter presenter)
+        {
+            var padding = presenter.Padding;
+            content.MaxWidth = Math.Max(1, maxWidth - padding.Left - padding.Right);
+            content.MaxHeight = Math.Max(1, maxHeight - padding.Top - padding.Bottom);
+        }
         if (_presenter is Control control) control.ApplyTemplate();
         _root.Measure(new Size(maxWidth, maxHeight));
         var width = Math.Clamp((int)Math.Ceiling(_root.DesiredSize.Width * scale), 1, availableWidth);
         var height = Math.Clamp((int)Math.Ceiling(_root.DesiredSize.Height * scale), 1, availableHeight);
-        var left = Math.Clamp(preferBelow ? anchorLeft : anchorRight - width, work.Left + gap, work.Right - gap - width);
-        var top = preferBelow && anchorBottom + gap + height <= work.Bottom - gap ? anchorBottom + gap : anchorTop - gap - height;
-        if (top < work.Top + gap && anchorBottom + gap + height <= work.Bottom - gap) top = anchorBottom + gap;
-        top = Math.Clamp(top, work.Top + gap, work.Bottom - gap - height);
-        if (!NativeVideoWindow.SetWindowPos(_window, 0, left, top, width, height, 0x0214)) // NOACTIVATE | NOZORDER | NOOWNERZORDER.
-            throw NativeFailure("SetWindowPos");
-        _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsMeasureEnd);
+        return (width, height);
+    }
+
+    private void Tracks_LayoutChanged(object? sender, EventArgs args)
+    {
+        if (_trackLayoutQueued || _closed || _closing) return;
+        _trackLayoutQueued = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, RefreshTrackLayout);
+    }
+
+    private void RefreshTrackLayout()
+    {
+        _trackLayoutQueued = false;
+        if (_closed || _closing || _returnFocusTarget is not { IsLoaded: true, Visibility: Visibility.Visible } anchor)
+            return;
+        try
+        {
+            var placement = GetAnchorPlacement(anchor);
+            _root.InvalidateMeasure();
+            PlaceAndMeasure(placement, _root.XamlRoot?.RasterizationScale ?? placement.AnchorScale);
+        }
+        catch (Win32Exception error)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Playback track menu resize failed: {error.NativeErrorCode}");
+        }
     }
 
     private void Window_Activated(object sender, WindowActivatedEventArgs args)
@@ -317,6 +416,24 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         if (args.Handled || args.Key != VirtualKey.Escape) return;
         args.Handled = true;
         Close();
+    }
+
+    private void PlayerMenu_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key != VirtualKey.Escape) return;
+        args.Handled = true;
+        CloseWithAnchorFocus();
+    }
+
+    private void CloseWithAnchorFocus()
+    {
+        var target = _returnFocusTarget;
+        var restoreFocus = target is not null && NativePlayerOverlay.GetForegroundWindow() == _window;
+        if (restoreFocus) NativePlayerOverlay.SetForegroundWindow(_owner);
+        Close();
+        if (restoreFocus && NativePlayerOverlay.GetForegroundWindow() == _owner &&
+            target is { IsLoaded: true, IsEnabled: true, Visibility: Visibility.Visible })
+            target.Focus(FocusState.Keyboard);
     }
 
     private static bool FocusFirstControl(DependencyObject parent, FocusState focusState)
@@ -352,7 +469,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         if (message == 0x0086) return NativeVideoWindow.DefSubclassProc(window, message, wParam, -1);
         if (message == 0x0010 && !_closing)
         {
-            DispatcherQueue.TryEnqueue(Close);
+            DispatcherQueue.TryEnqueue(CloseWithAnchorFocus);
             return 0;
         }
         if (message == 0x0082)
@@ -395,6 +512,11 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         _released = true;
         Controls.PopupMaterials.Changed -= UpdatePopupMaterial;
         _root.RemoveHandler(UIElement.KeyDownEvent, _keyHandler);
+        if (_playerMenuContent is not null) _root.PreviewKeyDown -= PlayerMenu_PreviewKeyDown;
+        if (_playerMenuContent is ScreenboxTrackPicker trackPicker)
+            trackPicker.TrackLayoutChanged -= Tracks_LayoutChanged;
+        _returnFocusTarget = null;
+        _pictureBounds = null;
         _root.RemoveHandler(UIElement.PointerPressedEvent, new PointerEventHandler(Root_PointerPressed));
         _root.RemoveHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(Root_PointerReleased));
         _root.PointerCaptureLost -= Root_PointerCaptureLost;

@@ -186,6 +186,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public (double Top, double Bottom) GetMaterialInsets() => ControlsVisible
         ? (TopBar.ActualHeight, BottomBar.ActualHeight) : default;
 
+    internal (FrameworkElement TopBar, FrameworkElement SeekBar) SettingsPictureBounds => (TopBar, SeekSlider);
+
     // The owned XAML input site can receive the picture click before its parent
     // HWND's hit test. Edge chrome, menus and their controls are never video gestures.
     internal bool IsVideoBackground(Windows.Foundation.Point position) =>

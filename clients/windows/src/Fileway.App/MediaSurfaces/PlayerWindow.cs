@@ -12,13 +12,15 @@ using Microsoft.UI.Xaml.Media;
 using Windows.Foundation;
 using Windows.Graphics;
 using Windows.System;
-using Microsoft.Windows.Storage.Pickers;
+using Windows.Storage.Pickers;
 
 namespace Fileway.App.MediaSurfaces;
 
 /// <summary>Native video owner and lifecycle; a separate owned WinUI window hosts the HUD.</summary>
 internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlaybackWindowControl
 {
+    private const int MiniWidthDip = 384;
+    private const int MiniHeightDip = 216;
     private readonly IPlaybackSession _session;
     private readonly Fileway.Core.Contracts.IRemoteSubtitleSource? _remoteSubtitles;
     private readonly Fileway.Core.Contracts.IRemoteEpisodeSource? _remoteEpisodes;
@@ -33,6 +35,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private SystemMediaController? _systemMedia;
     private bool _miniMode;
     private bool _miniWasTopmost;
+    private (int Width, int Height) _sizeBeforeMini;
     private IReadOnlyList<Fileway.Core.Contracts.RemoteMediaOption>? _episodeCache;
     private Fileway.Core.Contracts.RemoteResourceRef? _episodeCacheOrigin;
     private string? _advanceAttemptedWire;
@@ -326,7 +329,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         {
             var limits = Marshal.PtrToStructure<NativeVideoWindow.MinMaxInfo>(lParam);
             var scale = NativeVideoWindow.GetDpiForWindow(window) / 96d;
-            limits.MinimumTrackSize = new NativeVideoWindow.NativePoint { X = (int)Math.Round(480 * scale), Y = (int)Math.Round(270 * scale) };
+            limits.MinimumTrackSize = new NativeVideoWindow.NativePoint
+            {
+                X = (int)Math.Round((_miniMode ? MiniWidthDip : 480) * scale),
+                Y = (int)Math.Round((_miniMode ? MiniHeightDip : 270) * scale),
+            };
             var monitor = NativeVideoWindow.MonitorFromWindow(_window, 2);
             var info = new NativeVideoWindow.MonitorInfo { Size = Marshal.SizeOf<NativeVideoWindow.MonitorInfo>() };
             if (NativeVideoWindow.GetMonitorInfoW(monitor, ref info))
@@ -759,7 +766,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         catch (Exception exception) { if (!_closing && !_disposed && !_detached) ShowState("操作未完成", MainPage.ErrorMessage(exception), loading: false); }
     }
 
-    private void Overlay_AddSubtitleRequested(object? sender, EventArgs args) => _ = AddLocalSubtitleAsync();
+    private void Overlay_AddSubtitleRequested(object? sender, EventArgs args)
+    {
+        // Finish closing the owned settings HWND before invoking the player's system picker.
+        DispatcherQueue.TryEnqueue(() => _ = AddLocalSubtitleAsync());
+    }
 
     private bool IsCurrentSubtitleRequest(long generation, PlaybackSnapshot origin) =>
         !_disposed && !_detached && !_closing
@@ -780,26 +791,31 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     {
         if (_disposed || _detached || _closing || FullscreenGeometry) return;
         if (AppWindow.Presenter is not OverlappedPresenter presenter) return;
-        _miniMode = !_miniMode;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
-        if (_miniMode)
+        var dpi = NativeVideoWindow.GetDpiForWindow(_window);
+        var scale = dpi == 0 ? 1 : dpi / 96d;
+        if (!_miniMode)
         {
+            _sizeBeforeMini = WindowSizeInDips();
             SaveWindowSize();
+            _miniMode = true;
             _miniWasTopmost = presenter.IsAlwaysOnTop;
             presenter.IsAlwaysOnTop = true;
             presenter.IsResizable = false;
+            var width = Math.Min((int)Math.Round(MiniWidthDip * scale), work.Width);
+            var height = Math.Min((int)Math.Round(MiniHeightDip * scale), work.Height);
+            var inset = (int)Math.Round(24 * scale);
             AppWindow.MoveAndResize(new RectInt32(
-                work.X + Math.Max(0, work.Width - 384 - 24), work.Y + Math.Max(0, work.Height - 216 - 24), 384, 216));
+                work.X + Math.Max(0, work.Width - width - inset),
+                work.Y + Math.Max(0, work.Height - height - inset), width, height));
         }
         else
         {
+            _miniMode = false;
             presenter.IsAlwaysOnTop = _miniWasTopmost;
             presenter.IsResizable = true;
-            double scale = NativeVideoWindow.GetDpiForWindow(_window) / 96d;
-            if (scale <= 0 || !double.IsFinite(scale)) scale = 1;
-            var saved = PresentationPreferences.PlayerSize ?? (1120, 630);
-            int width = Math.Clamp((int)(saved.Width * scale), 320, work.Width);
-            int height = Math.Clamp((int)(saved.Height * scale), 180, work.Height);
+            int width = Math.Clamp((int)Math.Round(_sizeBeforeMini.Width * scale), 1, work.Width);
+            int height = Math.Clamp((int)Math.Round(_sizeBeforeMini.Height * scale), 1, work.Height);
             AppWindow.MoveAndResize(new RectInt32(
                 work.X + Math.Max(0, (work.Width - width) / 2), work.Y + Math.Max(0, (work.Height - height) / 2), width, height));
         }
@@ -1074,19 +1090,23 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         var generation = Interlocked.Increment(ref _subtitlePickerGeneration);
         var origin = _session.Snapshot;
         var cancellation = _watchCancellation.Token;
+        var failureStage = PlaybackDiagnosticEvent.SubtitlePickerConstructionFailed;
         try
         {
-            var picker = new FileOpenPicker(AppWindow.Id)
-            {
-                Title = "添加本地字幕",
-                CommitButtonText = "添加字幕",
-                SuggestedStartLocation = PickerLocationId.VideosLibrary,
-                ViewMode = PickerViewMode.List,
-            };
+            var picker = new FileOpenPicker();
+            failureStage = PlaybackDiagnosticEvent.SubtitlePickerConfigurationFailed;
+            picker.CommitButtonText = "添加字幕";
+            picker.SuggestedStartLocation = PickerLocationId.VideosLibrary;
+            picker.ViewMode = PickerViewMode.List;
+            picker.SettingsIdentifier = Environment.GetEnvironmentVariable("FILEWAY_WINDOWS_DATA_ROOT") is null
+                ? "Fileway.LocalSubtitle" : "Fileway.LocalSubtitle.Verification";
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, _window);
             foreach (var extension in LocalSubtitlePolicy.Extensions) picker.FileTypeFilter.Add(extension);
+            failureStage = PlaybackDiagnosticEvent.SubtitlePickerOpenFailed;
             var file = await picker.PickSingleFileAsync().AsTask(cancellation);
             if (file is null || !IsCurrentSubtitleRequest(generation, origin)) return;
 
+            failureStage = PlaybackDiagnosticEvent.SubtitleFileInspectFailed;
             // Validate the path and format before filesystem I/O. The picker
             // returns a path; only its metadata is inspected, never its bytes.
             var rejection = LocalSubtitlePolicy.GetRejection(file.Path, 0);
@@ -1109,6 +1129,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             }
 
             Task? loading = null;
+            failureStage = PlaybackDiagnosticEvent.SubtitleLoadFailed;
             // Recheck on the owner UI thread immediately before dispatch. A
             // completed picker may otherwise outlive closing or a new session.
             await OnUiAsync(() =>
@@ -1119,13 +1140,18 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             if (loading is not null) await loading;
         }
         catch (OperationCanceledException) { }
-        catch (Exception)
+        catch (Exception error)
         {
+            _responsiveness?.Record(failureStage, error.HResult);
+            var message = failureStage is PlaybackDiagnosticEvent.SubtitlePickerConstructionFailed or
+                PlaybackDiagnosticEvent.SubtitlePickerConfigurationFailed or PlaybackDiagnosticEvent.SubtitlePickerOpenFailed
+                ? "文件选择器未能打开，请重试。"
+                : "字幕未能加载，请检查文件格式后重试。";
             if (IsCurrentSubtitleRequest(generation, origin))
                 await OnUiAsync(() =>
                 {
                     if (IsCurrentSubtitleRequest(generation, origin))
-                        _overlay.ReportError("字幕未能加载，请检查文件格式后重试。");
+                        _overlay.ReportError(message);
                 });
         }
         finally
@@ -1148,11 +1174,19 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     }
     private void SaveWindowSize()
     {
-        if (_disposed || FullscreenGeometry || NativePlayerOverlay.IsZoomed(_window)) return;
+        if (_disposed || _miniMode || FullscreenGeometry || NativePlayerOverlay.IsZoomed(_window)) return;
+        try
+        {
+            if (PresentationPreferences.RememberPlayerSize) PresentationPreferences.PlayerSize = WindowSizeInDips();
+        }
+        catch (Exception) { /* Window geometry is optional; never interfere with close. */ }
+    }
+    private (int Width, int Height) WindowSizeInDips()
+    {
         var dpi = NativeVideoWindow.GetDpiForWindow(_window);
         var scale = dpi == 0 ? 1 : dpi / 96d;
-        try { PresentationPreferences.PlayerSize = ((int)Math.Round(AppWindow.Size.Width / scale), (int)Math.Round(AppWindow.Size.Height / scale)); }
-        catch (Exception) { /* Window geometry is optional; never interfere with close. */ }
+        var size = AppWindow.Size;
+        return ((int)Math.Round(size.Width / scale), (int)Math.Round(size.Height / scale));
     }
     private async Task CloseSessionAsync()
     {

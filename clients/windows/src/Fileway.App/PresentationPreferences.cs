@@ -8,36 +8,63 @@ namespace Fileway.App;
 internal static class PresentationPreferences
 {
     private const string Key = @"HKEY_CURRENT_USER\Software\Fileway\Preview\Presentation";
+    private static readonly string? IsolatedDataRoot = Environment.GetEnvironmentVariable("FILEWAY_WINDOWS_DATA_ROOT");
+    private static readonly object IsolatedValuesGate = new();
+    private static Dictionary<string, JsonElement>? _isolatedValues;
+
     internal static event Action? AppearanceChanged;
-    internal static int ShellMaterial { get => ReadChoice("ShellMaterial"); set { Registry.SetValue(Key, "ShellMaterial", Math.Clamp(value,0,2)); AppearanceChanged?.Invoke(); } }
-    internal static int ShellTone { get => ReadChoice("ShellTone",3); set { Registry.SetValue(Key,"ShellTone",Math.Clamp(value,0,3)); AppearanceChanged?.Invoke(); } }
+    internal static int ShellMaterial { get => ReadChoice("ShellMaterial"); set { WriteValue("ShellMaterial", Math.Clamp(value, 0, 2)); AppearanceChanged?.Invoke(); } }
+    internal static int ShellTone { get => ReadChoice("ShellTone", 3); set { WriteValue("ShellTone", Math.Clamp(value, 0, 3)); AppearanceChanged?.Invoke(); } }
     internal static Windows.UI.Color ShellTint
     {
         get
         {
             try
             {
-                if (Registry.GetValue(Key, "ShellTint", null) is int rgb)
+                if (ReadValue<int?>("ShellTint", null) is int rgb)
                     return Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
             }
             catch (Exception) { }
             return Controls.ThemePalette.Color("FwShellCustomDefaultColor", Microsoft.UI.Xaml.ElementTheme.Default);
         }
-        set { Registry.SetValue(Key,"ShellTint",value.R<<16|value.G<<8|value.B); AppearanceChanged?.Invoke(); }
+        set { WriteValue("ShellTint", value.R << 16 | value.G << 8 | value.B); AppearanceChanged?.Invoke(); }
     }
     private static int ReadChoice(string name, int maximum = 2)
-    { try { return Registry.GetValue(Key,name,0) is int value ? Math.Clamp(value,0,maximum) : 0; } catch (Exception) { return 0; } }
-    internal static bool RememberPlayerSize { get => Registry.GetValue(Key, "RememberPlayerSize", 0) is int value && value == 1; set => Registry.SetValue(Key, "RememberPlayerSize", value ? 1 : 0); }
+    { try { return Math.Clamp(ReadValue(name, 0), 0, maximum); } catch (Exception) { return 0; } }
+    internal static bool RememberPlayerSize { get => ReadValue("RememberPlayerSize", 0) == 1; set => WriteValue("RememberPlayerSize", value ? 1 : 0); }
     internal static (int Width, int Height)? PlayerSize
     {
-        get => Registry.GetValue(Key, "PlayerWidth", 0) is int w && Registry.GetValue(Key, "PlayerHeight", 0) is int h && w is >= 480 and <= 7680 && h is >= 270 and <= 4320 ? (w, h) : null;
-        set { if (value is { } size) { Registry.SetValue(Key, "PlayerWidth", size.Width); Registry.SetValue(Key, "PlayerHeight", size.Height); } }
+        get
+        {
+            lock (IsolatedValuesGate)
+            {
+                var width = ReadValue("PlayerWidth", 0);
+                var height = ReadValue("PlayerHeight", 0);
+                return width is >= 480 and <= 7680 && height is >= 270 and <= 4320 ? (width, height) : null;
+            }
+        }
+        set
+        {
+            if (value is not { } size) return;
+            if (IsolatedDataRoot is null)
+            {
+                Registry.SetValue(Key, "PlayerWidth", size.Width);
+                Registry.SetValue(Key, "PlayerHeight", size.Height);
+                return;
+            }
+
+            WriteIsolatedValues(values =>
+            {
+                values["PlayerWidth"] = JsonSerializer.SerializeToElement(size.Width);
+                values["PlayerHeight"] = JsonSerializer.SerializeToElement(size.Height);
+            });
+        }
     }
-    internal static int ControlsHideSeconds { get => ReadSeconds("ControlsHideSeconds"); set => Registry.SetValue(Key, "ControlsHideSeconds", Math.Clamp(value, 2, 30)); }
-    internal static int ToastSeconds { get => ReadSeconds("ToastSeconds"); set => Registry.SetValue(Key, "ToastSeconds", Math.Clamp(value, 2, 30)); }
+    internal static int ControlsHideSeconds { get => ReadSeconds("ControlsHideSeconds"); set => WriteValue("ControlsHideSeconds", Math.Clamp(value, 2, 30)); }
+    internal static int ToastSeconds { get => ReadSeconds("ToastSeconds"); set => WriteValue("ToastSeconds", Math.Clamp(value, 2, 30)); }
     private static int ReadSeconds(string name)
     {
-        try { return Registry.GetValue(Key, name, 5) is int value ? Math.Clamp(value, 2, 30) : 5; }
+        try { return Math.Clamp(ReadValue(name, 5), 2, 30); }
         catch (Exception) { return 5; }
     }
     internal static SubtitlePreferences Subtitles
@@ -46,7 +73,7 @@ internal static class PresentationPreferences
         {
             try
             {
-                var value = Registry.GetValue(Key, "Subtitles", null) as string;
+                var value = ReadValue<string?>("Subtitles", null);
                 var prefs = value is { Length: < 4096 } ? JsonSerializer.Deserialize<SubtitlePreferences>(value) : null;
                 return prefs is not null && double.IsFinite(prefs.FontSize) && prefs.FontSize is >= 8 and <= 120 &&
                     double.IsFinite(prefs.Scale) && prefs.Scale is >= 0.1 and <= 10 &&
@@ -55,7 +82,66 @@ internal static class PresentationPreferences
             }
             catch (Exception) { return new(); }
         }
-        set => Registry.SetValue(Key, "Subtitles", JsonSerializer.Serialize(value));
+        set => WriteValue("Subtitles", JsonSerializer.Serialize(value));
+    }
+
+    private static string IsolatedPath => Path.Combine(Path.GetFullPath(IsolatedDataRoot!), "presentation-preferences.json");
+
+    private static T ReadValue<T>(string name, T fallback)
+    {
+        if (IsolatedDataRoot is null)
+            return Registry.GetValue(Key, name, fallback) is T registered ? registered : fallback;
+
+        lock (IsolatedValuesGate)
+        {
+            if (!LoadIsolatedValues().TryGetValue(name, out var value)) return fallback;
+            try { return value.Deserialize<T>() is { } parsed ? parsed : fallback; }
+            catch (JsonException) { return fallback; }
+        }
+    }
+
+    private static void WriteValue<T>(string name, T value) where T : notnull
+    {
+        if (IsolatedDataRoot is null) Registry.SetValue(Key, name, value);
+        else WriteIsolatedValues(values => values[name] = JsonSerializer.SerializeToElement(value));
+    }
+
+    private static Dictionary<string, JsonElement> LoadIsolatedValues()
+    {
+        if (_isolatedValues is not null) return _isolatedValues;
+        try
+        {
+            using var file = File.OpenRead(IsolatedPath);
+            return _isolatedValues = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(file) ?? new();
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or ArgumentException)
+        {
+            return _isolatedValues = new();
+        }
+    }
+
+    private static void WriteIsolatedValues(Action<Dictionary<string, JsonElement>> update)
+    {
+        lock (IsolatedValuesGate)
+        {
+            var values = new Dictionary<string, JsonElement>(LoadIsolatedValues());
+            update(values);
+            var path = IsolatedPath;
+            var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            try
+            {
+                File.WriteAllText(temporary, JsonSerializer.Serialize(values));
+                File.Move(temporary, path, overwrite: true);
+                _isolatedValues = values;
+            }
+            finally
+            {
+                try { File.Delete(temporary); }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
+            }
+        }
     }
 }
 

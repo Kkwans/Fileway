@@ -1,5 +1,6 @@
 // Screenbox CompositeTrackPicker structure adapted to Fileway (6870eb0, GPL-3.0).
 using Fileway.Core.Contracts;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -13,30 +14,51 @@ public sealed partial class ScreenboxTrackPicker : UserControl
     private readonly Action _addSubtitle;
     private bool _updating;
     private bool _populated;
+    private bool _revealQueued;
     private ListViewItem? _confirmed;
     private MediaTrack[] _previous = [];
+
+    internal event EventHandler? TrackLayoutChanged;
 
     public ScreenboxTrackPicker(MediaTrackKind kind, IReadOnlyList<MediaTrack> tracks, Action<long?> select, Action addSubtitle)
     {
         _kind = kind; _select = select; _addSubtitle = addSubtitle;
         InitializeComponent();
+        Loaded += (_, _) => QueueRevealConfirmedTrack();
         Heading.Text = kind == MediaTrackKind.Audio ? "音轨" : "字幕";
-        AddSubtitleButton.Visibility = kind == MediaTrackKind.Subtitle ? Visibility.Visible : Visibility.Collapsed;
+        SubtitleActions.Visibility = kind == MediaTrackKind.Subtitle ? Visibility.Visible : Visibility.Collapsed;
         ApplyTracks(tracks);
+    }
+
+    internal bool TryFocusInitialControl(FocusState focusState)
+    {
+        if (!IsLoaded || XamlRoot is null) return false;
+        if ((_confirmed ?? Tracks.Items.FirstOrDefault() as ListViewItem) is { } item)
+        {
+            Tracks.ScrollIntoView(item);
+            if (!item.IsLoaded) Tracks.UpdateLayout();
+            if (item.IsLoaded && item.Focus(focusState)) return true;
+        }
+        return Tracks.Items.Count > 0 && Tracks.Focus(focusState)
+            || SubtitleActions.Visibility == Visibility.Visible && AddSubtitleButton.Focus(focusState);
     }
 
     public void ApplyTracks(IReadOnlyList<MediaTrack> tracks)
     {
         var filtered = tracks.Where(track => track.Kind == _kind).ToArray();
         if (_populated && _previous.SequenceEqual(filtered)) return;
+        var selected = filtered.FirstOrDefault(track => track.Selected);
+        var revealExternal = selected is { Kind: MediaTrackKind.Subtitle, External: true } &&
+            _previous.FirstOrDefault(track => track.Selected)?.Id != selected.Id;
         if (_populated && _previous.Length == filtered.Length && _previous.Zip(filtered).All(pair =>
             (pair.First with { Selected = false }) == (pair.Second with { Selected = false })))
         {
             _previous = filtered;
-            var selectedId = filtered.FirstOrDefault(track => track.Selected)?.Id;
+            var selectedId = selected?.Id;
             _confirmed = Tracks.Items.OfType<ListViewItem>().FirstOrDefault(item =>
                 item.Tag is long id ? id == selectedId : selectedId is null && _kind == MediaTrackKind.Subtitle);
             _updating = true; Tracks.SelectedItem = _confirmed; _updating = false;
+            if (revealExternal) QueueRevealConfirmedTrack();
             return;
         }
         _populated = true;
@@ -58,6 +80,18 @@ public sealed partial class ScreenboxTrackPicker : UserControl
         }
         Tracks.SelectedItem = _confirmed;
         _updating = false;
+        TrackLayoutChanged?.Invoke(this, EventArgs.Empty);
+        if (revealExternal) QueueRevealConfirmedTrack();
+    }
+
+    private void QueueRevealConfirmedTrack()
+    {
+        if (!IsLoaded || _revealQueued) return;
+        _revealQueued = DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () =>
+        {
+            _revealQueued = false;
+            if (Tracks.IsLoaded && _confirmed is { } row) Tracks.ScrollIntoView(row);
+        });
     }
 
     private static ListViewItem MakeItem(string title, string? detail, long? id)

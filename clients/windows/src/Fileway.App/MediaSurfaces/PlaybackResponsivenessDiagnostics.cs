@@ -35,6 +35,11 @@ internal enum PlaybackDiagnosticEvent
     UiProbeCompleted,
     UiProbeRejected,
     UiProbePending,
+    SubtitlePickerConstructionFailed,
+    SubtitlePickerConfigurationFailed,
+    SubtitlePickerOpenFailed,
+    SubtitleFileInspectFailed,
+    SubtitleLoadFailed,
 }
 
 internal sealed record PlaybackDiagnosticEntry(long Sequence, long ElapsedMicroseconds,

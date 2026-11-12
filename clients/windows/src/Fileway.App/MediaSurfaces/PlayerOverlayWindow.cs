@@ -406,7 +406,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             }, _responsiveness);
             _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsCreateEnd);
             _settingsWindow = popup;
-            popup.ShowAt(anchor);
+            popup.ShowAt(anchor, pictureBounds: _controls.SettingsPictureBounds);
         }
         catch (Exception exception)
         {
