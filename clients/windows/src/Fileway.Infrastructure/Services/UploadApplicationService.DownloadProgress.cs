@@ -1,6 +1,7 @@
 using Fileway.Core.Contracts;
 using Fileway.Core.Integration;
 using Fileway.Infrastructure.Persistence;
+using Fileway.Infrastructure.Transfers;
 
 namespace Fileway.Infrastructure.Services;
 
@@ -160,15 +161,13 @@ public sealed partial class UploadApplicationService
             (files.PartialPath is not null && files.PartialIdentity is not null || files.PublishedFileIdentity is not null);
         // Resume evidence is durable fact (pinned version + owned unpublished partial +
         // confirmed offset), not a UI state; the presentation layer adds liveness to it.
-        bool resumable = !DownloadTerminal(checkpoint.Phase) && record.Intent != TransferIntent.Cancel &&
-            checkpoint.Uncertainty == TransferUncertainty.None && checkpoint.Source?.SourceVersion is not null &&
-            checkpoint.Files is { PartialPath: not null, PartialIdentity: not null, PublishedFileIdentity: null } &&
-            checkpoint.ConfirmedOffset is not null &&
-            checkpoint.Phase is TransferPhase.Paused or TransferPhase.Running or TransferPhase.WaitingNetwork or
+        bool resumable = FileDownloadRunner.HasResumeEvidence(record) &&
+            checkpoint.Phase is TransferPhase.Paused or TransferPhase.Running or TransferPhase.Reconciling or TransferPhase.WaitingNetwork or
                 TransferPhase.WaitingAuthentication or TransferPhase.Failed;
         return new(record.Plan.Reference, record.Intent, checkpoint.Phase, checkpoint.ConfirmedOffset, checkpoint.Source?.Length,
             published, checkpoint.Uncertainty, checkpoint.Error is { } error ? DownloadSafe(error.Code, error.HttpStatus, error.Retryable).Error : null,
-            record.Revision, record.Generation, localEvidence && !DownloadTerminal(checkpoint.Phase), record.CreatedAt, record.UpdatedAt, resumable);
+            record.Revision, record.Generation, localEvidence && !DownloadTerminal(checkpoint.Phase) &&
+                FileDownloadRunner.CanReconcileLocal(record), record.CreatedAt, record.UpdatedAt, resumable);
     }
 
     private DownloadItem ObserveDownload(Binding binding, TransferTaskRecord record, DownloadTaskProgress? progress = null, bool publish = true)
@@ -191,7 +190,7 @@ public sealed partial class UploadApplicationService
                 accepted.Error is not null && snapshot.Error is null) snapshot = snapshot with { Error = accepted.Error };
             if (item.Progress is { } old && old.Run.Generation != snapshot.Generation) item.Progress = null;
             item.Snapshot = snapshot;
-            if (DownloadTerminal(snapshot.Phase) || snapshot.Error is not null)
+            if (DownloadTerminal(snapshot.Phase) || snapshot.Error is not null && ResumeOriginGeneration(snapshot.Task) is null)
             { item.Scheduled = false; item.Control = null; item.Progress = null; }
             if (!DownloadTerminal(snapshot.Phase) && progress is not null && progress.Run.Task == snapshot.Task &&
                 progress.Run.Generation == snapshot.Generation && progress.TotalBytes == snapshot.TotalBytes &&
@@ -217,6 +216,9 @@ public sealed partial class UploadApplicationService
             status = snapshot.LocalPublished ? DownloadStatus.Completed : DownloadStatus.OutcomeUnknown;
         else if (snapshot.Phase == TransferPhase.Canceled) status = DownloadStatus.Canceled;
         else if (item.Control is { } control) status = control;
+        else if (item.Scheduled && ResumeOriginGeneration(snapshot.Task) is { } generation &&
+            (snapshot.Generation <= generation || snapshot.Phase == TransferPhase.Reconciling))
+            status = snapshot.Generation <= generation ? DownloadStatus.Queued : DownloadStatus.Preparing;
         else if (snapshot.Intent == TransferIntent.Pause && item.Scheduled) status = DownloadStatus.Paused;
         else if (snapshot.Intent == TransferIntent.Cancel) status = DownloadStatus.OutcomeUnknown;
         else if (snapshot.Error is not null && snapshot.Phase is TransferPhase.Queued or TransferPhase.Preparing or TransferPhase.Running or
@@ -245,6 +247,9 @@ public sealed partial class UploadApplicationService
             checked(++_downloadPresentationRevision), CanPause: item.Scheduled && status == DownloadStatus.Downloading,
             CanResume: item.Scheduled && status == DownloadStatus.Paused || !item.Scheduled && snapshot.CanResumeLocally);
     }
+
+    private long? ResumeOriginGeneration(TransferTaskRef task) =>
+        _downloadExecutions.TryGetValue(task, out var work) ? work.ResumeFromGeneration : null;
 
     private void RecordDownloadFailure(Binding binding, TransferTaskRef task, Exception error)
     {

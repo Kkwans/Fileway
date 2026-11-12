@@ -105,10 +105,12 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         cancellationToken.ThrowIfCancellationRequested();
         RequirePlan(record);
         if (IsTerminal(record)) return record;
-        if (record.Checkpoint.Phase == TransferPhase.Queued && record.Intent != TransferIntent.Cancel)
-            throw Safe(ErrorCode.InvalidRequest);
+        if (!CanReconcileLocal(record)) throw Safe(ErrorCode.InvalidRequest);
         return await StartExecution(task, ExecutionMode.Reconcile, epoch, cancellationToken).ConfigureAwait(false);
     }
+
+    internal static bool CanReconcileLocal(TransferTaskRecord record) =>
+        record.Intent == TransferIntent.Cancel || record.Checkpoint.Uncertainty == TransferUncertainty.LocalPublish;
 
     private Task<TransferTaskRecord> StartExecution(TransferTaskRef task, ExecutionMode mode, long epoch, CancellationToken caller)
     {
@@ -181,6 +183,9 @@ public sealed partial class FileDownloadRunner : IFileDownloadRunner, IFileDownl
         if (IsTerminal(record)) return record;
         if (execution.Mode == ExecutionMode.Fresh) RequireFresh(record);
         if (execution.Mode == ExecutionMode.Resume) RequireResumable(record);
+        // Re-read under the same task lock as claim and local cleanup. Ordinary
+        // interrupted downloads keep their checkpoint until resume or explicit cancel.
+        if (execution.Mode == ExecutionMode.Reconcile && !CanReconcileLocal(record)) throw Safe(ErrorCode.InvalidRequest);
         if (execution.Mode == ExecutionMode.Resume) record = await SetIntentRunAsync(record, execution.Stop.Token).ConfigureAwait(false);
         record = await ClaimAsync(record, execution.Mode != ExecutionMode.Fresh, execution.Stop.Token).ConfigureAwait(false);
         if (record.Run is null || IsTerminal(record)) return record;

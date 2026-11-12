@@ -82,7 +82,7 @@ public static class DialogOrdering
         }
     }
 
-    private static bool Reorder(ContentDialog dialog)
+    internal static bool Reorder(ContentDialog dialog)
     {
         var primary = Find(dialog, "PrimaryButton");
         var commandSpace = primary is null ? null : FindAncestor(primary, "CommandSpace");
@@ -90,9 +90,22 @@ public static class DialogOrdering
         var close = commandSpace is not null ? Find(commandSpace, "CloseButton") : Find(dialog, "CloseButton");
         if (primary is Button primaryButton && close is Button closeButton)
             ApplyButtonStyles(primaryButton, secondary as Button, closeButton);
-        // Secondary + Close already share the SDK's two-button columns.
-        if (string.IsNullOrWhiteSpace(dialog.PrimaryButtonText) || string.IsNullOrWhiteSpace(dialog.CloseButtonText))
+        var hasPrimaryAndClose = !string.IsNullOrWhiteSpace(dialog.PrimaryButtonText) &&
+            !string.IsNullOrWhiteSpace(dialog.CloseButtonText);
+        if (commandSpace is Grid { ColumnDefinitions.Count: 5 } nativeGrid &&
+            primary is not null && secondary is not null && close is not null &&
+            ReferenceEquals(VisualTreeHelper.GetParent(primary), nativeGrid) &&
+            ReferenceEquals(VisualTreeHelper.GetParent(secondary), nativeGrid) &&
+            ReferenceEquals(VisualTreeHelper.GetParent(close), nativeGrid))
+        {
+            // Let the SDK keep assigning columns as actions appear and disappear.
+            // Mirror placement while keeping each button's reading direction.
+            primary.FlowDirection = secondary.FlowDirection = close.FlowDirection = dialog.FlowDirection;
+            nativeGrid.FlowDirection = hasPrimaryAndClose ? FlowDirection.RightToLeft : dialog.FlowDirection;
             return true;
+        }
+        // Secondary + Close already share the SDK's two-button columns.
+        if (!hasPrimaryAndClose) return true;
         if (primary is null || close is null) return false;
         var ancestors = new HashSet<DependencyObject>();
         for (DependencyObject? node = VisualTreeHelper.GetParent(primary); node is not null; node = VisualTreeHelper.GetParent(node))

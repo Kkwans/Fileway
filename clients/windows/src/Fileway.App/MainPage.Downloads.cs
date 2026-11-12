@@ -434,16 +434,29 @@ public sealed partial class MainPage
         catch (Exception error) { ShowDownloadError("下载详情未能打开", error); return; }
         var dialog = new ContentDialog { Title = "文件下载", Content = new ScrollViewer { Content = view.Content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None };
         _downloadDialog = dialog; _downloadDetails = view; _downloadDetailTask = task;
-        view.Cancel.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Visible; view.Cancel.IsEnabled = false; RenderDownloadDetails(); };
-        view.Keep.Click += (_, _) => { view.CancelConfirmation.Visibility = Visibility.Collapsed; RenderDownloadDetails(); };
-        view.ConfirmCancel.Click += async (_, _) => await RunDownloadControlAsync(task, cancel: true);
-        view.Play.Click += async (_, _) => await PlayDownloadAsync(task);
-        view.OpenLocal.Click += async (_, _) => await OpenDownloadLocallyAsync(task);
-        view.Retry.Click += async (_, _) => await RetryDownloadAsync(task);
+        view.Play.Click += async (_, _) => { if (_downloadDetailTask is { } current) await PlayDownloadAsync(current); };
+        view.OpenLocal.Click += async (_, _) => { if (_downloadDetailTask is { } current) await OpenDownloadLocallyAsync(current); };
+        view.Retry.Click += async (_, _) => { if (_downloadDetailTask is { } current) await RetryDownloadAsync(current); };
+        dialog.SecondaryButtonClick += (_, click) =>
+        {
+            click.Cancel = true;
+            view.CancelConfirmation.Visibility = view.CancelConfirmation.Visibility == Visibility.Visible
+                ? Visibility.Collapsed : Visibility.Visible;
+            RenderDownloadDetails();
+        };
         dialog.PrimaryButtonClick += async (_, click) =>
         {
             click.Cancel = true; var deferral = click.GetDeferral();
-            try { await RunDownloadControlAsync(task, cancel: false); }
+            try
+            {
+                if (_downloadDetailTask is not { } current || !_downloadItems.TryGetValue(current, out var visibleItem)) return;
+                if (view.CancelConfirmation.Visibility == Visibility.Visible)
+                    await RunDownloadControlAsync(current, cancel: true);
+                else if (visibleItem.CanResume)
+                    await ToggleDownloadPausedAsync(current);
+                else
+                    await RunDownloadControlAsync(current, cancel: false);
+            }
             finally { deferral.Complete(); }
         };
         RenderDownloadNotice(); RenderDownloadDetails();
@@ -473,19 +486,24 @@ public sealed partial class MainPage
             ? Visibility.Visible : Visibility.Collapsed;
         view.OpenLocal.Visibility = item.Status == DownloadStatus.Completed && item.Snapshot.LocalPublished &&
             _downloads is IDownloadControlService ? Visibility.Visible : Visibility.Collapsed;
-        view.OpenLocal.IsEnabled = !_downloadOperationBusy;
-        view.Play.IsEnabled = !_downloadPlaybackOpening && !_downloadOperationBusy;
-        view.Retry.Visibility = DownloadPolicy.CanRetryFresh(item) ? Visibility.Visible : Visibility.Collapsed;
-        view.Retry.IsEnabled = !_downloadOperationBusy;
         var cancel = DownloadPolicy.CanCancel(item);
         if (!cancel) view.CancelConfirmation.Visibility = Visibility.Collapsed;
         var confirmingCancel = view.CancelConfirmation.Visibility == Visibility.Visible;
-        view.Cancel.Visibility = cancel && !confirmingCancel ? Visibility.Visible : Visibility.Collapsed;
-        view.Cancel.IsEnabled = cancel && !_downloadOperationBusy;
-        view.Keep.IsEnabled = !_downloadOperationBusy;
-        view.ConfirmCancel.IsEnabled = cancel && !_downloadOperationBusy;
-        dialog.PrimaryButtonText = confirmingCancel ? string.Empty : DownloadPolicy.PrimaryLabel(item);
-        dialog.IsPrimaryButtonEnabled = !confirmingCancel && !_downloadOperationBusy && DownloadPolicy.CanReconcile(item);
+        view.OpenLocal.IsEnabled = !confirmingCancel && !_downloadOperationBusy;
+        view.Play.IsEnabled = !confirmingCancel && !_downloadPlaybackOpening && !_downloadOperationBusy;
+        view.Retry.Visibility = DownloadPolicy.CanRetryFresh(item) ? Visibility.Visible : Visibility.Collapsed;
+        view.Retry.IsEnabled = !confirmingCancel && !_downloadOperationBusy;
+        view.Actions.Visibility = !confirmingCancel && (view.Play.Visibility == Visibility.Visible ||
+            view.OpenLocal.Visibility == Visibility.Visible || view.Retry.Visibility == Visibility.Visible)
+            ? Visibility.Visible : Visibility.Collapsed;
+        dialog.SecondaryButtonText = !cancel ? string.Empty : confirmingCancel ? "返回" : "取消下载…";
+        dialog.IsSecondaryButtonEnabled = cancel && !_downloadOperationBusy;
+        var hadPrimary = !string.IsNullOrEmpty(dialog.PrimaryButtonText);
+        dialog.PrimaryButtonText = confirmingCancel ? "确认取消" : DownloadPolicy.PrimaryLabel(item);
+        if (hadPrimary != !string.IsNullOrEmpty(dialog.PrimaryButtonText) && dialog.IsLoaded)
+            Controls.DialogOrdering.Reorder(dialog);
+        dialog.IsPrimaryButtonEnabled = !_downloadOperationBusy && (confirmingCancel || DownloadPolicy.CanReconcile(item) ||
+            item.CanResume && _downloads is IDownloadControlService);
     }
 
     private async Task RunDownloadControlAsync(TransferTaskRef task, bool cancel)
@@ -522,6 +540,7 @@ public sealed partial class MainPage
             var changed = await service.SubmitAsync(preview, _lifetime.Token);
             if (!IsCurrentDownloadContext(context)) return;
             AcceptDownloadItem(changed);
+            if (_downloadDetails is { } view) view.CancelConfirmation.Visibility = Visibility.Collapsed;
             _downloadDetailTask = changed.Snapshot.Task;
         }
         catch (OperationCanceledException) { }
@@ -580,9 +599,8 @@ public sealed partial class MainPage
               <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
               <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border x:Name="ProgressTrack" Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="下载接收活动进度，完成还需校验与保存"/></Border><TextBlock x:Name="Activity" FontSize="12" TextWrapping="Wrap"/><TextBlock x:Name="Flushed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
               <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-               <StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/><Button x:Name="OpenLocal" Content="打开文件" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="用系统默认应用打开已下载的文件" ToolTipService.ToolTip="先核实本地文件身份，再交给系统默认应用打开；不会改动 NAS 原文件。"/><Button x:Name="Retry" Content="重新下载（新任务）" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="重新下载并创建新任务"/></StackPanel>
-              <Button x:Name="Cancel" Content="取消下载…" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}"/>
-              <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"><StackPanel Spacing="10"><TextBlock Text="确认取消当前下载？只会清理本任务拥有的未发布临时文件，已经保存的文件会保留。" TextWrapping="Wrap"/><StackPanel Orientation="Horizontal" Spacing="8"><Button x:Name="Keep" Content="返回" Style="{StaticResource FwSecondaryButtonStyle}"/><Button x:Name="ConfirmCancel" Content="确认取消" Style="{StaticResource FwPrimaryButtonStyle}"/></StackPanel></StackPanel></Border>
+              <StackPanel x:Name="Actions" Orientation="Horizontal" Spacing="8" Visibility="Collapsed"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/><Button x:Name="OpenLocal" Content="打开文件" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="用系统默认应用打开已下载的文件" ToolTipService.ToolTip="先核实本地文件身份，再交给系统默认应用打开；不会改动 NAS 原文件。"/><Button x:Name="Retry" Content="重新下载（新任务）" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="重新下载并创建新任务"/></StackPanel>
+              <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"><TextBlock Text="确认取消当前下载？只会清理本任务拥有的未发布临时文件，已经保存的文件会保留。" TextWrapping="Wrap"/></Border>
             </StackPanel>
             """);
         public DownloadDetailsView()
@@ -591,9 +609,7 @@ public sealed partial class MainPage
             if (resources["FwSecondaryButtonStyle"] is Style secondary)
             {
                 Play.Style = secondary; OpenLocal.Style = secondary; Retry.Style = secondary;
-                Cancel.Style = secondary; Keep.Style = secondary;
             }
-            if (resources["FwPrimaryButtonStyle"] is Style primary) ConfirmCancel.Style = primary;
         }
         public TextBlock Name => (TextBlock)Content.FindName("Name");
         public TextBlock Destination => (TextBlock)Content.FindName("Destination");
@@ -603,12 +619,10 @@ public sealed partial class MainPage
         public TextBlock Activity => (TextBlock)Content.FindName("Activity");
         public TextBlock Flushed => (TextBlock)Content.FindName("Flushed");
         public TextBlock Detail => (TextBlock)Content.FindName("Detail");
-        public Button Cancel => (Button)Content.FindName("Cancel");
+        public StackPanel Actions => (StackPanel)Content.FindName("Actions");
         public Button Play => (Button)Content.FindName("Play");
         public Button OpenLocal => (Button)Content.FindName("OpenLocal");
         public Button Retry => (Button)Content.FindName("Retry");
         public Border CancelConfirmation => (Border)Content.FindName("CancelConfirmation");
-        public Button Keep => (Button)Content.FindName("Keep");
-        public Button ConfirmCancel => (Button)Content.FindName("ConfirmCancel");
     }
 }

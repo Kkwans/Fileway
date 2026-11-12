@@ -29,7 +29,8 @@ public sealed partial class UploadApplicationService
         internal LinkedListNode<DownloadWork>? Node { get; set; }
         internal bool Started { get; set; }
         internal bool Canceling { get; set; }
-        internal bool Resume { get; init; }
+        internal long? ResumeFromGeneration { get; init; }
+        internal bool Resume => ResumeFromGeneration.HasValue;
         internal DownloadTaskProgress? PendingProgress { get; set; }
         internal bool ReadingProgress { get; set; }
     }
@@ -241,6 +242,7 @@ public sealed partial class UploadApplicationService
     {
         await EnterAsync(cancellationToken).ConfigureAwait(false);
         Binding? binding = null;
+        DownloadWork? admitted = null;
         try
         {
             binding = RequireDownloadContext(context, task);
@@ -254,6 +256,7 @@ public sealed partial class UploadApplicationService
                 RequireCurrent(binding);
                 if (_downloadExecutions.ContainsKey(task)) throw DownloadSafe(ErrorCode.Busy);
             }
+            if (!DownloadSnapshot(record).CanResumeLocally) throw DownloadSafe(ErrorCode.InvalidRequest);
             _ = ObserveDownload(binding, record, publish: false);
             DownloadWork work;
             lock (_gate)
@@ -261,7 +264,7 @@ public sealed partial class UploadApplicationService
                 RequireCurrent(binding);
                 RequireDownloadPermission(binding);
                 RequireDownloadQueueCapacityLocked(binding);
-                work = new(binding, task, cancellationToken) { Resume = true };
+                work = admitted = new(binding, task, cancellationToken) { ResumeFromGeneration = record.Generation };
                 binding.DownloadItems[work.Task].Scheduled = true;
                 _downloadExecutions.Add(work.Task, work);
                 work.Node = _downloadQueue.AddLast(work);
@@ -283,17 +286,16 @@ public sealed partial class UploadApplicationService
             // scheduled item that no queue node will ever dispatch.
             lock (_gate)
             {
-                if (binding is not null && binding.DownloadItems.TryGetValue(task, out var item))
+                if (admitted is { Started: false } stale && binding is not null &&
+                    binding.DownloadItems.TryGetValue(task, out var item) &&
+                    _downloadExecutions.TryGetValue(task, out var registered) && ReferenceEquals(stale, registered))
                 {
                     item.Scheduled = false;
-                    if (_downloadExecutions.TryGetValue(task, out var stale) && stale.Resume && !stale.Started)
-                    {
-                        if (stale.Node is { } node) { _downloadQueue.Remove(node); stale.Node = null; }
-                        _downloadExecutions.Remove(task);
-                        stale.StopRegistration.Dispose();
-                        stale.Stop.Dispose();
-                        stale.Completion.TrySetResult(new DownloadCompletion(null, failure));
-                    }
+                    if (stale.Node is { } node) { _downloadQueue.Remove(node); stale.Node = null; }
+                    _downloadExecutions.Remove(task);
+                    stale.StopRegistration.Dispose();
+                    stale.Stop.Dispose();
+                    stale.Completion.TrySetResult(new DownloadCompletion(null, failure));
                     if (ReferenceEquals(_current, binding)) QueueDownloadUpdateLocked(ProjectDownload(binding, item));
                 }
             }
@@ -335,7 +337,7 @@ public sealed partial class UploadApplicationService
                         try { RequireDownloadQueueCapacityLocked(binding); }
                         catch (FilewayException) { capacityReached = true; }
                         if (capacityReached) break;
-                        DownloadWork work = new(binding, record.Plan.Reference, cancellationToken) { Resume = true };
+                        DownloadWork work = new(binding, record.Plan.Reference, cancellationToken) { ResumeFromGeneration = record.Generation };
                         binding.DownloadItems[work.Task].Scheduled = true;
                         _downloadExecutions.Add(work.Task, work);
                         work.Node = _downloadQueue.AddLast(work);

@@ -45,10 +45,10 @@ internal static class DownloadPresentationPolicy
     internal static bool IsTerminal(DownloadStatus status) => status is DownloadStatus.Completed or DownloadStatus.Canceled;
     internal static bool CanCancel(DownloadItem item) => !IsTerminal(EffectiveStatus(item))
         && EffectiveStatus(item) is not (DownloadStatus.Canceling or DownloadStatus.OutcomeUnknown or DownloadStatus.Reconciling);
-    internal static bool CanReconcile(DownloadItem item) => item.Snapshot.CanReconcileLocally
+    internal static bool CanReconcile(DownloadItem item) => !item.CanResume && item.Snapshot.CanReconcileLocally
         && !IsActive(EffectiveStatus(item)) && !IsTerminal(EffectiveStatus(item));
     /// <summary>Starts a new explicit download after a terminal/blocked attempt; this never resumes a partial file.</summary>
-    internal static bool CanRetryFresh(DownloadItem item) => EffectiveStatus(item) is
+    internal static bool CanRetryFresh(DownloadItem item) => !item.CanResume && EffectiveStatus(item) is
         DownloadStatus.Stopped or DownloadStatus.WaitingNetwork or DownloadStatus.WaitingAuthentication or
         DownloadStatus.Conflict or DownloadStatus.SourceChanged or DownloadStatus.Failed or DownloadStatus.Canceled;
     /// <summary>Presentation hint only; the application rechecks all read authority before opening.</summary>
@@ -63,7 +63,7 @@ internal static class DownloadPresentationPolicy
         (Path.GetExtension(item.Source.DisplayName).ToLowerInvariant() is ".mp4" or ".mkv" or ".mov" or ".webm" or
             ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv" or
             ".mp3" or ".flac" or ".wav" or ".aac" or ".ogg" or ".opus" or ".m4a" or ".wma" or ".ape" or ".mka" or ".aiff");
-    internal static string PrimaryLabel(DownloadItem item) => !CanReconcile(item) ? ""
+    internal static string PrimaryLabel(DownloadItem item) => item.CanResume ? "继续下载" : !CanReconcile(item) ? ""
         : item.Snapshot.Intent == TransferIntent.Cancel ? "核实取消结果" : "核实本地结果";
 
     internal static string Stage(DownloadItem item) => EffectiveStatus(item) switch
@@ -77,7 +77,10 @@ internal static class DownloadPresentationPolicy
         DownloadStatus.Completed => "下载已完成", DownloadStatus.Canceled => "下载已取消", _ => "下载状态待核实",
     };
 
-    internal static string Detail(DownloadItem item) => item.Snapshot.Error?.Message ?? EffectiveStatus(item) switch
+    internal static string Detail(DownloadItem item) => item.CanResume ? ResumeDetail(item)
+        : (item.Snapshot.Phase, item.Snapshot.Error?.Code) is (TransferPhase.Failed, ErrorCode.SourceChanged)
+            ? "此任务没有可续传的临时文件。可重新下载，创建一个新任务。"
+        : item.Snapshot.Error?.Message ?? EffectiveStatus(item) switch
     {
         DownloadStatus.Completed => "文件已校验并保存到确认的位置。",
         DownloadStatus.Canceled => "下载已停止，已确认清理本任务拥有的未发布临时文件。",
@@ -87,8 +90,16 @@ internal static class DownloadPresentationPolicy
         DownloadStatus.Canceling => "正在等待写入停止并清理本任务的临时文件，尚不能认为取消已完成。",
         DownloadStatus.Reconciling => "只核实本地文件证据，不会重新开始网络下载。",
         DownloadStatus.Stopped or DownloadStatus.WaitingNetwork or DownloadStatus.WaitingAuthentication or DownloadStatus.Failed
-            => "这个下载已停止。可先核实本地结果；当前不提供断点续传。",
+            => "此任务没有可续传的进度。可重新下载，创建一个新任务。",
         _ => "接收进度与磁盘写入确认分别显示。关闭此进度对话框不会取消下载。",
+    };
+
+    private static string ResumeDetail(DownloadItem item) => EffectiveStatus(item) switch
+    {
+        DownloadStatus.Paused => "继续后会接着当前下载。",
+        DownloadStatus.WaitingNetwork => "已保留写入进度。网络恢复后可从上次确认的位置继续。",
+        DownloadStatus.WaitingAuthentication => "已保留写入进度。重新登录后可从上次确认的位置继续。",
+        _ => "继续前会核对远端文件版本，再从上次确认的位置下载。",
     };
 
     internal static DownloadPresentationTone Tone(DownloadItem item) => EffectiveStatus(item) switch

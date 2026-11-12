@@ -10,11 +10,12 @@ public sealed partial class MainPage
     {
         if (_downloadOperationBusy || _downloads is not IDownloadControlService service || !_downloadItems.TryGetValue(task, out var item) || !IsCurrentDownloadContext(item.Context) || !item.CanPause && !item.CanResume) return;
         _downloadOperationBusy = true;
+        _downloadErrorTitle = _downloadErrorMessage = null;
         try
         {
-            // A live in-process pause keeps Phase Running with Pause intent; everything else
-            // resumable is an interrupted task that re-enters through durable resume.
-            bool inProcess = item.CanPause || item.Snapshot.Phase == TransferPhase.Running && item.Snapshot.Intent == TransferIntent.Pause;
+            UpdateDownloadContext();
+            // The presentation exposes Paused only while a live writer is scheduled.
+            bool inProcess = item.CanPause || item.Status == DownloadStatus.Paused;
             if (inProcess)
             {
                 AcceptDownloadItem(await service.SetPausedAsync(item.Context, task, item.CanPause, _lifetime.Token));
@@ -23,10 +24,18 @@ public sealed partial class MainPage
             else
             {
                 AcceptDownloadItem(await service.ResumeAsync(item.Context, task, _lifetime.Token));
-                if (IsCurrentDownloadContext(item.Context)) SetNotice("继续下载", "已重新排队，将从上次确认的保存位置继续，并先核对远端文件版本。", InfoBarSeverity.Informational);
+                if (IsCurrentDownloadContext(item.Context) && _downloadDetailTask != task)
+                    SetNotice("继续下载", "已重新排队，将从上次确认的保存位置继续，并先核对远端文件版本。", InfoBarSeverity.Informational);
             }
         }
-        catch (Exception error) { if (IsCurrentDownloadContext(item.Context)) SetNotice("下载操作未完成", ErrorMessage(error), InfoBarSeverity.Warning); }
+        catch (Exception error)
+        {
+            if (IsCurrentDownloadContext(item.Context))
+            {
+                if (_downloadDetailTask == task) ShowDownloadError("下载操作未完成", error);
+                else SetNotice("下载操作未完成", ErrorMessage(error), InfoBarSeverity.Warning);
+            }
+        }
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
     private async Task RemoveDownloadAsync(TransferTaskRef task)

@@ -32,22 +32,26 @@ public sealed partial class FileDownloadRunner
     private static void RequireResumable(TransferTaskRecord record)
     {
         _ = TransferTaskValidation.Plan(record.Plan);
-        if (record.Plan.Direction != TransferDirection.Download || record.Plan.Conflict != FileConflictPolicy.Fail ||
-            record.Plan.BatchId is not null) throw Safe(ErrorCode.InvalidRequest);
-        if (record.Intent == TransferIntent.Cancel) throw Safe(ErrorCode.InvalidRequest);
-        var checkpoint = record.Checkpoint;
         // Resume authority is the durable evidence, never a UI state: a pinned source version,
         // a positively owned unpublished partial and a confirmed flushed offset. Reconciling is
         // accepted only right after this runner's own recovery claim has fenced a stale run.
-        if (checkpoint.Uncertainty != TransferUncertainty.None ||
-            checkpoint.Files is not { PartialPath: not null, PartialIdentity: not null, PublishedFileIdentity: null } ||
-            checkpoint.Source is not { } source || source.Length < 0 || string.IsNullOrEmpty(source.SourceVersion) ||
-            checkpoint.ConfirmedOffset is not { } offset || offset < 0 || offset > source.Length ||
-            checkpoint.LocalSha256 is not null && offset != source.Length)
-            throw Safe(ErrorCode.InvalidRequest);
-        if (checkpoint.Phase is not (TransferPhase.Paused or TransferPhase.Running or TransferPhase.Reconciling or
+        if (!HasResumeEvidence(record) || record.Checkpoint.Phase is not (TransferPhase.Paused or TransferPhase.Running or TransferPhase.Reconciling or
             TransferPhase.WaitingNetwork or TransferPhase.WaitingAuthentication or TransferPhase.Failed))
             throw Safe(ErrorCode.InvalidRequest);
+    }
+
+    internal static bool HasResumeEvidence(TransferTaskRecord record)
+    {
+        var checkpoint = record.Checkpoint;
+        // Older local reconciliation recorded this pair after discarding its partial.
+        return (checkpoint.Phase, checkpoint.Error?.Code) is not (TransferPhase.Failed, ErrorCode.SourceChanged) &&
+            record.Plan.Direction == TransferDirection.Download && record.Plan.Conflict == FileConflictPolicy.Fail &&
+            record.Plan.BatchId is null && record.Intent != TransferIntent.Cancel &&
+            checkpoint.Uncertainty == TransferUncertainty.None &&
+            checkpoint.Files is { PartialPath: not null, PartialIdentity: not null, PublishedFileIdentity: null } &&
+            checkpoint.Source is { Length: >= 0 } source && !string.IsNullOrEmpty(source.SourceVersion) &&
+            checkpoint.ConfirmedOffset is { } offset && offset >= 0 && offset <= source.Length &&
+            (checkpoint.LocalSha256 is null || offset == source.Length);
     }
 
     private async Task<TransferTaskRecord> ResumeDownloadAsync(RunState state)
@@ -79,7 +83,7 @@ public sealed partial class FileDownloadRunner
                 await destination.TruncateAsync(confirmed, state.Execution.Stop.Token).ConfigureAwait(false);
             state.Destination = destination;
             state.DestinationAccepted = true;
-            await SaveAsync(state, state.Record.Checkpoint with { Phase = TransferPhase.Running }, release: false).ConfigureAwait(false);
+            await SaveAsync(state, state.Record.Checkpoint with { Phase = TransferPhase.Running, Error = null }, release: false).ConfigureAwait(false);
             // After truncation the readable prefix is exactly the durable confirmed offset, so
             // progressive playback may resume alongside the continuing transfer.
             AcceptReaderDestination(state, destination);
