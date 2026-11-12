@@ -435,28 +435,34 @@ public sealed partial class MainPage
         var dialog = new ContentDialog { Title = "文件下载", Content = new ScrollViewer { Content = view.Content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None };
         _downloadDialog = dialog; _downloadDetails = view; _downloadDetailTask = task;
         view.Play.Click += async (_, _) => { if (_downloadDetailTask is { } current) await PlayDownloadAsync(current); };
-        view.Retry.Click += async (_, _) => { if (_downloadDetailTask is { } current) await RetryDownloadAsync(current); };
         dialog.SecondaryButtonClick += (_, click) =>
         {
             click.Cancel = true;
-            view.CancelConfirmation.Visibility = view.CancelConfirmation.Visibility == Visibility.Visible
+            if (_downloadOperationBusy || !ReferenceEquals(_downloadDetails, view)) return;
+            if (view.RetryPreview is not null) view.RetryPreview = null;
+            else view.CancelConfirmation.Visibility = view.CancelConfirmation.Visibility == Visibility.Visible
                 ? Visibility.Collapsed : Visibility.Visible;
             RenderDownloadDetails();
         };
-        dialog.PrimaryButtonClick += async (_, click) =>
+        dialog.PrimaryButtonClick += async (sender, click) =>
         {
             click.Cancel = true; var deferral = click.GetDeferral();
             try
             {
-                if (_downloadDetailTask is not { } current || !_downloadItems.TryGetValue(current, out var visibleItem)) return;
-                if (view.CancelConfirmation.Visibility == Visibility.Visible)
+                if (!ReferenceEquals(_downloadDialog, sender) || !ReferenceEquals(_downloadDetails, view) || _downloadDetailTask is not { } current ||
+                    !_downloadItems.TryGetValue(current, out var visibleItem)) return;
+                if (view.RetryPreview is { } preview)
+                    await RetryDownloadAsync(current, view, preview);
+                else if (view.CancelConfirmation.Visibility == Visibility.Visible)
                     await RunDownloadControlAsync(current, cancel: true);
                 else if (visibleItem.CanResume)
                     await ToggleDownloadPausedAsync(current);
                 else if (DownloadPolicy.EffectiveStatus(visibleItem) == DownloadStatus.Completed)
                     await OpenDownloadLocallyAsync(current);
-                else
+                else if (DownloadPolicy.CanReconcile(visibleItem))
                     await RunDownloadControlAsync(current, cancel: false);
+                else if (DownloadPolicy.CanRetryFresh(visibleItem))
+                    _ = RetryDownloadAsync(current, view);
             }
             finally { deferral.Complete(); }
         };
@@ -476,19 +482,30 @@ public sealed partial class MainPage
     {
         if (_downloadDialog is not { } dialog || _downloadDetails is not { } view || _downloadDetailTask is not { } task
             || !_downloadItems.TryGetValue(task, out var item) || !IsCurrentDownloadContext(item.Context)) return;
-        view.Name.Text = item.Name; view.Destination.Text = $"保存到：{item.DestinationDisplayPath}";
+        var canRetry = DownloadPolicy.CanRetryFresh(item);
+        if (!canRetry) view.RetryPreview = null;
+        var reviewingRetry = view.RetryPreview is not null;
+        view.Name.Text = DownloadPolicy.DestinationName(item) ?? item.Name;
+        view.Destination.Text = (reviewingRetry ? "原保存位置：" : "保存到：") + item.DestinationDisplayPath;
+        view.RetryReview.Visibility = reviewingRetry ? Visibility.Visible : Visibility.Collapsed;
+        view.RetryDestination.Text = view.RetryPreview?.DestinationDisplayPath ?? string.Empty;
+        view.ProgressCard.Visibility = reviewingRetry ? Visibility.Collapsed : Visibility.Visible;
         view.Stage.Text = DownloadPolicy.Stage(item);
-        var completed = DownloadPolicy.EffectiveStatus(item) == DownloadStatus.Completed;
+        var status = DownloadPolicy.EffectiveStatus(item);
+        var completed = status == DownloadStatus.Completed;
+        var showProgress = !completed && (DownloadPolicy.IsActive(status) || status == DownloadStatus.Paused ||
+            item.Snapshot.ConfirmedOffset is > 0);
         var canOpen = completed && _downloads is IDownloadControlService;
         var progress = DownloadPolicy.Progress(item);
         view.Progress.IsIndeterminate = progress.IsIndeterminate; view.Progress.Value = progress.Value;
-        view.ProgressTrack.Visibility = completed ? Visibility.Collapsed : Visibility.Visible;
+        view.ProgressTrack.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
         view.Activity.Text = completed ? item.Snapshot.TotalBytes is { } size
-            ? $"文件大小 {DownloadPolicy.FormatBytes(size)}" : string.Empty : progress.ActivityText;
+            ? $"文件大小 {DownloadPolicy.FormatBytes(size)}" : string.Empty : showProgress ? progress.ActivityText : string.Empty;
         view.Activity.Visibility = view.Activity.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        view.Flushed.Text = completed ? string.Empty : progress.FlushedText;
-        view.Flushed.Visibility = completed ? Visibility.Collapsed : Visibility.Visible;
-        view.Detail.Text = _downloadErrorMessage ?? (completed ? string.Empty : DownloadPolicy.Detail(item));
+        view.Flushed.Text = showProgress ? progress.FlushedText : string.Empty;
+        view.Flushed.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
+        view.Detail.Text = _downloadErrorMessage ?? (view.RetryInProgress ? "正在准备重新下载…" :
+            completed || reviewingRetry ? string.Empty : DownloadPolicy.Detail(item));
         view.Detail.Visibility = view.Detail.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         view.Play.Visibility = DownloadPolicy.CanPlay(item) && _downloads is IDownloadPlaybackSourceProvider && _playback is not null
             ? Visibility.Visible : Visibility.Collapsed;
@@ -496,17 +513,17 @@ public sealed partial class MainPage
         if (!cancel) view.CancelConfirmation.Visibility = Visibility.Collapsed;
         var confirmingCancel = view.CancelConfirmation.Visibility == Visibility.Visible;
         view.Play.IsEnabled = !confirmingCancel && !_downloadPlaybackOpening && !_downloadOperationBusy;
-        view.Retry.Visibility = DownloadPolicy.CanRetryFresh(item) ? Visibility.Visible : Visibility.Collapsed;
-        view.Retry.IsEnabled = !confirmingCancel && !_downloadOperationBusy;
-        view.Actions.Visibility = !confirmingCancel && (view.Play.Visibility == Visibility.Visible || view.Retry.Visibility == Visibility.Visible)
+        view.Actions.Visibility = !confirmingCancel && !reviewingRetry && view.Play.Visibility == Visibility.Visible
             ? Visibility.Visible : Visibility.Collapsed;
-        dialog.SecondaryButtonText = !cancel ? string.Empty : confirmingCancel ? "返回" : "取消下载…";
-        dialog.IsSecondaryButtonEnabled = cancel && !_downloadOperationBusy;
+        dialog.SecondaryButtonText = reviewingRetry || confirmingCancel ? "返回" : cancel ? "取消下载…" : string.Empty;
+        dialog.IsSecondaryButtonEnabled = (reviewingRetry || cancel) && !_downloadOperationBusy;
         var hadPrimary = !string.IsNullOrEmpty(dialog.PrimaryButtonText);
-        dialog.PrimaryButtonText = confirmingCancel ? "确认取消" : canOpen ? "打开文件" : DownloadPolicy.PrimaryLabel(item);
+        var primary = DownloadPolicy.PrimaryLabel(item);
+        dialog.PrimaryButtonText = reviewingRetry ? "确认重新下载" : confirmingCancel ? "确认取消" :
+            canOpen ? "打开文件" : primary.Length == 0 && canRetry ? "重新下载" : primary;
         if (hadPrimary != !string.IsNullOrEmpty(dialog.PrimaryButtonText) && dialog.IsLoaded)
             Controls.DialogOrdering.Reorder(dialog);
-        dialog.IsPrimaryButtonEnabled = !_downloadOperationBusy && (confirmingCancel || canOpen || DownloadPolicy.CanReconcile(item) ||
+        dialog.IsPrimaryButtonEnabled = !_downloadOperationBusy && (reviewingRetry || confirmingCancel || canOpen || canRetry || DownloadPolicy.CanReconcile(item) ||
             item.CanResume && _downloads is IDownloadControlService);
     }
 
@@ -529,27 +546,74 @@ public sealed partial class MainPage
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
 
-    private async Task RetryDownloadAsync(TransferTaskRef task)
+    private async Task RetryDownloadAsync(TransferTaskRef task, DownloadDetailsView owner, DownloadPreview? confirmed = null)
     {
+        bool OwnsDetail() => ReferenceEquals(_downloadDetails, owner) && _downloadDetailTask == task;
         if (_downloadOperationBusy || _downloads is not { } service || !_downloadItems.TryGetValue(task, out var item)
-            || !IsCurrentDownloadContext(item.Context) || !DownloadPolicy.CanRetryFresh(item)) return;
+            || !OwnsDetail() || !IsCurrentDownloadContext(item.Context) || !DownloadPolicy.CanRetryFresh(item)
+            || confirmed != owner.RetryPreview) return;
+        if (DownloadPolicy.DestinationName(item) is not { } localName)
+        {
+            ShowDownloadError("重新下载未能提交", "无法确认原保存文件名。请重新选择下载位置。");
+            return;
+        }
         var context = item.Context;
         _downloadErrorTitle = _downloadErrorMessage = null;
-        _downloadOperationBusy = true; RenderDownloadDetails();
+        _downloadOperationBusy = true;
+        owner.RetryInProgress = true;
         try
         {
-            // Retry is deliberately a new task and a new preview. It never opens or
-            // appends to the old partial, so the UI cannot imply unsupported resume.
-            var preview = await service.PrepareAsAsync(context, item.Source, item.Name, _lifetime.Token);
+            RenderDownloadDetails();
+            var preview = confirmed ?? await service.PrepareAsAsync(context, item.Source, localName, _lifetime.Token);
+            if (!IsCurrentDownloadContext(context) || !_downloadItems.TryGetValue(task, out var latest)
+                || !DownloadPolicy.CanRetryFresh(latest)) return;
+            if (preview.Context != context || preview.Draft.Id == Guid.Empty || preview.Source.Account != context.Account ||
+                !string.Equals(preview.Source.WirePath, item.Source.WirePath, StringComparison.Ordinal) ||
+                !string.Equals(preview.Name, localName, StringComparison.Ordinal) ||
+                !string.Equals(Path.GetFileName(preview.DestinationDisplayPath), localName, StringComparison.Ordinal))
+                throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "重新下载的预检结果与原任务不一致。"));
+            if (confirmed is null && !string.Equals(preview.DestinationDisplayPath, item.DestinationDisplayPath, StringComparison.Ordinal))
+            {
+                if (OwnsDetail()) owner.RetryPreview = preview;
+                return;
+            }
+
+            // Closing an already submitted retry never redirects another task's detail.
             var changed = await service.SubmitAsync(preview, _lifetime.Token);
             if (!IsCurrentDownloadContext(context)) return;
+            if (changed.Context != context || changed.Snapshot.Task != new TransferTaskRef(context.Account, preview.Draft.Id) ||
+                !string.Equals(changed.DestinationDisplayPath, preview.DestinationDisplayPath, StringComparison.Ordinal))
+                throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "重新下载的任务与确认记录不一致。"));
             AcceptDownloadItem(changed);
-            if (_downloadDetails is { } view) view.CancelConfirmation.Visibility = Visibility.Collapsed;
-            _downloadDetailTask = changed.Snapshot.Task;
+            if (OwnsDetail())
+            {
+                owner.CancelConfirmation.Visibility = Visibility.Collapsed;
+                _downloadDetailTask = changed.Snapshot.Task;
+            }
         }
         catch (OperationCanceledException) { }
-        catch (Exception error) { if (IsCurrentDownloadContext(context)) ShowDownloadError("重新下载未能提交", error); }
-        finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
+        catch (Exception error)
+        {
+            if (!IsCurrentDownloadContext(context)) return;
+            if (OwnsDetail()) ShowDownloadError("重新下载未能提交", error);
+            else SetNotice("重新下载未能提交", ErrorMessage(error), InfoBarSeverity.Warning);
+        }
+        finally
+        {
+            _downloadOperationBusy = false;
+            owner.RetryInProgress = false;
+            if (confirmed is not null) owner.RetryPreview = null;
+            if (!_disposed)
+            {
+                UpdateDownloadContext();
+                if (OwnsDetail() && owner.RetryPreview is not null)
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (OwnsDetail() && owner.RetryPreview is not null && _downloadDialog is { IsLoaded: true } dialog)
+                            Controls.DialogOrdering.FocusSecondaryButton(dialog);
+                    });
+            }
+        }
     }
 
     private async Task PlayDownloadAsync(TransferTaskRef task)
@@ -620,9 +684,16 @@ public sealed partial class MainPage
         public StackPanel Content { get; } = (StackPanel)XamlReader.Load("""
             <StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Spacing="16" MinWidth="320" MaxWidth="440">
               <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
-              <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border x:Name="ProgressTrack" Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="下载接收活动进度，完成还需校验与保存"/></Border><TextBlock x:Name="Activity" FontSize="12" TextWrapping="Wrap"/><TextBlock x:Name="Flushed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
+              <Border x:Name="ProgressCard" Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border x:Name="ProgressTrack" Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="下载接收活动进度，完成还需校验与保存"/></Border><TextBlock x:Name="Activity" FontSize="12" TextWrapping="Wrap"/><TextBlock x:Name="Flushed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
               <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.LiveSetting="Polite"/>
-              <StackPanel x:Name="Actions" Orientation="Horizontal" Spacing="8" Visibility="Collapsed"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/><Button x:Name="Retry" Content="重新下载（新任务）" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="重新下载并创建新任务"/></StackPanel>
+              <StackPanel x:Name="Actions" Orientation="Horizontal" Spacing="8" Visibility="Collapsed"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/></StackPanel>
+              <Border x:Name="RetryReview" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}">
+                <StackPanel Spacing="6">
+                  <TextBlock Text="保存位置已变化" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite"/>
+                  <TextBlock Text="新保存位置" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                  <TextBlock x:Name="RetryDestination" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                </StackPanel>
+              </Border>
               <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"><TextBlock Text="确认取消当前下载？只会清理本任务拥有的未发布临时文件，已经保存的文件会保留。" TextWrapping="Wrap"/></Border>
             </StackPanel>
             """);
@@ -631,20 +702,24 @@ public sealed partial class MainPage
             var resources = Application.Current.Resources;
             if (resources["FwSecondaryButtonStyle"] is Style secondary)
             {
-                Play.Style = secondary; Retry.Style = secondary;
+                Play.Style = secondary;
             }
         }
         public TextBlock Name => (TextBlock)Content.FindName("Name");
         public TextBlock Destination => (TextBlock)Content.FindName("Destination");
         public TextBlock Stage => (TextBlock)Content.FindName("Stage");
         public ProgressBar Progress => (ProgressBar)Content.FindName("Progress");
+        public Border ProgressCard => (Border)Content.FindName("ProgressCard");
         public Border ProgressTrack => (Border)Content.FindName("ProgressTrack");
         public TextBlock Activity => (TextBlock)Content.FindName("Activity");
         public TextBlock Flushed => (TextBlock)Content.FindName("Flushed");
         public TextBlock Detail => (TextBlock)Content.FindName("Detail");
         public StackPanel Actions => (StackPanel)Content.FindName("Actions");
         public Button Play => (Button)Content.FindName("Play");
-        public Button Retry => (Button)Content.FindName("Retry");
+        public bool RetryInProgress { get; set; }
+        public DownloadPreview? RetryPreview { get; set; }
+        public Border RetryReview => (Border)Content.FindName("RetryReview");
+        public TextBlock RetryDestination => (TextBlock)Content.FindName("RetryDestination");
         public Border CancelConfirmation => (Border)Content.FindName("CancelConfirmation");
     }
 }

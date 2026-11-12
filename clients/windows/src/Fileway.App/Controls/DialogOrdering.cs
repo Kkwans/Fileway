@@ -169,6 +169,12 @@ public static class DialogOrdering
         });
     }
 
+    internal static void FocusSecondaryButton(ContentDialog dialog)
+    {
+        if (Find(dialog, "SecondaryButton") is Button { IsEnabled: true, Visibility: Visibility.Visible } button)
+            button.Focus(FocusState.Keyboard);
+    }
+
     private static FrameworkElement? Find(DependencyObject root, string name)
     {
         if (root is FrameworkElement { Name: var elementName } element && elementName == name) return element;

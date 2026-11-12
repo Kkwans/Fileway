@@ -33,6 +33,12 @@ internal static class DownloadPresentationPolicy
         bool busy, int selectedCount, bool selectedIsDirectory) => permissions?.Download == true && currentContext
         && browserReady && !loading && !busy && selectedCount == 1 && !selectedIsDirectory;
 
+    internal static string? DestinationName(DownloadItem item)
+    {
+        var name = Path.GetFileName(item.DestinationDisplayPath);
+        return IsSafeLocalName(name) ? name : null;
+    }
+
     internal static DownloadStatus EffectiveStatus(DownloadItem item) => item.Status switch
     {
         DownloadStatus.Completed when !item.Snapshot.LocalPublished || item.Snapshot.Uncertainty != TransferUncertainty.None => DownloadStatus.OutcomeUnknown,
