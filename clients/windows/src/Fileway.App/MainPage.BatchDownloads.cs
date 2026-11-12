@@ -18,7 +18,7 @@ public sealed partial class MainPage
         var directories = selection.Where(row => row.IsDirectory).Select(row => row.Resource).ToArray();
         if (files.Length == 0 && directories.Length == 0) return;
         if (files.Length + directories.Length > MaximumBatchItems)
-        { SetNotice("选择的项目过多", $"每次最多选择 {MaximumBatchItems} 项（文件或目录），请分批选择。", InfoBarSeverity.Warning); return; }
+        { SetNotice($"每次最多下载 {MaximumBatchItems} 项", string.Empty, InfoBarSeverity.Warning); return; }
         var generation = _generation; var view = _downloadViewGeneration;
         bool Current() => view == _downloadViewGeneration && IsCurrentDownloadContext(context) &&
             SameBrowser(session, directory, generation) && _session?.Permissions.Download == true &&
@@ -26,6 +26,7 @@ public sealed partial class MainPage
         var previews = new List<DownloadPreview>(); var failures = new List<string>();
         var treeDrafts = new List<DownloadPreview>();
         var treeEntries = new List<(RemoteResourceRef Root, DownloadTreeEntry Entry)>();
+        bool confirmedBatch = false;
         bool truncated = false;
         var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         // A slow metadata preflight must not disable pause/cancel for existing tasks.
@@ -46,8 +47,8 @@ public sealed partial class MainPage
                 }
                 catch (Exception error)
                 {
+                    if (BatchPreflightFatal(error)) throw;
                     failures.Add(source.DisplayName + "：" + ErrorMessage(error));
-                    if (BatchPreflightFatal(error)) return;
                 }
             }
             // Directory selections enumerate a bounded tree first; enumeration never starts transfers.
@@ -58,8 +59,8 @@ public sealed partial class MainPage
                 try { enumeration = await service.EnumerateTreeAsync(context, root, _lifetime.Token); }
                 catch (Exception error)
                 {
+                    if (BatchPreflightFatal(error)) throw;
                     failures.Add(root.DisplayName + "：" + ErrorMessage(error));
-                    if (BatchPreflightFatal(error)) return;
                 }
                 if (enumeration is null || !Current()) continue;
                 foreach (var entry in enumeration.Files) treeEntries.Add((root, entry));
@@ -91,8 +92,8 @@ public sealed partial class MainPage
                     }
                     catch (Exception error)
                     {
+                        if (BatchPreflightFatal(error)) throw;
                         failures.Add(root.DisplayName + "\\" + entry.RelativePath.Replace('/', '\\') + "：" + ErrorMessage(error));
-                        if (BatchPreflightFatal(error)) return;
                     }
                 }
             }
@@ -100,16 +101,16 @@ public sealed partial class MainPage
             int addable = previews.Count + treeDrafts.Count;
             var destinations = previews.Select(item => item.DestinationDisplayPath)
                 .Concat(treeDrafts.Select(item => item.DestinationDisplayPath)).ToArray();
-            var commonDirectory = destinations.Length > 0 ? System.IO.Path.GetDirectoryName(destinations[0]) : null;
-            var sameDirectory = !string.IsNullOrEmpty(commonDirectory) && destinations.All(path =>
-                string.Equals(System.IO.Path.GetDirectoryName(path), commonDirectory, StringComparison.OrdinalIgnoreCase));
+            var commonDirectory = FindBatchDownloadDirectory(destinations);
             var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
             var panel = new StackPanel { Spacing = 12, MinWidth = 320, MaxWidth = 480 };
             var heading = new StackPanel { Spacing = 4 };
             heading.Children.Add(new TextBlock { Text = $"可添加 {addable} 个文件 · {DownloadPresentationPolicy.FormatBytes(total)}", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-            heading.Children.Add(new TextBlock { Text = "按顺序下载到已生效的默认目录；同名文件保留并报告冲突。" + (treeDrafts.Count > 0 ? " 目录内容会保留相对结构，非法名称已映射。" : ""), TextWrapping = TextWrapping.Wrap, FontSize = 12, Style = caption });
+            heading.Children.Add(new TextBlock { Text = "按顺序下载，同名文件会保留并报告冲突。" +
+                (treeDrafts.Count > 0 ? " 保留目录层级，已映射 Windows 不支持的名称。" : ""),
+                TextWrapping = TextWrapping.Wrap, FontSize = 12, Style = caption });
             panel.Children.Add(heading);
-            if (sameDirectory)
+            if (commonDirectory is not null)
             {
                 var destinationField = new StackPanel { Spacing = 2 };
                 destinationField.Children.Add(new TextBlock { Text = "保存到", Style = caption });
@@ -121,13 +122,14 @@ public sealed partial class MainPage
                 panel.Children.Add(new TextBlock { Text = "另有部分条目未完成预检，本次不会添加。", TextWrapping = TextWrapping.Wrap, FontSize = 12, Style = caption });
             if (addable > 0)
             {
-                panel.Children.Add(new TextBlock { Text = $"将添加 {addable} 项", FontSize = 12, Style = caption });
                 var entries = new StackPanel { Spacing = 10 };
                 foreach (var preview in previews.Take(12).Concat(treeDrafts.Take(24)))
                 {
                     var entry = new StackPanel { Spacing = 2 };
-                    entry.Children.Add(new TextBlock { Text = preview.Name + " · " + DownloadPresentationPolicy.FormatBytes(preview.TotalBytes), FontSize = 13, TextWrapping = TextWrapping.Wrap });
-                    if (!sameDirectory) entry.Children.Add(new TextBlock { Text = preview.DestinationDisplayPath, FontSize = 12, TextWrapping = TextWrapping.Wrap, Style = caption, IsTextSelectionEnabled = true });
+                    var relativeName = commonDirectory is null ? preview.Name :
+                        Path.GetRelativePath(commonDirectory, preview.DestinationDisplayPath);
+                    entry.Children.Add(new TextBlock { Text = relativeName + " · " + DownloadPresentationPolicy.FormatBytes(preview.TotalBytes), FontSize = 13, TextWrapping = TextWrapping.Wrap });
+                    if (commonDirectory is null) entry.Children.Add(new TextBlock { Text = preview.DestinationDisplayPath, FontSize = 12, TextWrapping = TextWrapping.Wrap, Style = caption, IsTextSelectionEnabled = true });
                     entries.Children.Add(entry);
                 }
                 int hidden = Math.Max(0, previews.Count - 12) + Math.Max(0, treeDrafts.Count - 24);
@@ -151,29 +153,61 @@ public sealed partial class MainPage
             try { choice = await ShowBrowserDialogAsync(confirm); }
             finally { if (ReferenceEquals(_downloadDialog, confirm)) _downloadDialog = null; }
             if (choice != ContentDialogResult.Primary || !Current()) return;
+            confirmedBatch = true;
+            var feedback = new BatchDownloadFeedback();
             int added = 0, unconfirmed = 0;
             foreach (var preview in previews.Concat(treeDrafts))
             {
                 // Confirmation freezes these drafts. Browsing another directory must not
                 // discard the rest of an accepted batch; account/session/permission still fence it.
                 if (!IsCurrentDownloadContext(context) || _session?.Permissions.Download != true) break;
+                _batchDownloadToastTasks[new TransferTaskRef(context.Account, preview.Draft.Id)] = feedback;
                 try
                 {
                     var item = await service.SubmitAsync(preview, _lifetime.Token);
                     if (IsCurrentDownloadContext(context)) AcceptDownloadItem(item);
                     added++;
                 }
+                catch (Exception error) when (error is OperationCanceledException or FilewayException { Error.Code: ErrorCode.Canceled })
+                {
+                    unconfirmed++;
+                    break;
+                }
                 catch (Exception) { unconfirmed++; } // Never automatically replay an unconfirmed draft.
             }
+            feedback.AdmissionFinished = true;
             if (IsCurrentDownloadContext(context))
-                SetNotice("批量下载", $"已添加 {added} 项。" + (unconfirmed > 0 ? $"{unconfirmed} 项添加结果未确认，请到传输中心核实，勿重复添加。" : "") +
-                    (added + unconfirmed < addable ? "其余文件未继续添加。" : ""), unconfirmed > 0 ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+            {
+                var complete = added == addable && !feedback.HasAttention;
+                var title = unconfirmed > 0
+                    ? added + unconfirmed < addable ? $"已停止，{unconfirmed} 项下载待核实" : $"{unconfirmed} 项下载待核实"
+                    : complete ? $"已添加 {added} 项下载"
+                    : feedback.HasAttention ? "批量下载有待处理项" : added > 0 ? "部分下载未添加" : "下载未添加";
+                _pendingBatchDownloadNotices.Enqueue((context, title, complete ? InfoBarSeverity.Success : InfoBarSeverity.Warning));
+            }
         }
-        catch (Exception error) { if (IsCurrentDownloadContext(context)) ShowDownloadError("批量下载未完成", error); }
+        catch (OperationCanceledException) { }
+        catch (FilewayException error) when (error.Error.Code == ErrorCode.Canceled) { }
+        catch (Exception error)
+        {
+            if (confirmedBatch ? IsCurrentDownloadContext(context) : Current())
+                ShowDownloadError("批量下载未完成", error);
+        }
         finally { if (view == _downloadViewGeneration) _downloadPreparing = false; if (!_disposed) UpdateDownloadContext(); }
+    }
+
+    private static string? FindBatchDownloadDirectory(string[] destinations)
+    {
+        if (destinations.Length == 0) return null;
+        for (var directory = Path.GetDirectoryName(destinations[0]); directory is not null; directory = Path.GetDirectoryName(directory))
+        {
+            var prefix = Path.EndsInDirectorySeparator(directory) ? directory : directory + Path.DirectorySeparatorChar;
+            if (destinations.All(path => path.StartsWith(prefix, StringComparison.Ordinal))) return directory;
+        }
+        return null;
     }
 
     private static bool BatchPreflightFatal(Exception error) => error is OperationCanceledException ||
         error is FilewayException { Error.Code: ErrorCode.NetworkUnavailable or ErrorCode.Timeout or ErrorCode.HostExited or
-            ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable };
+            ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable or ErrorCode.Canceled };
 }

@@ -16,6 +16,8 @@ public sealed partial class MainPage
     private readonly Dictionary<TransferTaskRef, DownloadItem> _downloadItems = [];
     private readonly HashSet<(TransferTaskRef Task, long Generation, DownloadStatus Status)> _downloadNoticeResults = [];
     private readonly Dictionary<TransferTaskRef, (long Generation, DownloadStatus Status)> _pendingDownloadNotices = [];
+    private readonly Dictionary<TransferTaskRef, BatchDownloadFeedback> _batchDownloadToastTasks = [];
+    private readonly Queue<(DownloadContext Context, string Title, InfoBarSeverity Severity)> _pendingBatchDownloadNotices = [];
     private ContentDialog? _downloadDialog;
     private DownloadDetailsView? _downloadDetails;
     private TransferTaskRef? _downloadDetailTask;
@@ -28,7 +30,13 @@ public sealed partial class MainPage
     private DownloadContext? _downloadAutoResumeApplied;
 
     private sealed record DownloadNoticeLink(DownloadContext Context, TransferTaskRef? Task, ErrorInfo? Error,
-        long Generation = 0, DownloadStatus Status = DownloadStatus.NotStarted);
+        long Generation = 0, DownloadStatus Status = DownloadStatus.NotStarted, bool OpenHistory = false);
+
+    private sealed class BatchDownloadFeedback
+    {
+        internal bool AdmissionFinished { get; set; }
+        internal bool HasAttention { get; set; }
+    }
 
     public void SetDownloadService(IDownloadService downloads)
     {
@@ -165,6 +173,8 @@ public sealed partial class MainPage
         _pendingDownloadError = null; _downloadDetailError = null; _downloadAutoResumeApplied = null;
         _downloadNoticeResults.Clear();
         _pendingDownloadNotices.Clear();
+        _batchDownloadToastTasks.Clear();
+        _pendingBatchDownloadNotices.Clear();
         if (DownloadNotice is not null)
         {
             DownloadNotice.IsOpen = false;
@@ -413,7 +423,7 @@ public sealed partial class MainPage
         {
             var current = DownloadDetailsButton.Tag as DownloadNoticeLink;
             if (current is null && _downloadPreparing) return;
-            if (current?.Error is not null) return;
+            if (current is { OpenHistory: true } || current?.Error is not null) return;
             if (current?.Task is { } shownTask && _downloadItems.TryGetValue(shownTask, out var shownItem) &&
                 shownItem.Snapshot.Generation == current.Generation && DownloadPolicy.EffectiveStatus(shownItem) == current.Status) return;
             DownloadNotice.IsOpen = false;
@@ -425,6 +435,13 @@ public sealed partial class MainPage
             if (ShowDownloadToast(error.Title, InfoBarSeverity.Warning, error.Title,
                 new DownloadNoticeLink(context, null, error.Error), repeat: true))
                 _pendingDownloadError = null;
+            return;
+        }
+        if (_pendingBatchDownloadNotices.TryPeek(out var batch))
+        {
+            if (batch.Context != context || ShowDownloadToast(batch.Title, batch.Severity, "batch-result",
+                new DownloadNoticeLink(context, null, null, OpenHistory: true), repeat: true))
+                _pendingBatchDownloadNotices.Dequeue();
             return;
         }
         while (_pendingDownloadNotices.Count > 0)
@@ -456,6 +473,17 @@ public sealed partial class MainPage
         var task = item.Snapshot.Task;
         var status = DownloadPolicy.EffectiveStatus(item);
         var isOutcome = IsDownloadNoticeOutcome(status);
+        if (isOutcome && _batchDownloadToastTasks.Remove(task, out var feedback))
+        {
+            _downloadNoticeResults.Add((task, item.Snapshot.Generation, status));
+            if (!feedback.HasAttention && _downloadDetailTask != task && DownloadPolicy.Tone(item) == DownloadPresentationTone.Warning)
+            {
+                feedback.HasAttention = true;
+                if (feedback.AdmissionFinished)
+                    _pendingBatchDownloadNotices.Enqueue((item.Context, "批量下载有待处理项", InfoBarSeverity.Warning));
+            }
+            return;
+        }
         if (!isOutcome || _downloadDetailTask == task)
             _pendingDownloadNotices.Remove(task);
         if (isOutcome && _downloadNoticeResults.Add((task, item.Snapshot.Generation, status)) &&
@@ -476,7 +504,7 @@ public sealed partial class MainPage
         DownloadNotice.Severity = severity;
         DownloadDetailsButton.Tag = link;
         DownloadDetailsButton.Visibility = link is null ? Visibility.Collapsed : Visibility.Visible;
-        var label = link?.Error is null ? "下载详情" : "错误详情";
+        var label = link is { OpenHistory: true } ? "下载记录" : link?.Error is null ? "下载详情" : "错误详情";
         DownloadNoticeActionText.Text = label;
         AutomationProperties.SetName(DownloadDetailsButton, label);
         return ShowToast(DownloadNotice, key, repeat);
@@ -489,6 +517,7 @@ public sealed partial class MainPage
         DownloadNotice.IsOpen = false;
         if (link.Task is { } task) await ShowDownloadDetailsAsync(task);
         else if (link.Error is { } error) await ShowErrorDetailsAsync(error);
+        else if (link.OpenHistory) await ShowTransferCenterAsync(TransferDirection.Download);
     }
 
     private async Task ShowDownloadDetailsAsync(TransferTaskRef task)

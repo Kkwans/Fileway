@@ -42,7 +42,8 @@ public sealed partial class MainPage
             {
                 bar.Visibility = bar.IsOpen ? Visibility.Visible : Visibility.Collapsed;
                 UpdateCompactToastAnchors();
-                if (!bar.IsOpen && (_pendingDownloadNotices.Count != 0 || _pendingDownloadError is not null))
+                if (!bar.IsOpen && (_pendingDownloadNotices.Count != 0 || _pendingDownloadError is not null ||
+                    _pendingBatchDownloadNotices.Count != 0))
                     DispatcherQueue.TryEnqueue(RenderDownloadNotice);
             });
             _noticeLayouts.Add(bar, (callback, Grid.GetRow(bar), offset));

@@ -339,7 +339,9 @@ public sealed partial class FilewayClientServices : IDownloadSourceProvider, ICo
             // Session-wide failures fail the whole enumeration; only per-directory errors are
             // collected so sibling subtrees can still be previewed.
             catch (FilewayException error) when (error.Error.Code is ErrorCode.AuthenticationExpired or
-                ErrorCode.CredentialsUnavailable or ErrorCode.PermissionDenied or ErrorCode.Canceled)
+                ErrorCode.CredentialsUnavailable or ErrorCode.PermissionDenied or ErrorCode.Canceled or
+                ErrorCode.Timeout or ErrorCode.HostExited || error.Error.Code == ErrorCode.NetworkUnavailable &&
+                error.Error.HttpStatus is null or >= 500)
             { throw; }
             catch (FilewayException) { failures.Add(relative.Length == 0 ? "/" : relative); }
             catch (Exception error) when (error is IOException or InvalidOperationException or JsonException or FormatException or KeyNotFoundException)

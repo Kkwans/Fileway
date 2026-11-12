@@ -6,7 +6,7 @@ namespace Fileway.Infrastructure.Services;
 
 public sealed partial class UploadApplicationService
 {
-    private sealed record DownloadDraft(DownloadPreview Preview, TransferPlan Plan);
+    private sealed record DownloadDraft(DownloadPreview Preview, TransferPlan Plan, string? TreeRoot = null);
 
     private sealed class DownloadPresentation(RemoteResourceRef source, string destination)
     {
@@ -190,21 +190,39 @@ public sealed partial class UploadApplicationService
             // Recheck the effective setting, never its pending restart value or a UI-supplied path.
             var settings = await StorageAsync(token => _downloads!.StorageSettings.ReadAsync(token), cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
-            if (DownloadDestination(settings.Active.DownloadDirectory, preview.Name) != draft.Plan.LocalPath)
-                throw DownloadSafe(ErrorCode.SourceChanged);
-            if (draft.Plan.BatchId is not null)
+            if (draft.Plan.BatchId is null)
             {
+                if (DownloadDestination(settings.Active.DownloadDirectory, preview.Name) != draft.Plan.LocalPath)
+                    throw DownloadSafe(ErrorCode.SourceChanged);
+            }
+            else
+            {
+                var root = StorageSettingsValidation.DirectoryPath(settings.Active.DownloadDirectory);
+                if (!string.Equals(root, draft.TreeRoot, StringComparison.Ordinal))
+                    throw DownloadSafe(ErrorCode.SourceChanged);
                 // Tree batches create their target subdirectories only after explicit confirmation;
                 // existing levels are verified, never replaced, and creation is idempotent per retry.
                 try
                 {
                     await Task.Run(() => Fileway.Infrastructure.Transfers.WindowsDownloadFileAccess
-                        .EnsureDirectoryTreeAsync(draft.Plan.LocalPath, settings.Active.DownloadDirectory, cancellationToken), cancellationToken).ConfigureAwait(false);
+                        .EnsureDirectoryTreeAsync(draft.Plan.LocalPath, root, RequireTreeAuthority, cancellationToken),
+                        cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception error) when (error is FilewayException or IOException or UnauthorizedAccessException or InvalidOperationException)
                 { throw NormalizeDownload(error); }
                 RequireCurrent(binding);
+
+                void RequireTreeAuthority()
+                {
+                    lock (_gate)
+                    {
+                        RequireCurrent(binding);
+                        RequireDownloadPermission(binding);
+                        RequireDownloadQueueCapacityLocked(binding);
+                    }
+                }
             }
+            RequireDownloadPermission(binding);
             var created = await StorageAsync(token => _tasks.CreateTransferAsync(draft.Plan, token), cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
             _ = ObserveDownload(binding, created, publish: false);
@@ -231,6 +249,7 @@ public sealed partial class UploadApplicationService
         }
         catch (Exception error) { throw NormalizeDownload(error); }
         finally { _commands.Release(); }
+
     }
 
     async Task<DownloadPage> IDownloadService.ListAsync(DownloadContext context, string? cursor, int limit, CancellationToken cancellationToken)
@@ -408,7 +427,8 @@ public sealed partial class UploadApplicationService
                 batchId == Guid.Empty || ordinal < 0) throw DownloadSafe(ErrorCode.InvalidRequest);
             var settings = await StorageAsync(token => _downloads!.StorageSettings.ReadAsync(token), cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
-            string relative = TransferTaskValidation.LocalFilePath(settings.Active.DownloadDirectory.TrimEnd('\\') + "\\" +
+            var downloadRoot = StorageSettingsValidation.DirectoryPath(settings.Active.DownloadDirectory);
+            string relative = TransferTaskValidation.LocalFilePath(downloadRoot.TrimEnd('\\') + "\\" +
                 FilewayClientServices.MapWindowsLeafName(root.DisplayName) + "\\" + entry.MappedRelativePath);
             var metadata = await ReadDownloadPreviewMetadataAsync(binding, entry.Resource, cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
@@ -425,7 +445,7 @@ public sealed partial class UploadApplicationService
                 RequireCurrent(binding);
                 RequireDownloadPermission(binding);
                 if (binding.DownloadDrafts.Count >= 128) binding.DownloadDrafts.Remove(binding.DownloadDrafts.First().Key);
-                binding.DownloadDrafts.Add(draft, new(preview, plan));
+                binding.DownloadDrafts.Add(draft, new(preview, plan, downloadRoot));
             }
             return preview;
         }
