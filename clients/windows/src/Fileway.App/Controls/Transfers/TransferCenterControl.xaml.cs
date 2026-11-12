@@ -22,7 +22,7 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
     public event EventHandler<TransferTaskRef>? PauseRequested;
     public event EventHandler<TransferTaskRef>? RemoveRequested;
     public TransferDirection Direction => _direction;
-    internal FrameworkElement NoticeHeaderAnchor => HistoryFeedback.ActualHeight > 0 ? HistoryFeedback : TransferHeader;
+    internal FrameworkElement NoticeHeaderAnchor => HistoryHeader;
 
     public TransferCenterControl()
     {
@@ -39,9 +39,6 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
         _direction = direction;
         UploadsTab.IsChecked = direction == TransferDirection.Upload;
         DownloadsTab.IsChecked = direction == TransferDirection.Download;
-        HintText.Text = direction == TransferDirection.Upload
-            ? "上传进度显示服务器已确认的字节。打开记录不会开始上传；恢复与核实需要在详情中明确操作。"
-            : "下载";
         EmptyState.IconName = direction == TransferDirection.Upload ? "upload-simple" : "download-simple";
     }
 

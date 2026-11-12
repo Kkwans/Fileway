@@ -10,8 +10,8 @@ namespace Fileway.App.Controls;
 internal static class FloatingNotice
 {
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<InfoBar, State> States = new();
-    internal static void Attach(InfoBar bar, bool automatic = true) =>
-        States.GetValue(bar, item => new State(item, automatic));
+    internal static void Attach(InfoBar bar, bool automatic = true, bool survivesReparenting = false) =>
+        States.GetValue(bar, item => new State(item, automatic, survivesReparenting));
 
     internal static void Show(InfoBar bar)
     {
@@ -43,6 +43,7 @@ internal static class FloatingNotice
         private readonly InfoBar _bar;
         private readonly DispatcherQueueTimer _timer;
         private readonly bool _automatic;
+        private readonly bool _survivesReparenting;
         private readonly long _openCallback;
         private readonly long _severityCallback;
         private readonly long _messageCallback;
@@ -53,10 +54,11 @@ internal static class FloatingNotice
         internal bool IsInteracting => _pointerOver || HasFocus();
         private bool Timed => Compact || _bar.Severity is InfoBarSeverity.Success or InfoBarSeverity.Informational;
 
-        internal State(InfoBar bar, bool automatic)
+        internal State(InfoBar bar, bool automatic, bool survivesReparenting)
         {
             _bar = bar;
             _automatic = automatic;
+            _survivesReparenting = survivesReparenting;
             bar.IsClosable = true;
             _timer = bar.DispatcherQueue.CreateTimer(); _timer.IsRepeating = false;
             _timer.Tick += TimerTick;
@@ -103,6 +105,9 @@ internal static class FloatingNotice
         private void Unloaded(object sender, RoutedEventArgs args)
         {
             _pointerOver = false;
+            // The main page owns these notices across the move to its window layer
+            // and releases them explicitly with Detach.
+            if (_survivesReparenting) return;
             _timer.Stop();
             PopupMaterials.Changed -= Material;
         }

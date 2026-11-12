@@ -1,23 +1,20 @@
+using Fileway.App.Controls;
 using Fileway.App.MediaSurfaces;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 
 namespace Fileway.App;
 
 public sealed partial class MainPage
 {
-    private const double CompactToastTopInset = 12;
-    private const double ToastContentGap = 6;
-    private const double TransferToastHeaderGap = 2;
     private readonly HashSet<BrowserFileTypeFilter> _typeFilters = [];
     private readonly Dictionary<(AccountKey Account, string WirePath), BrowserFileTypeFilter[]> _directoryTypeFilters = [];
-    private readonly Dictionary<InfoBar, (long Callback, int StatusRow, TranslateTransform Offset)> _noticeLayouts = [];
-    private long? _workspaceToastVisibilityCallback;
-    private long? _transferToastVisibilityCallback;
-    private FrameworkElement? _toastLayoutAnchor;
+    private readonly Dictionary<InfoBar, (long Callback, int StatusRow)> _noticeLayouts = [];
+    private Canvas? _compactNoticeLayer;
+    private bool _observingCompactNoticeLayout;
     private bool _typeFiltersEdited;
     private PlayerSettingsWindow? _detailsPopup;
     private StackPanel? _typeFilterOptions;
@@ -35,23 +32,17 @@ public sealed partial class MainPage
         Controls.FloatingNotice.Attach(LoginNotice, automatic: false);
         foreach (var bar in FeedbackLayout.Children.OfType<InfoBar>())
         {
-            Controls.FloatingNotice.Attach(bar, automatic: false);
-            var offset = new TranslateTransform();
-            bar.RenderTransform = offset;
+            Controls.FloatingNotice.Attach(bar, automatic: false, survivesReparenting: true);
             var callback = bar.RegisterPropertyChangedCallback(InfoBar.IsOpenProperty, (_, _) =>
             {
                 bar.Visibility = bar.IsOpen ? Visibility.Visible : Visibility.Collapsed;
-                UpdateCompactToastAnchors();
+                PlaceCompactNotice();
                 if (!bar.IsOpen && (_pendingDownloadNotices.Count != 0 || _pendingDownloadError is not null ||
                     _pendingBatchDownloadNotices.Count != 0))
                     DispatcherQueue.TryEnqueue(RenderDownloadNotice);
             });
-            _noticeLayouts.Add(bar, (callback, Grid.GetRow(bar), offset));
+            _noticeLayouts.Add(bar, (callback, Grid.GetRow(bar)));
         }
-        _workspaceToastVisibilityCallback = Workspace.RegisterPropertyChangedCallback(UIElement.VisibilityProperty,
-            (_, _) => UpdateCompactToastAnchors());
-        _transferToastVisibilityCallback = TransfersPanel.RegisterPropertyChangedCallback(UIElement.VisibilityProperty,
-            (_, _) => UpdateCompactToastAnchors());
         AttachChoices(ViewOptionsButton);
         _typeFilterOptions = (TypeFilterBox.Flyout as Flyout)?.Content as StackPanel;
         AttachChoices(TypeFilterBox);
@@ -79,7 +70,7 @@ public sealed partial class MainPage
     {
         if (_disposed) return false;
         var hasLayout = _noticeLayouts.TryGetValue(bar, out var layout);
-        var compact = hasLayout && !string.IsNullOrWhiteSpace(bar.Title) &&
+        var compact = hasLayout && _compactNoticeLayer is not null && !string.IsNullOrWhiteSpace(bar.Title) &&
             string.IsNullOrWhiteSpace(bar.Message) &&
             bar.Severity is InfoBarSeverity.Success or InfoBarSeverity.Informational or InfoBarSeverity.Warning;
         if (compact && _noticeLayouts.Keys.Any(other =>
@@ -91,59 +82,77 @@ public sealed partial class MainPage
         }
         if (hasLayout)
         {
-            Grid.SetRow(bar, compact ? 0 : layout.StatusRow);
-            Canvas.SetZIndex(bar, compact ? 10 : 0);
-            bar.HorizontalAlignment = compact ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            Panel destination = compact ? _compactNoticeLayer! : FeedbackLayout;
+            if (bar.Parent is Panel parent && !ReferenceEquals(parent, destination))
+            {
+                parent.Children.Remove(bar);
+                if (compact) bar.Template = (ControlTemplate)Resources["CompactNoticeTemplate"];
+                else bar.ClearValue(Control.TemplateProperty);
+                destination.Children.Add(bar);
+            }
+            Grid.SetRow(bar, layout.StatusRow);
+            bar.HorizontalAlignment = HorizontalAlignment.Left;
             bar.VerticalAlignment = compact ? VerticalAlignment.Top : VerticalAlignment.Stretch;
-            bar.Margin = compact ? new Thickness(12, CompactToastTopInset, 12, 0) : new Thickness(16, 0, 16, 8);
+            bar.Margin = compact ? new Thickness(0) : new Thickness(16, 0, 16, 8);
             bar.MaxWidth = compact ? 400 : 580;
         }
         // Transfer snapshots refresh their bytes frequently. A dismissed toast
         // must not reappear on every tick; only a new task/stage opens it again.
         var shown = Controls.FloatingNotice.Show(bar, key, repeat, compact);
-        if (hasLayout) UpdateCompactToastAnchors();
         if (shown && compact)
             foreach (var other in _noticeLayouts.Keys)
                 if (other != bar && other.IsOpen && Controls.FloatingNotice.IsCompact(other))
                     other.IsOpen = false;
+        if (hasLayout) PlaceCompactNotice();
         return shown;
     }
 
-    private void ToastAnchorLayoutUpdated(object? sender, object args) => UpdateCompactToastAnchors();
+    private void CompactNoticeLayoutUpdated(object? sender, object args) => PlaceCompactNotice();
 
-    private void UpdateCompactToastAnchors()
+    private void PlaceCompactNotice()
     {
-        if (_disposed) return;
-        FrameworkElement? anchor = null;
-        if (_noticeLayouts.Keys.Any(bar => bar.IsOpen && Controls.FloatingNotice.IsCompact(bar)))
+        if (_disposed || _compactNoticeLayer is not { } layer || _applicationTitleBar is not { } titleBar) return;
+        var notice = layer.Children.OfType<InfoBar>().LastOrDefault(bar => bar.IsOpen);
+        var observe = notice is not null;
+        if (observe != _observingCompactNoticeLayout)
         {
-            if (Workspace.Visibility == Visibility.Visible) anchor = BrowserBody;
-            else if (TransfersPanel.Visibility == Visibility.Visible) anchor = TransfersPanel.NoticeHeaderAnchor;
+            if (observe) layer.LayoutUpdated += CompactNoticeLayoutUpdated;
+            else layer.LayoutUpdated -= CompactNoticeLayoutUpdated;
+            _observingCompactNoticeLayout = observe;
         }
-        if (!ReferenceEquals(anchor, _toastLayoutAnchor))
+        if (notice is null || layer.ActualWidth <= 24 || layer.ActualHeight <= 0)
         {
-            if (_toastLayoutAnchor is not null) _toastLayoutAnchor.LayoutUpdated -= ToastAnchorLayoutUpdated;
-            _toastLayoutAnchor = anchor;
-            if (anchor is not null) anchor.LayoutUpdated += ToastAnchorLayoutUpdated;
+            titleBar.SetNoticeInteractiveRegion(null);
+            return;
         }
 
-        // Position within the content layer after layout without resizing the workspace.
-        var contentOffset = 0.0;
-        if (anchor is not null)
+        const double sideInset = 12;
+        var maxWidth = Math.Min(400, layer.ActualWidth - 2 * sideInset);
+        if (notice.MaxWidth != maxWidth) notice.MaxWidth = maxWidth;
+        notice.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var size = notice.DesiredSize;
+        var titlePosition = titleBar.FindNoticePosition(layer, size);
+        var position = titlePosition ?? new Point(Math.Max(sideInset, layer.ActualWidth - size.Width - sideInset),
+            CompactNoticeFallbackTop(layer, titleBar));
+        if (Canvas.GetLeft(notice) != position.X) Canvas.SetLeft(notice, position.X);
+        if (Canvas.GetTop(notice) != position.Y) Canvas.SetTop(notice, position.Y);
+        titleBar.SetNoticeInteractiveRegion(titlePosition is not null ? notice : null);
+    }
+
+    private double CompactNoticeFallbackTop(Canvas layer, WindowTitleBar titleBar)
+    {
+        var top = titleBar.ActualHeight + 8;
+        FrameworkElement? anchor = null;
+        var anchorY = 0d;
+        if (Workspace.Visibility == Visibility.Visible) anchor = BrowserBody;
+        else if (TransfersPanel.Visibility == Visibility.Visible)
         {
-            var browser = ReferenceEquals(anchor, BrowserBody);
-            var contentTop = browser ? BrowserCommands.Height : 0;
-            if (anchor.IsLoaded && anchor.ActualHeight > 0 &&
-                anchor.XamlRoot is { } root && root == FeedbackLayout.XamlRoot)
-                contentTop = Math.Max(contentTop, anchor.TransformToVisual(FeedbackLayout)
-                    .TransformPoint(new(0, browser ? 0 : anchor.ActualHeight)).Y);
-            contentOffset = contentTop + (browser ? ToastContentGap : TransferToastHeaderGap) - CompactToastTopInset;
+            anchor = TransfersPanel.NoticeHeaderAnchor;
+            anchorY = anchor.ActualHeight;
         }
-        foreach (var (bar, layout) in _noticeLayouts)
-        {
-            var offset = bar.IsOpen && Controls.FloatingNotice.IsCompact(bar) ? contentOffset : 0;
-            if (layout.Offset.Y != offset) layout.Offset.Y = offset;
-        }
+        if (anchor is { IsLoaded: true } && anchor.XamlRoot == layer.XamlRoot)
+            top = Math.Max(top, anchor.TransformToVisual(layer).TransformPoint(new Point(0, anchorY)).Y + 6);
+        return top;
     }
 
     private static void ResetToast(InfoBar bar) => Controls.FloatingNotice.Reset(bar);
@@ -152,20 +161,18 @@ public sealed partial class MainPage
     {
         _detailsPopup?.Dispose(); _detailsPopup = null;
 
-        if (_workspaceToastVisibilityCallback is { } callback)
-            Workspace.UnregisterPropertyChangedCallback(UIElement.VisibilityProperty, callback);
-        _workspaceToastVisibilityCallback = null;
-        if (_transferToastVisibilityCallback is { } transferCallback)
-            TransfersPanel.UnregisterPropertyChangedCallback(UIElement.VisibilityProperty, transferCallback);
-        _transferToastVisibilityCallback = null;
-        if (_toastLayoutAnchor is not null) _toastLayoutAnchor.LayoutUpdated -= ToastAnchorLayoutUpdated;
-        _toastLayoutAnchor = null;
+        if (_compactNoticeLayer is { } layer && _observingCompactNoticeLayout)
+            layer.LayoutUpdated -= CompactNoticeLayoutUpdated;
+        _applicationTitleBar?.SetNoticeInteractiveRegion(null);
         Controls.FloatingNotice.Detach(LoginNotice);
         foreach (var (bar, layout) in _noticeLayouts)
         {
             bar.UnregisterPropertyChangedCallback(InfoBar.IsOpenProperty, layout.Callback);
             Controls.FloatingNotice.Detach(bar);
+            _compactNoticeLayer?.Children.Remove(bar);
         }
+        _compactNoticeLayer = null;
+        _observingCompactNoticeLayout = false;
         _noticeLayouts.Clear();
     }
 

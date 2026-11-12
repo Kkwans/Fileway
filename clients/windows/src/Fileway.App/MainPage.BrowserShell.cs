@@ -20,11 +20,12 @@ public sealed partial class MainPage
 
     private void SetConnectionView(bool visible) => ShowPane(visible ? MainPane.Connection : MainPane.Browser);
 
-    internal void AttachTitleBar(WindowTitleBar titleBar)
+    internal void AttachTitleBar(WindowTitleBar titleBar, Canvas compactNoticeLayer)
     {
         _applicationTitleBar = titleBar;
         Shell.Children.Remove(ApplicationCommandHost);
         titleBar.SetBrowserMenu(ApplicationCommandHost, [PaneButton, ApplicationMenus]);
+        _compactNoticeLayer = compactNoticeLayer;
         AddNavigationAccelerators(titleBar);
         titleBar.KeyDown += Overlay_KeyDown;
     }

@@ -55,7 +55,7 @@ public sealed partial class MainWindow : Window, IDisposable
             try { presenter.Maximize(); } catch (Exception) { }
         }
         RootFrame.Navigate(typeof(MainPage));
-        ((MainPage)RootFrame.Content).AttachTitleBar(AppTitleBar);
+        ((MainPage)RootFrame.Content).AttachTitleBar(AppTitleBar, CompactNoticeLayer);
         InitializeAppearance();
         Closed += MainWindow_Closed;
     }

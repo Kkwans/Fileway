@@ -199,7 +199,14 @@ internal sealed class FramelessWindowChrome : IDisposable
 
     private void UpdateMaximized()
     {
-        if (!_disposed) _titleBar.SetMaximized(IsZoomed(_handle));
+        if (_disposed) return;
+        var maximized = IsZoomed(_handle);
+        _titleBar.SetMaximized(maximized);
+        var dpi = GetDpiForWindow(_handle);
+        // Keep the top notice below both native sizing paths at fractional scale.
+        _titleBar.TopResizeInset = maximized || dpi == 0 ? 0
+            : Math.Max(1, Math.Max(GetSystemMetricsForDpi(32, dpi), GetSystemMetricsForDpi(33, dpi)) +
+                GetSystemMetricsForDpi(92, dpi)) * 96d / dpi;
     }
 
     private void RefreshWindowState()
@@ -219,8 +226,10 @@ internal sealed class FramelessWindowChrome : IDisposable
             if (!element.IsLoaded || element.Visibility != Visibility.Visible || element.XamlRoot is null || element.ActualWidth <= 0 || element.ActualHeight <= 0) continue;
             var bounds = element.TransformToVisual(root).TransformBounds(new Rect(0, 0, element.ActualWidth, element.ActualHeight));
             var scale = element.XamlRoot.RasterizationScale;
-            rectangles.Add(new RectInt32((int)Math.Floor(bounds.X * scale), (int)Math.Floor(bounds.Y * scale),
-                (int)Math.Ceiling(bounds.Width * scale), (int)Math.Ceiling(bounds.Height * scale)));
+            var x = (int)Math.Floor(bounds.Left * scale);
+            var y = (int)Math.Floor(bounds.Top * scale);
+            rectangles.Add(new RectInt32(x, y, (int)Math.Ceiling(bounds.Right * scale) - x,
+                (int)Math.Ceiling(bounds.Bottom * scale) - y));
         }
         var state = string.Join(";", rectangles.Select(rect => $"{rect.X},{rect.Y},{rect.Width},{rect.Height}"));
         if (_captionRegionsState == state) return;

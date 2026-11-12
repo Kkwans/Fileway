@@ -4,14 +4,19 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:local="using:Fileway.App.Controls.Transfers">
  <Grid Padding="20,12,20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged">
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <ui:FwPageHeader x:Name="TransferHeader" Title="传输中心" Subtitle="当前账号的上传与下载">
-   <ui:FwPageHeader.Actions>
-    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><ToggleButton x:Name="DownloadsTab" Content="下载" Width="76" IsChecked="True" Click="Downloads_Click" Style="{StaticResource FwSegmentedChoiceStyle}" HorizontalContentAlignment="Center" AutomationProperties.Name="下载记录"/><ToggleButton x:Name="UploadsTab" Content="上传" Width="76" Click="Uploads_Click" Style="{StaticResource FwSegmentedChoiceStyle}" HorizontalContentAlignment="Center" AutomationProperties.Name="上传记录"/><ProgressRing x:Name="HistoryLoadingRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" AutomationProperties.Name="正在加载传输记录"/><Button x:Name="RefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" AutomationProperties.Name="刷新当前传输记录" ToolTipService.ToolTip="刷新记录"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/></Button><Button Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开传输中心，返回文件"/></StackPanel>
-   </ui:FwPageHeader.Actions>
-  </ui:FwPageHeader>
-  <StackPanel x:Name="HistoryFeedback" Grid.Row="1" Spacing="8"><TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="HintText" Visibility="Collapsed" TextWrapping="Wrap"/><InfoBar x:Name="LoadError" IsOpen="False" IsClosable="True" Severity="Warning" Title="记录未能加载"><InfoBar.ActionButton><Button Content="重试" Click="More_Click" Style="{StaticResource FwSecondaryButtonStyle}"/></InfoBar.ActionButton></InfoBar></StackPanel>
-  <Grid Grid.Row="2" Margin="0,16,0,0">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel x:Name="HistoryHeader" Spacing="12">
+   <ui:FwPageHeader Title="传输中心" Subtitle="当前账号的上传与下载">
+    <ui:FwPageHeader.Actions>
+     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><ToggleButton x:Name="DownloadsTab" Content="下载" Width="76" IsChecked="True" Click="Downloads_Click" Style="{StaticResource FwSegmentedChoiceStyle}" HorizontalContentAlignment="Center" AutomationProperties.Name="下载记录"/><ToggleButton x:Name="UploadsTab" Content="上传" Width="76" Click="Uploads_Click" Style="{StaticResource FwSegmentedChoiceStyle}" HorizontalContentAlignment="Center" AutomationProperties.Name="上传记录"/><ProgressRing x:Name="HistoryLoadingRing" Width="20" Height="20" IsActive="False" Visibility="Collapsed" AutomationProperties.Name="正在加载传输记录"/><Button x:Name="RefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" AutomationProperties.Name="刷新当前传输记录" ToolTipService.ToolTip="刷新记录"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/></Button><Button Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开传输中心，返回文件"/></StackPanel>
+    </ui:FwPageHeader.Actions>
+   </ui:FwPageHeader>
+   <InfoBar x:Name="LoadError" IsOpen="False" IsClosable="True" Severity="Warning" Title="记录未能加载"
+            Visibility="{x:Bind LoadError.IsOpen, Mode=OneWay, Converter={StaticResource FwBoolToVisibilityConverter}}">
+    <InfoBar.ActionButton><Button Content="重试" Click="More_Click" Style="{StaticResource FwSecondaryButtonStyle}"/></InfoBar.ActionButton>
+   </InfoBar>
+  </StackPanel>
+  <Grid Grid.Row="1">
    <ListView x:Name="Records" SelectionMode="Single" IsItemClickEnabled="True" ItemClick="Record_Click" KeyDown="Records_KeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="传输记录，选择一项查看详情" ItemContainerStyle="{StaticResource FwListRecordItemStyle}">
     <ListView.ItemTemplate><DataTemplate x:DataType="local:TransferCenterRow">
      <Grid AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
@@ -49,6 +54,6 @@
    </ListView>
    <ui:FwEmptyState x:Name="EmptyState" IconName="download-simple" Title="暂无传输记录"/>
   </Grid>
-  <Grid Grid.Row="3" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="LoadedText" VerticalAlignment="Center" TextWrapping="Wrap"/><Button x:Name="MoreButton" Grid.Column="1" Content="加载更多" Click="More_Click" Visibility="Collapsed" Style="{StaticResource FwSecondaryButtonStyle}"/></Grid>
+  <Grid Grid.Row="2" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="LoadedText" VerticalAlignment="Center" TextWrapping="Wrap"/><Button x:Name="MoreButton" Grid.Column="1" Content="加载更多" Click="More_Click" Visibility="Collapsed" Style="{StaticResource FwSecondaryButtonStyle}"/></Grid>
  </Grid>
 </UserControl>
