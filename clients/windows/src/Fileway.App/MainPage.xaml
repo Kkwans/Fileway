@@ -111,7 +111,7 @@
     </Border>
     <TextBlock x:Name="WorkspaceTitle" Text="连接服务器" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Visibility="Collapsed" TextTrimming="CharacterEllipsis"/>
    </Grid>
-   <AutoSuggestBox x:Name="SearchBox" Grid.Column="2" Width="240" Height="40" MinHeight="40" Style="{StaticResource FilewaySearchBoxStyle}" VerticalAlignment="Center" PlaceholderText="筛选列表 · Enter 搜索" QueryIcon="Find" TextChanged="Search_Changed" QuerySubmitted="Search_QuerySubmitted" AutomationProperties.Name="输入筛选当前列表，按 Enter 搜索当前目录及子目录" ToolTipService.ToolTip="输入筛选已加载的列表；Enter 或搜索按钮查询当前目录及子目录 (Ctrl+F)"/>
+   <AutoSuggestBox x:Name="SearchBox" Grid.Column="2" Width="240" Height="40" MinHeight="40" Style="{StaticResource FilewaySearchBoxStyle}" VerticalAlignment="Center" PlaceholderText="筛选 · Enter 搜索" QueryIcon="Find" TextChanged="Search_Changed" QuerySubmitted="Search_QuerySubmitted" AutomationProperties.Name="输入筛选当前列表，按 Enter 搜索当前目录及子目录" ToolTipService.ToolTip="输入筛选已加载的列表；Enter 或搜索按钮查询当前目录及子目录 (Ctrl+F)"/>
   </Grid>
   <Grid x:Name="Sidebar" Grid.RowSpan="2" Padding="12,16,12,12" Background="Transparent" Canvas.ZIndex="3">
    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>

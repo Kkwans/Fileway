@@ -76,7 +76,7 @@ public sealed partial class MainPage
         if (Sidebar is null || SearchBox is null) return;
         var overlay = args.NewSize.Width < 960;
         if (_sidebarOverlay != overlay) { _sidebarOverlay = overlay; _sidebarOpen = false; }
-        SearchBox.Width = args.NewSize.Width < 1000 ? 160 : 240;
+        SearchBox.Width = args.NewSize.Width < 1000 ? 180 : 240;
         UpdateSidebarLayout();
     }
 
