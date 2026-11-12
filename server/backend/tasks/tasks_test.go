@@ -8,6 +8,46 @@ import (
 	"testing"
 )
 
+func TestTaskJSONUsesItemProgressForLegacyDirectoryTransfers(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		kind       Type
+		args       string
+		total      int64
+		processed  int64
+		wantTotal  int64
+		wantCopied int64
+	}{
+		{"legacy-copy", TypeFileCopy, `{"items":[{"from":"/private"},{"isDir":true}]}`, 4096, 7000, 0, 0},
+		{"legacy-move", TypeFileMove, `{"items":[{"isDir":true}]}`, 4096, 4096, 0, 0},
+		{"new-directory", TypeFileCopy, `{"items":[{"isDir":true}]}`, 0, 7000, 0, 7000},
+		{"regular", TypeFileCopy, `{"items":[{"isDir":false}]}`, 10, 5, 10, 5},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := Task{
+				Type: tc.kind, Args: json.RawMessage(tc.args), Result: json.RawMessage(`{"private":true}`),
+				TotalBytes: tc.total, ProcessedBytes: tc.processed, TotalItems: 2, ProcessedItems: 1,
+			}
+			wire, err := json.Marshal(&original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var shown Task
+			if err := json.Unmarshal(wire, &shown); err != nil {
+				t.Fatal(err)
+			}
+			if shown.TotalBytes != tc.wantTotal || shown.ProcessedBytes != tc.wantCopied ||
+				shown.TotalItems != 2 || shown.ProcessedItems != 1 {
+				t.Fatalf("unexpected public progress: %s", wire)
+			}
+			if strings.Contains(string(wire), "private") || original.TotalBytes != tc.total ||
+				original.ProcessedBytes != tc.processed || string(original.Args) != tc.args {
+				t.Fatalf("public progress changed or exposed durable data: %s", wire)
+			}
+		})
+	}
+}
+
 func TestStorageScopesTasksAndSortsNewestFirst(t *testing.T) {
 	backend := newMemoryBackend()
 	storage := NewStorage(backend)

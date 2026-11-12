@@ -73,6 +73,28 @@ type Task struct {
 	Result         json.RawMessage `json:"-"`
 }
 
+func (task Task) MarshalJSON() ([]byte, error) {
+	type publicTask Task
+	// Legacy copy/move records summed directory metadata sizes. Use item
+	// progress on the wire while keeping the stored counters and replay data.
+	if task.TotalBytes > 0 && (task.Type == TypeFileCopy || task.Type == TypeFileMove) {
+		var args struct {
+			Items []struct {
+				IsDir bool `json:"isDir"`
+			} `json:"items"`
+		}
+		if json.Unmarshal(task.Args, &args) == nil {
+			for _, item := range args.Items {
+				if item.IsDir {
+					task.TotalBytes, task.ProcessedBytes = 0, 0
+					break
+				}
+			}
+		}
+	}
+	return json.Marshal(publicTask(task))
+}
+
 func (task *Task) Clone() *Task {
 	if task == nil {
 		return nil

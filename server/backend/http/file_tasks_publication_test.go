@@ -19,6 +19,43 @@ type publicationFailureFS struct {
 	attempted, removedTarget bool
 }
 
+func TestDirectoryTransferReportsItemsAndObservedBytes(t *testing.T) {
+	for _, tc := range []struct {
+		name, action string
+		overwrite    bool
+		wantBytes    int64
+	}{
+		{"copy-new", "copy", false, int64(len("new-tree"))},
+		{"copy-overwrite", "copy", true, int64(len("new-tree"))},
+		{"move-rename", "move", false, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, d, task, args := directoryTransferFixture(t, tc.action)
+			args.Items[0].Size = 4096
+			args.Items[0].Overwrite = tc.overwrite
+			if !tc.overwrite {
+				args.Items[0].To = "/new-target"
+			}
+			var last tasks.Progress
+			_, err := fileTransferRunner(d, task, args)(context.Background(), func(progress tasks.Progress) error {
+				if progress.TotalBytes != 0 || progress.TotalItems != 1 ||
+					progress.ProcessedBytes < last.ProcessedBytes || progress.ProcessedBytes > tc.wantBytes {
+					t.Fatalf("unexpected directory progress: %+v after %+v", progress, last)
+				}
+				last = progress
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if last.ProcessedItems != 1 || last.ProcessedBytes != tc.wantBytes {
+				t.Fatalf("final progress: %+v, want one item and %d observed bytes", last, tc.wantBytes)
+			}
+			assertWireOwned(t, d.user.Fs, map[string]string{path.Join(args.Items[0].To, "nested/new.txt"): "new-tree"})
+		})
+	}
+}
+
 func (fs *publicationFailureFS) Rename(from, to string) error {
 	if strings.HasPrefix(path.Base(from), ".nfb-transfer-") && to == "/target.txt" {
 		fs.attempted = true
