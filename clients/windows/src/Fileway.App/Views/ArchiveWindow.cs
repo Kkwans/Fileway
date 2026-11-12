@@ -27,14 +27,14 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         public override string ToString() => Name;
     }
 
-    private const double RowIconWidth = 28;
-    private const double RowLeftPadding = 4;
-    private const double RowRightPadding = 8;
-    private const double ColumnGap = 12;
-    private const double SizeColumnWidth = 96;
-    private const double TypeColumnWidth = 96;
-    private const double ModifiedColumnWidth = 150;
-    private const double HeaderLeftPadding = RowLeftPadding + RowIconWidth + ColumnGap;
+    private const double ContentInset = 20;
+    private const double RowInset = 10;
+    private const double RowIconWidth = 24;
+    private const double ColumnGap = 10;
+    private const double SizeColumnWidth = 80;
+    private const double TypeColumnWidth = 84;
+    private const double ModifiedColumnWidth = 136;
+    private const double HeaderLeftPadding = RowInset + RowIconWidth + ColumnGap;
     private const double CompactColumnsWidth = 720;
     private const int MaximumExtractItems = 1000;
 
@@ -75,7 +75,6 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
     private readonly Grid _windowRoot;
     private readonly KeyboardAccelerator _selectAll;
     private readonly Border _toolbar;
-    private readonly Border _crumbBar;
     private readonly Border _progressHost;
     private readonly ProgressBar _extractBar;
     private readonly TextBlock _extractProgressText;
@@ -116,16 +115,9 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         actions.Children.Add(_extractSelected);
         actions.Children.Add(_extractAll);
 
-        var toolbarGrid = new Grid { Padding = new Thickness(20, 0, 16, 0), ColumnSpacing = 12, Height = 48 };
-        toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        toolbarGrid.Children.Add(_summary);
-        Grid.SetColumn(actions, 1);
-        toolbarGrid.Children.Add(actions);
-        _toolbar = new Border { Child = toolbarGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
-
         _rootCrumb = CrumbButton("压缩包", "ArchiveRootCrumb");
         _rootCrumb.Tag = "";
+        _rootCrumb.Margin = new Thickness(-8, 0, 0, 0);
         AutomationProperties.SetHelpText(_rootCrumb, "压缩包根目录");
         _parentCrumb = CrumbButton("", "ArchiveParentCrumb");
         _parentCrumb.MaxWidth = 144;
@@ -149,20 +141,30 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         pathActions.Children.Add(_rootCrumb);
         pathActions.Children.Add(_ancestorButton);
         pathActions.Children.Add(_parentCrumb);
-        var crumbGrid = new Grid { Padding = new Thickness(20, 0, 16, 0), Height = 38 };
+        var crumbGrid = new Grid { VerticalAlignment = VerticalAlignment.Center };
         crumbGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         crumbGrid.ColumnDefinitions.Add(StarColumn());
         crumbGrid.Children.Add(pathActions);
         Grid.SetColumn(_currentCrumb, 1);
         crumbGrid.Children.Add(_currentCrumb);
-        _crumbBar = new Border { Child = crumbGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
+        var toolbarGrid = new Grid { Padding = new Thickness(ContentInset, 0, ContentInset, 0), ColumnSpacing = 12, Height = 48 };
+        toolbarGrid.ColumnDefinitions.Add(StarColumn());
+        toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        toolbarGrid.Children.Add(crumbGrid);
+        Grid.SetColumn(_summary, 1);
+        toolbarGrid.Children.Add(_summary);
+        Grid.SetColumn(actions, 2);
+        toolbarGrid.Children.Add(actions);
+        _toolbar = new Border { Child = toolbarGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
         RenderBreadcrumb();
 
         _bannerText = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
-        _banner = new Border { Visibility = Visibility.Collapsed, Padding = new Thickness(20, 10, 16, 10), BorderThickness = new Thickness(0, 0, 0, 1), Child = _bannerText };
+        _banner = new Border { Visibility = Visibility.Collapsed, Padding = new Thickness(ContentInset, 10, ContentInset, 10), BorderThickness = new Thickness(0, 0, 0, 1), Child = _bannerText };
         _listHeader = new Grid
         {
-            Padding = new Thickness(HeaderLeftPadding, 8, RowRightPadding, 6),
+            Margin = new Thickness(ContentInset, 0, ContentInset, 0),
+            Padding = new Thickness(HeaderLeftPadding, 8, RowInset, 8),
             ColumnSpacing = ColumnGap,
             Visibility = Visibility.Collapsed,
         };
@@ -225,7 +227,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         emptyPanel.Children.Add(_emptyTitle);
         emptyPanel.Children.Add(_emptyDescription);
         _empty = emptyPanel;
-        var listHost = new Grid();
+        var listHost = new Grid { Margin = new Thickness(ContentInset, 0, ContentInset, 0) };
         listHost.Children.Add(_list);
         listHost.Children.Add(_empty);
 
@@ -241,7 +243,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         };
         _extractProgressText = new TextBlock { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
         AutomationProperties.SetAutomationId(_extractProgressText, "ArchiveExtractProgress");
-        var progressGrid = new Grid { Padding = new Thickness(20, 8, 20, 8), ColumnSpacing = 12 };
+        var progressGrid = new Grid { Padding = new Thickness(ContentInset, 8, ContentInset, 8), ColumnSpacing = 12 };
         progressGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         progressGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         progressGrid.Children.Add(new Border
@@ -315,7 +317,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         {
             Child = resultsGrid,
             BorderThickness = new Thickness(0, 1, 0, 0),
-            Padding = new Thickness(20, 8, 20, 10),
+            Padding = new Thickness(ContentInset, 8, ContentInset, 10),
             Visibility = Visibility.Collapsed,
         };
 
@@ -323,17 +325,15 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition());
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.Children.Add(_toolbar);
-        Grid.SetRow(_crumbBar, 1); _root.Children.Add(_crumbBar);
-        Grid.SetRow(_banner, 2); _root.Children.Add(_banner);
-        Grid.SetRow(_listHeader, 3); _root.Children.Add(_listHeader);
-        Grid.SetRow(listHost, 4); _root.Children.Add(listHost);
-        Grid.SetRow(_progressHost, 5); _root.Children.Add(_progressHost);
-        Grid.SetRow(_resultsHost, 6); _root.Children.Add(_resultsHost);
+        Grid.SetRow(_banner, 1); _root.Children.Add(_banner);
+        Grid.SetRow(_listHeader, 2); _root.Children.Add(_listHeader);
+        Grid.SetRow(listHost, 3); _root.Children.Add(listHost);
+        Grid.SetRow(_progressHost, 4); _root.Children.Add(_progressHost);
+        Grid.SetRow(_resultsHost, 5); _root.Children.Add(_resultsHost);
 
         _windowRoot = new Grid();
         _windowRoot.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -413,7 +413,6 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _root.Style = (Style)resources["FwViewerCanvasStyle"];
         _windowRoot.Style = (Style)resources["FwViewerCanvasStyle"];
         _toolbar.Style = (Style)resources["FwDocumentPanelStyle"];
-        _crumbBar.Style = (Style)resources["FwDocumentPanelStyle"];
         _banner.Style = (Style)resources["FwDocumentNoticeStyle"];
         _progressHost.Style = (Style)resources["FwDocumentPanelStyle"];
         _resultsHost.Style = (Style)resources["FwDocumentPanelStyle"];
@@ -519,8 +518,8 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         var icon = new LucideIcon
         {
             IconName = row.IsDirectory ? "folder" : IconFor(row.Name),
-            Width = 20,
-            Height = 20,
+            Width = 18,
+            Height = 18,
             VerticalAlignment = VerticalAlignment.Center,
             Style = (Style)Application.Current.Resources["FwSecondaryIconStyle"],
         };
@@ -535,7 +534,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         var size = RowText(row.Size, HorizontalAlignment.Right);
         var type = RowText(row.Type, HorizontalAlignment.Left);
         var modified = RowText(row.Modified, HorizontalAlignment.Right);
-        var grid = new Grid { ColumnSpacing = ColumnGap, Padding = new Thickness(RowLeftPadding, 0, RowRightPadding, 0) };
+        var grid = new Grid { ColumnSpacing = ColumnGap, Padding = new Thickness(RowInset, 0, RowInset, 0) };
         grid.ColumnDefinitions.Add(FixedColumn(RowIconWidth));
         grid.ColumnDefinitions.Add(StarColumn());
         grid.ColumnDefinitions.Add(FixedColumn(SizeColumnWidth));
@@ -547,7 +546,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         Grid.SetColumn(type, 3); grid.Children.Add(type);
         Grid.SetColumn(modified, 4); grid.Children.Add(modified);
         SetTypeColumn(grid, 3, _compactColumns);
-        var item = new ListViewItem { Content = grid, Tag = row, MinHeight = 40 };
+        var item = new ListViewItem { Content = grid, Tag = row };
         AutomationProperties.SetName(item, row.Name);
         AutomationProperties.SetHelpText(item, $"{row.Type} · {row.Size} · {row.Modified}");
         return item;
@@ -658,7 +657,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         double reserved = 0;
         if (scroll is not null && scroll.ComputedVerticalScrollBarVisibility == Visibility.Visible)
             reserved = Math.Max(0, scroll.ActualWidth - scroll.ViewportWidth);
-        _listHeader.Padding = new Thickness(HeaderLeftPadding, 8, RowRightPadding + reserved, 6);
+        _listHeader.Padding = new Thickness(HeaderLeftPadding, 8, RowInset + reserved, 8);
     }
 
     private static ScrollViewer? FindScrollViewer(DependencyObject node)
@@ -1115,9 +1114,11 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void AddExtractResult(ArchiveExtractItem item)
     {
+        var separator = item.FullName.LastIndexOf('/');
+        var leaf = separator + 1 < item.FullName.Length ? item.FullName[(separator + 1)..] : item.FullName;
         var (iconName, styleKey, label) = item.Outcome switch
         {
-            ArchiveExtractOutcome.Extracted => ("folder-open", "FwPrimaryIconStyle", "已解压"),
+            ArchiveExtractOutcome.Extracted => (IconFor(leaf), "FwSecondaryIconStyle", "已解压"),
             ArchiveExtractOutcome.Skipped => ("minus", "FwSecondaryIconStyle", "已跳过"),
             _ => ("alert-triangle", "FwDangerIconStyle", "失败"),
         };
@@ -1126,39 +1127,42 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             IconName = iconName,
             Width = 18,
             Height = 18,
-            VerticalAlignment = VerticalAlignment.Top,
-            Margin = new Thickness(0, 2, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
             Style = (Style)Application.Current.Resources[styleKey],
         };
-        var separator = item.FullName.LastIndexOf('/');
-        var leaf = separator + 1 < item.FullName.Length ? item.FullName[(separator + 1)..] : item.FullName;
         var name = new TextBlock
         {
             Text = leaf,
             Style = (Style)Application.Current.Resources["FwToolbarTextStyle"],
             TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
         };
         ToolTipService.SetToolTip(name, item.FullName);
-        var outcome = new TextBlock { Text = label, FontSize = 12 };
+        var outcome = new TextBlock { Text = label, FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
         outcome.Style = (Style)Application.Current.Resources[
             item.Outcome == ArchiveExtractOutcome.Failed ? "FwDangerTextStyle" : "FwCaptionTextStyle"];
-        var text = new StackPanel { Spacing = 2 };
-        text.Children.Add(name);
-        text.Children.Add(outcome);
+        var grid = new Grid { ColumnSpacing = ColumnGap, Padding = new Thickness(RowInset, 6, RowInset, 6) };
+        grid.ColumnDefinitions.Add(FixedColumn(RowIconWidth));
+        grid.ColumnDefinitions.Add(StarColumn());
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(icon);
+        Grid.SetColumn(name, 1);
+        grid.Children.Add(name);
+        Grid.SetColumn(outcome, 2);
+        grid.Children.Add(outcome);
         var reason = item.Error ?? (item.Outcome == ArchiveExtractOutcome.Skipped ? "目标已存在，未覆盖。" : null);
         if (!string.IsNullOrEmpty(reason))
         {
-            var detail = new TextBlock { Text = reason, TextWrapping = TextWrapping.Wrap };
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var detail = new TextBlock { Text = reason, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) };
             detail.Style = (Style)Application.Current.Resources[
                 item.Outcome == ArchiveExtractOutcome.Failed ? "FwDangerTextStyle" : "FwCaptionTextStyle"];
-            text.Children.Add(detail);
+            Grid.SetColumn(detail, 1);
+            Grid.SetColumnSpan(detail, 2);
+            Grid.SetRow(detail, 1);
+            grid.Children.Add(detail);
         }
-        var grid = new Grid { ColumnSpacing = 10, Padding = new Thickness(4, 4, 8, 4) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.Children.Add(icon);
-        Grid.SetColumn(text, 1);
-        grid.Children.Add(text);
         var row = new ListViewItem { Content = grid, Tag = item, IsEnabled = true };
         AutomationProperties.SetName(row, item.FullName + " " + label);
         _resultsList.Items.Add(row);

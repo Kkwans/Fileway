@@ -33,6 +33,8 @@
       <Color x:Key="FwOwnedPanelFallbackColor">#FF2C2C2C</Color>
       <Color x:Key="FwShellCustomDefaultColor">#FF808080</Color>
       <SolidColorBrush x:Key="FwSoftChoiceFillBrush" Color="#FF3D444F"/>
+      <StaticResource x:Key="FwArchiveSelectionFillBrush" ResourceKey="FwSoftChoiceFillBrush"/>
+      <SolidColorBrush x:Key="FwArchiveSelectionStrokeBrush" Color="Transparent"/>
       <SolidColorBrush x:Key="FwSoftChoiceTextBrush" Color="#FFF1F4F8"/>
       <SolidColorBrush x:Key="FwPopupPresenterBrush" Color="#6624272C"/>
       <x:Double x:Key="FwShellCustomMix">0.08</x:Double>
@@ -98,6 +100,8 @@
       <Color x:Key="FwOwnedPanelFallbackColor">#FFF8F8F8</Color>
       <Color x:Key="FwShellCustomDefaultColor">#FF808080</Color>
       <SolidColorBrush x:Key="FwSoftChoiceFillBrush" Color="#FFE5E9EF"/>
+      <StaticResource x:Key="FwArchiveSelectionFillBrush" ResourceKey="FwSoftChoiceFillBrush"/>
+      <SolidColorBrush x:Key="FwArchiveSelectionStrokeBrush" Color="Transparent"/>
       <SolidColorBrush x:Key="FwSoftChoiceTextBrush" Color="#FF232B35"/>
       <SolidColorBrush x:Key="FwPopupPresenterBrush" Color="#66F9FAFC"/>
       <x:Double x:Key="FwShellCustomMix">0.1</x:Double>
@@ -151,6 +155,8 @@
       <StaticResource x:Key="ScrollBarPanningThumbBackground" ResourceKey="SystemColorWindowTextColorBrush" />
       <StaticResource x:Key="FwPopupPresenterBrush" ResourceKey="SystemColorWindowColorBrush"/>
       <StaticResource x:Key="FwSoftChoiceFillBrush" ResourceKey="SystemColorHighlightColorBrush"/>
+      <SolidColorBrush x:Key="FwArchiveSelectionFillBrush" Color="Transparent"/>
+      <StaticResource x:Key="FwArchiveSelectionStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush"/>
       <StaticResource x:Key="FwSoftChoiceTextBrush" ResourceKey="SystemColorHighlightTextColorBrush"/>
       <StaticResource x:Key="FwCanvasBrush" ResourceKey="SystemColorWindowColorBrush" />
       <StaticResource x:Key="FwSurfaceBrush" ResourceKey="SystemColorWindowColorBrush" />
@@ -1203,12 +1209,68 @@
     </Setter>
   </Style>
 
-  <Style x:Key="FwArchiveListItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}">
-    <Setter Property="Padding" Value="0" />
+  <Style x:Key="FwArchiveListItemStyle" TargetType="ListViewItem">
     <Setter Property="Margin" Value="0,0,0,2" />
-    <Setter Property="MinHeight" Value="40" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="CornerRadius" Value="8" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextSecondaryBrush}" />
+    <Setter Property="FocusVisualPrimaryThickness" Value="1" />
+    <Setter Property="FocusVisualSecondaryThickness" Value="0" />
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListViewItem">
+          <Grid x:Name="Row" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Selected">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource FwArchiveSelectionFillBrush}" />
+                    <Setter Target="Outline.BorderBrush" Value="{ThemeResource FwArchiveSelectionStrokeBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="PointerOverSelected">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource FwArchiveSelectionFillBrush}" />
+                    <Setter Target="Outline.BorderBrush" Value="{ThemeResource FwArchiveSelectionStrokeBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="PressedSelected">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource FwArchiveSelectionFillBrush}" />
+                    <Setter Target="Outline.BorderBrush" Value="{ThemeResource FwArchiveSelectionStrokeBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Opacity" Value="0.4" />
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="Outline" BorderThickness="1" BorderBrush="Transparent"
+                    CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
   </Style>
 
   <Style x:Key="FwTextBoxStyle" TargetType="TextBox">
