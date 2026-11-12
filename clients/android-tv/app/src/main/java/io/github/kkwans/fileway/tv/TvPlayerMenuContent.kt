@@ -297,10 +297,8 @@ private fun TvSpeedEditor(
     val editor = remember { FocusRequester() }
     val keyboardVisible = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: presets.firstOrNull()?.key
-    Column(Modifier.fillMaxSize().padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (!keyboardVisible && !focus.compactSpeedGrid) {
-            TvPlayerChoiceList(presets, focus, Modifier.height(98.dp), afterLast = editor, alignSelectedRow = true)
-        } else if (!keyboardVisible) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (!keyboardVisible) {
             val lines = presets.chunked(3)
             lines.forEachIndexed { index, line ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {

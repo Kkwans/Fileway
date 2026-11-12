@@ -75,7 +75,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
     var pulse by remember { mutableIntStateOf(0) }
     var seekTarget by remember(mediaEpoch) { mutableStateOf<Long?>(null) }
     var seekPulse by remember { mutableIntStateOf(0) }
-    var resize by remember { mutableIntStateOf(0) }
+    val resize by model.media.ratioIndex.collectAsStateWithLifecycle()
     val stage = remember { FocusRequester() }
     val play = remember { FocusRequester() }
     LaunchedEffect(player.mediaGeneration, resize) {
@@ -93,13 +93,17 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
         pages.add(page)
         quickPanel = quick
         returnToHud = controls
-        if (!quick && page in listOf(TvPlayerPage.QUEUE, TvPlayerPage.SETTINGS, TvPlayerPage.SUBTITLE, TvPlayerPage.AUDIO, TvPlayerPage.INFO)) lastMenu = page
+        if (!quick && page in listOf(TvPlayerPage.QUEUE, TvPlayerPage.SETTINGS, TvPlayerPage.SPEED, TvPlayerPage.SUBTITLE, TvPlayerPage.AUDIO, TvPlayerPage.INFO)) lastMenu = page
         trigger = if (returnToHud) origin ?: actions.getValue(if (quick) page else TvPlayerPage.SETTINGS) else null
         exitPrompt = false
         pulse++
     }
     fun navigatePanel(page: TvPlayerPage) {
         browserBack = null
+        if (page == TvPlayerPage.SPEED) {
+            pages.clear()
+            lastMenu = page
+        }
         pages.add(page)
         pulse++
     }
@@ -268,7 +272,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
             )
         }
         TvPlaybackHeader(
-            title = file.name.takeIf { (hudVisible || panel != null) && (panel != TvPlayerPage.SPEED || quickPanel) },
+            title = file.name.takeIf { (hudVisible || panel != null) },
             showTime = interfaceState.clockAlways || controls || panel != null,
             showSpeed = !audio && (interfaceState.speedAlways || controls || panel != null),
             bytesPerSecond = cache.bytesPerSecond, safePercent = interfaceState.safePercent,
@@ -321,7 +325,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
             child = pages.size > 1, audio = audio,
             quick = quickPanel, hudHeight = with(LocalDensity.current) { controlsHeight.toDp() },
             quickAnchor = quickAnchors[page], quickLabels = quickLabels,
-            settingsUnderlay = tvPlayerSettingsRows(state, player, resize, onExit = {}) {},
+            parentPage = pages.firstOrNull() ?: page,
             initialKey = focusMemory[page], onFocused = { key ->
                 val tab = if (page in setOf(TvPlayerPage.SUBTITLE, TvPlayerPage.SUBTITLE_SOURCE, TvPlayerPage.SUBTITLE_ADJUST))
                     TvPlayerPage.SUBTITLE else page
@@ -332,11 +336,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
         ) { focus ->
             TvPlayerMenuContent(
                 model, page, state, player, cache, resize, quickPanel, focus,
-                onResize = { index ->
-                    resize = index
-                    model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT,
-                        AspectRatioFrameLayout.RESIZE_MODE_FILL, AspectRatioFrameLayout.RESIZE_MODE_ZOOM)[index])
-                },
+                onResize = model.media::setRatio,
                 onNavigate = ::navigatePanel, onBack = { backPanel("dialog-choice") }, onClose = ::closePanel,
                 onExit = { traceBack("settings-exit", "exit-player"); model.media.close() },
                 onBrowserBack = { browserBack = it },

@@ -96,7 +96,6 @@ internal class TvPlayerPanelFocus(initialKey: String?, val onFocused: (String) -
     val appearanceScale = FocusRequester()
     var hasSection = false
     var hasHeader = true
-    var compactSpeedGrid = false
     private val initial = FocusRequester()
     var initialKey by mutableStateOf(initialKey)
         private set
@@ -124,7 +123,6 @@ private const val PanelBackKey = "header/back"
 private const val PanelCloseKey = "header/close"
 // Static neutral translucency: readable against bright footage without a live blur.
 internal val PanelSurface = Color(0xD61A1B1C)
-private val SpeedPanelSurface = Color(0xF0202022)
 internal val PanelFocus = Color.White.copy(alpha = .12f)
 internal val PanelOutline = Color(0xF2F2F5F8)
 private val PanelTabShape = RoundedCornerShape(50)
@@ -135,6 +133,7 @@ private fun tvPlayerPanelVerticalInset(height: androidx.compose.ui.unit.Dp): and
 private val PanelTabs = listOf(
     TvPlayerPage.QUEUE to "列表",
     TvPlayerPage.SETTINGS to "设置",
+    TvPlayerPage.SPEED to "倍速",
     TvPlayerPage.SUBTITLE to "字幕",
     TvPlayerPage.AUDIO to "音频",
     TvPlayerPage.INFO to "信息",
@@ -150,7 +149,7 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
 @Composable internal fun TvPlayerPanel(
     page: TvPlayerPage, safePercent: Int, child: Boolean, audio: Boolean,
     quick: Boolean, hudHeight: androidx.compose.ui.unit.Dp, quickAnchor: Rect?, quickLabels: List<String>,
-    settingsUnderlay: List<TvPlayerRow.Choice>,
+    parentPage: TvPlayerPage,
     initialKey: String?, onFocused: (String) -> Unit, onTab: (TvPlayerPage) -> Unit,
     onSubtitleSection: (TvPlayerPage) -> Unit, onBack: (String) -> Unit, onClose: () -> Unit,
     content: @Composable ColumnScope.(TvPlayerPanelFocus) -> Unit,
@@ -222,78 +221,37 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                     }
                 } else {
                 val subtitleSection = SubtitleSections.any { it.first == page }
-                val category = if (subtitleSection) TvPlayerPage.SUBTITLE else page
+                val category = if (subtitleSection) TvPlayerPage.SUBTITLE else parentPage
                 val hasTabs = PanelTabs.any { it.first == category }
                 val browser = page == TvPlayerPage.EXTERNAL || page == TvPlayerPage.LOCAL_SUBTITLE
-                val compactChoice = page in listOf(TvPlayerPage.SPEED, TvPlayerPage.HDR, TvPlayerPage.RATIO, TvPlayerPage.VOLUME)
-                val availableWidth = (maxWidth - horizontal * 2).coerceAtLeast(0.dp)
-                val baseHeight = (maxHeight * .32f).coerceIn(128.dp, 256.dp)
-                    .coerceAtMost((maxHeight - bottom - 56.dp).coerceAtLeast(0.dp))
-                val speedEditor = page == TvPlayerPage.SPEED
-                // The underlay also has a 48dp tab row and a 6dp gap above
-                // its body. Keep the choice panel above the entire row.
-                val stackedBottom = bottom + baseHeight + 48.dp + 6.dp + 12.dp
-                val keyboardEditor = speedEditor && WindowInsets.ime.getBottom(LocalDensity.current) > 0
-                val minimumStackedBody = if (speedEditor) 200.dp else 112.dp
-                val showSettingsUnderlay = compactChoice && !keyboardEditor &&
-                    maxHeight - stackedBottom - 56.dp >= minimumStackedBody
-                val compactSpeedGrid = speedEditor && !showSettingsUnderlay && !keyboardEditor
-                val panelWidth = when {
-                    keyboardEditor || compactSpeedGrid -> minOf(availableWidth, 336.dp)
-                    speedEditor -> minOf(availableWidth, (availableWidth * .28f).coerceIn(264.dp, 300.dp))
-                    compactChoice -> minOf(availableWidth, (availableWidth * .28f).coerceIn(224.dp, 300.dp))
-                    else -> availableWidth
-                }
-                val minimumBody = when {
-                    keyboardEditor -> 96.dp
-                    compactSpeedGrid -> 216.dp
-                    speedEditor -> minimumStackedBody
-                    page == TvPlayerPage.QUEUE -> 140.dp
-                    else -> 128.dp
-                }
-                val panelLeft = horizontal + when {
-                    speedEditor && !showSettingsUnderlay -> (availableWidth - panelWidth) / 2
-                    showSettingsUnderlay && availableWidth >= 560.dp -> availableWidth * .15f
-                    else -> 0.dp
-                }
-                val panelBottom = if (keyboardEditor) 4.dp else if (showSettingsUnderlay) stackedBottom
-                    else if (page == TvPlayerPage.QUEUE) bottom + 16.dp else bottom
-                val heightFraction = if (browser) .43f else if (compactChoice) .30f else if (page == TvPlayerPage.QUEUE) .28f else .32f
-                val headerSpace = if (keyboardEditor) 0.dp else 56.dp
-                val panelHeight = (if (keyboardEditor) minimumBody else (maxHeight * heightFraction).coerceIn(minimumBody, 256.dp))
-                    .coerceAtMost((maxHeight - panelBottom - headerSpace).coerceAtLeast(0.dp))
-                val dismiss by rememberUpdatedState(if (compactChoice && child) ({ onBack("dialog-outside") }) else onClose)
+                val panelWidth = (maxWidth - horizontal * 2).coerceAtLeast(0.dp)
+                val keyboardEditor = page == TvPlayerPage.SPEED && WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                val panelBottom = if (keyboardEditor) 4.dp else if (page == TvPlayerPage.QUEUE) bottom + 16.dp else bottom
+                val heightFraction = if (browser) .43f else if (page == TvPlayerPage.QUEUE) .28f else .39f
+                val panelHeight = (if (keyboardEditor) 92.dp else (maxHeight * heightFraction).coerceIn(144.dp, 300.dp))
+                    .coerceAtMost((maxHeight - panelBottom - 56.dp).coerceAtLeast(0.dp))
+                val dismiss by rememberUpdatedState(if (child) ({ onBack("dialog-outside") }) else onClose)
                 Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { dismiss() } })
                 if (page == TvPlayerPage.QUEUE) {
                     Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(panelHeight + panelBottom + 96.dp)
                         .background(Brush.verticalGradient(0f to Color.Transparent,
                             .22f to Color.Black.copy(alpha = .42f), .65f to Color.Black.copy(alpha = .66f),
                             1f to Color.Black.copy(alpha = .80f))))
-                } else if (hasTabs || showSettingsUnderlay) {
-                    // Fade around the tab labels only: the translucent panel below
-                    // must not be darkened a second time across the video frame.
-                    val headerBottom = if (compactChoice) baseHeight + bottom else panelHeight + panelBottom
+                } else if (hasTabs) {
                     Box(Modifier.align(Alignment.BottomCenter)
-                        .padding(bottom = (headerBottom - 8.dp).coerceAtLeast(0.dp))
+                        .padding(bottom = (panelHeight + panelBottom - 8.dp).coerceAtLeast(0.dp))
                         .fillMaxWidth().height(80.dp)
                         .background(Brush.verticalGradient(0f to Color.Transparent,
                             .40f to Color.Black.copy(alpha = .30f), .65f to Color.Black.copy(alpha = .40f),
                             1f to Color.Transparent)))
                 }
-                if (showSettingsUnderlay) TvPlayerSettingsUnderlay(
-                    settingsUnderlay, page, audio, availableWidth, baseHeight, horizontal, bottom,
-                    Modifier.align(Alignment.BottomStart),
-                )
                 saveable.SaveableStateProvider(page.name) {
                     val focus = remember(page) { TvPlayerPanelFocus(initialKey, onFocused).apply { hasSection = subtitleSection } }
                     focus.hasHeader = !keyboardEditor
-                    focus.compactSpeedGrid = compactSpeedGrid
                     Column(
-                        Modifier.align(Alignment.BottomStart).padding(start = panelLeft, bottom = panelBottom)
-                            .width(panelWidth)
-                            .then(if (compactChoice) Modifier.background(if (speedEditor && !showSettingsUnderlay) SpeedPanelSurface else PanelSurface, TvShape)
-                                .border(1.dp, Color.White.copy(alpha = .09f), TvShape) else Modifier),
-                        verticalArrangement = Arrangement.spacedBy(if (compactChoice || page == TvPlayerPage.QUEUE) 0.dp else 6.dp),
+                        Modifier.align(Alignment.BottomStart).padding(start = horizontal, bottom = panelBottom)
+                            .width(panelWidth),
+                        verticalArrangement = Arrangement.spacedBy(if (page == TvPlayerPage.QUEUE) 0.dp else 6.dp),
                     ) {
                         if (!keyboardEditor) Row(
                             Modifier.width(panelWidth).heightIn(min = 48.dp)
@@ -301,6 +259,10 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            if (hasTabs && child && !subtitleSection) TvPlaybackAction(
+                                "返回上一页", Art.drawable.fileway_ic_arrow_back, { onBack("dialog-touch") },
+                                focus.target(PanelBackKey, focus.initialKey == PanelBackKey), showLabel = false,
+                            )
                             if (hasTabs) {
                                 Row(
                                     Modifier.weight(1f).padding(start = 4.dp).horizontalScroll(rememberScrollState()).focusGroup(),
@@ -361,7 +323,7 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                             }
                             Row(
                                 Modifier.width(panelWidth).height(panelHeight)
-                                    .then(if (compactChoice || page == TvPlayerPage.QUEUE) Modifier else Modifier.background(PanelSurface, TvShape)
+                                    .then(if (page == TvPlayerPage.QUEUE) Modifier else Modifier.background(PanelSurface, TvShape)
                                         .border(1.dp, Color.White.copy(alpha = .09f), TvShape))
                                     .pointerInput(Unit) { detectTapGestures { } }
                                     .padding(start = leftInset, end = rightInset, top = verticalInset, bottom = verticalInset),
@@ -396,56 +358,14 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                                     Text("音轨", style = tvTextStyle(16, 22), color = Color.White.copy(alpha = .82f))
                                 }
                                 Column(Modifier.weight(1f).fillMaxHeight().focusRequester(focus.body).focusGroup()) {
+                                    if (child && hasTabs && !subtitleSection) Text(page.title,
+                                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = tvTextStyle(16, 22))
                                     content(focus)
                                 }
                             }
                         }
                     }
                 }
-                }
-            }
-        }
-    }
-}
-
-/** Non-interactive parent context while a compact settings choice has focus. */
-@Composable private fun TvPlayerSettingsUnderlay(
-    rows: List<TvPlayerRow.Choice>, active: TvPlayerPage, audio: Boolean,
-    width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp,
-    inset: androidx.compose.ui.unit.Dp, bottom: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier,
-) {
-    val contentInset = 12.dp
-    val twoColumns = width - contentInset * 2 >= 450.dp
-    Column(modifier.padding(start = inset, bottom = bottom).width(width).clearAndSetSemantics { },
-        verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.height(48.dp).padding(start = 4.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            for ((tab, label) in PanelTabs) {
-                if (audio && tab == TvPlayerPage.SUBTITLE) continue
-                val metrics = tvPanelTabMetrics(label)
-                Box(Modifier.width(metrics.width).height(48.dp), contentAlignment = Alignment.Center) {
-                    TvPlayerTabVisual(label, selected = tab == TvPlayerPage.SETTINGS, focused = false, hovered = false, metrics = metrics)
-                }
-            }
-        }
-        Column(Modifier.width(width).height(height).clip(TvShape).background(PanelSurface, TvShape)
-            .border(1.dp, Color.White.copy(alpha = .09f), TvShape)
-            .padding(start = contentInset, end = contentInset, top = tvPlayerPanelVerticalInset(height), bottom = tvPlayerPanelVerticalInset(height)),
-            verticalArrangement = Arrangement.Top) {
-            rows.chunked(if (twoColumns) 2 else 1).forEach { group ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    group.forEach { row ->
-                        Row(Modifier.weight(1f).height(48.dp)
-                            .background(if (row.key == active.name) Color.White.copy(alpha = .12f) else Color.Transparent, TvShape)
-                            .padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // Keep the same text, value and arrow slots as the live settings row.
-                            Text(row.title, Modifier.weight(1f), style = tvTextStyle(16, 22), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            row.value?.let { Text(it, style = tvTextStyle(15, 21), color = Color.White.copy(alpha = .84f), maxLines = 1) }
-                            if (row.destination) Icon(painterResource(Art.drawable.fileway_ic_expand_more), null, Modifier.size(18.dp).rotate(-90f))
-                        }
-                    }
-                    if (twoColumns && group.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
         }

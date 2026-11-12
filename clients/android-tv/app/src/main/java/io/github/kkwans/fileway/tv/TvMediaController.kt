@@ -63,6 +63,12 @@ class TvMediaController(
     private val prefs = application.getSharedPreferences("tv-playback", 0)
     private val mutable = MutableStateFlow(TvMediaState(mode = TvHdrMode.entries.firstOrNull { it.name == prefs.getString("hdr_mode", "AUTO") } ?: TvHdrMode.AUTO))
     val state = mutable.asStateFlow()
+    private val ratio = MutableStateFlow(0)
+    val ratioIndex = ratio.asStateFlow()
+    fun setRatio(index: Int) {
+        require(index in 0..2)
+        ratio.value = index
+    }
     private var epoch = 0L
     val controlEpoch:Long get()=epoch
     private var sequence = 0L
