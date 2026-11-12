@@ -282,7 +282,16 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
                 if (current() && seekTarget != null && reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)
                     seekTarget = newPosition.positionMs.coerceAtLeast(0)
             }
-            override fun onTracksChanged(tracks: Tracks) { if (current()) refreshTracks() }
+            override fun onTracksChanged(tracks: Tracks) {
+                if (!current()) return
+                refreshTracks()
+                if (videoDecodePolicy == VideoDecodePolicy.HARDWARE && tracks.containsType(C.TRACK_TYPE_VIDEO) &&
+                    !tracks.isTypeSupported(C.TRACK_TYPE_VIDEO, /* allowExceedsCapabilities = */ true)) {
+                    pause()
+                    mutable.value = mutable.value.copy(canSavePosition = false,
+                        error = "没有可用的硬件视频解码器，请在设置中选择自动或软件解码")
+                }
+            }
             override fun onRenderedFirstFrame() {
                 if (current() && player.playerError == null) {
                     mutable.value = mutable.value.copy(firstFrameRendered = true)

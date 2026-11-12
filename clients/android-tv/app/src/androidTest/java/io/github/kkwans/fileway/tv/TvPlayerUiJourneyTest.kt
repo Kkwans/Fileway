@@ -16,6 +16,7 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
 import android.view.inputmethod.EditorInfo
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.lifecycle.ViewModelProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -123,6 +124,43 @@ class TvPlayerUiJourneyTest {
                 scenario.close()
                 movie.delete()
             }
+        }
+    }
+
+    @Test fun hardwareOnlyReportsMissingVideoDecoder() {
+        val avcDecoders = MediaCodecSelector.DEFAULT.getDecoderInfos("video/avc", false, false)
+        assumeTrue("Run on an owned TV without an AVC hardware decoder",
+            avcDecoders.any { it.softwareOnly } && avcDecoders.none { it.hardwareAccelerated })
+        val movie = File(instrumentation.targetContext.cacheDir, "owned-decoder-${System.nanoTime()}.mp4")
+        instrumentation.context.assets.open("media/tv-owned-source.mp4").use { input ->
+            movie.outputStream().use { input.copyTo(it) }
+        }
+        val scenario = ActivityScenario.launch(TvActivity::class.java)
+        var ownedPlayer: NativePlayer? = null
+        var ownedViewport: PlayerViewport? = null
+        val url = Uri.fromFile(movie).toString()
+        try {
+            scenario.onActivity { activity ->
+                val viewport = PlayerViewport(activity).also { ownedViewport = it }
+                (activity.window.decorView as ViewGroup).addView(viewport, ViewGroup.LayoutParams(640, 360))
+                ownedPlayer = NativePlayer(activity).also {
+                    it.attach(viewport)
+                    it.open(url, videoDecodePolicy = VideoDecodePolicy.HARDWARE)
+                }
+            }
+            val player = requireNotNull(ownedPlayer)
+            waitFor("hardware-only reports the missing video decoder", 20_000) { player.state.value.error != null }
+            val failed = player.state.value
+            assertTrue(failed.error.orEmpty().startsWith("没有可用的硬件视频解码器"))
+            assertFalse(failed.firstFrameRendered)
+            assertFalse(failed.canSavePosition)
+        } finally {
+            scenario.onActivity {
+                ownedPlayer?.release()
+                ownedViewport?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            }
+            scenario.close()
+            movie.delete()
         }
     }
 

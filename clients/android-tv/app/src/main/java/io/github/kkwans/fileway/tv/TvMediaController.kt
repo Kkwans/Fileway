@@ -58,7 +58,7 @@ class TvMediaController(
 ) {
     internal val cache=TvVideoCache(application,scope)
     val player = NativePlayer(application, MediaResourcePolicy.LowMemoryTv)
-    val playbackPreferences = PlaybackPreferences(application, VideoDecodePolicy.HARDWARE)
+    val playbackPreferences = PlaybackPreferences(application)
     internal val localSubtitles = TvLocalSubtitleStorage(application)
     private val prefs = application.getSharedPreferences("tv-playback", 0)
     private val mutable = MutableStateFlow(TvMediaState(mode = TvHdrMode.entries.firstOrNull { it.name == prefs.getString("hdr_mode", "AUTO") } ?: TvHdrMode.AUTO))
