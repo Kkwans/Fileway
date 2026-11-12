@@ -5,6 +5,9 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.github.kkwans.nasfilebrowser.data.*
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -38,6 +41,109 @@ class NasSessionTest {
         assertTrue(runCatching { session.token() }.isFailure)
         assertEquals(listOf(original, renewed), saved)
         session.close()
+    }
+
+    @Test fun backgroundSnapshotCannotRollBackAcknowledgedRenewal() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val database = Room.inMemoryDatabaseBuilder(context, ClientDatabase::class.java).build()
+        val store = ProfileStore(database, CredentialVault(context))
+        val profile = store.save(ServerProfile(name = "Owned snapshot order", address = "https://snapshot.example.test"))
+        val original = token(7, 10)
+        val renewed = token(7, 20, "viewer-renamed")
+        val account = store.saveLogin(profile, 7, "viewer", original)
+        val releaseSnapshot = CompletableDeferred<Unit>()
+        val writes = mutableListOf<Long>()
+        var current = original
+        var mutations = 0
+        val session = NasSession.restore(profile, original, 7) { command ->
+            when (command.getString("op")) {
+                "open" -> "owned-snapshot-order"
+                "token" -> current
+                "session_state" -> {
+                    val snapshot = current
+                    releaseSnapshot.await()
+                    JSONObject().put("token", snapshot)
+                }
+                "request" -> {
+                    mutations++
+                    current = renewed
+                    JSONObject().put("status", 202).put("body", "{\"id\":\"accepted-once\"}")
+                }
+                "close_session" -> null
+                else -> error("Unexpected fixture operation")
+            }
+        }
+        try {
+            session.persistTokens {
+                writes += NasSession.issuedAt(it)
+                check(store.refreshToken(profile, account, it))
+            }
+            val observation = async(start = CoroutineStart.UNDISPATCHED) { session.synchronizeSession() }
+            val result = async(start = CoroutineStart.UNDISPATCHED) { session.action("POST", "/api/owned") }
+            releaseSnapshot.complete(Unit)
+            observation.await()
+            assertEquals("accepted-once", result.await().getString("id"))
+            assertEquals(1, mutations)
+            assertEquals(listOf(10L, 20L), writes)
+            assertEquals("viewer-renamed", session.identity.username)
+            assertTrue(store.token(profile, account) == renewed)
+            assertNull(session.sessionHealth.value)
+        } finally {
+            try { session.close() }
+            finally { try { store.remove(profile) } finally { database.close() } }
+        }
+    }
+
+    @Test fun delayedAuthCompletionPersistsTheCurrentNativeToken() = runBlocking {
+        val profile = ServerProfile(name = "Owned auth response order", address = "https://snapshot.example.test")
+        for (operation in listOf("renew_session", "recover_session", "recover_device_session")) {
+            val original = token(7, 10)
+            val intermediate = token(7, 20)
+            val renewed = token(7, 30, "viewer-renamed")
+            var current = original
+            val releaseAuth = CompletableDeferred<Unit>()
+            val writes = mutableListOf<Long>()
+            val session = NasSession.restore(profile, original, 7) { command ->
+                when (command.getString("op")) {
+                    "open" -> "owned-auth-order"
+                    "token" -> current
+                    "session_state" -> JSONObject().put("token", current)
+                    operation -> {
+                        current = intermediate
+                        releaseAuth.await()
+                        if (operation == "recover_session") JSONObject().put("status", 200).put("body", intermediate)
+                        else JSONObject().put("token", intermediate)
+                    }
+                    "request" -> {
+                        current = renewed
+                        JSONObject().put("status", 200).put("body", "{}")
+                    }
+                    "close_session" -> null
+                    else -> error("Unexpected fixture operation")
+                }
+            }
+            try {
+                session.persistTokens {
+                    val issue = NasSession.issuedAt(it)
+                    check(writes.isEmpty() || writes.last() <= issue)
+                    writes += issue
+                }
+                val auth = async(start = CoroutineStart.UNDISPATCHED) {
+                    when (operation) {
+                        "renew_session" -> session.refreshAuthentication()
+                        "recover_session" -> session.recoverAuthentication("viewer", "owned-fixture")
+                        else -> session.recoverDeviceAuthentication(intermediate)
+                    }
+                }
+                try { session.request("GET", "/api/resources/") } finally { releaseAuth.complete(Unit) }
+                auth.await()
+                assertEquals(operation, listOf(10L, 30L), writes)
+                assertEquals(operation, "viewer-renamed", session.identity.username)
+                assertNull(operation, session.sessionHealth.value)
+            } finally {
+                session.close()
+            }
+        }
     }
     @Test fun renewedPrincipalMetadataKeepsRestoredAccountActivationConsistent() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

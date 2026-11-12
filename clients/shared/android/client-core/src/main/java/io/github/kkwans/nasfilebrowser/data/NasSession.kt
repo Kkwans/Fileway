@@ -52,8 +52,9 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
     }
     /** Reads local core state only. No network requests and no session keepalive. */
     suspend fun synchronizeSession() {
-        val state = native(JSONObject().put("op", "session_state").put("session", id)) as JSONObject
         tokenWrites.withLock {
+            // A business request can persist a newer token while a native snapshot is in flight.
+            val state = native(JSONObject().put("op", "session_state").put("session", id)) as JSONObject
             transportHealth(state.optString("health"))
             businessRevision = state.optLong("businessRevision")
             acceptToken(state.getString("token"))
@@ -62,8 +63,8 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
     /** Renew a valid saved session on actual use, matching Web startup. */
     suspend fun refreshAuthentication() {
         try {
-            val state = native(JSONObject().put("op", "renew_session").put("session", id)) as JSONObject
-            tokenWrites.withLock { transportHealth(state.optString("health")); acceptToken(state.getString("token")) }
+            native(JSONObject().put("op", "renew_session").put("session", id))
+            synchronizeSession()
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) {
             if (error.message == "session expired; sign in again") {
@@ -77,12 +78,13 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
         val result = native(JSONObject().put("op", "recover_session").put("session", id)
             .put("expectedUser", userId).put("username", username).put("password", password)) as JSONObject
         if (result.getInt("status") != 200) throw ServiceException(result.getInt("status"), "保存的登录无法恢复，请重新输入账号密码")
-        tokenWrites.withLock { transportHealth(""); acceptToken(result.getString("body")) }
+        synchronizeSession()
     }
-    suspend fun recoverDeviceAuthentication(token:String){
-        check(parseIdentity(token).id==userId){"设备账号不一致"}
-        val state=native(JSONObject().put("op","recover_device_session").put("session",id).put("expectedUser",userId).put("token",token)) as JSONObject
-        tokenWrites.withLock{transportHealth(state.optString("health"));acceptToken(state.getString("token"))}
+    suspend fun recoverDeviceAuthentication(token: String) {
+        check(parseIdentity(token).id == userId) { "设备账号不一致" }
+        native(JSONObject().put("op", "recover_device_session").put("session", id)
+            .put("expectedUser", userId).put("token", token))
+        synchronizeSession()
     }
     /** One collector belongs to the bound lifecycle/account context and is canceled with it. */
     fun observeSessionState(): Flow<SessionHealth?> = flow {
