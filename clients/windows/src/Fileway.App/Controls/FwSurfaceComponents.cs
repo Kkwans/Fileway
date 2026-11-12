@@ -128,12 +128,17 @@ public sealed class FwResourceRow : UserControl
 {
     private readonly LucideIcon _icon = new() { Width = 22, Height = 22, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock _title = new() { FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
-    private readonly TextBlock _detail = new() { Style = SurfaceGeometry.Style("FwCaptionTextStyle"), TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed };
+    private readonly TextBlock _detail = new()
+    {
+        Style = SurfaceGeometry.Style("FwCaptionTextStyle"), TextWrapping = TextWrapping.NoWrap,
+        TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed,
+    };
     private readonly TextBlock _hint = new() { Style = SurfaceGeometry.Style("FwCaptionTextStyle"), TextWrapping = TextWrapping.Wrap, Visibility = Visibility.Collapsed };
     private readonly TextBlock _summary = new()
     {
         Style = SurfaceGeometry.Style("FwCaptionTextStyle"), MaxWidth = 220, VerticalAlignment = VerticalAlignment.Center,
-        TextAlignment = TextAlignment.Right, TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed,
+        TextAlignment = TextAlignment.Right, TextWrapping = TextWrapping.NoWrap,
+        TextTrimming = TextTrimming.CharacterEllipsis, Visibility = Visibility.Collapsed,
     };
 
     public static readonly DependencyProperty TitleProperty = SurfaceGeometry.Text<FwResourceRow>(nameof(Title), static (row, text) => SetRowText(row._title, text));
