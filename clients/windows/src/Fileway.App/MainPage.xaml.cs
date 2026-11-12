@@ -106,7 +106,7 @@ public sealed partial class MainPage : Page, IDisposable
         SidebarCollections.FavoriteRequested += async (_, favorite) =>
         {
             if (_disposed || _connecting || _session?.Account != favorite.Account) return;
-            HideCollections(); UpdateCollectionsContext(); await CollectionsPanel.OpenReferenceAsync(favorite.Reference);
+            UpdateCollectionsContext(); await CollectionsPanel.OpenReferenceAsync(favorite.Reference);
         };
         SidebarCollections.TagRequested += async (_, tag) =>
         {
@@ -798,7 +798,9 @@ public sealed partial class MainPage : Page, IDisposable
     {
         if (_disposed || _connecting || _session is not { } session || row.File.Resource.Account != session.Account) return;
         var generation = _generation;
-        bool CurrentOpen() => !_disposed && generation == _generation && _session?.Id == session.Id && _session.Account == session.Account;
+        var navigation = _navigationRevision;
+        bool CurrentOpen() => !_disposed && generation == _generation && navigation == _navigationRevision &&
+            _session?.Id == session.Id && _session.Account == session.Account;
         if (row.File.IsDirectory) { _history.Push(_trail.ToArray()); _trail.Add(row.File.Resource); await LoadAsync(row.File.Resource); return; }
         try
         {
@@ -923,7 +925,6 @@ public sealed partial class MainPage : Page, IDisposable
     private async Task OpenCollectionResourceAsync(RemoteFile file)
     {
         if (_disposed || _connecting || _session is not { } session || file.Resource.Account != session.Account) return;
-        HideCollections();
         if (file.IsDirectory)
         {
             await NavigateToResourceAsync(file.Resource);

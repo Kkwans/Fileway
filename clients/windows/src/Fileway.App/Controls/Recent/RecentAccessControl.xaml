@@ -20,7 +20,7 @@
     <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="名称" Margin="40,0,0,0"/>
     <TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="1" Text="访问时间" HorizontalAlignment="Right"/>
    </Grid>
-   <ListView x:Name="RecentRecords" Grid.Row="1" SelectionMode="Single" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" KeyDown="Records_KeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="最近访问列表，选中后按 Enter 打开" ItemContainerStyle="{StaticResource FwListRecordItemStyle}">
+   <ListView x:Name="RecentRecords" Grid.Row="1" SelectionMode="Single" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" PreviewKeyDown="Records_PreviewKeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="最近访问列表，选中后按 Enter 打开" ItemContainerStyle="{StaticResource FwListRecordItemStyle}">
     <ListView.ItemTemplate>
      <DataTemplate x:DataType="local:RecentAccessRow">
       <ui:FwResourceRow IconName="{x:Bind IconName}" Title="{x:Bind Name}" Detail="{x:Bind DisplayDirectory}"

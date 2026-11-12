@@ -34,6 +34,7 @@ public sealed partial class MainPage
             foreach (var notice in _noticeLayouts.Keys)
                 if (Controls.FloatingNotice.IsCompact(notice)) notice.IsOpen = false;
         }
+        if (_currentPane != pane) ++_navigationRevision;
         _currentPane = pane;
         if (pane != MainPane.ServerUsers) RetireServerUsers();
 

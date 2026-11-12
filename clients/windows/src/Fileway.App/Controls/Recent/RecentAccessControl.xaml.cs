@@ -98,9 +98,14 @@ public sealed partial class RecentAccessControl : UserControl, IDisposable
     private async void Refresh_Click(object sender, RoutedEventArgs e) => await RefreshAsync();
     private async void Open_Click(object sender, RoutedEventArgs e) => await OpenSelectedAsync();
     private void Record_Changed(object sender, SelectionChangedEventArgs e) { if (!_rendering) UpdateCommands(); }
-    private async void Records_KeyDown(object sender, KeyRoutedEventArgs e)
+    private async void Records_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
     {
-        if (!e.Handled && e.Key == VirtualKey.Enter) { e.Handled = true; await OpenSelectedAsync(); }
+        if (e.Handled || e.Key != VirtualKey.Enter || e.KeyStatus.WasKeyDown) return;
+        foreach (var modifier in new[] { VirtualKey.Control, VirtualKey.Menu, VirtualKey.Shift })
+            if (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(modifier)
+                .HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down)) return;
+        e.Handled = true;
+        await OpenSelectedAsync();
     }
     private async void Records_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
