@@ -106,7 +106,9 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _isMarkdown = extension is ".md" or ".markdown";
         _isTable = extension is ".csv" or ".tsv";
         _sourceLabel = SourceLabel(extension);
-        Title = _titleBar.Caption = resource.DisplayName + " · " + AppBranding.DisplayName;
+        _titleBar.SetViewerCaption();
+        _titleBar.Caption = resource.DisplayName;
+        Title = resource.DisplayName + " · " + AppBranding.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1080, 800));
 

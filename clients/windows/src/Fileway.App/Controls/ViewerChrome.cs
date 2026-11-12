@@ -8,13 +8,11 @@ using Fileway.Core.Contracts;
 
 namespace Fileway.App.Controls;
 
-/// <summary>Image canvas with side navigation and a compact bottom toolbar.</summary>
+/// <summary>Image canvas between the viewing controls and thumbnail strip.</summary>
 internal sealed class ViewerChrome : Grid, IDisposable
 {
     private const double CanvasInset = 10;
     private const double NavigationClearance = 54;
-    private const double ToolbarClearance = 56;
-    private const double PlaylistClearance = 68;
 
     private readonly Grid _stage = new();
     private readonly Grid _content = new() { Margin = new Thickness(CanvasInset, 0, CanvasInset, 0) };
@@ -35,7 +33,7 @@ internal sealed class ViewerChrome : Grid, IDisposable
     private readonly ImagePlaylist _playlist = new()
     {
         HorizontalAlignment = HorizontalAlignment.Center,
-        VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(16, 0, 16, ToolbarClearance + 4),
+        Margin = new Thickness(16, 0, 16, 10),
         Visibility = Visibility.Collapsed,
     };
     private readonly ToggleButton _playlistToggle = new()
@@ -43,6 +41,16 @@ internal sealed class ViewerChrome : Grid, IDisposable
         Style = SurfaceGeometry.Style("FwViewerToggleStyle"), Width = 34,
         Padding = new Thickness(0), Visibility = Visibility.Collapsed,
     };
+    private readonly Button _playlistSize = new()
+    {
+        Style = SurfaceGeometry.Style("FwTextIconButtonStyle"), Width = 34, Height = 34,
+        Padding = new Thickness(0), Visibility = Visibility.Collapsed,
+        Content = new LucideIcon { IconName = "gear", Width = 17, Height = 17 },
+    };
+    private int _preferredThumbnailHeight = PresentationPreferences.ImageThumbnailHeight;
+    private int _savedThumbnailHeight;
+    private Flyout? _playlistSizeFlyout;
+    private bool _playlistSizeOpen;
     private bool _playlistAvailable;
     private bool? _playlistPreference;
     private bool _updatingPlaylistToggle;
@@ -80,9 +88,15 @@ internal sealed class ViewerChrome : Grid, IDisposable
     {
         Style = SurfaceGeometry.Style("FwViewerChromeStyle");
         Background = null;
+        _savedThumbnailHeight = _preferredThumbnailHeight;
 
-        // Fixed clearances keep the fit viewport steady when metadata and zoom become available.
-        _stage.Margin = new Thickness(0, 8, 0, ToolbarClearance);
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Children.Add(BuildToolbar());
+
+        _stage.Margin = new Thickness(0, 4, 0, 4);
+        SetRow(_stage, 1);
         _stage.Children.Add(_content);
         _stage.Children.Add(_previous);
         _stage.Children.Add(_next);
@@ -93,9 +107,9 @@ internal sealed class ViewerChrome : Grid, IDisposable
         Canvas.SetZIndex(_fullscreenNotice, 2);
         _stage.Children.Add(_fullscreenNotice);
 
+        SetRow(_playlist, 2);
         Children.Add(_playlist);
         _playlist.ImageSelected += (_, index) => ImageSelected?.Invoke(this, index);
-        Children.Add(BuildToolbar());
         SizeChanged += (_, _) => UpdatePlaylistLayout();
 
         _loading = new StackPanel
@@ -146,9 +160,9 @@ internal sealed class ViewerChrome : Grid, IDisposable
     {
         _playlistAvailable = resources.Count > 1;
         _playlistToggle.Visibility = _playlistAvailable ? Visibility.Visible : Visibility.Collapsed;
+        _playlistSize.Visibility = _playlistToggle.Visibility;
         if (_playlistAvailable)
         {
-            _playlist.MaxWidth = Math.Min(720, 24 + resources.Count * 84d);
             _playlist.SetItems(resources, loadThumbnail);
         }
         UpdatePlaylistLayout();
@@ -156,11 +170,21 @@ internal sealed class ViewerChrome : Grid, IDisposable
 
     internal void SelectPlaylistImage(int index) => _playlist.SetCurrent(index);
 
+    internal bool DismissPlaylistSize()
+    {
+        if (!_playlistSizeOpen || _playlistSizeFlyout is not { } flyout) return false;
+        flyout.Hide();
+        return true;
+    }
+
     private void UpdatePlaylistLayout()
     {
         var visible = _playlistAvailable && (_playlistPreference ?? (!_isFullscreen && ActualWidth >= 560));
         _playlist.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
-        _stage.Margin = new Thickness(0, 8, 0, ToolbarClearance + (visible ? PlaylistClearance : 0));
+        var heightLimit = ActualHeight > 0
+            ? Math.Max(PresentationPreferences.MinimumImageThumbnailHeight, (int)(ActualHeight * 0.19))
+            : PresentationPreferences.MaximumImageThumbnailHeight;
+        _playlist.SetThumbnailHeight(Math.Min(_preferredThumbnailHeight, heightLimit));
         _updatingPlaylistToggle = true;
         _playlistToggle.IsChecked = visible;
         _updatingPlaylistToggle = false;
@@ -188,6 +212,7 @@ internal sealed class ViewerChrome : Grid, IDisposable
 
     public void Dispose()
     {
+        SaveThumbnailHeight();
         FloatingNotice.Detach(_fullscreenNotice);
         _playlist.Dispose();
     }
@@ -231,6 +256,7 @@ internal sealed class ViewerChrome : Grid, IDisposable
         AutomationProperties.SetAutomationId(_playlistToggle, "ImagePlaylistToggle");
         _playlistToggle.Checked += (_, _) => OnPlaylistToggleChanged();
         _playlistToggle.Unchecked += (_, _) => OnPlaylistToggleChanged();
+        ConfigurePlaylistSizing();
         SetFullscreen(false);
 
         var actions = new StackPanel
@@ -240,17 +266,69 @@ internal sealed class ViewerChrome : Grid, IDisposable
         actions.Children.Add(_zoomActions);
         actions.Children.Add(_actionDivider);
         actions.Children.Add(_playlistToggle);
+        actions.Children.Add(_playlistSize);
         actions.Children.Add(_fullscreen);
 
         var toolbar = new Border
         {
             Style = SurfaceGeometry.Style("FwPillStyle"),
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom,
-            Margin = new Thickness(12, 0, 12, 10), Padding = new Thickness(5, 2, 5, 2),
+            HorizontalAlignment = HorizontalAlignment.Center,
+            Margin = new Thickness(12, 4, 12, 4), Padding = new Thickness(5, 2, 5, 2),
+            MinHeight = 40,
             CornerRadius = new CornerRadius(12), Child = actions,
         };
+        AutomationProperties.SetAutomationId(toolbar, "ImageViewerToolbar");
         SurfaceStyles.SetUsePopupMaterial(toolbar, true);
         return toolbar;
+    }
+
+    private void ConfigurePlaylistSizing()
+    {
+        var label = AppBranding.IsChinese ? "缩略图大小" : "Thumbnail size";
+        var slider = new Slider
+        {
+            Header = label, Width = 218, StepFrequency = 2, IsThumbToolTipEnabled = false,
+            Minimum = PresentationPreferences.MinimumImageThumbnailHeight,
+            Maximum = PresentationPreferences.MaximumImageThumbnailHeight,
+            Value = _preferredThumbnailHeight,
+        };
+        AutomationProperties.SetAutomationId(_playlistSize, "ImagePlaylistSizeButton");
+        AutomationProperties.SetName(_playlistSize, label);
+        AutomationProperties.SetAutomationId(slider, "ImagePlaylistSizeSlider");
+        AutomationProperties.SetName(slider, label);
+        ToolTipService.SetToolTip(_playlistSize, label);
+        var flyout = new Flyout { Content = slider, Placement = FlyoutPlacementMode.Bottom };
+        flyout.Opening += (_, _) =>
+        {
+            _playlistSizeOpen = true;
+            _playlistPreference = true;
+            UpdatePlaylistLayout();
+        };
+        flyout.Closed += (_, _) =>
+        {
+            _playlistSizeOpen = false;
+            SaveThumbnailHeight();
+        };
+        slider.ValueChanged += (_, args) =>
+        {
+            _preferredThumbnailHeight = (int)Math.Round(args.NewValue);
+            UpdatePlaylistLayout();
+        };
+        _playlistSize.Flyout = _playlistSizeFlyout = flyout;
+    }
+
+    private void SaveThumbnailHeight()
+    {
+        if (_savedThumbnailHeight == _preferredThumbnailHeight) return;
+        try
+        {
+            PresentationPreferences.ImageThumbnailHeight = _preferredThumbnailHeight;
+            _savedThumbnailHeight = _preferredThumbnailHeight;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            System.Diagnostics.Debug.WriteLine(error.GetType().Name);
+        }
     }
 
     private void OnPlaylistToggleChanged()

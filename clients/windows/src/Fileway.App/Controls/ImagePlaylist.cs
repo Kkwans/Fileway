@@ -24,6 +24,8 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
     private int _firstVisible = -1;
     private int _lastVisible = -1;
     private int _activeLoads;
+    private int _thumbnailHeight = PresentationPreferences.DefaultImageThumbnailHeight;
+    private double ThumbnailWidth => Math.Round(_thumbnailHeight * 1.38);
     private bool _settingSelection;
     private bool _scrollToSelection;
     private bool _waitingForTemplate;
@@ -41,7 +43,7 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
         _list = (ListView)XamlReader.Load("""
             <ListView xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                      Height="64" Padding="3,2" SelectionMode="Single" SingleSelectionFollowsFocus="True"
+                      Padding="3,2" SelectionMode="Single" SingleSelectionFollowsFocus="True"
                       ScrollViewer.HorizontalScrollMode="Enabled" ScrollViewer.HorizontalScrollBarVisibility="Hidden"
                       ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Hidden">
               <ListView.Resources>
@@ -61,8 +63,6 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
               </ListView.ItemsPanel>
               <ListView.ItemContainerStyle>
                 <Style TargetType="ListViewItem">
-                  <Setter Property="Width" Value="80" />
-                  <Setter Property="Height" Value="54" />
                   <Setter Property="Margin" Value="2,0" />
                   <Setter Property="Padding" Value="3" />
                   <Setter Property="CornerRadius" Value="9" />
@@ -73,18 +73,17 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
               </ListView.ItemContainerStyle>
               <ListView.ItemTemplate>
                 <DataTemplate>
-                  <Grid Width="72" Height="46" HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <Grid HorizontalAlignment="Center" VerticalAlignment="Center"
                         IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw">
                     <Border Background="{ThemeResource FwSurfaceRaisedBrush}" BorderBrush="{ThemeResource FwStrokeBrush}"
                             BorderThickness="1" CornerRadius="7">
                       <BitmapIcon x:Name="Fallback" UriSource="ms-appx:///Assets/Lucide/light/image.png" Width="19" Height="19"
                                   Foreground="{ThemeResource FwTextSecondaryBrush}" />
                     </Border>
-                    <Border CornerRadius="7">
-                      <Image x:Name="Preview" Width="72" Height="46" Stretch="UniformToFill" />
-                    </Border>
+                    <Image x:Name="Preview" Margin="3" Stretch="Uniform"
+                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                     <Border x:Name="Selection" BorderBrush="{ThemeResource FwPrimaryButtonBackgroundBrush}"
-                            BorderThickness="2" CornerRadius="7" Visibility="Collapsed" />
+                            BorderThickness="1.5" CornerRadius="7" Visibility="Collapsed" />
                   </Grid>
                 </DataTemplate>
               </ListView.ItemTemplate>
@@ -98,7 +97,33 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
         _list.Unloaded += OnUnloaded;
         _list.LayoutUpdated += OnLayoutUpdated;
         Content = _list;
+        UpdateListSize();
         _visibilityCallback = RegisterPropertyChangedCallback(VisibilityProperty, OnVisibilityChanged);
+    }
+
+    internal void SetThumbnailHeight(int height)
+    {
+        if (_thumbnailHeight == height) return;
+        _thumbnailHeight = height;
+        UpdateListSize();
+        foreach (var tile in _tiles.Values) SizeTile(tile);
+        _scrollToSelection = _currentIndex >= 0;
+        QueueRefresh();
+    }
+
+    private void UpdateListSize()
+    {
+        _list.Height = _thumbnailHeight + 18;
+        MaxWidth = Math.Min(720, 24 + _entries.Count * (ThumbnailWidth + 12));
+    }
+
+    private void SizeTile(Tile tile)
+    {
+        tile.Container.Width = ThumbnailWidth + 8;
+        tile.Container.Height = _thumbnailHeight + 8;
+        if (tile.Template is not { } template) return;
+        template.Width = ThumbnailWidth;
+        template.Height = _thumbnailHeight;
     }
 
     internal void SetItems(IReadOnlyList<RemoteResourceRef> resources,
@@ -108,6 +133,7 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
         ClearTiles();
         _loadThumbnail = loadThumbnail;
         _entries = resources.Select((resource, index) => new Entry(resource, index)).ToList();
+        UpdateListSize();
         _currentIndex = -1;
         _scrollToSelection = false;
         _settingSelection = true;
@@ -160,7 +186,9 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
         var name = string.IsNullOrWhiteSpace(entry.Resource.DisplayName) ? entry.Resource.DisplayPath : entry.Resource.DisplayName;
         AutomationProperties.SetName(container, name);
         ToolTipService.SetToolTip(container, name);
-        _tiles.Add(container, new Tile(container, entry));
+        var tile = new Tile(container, entry);
+        _tiles.Add(container, tile);
+        SizeTile(tile);
         QueueRefresh();
     }
 
@@ -232,8 +260,10 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
                     continue;
                 }
                 tile.Preview = preview;
+                tile.Template = template;
                 tile.Selection = selection;
                 tile.Fallback = fallback;
+                SizeTile(tile);
                 ShowSelection(tile);
             }
             if (_loadThumbnail is not { } load || tile.Attempted || _activeLoads >= MaximumThumbnailLoads) continue;
@@ -355,6 +385,7 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
     {
         public SelectorItem Container { get; } = container;
         public Entry Entry { get; } = entry;
+        public FrameworkElement? Template { get; set; }
         public Image? Preview { get; set; }
         public Border? Selection { get; set; }
         public BitmapIcon? Fallback { get; set; }

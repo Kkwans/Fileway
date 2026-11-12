@@ -39,8 +39,8 @@ public sealed partial class WindowTitleBar : UserControl
     public double MinimumWindowWidth { get; private set; }
     public double MinimumWindowHeight { get; private set; }
 
-    /// <summary>Photo caption integrated into the viewer surface, with native window actions.</summary>
-    internal void SetImageCaption()
+    /// <summary>Compact file caption for document and photo viewers.</summary>
+    internal void SetViewerCaption()
     {
         Height = 44;
         MinimumWindowWidth = 480;

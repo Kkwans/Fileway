@@ -98,7 +98,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
     {
         _recentAccess = recentAccess;
         _service = service;
-        _titleBar.SetImageCaption();
+        _titleBar.SetViewerCaption();
         UpdateCaption(resource);
         var position = resources?.ToList().FindIndex(item => item == resource) ?? -1;
         _resources = position >= 0 ? resources! : [resource];
@@ -529,6 +529,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
             case VirtualKey.Escape:
                 if (!args.KeyStatus.WasKeyDown)
                 {
+                    if (_viewer.DismissPlaylistSize()) break;
                     if (_chrome.IsFullscreen) ToggleFullscreen();
                     else Close();
                 }
