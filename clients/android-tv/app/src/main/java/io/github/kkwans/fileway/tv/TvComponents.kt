@@ -131,7 +131,7 @@ private val TvTypography = Typography(
 @Composable fun TvField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier,
     password: Boolean = false, options: KeyboardOptions = KeyboardOptions.Default,
     focusedBorderColor: Color = MaterialTheme.colorScheme.primary,
-    keyboardActions: KeyboardActions = KeyboardActions.Default) {
+    keyboardActions: KeyboardActions = KeyboardActions.Default, showLabel: Boolean = true) {
     var focused by remember { mutableStateOf(false) }
     val gateway=LocalTvRemoteGateway.current
     val interactive=LocalTvInteractive.current
@@ -139,7 +139,7 @@ private val TvTypography = Typography(
     val receiver=remember { {text:String->latest(text)} }
     DisposableEffect(gateway){onDispose{if(gateway?.input===receiver)gateway.input=null}}
     Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.bodySmall, color = LocalTvSurfaces.current.secondaryText)
+        if (showLabel) Text(label, style = MaterialTheme.typography.bodySmall, color = LocalTvSurfaces.current.secondaryText)
         BasicTextField(value, onValueChange, enabled=interactive, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
             .semantics { contentDescription = label }.onFocusChanged { focused = it.isFocused;if(it.isFocused)gateway?.input=receiver else if(gateway?.input===receiver)gateway.input=null }.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
             .border(2.dp, if (focused) focusedBorderColor else LocalTvSurfaces.current.outline, TvShape)

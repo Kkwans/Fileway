@@ -289,35 +289,53 @@ internal fun tvPlayerSettingsRows(
     }
 }
 
+internal val TvSpeedPresetRowMinWidth = 480.dp
+
 @Composable
 private fun TvSpeedEditor(
     presets: List<TvPlayerRow.Choice>, rate: Float, focus: TvPlayerPanelFocus, applyRate: (Float) -> Unit,
 ) {
     var value by remember { mutableStateOf(rate.toString()) }
     val editor = remember { FocusRequester() }
+    val apply = remember { FocusRequester() }
     val keyboardVisible = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: presets.firstOrNull()?.key
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (!keyboardVisible) {
-            val lines = presets.chunked(3)
-            lines.forEachIndexed { index, line ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    line.forEach { preset ->
-                        TvPlayerPanelButton(preset.title, preset.selected, preset.action,
-                            focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
-                                if (index == 0) up = focus.header
-                                if (index == lines.lastIndex) down = editor
-                            }))
+    val parsed = parsePlaybackRate(value)
+    BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
+        val columns = if (maxWidth >= TvSpeedPresetRowMinWidth) 6 else 3
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (!keyboardVisible) {
+                val lines = presets.chunked(columns)
+                lines.forEachIndexed { index, line ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        line.forEach { preset ->
+                            TvPlayerPanelButton(preset.title, preset.selected, preset.action,
+                                focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
+                                    if (index == 0) up = focus.header
+                                    if (index == lines.lastIndex) down = editor
+                                }))
+                        }
                     }
                 }
             }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Bottom) {
-            TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
-                focus.target("custom-speed", preferred == "custom-speed", Modifier.weight(1f).focusRequester(editor)),
-                options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline)
-            val parsed = parsePlaybackRate(value)
-            TvButton("应用", { parsed?.let(applyRate) }, enabled = parsed != null)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.padding(end = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("自定义速度", style = tvTextStyle(16, 22, FontWeight.Medium))
+                    Text("0.1–5×", style = tvTextStyle(13, 18), color = LocalTvSurfaces.current.secondaryText)
+                }
+                TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
+                    focus.target("custom-speed", preferred == "custom-speed",
+                        Modifier.width(116.dp).focusRequester(editor).focusProperties {
+                            if (parsed != null) right = apply
+                        }),
+                    options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline,
+                    showLabel = false)
+                TvButton("应用", { parsed?.let(applyRate) },
+                    focus.target("apply-speed", preferred == "apply-speed",
+                        Modifier.widthIn(min = 76.dp).focusRequester(apply).focusProperties { left = editor }),
+                    enabled = parsed != null)
+            }
         }
     }
 }
