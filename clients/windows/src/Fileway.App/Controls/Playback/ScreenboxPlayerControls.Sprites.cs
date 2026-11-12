@@ -29,7 +29,7 @@ public sealed partial class ScreenboxPlayerControls
     }
     private void Sprite_PointerMoved(object sender, PointerRoutedEventArgs args)
     {
-        if (_disposed || !SeekSlider.IsEnabled || SeekSlider.ActualWidth <= 0) return;
+        if (_disposed || _audioOnly || !SeekSlider.IsEnabled || SeekSlider.ActualWidth <= 0) return;
         var x = Math.Clamp(args.GetCurrentPoint(SeekSlider).Position.X, 0, SeekSlider.ActualWidth);
         ShowSeekPreview(_seeking ? SeekSlider.Value : SeekSlider.Minimum + x / SeekSlider.ActualWidth * (SeekSlider.Maximum - SeekSlider.Minimum), x);
     }
@@ -37,7 +37,7 @@ public sealed partial class ScreenboxPlayerControls
     { if (!_seeking) SeekPreviewCard.Visibility = Visibility.Collapsed; }
     private void ShowSeekPreview(double seconds, double? x = null)
     {
-        if (_disposed || !double.IsFinite(seconds)) return;
+        if (_disposed || _audioOnly || !double.IsFinite(seconds)) return;
         _previewSeconds = Math.Clamp(seconds, SeekSlider.Minimum, SeekSlider.Maximum);
         _previewX = x ?? (_previewSeconds - SeekSlider.Minimum) / Math.Max(1, SeekSlider.Maximum - SeekSlider.Minimum) * SeekSlider.ActualWidth;
         SeekPreviewTime.Text = Clock(TimeSpan.FromSeconds(_previewSeconds));

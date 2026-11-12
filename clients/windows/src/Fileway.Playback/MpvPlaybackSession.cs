@@ -485,7 +485,10 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
             if (kind is null) continue;
             string? Text(string name) => track.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
             bool Flag(string name) => track.TryGetProperty(name, out var value) && value.ValueKind is JsonValueKind.True;
-            parsed.Add(new MediaTrack(trackId, kind.Value, Text("title"), Text("lang"), Text("codec"), Flag("selected"), Flag("external")));
+            parsed.Add(new MediaTrack(trackId, kind.Value, Text("title"), Text("lang"), Text("codec"), Flag("selected"), Flag("external"))
+            {
+                IsAlbumArt = kind == MediaTrackKind.Video && Flag("albumart"),
+            });
         }
         bool bitmap = parsed.Any(track => track.Kind == MediaTrackKind.Subtitle && track.Selected && track.Codec is "hdmv_pgs_subtitle" or "dvd_subtitle");
         bool script = parsed.Any(track => track.Kind == MediaTrackKind.Subtitle && track.Selected && track.Codec is "ass" or "ssa");

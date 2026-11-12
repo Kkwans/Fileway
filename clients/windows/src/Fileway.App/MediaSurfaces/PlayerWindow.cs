@@ -48,6 +48,11 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private readonly Grid _root = new() { Background = new SolidColorBrush(Controls.ThemePalette.Color("FwVideoMatteColor", ElementTheme.Dark)), RequestedTheme = ElementTheme.Dark };
     private readonly Grid _video = new();
     private readonly StackPanel _state = new() { Spacing = 16, MaxWidth = 440, Margin = new Thickness(40), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+    private readonly Controls.LucideIcon _stateIcon = new()
+    {
+        IconName = "film-strip", Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Left,
+        Foreground = Controls.ThemePalette.Brush("FwTextPrimaryBrush", ElementTheme.Dark),
+    };
     private readonly TextBlock _stateTitle = new() { FontSize = 24, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock _stateDescription = new() { TextWrapping = TextWrapping.Wrap, Style = (Style)Application.Current.Resources["FwCaptionTextStyle"] };
     private readonly ProgressBar _progress = new() { IsIndeterminate = true, Width = 160, HorizontalAlignment = HorizontalAlignment.Left };
@@ -70,6 +75,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private long _subtitlePickerGeneration;
     private bool _initialAspectApplied;
     private bool _userAdjustedWindow;
+    private bool _hasRememberedVideoSize;
     private bool _videoVisible;
     private RectInt32? _videoBounds;
 
@@ -95,11 +101,8 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _windowedPresenter = AppWindow.Presenter as OverlappedPresenter;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         _root.Children.Add(_video);
-        _state.Children.Add(new Controls.LucideIcon
-        {
-            IconName = "film-strip", Width = 32, Height = 32, HorizontalAlignment = HorizontalAlignment.Left,
-            Foreground = Controls.ThemePalette.Brush("FwTextPrimaryBrush", ElementTheme.Dark),
-        });
+        BuildAudioBody();
+        _state.Children.Add(_stateIcon);
         _state.Children.Add(_stateTitle);
         _state.Children.Add(_stateDescription);
         _state.Children.Add(_progress);
@@ -162,7 +165,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _overlay.VideoPointerCanceled += () => CancelVideoInput(PlaybackVideoInputSurface.Hud);
         _overlay.VideoKeyboardInput += () => CancelVideoGestures();
         NativeVideoWindow.ShowWindow(_child, 0);
-        ShowState("正在打开视频", "正在准备视频画面…", loading: true);
+        ShowState("正在打开媒体", "正在准备播放…", loading: true);
         _video.SizeChanged += (_, _) => UpdateBounds();
         _root.Loaded += (_, _) =>
         {
@@ -197,7 +200,13 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
 
     private void ApplyInitialWindowSize()
     {
-        // Only construction chooses a size. Later resize/DPI changes preserve the user's window.
+        var remembered = PresentationPreferences.RememberPlayerSize ? PresentationPreferences.PlayerSize : null;
+        _hasRememberedVideoSize = remembered is not null;
+        FitWindowToWorkArea(remembered?.Width ?? 1120, remembered?.Height ?? 630);
+    }
+
+    private void FitWindowToWorkArea(int requestedWidth, int requestedHeight)
+    {
         var dpi = NativeVideoWindow.GetDpiForWindow(_window);
         var scale = dpi == 0 ? 1 : dpi / 96d;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
@@ -206,9 +215,6 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         var margin = (int)Math.Round(24 * scale);
         var availableWidth = Math.Max(1, work.Width - margin * 2 - frameWidth);
         var availableHeight = Math.Max(1, work.Height - margin * 2 - frameHeight);
-        var remembered = PresentationPreferences.RememberPlayerSize ? PresentationPreferences.PlayerSize : null;
-        if (remembered is not null) _userAdjustedWindow = true;
-        var requestedWidth = remembered?.Width ?? 1120; var requestedHeight = remembered?.Height ?? 630;
         var fit = Math.Min(1, Math.Min(availableWidth / (requestedWidth * scale), availableHeight / (requestedHeight * scale)));
         var width = Math.Max(1, (int)Math.Floor(requestedWidth * scale * fit));
         var height = Math.Max(1, (int)Math.Floor(requestedHeight * scale * fit));
@@ -356,7 +362,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
 
     private void HandleVideoGesture(bool pressed, NativeVideoWindow.NativePoint point, PlaybackVideoInputSurface surface = PlaybackVideoInputSurface.Native)
     {
-        if (!_hasFrame || _showingState || _closing || _disposed || _detached) { CancelVideoGestures(); return; }
+        if (IsAudioPresentation || !_hasFrame || _showingState || _closing || _disposed || _detached) { CancelVideoGestures(); return; }
         if (_videoGestures is null)
         {
             var dpi = NativeVideoWindow.GetDpiForWindow(_child);
@@ -378,7 +384,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private bool TryVideoRootPointer(PointerRoutedEventArgs args, out NativeVideoWindow.NativePoint point)
     {
         point = default;
-        if (args.Handled || args.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Mouse || _root.XamlRoot is null)
+        if (IsAudioPresentation || args.Handled || args.Pointer.PointerDeviceType != Microsoft.UI.Input.PointerDeviceType.Mouse || _root.XamlRoot is null)
             return false;
         var position = args.GetCurrentPoint(_root).Position;
         var scale = _root.XamlRoot.RasterizationScale;
@@ -503,7 +509,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     {
         var diagnostics = _responsiveness;
         var started = diagnostics?.Timestamp ?? 0;
-        try { UpdateBoundsCore(); }
+        try { RestoreAudioSizedVideoWindow(); UpdateBoundsCore(); }
         catch (Exception) when (_fullscreenApplyingFrame)
         {
             _fullscreenBoundsFailed = true;
@@ -543,8 +549,17 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
 
     private void UpdateVideoVisibility()
     {
+        var presentMedia = !_showingState && !_detached;
+        var audioWithoutCover = IsAudioPresentation && !_audioCoverSelected;
+        var audioVisibility = presentMedia && audioWithoutCover ? Visibility.Visible : Visibility.Collapsed;
+        if (_audioBody.Visibility != audioVisibility) _audioBody.Visibility = audioVisibility;
+        if (audioVisibility == Visibility.Visible)
+        {
+            var iconVisibility = _root.ActualHeight is > 0 and < 260 ? Visibility.Collapsed : Visibility.Visible;
+            if (_audioIconTile.Visibility != iconVisibility) _audioIconTile.Visibility = iconVisibility;
+        }
         if (_child == 0) return;
-        var visible = !_showingState && !_detached;
+        var visible = presentMedia && !audioWithoutCover;
         if (_videoVisible == visible) return;
         _videoVisible = visible;
         NativeVideoWindow.ShowWindow(_child, visible ? 8 : 0);
@@ -588,14 +603,14 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     {
         if (_disposed || _detached || !_snapshotDispatcher.Owns(snapshot) || !_snapshotDispatcher.Owns(_session.Snapshot)
             || (_closing && !PlaybackSnapshotDispatcher.IsLifecycleSnapshot(snapshot))) return;
-        FitInitialVideoAspect(snapshot.DisplayAspectRatio);
+        if (ApplyMediaPresentation(snapshot) == MediaPresentation.Video) FitInitialVideoAspect(snapshot.DisplayAspectRatio);
         // A repeated progress snapshot must not stop/start the loading animation.
         var waiting = snapshot.Error is null && _hasFrame && snapshot.Status is PlaybackStatus.Seeking or PlaybackStatus.Buffering;
         if (waiting && _bufferingSince is null) { _bufferingSince = TimeProvider.System.GetTimestamp(); _bufferingTimer.Start(); }
         if (!waiting) { _bufferingSince = null; _bufferingTimer.Stop(); }
         var transientLoading = waiting && _bufferingSince is { } since && TimeProvider.System.GetElapsedTime(since) >= TimeSpan.FromMilliseconds(500);
         _overlay.ApplySnapshot(snapshot, transientLoading);
-        ObserveVideoSequence(snapshot.Origin);
+        ObserveVideoSequence(IsAudioPresentation ? null : snapshot.Origin);
         // Stop retains any prior failure metadata. Closing must still happen.
         if (_systemMedia is { } systemMedia)
         {
@@ -611,21 +626,21 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
             });
         }
         if (snapshot.Status == PlaybackStatus.Stopped) { BeginClose(); return; }
-        if (snapshot.Error is { } error) { ShowState("无法播放这个视频", error.Message, loading: false); return; }
+        if (snapshot.Error is { } error) { ShowState($"无法播放{MediaName}", error.Message, loading: false); return; }
         switch (snapshot.Status)
         {
             case PlaybackStatus.Preparing:
-                if (!_hasFrame) ShowState("正在打开视频", "正在准备视频画面…", loading: true);
+                if (!_hasFrame) ShowState($"正在打开{MediaName}", "正在准备播放…", loading: true);
                 break;
             case PlaybackStatus.Buffering:
-                if (!_hasFrame) ShowState("正在缓冲", "画面准备好后会自动开始播放。", loading: true);
+                if (!_hasFrame) ShowState("正在缓冲", "准备好后会自动开始播放。", loading: true);
                 else ShowTransientLoading();
                 break;
             case PlaybackStatus.Seeking:
                 ShowTransientLoading();
                 break;
             case PlaybackStatus.Failed:
-                ShowState("无法播放这个视频", "请关闭窗口，检查连接后重新打开文件。", loading: false);
+                ShowState($"无法播放{MediaName}", "请关闭窗口，检查连接后重新打开文件。", loading: false);
                 break;
             case PlaybackStatus.Ended:
                 _hasFrame = true;
@@ -633,7 +648,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
                 _ = TryAdvanceEpisodeAsync();
                 break;
             case PlaybackStatus.Closing:
-                ShowState("正在关闭视频", "正在释放播放资源…", loading: true);
+                ShowState($"正在关闭{MediaName}", "正在释放播放资源…", loading: true);
                 break;
             default:
                 _hasFrame = true;
@@ -660,7 +675,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     {
         if (_initialAspectApplied || displayAspectRatio is not { } aspect || !double.IsFinite(aspect) || aspect is < 0.1 or > 10) return;
         _initialAspectApplied = true;
-        if (_userAdjustedWindow
+        if (_userAdjustedWindow || _hasRememberedVideoSize
             || FullscreenGeometry || NativePlayerOverlay.IsZoomed(_window)) return;
         var scale = NativeVideoWindow.GetDpiForWindow(_window) / 96d;
         var work = DisplayArea.GetFromWindowId(AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
@@ -901,7 +916,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
 
     private async Task PlayNextVideoAsync()
     {
-        if (_closing || _disposed || _detached || _switchingNeighbor || _nextVideo is not { } target ||
+        if (IsAudioPresentation || _closing || _disposed || _detached || _switchingNeighbor || _nextVideo is not { } target ||
             !SameSource(_sequenceOrigin, _session.Snapshot.Origin)) return;
         _switchingNeighbor = true;
         UpdateNextVideoAvailability();
@@ -989,7 +1004,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         try
         {
             var origin = _session.Snapshot.Origin;
-            if (origin is null || _advanceAttemptedWire == origin.WirePath) return;
+            if (IsAudioPresentation || origin is null || _advanceAttemptedWire == origin.WirePath) return;
             _advanceAttemptedWire = origin.WirePath;
             await PlayEpisodeOffsetAsync(+1, announce: true);
         }
@@ -1003,13 +1018,13 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
     private async Task PlayEpisodeOffsetAsync(int offset, bool announce)
     {
         var origin = _session.Snapshot.Origin;
-        if (origin is null || _disposed || _detached || _closing || _switchingNeighbor || _watchCancellation.IsCancellationRequested) return;
+        if (IsAudioPresentation || origin is null || _disposed || _detached || _closing || _switchingNeighbor || _watchCancellation.IsCancellationRequested) return;
         _switchingNeighbor = true;
         UpdateNextVideoAvailability();
         try
         {
             var options = await EpisodesAsync();
-            if (options is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested ||
+            if (IsAudioPresentation || options is null || _disposed || _detached || _closing || _watchCancellation.IsCancellationRequested ||
                 !SameSource(origin, _session.Snapshot.Origin)) return;
             int index = -1;
             for (int position = 0; position < options.Count; position++)
@@ -1167,12 +1182,12 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         _closing = true;
         _snapshotDispatcher.BeginClosing();
         Interlocked.Increment(ref _subtitlePickerGeneration);
-        ShowState("正在关闭视频", "正在释放播放资源…", loading: true);
+        ShowState($"正在关闭{MediaName}", "正在释放播放资源…", loading: true);
         _ = CloseSessionAsync();
     }
     private void SaveWindowSize()
     {
-        if (_disposed || _miniMode || FullscreenGeometry || NativePlayerOverlay.IsZoomed(_window)) return;
+        if (_mediaPresentation != MediaPresentation.Video || _audioAutoSized || _disposed || _miniMode || FullscreenGeometry || NativePlayerOverlay.IsZoomed(_window)) return;
         try
         {
             if (PresentationPreferences.RememberPlayerSize) PresentationPreferences.PlayerSize = WindowSizeInDips();
@@ -1198,7 +1213,7 @@ internal sealed partial class PlayerWindow : Window, IPlaybackSurface, IPlayback
         {
             if (_disposed || _detached) return;
             _closing = false;
-            ShowState("暂时无法关闭视频", MainPage.ErrorMessage(exception), loading: false);
+            ShowState($"暂时无法关闭{MediaName}", MainPage.ErrorMessage(exception), loading: false);
         }
     }
 

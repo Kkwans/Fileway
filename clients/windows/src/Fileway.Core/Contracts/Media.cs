@@ -45,7 +45,10 @@ public enum MediaTrackKind
     Subtitle,
 }
 
-public sealed record MediaTrack(long Id, MediaTrackKind Kind, string? Title, string? Language, string? Codec, bool Selected, bool External);
+public sealed record MediaTrack(long Id, MediaTrackKind Kind, string? Title, string? Language, string? Codec, bool Selected, bool External)
+{
+    public bool IsAlbumArt { get; init; }
+}
 
 public sealed record PlaybackChapter(string Title, TimeSpan Position);
 

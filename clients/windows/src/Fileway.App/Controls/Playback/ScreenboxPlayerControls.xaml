@@ -119,6 +119,15 @@
                         <Setter Target="MoreButton.Visibility" Value="Visible"/>
                     </VisualState.Setters>
                 </VisualState>
+                <VisualState x:Name="AudioCompact">
+                    <VisualState.Setters>
+                        <Setter Target="AdaptiveTools.Visibility" Value="Visible"/>
+                        <Setter Target="ChapterContainer.Visibility" Value="Collapsed"/>
+                        <Setter Target="InlineVolumeHost.Visibility" Value="Collapsed"/>
+                        <Setter Target="VolumeButton.Visibility" Value="Visible"/>
+                        <Setter Target="MoreButton.Visibility" Value="Visible"/>
+                    </VisualState.Setters>
+                </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
         <Border x:Name="SeekPreviewCard" Canvas.ZIndex="20" HorizontalAlignment="Left" VerticalAlignment="Top" Visibility="Collapsed" IsHitTestVisible="False" Padding="8" CornerRadius="8" Background="{ThemeResource PlayerFallbackSurface}" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}" BorderThickness="1">

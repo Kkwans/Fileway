@@ -21,6 +21,7 @@ namespace Fileway.App.Controls.Playback;
 public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 {
     private const double ExpandedControlsMinWidth = 1000;
+    private const double AudioControlsMinWidth = 480;
     private readonly IPlaybackSession _session;
     private readonly PlaybackResponsivenessDiagnostics? _responsiveness;
     private readonly CancellationTokenSource _lifetime = new();
@@ -54,6 +55,9 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private long _seekEditGeneration;
     private bool _menuOpen;
     private bool _fullscreen;
+    private bool _audioOnly;
+    private bool _windowMaximized;
+    private bool _nextVideoAvailable;
     private bool _disposed;
     private Storyboard? _fade;
     private ScreenboxSpeedControl? _speedControl;
@@ -186,20 +190,62 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public (double Top, double Bottom) GetMaterialInsets() => ControlsVisible
         ? (TopBar.ActualHeight, BottomBar.ActualHeight) : default;
 
-    internal (FrameworkElement TopBar, FrameworkElement SeekBar) SettingsPictureBounds => (TopBar, SeekSlider);
+    internal bool AudioOnly => _audioOnly;
+    internal (FrameworkElement TopBar, FrameworkElement SeekBar)? SettingsPictureBounds => _audioOnly ? null : (TopBar, SeekSlider);
 
     // The owned XAML input site can receive the picture click before its parent
     // HWND's hit test. Edge chrome, menus and their controls are never video gestures.
     internal bool IsVideoBackground(Windows.Foundation.Point position) =>
-        !_disposed && !_menuOpen && ControlsVisible && ActualWidth > 0 && ActualHeight > 0
+        !_disposed && !_audioOnly && !_menuOpen && ControlsVisible && ActualWidth > 0 && ActualHeight > 0
         && position.X >= 0 && position.X < ActualWidth
         && position.Y >= TopBar.ActualHeight && position.Y < ActualHeight - BottomBar.ActualHeight;
 
     public void SetWindowMaximized(bool maximized)
     {
+        if (_windowMaximized == maximized) return;
+        _windowMaximized = maximized;
         MaximizeIcon.IconName = maximized ? "copy" : "square";
-        AutomationProperties.SetName(MaximizeButton, maximized ? "还原视频窗口" : "最大化视频窗口");
-        ToolTipService.SetToolTip(MaximizeButton, maximized ? "还原" : "最大化");
+        UpdateMaximizeAccessibility();
+    }
+
+    internal void SetAudioPresentation(bool audioOnly)
+    {
+        if (_disposed || _audioOnly == audioOnly) return;
+        _audioOnly = audioOnly;
+        if (audioOnly)
+        {
+            ResetSpritePreview();
+            _lastSubtitleViewport = null;
+            _pendingSubtitleViewport = null;
+            _lastQueuedSubtitleSafeArea = null;
+            _pendingSubtitleSafeArea = null;
+        }
+        var focused = XamlRoot is null ? null : FocusManager.GetFocusedElement(XamlRoot);
+        var videoActionFocused = ReferenceEquals(focused, NextVideoButton) || ReferenceEquals(focused, ResolutionButton) ||
+            ReferenceEquals(focused, SubtitleButton) || ReferenceEquals(focused, SubtitleStyleButton);
+        CloseSettingsFlyout();
+        var media = audioOnly ? "音频" : "视频";
+        AutomationProperties.SetName(BackButton, $"关闭{media}并返回文件");
+        AutomationProperties.SetName(MinimizeButton, $"最小化{media}窗口");
+        AutomationProperties.SetName(CloseButton, $"关闭{media}窗口");
+        ToolTipService.SetToolTip(CloseButton, $"关闭{media}");
+        UpdateMaximizeAccessibility();
+        UpdateBusyAccessibility(_snapshot.Status == PlaybackStatus.Seeking);
+        UpdateTitle();
+        UpdateVideoActions();
+        UpdateNextVideoVisibility();
+        UpdateLayout(ActualWidth);
+        if (audioOnly && videoActionFocused) MoreButton.Focus(FocusState.Keyboard);
+        NotifyActivity();
+        UpdateSubtitleSafeArea();
+    }
+
+    private void UpdateMaximizeAccessibility()
+    {
+        var action = _windowMaximized ? "还原" : "最大化";
+        var media = _audioOnly ? "音频" : "视频";
+        AutomationProperties.SetName(MaximizeButton, $"{action}{media}窗口");
+        ToolTipService.SetToolTip(MaximizeButton, action);
     }
 
     public void ApplySnapshot(PlaybackSnapshot snapshot)
@@ -210,12 +256,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _snapshot = snapshot;
         UpdateSubtitleViewport();
         _applying = true;
-        var extension = System.IO.Path.GetExtension(snapshot.DisplayName).ToLowerInvariant();
-        var hasMediaExtension = extension is ".mp4" or ".mkv" or ".webm" or ".mov" or ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv" or ".flv" or ".mp3" or ".flac" or ".m4a" or ".wav" or ".ogg";
-        TitleText.Text = hasMediaExtension ? snapshot.DisplayName[..^extension.Length] : snapshot.DisplayName;
-        SubtitleText.Text = snapshot.DisplayName;
-        SubtitleText.Visibility = hasMediaExtension ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(TitleText, snapshot.DisplayName);
+        UpdateTitle();
         var pauseAction = PlaybackPausePolicy.GetAction(snapshot);
         PlayIcon.IconName = pauseAction.IconName;
         AutomationProperties.SetName(PlayButton, pauseAction.AutomationName);
@@ -245,13 +286,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         UpdateDownloadStatus();
         _trackPicker?.ApplyTracks(snapshot.Tracks);
         AudioButton.Visibility = snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio) ? Visibility.Visible : Visibility.Collapsed;
-        var hasSubtitles = snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Subtitle);
-        SubtitleButton.Visibility = Visibility.Visible;
-        var caps = snapshot.SubtitleCapabilities;
-        SubtitleStyleButton.Visibility = hasSubtitles && (caps.CanScale || caps.CanPosition || caps.CanDelay || caps.CanChangeFont) ? Visibility.Visible : Visibility.Collapsed;
-        ResolutionButton.Visibility = SourceResolution(snapshot) is null ? Visibility.Collapsed : Visibility.Visible;
-        ResolutionText.Text = SourceResolution(snapshot) ?? "";
-        AutomationProperties.SetName(ResolutionButton, "源分辨率 " + ResolutionText.Text);
+        UpdateVideoActions();
         ProgressSyncText.Visibility = snapshot.Diagnostics.ProgressError is null ? Visibility.Collapsed : Visibility.Visible;
         ToolTipService.SetToolTip(ProgressSyncText, snapshot.Diagnostics.ProgressError?.Message);
         AutomationProperties.SetHelpText(ProgressSyncText, snapshot.Diagnostics.ProgressError?.Message ?? "");
@@ -262,6 +297,29 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         else if (wasPlaying != (snapshot.Status == PlaybackStatus.Playing)) NotifyActivity();
     }
 
+    private void UpdateTitle()
+    {
+        var name = _snapshot.DisplayName;
+        var extension = System.IO.Path.GetExtension(name).ToLowerInvariant();
+        var showFilename = !_audioOnly && extension is (".mp4" or ".mkv" or ".webm" or ".mov" or ".avi" or ".m4v" or ".ts" or ".m2ts" or ".wmv" or ".flv" or ".mp3" or ".flac" or ".m4a" or ".wav" or ".ogg");
+        TitleText.Text = showFilename ? name[..^extension.Length] : name;
+        SubtitleText.Text = showFilename ? name : "";
+        SubtitleText.Visibility = showFilename ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(TitleText, name);
+    }
+
+    private void UpdateVideoActions()
+    {
+        var hasSubtitles = !_audioOnly && _snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Subtitle);
+        var caps = _snapshot.SubtitleCapabilities;
+        SubtitleButton.Visibility = _audioOnly ? Visibility.Collapsed : Visibility.Visible;
+        SubtitleStyleButton.Visibility = hasSubtitles && (caps.CanScale || caps.CanPosition || caps.CanDelay || caps.CanChangeFont) ? Visibility.Visible : Visibility.Collapsed;
+        var resolution = SourceResolution(_snapshot);
+        ResolutionButton.Visibility = resolution is null ? Visibility.Collapsed : Visibility.Visible;
+        ResolutionText.Text = resolution ?? "";
+        AutomationProperties.SetName(ResolutionButton, "源分辨率 " + ResolutionText.Text);
+    }
+
     internal void SetTransientLoading(bool loading, bool seeking)
     {
         if (_disposed) return;
@@ -269,8 +327,11 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         PlaybackBusyRing.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
         PlaybackBusyText.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
         PlaybackBusyText.Text = _snapshot.BufferingPercent is { } percent ? $"正在缓冲 {percent:0}%" : seeking ? "正在跳转" : "正在缓冲";
-        AutomationProperties.SetName(PlaybackBusyRing, seeking ? "正在跳转视频" : "正在缓冲视频");
+        UpdateBusyAccessibility(seeking);
     }
+
+    private void UpdateBusyAccessibility(bool seeking) =>
+        AutomationProperties.SetName(PlaybackBusyRing, $"正在{(seeking ? "跳转" : "缓冲")}{(_audioOnly ? "音频" : "视频")}");
 
     public void SetFullscreen(bool fullscreen)
     {
@@ -286,6 +347,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _synchronizePointerPosition?.Invoke();
         ShowControls();
         _hideTimer.Stop();
+        if (_audioOnly) return;
         _hideTimer.Interval = TimeSpan.FromSeconds(PresentationPreferences.ControlsHideSeconds);
         if (_snapshot.Status is PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Buffering && !_seeking && !_menuOpen && _visibleResumePrompt is null) _hideTimer.Start();
     }
@@ -308,7 +370,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Controls_Loaded(object sender, RoutedEventArgs args)
     {
-        VisualStateManager.GoToState(this, ActualWidth < ExpandedControlsMinWidth ? "AdaptiveHidden" : "Expanded", false);
+        UpdateLayout(ActualWidth);
         UpdateResumePrompt();
         NotifyActivity(); UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged();
         RequestSubtitlePreferences(_subtitlePreferences);
@@ -381,7 +443,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void HideTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        if (_snapshot.Status is not (PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Buffering) || _seeking || _menuOpen || _visibleResumePrompt is not null) return;
+        if (_audioOnly || _snapshot.Status is not (PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Buffering) || _seeking || _menuOpen || _visibleResumePrompt is not null) return;
         ControlsVisible = false;
         Chrome.IsHitTestVisible = false;
         ControlsVisibilityChanged?.Invoke(this, EventArgs.Empty);
@@ -473,10 +535,10 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void UpdateDownloadRate()
     {
-        var rate = _snapshot.DownloadBytesPerSecond;
-        var known = rate is { } value && double.IsFinite(value) && value >= 0;
+        var rate = _snapshot.DownloadBytesPerSecond / 1_000_000;
+        var known = rate is { } value && double.IsFinite(value) && value >= 0 && (!_audioOnly || Math.Round(value, 2) > 0);
         DownloadRateText.Visibility = known ? Visibility.Visible : Visibility.Collapsed;
-        DownloadRateText.Text = known ? $"预加载 {rate!.Value / 1_000_000:0.00} MB/s" : "";
+        DownloadRateText.Text = known ? $"预加载 {rate!.Value:0.00} MB/s" : "";
         AutomationProperties.SetName(DownloadRateText, "上游网络" + DownloadRateText.Text);
         AutomationProperties.SetHelpText(DownloadRateText, "MB/s 使用每秒一百万字节；不包含磁盘缓存命中或交付速度。");
     }
@@ -514,7 +576,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             item.Click += async (_, _) => await RunAsync(token => _session.SeekAsync(chapter.Position, token));
             menu.Items.Add(item);
         }
-        ShowFlyout(menu, ChapterButton);
+        ShowFlyout(menu, ChapterContainer.Visibility == Visibility.Collapsed ? MoreButton : ChapterButton);
     }
     private async void Play_Click(object sender, RoutedEventArgs args) => await TogglePlayAsync();
     private async Task TogglePlayAsync() => await RunAsync(async token =>
@@ -525,8 +587,14 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     });
     private void NextVideo_Click(object sender, RoutedEventArgs args) => NextVideoRequested?.Invoke(this, EventArgs.Empty);
 
-    internal void SetNextVideoAvailable(bool available) =>
-        NextVideoButton.Visibility = available ? Visibility.Visible : Visibility.Collapsed;
+    internal void SetNextVideoAvailable(bool available)
+    {
+        _nextVideoAvailable = available;
+        UpdateNextVideoVisibility();
+    }
+
+    private void UpdateNextVideoVisibility() =>
+        NextVideoButton.Visibility = !_audioOnly && _nextVideoAvailable ? Visibility.Visible : Visibility.Collapsed;
     private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Minimize_Click(object sender, RoutedEventArgs args) => MinimizeRequested?.Invoke(this, EventArgs.Empty);
     private void Maximize_Click(object sender, RoutedEventArgs args)
@@ -542,7 +610,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void Audio_Click(object sender, RoutedEventArgs args) { _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 1); ShowTracks(AudioButton, MediaTrackKind.Audio); }
     private void Subtitle_Click(object sender, RoutedEventArgs args) { _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 2); ShowTracks(SubtitleButton, MediaTrackKind.Subtitle); }
-    private static string? SourceResolution(PlaybackSnapshot snapshot) => snapshot.Diagnostics is { VideoWidth: > 0, VideoHeight: > 0 } d
+    private string? SourceResolution(PlaybackSnapshot snapshot) => !_audioOnly && snapshot.Diagnostics is { VideoWidth: > 0, VideoHeight: > 0 } d
         ? Math.Max(d.VideoWidth.Value / 16d * 9, d.VideoHeight.Value) switch { >= 4000 => "8K", >= 2000 => "4K", >= 1300 => "2K", >= 1000 => "1080p", >= 700 => "720p", _ => "标清" } : null;
 
     private static RadioMenuFlyoutItem SourceResolutionItem(string resolution) => new()
@@ -566,7 +634,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     }
     private void ShowMediaInformation()
     {
-        if (_disposed) return;
+        if (_disposed || _audioOnly) return;
         var d = _snapshot.Diagnostics;
         var panel = new StackPanel { Width = 300, Margin = new Thickness(20), Spacing = 16 };
         panel.Children.Add(new TextBlock { Text = "媒体信息", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
@@ -580,33 +648,42 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 6);
         var menu = new MenuFlyout();
+        var audioOnly = _audioOnly;
+        var adaptiveToolsHidden = AdaptiveTools.Visibility == Visibility.Collapsed;
         if (SourceResolution(_snapshot) is { } resolution)
         {
             menu.Items.Add(SourceResolutionItem(resolution));
             menu.Items.Add(new MenuFlyoutSeparator());
         }
-        if (_snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio)) Add("音轨", "audio-lines", () => ShowTracks(MoreButton, MediaTrackKind.Audio));
-        Add("字幕", "captions", () => ShowTracks(MoreButton, MediaTrackKind.Subtitle));
-        if (SupportsEpisodes) Add("选集…", "list-video", () => EpisodeRequested?.Invoke(this, EventArgs.Empty));
-        Add("小窗模式", "picture-in-picture", () => MiniWindowRequested?.Invoke(this, EventArgs.Empty));
-        if (SupportsCompatibilityPlayback)
+        if ((!audioOnly || adaptiveToolsHidden) && _snapshot.Tracks.Any(track => track.Kind == MediaTrackKind.Audio))
+            Add("音轨", "audio-lines", () => ShowTracks(MoreButton, MediaTrackKind.Audio));
+        if (!audioOnly)
         {
-            var qualities = new MenuFlyoutSubItem { Text = "兼容画质" };
-            foreach (var (label, value) in new[] { ("原画（直连）", "source"), ("2160p", "2160p"), ("1080p", "1080p"), ("720p", "720p"), ("480p", "480p") })
-            {
-                var item = new MenuFlyoutItem { Text = label };
-                string quality = value;
-                item.Click += (_, _) => QualitySelected?.Invoke(this, quality);
-                qualities.Items.Add(item);
-            }
-            menu.Items.Add(qualities);
+            Add("字幕", "captions", () => ShowTracks(MoreButton, MediaTrackKind.Subtitle));
+            if (SupportsEpisodes) Add("选集…", "list-video", () => EpisodeRequested?.Invoke(this, EventArgs.Empty));
         }
-        if (SupportsRemoteSubtitles) Add("从服务器加载字幕…", "cloud-download", () => RemoteSubtitleRequested?.Invoke(this, EventArgs.Empty));
-        if (SubtitleStyleButton.Visibility == Visibility.Visible) Add("字幕样式", "type", () => SubtitleStyle_Click(MoreButton, args));
-        Add("播放速度 · " + FormatRate(_snapshot.PlaybackRate), "gauge", () => Speed_Click(MoreButton, args));
+        Add("小窗模式", "picture-in-picture", () => MiniWindowRequested?.Invoke(this, EventArgs.Empty));
+        if (!audioOnly)
+        {
+            if (SupportsCompatibilityPlayback)
+            {
+                var qualities = new MenuFlyoutSubItem { Text = "兼容画质" };
+                foreach (var (label, value) in new[] { ("原画（直连）", "source"), ("2160p", "2160p"), ("1080p", "1080p"), ("720p", "720p"), ("480p", "480p") })
+                {
+                    var item = new MenuFlyoutItem { Text = label };
+                    string quality = value;
+                    item.Click += (_, _) => { if (!_audioOnly) QualitySelected?.Invoke(this, quality); };
+                    qualities.Items.Add(item);
+                }
+                menu.Items.Add(qualities);
+            }
+            if (SupportsRemoteSubtitles) Add("从服务器加载字幕…", "cloud-download", () => RemoteSubtitleRequested?.Invoke(this, EventArgs.Empty));
+            if (SubtitleStyleButton.Visibility == Visibility.Visible) Add("字幕样式", "type", () => SubtitleStyle_Click(MoreButton, args));
+        }
+        if (!audioOnly || adaptiveToolsHidden) Add("播放速度 · " + FormatRate(_snapshot.PlaybackRate), "gauge", () => Speed_Click(MoreButton, args));
         if (_snapshot.Chapters is { Count: > 0 }) Add("章节", "book-open", () => Chapter_Click(MoreButton, args));
         menu.Items.Add(new MenuFlyoutSeparator());
-        Add("控件与提示", "type", ShowPresentationSettings);
+        Add(audioOnly ? "提示时长" : "控件与提示", "type", ShowPresentationSettings);
         ShowFlyout(menu, MoreButton);
 
         void Add(string label, string iconName, Action action)
@@ -615,24 +692,30 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             icon.Foreground = ThemePalette.Brush("FwTextPrimaryBrush", ElementTheme.Dark);
             var item = new MenuFlyoutItem { Text = label, Icon = icon };
             // Let native MenuFlyout light-dismiss finish before showing its child.
-            item.Click += (_, _) => DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => { if (!_disposed) action(); });
+            item.Click += (_, _) => DispatcherQueue.TryEnqueue(DispatcherQueuePriority.Low, () => { if (!_disposed && _audioOnly == audioOnly) action(); });
             menu.Items.Add(item);
         }
     }
     private void ShowPresentationSettings()
     {
         var panel = new StackPanel { Width = 288, Margin = new Thickness(20), Spacing = 20 };
-        panel.Children.Add(new TextBlock { Text = "控件与提示", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var controls = new Slider { Header = "控件自动隐藏（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
+        panel.Children.Add(new TextBlock { Text = _audioOnly ? "提示时长" : "控件与提示", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+        if (!_audioOnly)
+        {
+            var controls = new Slider { Header = "控件自动隐藏（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ControlsHideSeconds };
+            controls.ValueChanged += (_, _) => { try { PresentationPreferences.ControlsHideSeconds = (int)controls.Value; NotifyActivity(); } catch (Exception) { ShowError("无法保存控件隐藏偏好。"); } };
+            panel.Children.Add(controls);
+        }
         var toast = new Slider { Header = "提示自动消失（秒）", Minimum = 2, Maximum = 30, StepFrequency = 1, Value = PresentationPreferences.ToastSeconds };
-        controls.ValueChanged += (_, _) => { try { PresentationPreferences.ControlsHideSeconds = (int)controls.Value; NotifyActivity(); } catch (Exception) { ShowError("无法保存控件隐藏偏好。"); } };
         toast.ValueChanged += (_, _) => { try { PresentationPreferences.ToastSeconds = (int)toast.Value; } catch (Exception) { ShowError("无法保存提示时长。"); } };
-        panel.Children.Add(controls); panel.Children.Add(toast);
-        panel.Children.Add(new TextBlock { Text = "播放和暂停时均会隐藏；打开菜单时保留，键盘操作时重新显示。", FontSize = 12, Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(toast);
+        if (!_audioOnly)
+            panel.Children.Add(new TextBlock { Text = "播放和暂停时均会隐藏；打开菜单时保留，键盘操作时重新显示。", FontSize = 12, Opacity = 0.7, TextWrapping = TextWrapping.Wrap });
         ShowFlyout(new Flyout { Content = panel }, MoreButton);
     }
     private void ShowTracks(FrameworkElement anchor, MediaTrackKind kind)
     {
+        if (_audioOnly && kind == MediaTrackKind.Subtitle) return;
         Flyout? flyout = null;
         _trackPicker = new ScreenboxTrackPicker(kind, _snapshot.Tracks,
             async id => await RunAsync(token => _session.SelectTrackAsync(kind, id, token)),
@@ -706,6 +789,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private async void SubtitleStyle_Click(object sender, RoutedEventArgs args)
     {
+        if (_audioOnly) return;
         _responsiveness?.Record(PlaybackDiagnosticEvent.SettingsInput, 5);
         var caps = _snapshot.SubtitleCapabilities;
         var panel = new StackPanel { Spacing = 16, Width = 288, Margin = new Thickness(20) };
@@ -921,21 +1005,28 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private void Controls_SizeChanged(object sender, SizeChangedEventArgs args)
     {
         UpdateDownloadRate();
-        var compact = args.NewSize.Width < ExpandedControlsMinWidth;
+        UpdateLayout(args.NewSize.Width);
+        UpdateSubtitleSafeArea();
+        NotifyMaterialBoundsChanged();
+    }
+
+    private void UpdateLayout(double width)
+    {
+        var expanded = !_audioOnly && width >= ExpandedControlsMinWidth;
+        var audioCompact = _audioOnly && width >= AudioControlsMinWidth;
         var focused = XamlRoot is null ? null : FocusManager.GetFocusedElement(XamlRoot) as DependencyObject;
         var moveFocus = false;
         var moveVolumeFocus = false;
         while (focused is not null)
         {
-            if (focused == InlineVolumeHost) { moveVolumeFocus = compact; break; }
-            if (focused == AdaptiveTools || focused == ChapterContainer) { moveFocus = compact; break; }
+            if (focused == InlineVolumeHost) { moveVolumeFocus = !expanded; break; }
+            if (focused == AdaptiveTools) { moveFocus = !expanded && !audioCompact; break; }
+            if (focused == ChapterContainer) { moveFocus = !expanded; break; }
             focused = VisualTreeHelper.GetParent(focused);
         }
-        VisualStateManager.GoToState(this, compact ? "AdaptiveHidden" : "Expanded", false);
+        VisualStateManager.GoToState(this, expanded ? "Expanded" : audioCompact ? "AudioCompact" : "AdaptiveHidden", false);
         if (moveFocus) MoreButton.Focus(FocusState.Keyboard);
         if (moveVolumeFocus) VolumeButton.Focus(FocusState.Keyboard);
-        UpdateSubtitleSafeArea();
-        NotifyMaterialBoundsChanged();
     }
     private void BottomBar_SizeChanged(object sender, SizeChangedEventArgs args) { UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged(); }
     private void Controls_SafeAreaVisibilityChanged(object? sender, EventArgs args) { UpdateSubtitleSafeArea(); NotifyMaterialBoundsChanged(); }
@@ -943,6 +1034,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private async void UpdateSubtitleSafeArea()
     {
+        if (_audioOnly) return;
         UpdateSubtitleViewport();
         if (_subtitlePreferences.UseWindowArea) return;
         if (_disposed || !IsLoaded || ActualHeight <= 0 || _session.Snapshot.Status is PlaybackStatus.Closing or PlaybackStatus.Stopped) return;
@@ -954,7 +1046,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _subtitleSafeAreaRunning = true;
         try
         {
-            while (!_disposed && _session.Snapshot.Status is not (PlaybackStatus.Closing or PlaybackStatus.Stopped)
+            while (!_disposed && !_audioOnly && _session.Snapshot.Status is not (PlaybackStatus.Closing or PlaybackStatus.Stopped)
                 && _pendingSubtitleSafeArea is { } next)
             {
                 _pendingSubtitleSafeArea = null;
@@ -966,7 +1058,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     }
     private async void UpdateSubtitleViewport()
     {
-        if (_disposed || !IsLoaded || ActualWidth <= 0 || ActualHeight <= 0 || _session is not ISubtitleViewportControl control) return;
+        if (_disposed || _audioOnly || !IsLoaded || ActualWidth <= 0 || ActualHeight <= 0 || _session is not ISubtitleViewportControl control) return;
         var shape = (ActualWidth, ActualHeight, _snapshot.DisplayAspectRatio);
         if (_lastSubtitleViewport == shape) return;
         _lastSubtitleViewport = shape; _pendingSubtitleViewport = (ActualWidth, ActualHeight);
@@ -974,7 +1066,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         _viewportUpdating = true;
         try
         {
-            while (!_disposed && _pendingSubtitleViewport is { } next)
+            while (!_disposed && !_audioOnly && _pendingSubtitleViewport is { } next)
             {
                 _pendingSubtitleViewport = null;
                 await control.SetSubtitleViewportAsync(next.Width, next.Height, _lifetime.Token);

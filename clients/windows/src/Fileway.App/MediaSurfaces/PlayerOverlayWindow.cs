@@ -355,7 +355,10 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         if (_videoPointerId != args.Pointer.PointerId) return;
         _videoPointerId = null; VideoPointerCanceled?.Invoke();
     }
-    private void Controls_GestureKeyDown(object sender, KeyRoutedEventArgs args) => VideoKeyboardInput?.Invoke();
+    private void Controls_GestureKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (!_controls.AudioOnly) VideoKeyboardInput?.Invoke();
+    }
 
     private void Controls_CloseRequested(object? sender, EventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
     private void Controls_ToggleFullscreenRequested(object? sender, EventArgs args) => ToggleFullscreenRequested?.Invoke(this, EventArgs.Empty);
@@ -618,6 +621,20 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             _controls.ApplySnapshot(snapshot);
             _controls.SetTransientLoading(transientLoading, snapshot.Status == PlaybackStatus.Seeking);
         }
+    }
+
+    internal void SetAudioPresentation(bool audioOnly)
+    {
+        if (_disposed || _controls.AudioOnly == audioOnly) return;
+        if (audioOnly && _videoPointerId is not null)
+        {
+            ReleaseVideoPointer();
+            VideoPointerCanceled?.Invoke();
+        }
+        _controls.SetAudioPresentation(audioOnly);
+        Title = AppBranding.DisplayName + (audioOnly
+            ? AppBranding.IsChinese ? " 音频播放控制" : " audio playback controls"
+            : AppBranding.IsChinese ? " 播放控制" : " playback controls");
     }
 
     internal void SetFullscreen(bool fullscreen)
