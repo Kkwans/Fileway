@@ -308,7 +308,8 @@ class NasSessionTest {
             when (command.getString("op")) {
                 "open" -> "owned-storage"
                 "token" -> current
-                "request" -> { writes++; current = next; JSONObject().put("status", 202).put("body", "{\"id\":\"accepted-once\"}").put("sessionHealth", "renewal_failed") }
+                "session_state" -> JSONObject().put("token", current).put("health", "renewal_failed")
+                "request" -> { writes++; current = next; JSONObject().put("status", 202).put("body", "{\"id\":\"accepted-once\"}").put("sessionHealth", "") }
                 else -> null
             }
         }

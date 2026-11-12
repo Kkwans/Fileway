@@ -14,7 +14,7 @@ import org.junit.runner.RunWith
 import java.io.Closeable
 import java.net.InetAddress
 import java.net.ServerSocket
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.ConcurrentLinkedQueue
 
 /** Only uniquely owned vault entries and an in-memory database are modified. */
 @RunWith(AndroidJUnit4::class)
@@ -112,6 +112,7 @@ class SavedLoginTest {
     }
     @Test fun nativeHeaderRenewalPersistsAndReopensWithoutOldCredentials() = runBlocking {
         RenewalServer().use { server ->
+            server.hintOnResourceRead = true
             val (profile, account) = account(server.address)
             val first = NasSession.restore(profile, token(), account.userId)
             try {
@@ -119,49 +120,72 @@ class SavedLoginTest {
                 first.request("GET", "/api/resources/")
             } finally { first.close() }
             assertEquals(token(7, 20), store.token(profile, account))
+            assertEquals(listOf("/api/resources/:old", "/api/renew:old"), server.requests.toList())
             server.rejectOld = true
             val reopened = restoreSavedSession(store, profile, account)
-            reopened.api.close()
-            assertEquals(1, server.renewals.get())
-            assertEquals(0, server.logins.get())
+            try {
+                assertEquals("owned-directory", reopened.verification.getJSONArray("items").getString(0))
+                assertEquals(
+                    listOf("/api/resources/:old", "/api/renew:old", "/api/renew:fresh", "/api/resources/:fresh"),
+                    server.requests.toList(),
+                )
+            } finally { reopened.api.close() }
         }
     }
     @Test fun nativeRejectedRenewalRecoversOnceOnlyWithRememberedPassword() = runBlocking {
-        for ((status, invalid) in listOf(401 to false, 403 to false, 503 to false, 200 to true)) {
-            RenewalServer(status, invalid).use { server ->
-                val (profile, account) = account(server.address)
-                store.rememberPassword(profile, account, "owned-password")
-                val restored = runCatching { restoreSavedSession(store, profile, account) }
-                if (status == 401) {
-                    val saved = restored.getOrThrow()
-                    try {
-                        assertEquals(7L, saved.api.identity.id)
-                        assertEquals(token(7, 20), store.token(profile, account))
-                        assertEquals(1, server.logins.get())
-                    } finally { saved.api.close() }
-                } else {
-                    assertTrue("Non-authentication renewal failures must remain failures", restored.isFailure)
-                    assertEquals(0, server.logins.get())
-                    assertEquals(token(), store.token(profile, account))
-                }
-                assertEquals(1, server.renewals.get())
+        RenewalServer(401).use { server ->
+            val (profile, account) = account(server.address)
+            store.rememberPassword(profile, account, "owned-password")
+            val saved = restoreSavedSession(store, profile, account)
+            try {
+                assertEquals(7L, saved.api.identity.id)
+                assertEquals(token(7, 20), store.token(profile, account))
                 assertEquals("owned-password", store.password(profile, account))
-            }
+                assertEquals(listOf("/api/renew:old", "/api/login:none", "/api/resources/:fresh"), server.requests.toList())
+            } finally { saved.api.close() }
         }
         RenewalServer(401).use { server ->
             val (profile, account) = account(server.address)
             val failure = runCatching { restoreSavedSession(store, profile, account) }.exceptionOrNull()
             assertTrue(failure is ServiceException && failure.status == 401)
-            assertEquals(0, server.logins.get())
+            assertEquals(listOf("/api/renew:old"), server.requests.toList())
             assertEquals(token(), store.token(profile, account))
         }
     }
-    private inner class RenewalServer(private val renewalStatus: Int = 200, private val invalidRenewal: Boolean = false) : Closeable {
+    @Test fun nativeNonAuthenticationRenewalFailurePreservesVerifiedAccess() = runBlocking {
+        for ((status, invalid) in listOf(403 to false, 503 to false, 200 to true)) {
+            RenewalServer(status, invalid).use { server ->
+                val (profile, account) = account(server.address)
+                store.rememberPassword(profile, account, "owned-password")
+                val saved = restoreSavedSession(store, profile, account)
+                try {
+                    assertEquals("owned-directory", saved.verification.getJSONArray("items").getString(0))
+                    assertEquals(SessionHealthCode.RENEWAL_FAILED, saved.api.sessionHealth.value?.code)
+                    assertEquals(token(), store.token(profile, account))
+                    assertEquals("owned-password", store.password(profile, account))
+                    assertEquals(listOf("/api/renew:old", "/api/resources/:old"), server.requests.toList())
+                } finally { saved.api.close() }
+            }
+        }
+        RenewalServer(503, resourceStatus = 403).use { server ->
+            val (profile, account) = account(server.address)
+            store.rememberPassword(profile, account, "owned-password")
+            val failure = runCatching { restoreSavedSession(store, profile, account) }.exceptionOrNull()
+            assertTrue(failure is ServiceException && failure.status == 403)
+            assertEquals(token(), store.token(profile, account))
+            assertEquals(listOf("/api/renew:old", "/api/resources/:old"), server.requests.toList())
+        }
+    }
+    private inner class RenewalServer(
+        private val renewalStatus: Int = 200,
+        private val invalidRenewal: Boolean = false,
+        private val resourceStatus: Int = 200,
+    ) : Closeable {
         private val socket = ServerSocket(0, 16, InetAddress.getByName("127.0.0.1"))
         val address = "http://127.0.0.1:${socket.localPort}"
-        val renewals = AtomicInteger()
-        val logins = AtomicInteger()
+        val requests = ConcurrentLinkedQueue<String>()
         @Volatile var rejectOld = false
+        @Volatile var hintOnResourceRead = false
         private val worker = Thread {
             while (!socket.isClosed) try {
                 socket.accept().use { client ->
@@ -174,17 +198,22 @@ class SavedLoginTest {
                         if (line.isEmpty()) break
                         headers[line.substringBefore(':').lowercase()] = line.substringAfter(':').trim()
                     }
-                    val old = headers["x-auth"] == token()
-                    val valid = old || headers["x-auth"] == token(7, 20)
-                    var status = if (!valid || (old && rejectOld)) 401 else 200
+                    val tokenSource = when (headers["x-auth"]) {
+                        token() -> "old"
+                        token(7, 20) -> "fresh"
+                        null -> "none"
+                        else -> "unexpected"
+                    }
+                    requests.add("$route:$tokenSource")
+                    val authorized = tokenSource == "fresh" || (tokenSource == "old" && !rejectOld)
+                    var status = if (authorized) resourceStatus else 401
                     var extra = ""
                     val body = when (route) {
                         "/api/renew" -> {
-                            renewals.incrementAndGet(); status = renewalStatus
+                            status = if (authorized) renewalStatus else 401
                             if (invalidRenewal) "not-a-token" else token(7, 20)
                         }
                         "/api/login" -> {
-                            logins.incrementAndGet()
                             val chars = CharArray(headers["content-length"]?.toInt() ?: 0)
                             var read = 0
                             while (read < chars.size) {
@@ -195,7 +224,11 @@ class SavedLoginTest {
                             check(login.getString("username") == "owned-viewer" && login.getString("password") == "owned-password")
                             status = 200; token(7, 20)
                         }
-                        else -> { if (old && status == 200) extra = "X-Renew-Token: true\r\n"; "{\"items\":[]}" }
+                        "/api/resources/" -> {
+                            extra = "X-Renew-Token: ${hintOnResourceRead && tokenSource == "old" && status == 200}\r\n"
+                            "{\"items\":[\"owned-directory\"]}"
+                        }
+                        else -> { status = 404; "{}" }
                     }.toByteArray()
                     val head = "HTTP/1.1 $status Owned\r\nContent-Length: ${body.size}\r\nConnection: close\r\n$extra\r\n"
                     client.getOutputStream().apply { write(head.toByteArray()); write(body); flush() }

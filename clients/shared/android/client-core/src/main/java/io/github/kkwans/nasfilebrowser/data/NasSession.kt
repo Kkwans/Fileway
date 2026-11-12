@@ -130,8 +130,10 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
         acceptToken(native(JSONObject().put("op", "token").put("session", id)) as String)
     }
     private suspend fun synchronizeAcknowledgement(result: JSONObject) {
-        if (result.has("sessionHealth")) transportHealth(result.optString("sessionHealth"))
-        try { token() }
+        try {
+            // A reply without a renewal event can carry empty health while the session still has a warning.
+            if (result.has("sessionHealth")) synchronizeSession() else token()
+        }
         catch (error: CancellationException) { throw error }
         catch (_: Exception) {
             if (transportHealth?.code != SessionHealthCode.ACCOUNT_CHANGED) transportHealth("renewal_failed")
