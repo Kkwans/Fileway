@@ -117,7 +117,7 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     public TransferTaskRef Task { get; }
     public string Glyph { get; }
     public string IconName { get; }
-    public string ProgressName { get; }
+    public string ProgressName { get; private set; }
     public bool IsBatchHeader { get; }
     public Guid? BatchId { get; }
     public Visibility HeaderVisibility { get; }
@@ -130,6 +130,7 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     public string Name { get; private set; } = "";
     public string Stage { get; private set; } = "";
     public string Bytes { get; private set; } = "";
+    public Visibility BytesVisibility => string.IsNullOrEmpty(Bytes) ? Visibility.Collapsed : Visibility.Visible;
     public string Destination { get; private set; } = "";
     public string Metrics { get; private set; } = "";
     public Visibility MetricsVisibility => string.IsNullOrEmpty(Metrics) ? Visibility.Collapsed : Visibility.Visible;
@@ -213,6 +214,7 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
     internal void Update(DownloadItem item)
     {
         var previous = _download; _download = item;
+        var status = DownloadPresentationPolicy.EffectiveStatus(item);
         var p = DownloadPresentationPolicy.Progress(item);
         if (item.Progress is { } progress && (previous?.Progress is null || progress.Elapsed != _lastElapsed))
         {
@@ -225,29 +227,42 @@ public sealed class TransferCenterRow : INotifyPropertyChanged
             _lastBytes = progress.ReceivedBytes; _lastElapsed = progress.Elapsed; _lastObservation = TimeProvider.System.GetTimestamp();
         }
         if (item.Status != DownloadStatus.Downloading) _rate = 0;
-        ProgressVisibility = item.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Failed or DownloadStatus.Canceled
-            ? Visibility.Visible : Visibility.Collapsed;
+        var showReceived = status == DownloadStatus.Downloading;
+        var showConfirmed = !showReceived && DownloadPresentationPolicy.HasRetainedProgress(item);
+        ProgressVisibility = showReceived || showConfirmed ? Visibility.Visible : Visibility.Collapsed;
+        ProgressName = showConfirmed ? "磁盘确认写入进度" : "下载接收进度";
         CanTogglePause = item.CanPause || item.CanResume;
         CanRemove = item.Snapshot.Uncertainty == TransferUncertainty.None && item.Status is not (DownloadStatus.Publishing or DownloadStatus.Reconciling or DownloadStatus.Canceling or DownloadStatus.OutcomeUnknown);
         PauseIcon = item.CanResume ? "play" : "pause"; PauseLabel = item.CanResume ? "继续下载" : "暂停下载";
-        Update(item.Name, DownloadPresentationPolicy.Stage(item), p.ActivityText, item.DestinationDisplayPath, p.Value, p.IsIndeterminate);
+        var bytes = status == DownloadStatus.Completed ? DownloadPresentationPolicy.FileSizeText(item)
+            : showConfirmed ? p.FlushedText : showReceived ? p.ActivityText : string.Empty;
+        Update(item.Name, DownloadPresentationPolicy.Stage(item), bytes, item.DestinationDisplayPath,
+            showConfirmed ? p.ConfirmedValue : p.Value, showReceived && p.IsIndeterminate);
         RefreshClock();
     }
     internal void RefreshClock()
     {
         if (_download is not { } item) return;
         var speed = _lastObservation != 0 && TimeProvider.System.GetElapsedTime(_lastObservation).TotalSeconds < 3 ? _rate : 0;
-        var end = item.Status is DownloadStatus.Completed or DownloadStatus.Canceled or DownloadStatus.Failed ? item.Snapshot.UpdatedAt ?? DateTimeOffset.UtcNow : DateTimeOffset.UtcNow;
+        var status = DownloadPresentationPolicy.EffectiveStatus(item);
+        var end = status == DownloadStatus.Completed ? item.Snapshot.UpdatedAt ?? DateTimeOffset.UtcNow : DateTimeOffset.UtcNow;
         var elapsed = item.Snapshot.CreatedAt is { } start ? end - start : item.Progress?.Elapsed ?? TimeSpan.Zero;
+        var elapsedText = Duration(elapsed);
         var remaining = Math.Max(0, (item.Snapshot.TotalBytes ?? 0) - (item.Progress?.ReceivedBytes ?? item.Snapshot.ConfirmedOffset ?? 0));
-        var eta = speed > 0 ? Duration(TimeSpan.FromSeconds(Math.Min(remaining / speed, TimeSpan.MaxValue.TotalSeconds / 2))) : "—";
-        var rate = speed > 0 ? DownloadPresentationPolicy.FormatBytes((long)speed) + "/s" : "0 KB/s";
-        var showMetrics = item.Status is DownloadStatus.Downloading or DownloadStatus.Paused or DownloadStatus.Completed
-            or DownloadStatus.Failed or DownloadStatus.Canceled;
-        var metrics = !showMetrics ? "" : item.Status == DownloadStatus.Completed
-            ? "总耗时 " + Duration(elapsed)
-            : $"{rate}  ·  剩余 {eta}  ·  已用 {Duration(elapsed)}";
-        if (Metrics == metrics) return; Metrics = metrics; PropertyChanged?.Invoke(this, new(nameof(Metrics))); PropertyChanged?.Invoke(this, new(nameof(MetricsVisibility)));
+        var metrics = status switch
+        {
+            DownloadStatus.Downloading when speed > 0 =>
+                $"{DownloadPresentationPolicy.FormatBytes((long)speed)}/s  ·  剩余 " +
+                $"{Duration(TimeSpan.FromSeconds(Math.Min(remaining / speed, TimeSpan.MaxValue.TotalSeconds / 2)))}  ·  已用 {elapsedText}",
+            DownloadStatus.Downloading or DownloadStatus.Paused => "已用 " + elapsedText,
+            DownloadStatus.Completed => "总耗时 " + elapsedText,
+            _ => string.Empty,
+        };
+        if (Metrics == metrics) return;
+        Metrics = metrics;
+        PropertyChanged?.Invoke(this, new(nameof(Metrics)));
+        PropertyChanged?.Invoke(this, new(nameof(MetricsVisibility)));
+        PropertyChanged?.Invoke(this, new(nameof(AccessibleName)));
     }
     private static string Duration(TimeSpan value) => value < TimeSpan.Zero ? "0:00" : value.TotalHours >= 1 ? $"{(int)value.TotalHours}:{value.Minutes:00}:{value.Seconds:00}" : $"{(int)value.TotalMinutes}:{value.Seconds:00}";
     private void Update(string name, string stage, string bytes, string destination, double progress, bool indeterminate)

@@ -493,14 +493,13 @@ public sealed partial class MainPage
         view.Stage.Text = DownloadPolicy.Stage(item);
         var status = DownloadPolicy.EffectiveStatus(item);
         var completed = status == DownloadStatus.Completed;
-        var showProgress = !completed && (DownloadPolicy.IsActive(status) || status == DownloadStatus.Paused ||
-            item.Snapshot.ConfirmedOffset is > 0);
-        var canOpen = completed && _downloads is IDownloadControlService;
         var progress = DownloadPolicy.Progress(item);
+        var showProgress = DownloadPolicy.IsActive(status) ||
+            status == DownloadStatus.Paused && progress.HasReceivedBytes || DownloadPolicy.HasRetainedProgress(item);
+        var canOpen = completed && _downloads is IDownloadControlService;
         view.Progress.IsIndeterminate = progress.IsIndeterminate; view.Progress.Value = progress.Value;
         view.ProgressTrack.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;
-        view.Activity.Text = completed ? item.Snapshot.TotalBytes is { } size
-            ? $"文件大小 {DownloadPolicy.FormatBytes(size)}" : string.Empty : showProgress ? progress.ActivityText : string.Empty;
+        view.Activity.Text = completed ? DownloadPolicy.FileSizeText(item) : showProgress ? progress.ActivityText : string.Empty;
         view.Activity.Visibility = view.Activity.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         view.Flushed.Text = showProgress ? progress.FlushedText : string.Empty;
         view.Flushed.Visibility = showProgress ? Visibility.Visible : Visibility.Collapsed;

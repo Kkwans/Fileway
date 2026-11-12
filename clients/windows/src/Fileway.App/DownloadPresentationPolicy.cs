@@ -5,7 +5,8 @@ using Fileway.Core.Contracts;
 namespace Fileway.App;
 
 internal enum DownloadPresentationTone { Information, Success, Warning }
-internal sealed record DownloadProgressPresentation(bool IsIndeterminate, double Value, string ActivityText, string FlushedText);
+internal sealed record DownloadProgressPresentation(bool IsIndeterminate, double Value, string ActivityText,
+    string FlushedText, bool HasReceivedBytes, double ConfirmedValue);
 
 /// <summary>Presentation only: received activity is never completion or resumable checkpoint evidence.</summary>
 internal static class DownloadPresentationPolicy
@@ -53,6 +54,9 @@ internal static class DownloadPresentationPolicy
         && EffectiveStatus(item) is not (DownloadStatus.Canceling or DownloadStatus.OutcomeUnknown or DownloadStatus.Reconciling);
     internal static bool CanReconcile(DownloadItem item) => !item.CanResume && item.Snapshot.CanReconcileLocally
         && !IsActive(EffectiveStatus(item)) && !IsTerminal(EffectiveStatus(item));
+    internal static bool HasRetainedProgress(DownloadItem item) => item.CanResume && item.Snapshot.ConfirmedOffset is > 0 &&
+        EffectiveStatus(item) is DownloadStatus.Paused or DownloadStatus.Stopped or DownloadStatus.WaitingNetwork or
+            DownloadStatus.WaitingAuthentication or DownloadStatus.Failed;
     /// <summary>Starts a new explicit download after a terminal/blocked attempt; this never resumes a partial file.</summary>
     internal static bool CanRetryFresh(DownloadItem item) => !item.CanResume && EffectiveStatus(item) is
         DownloadStatus.Stopped or DownloadStatus.WaitingNetwork or DownloadStatus.WaitingAuthentication or
@@ -126,7 +130,7 @@ internal static class DownloadPresentationPolicy
         var received = Math.Max(snapshot.ConfirmedOffset ?? 0, body?.ReceivedBytes ?? 0);
         var total = snapshot.TotalBytes;
         var status = EffectiveStatus(item);
-        var value = known && total is > 0 ? Math.Clamp(received * 100d / total.Value, 0, 100)
+        var value = known && total is > 0 ? ProgressPercent(received, total.Value)
             : status == DownloadStatus.Completed ? 100 : 0;
         var suffix = status switch
         {
@@ -139,8 +143,14 @@ internal static class DownloadPresentationPolicy
         var activity = known ? $"已接收 {FormatBytes(received)}{(total is { } size ? " / " + FormatBytes(size) : "")}{suffix}"
             : "正在等待接收进度";
         var flushed = snapshot.ConfirmedOffset is { } offset ? $"磁盘已确认写入 {FormatBytes(offset)}{(total is { } length ? " / " + FormatBytes(length) : "")}" : "磁盘写入确认尚待核实";
-        return new(!known && IsActive(status), value, activity, flushed);
+        var confirmedValue = total is > 0 ? ProgressPercent(snapshot.ConfirmedOffset ?? 0, total.Value) : 0;
+        return new(!known && IsActive(status), value, activity, flushed, received > 0, confirmedValue);
     }
+
+    private static double ProgressPercent(long bytes, long total) => Math.Clamp(bytes * 100d / total, 0, 100);
+
+    internal static string FileSizeText(DownloadItem item) => item.Snapshot.TotalBytes is { } size
+        ? $"文件大小 {FormatBytes(size)}" : string.Empty;
 
     internal static DownloadItem Prefer(DownloadItem current, DownloadItem incoming)
     {

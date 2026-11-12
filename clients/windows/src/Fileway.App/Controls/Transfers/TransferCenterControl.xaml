@@ -32,9 +32,9 @@
       <StackPanel Grid.Column="1" Spacing="8">
        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="1" Text="{x:Bind Stage, Mode=OneWay}" Margin="12,0,0,0"/></Grid>
        <Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}" Visibility="{x:Bind ProgressVisibility, Mode=OneWay}">
-        <ProgressBar Minimum="0" Maximum="100" Value="{x:Bind Progress, Mode=OneWay}" IsIndeterminate="{x:Bind Indeterminate, Mode=OneWay}" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="{x:Bind ProgressName}"/>
+        <ProgressBar Minimum="0" Maximum="100" Value="{x:Bind Progress, Mode=OneWay}" IsIndeterminate="{x:Bind Indeterminate, Mode=OneWay}" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="{x:Bind ProgressName, Mode=OneWay}"/>
        </Border>
-       <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind Bytes, Mode=OneWay}"/>
+       <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind Bytes, Mode=OneWay}" Visibility="{x:Bind BytesVisibility, Mode=OneWay}"/>
        <TextBlock Text="{x:Bind Metrics, Mode=OneWay}" Visibility="{x:Bind MetricsVisibility, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Typography.NumeralAlignment="Tabular"/>
        <TextBlock Text="{x:Bind Destination, Mode=OneWay}" FontSize="12" TextTrimming="CharacterEllipsis" Foreground="{ThemeResource TextFillColorTertiaryBrush}" ToolTipService.ToolTip="{x:Bind Destination, Mode=OneWay}"/>
       </StackPanel>
