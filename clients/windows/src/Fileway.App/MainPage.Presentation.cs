@@ -132,8 +132,26 @@ public sealed partial class MainPage
         notice.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = notice.DesiredSize;
         var titlePosition = titleBar.FindNoticePosition(layer, size);
+        var fallbackTop = 0d;
+        if (titlePosition is null)
+        {
+            fallbackTop = CompactNoticeFallbackTop(layer, titleBar);
+            if (TransfersPanel.Visibility == Visibility.Visible)
+            {
+                if (TransfersPanel.FindUnoccupiedNoticeTop(layer, fallbackTop, size.Height) is { } clearTop)
+                    fallbackTop = clearTop;
+                else if (notice == DownloadNotice && DownloadDetailsButton.Tag is DownloadNoticeLink { Task: { } task }
+                    && TransfersPanel.IsRecordFullyVisible(task))
+                {
+                    // The current record already exposes the state and opens its details.
+                    notice.IsOpen = false;
+                    titleBar.SetNoticeInteractiveRegion(null);
+                    return;
+                }
+            }
+        }
         var position = titlePosition ?? new Point(Math.Max(sideInset, layer.ActualWidth - size.Width - sideInset),
-            CompactNoticeFallbackTop(layer, titleBar));
+            fallbackTop);
         if (Canvas.GetLeft(notice) != position.X) Canvas.SetLeft(notice, position.X);
         if (Canvas.GetTop(notice) != position.Y) Canvas.SetTop(notice, position.Y);
         titleBar.SetNoticeInteractiveRegion(titlePosition is not null ? notice : null);

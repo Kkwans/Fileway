@@ -9,11 +9,11 @@
    <Setter Property="Background" Value="{ThemeResource FwSoftChoiceFillBrush}"/>
    <Setter Property="Foreground" Value="{ThemeResource FwSoftChoiceTextBrush}"/>
    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}"/>
-   <Setter Property="Height" Value="28"/><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="8,0"/>
+   <Setter Property="Height" Value="Auto"/><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="8,0"/>
   </Style>
   <!-- InfoBar drives these visual states and wires the CloseButton template part. -->
   <ControlTemplate x:Key="CompactNoticeTemplate" TargetType="InfoBar">
-   <Border x:Name="ContentRoot" Background="{ThemeResource InfoBarInformationalSeverityBackgroundBrush}"
+   <Border x:Name="ContentRoot" Background="{TemplateBinding Background}"
            BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
            CornerRadius="{TemplateBinding CornerRadius}">
     <VisualStateManager.VisualStateGroups>
@@ -21,7 +21,6 @@
       <VisualState x:Name="Informational"/>
       <VisualState x:Name="Success">
        <VisualState.Setters>
-        <Setter Target="ContentRoot.Background" Value="{ThemeResource InfoBarSuccessSeverityBackgroundBrush}"/>
         <Setter Target="IconBackground.Foreground" Value="{ThemeResource InfoBarSuccessSeverityIconBackground}"/>
         <Setter Target="StandardIcon.Text" Value="&#xF13E;"/>
         <Setter Target="StandardIcon.Foreground" Value="{ThemeResource InfoBarSuccessSeverityIconForeground}"/>
@@ -29,7 +28,6 @@
       </VisualState>
       <VisualState x:Name="Warning">
        <VisualState.Setters>
-        <Setter Target="ContentRoot.Background" Value="{ThemeResource InfoBarWarningSeverityBackgroundBrush}"/>
         <Setter Target="IconBackground.Foreground" Value="{ThemeResource InfoBarWarningSeverityIconBackground}"/>
         <Setter Target="StandardIcon.Text" Value="&#xF13C;"/>
         <Setter Target="StandardIcon.Foreground" Value="{ThemeResource InfoBarWarningSeverityIconForeground}"/>
@@ -37,7 +35,6 @@
       </VisualState>
       <VisualState x:Name="Error">
        <VisualState.Setters>
-        <Setter Target="ContentRoot.Background" Value="{ThemeResource InfoBarErrorSeverityBackgroundBrush}"/>
         <Setter Target="IconBackground.Foreground" Value="{ThemeResource InfoBarErrorSeverityIconBackground}"/>
         <Setter Target="StandardIcon.Text" Value="&#xF13D;"/>
         <Setter Target="StandardIcon.Foreground" Value="{ThemeResource InfoBarErrorSeverityIconForeground}"/>
@@ -66,7 +63,7 @@
       </VisualState>
      </VisualStateGroup>
     </VisualStateManager.VisualStateGroups>
-    <Grid Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="8,0,1,0">
+    <Grid Padding="8,0,1,0">
      <Grid.ColumnDefinitions>
       <ColumnDefinition Width="Auto"/>
       <ColumnDefinition Width="*"/>
