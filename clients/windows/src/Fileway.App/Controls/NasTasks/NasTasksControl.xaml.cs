@@ -2,6 +2,8 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -91,6 +93,19 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
         Render(synchronizeRows: false);
     }
 
+    internal void SelectSubmittedTask(ServerTaskRef reference)
+    {
+        if (!Active || _session?.Account != reference.Account) return;
+        _historyMode = false;
+        var row = _tasks.FirstOrDefault(item => item.Task.Reference == reference);
+        _rendering = true;
+        try { TaskRecords.SelectedItem = row; }
+        finally { _rendering = false; }
+        _detailReference = row?.Task.Reference;
+        _standaloneDetail = null;
+        Render(synchronizeRows: false);
+    }
+
     private bool Active => !_disposed && _active && Visibility == Visibility.Visible && _session is not null && _taskService is not null;
     private bool Busy => _controller.IsLoading || _controller.IsLoadingDetail || _controller.IsLoadingOperations ||
         _controller.IsVerifyingOperations || _controller.IsActing || HasOpenDialog;
@@ -148,14 +163,16 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             TasksTab.IsChecked = !_historyMode; HistoryTab.IsChecked = _historyMode;
             TaskRecords.Visibility = _historyMode ? Visibility.Collapsed : Visibility.Visible;
             OperationRecords.Visibility = _historyMode ? Visibility.Visible : Visibility.Collapsed;
-            Filters.Visibility = _historyMode ? Visibility.Collapsed : Visibility.Visible;
             LoadingRing.IsActive = Busy;
+            LoadingRing.Visibility = Busy ? Visibility.Visible : Visibility.Collapsed;
             RefreshLabel.Text = _historyMode ? "刷新记录" : "刷新任务";
+            AutomationProperties.SetName(RefreshButton, RefreshLabel.Text);
             RefreshButton.IsEnabled = Active && !Busy;
             StatusFilter.IsEnabled = TypeFilter.IsEnabled = ArchivedFilter.IsEnabled = Active && !Busy;
             TasksTab.IsEnabled = Active && !Busy;
             HistoryTab.IsEnabled = Active && !Busy && _historyService is not null;
             NoticeHistoryButton.IsEnabled = RelatedHistoryButton.IsEnabled = Active && _historyService is not null && !Busy;
+            NoticeHistoryButton.Visibility = _historyMode ? Visibility.Collapsed : Visibility.Visible;
             UpdateCounts(); UpdateNotice(); RenderDetails(); UpdateCommands(); UpdateLayoutState();
             int count = _historyMode ? _operations.Count : _tasks.Count;
             ListHeaders.Visibility = count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -246,7 +263,11 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
 
     private void UpdateNotice()
     {
-        string? message = _uiMessage ?? (_historyMode ? _controller.OperationsError : _controller.Error ?? _controller.OperationsError);
+        var operationsError = _controller.OperationsError;
+        if (_historyMode && operationsError is not null && _controller.LastReconciliation is { Error: not null } result &&
+            _operations.Any(row => row.Record.Intent.Reference == result.Reference && row.Stage == operationsError))
+            operationsError = null;
+        string? message = _uiMessage ?? (_historyMode ? operationsError : _controller.Error ?? operationsError);
         Notice.IsOpen = message is not null;
         Notice.Message = message ?? string.Empty;
         Notice.Title = _uiMessage is not null ? "最近操作" : "任务状态需要处理";
@@ -273,16 +294,23 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             DetailTimes.Text = "创建：" + NasTaskRow.FormatTime(task.CreatedAt) +
                 (task.StartedAt is { } started ? "\n开始：" + NasTaskRow.FormatTime(started) : string.Empty) +
                 (task.FinishedAt is { } finished ? "\n结束：" + NasTaskRow.FormatTime(finished) : string.Empty);
-            DetailPaths.Text = (task.SourceDisplayPath is { Length: > 0 } source ? "来源：" + source : "来源路径未提供") +
-                (task.OutputDisplayPath is { Length: > 0 } output ? "\n目标：" + output : string.Empty);
-            DetailError.Text = task.Error is null ? string.Empty : NasTaskPresentationPolicy.SafeError(task.Error, "服务器报告任务异常，请核实任务状态。");
+            var source = task.SourceDisplayPath is { Length: > 0 } path ? "来源：" + path : "";
+            var target = task.OutputDisplayPath is { Length: > 0 } output ? "目标：" + output : "";
+            SurfaceGeometry.SetText(DetailPaths, source.Length > 0 && target.Length > 0 ? source + "\n" + target : source + target);
+            SurfaceGeometry.SetText(DetailError, task.Error is null ? "" :
+                NasTaskPresentationPolicy.SafeError(task.Error, "服务器报告任务异常，请核实任务状态。"));
             DetailTaskId.Text = task.Reference.Id + (task.RetryOf is { } original ? "\n重试来源：" + original : string.Empty);
         }
         NewRetryButton.Visibility = RetryTask is not null ? Visibility.Visible : Visibility.Collapsed;
         if (operation is not null)
         {
-            OperationStage.Text = operation.Stage;
-            OperationExplanation.Text = "核实读取已知任务或操作证据，不会自动重发。请求接受也不等于服务器任务已完成。";
+            var stage = operation.Stage;
+            if (OperationStage.Text != stage)
+            {
+                OperationStage.Text = stage;
+                FrameworkElementAutomationPeer.FromElement(OperationStage)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
+            }
+            OperationExplanation.Text = "核实只读取原操作证据。任务执行结果以服务器状态为准。";
             OperationIdentity.Text = "记录编号：" + operation.Record.Intent.Reference.Id.ToString("D", CultureInfo.InvariantCulture) +
                 (operation.Record.Acknowledgement?.Task is { } related ? "\n关联任务：" + related.Id :
                     operation.Record.Intent.Options?.RecordId is { } original ? "\n原任务：" + original : string.Empty);
@@ -316,7 +344,7 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
         ArchiveTaskButton.Visibility = ArchiveTaskButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
         UnarchiveTaskButton.Visibility = UnarchiveTaskButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
         ReconcileButton.Visibility = ReconcileButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
-        TaskActionSeparator.Visibility = available && (CancelTaskButton.IsEnabled || RetryTaskButton.IsEnabled) ? Visibility.Visible : Visibility.Collapsed;
+        RelatedHistoryButton.Visibility = available && _historyService is not null ? Visibility.Visible : Visibility.Collapsed;
         Commands.Visibility = available || ReconcileButton.IsEnabled ? Visibility.Visible : Visibility.Collapsed;
         NewRetryButton.IsEnabled = Active && !Busy;
     }
@@ -412,12 +440,13 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
     {
         if (!Active || Busy || OperationRecords.SelectedItem is not NasTaskOperationRow row ||
             !_controller.CanReconcile(row.Record)) return;
-        OperationReconciliation? result = null;
-        if (!await RunAsync(async token => result = await _controller.ReconcileAsync(row.Record, token), synchronizeRows: false) || result is null) return;
-        row.Observe(result);
-        _uiMessage = NasTaskPresentationPolicy.ReconciliationText(result);
-        _uiSeverity = NasTaskPresentationPolicy.IsResolved(result) ? InfoBarSeverity.Informational : InfoBarSeverity.Warning;
-        Render(synchronizeRows: false);
+        _uiMessage = null;
+        var epoch = _viewEpoch;
+        await RunAsync(async token =>
+        {
+            var result = await _controller.ReconcileAsync(row.Record, token);
+            if (result is not null && IsCurrent(epoch)) row.Observe(result);
+        }, synchronizeRows: false);
     }
 
     private void SelectRelatedOperation()
@@ -449,29 +478,48 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
     {
         bool hasDetail = _historyMode ? OperationRecords.SelectedItem is not null : DetailTask is not null;
         bool fullDetail = _narrow && hasDetail;
+        bool enteringDetail = fullDetail && BackToTasksButton.Visibility != Visibility.Visible;
+        TaskPageHeader.Title = fullDetail ? DetailTitle.Text : "文件任务";
+        TaskPageHeader.Subtitle = fullDetail
+            ? _historyMode ? "操作记录详情" : "服务器任务详情"
+            : "查看服务器任务及操作记录。";
+        TaskTabs.Visibility = ListFooter.Visibility = RefreshButton.Visibility = ClosePageButton.Visibility =
+            fullDetail ? Visibility.Collapsed : Visibility.Visible;
+        Filters.Visibility = fullDetail || _historyMode ? Visibility.Collapsed : Visibility.Visible;
+        TaskRecords.SingleSelectionFollowsFocus = OperationRecords.SingleSelectionFollowsFocus = !_narrow;
         ListArea.Visibility = fullDetail ? Visibility.Collapsed : Visibility.Visible;
         DetailColumn.Width = _narrow || !hasDetail ? new GridLength(0) : new GridLength(340);
-        DetailRow.Height = new GridLength(0);
-        Grid.SetColumn(DetailsPane, _narrow ? 0 : 1); Grid.SetRow(DetailsPane, 0); Grid.SetRowSpan(DetailsPane, 1);
+        Grid.SetColumn(DetailsPane, _narrow ? 0 : 1);
         Grid.SetColumnSpan(ListArea, _narrow ? 2 : 1); Grid.SetColumnSpan(DetailsPane, _narrow ? 2 : 1);
         DetailsPane.Visibility = hasDetail ? Visibility.Visible : Visibility.Collapsed;
+        DetailTitle.Visibility = fullDetail ? Visibility.Collapsed : Visibility.Visible;
+        AutomationProperties.SetName(BackToTasksButton, _historyMode ? "返回操作记录列表" : "返回任务列表");
         BackToTasksButton.Visibility = fullDetail ? Visibility.Visible : Visibility.Collapsed;
         DetailsPane.BorderThickness = _narrow ? new Thickness(0) : new Thickness(1, 0, 0, 0);
         DetailsPane.Padding = _narrow ? new Thickness(0) : new Thickness(16, 4, 0, 4);
+        if (enteringDetail)
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (Active && BackToTasksButton.Visibility == Visibility.Visible)
+                    BackToTasksButton.Focus(FocusState.Programmatic);
+            });
     }
 
     private void BackToTasks_Click(object sender, RoutedEventArgs e)
     {
+        var list = _historyMode ? OperationRecords : TaskRecords;
+        var selected = list.SelectedItem;
         _rendering = true;
-        try
-        {
-            if (_historyMode) OperationRecords.SelectedItem = null;
-            else TaskRecords.SelectedItem = null;
-        }
+        try { list.SelectedItem = null; }
         finally { _rendering = false; }
         _detailReference = null; _standaloneDetail = null;
-        RenderDetails();
-        UpdateLayoutState();
+        Render(synchronizeRows: false);
+        DispatcherQueue.TryEnqueue(() =>
+        {
+            if (!Active || !_narrow || ListArea.Visibility != Visibility.Visible || list.Visibility != Visibility.Visible) return;
+            var destination = selected is not null && list.ContainerFromItem(selected) is ListViewItem row ? (Control)row : list;
+            destination.Focus(FocusState.Programmatic);
+        });
     }
 
     private void Close_Click(object sender, RoutedEventArgs e) { SuspendView(); CloseRequested?.Invoke(this, EventArgs.Empty); }
@@ -506,9 +554,28 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
     }
     private void Operation_Changed(object sender, SelectionChangedEventArgs e) { if (!_rendering && _ready) Render(synchronizeRows: false); }
     private async void TaskRecords_KeyDown(object sender, KeyRoutedEventArgs e)
-    { if (!e.Handled && e.Key == VirtualKey.Enter) { e.Handled = true; await RefreshDetailAsync(); } }
+    {
+        if (e.Handled || e.Key != VirtualKey.Enter) return;
+        e.Handled = true;
+        if (FocusedRow(TaskRecords, e.OriginalSource as DependencyObject) is NasTaskRow row)
+            TaskRecords.SelectedItem = row;
+        await RefreshDetailAsync();
+    }
     private async void OperationRecords_KeyDown(object sender, KeyRoutedEventArgs e)
-    { if (!e.Handled && e.Key == VirtualKey.Enter) { e.Handled = true; await ReconcileAsync(); } }
+    {
+        if (e.Handled || e.Key != VirtualKey.Enter) return;
+        e.Handled = true;
+        if (FocusedRow(OperationRecords, e.OriginalSource as DependencyObject) is NasTaskOperationRow row &&
+            !ReferenceEquals(row, OperationRecords.SelectedItem))
+            OperationRecords.SelectedItem = row;
+        else await ReconcileAsync();
+    }
+    private static object? FocusedRow(ListView list, DependencyObject? source)
+    {
+        while (source is not null && !ReferenceEquals(source, list) && source is not ListViewItem)
+            source = VisualTreeHelper.GetParent(source);
+        return source is ListViewItem row && list.IndexFromContainer(row) >= 0 ? row.Content : null;
+    }
     private async void TaskRecords_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
     {
         var source = e.OriginalSource as DependencyObject;
@@ -520,8 +587,19 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
     private async void Panel_KeyDown(object sender, KeyRoutedEventArgs e)
     {
         if (e.Handled || HasOpenDialog) return;
-        if (e.Key == VirtualKey.F5) { e.Handled = true; await RefreshAsync(); }
-        else if (e.Key == VirtualKey.Escape) { e.Handled = true; Close_Click(this, new RoutedEventArgs()); }
+        bool fullDetail = BackToTasksButton.Visibility == Visibility.Visible;
+        if (e.Key == VirtualKey.F5)
+        {
+            e.Handled = true;
+            if (fullDetail && !_historyMode) await RefreshDetailAsync();
+            else await RefreshAsync();
+        }
+        else if (e.Key == VirtualKey.Escape)
+        {
+            e.Handled = true;
+            if (fullDetail) BackToTasks_Click(this, new RoutedEventArgs());
+            else Close_Click(this, new RoutedEventArgs());
+        }
     }
     private void Panel_SizeChanged(object sender, SizeChangedEventArgs e)
     {

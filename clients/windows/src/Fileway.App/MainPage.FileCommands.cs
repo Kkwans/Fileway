@@ -36,7 +36,8 @@ public sealed partial class MainPage
         NewFileMenuItem.IsEnabled = FileManagement is not null;
         LastResultsButton.IsEnabled = _session is { } owner && _fileResults.ContainsKey(owner.Account);
         UpdateReceiptWarning();
-        if (HasUnresolvedWrite && !Notice.IsOpen) SetNotice("操作结果仍待核实", "当前账号的文件写入已暂停。请核实服务器结果，不要重复提交。", InfoBarSeverity.Warning, repeat: false);
+        if (BrowserReady && HasUnresolvedWrite && !Notice.IsOpen)
+            SetNotice(WriteGateNoticeTitle, string.Empty, InfoBarSeverity.Warning, repeat: false);
         UpdateOperationAction();
     }
     private MenuFlyout CreateBrowserMenu() { var menu = new MenuFlyout(); ConfigurePopupMaterial(menu); PopulateBrowserMenu(menu); return menu; }
@@ -426,11 +427,14 @@ public sealed partial class MainPage
     private void ShowTransferSubmissionFailure(ServerTaskSubmissionResult result)
     {
         var unknown = result.Outcome == ServerTaskSubmissionOutcome.OutcomeUnknown;
-        var message = result.Error?.Message ?? (unknown
-            ? "请先核实服务器状态，不要重复提交。"
-            : "服务器未确认任务接受。");
-        SetNotice(unknown ? "任务提交结果未知" : "任务未提交", message, InfoBarSeverity.Warning);
+        if (unknown)
+            SetNotice(TaskSubmissionUnknownTitle, string.Empty, InfoBarSeverity.Warning);
+        else
+            SetNotice("任务未提交", result.Error?.Message ?? "服务器未确认任务接受。", InfoBarSeverity.Warning);
     }
+
+    private const string TaskSubmissionUnknownTitle = "任务提交结果未知";
+    private const string WriteGateNoticeTitle = "操作结果仍待核实";
 
     /// <summary>Server copy/move runs asynchronously; refresh the origin as soon as it completes instead of asking the user to poll.</summary>
     private async Task PollTransferAsync(ConnectionSession session, RemoteResourceRef origin, long generation, ServerTaskRef task)
@@ -449,12 +453,22 @@ public sealed partial class MainPage
                 if (state.Status is ServerTaskStatus.Queued or ServerTaskStatus.Running) continue;
                 if (SameBrowser(session, origin, generation))
                 {
-                    if (!await RefreshOriginAsync(session, origin, generation, requireLoaded: true)) return;
-                    if (state.Status == ServerTaskStatus.Completed)
-                        SetNotice("服务器任务", $"{TaskStatusLabel(state.Status)} · 已刷新当前目录。", InfoBarSeverity.Success);
-                    else
-                        SetNotice("服务器任务", $"{TaskStatusLabel(state.Status)} · {state.ProcessedItems}/{state.TotalItems} 项" + (state.Error is null ? "" : Environment.NewLine + state.Error.Message), InfoBarSeverity.Warning);
-                    UpdateOperationAction();
+                    if ((state.Status == ServerTaskStatus.Completed || state.ProcessedItems > 0) &&
+                        !await RefreshOriginAsync(session, origin, generation, requireLoaded: true)) return;
+                    if (SubmittedTask == task)
+                    {
+                        var title = state.Status switch
+                        {
+                            ServerTaskStatus.Completed => "文件任务已完成",
+                            ServerTaskStatus.Failed => "文件任务执行失败",
+                            ServerTaskStatus.Canceled => "文件任务已取消",
+                            ServerTaskStatus.Interrupted => "文件任务已中断",
+                            _ => "文件任务状态待核实",
+                        };
+                        SetNotice(title, string.Empty, state.Status == ServerTaskStatus.Completed
+                            ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+                        UpdateOperationAction();
+                    }
                 }
                 return;
             }
@@ -496,7 +510,9 @@ public sealed partial class MainPage
                 var state = await tasks.GetTaskAsync(task, _lifetime.Token);
                 if (!SameBrowser(session, directory, generation)) return;
                 if (state.Status == ServerTaskStatus.Completed && !await RefreshOriginAsync(session, directory, generation)) return;
-                SetNotice("服务器任务", $"{TaskStatusLabel(state.Status)} · {state.ProcessedItems}/{state.TotalItems} 项" + (state.Error is null ? "" : "\n" + state.Error.Message), state.Status == ServerTaskStatus.Completed ? InfoBarSeverity.Success : state.Status is ServerTaskStatus.Failed or ServerTaskStatus.Interrupted ? InfoBarSeverity.Warning : InfoBarSeverity.Informational);
+                if (SubmittedTask != task) return;
+                Notice.IsOpen = false;
+                await ShowNasTasksAsync(task);
             }
         }
         catch (OperationCanceledException) { }

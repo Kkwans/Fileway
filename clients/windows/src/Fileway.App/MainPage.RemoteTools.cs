@@ -99,12 +99,16 @@ public sealed partial class MainPage
         ShowPane(MainPane.Storage);
     }
 
-    private async void NasTasks_Click(object sender, RoutedEventArgs args)
+    private async void NasTasks_Click(object sender, RoutedEventArgs args) => await ShowNasTasksAsync();
+
+    private async Task ShowNasTasksAsync(ServerTaskRef? submittedTask = null)
     {
         if (!CanShowRemoteTools || _files is not IServerTaskService) return;
         CloseSidebarOverlay(); UpdateRemoteToolsContext();
         ShowPane(MainPane.Tasks);
+        if (Notice.Title is TaskSubmissionUnknownTitle or WriteGateNoticeTitle) Notice.IsOpen = false;
         await NasTasksPane.RefreshAsync();
+        if (_currentPane == MainPane.Tasks && submittedTask is { } task) NasTasksPane.SelectSubmittedTask(task);
     }
 
     private void AddSearchAccelerator(UIElement owner)
