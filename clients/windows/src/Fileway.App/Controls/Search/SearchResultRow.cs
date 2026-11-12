@@ -21,7 +21,7 @@ public sealed class SearchResultRow
     public string DisplayPath => Hit.RelativeDisplayPath;
     public string DisplayDirectory { get; }
     public string Glyph => Hit.IsDirectory ? "\uE8B7" : "\uE7C3";
-    public string IconName => Hit.IsDirectory ? "folder" : "file";
+    public string IconName => FileTypePresentation.ResolveIconName(Name, Hit.IsDirectory);
     public string Summary { get; }
     public bool HasIdentity => Hit.PathConfidence is SearchPathConfidence.ServerWire or SearchPathConfidence.LegacyUtf8
         && Hit.Resource is { WirePath.Length: > 0 };
