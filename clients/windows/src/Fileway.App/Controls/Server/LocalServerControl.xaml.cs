@@ -16,27 +16,24 @@ public sealed record LocalServerConnectRequest(string Endpoint, string? Username
 public sealed partial class LocalServerControl : UserControl, IDisposable
 {
     private const double NarrowDetailsWidth = 900;
-    private const string SingleServerNote =
-        "本机已经有一个服务端在运行（见上方“检测到的服务端”）。系统只允许运行一个：请先停止它，或直接用上面的“连接”。";
     private static readonly string MaskedSecret = new('•', 16);
 
     private readonly Debounce _queryDebounce = new(TimeSpan.FromMilliseconds(260));
     private readonly DispatcherTimer _followTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly CancellationTokenSource _lifetime = new();
     private readonly ObservableCollection<LogRow> _logRows = [];
-    private readonly string _deployHintDefault;
 
     private ILocalServerManagementService? _service;
     private nint _ownerHwnd;
     private LocalServerStatus? _status;
     private LocalServerCredential? _credential;
     private IReadOnlyList<DetectedRow>? _detectionRows;
-    private string? _detectionTitle;
     private string? _revealedSecret;
     private bool _errorsOnly;
     private bool _loading;
     private bool _attached;
     private bool _newestArrived;
+    private bool _hasLocalLogs;
     private bool _editDirty;
 
     public event EventHandler? CloseRequested;
@@ -45,7 +42,6 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     public LocalServerControl()
     {
         InitializeComponent();
-        _deployHintDefault = DeployHint.Text;
         PortBox.TextChanged += (_, _) => _editDirty = true;
         AccountBox.TextChanged += (_, _) => _editDirty = true;
         SecretBox.PasswordChanged += (_, _) => _editDirty = true;
@@ -166,16 +162,12 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         bool deployed = status.State != LocalServerState.NotDeployed;
         bool busy = status.State is LocalServerState.Starting or LocalServerState.Stopping || _loading;
         bool running = status.State == LocalServerState.Running;
-        // One machine, one server: another instance already answering blocks a second launch, not just a port clash.
-        bool otherServing = status.Detected.Any(instance => !instance.ManagedByThisClient);
+        bool blocked = IsBlockedByOtherServer(status);
 
         RenderDetection(status);
         StatusCard.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
         DetailGrid.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
-        DeployCard.Visibility = Visibility.Visible;
-        DeployTitle.Text = deployed ? "部署设置" : "部署本地服务端";
-        DeployButton.Content = deployed ? "保存并重启" : "部署并启动";
-        AutomationProperties.SetName(DeployButton, deployed ? "保存部署设置并重启本地服务端" : "部署并启动本地服务端");
+        RenderDeployment(status, deployed, blocked);
         if (deployed && !_editDirty && status.Deployment is { } edit)
         {
             PortBox.Text = edit.Port.ToString(CultureInfo.InvariantCulture);
@@ -198,17 +190,14 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         StatusTitle.Text = TitleFor(status.State);
         StatusDetail.Text = DetailFor(status);
 
-        bool startBlocked = otherServing && !running;
-        PrimaryButton.IsEnabled = deployed && !busy && !startBlocked;
-        PrimaryButton.Content = startBlocked ? "已有其他服务端" : PrimaryLabelFor(status.State);
-        AutomationProperties.SetName(PrimaryButton, startBlocked
+        PrimaryButton.IsEnabled = deployed && !busy && !blocked;
+        PrimaryButton.Content = blocked ? "已有其他服务端" : PrimaryLabelFor(status.State);
+        AutomationProperties.SetName(PrimaryButton, blocked
             ? "本机已有其他服务端在运行，无法启动第二个"
             : AutomationFor(status.State));
         StopButton.IsEnabled = running && !busy;
         StopButton.Content = status.State == LocalServerState.Stopping ? "正在停止…" : "停止服务";
         OpenWebButton.IsEnabled = running && !busy;
-        DeployButton.IsEnabled = !busy && (!otherServing || running);
-        DeployHint.Text = otherServing ? SingleServerNote : _deployHintDefault;
 
         AutoStartCheck.IsChecked = status.AutoStartEnabled;
         AutoRestartCheck.IsChecked = status.AutoRestartEnabled;
@@ -221,10 +210,42 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         ErrorCard.Visibility = status.LastError is null ? Visibility.Collapsed : Visibility.Visible;
         if (status.LastError is not null) ErrorText.Text = status.LastError.Message;
         RenderFacts(status);
+        UpdateLogsVisibility();
 
         await ReloadLogsAsync();
         await LoadCredentialAsync(status);
     }
+
+    private void RenderDeployment(LocalServerStatus status, bool deployed, bool blocked)
+    {
+        DeployTitle.Text = deployed ? "部署设置" : "部署本地服务端";
+        DeployButton.Content = deployed ? "保存并重启" : "部署并启动";
+        AutomationProperties.SetName(DeployButton, deployed ? "保存部署设置并重启本地服务端" : "部署并启动本地服务端");
+        DeploymentDescription.Text = deployed
+            ? "修改由此客户端管理的服务端，保存后将重启服务。"
+            : "新部署使用独立数据库和管理员账号，默认共享整台电脑、仅本机访问。";
+        DeploymentDescription.Visibility = blocked ? Visibility.Collapsed : Visibility.Visible;
+        DeploymentBlockReason.Text = deployed
+            ? "本机只允许运行一个服务端。停止现有服务后刷新，即可保存并重启。"
+            : "本机只允许运行一个服务端。停止现有服务后刷新，即可部署。";
+        DeploymentBlockReason.Visibility = blocked ? Visibility.Visible : Visibility.Collapsed;
+        DeploymentForm.Visibility = blocked && !deployed ? Visibility.Collapsed : Visibility.Visible;
+        Grid.SetColumnSpan(DeploymentHeader, blocked ? 1 : 2);
+        Grid.SetRow(DeployButton, blocked ? 0 : 2);
+        DeployButton.Margin = blocked ? new Thickness(0) : new Thickness(0, 14, 0, 0);
+        DeployButton.Style = (Style)Application.Current.Resources[blocked ? "FwSecondaryButtonStyle" : "FwPrimaryButtonStyle"];
+        DeployButton.IsEnabled = CanDeploy(status);
+        DeployCard.Visibility = Visibility.Visible;
+    }
+
+    // Another server blocks a second launch even if it uses a different port.
+    private static bool IsBlockedByOtherServer(LocalServerStatus status) =>
+        status.State != LocalServerState.Running && status.Detected.Any(instance => !instance.ManagedByThisClient);
+
+    private bool CanDeploy(LocalServerStatus? status) =>
+        status is not null && !_loading &&
+        status.State is not (LocalServerState.Starting or LocalServerState.Stopping) &&
+        !IsBlockedByOtherServer(status);
 
     private void RenderDetection(LocalServerStatus status)
     {
@@ -238,22 +259,16 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
                 instance.Endpoint +
                     "    PID " + instance.ProcessId.ToString(CultureInfo.InvariantCulture) +
                     "    " + instance.ProcessName,
-                ours ? "由栖卷客户端管理，可直接连接或打开网页。"
-                     : "不是本客户端启动的实例；可以连接和打开网页，但客户端不会停止或修改它。",
+                ours ? "由此客户端管理" : "不由此客户端管理",
                 instance.ServingWebUi ? Visibility.Visible : Visibility.Collapsed,
                 ours && status.State == LocalServerState.Running ? Visibility.Collapsed : Visibility.Visible));
         }
         // Reassigning the item source on every supervision tick is what made the card blink.
-        string title = status.State == LocalServerState.NotDeployed && rows.Count > 0
-            ? "检测到本机已有服务端，无需重复部署"
-            : "检测到本机正在运行的服务端";
-        if (_detectionRows is null || !_detectionRows.SequenceEqual(rows) || _detectionTitle != title)
+        if (_detectionRows is null || !_detectionRows.SequenceEqual(rows))
         {
             _detectionRows = rows;
-            _detectionTitle = title;
             DetectionList.ItemsSource = rows;
             DetectionCard.Visibility = rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-            DetectionTitle.Text = title;
         }
     }
 
@@ -461,7 +476,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
 
     private async void Deploy_Click(object sender, RoutedEventArgs e)
     {
-        if (_service is null) return;
+        if (_service is null || !CanDeploy(_status)) return;
         if (!int.TryParse(PortBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int port) || port is < 1024 or > 65535)
         {
             ShowNotice("端口需要是 1024-65535 之间的数字。", InfoBarSeverity.Warning);
@@ -493,7 +508,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
                 await RunAsync(token => service.DeployAndStartAsync(request, token), "部署本地服务端失败。");
             }
         }
-        finally { DeployButton.IsEnabled = true; _editDirty = false; }
+        finally { DeployButton.IsEnabled = CanDeploy(_status); _editDirty = false; }
         if (_status is not null && _status.State != LocalServerState.NotDeployed)
         {
             // Generated credentials stay on the page only until the deployment exists.
@@ -625,6 +640,10 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         else _followTimer.Stop();
     }
 
+    private void UpdateLogsVisibility() =>
+        LogsCard.Visibility = _status?.Deployment is not null || _hasLocalLogs
+            ? Visibility.Visible : Visibility.Collapsed;
+
     private async Task ReloadLogsAsync()
     {
         if (_service is null) return;
@@ -632,6 +651,9 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         {
             var filter = new LocalServerFilter(_errorsOnly, LogQueryBox.Text.Trim());
             LocalServerLogPage page = await _service.ReadLogsAsync(filter, 240, _lifetime.Token);
+            if (_lifetime.IsCancellationRequested) return;
+            _hasLocalLogs = page.TotalCount > 0;
+            UpdateLogsVisibility();
             ApplyLogRows(page.Lines.Select(LogRow.From).ToList());
             LogSummary.Text = page.TotalCount == 0
                 ? string.Empty
@@ -640,11 +662,15 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
             bool empty = _logRows.Count == 0;
             LogsEmpty.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
             LogList.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
-            LogsEmptyTitle.Text = _errorsOnly ? "没有错误日志" : "还没有日志";
-            LogsEmptyBody.Text = _errorsOnly
-                ? "当前只有常规运行记录；错误、警告与诊断输出会标记在这里。"
-                : "启动服务端后，运行日志与诊断输出会出现在这里。";
-            if (!empty && FollowCheck.IsChecked == true && _newestArrived)
+            if (empty)
+            {
+                (LogsEmptyTitle.Text, LogsEmptyBody.Text) = !_hasLocalLogs
+                    ? ("还没有日志", "由此客户端管理的服务端启动后，运行与诊断日志会显示在这里。")
+                    : !string.IsNullOrEmpty(filter.Query)
+                        ? ("没有匹配的日志", "试试其他关键词，或清空筛选。")
+                        : ("没有错误日志", "切换到「全部」查看现有日志。");
+            }
+            else if (FollowCheck.IsChecked == true && _newestArrived)
                 LogList.ScrollIntoView(_logRows[0]);
         }
         catch (Exception error) when (error is FilewayException or OperationCanceledException)
