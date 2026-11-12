@@ -365,7 +365,7 @@ components:
 - 主浏览页搜索框：`AutoSuggestBox` 通过 `TextBoxStyle` 注入 `FwSearchTextBoxStyle`（基于 `AutoSuggestBoxTextBoxStyle`，10px 圆角、1px 描边、14px 字号），保留模板自带查询与清除按钮；高度 40，与路径栏、返回/上级/刷新按钮同基线。直接给 `AutoSuggestBox` 设置边框/圆角不会作用到内部 TextBox，禁止用这种方式“修样式”。
 - 关于弹窗：品牌行 + 版本卡；两个链接按钮（项目主页与源代码 / 许可证）放在同一行（32 DIP 高、间距 8），不得纵向堆叠占两行（0.8.103）。
 - 交互与外观对话框：480 DIP 两栏（左“提示与播放”、右“界面背景”，间距 24），说明文字置于栏下；ColorPicker 宽 228 DIP，仅在“自定义取色”时显示。1000×700 下全部设置必须完整可见（0.8.107）。两个时间滑块使用 12px 次级标签 + 右侧实时“N 秒”值 + 无 Header 的 Slider，拖动时数值即时更新；不得只给标题与轨道而不显示当前值（0.8.118）。
-- 打开方式对话框：分类标签与选择器同行并对齐，滚动区高度使用 `DialogOrdering.ContentMaxHeight`。系统默认应用需要本地副本，实际打开前显示本次下载位置，确认后才提交下载。下载校验完成后才交给 Windows 默认应用。
+- 打开方式对话框：分类标签与选择器同行并对齐，滚动区高度使用 `DialogOrdering.ContentMaxHeight`。Markdown 可选内置查看器、系统默认应用或指定本机应用。外部打开前显示下载位置，确认后提交下载，校验完成才将本地副本交给所选应用。
 - 窗口状态：主窗口正常状态的大小/位置与 `maximized` 标记写入数据根 `ui-preferences.json`（camelCase，大小写不敏感，兼容旧 `theme` 文件），启动时按保存点所在显示器 `WorkArea` 钳制，越界坐标必须回到可见区；最大化关闭只更新标记、不覆盖正常 bounds，启动恢复 bounds 后再最大化（0.8.100/0.8.101）。首次启动默认 1120×760 居中。导航侧栏的展开/图标栏状态保存为 `sidebarCollapsed`，重启保持，覆盖式窄窗口开合不写入（0.8.102）。
 - 主浏览顶部工具行：返回/上级/刷新使用 `BrowserToolbarButtonStyle`（40×40、10px 圆角），与 40px 路径栏、搜索框同高；路径栏内部的编辑按钮保持 32px 内嵌尺寸，不要为了对齐把它放大到超出 32px 列。
 - 自研双色焦点环覆盖主/次/图标/文字图标/分段选项/侧栏导航按钮/详情动作磁贴与 CheckBox；这些控件一律 `UseSystemFocusVisuals=False`，由模板 `FocusStates` 显示光晕 + 内环。动作磁贴必须 `HorizontalAlignment=Stretch` 填满所在栅格列，不能按内容宽度收缩；CheckBox 焦点环画在内容外侧，避免压住 20px 勾选框与文字。菜单项键盘焦点使用应用双色（`FocusVisualPrimaryBrush`=文字色、`FocusVisualSecondaryBrush`=画布色，内缩 2 DIP），但形状仍由 WinUI 内部模板绘制为矩形。任务详情与回收站的展开面板使用 `FwDisclosure`（`LayoutChoiceStyle` 开关头 + 旋转箭头 + 自研焦点环），不再使用 WinUI Expander；开关头必须把标题绑定到 `AutomationProperties.Name`。

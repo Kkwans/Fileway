@@ -5,6 +5,7 @@ public enum OpenPreference
 {
     BuiltIn,
     SystemDefault,
+    SelectedApplication,
 }
 
 public enum OpenWithCategory
@@ -26,7 +27,8 @@ public sealed record OpenWithPreferences(
     OpenPreference Video = OpenPreference.BuiltIn,
     OpenPreference Audio = OpenPreference.BuiltIn,
     OpenPreference Pdf = OpenPreference.BuiltIn,
-    OpenPreference Archive = OpenPreference.BuiltIn)
+    OpenPreference Archive = OpenPreference.BuiltIn,
+    string? MarkdownApplicationPath = null)
 {
     public static OpenWithPreferences Default { get; } = new();
 

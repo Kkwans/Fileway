@@ -804,10 +804,16 @@ public sealed partial class MainPage : Page, IDisposable
         if (row.File.IsDirectory) { _history.Push(_trail.ToArray()); _trail.Add(row.File.Resource); await LoadAsync(row.File.Resource); return; }
         try
         {
-            if (CategoryOf(row) is { } openCategory && OpenWith.For(openCategory) == OpenPreference.SystemDefault)
+            if (CategoryOf(row) is { } openCategory)
             {
-                await OpenWithSystemAsync(row, CurrentOpen);
-                return;
+                var preferences = OpenWith;
+                var preference = preferences.For(openCategory);
+                if (preference == OpenPreference.SystemDefault ||
+                    (openCategory == OpenWithCategory.Markdown && preference == OpenPreference.SelectedApplication))
+                {
+                    await OpenWithExternalAsync(row, CurrentOpen, preference, preferences.MarkdownApplicationPath);
+                    return;
+                }
             }
             if (row.IsImage && _images is not null)
             {
