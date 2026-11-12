@@ -106,6 +106,7 @@ public sealed partial class MainPage : Page, IDisposable
         SidebarCollections.FavoriteRequested += async (_, favorite) =>
         {
             if (_disposed || _connecting || _session?.Account != favorite.Account) return;
+            CloseSidebarOverlay();
             UpdateCollectionsContext(); await CollectionsPanel.OpenReferenceAsync(favorite.Reference);
         };
         SidebarCollections.TagRequested += async (_, tag) =>
