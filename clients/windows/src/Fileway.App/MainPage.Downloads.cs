@@ -459,7 +459,9 @@ public sealed partial class MainPage
                 DownloadPresentationTone.Warning => InfoBarSeverity.Warning,
                 _ => InfoBarSeverity.Informational,
             };
-            if (ShowDownloadToast(DownloadPolicy.Stage(item), severity, $"{task.Id}:{result.Generation}:{result.Status}",
+            var title = result.Status == DownloadStatus.WaitingNetwork
+                ? "下载中断，网络不可用" : DownloadPolicy.Stage(item);
+            if (ShowDownloadToast(title, severity, $"{task.Id}:{result.Generation}:{result.Status}",
                 new DownloadNoticeLink(context, task, null, result.Generation, result.Status)))
                 _pendingDownloadNotices.Remove(task);
             return;
