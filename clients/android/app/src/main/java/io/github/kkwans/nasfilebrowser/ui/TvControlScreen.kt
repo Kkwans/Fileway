@@ -380,6 +380,8 @@ private fun TvPhonePortraitMedia(
     val name = snapshot?.content?.optJSONObject("media")?.optString("name")
         ?.takeIf { it.isNotBlank() && it != "null" }
     val isPlaying = player?.opt("playing") as? Boolean
+    val hasPlayer = snapshot?.scene in setOf("VIDEO", "AUDIO")
+    val canAdjustVolume = connected && hasPlayer && player?.optBoolean("preparing") == false
     Surface(
         Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -409,7 +411,7 @@ private fun TvPhonePortraitMedia(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             val volume = player?.optInt("volume", -1)?.takeIf { it in 0..100 }
             if (snapshot != null && volume != null) {
-                TvPhoneVolume(model, snapshot, volume, connected)
+                TvPhoneVolume(model, snapshot, volume, canAdjustVolume, showValue = hasPlayer)
             } else {
                 Box(Modifier.fillMaxWidth().heightIn(min = 72.dp), contentAlignment = Alignment.CenterStart) {
                     Text(if (connected) "此 TV 暂未提供应用音量" else "连接 TV 后可调节应用音量",
@@ -421,7 +423,7 @@ private fun TvPhonePortraitMedia(
 }
 
 @Composable
-private fun TvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volume: Int, enabled: Boolean) {
+private fun TvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volume: Int, enabled: Boolean, showValue: Boolean) {
     var draft by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, enabled) { mutableStateOf<Float?>(null) }
     var pending by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, enabled) { mutableStateOf<Int?>(null) }
     LaunchedEffect(volume, pending) { if (volume == pending) pending = null }
@@ -429,16 +431,17 @@ private fun TvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volum
         if (pending != null) { delay(3500); pending = null }
     }
     val shown = draft ?: (pending ?: volume).toFloat()
+    val valueLabel = if (showValue) "${shown.roundToInt()}%" else "播放时可调"
     Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             FilewayIcon(Art.drawable.fileway_ic_volume_up, null, Modifier.size(20.dp),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("TV 应用音量", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Text("${shown.roundToInt()}%", style = MaterialTheme.typography.labelLarge)
+            Text(valueLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Slider(shown, onValueChange = { draft = it }, modifier = Modifier.semantics { contentDescription = "TV 应用音量" },
-            enabled = enabled, valueRange = 0f..100f, onValueChangeFinished = {
+        PlayerSlider(shown, 100f, "TV 应用音量", enabled, change = { draft = it },
+            description = valueLabel, mediaSurface = false, finish = {
                 draft?.roundToInt()?.let { value ->
                     pending = value
                     model.commandFor(snapshot, "playback.setVolume", JSONObject().put("volume", value))
