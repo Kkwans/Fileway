@@ -15,8 +15,10 @@ $env:CGO_ENABLED = '0'
 go test ./...
 go vet ./...
 New-Item -ItemType Directory -Force -Path (Join-Path $env:FilewayArtifactsRoot 'host') | Out-Null
-go build -trimpath -ldflags '-X main.hostVersion=0.1.0 -X main.buildCommit=unknown' -o (Join-Path $env:FilewayArtifactsRoot 'host\Fileway.Host.exe') ./cmd/fileway-host
+go build -trimpath -tags=ts_omit_logtail -ldflags '-X main.hostVersion=0.1.0 -X main.buildCommit=unknown' -o (Join-Path $env:FilewayArtifactsRoot 'host\Fileway.Host.exe') ./cmd/fileway-host
 ```
+
+The Windows build uses `ts_omit_logtail` to keep embedded-network authorization links out of Tailscale's disk log buffer and uploader.
 
 The build entry point is `./cmd/fileway-host`. `main.hostVersion` and
 `main.buildCommit` are the exact linker injection symbols. When no commit is

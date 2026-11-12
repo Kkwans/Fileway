@@ -19,7 +19,8 @@ try {
     $env:CGO_ENABLED = '0'
     Push-Location -LiteralPath (Join-Path $windowsRoot 'host')
     try {
-        & go build -mod=readonly -trimpath -buildvcs=true -ldflags "-X main.hostVersion=$HostVersion -X main.buildCommit=$commit" -o $executable ./cmd/fileway-host
+        # Omit tsnet's disk buffer and uploader so authorization links stay in the in-memory UI flow.
+        & go build -mod=readonly -trimpath -buildvcs=true -tags=ts_omit_logtail -ldflags "-X main.hostVersion=$HostVersion -X main.buildCommit=$commit" -o $executable ./cmd/fileway-host
         if ($LASTEXITCODE -ne 0) { throw 'Go Host build failed.' }
     }
     finally { Pop-Location }
