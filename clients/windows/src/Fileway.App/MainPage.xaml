@@ -330,7 +330,7 @@
     </Canvas>
     <Border x:Name="DropOverlay" Grid.RowSpan="2" Visibility="Collapsed" IsHitTestVisible="False" BorderThickness="2" CornerRadius="8" Margin="6" BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" Background="{ThemeResource AccentFillColorSecondaryBrush}"><StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8"><ui:LucideIcon IconName="upload-simple" Width="34" Height="34" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock x:Name="DropOverlayText" Text="松开以上传到当前目录" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
     </Grid>
-    <Border x:Name="DetailsPanel" Visibility="Collapsed" Padding="20,16,20,18" Background="{ThemeResource FwGlassBrush}" KeyDown="DetailsPanel_KeyDown">
+    <Border x:Name="DetailsPanel" Visibility="Collapsed" Padding="20,16,20,18" KeyDown="DetailsPanel_KeyDown">
      <Grid RowSpacing="14">
       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
       <Grid Height="34" ToolTipService.ToolTip="按住标题区域拖动移动窗口">

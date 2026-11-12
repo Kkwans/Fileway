@@ -72,10 +72,16 @@ internal static class PopupMaterials
     internal static SystemBackdrop? NativeBackdrop()
     {
         if (Effective == PopupMaterial.Solid || !DesktopAcrylicController.IsSupported()) return null;
-        return Effective == PopupMaterial.SoftBlur ? new SoftPopupBackdrop() : new DesktopAcrylicBackdrop();
+        return Effective == PopupMaterial.SoftBlur ? new NativePopupBackdrop(DesktopAcrylicKind.Thin) : new DesktopAcrylicBackdrop();
     }
 
-    internal sealed class SoftPopupBackdrop : SystemBackdrop
+    internal static NativePopupBackdrop? NativeSurfaceBackdrop()
+    {
+        if (Effective == PopupMaterial.Solid || !DesktopAcrylicController.IsSupported()) return null;
+        return new NativePopupBackdrop(Effective == PopupMaterial.SoftBlur ? DesktopAcrylicKind.Thin : DesktopAcrylicKind.Base);
+    }
+
+    internal sealed class NativePopupBackdrop(DesktopAcrylicKind kind) : SystemBackdrop
     {
         private DesktopAcrylicController? _controller;
         internal bool Failed { get; private set; }
@@ -88,7 +94,7 @@ internal static class PopupMaterials
             try
             {
                 DispatcherQueue.GetForCurrentThread().EnsureSystemDispatcherQueue();
-                controller = new DesktopAcrylicController { Kind = DesktopAcrylicKind.Thin };
+                controller = new DesktopAcrylicController { Kind = kind };
                 controller.SetSystemBackdropConfiguration(GetDefaultSystemBackdropConfiguration(target, root));
                 if (!controller.AddSystemBackdropTarget(target)) return;
                 _controller = controller;

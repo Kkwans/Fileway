@@ -37,6 +37,7 @@
       <SolidColorBrush x:Key="FwArchiveSelectionStrokeBrush" Color="Transparent"/>
       <SolidColorBrush x:Key="FwSoftChoiceTextBrush" Color="#FFF1F4F8"/>
       <SolidColorBrush x:Key="FwPopupPresenterBrush" Color="#6624272C"/>
+      <SolidColorBrush x:Key="FwAcrylicPopupPresenterBrush" Color="#A624272C"/>
       <x:Double x:Key="FwShellCustomMix">0.08</x:Double>
       <SolidColorBrush x:Key="FwCanvasBrush" Color="#FF0B0C0F" />
       <SolidColorBrush x:Key="FwSurfaceBrush" Color="#FF17191D" />
@@ -104,6 +105,7 @@
       <SolidColorBrush x:Key="FwArchiveSelectionStrokeBrush" Color="Transparent"/>
       <SolidColorBrush x:Key="FwSoftChoiceTextBrush" Color="#FF232B35"/>
       <SolidColorBrush x:Key="FwPopupPresenterBrush" Color="#66F9FAFC"/>
+      <SolidColorBrush x:Key="FwAcrylicPopupPresenterBrush" Color="#A6F9FAFC"/>
       <x:Double x:Key="FwShellCustomMix">0.1</x:Double>
       <SolidColorBrush x:Key="FwCanvasBrush" Color="#FFF3F4F6" />
       <SolidColorBrush x:Key="FwSurfaceBrush" Color="#FFFFFFFF" />
@@ -154,6 +156,7 @@
       <StaticResource x:Key="ScrollBarThumbFillPressed" ResourceKey="SystemColorHighlightColorBrush" />
       <StaticResource x:Key="ScrollBarPanningThumbBackground" ResourceKey="SystemColorWindowTextColorBrush" />
       <StaticResource x:Key="FwPopupPresenterBrush" ResourceKey="SystemColorWindowColorBrush"/>
+      <StaticResource x:Key="FwAcrylicPopupPresenterBrush" ResourceKey="SystemColorWindowColorBrush"/>
       <StaticResource x:Key="FwSoftChoiceFillBrush" ResourceKey="SystemColorHighlightColorBrush"/>
       <SolidColorBrush x:Key="FwArchiveSelectionFillBrush" Color="Transparent"/>
       <StaticResource x:Key="FwArchiveSelectionStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush"/>

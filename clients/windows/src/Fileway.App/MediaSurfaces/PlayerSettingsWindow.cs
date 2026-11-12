@@ -57,7 +57,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
         _responsiveness = responsiveness;
         _owner = owner; _lightDismiss = lightDismiss; _movable = movable;
         _root.RequestedTheme = theme;
-        _backdrop = new SettingsAcrylicBackdrop(theme, SetAcrylicAvailable);
+        _backdrop = new SettingsAcrylicBackdrop(theme, isDetailSurface: !wrapContent, SetAcrylicAvailable);
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(onClosed);
         _onClosed = onClosed;
@@ -564,7 +564,7 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
 
     private static Win32Exception NativeFailure(string operation) => new(Marshal.GetLastPInvokeError(), $"{operation} 失败。");
 
-    internal sealed class SettingsAcrylicBackdrop(ElementTheme theme, Action<bool> setAvailable) : SystemBackdrop, IDisposable
+    internal sealed class SettingsAcrylicBackdrop(ElementTheme theme, bool isDetailSurface, Action<bool> setAvailable) : SystemBackdrop, IDisposable
     {
         private DesktopAcrylicController? _controller;
         private ICompositionSupportsSystemBackdrop? _target;
@@ -632,6 +632,8 @@ internal sealed class PlayerSettingsWindow : Window, IDisposable
             var color = Controls.ThemePalette.Color("FwOwnedPanelFallbackColor", theme);
             _controller.TintColor = color;
             _controller.TintOpacity = 0.15f;
+            if (isDetailSurface)
+                _controller.LuminosityOpacity = _kind == DesktopAcrylicKind.Base ? 0.82f : 0.72f;
             _controller.FallbackColor = _configuration.IsHighContrast && _configuration.HighContrastBackgroundColor is { } contrast ? contrast : color;
         }
 

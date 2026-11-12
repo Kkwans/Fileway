@@ -100,7 +100,7 @@ public static class SurfaceStyles
         private readonly FrameworkElement _themeOwner;
         private readonly Popup? _selector;
         private Popup? _hostPopup;
-        private SystemBackdrop? _backdrop;
+        private PopupMaterials.NativePopupBackdrop? _backdrop;
         private PopupMaterial? _applied;
         private bool _active;
 
@@ -168,13 +168,14 @@ public static class SurfaceStyles
                     DisconnectBackdrop();
                     _applied = PopupMaterials.Effective;
                     _hostPopup = popup;
-                    _backdrop = PopupMaterials.NativeBackdrop();
-                    if (_backdrop is PopupMaterials.SoftPopupBackdrop soft) soft.ConnectionFailed += NativeConnectionFailed;
+                    _backdrop = PopupMaterials.NativeSurfaceBackdrop();
+                    if (_backdrop is not null) _backdrop.ConnectionFailed += NativeConnectionFailed;
                     if (menu is not null) menu.SystemBackdrop = _backdrop;
                     else if (popup is not null) popup.SystemBackdrop = _backdrop;
                 }
-                brush = _backdrop is null or PopupMaterials.SoftPopupBackdrop { Failed: true } ? ThemePalette.Brush("FwSurfaceRaisedBrush", theme)
-                    : ThemePalette.Brush("FwPopupPresenterBrush", theme);
+                var brushKey = _backdrop is null or { Failed: true } ? "FwSurfaceRaisedBrush"
+                    : _applied == PopupMaterial.Acrylic ? "FwAcrylicPopupPresenterBrush" : "FwPopupPresenterBrush";
+                brush = ThemePalette.Brush(brushKey, theme);
             }
             else
             {
@@ -202,7 +203,7 @@ public static class SurfaceStyles
 
         private void DisconnectBackdrop()
         {
-            if (_backdrop is PopupMaterials.SoftPopupBackdrop soft) soft.ConnectionFailed -= NativeConnectionFailed;
+            if (_backdrop is not null) _backdrop.ConnectionFailed -= NativeConnectionFailed;
             if (_hostPopup is not null && ReferenceEquals(_hostPopup.SystemBackdrop, _backdrop)) _hostPopup.SystemBackdrop = null;
             if (_element is MenuFlyoutPresenter menu) menu.SystemBackdrop = null;
             _hostPopup = null;

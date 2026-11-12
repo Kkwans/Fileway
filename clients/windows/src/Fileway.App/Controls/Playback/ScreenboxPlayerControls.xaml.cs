@@ -941,7 +941,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private void ApplyFlyoutBackdrop(FlyoutBase flyout)
     {
         var backdrop = _flyoutBackdropFactory?.Invoke();
-        if (backdrop is PopupMaterials.SoftPopupBackdrop soft)
+        if (backdrop is PopupMaterials.NativePopupBackdrop soft)
         {
             soft.ConnectionFailed += () => DispatcherQueue.TryEnqueue(() =>
             {
