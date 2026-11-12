@@ -191,8 +191,16 @@ public static class SurfaceStyles
                 control.Background = brush;
                 control.BorderBrush = stroke;
                 if (control is ToolTip tooltip) tooltip.Foreground = ThemePalette.Brush("FwTextPrimaryBrush", theme);
-                if (control is ContentDialog dialog && FindDescendant<Grid>(dialog, "CommandSpace") is { } commands)
-                    commands.Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                if (control is ContentDialog dialog)
+                {
+                    var transparent = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+                    // WinUI's content overlay is opaque in Light theme. The body and
+                    // buttons share the dialog's own material as their single background.
+                    if (FindDescendant<ScrollViewer>(dialog, "ContentScrollViewer")?.Content is Grid body)
+                        body.Background = transparent;
+                    if (FindDescendant<Grid>(dialog, "CommandSpace") is { } commands)
+                        commands.Background = transparent;
+                }
             }
             else if (_element is Border border)
             {
