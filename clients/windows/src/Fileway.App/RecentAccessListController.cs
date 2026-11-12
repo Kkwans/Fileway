@@ -1,12 +1,16 @@
 ﻿using System.Globalization;
+using System.ComponentModel;
 using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 
 namespace Fileway.App;
 
 /// <summary>A read-only projection of the server's original history row.</summary>
-public sealed class RecentAccessRow
+public sealed class RecentAccessRow : INotifyPropertyChanged
 {
+    internal const string MissingFileText = "上次打开时原文件不存在";
+    private bool _fileWasMissing;
+
     public RecentAccessRow(RecentAccessEntry entry, Func<DateTimeOffset, string>? formatter = null)
     {
         ArgumentNullException.ThrowIfNull(entry);
@@ -28,6 +32,18 @@ public sealed class RecentAccessRow
     public string Name => Entry.DisplayName;
     public string DisplayPath => Entry.DisplayPath;
     public string DisplayDirectory { get; }
+    public string Detail => _fileWasMissing ? $"{MissingFileText} · {DisplayDirectory}" : DisplayDirectory;
+    internal bool FileWasMissing
+    {
+        set
+        {
+            if (_fileWasMissing == value) return;
+            _fileWasMissing = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Detail)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(AccessibleName)));
+        }
+    }
+    public event PropertyChangedEventHandler? PropertyChanged;
     public string IconName => FileTypePresentation.ResolveIconName(Entry.DisplayName, Entry.IsDirectory);
     public string AccessedTime { get; }
     public string IdentityHint => Entry.PathConfidence switch
@@ -46,7 +62,7 @@ public sealed class RecentAccessRow
         try { return Uri.UnescapeDataString(wirePath); }
         catch (Exception) { return wirePath; }
     }
-    public string AccessibleName => $"{Name}，{DisplayDirectory}，{AccessedTime}，{IdentityHint}";
+    public string AccessibleName => $"{Name}，{Detail}，{AccessedTime}，{IdentityHint}";
     public bool CanOpen => HasTrustedResource(Entry);
 
     internal static bool HasTrustedResource(RecentAccessEntry entry) =>
@@ -65,6 +81,7 @@ internal sealed class RecentAccessListController : IDisposable
     private IFileRepository? _files;
     private ConnectionSession? _session;
     private IReadOnlyList<RecentAccessEntry> _items = Array.Empty<RecentAccessEntry>();
+    private readonly HashSet<(string Id, string? WirePath)> _missingFiles = [];
     private RequestCancellation? _listCancellation;
     private RequestCancellation? _openCancellation;
     private long _generation;
@@ -76,13 +93,18 @@ internal sealed class RecentAccessListController : IDisposable
     private bool _isLoading;
     private bool _isOpening;
     private bool _hasLoaded;
-    private string? _error;
+    private (string Message, bool RowSpecific)? _failure;
 
     internal IReadOnlyList<RecentAccessEntry> Items { get { lock (_gate) return _items; } }
     internal bool IsLoading { get { lock (_gate) return _isLoading; } }
     internal bool IsOpening { get { lock (_gate) return _isOpening; } }
     internal bool HasLoaded { get { lock (_gate) return _hasLoaded; } }
-    internal string? Error { get { lock (_gate) return _error; } }
+    internal string? Error { get { lock (_gate) return _failure?.Message; } }
+    internal string? ViewError { get { lock (_gate) return _failure is { } failure && !failure.RowSpecific ? failure.Message : null; } }
+    internal bool FileWasMissing(RecentAccessEntry entry)
+    {
+        lock (_gate) return _missingFiles.Contains((entry.Id, entry.Resource?.WirePath));
+    }
     internal long Generation { get { lock (_gate) return _generation; } }
     internal long ViewGeneration { get { lock (_gate) return _viewGeneration; } }
 
@@ -111,7 +133,8 @@ internal sealed class RecentAccessListController : IDisposable
             _listCancellation = _openCancellation = null;
             _isLoading = _isOpening = _hasLoaded = false;
             _items = Array.Empty<RecentAccessEntry>();
-            _error = null;
+            _failure = null;
+            _missingFiles.Clear();
         }
         Cancel(list);
         Cancel(open);
@@ -139,7 +162,7 @@ internal sealed class RecentAccessListController : IDisposable
             _openCancellation = null;
             _isLoading = true;
             _isOpening = false;
-            _error = null;
+            _failure = null;
         }
         Cancel(previousList);
         Cancel(previousOpen);
@@ -159,7 +182,8 @@ internal sealed class RecentAccessListController : IDisposable
                 _isOpening = false;
                 _items = Array.AsReadOnly(snapshot);
                 _hasLoaded = true;
-                _error = null;
+                _failure = null;
+                _missingFiles.IntersectWith(snapshot.Select(entry => (entry.Id, entry.Resource?.WirePath)));
             }
             Cancel(staleOpen);
         }
@@ -171,7 +195,7 @@ internal sealed class RecentAccessListController : IDisposable
         {
             lock (_gate)
                 if (IsCurrentList(context, epoch, cancellation) && !cancellation.IsCancellationRequested)
-                    _error = ReadError(error, opening: false);
+                    _failure = (ReadError(error, opening: false), false);
         }
         finally
         {
@@ -209,8 +233,9 @@ internal sealed class RecentAccessListController : IDisposable
             cancellation = new RequestCancellation(cancellationToken);
             _openCancellation = cancellation;
             _isOpening = true;
-            _error = null;
+            _failure = null;
         }
+        var metadataResolved = false;
         try
         {
             cancellation.Token.ThrowIfCancellationRequested();
@@ -225,6 +250,8 @@ internal sealed class RecentAccessListController : IDisposable
                 if (file is null || file.Resource is null || file.Resource.Account != context.Account ||
                     !string.Equals(file.Resource.WirePath, entry.Resource!.WirePath, StringComparison.Ordinal))
                     throw InvalidResponse();
+                metadataResolved = true;
+                _missingFiles.Remove((entry.Id, file.Resource.WirePath));
                 openTask = opened(file);
             }
             // Once the callback has begun, view retirement never closes its media surface.
@@ -236,8 +263,12 @@ internal sealed class RecentAccessListController : IDisposable
         catch (Exception error)
         {
             lock (_gate)
-                if (IsCurrentOpen(context, epoch, cancellation) && !cancellation.IsCancellationRequested)
-                    _error = ReadError(error, opening: true);
+            {
+                if (!IsCurrentOpen(context, epoch, cancellation) || cancellation.IsCancellationRequested) return;
+                var missing = !metadataResolved && error is FilewayException { Error.HttpStatus: 404 };
+                if (missing) _missingFiles.Add((entry.Id, entry.Resource!.WirePath));
+                _failure = (missing ? RecentAccessRow.MissingFileText : ReadError(error, opening: true), missing);
+            }
         }
         finally
         {
@@ -268,7 +299,7 @@ internal sealed class RecentAccessListController : IDisposable
             open = _openCancellation;
             _listCancellation = _openCancellation = null;
             _isLoading = _isOpening = false;
-            _error = null;
+            _failure = null;
         }
         Cancel(list);
         Cancel(open);
@@ -291,7 +322,8 @@ internal sealed class RecentAccessListController : IDisposable
             open = _openCancellation;
             _listCancellation = _openCancellation = null;
             _isLoading = _isOpening = _hasLoaded = false;
-            _error = null;
+            _failure = null;
+            _missingFiles.Clear();
             _recent = null;
             _files = null;
             _session = null;
@@ -344,7 +376,7 @@ internal sealed class RecentAccessListController : IDisposable
         ? fileway.Error.HttpStatus switch
         {
             403 => "当前账号没有访问权限。",
-            404 => opening ? "此记录对应的文件已不存在，请刷新后重试。" : "最近访问服务暂不可用，请重试。",
+            404 => opening ? "此记录对应的文件已不存在。" : "最近访问服务暂不可用，请重试。",
             _ => ErrorMessage(fileway.Error.Code, opening),
         }
         : opening ? "暂时无法打开此记录，请刷新后重试。" : "暂时无法读取最近访问，请重试。";

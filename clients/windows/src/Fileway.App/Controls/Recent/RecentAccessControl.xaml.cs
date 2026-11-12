@@ -58,20 +58,26 @@ public sealed partial class RecentAccessControl : UserControl, IDisposable
             try
             {
                 _rows.Clear();
-                foreach (var entry in _controller.Items) _rows.Add(new RecentAccessRow(entry));
+                foreach (var entry in _controller.Items)
+                    _rows.Add(new RecentAccessRow(entry) { FileWasMissing = _controller.FileWasMissing(entry) });
                 if (selectedId is not null) RecentRecords.SelectedItem = _rows.FirstOrDefault(row => row.Entry.Id == selectedId);
             }
             finally { _rendering = false; }
         }
+        else
+        {
+            foreach (var row in _rows) row.FileWasMissing = _controller.FileWasMissing(row.Entry);
+        }
         RecentLoadingRing.IsActive = _controller.IsLoading || _controller.IsOpening;
         RecentLoadingRing.Visibility = RecentLoadingRing.IsActive ? Visibility.Visible : Visibility.Collapsed;
         RecentRefreshButton.IsEnabled = !_controller.IsLoading;
-        RecentError.IsOpen = _controller.Error is not null;
-        RecentError.Message = _controller.Error;
+        var viewError = _controller.ViewError;
+        RecentError.Message = viewError;
+        RecentError.IsOpen = viewError is not null;
         RecentHeaders.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         RecentEmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        RecentEmptyState.Title = _controller.IsLoading ? "正在读取最近访问" : _controller.Error is not null ? "记录暂不可用" : "暂无最近访问";
-        RecentEmptyState.Description = _controller.Error is not null ? "可以刷新重试，未确认的资源不会被打开。" : "成功打开远端图片或视频后，可刷新查看服务器记录。";
+        RecentEmptyState.Title = _controller.IsLoading ? "正在读取最近访问" : viewError is not null ? "记录暂不可用" : "暂无最近访问";
+        RecentEmptyState.Description = viewError is not null ? "可以刷新重试，未确认的资源不会被打开。" : "成功打开远端图片或视频后，可刷新查看服务器记录。";
         RecentCount.Text = $"当前账号 · {_rows.Count} 条服务器记录";
         UpdateCommands();
     }
