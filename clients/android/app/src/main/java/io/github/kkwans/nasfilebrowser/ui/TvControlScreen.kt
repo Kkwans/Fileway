@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
@@ -405,26 +406,55 @@ private fun TvPhonePortraitMedia(
             TvPhoneQuickPlayback(model, snapshot, name, isPlaying, onPlayback,
                 modifier = Modifier.heightIn(min = 56.dp), compact = true, showProgress = true, enabled = connected)
         } else {
-            Row(
-                Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                FilewayIcon(if (name == null) Art.drawable.fileway_ic_play_arrow else Art.drawable.fileway_ic_playlist_play,
-                    null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(name ?: "TV 暂无播放", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                FilewayTextButton(onClick = if (name == null) onBrowse else onPlayback,
-                    enabled = connected && snapshot?.scene != "LOGIN") {
-                    Text(if (name == null) "浏览文件" else "查看")
+            val showRecent = name == null && (snapshot == null || snapshot.capabilities.optInt("fileBrowse") > 0)
+            val enabled = connected && snapshot?.scene != "LOGIN"
+            val statusStyle = MaterialTheme.typography.bodyMedium
+            val actionStyle = MaterialTheme.typography.labelLarge
+            val colors = MaterialTheme.colorScheme
+            val measurer = rememberTextMeasurer()
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                val textButtonPadding = PaddingValues(horizontal = 8.dp)
+                val browseWidth = with(LocalDensity.current) {
+                    measurer.measure("浏览文件", style = actionStyle).size.width.toDp() + 16.dp
                 }
-            }
-            if (name == null && (snapshot == null || snapshot.capabilities.optInt("fileBrowse") > 0)) {
-                FilewayTextButton(onClick = onRecent, modifier = Modifier.align(Alignment.Start),
-                    enabled = connected && snapshot?.scene != "LOGIN") {
-                    FilewayIcon(Art.drawable.fileway_ic_history, null, Modifier.size(18.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("最近播放")
+                val recentWidth = with(LocalDensity.current) {
+                    measurer.measure("最近播放", style = actionStyle).size.width.toDp() + 16.dp
+                }
+                val statusWidth = with(LocalDensity.current) {
+                    measurer.measure("暂无播放", style = statusStyle).size.width.toDp()
+                }
+                val showRecentText = showRecent && maxWidth >= statusWidth + recentWidth + browseWidth + 16.dp
+                val recentSpace = if (!showRecent) 0.dp else if (showRecentText) recentWidth else 48.dp
+                val showStatusIcon = !showRecent || maxWidth >= statusWidth + recentSpace + browseWidth + 40.dp
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (showStatusIcon) {
+                        FilewayIcon(if (name == null) Art.drawable.fileway_ic_play_arrow else Art.drawable.fileway_ic_playlist_play,
+                            null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
+                    }
+                    Text(name ?: "TV 暂无播放", Modifier.weight(1f), style = statusStyle,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    if (showRecent) {
+                        if (showRecentText) {
+                            FilewayTextButton(onClick = onRecent, enabled = enabled,
+                                colors = ButtonDefaults.textButtonColors(contentColor = colors.onSurfaceVariant),
+                                contentPadding = textButtonPadding) {
+                                Text("最近播放", maxLines = 1, softWrap = false)
+                            }
+                        } else {
+                            FilewayIconButton(onClick = onRecent, modifier = Modifier.size(48.dp), enabled = enabled) {
+                                FilewayIcon(Art.drawable.fileway_ic_history, "最近播放", Modifier.size(20.dp),
+                                    tint = LocalContentColor.current)
+                            }
+                        }
+                    }
+                    FilewayTextButton(onClick = if (name == null) onBrowse else onPlayback, enabled = enabled,
+                        contentPadding = textButtonPadding) {
+                        Text(if (name == null) "浏览文件" else "查看", maxLines = 1, softWrap = false)
+                    }
                 }
             }
         }
@@ -799,7 +829,11 @@ private fun View.tvBackHaptic() {
 
 @Composable internal fun TvPhoneConfirmKey(compact:Boolean,detailsKey:Boolean,onConfirm:()->Unit,onDetails:()->Unit,
     iconOnly:Boolean=false,enabled:Boolean=true){
-    val size=if(compact)48.dp else 64.dp
+    val size = when {
+        iconOnly -> if (compact) 48.dp else 64.dp
+        compact -> 56.dp
+        else -> 72.dp
+    }
     val view = LocalView.current
     val confirm = { view.tvConfirmHaptic(); onConfirm() }
     val content: @Composable () -> Unit = {
