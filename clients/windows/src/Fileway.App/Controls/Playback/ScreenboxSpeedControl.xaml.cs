@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Windows.Globalization.NumberFormatting;
 using VirtualKey = Windows.System.VirtualKey;
 
 namespace Fileway.App.Controls.Playback;
@@ -24,6 +25,11 @@ public sealed partial class ScreenboxSpeedControl : UserControl
         _request = request;
         _updating = true;
         InitializeComponent();
+        PreciseRate.NumberFormatter = new DecimalFormatter
+        {
+            FractionDigits = 0,
+            NumberRounder = new IncrementNumberRounder { Increment = 0.001 },
+        };
         RateSlider.AddHandler(PointerPressedEvent, new PointerEventHandler((_, _) => _sliderEditing = true), true);
         RateSlider.AddHandler(PointerReleasedEvent, new PointerEventHandler((_, _) => { _sliderEditing = false; ApplyConfirmedRate(_confirmedRate, _commandPending); }), true);
         RateSlider.AddHandler(PointerCanceledEvent, new PointerEventHandler((_, _) => { _sliderEditing = false; ApplyConfirmedRate(_confirmedRate); }), true);
