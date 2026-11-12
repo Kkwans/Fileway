@@ -12,7 +12,7 @@ public static class SurfaceStyles
         "UsePopupMaterial", typeof(bool), typeof(SurfaceStyles), new PropertyMetadata(false, OnUsePopupMaterialChanged));
 
     private static readonly ConditionalWeakTable<FrameworkElement, Surface> Surfaces = new();
-    private static readonly ConditionalWeakTable<Popup, Surface> Selectors = new();
+    private static readonly ConditionalWeakTable<Popup, Surface> PopupSurfaces = new();
 
     public static bool GetUsePopupMaterial(DependencyObject element) => (bool)element.GetValue(UsePopupMaterialProperty);
     public static void SetUsePopupMaterial(DependencyObject element, bool value) => element.SetValue(UsePopupMaterialProperty, value);
@@ -52,8 +52,11 @@ public static class SurfaceStyles
     {
         owner.ApplyTemplate();
         var popup = FindDescendant<Popup>(owner, owner is AutoSuggestBox ? "SuggestionsPopup" : "Popup");
-        if (popup?.Child is Border border) Selectors.GetValue(popup, target => new Surface(border, target, owner));
+        if (popup?.Child is Border border) AttachPopup(popup, border, owner);
     }
+
+    internal static void AttachPopup(Popup popup, Border surface, FrameworkElement themeOwner) =>
+        PopupSurfaces.GetValue(popup, target => new Surface(surface, target, themeOwner));
 
     internal static void Apply(FlyoutBase flyout)
     {

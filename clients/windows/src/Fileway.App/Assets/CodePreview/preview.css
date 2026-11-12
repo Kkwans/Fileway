@@ -37,3 +37,13 @@ html[data-dark="false"] #source .ace_gutter {
 #source .ace_scrollbar {
   scrollbar-color: color-mix(in srgb, currentColor 38%, transparent) transparent;
 }
+
+#source .ace_marker-layer .fw-find-match {
+  position: absolute;
+  background: #ffe09a;
+  border-radius: 2px;
+}
+
+html[data-dark="true"] #source .ace_marker-layer .fw-find-match {
+  background: #6a542e;
+}

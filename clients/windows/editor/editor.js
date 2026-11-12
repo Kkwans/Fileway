@@ -146,10 +146,12 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.isComposing) return;
-  if (event.key === "Escape" || (event.ctrlKey && event.key.toLowerCase() === "s")) {
-    event.preventDefault();
-    channel.postMessage({ kind: event.key === "Escape" ? "close" : "save" });
-  }
-});
+  const key = event.key.toLowerCase();
+  const kind = key === "escape" ? "close" : event.ctrlKey && key === "f" ? "find" : event.ctrlKey && key === "s" ? "save" : null;
+  if (!kind) return;
+  event.preventDefault();
+  if (kind === "find") event.stopPropagation();
+  channel.postMessage({ kind });
+}, true);
 
 channel.postMessage({ kind: "ready" });

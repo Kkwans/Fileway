@@ -18,7 +18,7 @@ namespace Fileway.App.Views;
 /// Bounded text preview with native Markdown/CSV projections and explicit conditional editing.
 /// A successful decoded load and a current server observation are required before any write.
 /// </summary>
-public sealed class TextWindow : Window, IAsyncDisposable
+public sealed partial class TextWindow : Window, IAsyncDisposable
 {
     public const long MaximumTextBytes = 4 * 1024 * 1024;
     public static readonly HashSet<string> Extensions = new(StringComparer.OrdinalIgnoreCase)
@@ -166,6 +166,9 @@ public sealed class TextWindow : Window, IAsyncDisposable
         AutomationProperties.SetAutomationId(_summary, "TextViewMetadata");
         AutomationProperties.SetAutomationId(_text, "TextEditor");
         AutomationProperties.SetName(_text, "文本内容");
+        _findButton = ViewerAction("magnifying-glass", "文内查找 (Ctrl+F)", ToggleFindPopup);
+        AutomationProperties.SetAutomationId(_findButton, "DocumentFindButton");
+        actions.Children.Add(_findButton);
         actions.Children.Add(_renderButton);
         actions.Children.Add(_tableButton);
         actions.Children.Add(_wrapButton);
@@ -199,6 +202,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         };
         _toolbar = new Border { Child = toolbarGrid, BorderThickness = new Thickness(0, 0, 0, 1) };
         _root.Children.Add(_toolbar);
+        BuildFindPopup();
 
         _bannerText = new TextBlock { FontSize = 13, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         _banner = new Border
@@ -267,6 +271,8 @@ public sealed class TextWindow : Window, IAsyncDisposable
         Closed += (_, _) =>
         {
             _closed = true;
+            CloseFind();
+            CancelFind();
             FloatingNotice.Detach(_toast);
             _codePreview?.Dispose();
             _markdownEditor?.Dispose();
@@ -290,7 +296,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
 
     private void FocusContent()
     {
-        if (_closed || _editing) return;
+        if (_closed) return;
+        if (IsFindOpen)
+        {
+            _findInput.Focus(FocusState.Programmatic);
+            return;
+        }
+        if (_editing) return;
         if (_markdownEditor is { IsReady: true, View.Visibility: Visibility.Visible } markdown)
         {
             markdown.Focus();
@@ -309,12 +321,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _ = _root.Focus(FocusState.Programmatic);
         DispatcherQueue.TryEnqueue(() =>
         {
-            if (!_closed && !_editing) _ = _root.Focus(FocusState.Programmatic);
+            if (!_closed && !_editing && !IsFindOpen) _ = _root.Focus(FocusState.Programmatic);
         });
     }
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        if (HandleFindKeys(args)) return;
         // While editing, caret and clipboard keys belong to the text box itself.
         if (_editing) return;
         if (args.Key == VirtualKey.Escape)
@@ -436,6 +449,8 @@ public sealed class TextWindow : Window, IAsyncDisposable
         if (!_closed)
         {
             _closed = true;
+            CloseFind();
+            CancelFind();
             _codePreview?.Dispose();
             _markdownEditor?.Dispose();
             _lifetime.Cancel();
@@ -468,6 +483,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _mode.Style = (Style)resources["FwCaptionTextStyle"];
         _summary.Style = (Style)resources["FwCaptionTextStyle"];
         _titleBar.RequestedTheme = theme;
+        RefreshFindColors();
     }
 
     private void ShowBanner(string message, bool error)
@@ -552,6 +568,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private void ToggleTable()
     {
         _showTable = !_showTable;
+        if (_showTable) CloseFind();
         ApplyViewMode();
         UpdateCommands();
     }
@@ -594,8 +611,12 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private void UpdateCommands()
     {
         var ready = _loaded && !_closed && !_saving && !_confirmingClose && !_switchingMarkdown;
+        _findButton.IsEnabled = ready;
         var rendered = _renderScroll.Visibility == Visibility.Visible || _markdownEditor?.View.Visibility == Visibility.Visible;
         var table = _tableScroll.Visibility == Visibility.Visible;
+        var findLabel = table ? "在纯文本中查找 (Ctrl+F)" : "文内查找 (Ctrl+F)";
+        AutomationProperties.SetName(_findButton, findLabel);
+        ToolTipService.SetToolTip(_findButton, findLabel);
         SetViewerActionIcon(_renderButton, rendered ? "file-code" : "book-open", rendered ? "查看源码" : "查看渲染");
         SetViewerActionIcon(_tableButton, table ? "article" : "table-2", table ? "查看纯文本" : "查看表格");
         _renderButton.Visibility = _isMarkdown && (!_editing || _markdownEditor is { IsConnected: true })
@@ -620,6 +641,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _discardButton.Visibility = _editing ? Visibility.Visible : Visibility.Collapsed;
         _discardButton.IsEnabled = ready;
         if (!_loaded) return;
+        UpdateFindSurface();
 
         var view = rendered ? "Markdown 渲染视图" : table ? "表格视图" : _isMarkdown ? "源码视图" : _isTable ? "纯文本视图" : _sourceLabel;
         if (_editing) view = _dirty ? "编辑中 · 未保存" : "编辑中";
@@ -881,7 +903,15 @@ public sealed class TextWindow : Window, IAsyncDisposable
             }
             _expectation = content.Edit;
             _encodingName = content.EncodingName;
-            _text.TextChanged += (_, _) => { if (_editing && !_saving && !_visualEditing) { _dirty = IsEdited(_text.Text); UpdateCommands(); } };
+            _text.TextChanged += (_, _) =>
+            {
+                if (_editing && !_saving && !_visualEditing)
+                {
+                    _dirty = IsEdited(_text.Text);
+                    UpdateCommands();
+                }
+                if (ReferenceEquals(_findSurface, _text)) RequestFind(0, debounce: true);
+            };
             _banner.Visibility = Visibility.Collapsed;
             if (_codeLanguage is { } language && content.Text.Length != 0 && !new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
                 StartCodePreview(language);
@@ -966,7 +996,9 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _textFrame.Visibility = Visibility.Visible;
             UpdateCommands();
         };
-        preview.CloseRequested += () => { if (!_closed && !_editing) Close(); };
+        preview.CloseRequested += HandleDocumentEscape;
+        preview.FindRequested += OpenFind;
+        preview.FindResult += ShowFindResult;
         _ = preview.InitializeAsync();
     }
 
@@ -1000,7 +1032,9 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _dirty = IsEdited(draft);
             UpdateCommands();
         };
-        editor.CloseRequested += () => { if (!_closed) Close(); };
+        editor.CloseRequested += HandleDocumentEscape;
+        editor.FindRequested += OpenFind;
+        editor.FindResult += ShowFindResult;
         editor.SaveRequested += () => { if (_visualEditing) _ = SaveAsync(); };
         editor.LinkRequested += async uri =>
         {
@@ -1059,12 +1093,13 @@ public sealed class TextWindow : Window, IAsyncDisposable
         if (_visualEditing && _markdownEditor is { } editor)
         {
             editor.SetEditable(true);
-            editor.Focus();
+            if (!IsFindOpen) editor.Focus();
         }
         else
         {
             _text.IsReadOnly = false;
-            _text.Focus(FocusState.Programmatic);
+            if (!IsFindOpen) _text.Focus(FocusState.Programmatic);
         }
+        if (IsFindOpen) _findInput.Focus(FocusState.Programmatic);
     }
 }

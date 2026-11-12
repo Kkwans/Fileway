@@ -14,9 +14,12 @@ internal sealed class MarkdownVisualEditor : IDisposable
         DocumentWebView.CreateEnvironmentAsync("markdown-editor-webview2"));
     private readonly TaskCompletionSource<bool> _connected = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private CoreWebView2? _core;
+    private CoreWebView2Find? _finder;
     private TaskCompletionSource<bool>? _loaded;
     private TaskCompletionSource<string>? _snapshot;
     private int _documentId, _requestId;
+    private int? _findRequest;
+    private bool _findStarted;
     private bool _started, _disposed, _dark;
 
     internal WebView2 View { get; } = new() { Opacity = 0, IsHitTestVisible = false, IsTabStop = false };
@@ -25,6 +28,8 @@ internal sealed class MarkdownVisualEditor : IDisposable
     internal event Action<string>? DraftChanged;
     internal event Action? Failed;
     internal event Action? CloseRequested;
+    internal event Action? FindRequested;
+    internal event Action<int, int, int>? FindResult;
     internal event Action? SaveRequested;
     internal event Action<Uri>? LinkRequested;
 
@@ -39,6 +44,7 @@ internal sealed class MarkdownVisualEditor : IDisposable
         if (_disposed) return false;
         if (!_started) { _started = true; _ = InitializeAsync(); }
         if (!await _connected.Task.WaitAsync(TimeSpan.FromSeconds(18), token) || _disposed) return false;
+        ClearFind();
         IsReady = false;
         _loaded?.TrySetResult(false);
         var load = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -73,6 +79,49 @@ internal sealed class MarkdownVisualEditor : IDisposable
         if (!IsReady || _disposed) return;
         View.Focus(FocusState.Programmatic);
         Send(new { kind = "focus", id = _documentId });
+    }
+
+    internal async Task FindAsync(string query, int step, int request, CancellationToken token)
+    {
+        if (!IsReady || _disposed || _core is not { Source: Page } core) return;
+        if (_finder is null)
+        {
+            _finder = core.Find;
+            _finder.ActiveMatchIndexChanged += OnFindChanged;
+            _finder.MatchCountChanged += OnFindChanged;
+        }
+        var finder = _finder;
+        _findRequest = request;
+        if (!_findStarted || step == 0)
+        {
+            _findStarted = false;
+            var options = core.Environment.CreateFindOptions();
+            options.FindTerm = query;
+            options.SuppressDefaultFindDialog = true;
+            options.ShouldHighlightAllMatches = true;
+            await finder.StartAsync(options).AsTask(token);
+            if (_findRequest != request || _disposed) return;
+            _findStarted = true;
+        }
+        else if (step > 0) finder.FindNext();
+        else finder.FindPrevious();
+        ReportFind();
+    }
+
+    internal void ClearFind()
+    {
+        if (_findRequest is null) return;
+        _findRequest = null;
+        _findStarted = false;
+        if (!_disposed) _finder?.Stop();
+    }
+
+    private void OnFindChanged(CoreWebView2Find sender, object args) => ReportFind();
+
+    private void ReportFind()
+    {
+        if (_findStarted && !_disposed && _finder is { } finder && _findRequest is { } request && finder.MatchCount >= 0)
+            FindResult?.Invoke(request, finder.ActiveMatchIndex, finder.MatchCount);
     }
 
     private async Task InitializeAsync()
@@ -118,6 +167,7 @@ internal sealed class MarkdownVisualEditor : IDisposable
             var kind = kindValue.GetString();
             if (kind == "ready") { _connected.TrySetResult(true); SetTheme(_dark); return; }
             if (kind == "close" && IsReady) { CloseRequested?.Invoke(); return; }
+            if (kind == "find" && IsReady) { FindRequested?.Invoke(); return; }
             if (kind == "save" && IsReady) { SaveRequested?.Invoke(); return; }
             if (!message.TryGetProperty("id", out var id) || !id.TryGetInt32(out int documentId) || documentId != _documentId) return;
             switch (kind)
@@ -170,6 +220,11 @@ internal sealed class MarkdownVisualEditor : IDisposable
         _loaded?.TrySetResult(false);
         _snapshot?.TrySetCanceled();
         if (_core is { } core) core.WebMessageReceived -= Receive;
+        if (_finder is { } finder)
+        {
+            finder.ActiveMatchIndexChanged -= OnFindChanged;
+            finder.MatchCountChanged -= OnFindChanged;
+        }
         View.Close();
     }
 }

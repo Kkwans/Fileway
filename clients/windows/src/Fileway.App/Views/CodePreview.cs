@@ -23,6 +23,8 @@ internal sealed class CodePreview : IDisposable
     internal event Action? Ready;
     internal event Action? Failed;
     internal event Action? CloseRequested;
+    internal event Action? FindRequested;
+    internal event Action<int, int, int>? FindResult;
 
     internal CodePreview(string language)
     {
@@ -84,6 +86,14 @@ internal sealed class CodePreview : IDisposable
         core.PostWebMessageAsJson("\"focus\"");
     }
 
+    internal void Find(string query, int step, int request)
+    {
+        if (IsReady && !_disposed && _core is { Source: Page } core)
+            core.PostWebMessageAsJson(JsonSerializer.Serialize(new { kind = "find", query, step, request }));
+    }
+
+    internal void ClearFind() => Find("", 0, -1);
+
     private void ReceiveMessage(CoreWebView2 sender, CoreWebView2WebMessageReceivedEventArgs args)
     {
         if (_disposed || args.Source != Page || sender.Source != Page) return;
@@ -99,6 +109,22 @@ internal sealed class CodePreview : IDisposable
             Ready?.Invoke();
         }
         else if (message == "\"close\"" && IsReady) CloseRequested?.Invoke();
+        else if (message == "\"find\"" && IsReady) FindRequested?.Invoke();
+        else if (IsReady && message.Length <= 256 && message.StartsWith('{'))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(message);
+                var value = document.RootElement;
+                if (value.TryGetProperty("kind", out var kind) && kind.ValueEquals("findResult") &&
+                    value.TryGetProperty("request", out var request) && request.TryGetInt32(out var id) &&
+                    value.TryGetProperty("ordinal", out var ordinal) && ordinal.TryGetInt32(out var current) &&
+                    value.TryGetProperty("total", out var total) && total.TryGetInt32(out var count) &&
+                    current >= 0 && count >= current)
+                    FindResult?.Invoke(id, current, count);
+            }
+            catch (Exception error) when (error is JsonException or InvalidOperationException) { }
+        }
     }
 
     public void Dispose()

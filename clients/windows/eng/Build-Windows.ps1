@@ -15,7 +15,7 @@ $repo = Split-Path -Parent (Split-Path -Parent $windowsRoot)
 $acePackage = Join-Path $repo 'server/frontend/node_modules/ace-builds'
 $aceOutput = Join-Path $env:FilewayArtifactsRoot 'code-preview/ace'
 New-Item -ItemType Directory -Path $aceOutput -Force | Out-Null
-$aceModules = @('ace', 'ext-searchbox', 'theme-github_light_default', 'theme-tomorrow_night',
+$aceModules = @('ace', 'theme-github_light_default', 'theme-tomorrow_night',
     'mode-csharp', 'mode-c_cpp', 'mode-golang', 'mode-json', 'mode-javascript', 'mode-typescript',
     'mode-python', 'mode-java', 'mode-kotlin', 'mode-rust', 'mode-sh', 'mode-batchfile',
     'mode-powershell', 'mode-sql', 'mode-html', 'mode-css', 'mode-xml', 'mode-yaml', 'mode-toml', 'mode-ini')
