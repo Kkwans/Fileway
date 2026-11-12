@@ -17,7 +17,7 @@
      <Grid AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}">
       <Grid Visibility="{x:Bind HeaderVisibility}" Padding="16,14" ColumnSpacing="14">
        <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-       <Border Width="32" Height="32" CornerRadius="9" Background="{ThemeResource FwSelectionBrush}" VerticalAlignment="Top"><ui:LucideIcon IconName="folder" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+       <Border Width="32" Height="32" CornerRadius="9" Background="{ThemeResource FwSelectionBrush}" VerticalAlignment="Center"><ui:LucideIcon IconName="folder" Width="18" Height="18" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
        <StackPanel Grid.Column="1" Spacing="8">
         <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="1" Text="{x:Bind Stage, Mode=OneWay}" Margin="12,0,0,0"/></Grid>
         <Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}" Visibility="{x:Bind ProgressVisibility, Mode=OneWay}">
@@ -28,7 +28,7 @@
       </Grid>
       <Grid Visibility="{x:Bind DetailVisibility}" Padding="16,14" ColumnSpacing="14">
       <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <ui:LucideIcon IconName="{x:Bind IconName}" Width="28" Height="28" VerticalAlignment="Top" Margin="0,2,0,0"/>
+      <ui:LucideIcon IconName="{x:Bind IconName}" Width="28" Height="28" VerticalAlignment="Center"/>
       <StackPanel Grid.Column="1" Spacing="8">
        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><TextBlock Text="{x:Bind Name, Mode=OneWay}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name, Mode=OneWay}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="1" Text="{x:Bind Stage, Mode=OneWay}" Margin="12,0,0,0"/></Grid>
        <Border Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}" Visibility="{x:Bind ProgressVisibility, Mode=OneWay}">
