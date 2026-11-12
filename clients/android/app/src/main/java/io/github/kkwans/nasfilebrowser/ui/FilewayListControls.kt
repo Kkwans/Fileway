@@ -64,7 +64,7 @@ import kotlinx.coroutines.delay
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun FilewayPagerTabs(pager: PagerState, labels: List<String>) {
+@Composable internal fun FilewayPagerTabs(pager: PagerState, labels: List<String>, enabled: Boolean = true) {
     val scope = rememberCoroutineScope()
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val cell = maxWidth / labels.size
@@ -73,7 +73,11 @@ import kotlinx.coroutines.delay
                 Box(Modifier.offset(x = cell * (pager.currentPage + pager.currentPageOffsetFraction) + cell * .25f)
                     .width(cell * .5f).height(3.dp).background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp)))
             } }) {
-            labels.forEachIndexed { index, label -> Tab(pager.currentPage == index, { scope.launch { pager.animateScrollToPage(index) } }, text = { Text(label) }, selectedContentColor = MaterialTheme.colorScheme.primary, unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant) }
+            labels.forEachIndexed { index, label ->
+                Tab(pager.currentPage == index, { scope.launch { pager.animateScrollToPage(index) } },
+                    enabled = enabled, text = { Text(label) }, selectedContentColor = MaterialTheme.colorScheme.primary,
+                    unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
