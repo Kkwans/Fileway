@@ -137,7 +137,12 @@ public sealed class FwResourceRow : UserControl
     };
 
     public static readonly DependencyProperty TitleProperty = SurfaceGeometry.Text<FwResourceRow>(nameof(Title), static (row, text) => SetRowText(row._title, text));
-    public static readonly DependencyProperty DetailProperty = SurfaceGeometry.Text<FwResourceRow>(nameof(Detail), static (row, text) => SetRowText(row._detail, text));
+    public static readonly DependencyProperty DetailProperty = SurfaceGeometry.Text<FwResourceRow>(nameof(Detail), static (row, text) =>
+    {
+        SurfaceGeometry.SetText(row._detail, text);
+        row.UpdateDetailToolTip();
+    });
+    public static readonly DependencyProperty DetailToolTipProperty = SurfaceGeometry.Text<FwResourceRow>(nameof(DetailToolTip), static (row, _) => row.UpdateDetailToolTip());
     public static readonly DependencyProperty HintProperty = SurfaceGeometry.Text<FwResourceRow>(nameof(Hint), static (row, text) => SetRowText(row._hint, text));
     public static readonly DependencyProperty SummaryProperty = SurfaceGeometry.Text<FwResourceRow>(nameof(Summary), static (row, text) => SetRowText(row._summary, text));
     public static readonly DependencyProperty IconNameProperty = DependencyProperty.Register(nameof(IconName), typeof(string), typeof(FwResourceRow),
@@ -145,6 +150,7 @@ public sealed class FwResourceRow : UserControl
 
     public string Title { get => (string)GetValue(TitleProperty); set => SetValue(TitleProperty, value); }
     public string Detail { get => (string)GetValue(DetailProperty); set => SetValue(DetailProperty, value); }
+    public string DetailToolTip { get => (string)GetValue(DetailToolTipProperty); set => SetValue(DetailToolTipProperty, value); }
     public string Hint { get => (string)GetValue(HintProperty); set => SetValue(HintProperty, value); }
     public string Summary { get => (string)GetValue(SummaryProperty); set => SetValue(SummaryProperty, value); }
     public string IconName { get => (string)GetValue(IconNameProperty); set => SetValue(IconNameProperty, value); }
@@ -166,6 +172,13 @@ public sealed class FwResourceRow : UserControl
         Grid.SetColumn(_summary, 2);
         root.Children.Add(_summary);
         Content = root;
+    }
+
+    private void UpdateDetailToolTip()
+    {
+        string value = DetailToolTip;
+        if (string.IsNullOrEmpty(value)) value = _detail.Text;
+        ToolTipService.SetToolTip(_detail, value.Length == 0 ? null : value);
     }
 
     private static void SetRowText(TextBlock text, string value)

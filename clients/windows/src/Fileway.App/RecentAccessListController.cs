@@ -11,6 +11,7 @@ public sealed class RecentAccessRow
     {
         ArgumentNullException.ThrowIfNull(entry);
         Entry = entry;
+        DisplayDirectory = FileLocationPresentation.RecentDirectory(entry.DisplayPath, entry.DisplayName);
         try
         {
             AccessedTime = formatter is null
@@ -26,6 +27,7 @@ public sealed class RecentAccessRow
     public RecentAccessEntry Entry { get; }
     public string Name => Entry.DisplayName;
     public string DisplayPath => Entry.DisplayPath;
+    public string DisplayDirectory { get; }
     public string IconName => FileTypePresentation.ResolveIconName(Entry.DisplayName, Entry.IsDirectory);
     public string AccessedTime { get; }
     public string IdentityHint => Entry.PathConfidence switch
@@ -44,7 +46,7 @@ public sealed class RecentAccessRow
         try { return Uri.UnescapeDataString(wirePath); }
         catch (Exception) { return wirePath; }
     }
-    public string AccessibleName => $"{Name}，{DisplayPath}，{AccessedTime}，{IdentityHint}";
+    public string AccessibleName => $"{Name}，{DisplayDirectory}，{AccessedTime}，{IdentityHint}";
     public bool CanOpen => HasTrustedResource(Entry);
 
     internal static bool HasTrustedResource(RecentAccessEntry entry) =>

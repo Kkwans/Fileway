@@ -11,6 +11,7 @@ public sealed class SearchResultRow
     {
         ArgumentNullException.ThrowIfNull(hit);
         Hit = hit;
+        DisplayDirectory = FileLocationPresentation.SearchDirectory(hit.RelativeDisplayPath, hit.DisplayName);
         var kind = hit.IsDirectory ? "文件夹" : DownloadPresentationPolicy.FormatBytes(hit.Size);
         Summary = hit.Modified is { } modified ? kind + " · " + FormatModified(modified) : kind;
     }
@@ -18,6 +19,7 @@ public sealed class SearchResultRow
     public SearchHit Hit { get; }
     public string Name => Hit.DisplayName;
     public string DisplayPath => Hit.RelativeDisplayPath;
+    public string DisplayDirectory { get; }
     public string Glyph => Hit.IsDirectory ? "\uE8B7" : "\uE7C3";
     public string IconName => Hit.IsDirectory ? "folder" : "file";
     public string Summary { get; }
@@ -25,7 +27,7 @@ public sealed class SearchResultRow
         && Hit.Resource is { WirePath.Length: > 0 };
     public string IdentityHint => HasIdentity ? "" : "仅展示 · 资源路径待确认，无法打开";
     public Visibility IdentityVisibility => HasIdentity ? Visibility.Collapsed : Visibility.Visible;
-    public string AccessibleName => $"{Name}，{DisplayPath}，{Summary}，{(HasIdentity ? "打开前核对当前资源" : IdentityHint)}";
+    public string AccessibleName => $"{Name}，{DisplayDirectory}，{Summary}，{(HasIdentity ? "打开前核对当前资源" : IdentityHint)}";
     public override string ToString() => "SearchResultRow (resource redacted)";
 
     private static string FormatModified(DateTimeOffset modified)

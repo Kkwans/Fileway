@@ -21,7 +21,13 @@
     <TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="1" Text="访问时间" HorizontalAlignment="Right"/>
    </Grid>
    <ListView x:Name="RecentRecords" Grid.Row="1" SelectionMode="Single" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" KeyDown="Records_KeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="最近访问列表，选中后按 Enter 打开" ItemContainerStyle="{StaticResource FwListRecordItemStyle}">
-    <ListView.ItemTemplate><DataTemplate x:DataType="local:RecentAccessRow"><ui:FwResourceRow IconName="{x:Bind IconName}" Title="{x:Bind Name}" Detail="{x:Bind DisplayPath}" Hint="{x:Bind IdentityHint}" Summary="{x:Bind AccessedTime}" AutomationProperties.Name="{x:Bind AccessibleName}"/></DataTemplate></ListView.ItemTemplate>
+    <ListView.ItemTemplate>
+     <DataTemplate x:DataType="local:RecentAccessRow">
+      <ui:FwResourceRow IconName="{x:Bind IconName}" Title="{x:Bind Name}" Detail="{x:Bind DisplayDirectory}"
+                        DetailToolTip="{x:Bind DisplayPath}" Hint="{x:Bind IdentityHint}" Summary="{x:Bind AccessedTime}"
+                        AutomationProperties.Name="{x:Bind AccessibleName}" AutomationProperties.HelpText="{x:Bind DisplayPath}"/>
+     </DataTemplate>
+    </ListView.ItemTemplate>
    </ListView>
    <ui:FwEmptyState x:Name="RecentEmptyState" Grid.RowSpan="2" IconName="clock" Title="暂无最近访问" Description="成功打开远端图片或视频后，可刷新查看服务器记录。"/>
   </Grid>
