@@ -39,6 +39,38 @@ public sealed partial class WindowTitleBar : UserControl
     public double MinimumWindowWidth { get; private set; }
     public double MinimumWindowHeight { get; private set; }
 
+    /// <summary>Photo caption integrated into the viewer surface, with native window actions.</summary>
+    internal void SetImageCaption()
+    {
+        Height = 44;
+        MinimumWindowWidth = 480;
+        MinimumWindowHeight = 340;
+        BrandIcon.Visibility = Visibility.Collapsed;
+        BrandIconColumn.Width = new GridLength(0);
+        BrandSurface.ColumnSpacing = 0;
+        BrandSurface.Padding = new Thickness(18, 0, 12, 0);
+        CaptionText.FontSize = 13;
+        foreach (var button in new[] { MinimizeButton, MaximizeButton, CloseButton })
+        {
+            button.Width = 36;
+            button.Height = 32;
+            button.MinWidth = 0;
+            button.MinHeight = 0;
+            button.Margin = new Thickness(0, 2, 4, 0);
+            button.VerticalAlignment = VerticalAlignment.Center;
+            button.CornerRadius = new CornerRadius(8);
+            button.FocusVisualMargin = new Thickness(-2);
+            if (button.Content is LucideIcon glyph) glyph.Width = glyph.Height = 16;
+        }
+        CloseButton.Margin = new Thickness(0, 2, 8, 0);
+    }
+
+    internal void SetImageDetails(string details)
+    {
+        CaptionDetails.Text = details;
+        CaptionDetails.Visibility = string.IsNullOrEmpty(details) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
     /// <summary>Browser application commands occupy the caption; folder navigation stays in its page.</summary>
     public void SetBrowserMenu(UIElement content, IReadOnlyList<FrameworkElement> interactiveRegions)
     {

@@ -590,6 +590,9 @@
     <Setter Property="Background" Value="{ThemeResource FwCanvasBrush}" />
   </Style>
   <Style x:Key="FwViewerChromeStyle" TargetType="ctl:ViewerChrome" BasedOn="{StaticResource FwViewerCanvasStyle}" />
+  <Style x:Key="FwPhotoViewportStyle" TargetType="UserControl">
+    <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+  </Style>
   <Style x:Key="FwDividerStrongStyle" TargetType="Border" BasedOn="{StaticResource FwDividerStyle}">
     <Setter Property="Background" Value="{ThemeResource FwStrokeStrongBrush}" />
   </Style>
@@ -1299,5 +1302,11 @@
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}"/>
     <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}"/>
     <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+  <Style x:Key="FwViewerToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource LayoutChoiceStyle}">
+    <Setter Property="Height" Value="34"/>
+    <Setter Property="Padding" Value="8,0"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
   </Style>
 </ResourceDictionary>

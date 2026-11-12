@@ -792,7 +792,7 @@ public sealed partial class MainPage : Page, IDisposable
     private async Task OpenSelectedAsync()
     {
         if (_disposed || _connecting || _session is not { } session || ActiveFiles.SelectedItem is not FileRow row) return;
-        await OpenFileAsync(row, _items.Where(item => new FileRow(item).IsImage).Select(item => item.Resource).ToArray());
+        await OpenFileAsync(row, _rows.Where(item => item.IsImage).Select(item => item.File.Resource).ToArray());
     }
     private async Task OpenFileAsync(FileRow row, IReadOnlyList<RemoteResourceRef> images)
     {

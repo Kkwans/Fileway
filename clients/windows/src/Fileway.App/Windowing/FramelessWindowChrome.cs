@@ -82,6 +82,14 @@ internal sealed class FramelessWindowChrome : IDisposable
     internal event EventHandler? SystemAppearanceChanged;
 
     internal bool IsFullscreen => _appWindow.Presenter.Kind == AppWindowPresenterKind.FullScreen;
+    internal double RasterizationScale
+    {
+        get
+        {
+            var dpi = GetDpiForWindow(_handle);
+            return dpi == 0 ? 1 : dpi / 96d;
+        }
+    }
 
     internal void ToggleFullscreen()
     {

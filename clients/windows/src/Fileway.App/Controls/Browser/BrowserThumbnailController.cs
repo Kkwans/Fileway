@@ -235,7 +235,7 @@ internal sealed class BrowserThumbnailController : IDisposable
         }
     }
 
-    private static async Task<SoftwareBitmap> DecodeAsync(IThumbnailContentService service, RemoteResourceRef resource, CancellationToken token)
+    internal static async Task<SoftwareBitmap> DecodeAsync(IThumbnailContentService service, RemoteResourceRef resource, CancellationToken token)
     {
         using var encoded = new MemoryStream();
         await using (var content = await service.OpenThumbnailAsync(resource, token).ConfigureAwait(false))

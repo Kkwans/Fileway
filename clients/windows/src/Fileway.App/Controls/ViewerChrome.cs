@@ -1,34 +1,52 @@
 ﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Fileway.App.Branding;
+using Fileway.Core.Contracts;
 
 namespace Fileway.App.Controls;
 
-/// <summary>Image viewer canvas with separate space for navigation and zoom controls.</summary>
-internal sealed class ViewerChrome : Grid
+/// <summary>Image canvas with side navigation and a compact bottom toolbar.</summary>
+internal sealed class ViewerChrome : Grid, IDisposable
 {
-    private readonly Grid _content = new() { Margin = new Thickness(8) };
-    private readonly ColumnDefinition _previousColumn = new() { Width = GridLength.Auto };
-    private readonly ColumnDefinition _nextColumn = new() { Width = GridLength.Auto };
+    private const double CanvasInset = 10;
+    private const double NavigationClearance = 54;
+    private const double ToolbarClearance = 56;
+    private const double PlaylistClearance = 68;
+
+    private readonly Grid _stage = new();
+    private readonly Grid _content = new() { Margin = new Thickness(CanvasInset, 0, CanvasInset, 0) };
     private readonly StackPanel _zoomActions = new()
     {
         Orientation = Orientation.Horizontal, Spacing = 4, VerticalAlignment = VerticalAlignment.Center,
+        Visibility = Visibility.Collapsed,
     };
-    private readonly TextBlock _metadata = new()
-    {
-        Style = SurfaceGeometry.Style("FwCaptionTextStyle"), VerticalAlignment = VerticalAlignment.Center,
-        TextTrimming = TextTrimming.CharacterEllipsis, TextWrapping = TextWrapping.NoWrap,
-    };
+    private readonly Border _actionDivider = ToolbarDivider(new Thickness(4, 0, 4, 0));
     private readonly Button _previous = NavigationButton("上一张", false);
     private readonly Button _next = NavigationButton("下一张", true);
     private readonly LucideIcon _fullscreenIcon = new() { Width = 18, Height = 18 };
     private readonly Button _fullscreen = new()
     {
-        Style = SurfaceGeometry.Style("FwIconButtonStyle"), Width = 36, Height = 36,
-        HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
+        Style = SurfaceGeometry.Style("FwTextIconButtonStyle"), Width = 34, Height = 34, Padding = new Thickness(0),
+        VerticalAlignment = VerticalAlignment.Center,
     };
+    private readonly ImagePlaylist _playlist = new()
+    {
+        HorizontalAlignment = HorizontalAlignment.Center,
+        VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(16, 0, 16, ToolbarClearance + 4),
+        Visibility = Visibility.Collapsed,
+    };
+    private readonly ToggleButton _playlistToggle = new()
+    {
+        Style = SurfaceGeometry.Style("FwViewerToggleStyle"), Width = 34,
+        Padding = new Thickness(0), Visibility = Visibility.Collapsed,
+    };
+    private bool _playlistAvailable;
+    private bool? _playlistPreference;
+    private bool _updatingPlaylistToggle;
+    private bool _isFullscreen;
     private readonly InfoBar _fullscreenNotice = new()
     {
         Severity = InfoBarSeverity.Warning, HorizontalAlignment = HorizontalAlignment.Center,
@@ -56,53 +74,29 @@ internal sealed class ViewerChrome : Grid
     internal StackPanel ZoomActions => _zoomActions;
     internal event EventHandler? RetryRequested;
     internal event EventHandler? FullscreenRequested;
+    internal event EventHandler<int>? ImageSelected;
 
     internal ViewerChrome()
     {
         Style = SurfaceGeometry.Style("FwViewerChromeStyle");
-        RowDefinitions.Add(new RowDefinition());
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        Background = null;
 
-        var stage = new Grid();
-        stage.ColumnDefinitions.Add(_previousColumn);
-        stage.ColumnDefinitions.Add(new ColumnDefinition());
-        stage.ColumnDefinitions.Add(_nextColumn);
-        SetColumn(_content, 1);
-        SetColumn(_next, 2);
-        stage.Children.Add(_content);
-        stage.Children.Add(_previous);
-        stage.Children.Add(_next);
-        Children.Add(stage);
+        // Fixed clearances keep the fit viewport steady when metadata and zoom become available.
+        _stage.Margin = new Thickness(0, 8, 0, ToolbarClearance);
+        _stage.Children.Add(_content);
+        _stage.Children.Add(_previous);
+        _stage.Children.Add(_next);
+        Children.Add(_stage);
         AutomationProperties.SetAutomationId(_previous, "ImagePrevious");
         AutomationProperties.SetAutomationId(_next, "ImageNext");
         FloatingNotice.Attach(_fullscreenNotice, automatic: false);
-        SetColumn(_fullscreenNotice, 1);
         Canvas.SetZIndex(_fullscreenNotice, 2);
-        stage.Children.Add(_fullscreenNotice);
+        _stage.Children.Add(_fullscreenNotice);
 
-        var footer = new Grid { MinHeight = 56, Padding = new Thickness(16, 4, 16, 4), ColumnSpacing = 12 };
-        footer.ColumnDefinitions.Add(new ColumnDefinition());
-        footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        footer.ColumnDefinitions.Add(new ColumnDefinition());
-        var controls = new Border
-        {
-            Style = SurfaceGeometry.Style("FwPillStyle"), VerticalAlignment = VerticalAlignment.Center,
-            Padding = new Thickness(4), Child = _zoomActions,
-        };
-        SurfaceStyles.SetUsePopupMaterial(controls, true);
-        SetColumn(controls, 1);
-        SetColumn(_fullscreen, 2);
-        _fullscreen.Content = _fullscreenIcon;
-        _fullscreen.Click += (_, _) => FullscreenRequested?.Invoke(this, EventArgs.Empty);
-        AutomationProperties.SetAutomationId(_fullscreen, "ImageFullscreenButton");
-        SetFullscreen(false);
-        footer.Children.Add(_metadata);
-        footer.Children.Add(controls);
-        footer.Children.Add(_fullscreen);
-        SetRow(footer, 1);
-        Children.Add(footer);
-        AutomationProperties.SetAutomationId(_metadata, "ImageMetadata");
-        AutomationProperties.SetAutomationId(_zoomActions, "ImageZoomBar");
+        Children.Add(_playlist);
+        _playlist.ImageSelected += (_, index) => ImageSelected?.Invoke(this, index);
+        Children.Add(BuildToolbar());
+        SizeChanged += (_, _) => UpdatePlaylistLayout();
 
         _loading = new StackPanel
         {
@@ -140,20 +134,48 @@ internal sealed class ViewerChrome : Grid
         _content.Children.Add(_error);
     }
 
-    internal void SetMetadata(string metadata)
+    internal void SetImageReady(bool ready)
     {
-        _metadata.Text = metadata;
-        ToolTipService.SetToolTip(_metadata, metadata);
+        var visibility = ready ? Visibility.Visible : Visibility.Collapsed;
+        _zoomActions.Visibility = visibility;
+        _actionDivider.Visibility = visibility;
+    }
+
+    internal void SetPlaylist(IReadOnlyList<RemoteResourceRef> resources,
+        Func<RemoteResourceRef, CancellationToken, Task<ImageSource?>>? loadThumbnail)
+    {
+        _playlistAvailable = resources.Count > 1;
+        _playlistToggle.Visibility = _playlistAvailable ? Visibility.Visible : Visibility.Collapsed;
+        if (_playlistAvailable)
+        {
+            _playlist.MaxWidth = Math.Min(720, 24 + resources.Count * 84d);
+            _playlist.SetItems(resources, loadThumbnail);
+        }
+        UpdatePlaylistLayout();
+    }
+
+    internal void SelectPlaylistImage(int index) => _playlist.SetCurrent(index);
+
+    private void UpdatePlaylistLayout()
+    {
+        var visible = _playlistAvailable && (_playlistPreference ?? (!_isFullscreen && ActualWidth >= 560));
+        _playlist.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        _stage.Margin = new Thickness(0, 8, 0, ToolbarClearance + (visible ? PlaylistClearance : 0));
+        _updatingPlaylistToggle = true;
+        _playlistToggle.IsChecked = visible;
+        _updatingPlaylistToggle = false;
     }
 
     internal void SetFullscreen(bool fullscreen)
     {
+        _isFullscreen = fullscreen;
         _fullscreenIcon.IconName = fullscreen ? "minimize" : "maximize";
         var label = AppBranding.IsChinese
             ? fullscreen ? "退出全屏 (F11)" : "全屏 (F11)"
             : fullscreen ? "Exit fullscreen (F11)" : "Fullscreen (F11)";
         AutomationProperties.SetName(_fullscreen, label);
         ToolTipService.SetToolTip(_fullscreen, label);
+        UpdatePlaylistLayout();
     }
 
     internal void ShowFullscreenFailure()
@@ -164,12 +186,16 @@ internal sealed class ViewerChrome : Grid
 
     internal void ClearFullscreenFailure() => _fullscreenNotice.IsOpen = false;
 
-    internal void DetachNotice() => FloatingNotice.Detach(_fullscreenNotice);
+    public void Dispose()
+    {
+        FloatingNotice.Detach(_fullscreenNotice);
+        _playlist.Dispose();
+    }
 
     internal void SetNavigation(Action? previous, Action? next)
     {
-        _previousColumn.Width = new GridLength(previous is null ? 0 : 56);
-        _nextColumn.Width = new GridLength(next is null ? 0 : 56);
+        var inset = previous is null && next is null ? CanvasInset : NavigationClearance;
+        _content.Margin = new Thickness(inset, 0, inset, 0);
         _previous.Tag = previous;
         _next.Tag = next;
         _previous.Visibility = previous is null ? Visibility.Collapsed : Visibility.Visible;
@@ -192,15 +218,66 @@ internal sealed class ViewerChrome : Grid
         _error.Visibility = Visibility.Visible;
     }
 
+    private Border BuildToolbar()
+    {
+        _fullscreen.Content = _fullscreenIcon;
+        _fullscreen.Click += (_, _) => FullscreenRequested?.Invoke(this, EventArgs.Empty);
+        AutomationProperties.SetAutomationId(_fullscreen, "ImageFullscreenButton");
+        AutomationProperties.SetAutomationId(_zoomActions, "ImageZoomBar");
+        var playlistLabel = AppBranding.IsChinese ? "图片列表" : "Image list";
+        _playlistToggle.Content = new LucideIcon { IconName = "image", Width = 17, Height = 17 };
+        AutomationProperties.SetName(_playlistToggle, playlistLabel);
+        ToolTipService.SetToolTip(_playlistToggle, playlistLabel);
+        AutomationProperties.SetAutomationId(_playlistToggle, "ImagePlaylistToggle");
+        _playlistToggle.Checked += (_, _) => OnPlaylistToggleChanged();
+        _playlistToggle.Unchecked += (_, _) => OnPlaylistToggleChanged();
+        SetFullscreen(false);
+
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal, Spacing = 2, VerticalAlignment = VerticalAlignment.Center,
+        };
+        actions.Children.Add(_zoomActions);
+        actions.Children.Add(_actionDivider);
+        actions.Children.Add(_playlistToggle);
+        actions.Children.Add(_fullscreen);
+
+        var toolbar = new Border
+        {
+            Style = SurfaceGeometry.Style("FwPillStyle"),
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(12, 0, 12, 10), Padding = new Thickness(5, 2, 5, 2),
+            CornerRadius = new CornerRadius(12), Child = actions,
+        };
+        SurfaceStyles.SetUsePopupMaterial(toolbar, true);
+        return toolbar;
+    }
+
+    private void OnPlaylistToggleChanged()
+    {
+        if (_updatingPlaylistToggle) return;
+        _playlistPreference = _playlistToggle.IsChecked == true;
+        UpdatePlaylistLayout();
+    }
+
+    private static Border ToolbarDivider(Thickness margin) => new()
+    {
+        Style = SurfaceGeometry.Style("FwDividerStrongStyle"), Width = 1, Height = 18,
+        Margin = margin, VerticalAlignment = VerticalAlignment.Center, Visibility = Visibility.Collapsed,
+    };
+
     private static Button NavigationButton(string label, bool next)
     {
-        var glyph = new LucideIcon { IconName = "arrow-left", Width = 20, Height = 20 };
-        if (next) glyph.RenderTransform = new RotateTransform { Angle = 180, CenterX = 10, CenterY = 10 };
+        var glyph = new LucideIcon { IconName = "arrow-left", Width = 17, Height = 17 };
+        if (next) glyph.RenderTransform = new RotateTransform { Angle = 180, CenterX = 8.5, CenterY = 8.5 };
         var button = new Button
         {
-            Style = SurfaceGeometry.Style("FwNavButtonStyle"), HorizontalAlignment = HorizontalAlignment.Center,
+            Style = SurfaceGeometry.Style("FwNavButtonStyle"), Width = 38, Height = 38, CornerRadius = new CornerRadius(19),
+            Margin = new Thickness(CanvasInset, 0, CanvasInset, 0),
+            HorizontalAlignment = next ? HorizontalAlignment.Right : HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center, Content = glyph, Visibility = Visibility.Collapsed,
         };
+        SurfaceStyles.SetUsePopupMaterial(button, true);
         ToolTipService.SetToolTip(button, label);
         AutomationProperties.SetName(button, label);
         button.Click += (_, _) => { if (button.Tag is Action action) action(); };
