@@ -299,10 +299,11 @@
   <settings:SettingsControl x:Name="SettingsPane" Visibility="Collapsed" AutomationProperties.AutomationId="SettingsPane"/>
   <ContentControl x:Name="ServerUsersHost" Visibility="Collapsed" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
   <Grid x:Name="ConnectionPanel" Background="Transparent" Visibility="Collapsed" SizeChanged="ConnectionPanel_SizeChanged" AutomationProperties.AutomationId="ConnectionPanel">
-   <ScrollViewer x:Name="ConnectionFormScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-    <Grid x:Name="ConnectionFormGrid" MaxWidth="1120" HorizontalAlignment="Center" VerticalAlignment="Top" Padding="56,24" ColumnSpacing="64">
+   <ScrollViewer x:Name="ConnectionFormScroller" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                 AutomationProperties.AutomationId="ConnectionFormScroller">
+    <Grid x:Name="ConnectionFormGrid" MaxWidth="1120" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="56,24" ColumnSpacing="64">
      <Grid.ColumnDefinitions><ColumnDefinition x:Name="ConnectionBrandColumn" Width="*" MinWidth="0"/><ColumnDefinition x:Name="ConnectionCardColumn" Width="440"/></Grid.ColumnDefinitions>
-     <Grid x:Name="ConnectionBrandHost" VerticalAlignment="Top" Margin="0,52,0,0">
+     <Grid x:Name="ConnectionBrandHost" VerticalAlignment="Center">
      <StackPanel x:Name="ConnectionBrand" Spacing="18" VerticalAlignment="Center" MaxWidth="440" HorizontalAlignment="Left">
       <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
        <Border Width="44" Height="44" CornerRadius="12" Background="{ThemeResource FwSurfaceRaisedBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1">
@@ -332,9 +333,14 @@
       </StackPanel>
      </StackPanel>
      </Grid>
-     <Border Grid.Column="1" Padding="26,22" CornerRadius="18" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1" VerticalAlignment="Top">
+     <Border Grid.Column="1" Padding="26,22" CornerRadius="18" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"
+             VerticalAlignment="Center" AutomationProperties.AutomationId="ConnectionFormCard">
       <StackPanel Spacing="10" HorizontalAlignment="Stretch">
-       <StackPanel Spacing="4"><TextBlock x:Name="ConnectionModeTitle" Text="新建连接" FontSize="20" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="连接成功后保存连接档案；保持登录可在下次启动时自动恢复。" TextWrapping="Wrap"/></StackPanel>
+       <StackPanel Spacing="4">
+        <TextBlock x:Name="ConnectionModeTitle" Text="新建连接" FontSize="20" FontWeight="SemiBold" Foreground="{ThemeResource FwTextPrimaryBrush}"
+                   AutomationProperties.AutomationId="ConnectionModeTitle"/>
+        <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="连接成功后保存连接档案；保持登录可在下次启动时自动恢复。" TextWrapping="Wrap"/>
+       </StackPanel>
        <Grid x:Name="SavedConnectionsPanel" ColumnSpacing="6" Visibility="Collapsed">
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
         <ui:ChoiceBox x:Name="SavedConnectionBox" DisplayMemberPath="Label" HorizontalAlignment="Stretch" SelectionChanged="SavedConnection_Changed" AutomationProperties.Name="已保存连接"/>

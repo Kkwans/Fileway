@@ -283,7 +283,6 @@ public sealed partial class MainPage : Page, IDisposable
         if (ConnectionBrandHost is null || ConnectionBrandColumn is null || ConnectionCardColumn is null) return;
         var wide = args.NewSize.Width >= 1000;
         ConnectionBrandHost.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
-        ConnectionBrandHost.MaxHeight = Math.Max(0, args.NewSize.Height - 56);
         ConnectionBrandColumn.Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
         ConnectionCardColumn.Width = new GridLength(wide ? 440 : Math.Clamp(args.NewSize.Width - 96, 300, 440));
         ConnectionFormGrid.ColumnSpacing = wide ? 64 : 0;
