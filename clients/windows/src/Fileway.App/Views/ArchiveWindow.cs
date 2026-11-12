@@ -227,6 +227,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         emptyPanel.Children.Add(_emptyTitle);
         emptyPanel.Children.Add(_emptyDescription);
         _empty = emptyPanel;
+        _list.VerticalAlignment = VerticalAlignment.Top;
         var listHost = new Grid { Margin = new Thickness(ContentInset, 0, ContentInset, 0) };
         listHost.Children.Add(_list);
         listHost.Children.Add(_empty);
@@ -280,6 +281,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
             MinHeight = 28,
             Padding = new Thickness(12, 0, 12, 0),
         };
+        AutomationProperties.SetAutomationId(_resultsToggle, "ArchiveExtractResultsToggle");
         _resultsList = new ListView
         {
             SelectionMode = ListViewSelectionMode.None,
@@ -316,12 +318,14 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         _resultsHost = new Border
         {
             Child = resultsGrid,
+            Background = null,
             BorderThickness = new Thickness(0, 1, 0, 0),
-            Padding = new Thickness(ContentInset, 8, ContentInset, 10),
+            Margin = new Thickness(ContentInset, 8, ContentInset, 0),
+            Padding = new Thickness(0, 8, 0, 12),
             Visibility = Visibility.Collapsed,
         };
 
-        _root = new Grid();
+        _root = new Grid { Padding = new Thickness(0, 0, 0, 12) };
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         _root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -490,6 +494,9 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         var sorted = _rows.OrderByDescending(row => row.IsDirectory).ThenBy(row => row.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
         _rows.Clear(); _rows.AddRange(sorted);
         foreach (var row in sorted) _list.Items.Add(BuildRow(row));
+        // Keep the bounded table and results together for short listings. Empty folders
+        // use the full work area so their empty state stays centered.
+        _root.VerticalAlignment = sorted.Length == 0 ? VerticalAlignment.Stretch : VerticalAlignment.Top;
         _empty.Visibility = sorted.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         _emptyTitle.Text = prefix.Length == 0 ? "压缩包是空的" : "这个文件夹是空的";
         _emptyDescription.Text = prefix.Length == 0 ? "这个压缩包没有可浏览的条目。" : "压缩包里没有可显示的文件。";
@@ -534,7 +541,7 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
         var size = RowText(row.Size, HorizontalAlignment.Right);
         var type = RowText(row.Type, HorizontalAlignment.Left);
         var modified = RowText(row.Modified, HorizontalAlignment.Right);
-        var grid = new Grid { ColumnSpacing = ColumnGap, Padding = new Thickness(RowInset, 0, RowInset, 0) };
+        var grid = new Grid { ColumnSpacing = ColumnGap, Padding = new Thickness(RowInset, 4, RowInset, 4) };
         grid.ColumnDefinitions.Add(FixedColumn(RowIconWidth));
         grid.ColumnDefinitions.Add(StarColumn());
         grid.ColumnDefinitions.Add(FixedColumn(SizeColumnWidth));
