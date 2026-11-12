@@ -26,7 +26,7 @@ public sealed class RecentAccessRow
     public RecentAccessEntry Entry { get; }
     public string Name => Entry.DisplayName;
     public string DisplayPath => Entry.DisplayPath;
-    public string IconName => Entry.IsDirectory ? "folder" : "file";
+    public string IconName => FileTypePresentation.ResolveIconName(Entry.DisplayName, Entry.IsDirectory);
     public string AccessedTime { get; }
     public string IdentityHint => Entry.PathConfidence switch
     {

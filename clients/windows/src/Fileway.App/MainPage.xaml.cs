@@ -1285,8 +1285,7 @@ public sealed record ConnectionChoice(SavedConnection Saved)
 public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = null)
 {
     private readonly BrowserPreferences _presentation = preferences ?? new();
-    internal static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff", ".heic", ".avif" };
-    private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mkv", ".mov", ".webm", ".avi", ".m4v", ".ts", ".m2ts", ".wmv" };
+    internal static readonly HashSet<string> ImageExtensions = FileTypePresentation.ImageExtensions;
     internal static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp3", ".flac", ".wav", ".aac", ".ogg", ".opus", ".m4a", ".wma", ".ape", ".mka", ".aiff" };
     internal static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -1296,14 +1295,14 @@ public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = n
     };
     public RemoteFile File { get; } = file;
     public string Name => File.Resource.DisplayName;
-    public bool IsImage => !File.IsDirectory && (File.MediaType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true || ImageExtensions.Contains(Path.GetExtension(Name)));
-    public bool IsVideo => !File.IsDirectory && (File.MediaType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) == true || VideoExtensions.Contains(Path.GetExtension(Name)));
-    public bool IsAudio => !File.IsDirectory && (File.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true || AudioExtensions.Contains(Path.GetExtension(Name)));
+    public bool IsImage => !File.IsDirectory && FileTypePresentation.IsImage(Path.GetExtension(Name), File.MediaType);
+    public bool IsVideo => !File.IsDirectory && FileTypePresentation.IsVideo(Path.GetExtension(Name), File.MediaType);
+    public bool IsAudio => !File.IsDirectory && (FileTypePresentation.HasAudioMediaType(File.MediaType) || AudioExtensions.Contains(Path.GetExtension(Name)));
     public bool IsMedia => IsVideo || IsAudio;
     public bool IsText => !File.IsDirectory && (File.MediaType?.StartsWith("text/", StringComparison.OrdinalIgnoreCase) == true ||
         !IsMedia && File.Size <= 4 * 1024 * 1024 && TextExtensions.Contains(Path.GetExtension(Name)));
     public string Glyph => File.IsDirectory ? "\uE8B7" : IsImage ? "\uEB9F" : IsVideo ? "\uE714" : "\uE8A5";
-    public string IconName => File.IsDirectory ? "folder" : IsImage ? "image" : IsVideo ? "film-strip" : File.MediaType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) == true ? "headphones" : Path.GetExtension(Name).ToLowerInvariant() switch { ".srt" or ".ass" or ".txt" or ".md" => "article", ".cs" or ".py" or ".go" or ".json" => "file-code", _ => "file" };
+    public string IconName => FileTypePresentation.ResolveIconName(Name, File.IsDirectory, File.MediaType);
     public string Kind => File.IsDirectory ? "文件夹" : IsImage ? "图片" : IsVideo ? "视频" : IsAudio ? "音频" : IsText ? "文本" : string.IsNullOrEmpty(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant() + " 文件";
     public string Size => File.IsDirectory ? "—" : FormatSize(File.Size);
     public string Summary => File.IsDirectory ? Kind : $"{Kind} · {Size}";
@@ -1317,7 +1316,7 @@ public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = n
     public static (string Glyph, string Kind) NameTypeHint(string name)
     {
         var extension = Path.GetExtension(name);
-        return ImageExtensions.Contains(extension) ? ("\uEB9F", "图片") : VideoExtensions.Contains(extension) ? ("\uE714", "视频") : string.IsNullOrEmpty(extension) ? ("\uE8B7", "文件或文件夹") : ("\uE8A5", extension.TrimStart('.').ToUpperInvariant() + " 文件");
+        return ImageExtensions.Contains(extension) ? ("\uEB9F", "图片") : FileTypePresentation.VideoExtensions.Contains(extension) ? ("\uE714", "视频") : string.IsNullOrEmpty(extension) ? ("\uE8B7", "文件或文件夹") : ("\uE8A5", extension.TrimStart('.').ToUpperInvariant() + " 文件");
     }
     private static readonly Dictionary<BrowserFileTypeFilter, HashSet<string>> TypeExtensions = new()
     {
