@@ -824,13 +824,14 @@ public sealed class ArchiveWindow : Window, IAsyncDisposable
 
     private void OnPreviewKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (_confirming || _busy || _ancestors.IsOpen) return;
+        if (_confirming || _ancestors.IsOpen) return;
         if (args.Key == VirtualKey.Escape)
         {
             Close();
             args.Handled = true;
             return;
         }
+        if (_busy) return;
 
         var source = args.OriginalSource as DependencyObject;
         if (!IsListKeyboardSource(source)) return;

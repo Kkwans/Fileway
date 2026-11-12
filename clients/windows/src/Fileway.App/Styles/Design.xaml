@@ -1208,6 +1208,7 @@
     <Setter Property="Margin" Value="0,0,0,2" />
     <Setter Property="MinHeight" Value="40" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
   </Style>
 
   <Style x:Key="FwTextBoxStyle" TargetType="TextBox">
