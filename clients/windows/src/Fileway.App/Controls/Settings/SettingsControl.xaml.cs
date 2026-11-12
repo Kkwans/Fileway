@@ -1,4 +1,6 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 
 namespace Fileway.App.Controls.Settings;
@@ -46,7 +48,14 @@ public sealed partial class SettingsControl : UserControl
             if (_loading || PopupMaterialBox.SelectedIndex < 0) return;
             PopupMaterialError.IsOpen = false;
             PopupMaterialRequested?.Invoke(this, (PopupMaterial)PopupMaterialBox.SelectedIndex);
+            RefreshPopupMaterialFallback();
         };
+        Loaded += (_, _) =>
+        {
+            PopupMaterials.Changed += RefreshPopupMaterialFallback;
+            RefreshPopupMaterialFallback();
+        };
+        Unloaded += (_, _) => PopupMaterials.Changed -= RefreshPopupMaterialFallback;
         TraySwitch.Toggled += (_, _) =>
         {
             if (_loading) return;
@@ -87,6 +96,7 @@ public sealed partial class SettingsControl : UserControl
         ControlsValue.Text = $"{PresentationPreferences.ControlsHideSeconds} 秒";
         RememberPlayerSwitch.IsOn = PresentationPreferences.RememberPlayerSize;
         _loading = false;
+        RefreshPopupMaterialFallback();
     }
 
     internal void ShowPopupMaterialSaveError(PopupMaterial currentMaterial)
@@ -96,6 +106,22 @@ public sealed partial class SettingsControl : UserControl
         try { PopupMaterialBox.SelectedIndex = (int)currentMaterial; }
         finally { _loading = wasLoading; }
         PopupMaterialError.IsOpen = true;
+        RefreshPopupMaterialFallback();
+    }
+
+    private void RefreshPopupMaterialFallback()
+    {
+        var usesFallback = PopupMaterialBox.SelectedIndex >= 0
+            && PopupMaterialBox.SelectedIndex != (int)PopupMaterial.Solid
+            && PopupMaterials.Effective == PopupMaterial.Solid;
+        var visibility = usesFallback ? Visibility.Visible : Visibility.Collapsed;
+        if (PopupMaterialFallback.Visibility == visibility) return;
+        PopupMaterialFallback.Visibility = visibility;
+        const string explanation = "Windows 当前限制透明效果，已保留选择的材质。";
+        ToolTipService.SetToolTip(PopupMaterialFallback, usesFallback ? explanation : null);
+        AutomationProperties.SetHelpText(PopupMaterialBox, usesFallback ? explanation : "");
+        if (usesFallback)
+            FrameworkElementAutomationPeer.FromElement(PopupMaterialFallback)?.RaiseAutomationEvent(AutomationEvents.LiveRegionChanged);
     }
 
     public void SetServerManagement(bool canConfigure, bool canManageUsers, bool canManageShares)

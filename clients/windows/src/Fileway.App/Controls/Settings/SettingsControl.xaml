@@ -54,7 +54,12 @@
        <Grid ColumnSpacing="8">
         <Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <TextBlock Text="弹窗材质" Style="{StaticResource SettingsLabel}"/>
+        <StackPanel VerticalAlignment="Center">
+         <TextBlock Text="弹窗材质" Style="{StaticResource SettingsLabel}"/>
+         <TextBlock x:Name="PopupMaterialFallback" Text="系统限制 · 实色" Style="{StaticResource SettingsLabel}"
+                    Visibility="Collapsed" AutomationProperties.AutomationId="PopupMaterialFallback"
+                    AutomationProperties.LiveSetting="Polite"/>
+        </StackPanel>
         <ui:ChoiceBox x:Name="PopupMaterialBox" Grid.Column="1" HorizontalAlignment="Stretch"
                       AutomationProperties.Name="弹窗材质" AutomationProperties.AutomationId="PopupMaterialChoice">
          <ComboBoxItem Content="高级毛玻璃"/><ComboBoxItem Content="柔和模糊"/><ComboBoxItem Content="实色"/>
