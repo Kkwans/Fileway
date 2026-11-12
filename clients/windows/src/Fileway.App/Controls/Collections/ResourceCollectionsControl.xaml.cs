@@ -149,6 +149,7 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             if (hasMissingGroups) choices.Add(new("?", "分组不可用"));
             choices.AddRange(groups.OrderBy(item => item.Order).Select(item => new GroupChoice(item.Id, item.Name, item)));
             GroupBox.ItemsSource = choices; GroupBox.SelectedItem = choices.FirstOrDefault(item => item.Id == groupId) ?? choices[0];
+            var filter = (GroupBox.SelectedItem as GroupChoice)?.Id ?? "*";
             _records.Clear();
             if (_snapshot is { } snapshot)
             {
@@ -156,7 +157,6 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
                     foreach (var tag in snapshot.Tags) _records.Add(new CollectionRow(tag.Id, tag.Name, $"{tag.Resources.Count} 个关联", "", Tag: tag));
                 else
                 {
-                    var filter = (GroupBox.SelectedItem as GroupChoice)?.Id ?? "*";
                     foreach (var favorite in snapshot.Favorites.OrderBy(item => item.Order))
                     {
                         var group = snapshot.FavoriteGroups.FirstOrDefault(item => item.Id == favorite.GroupId);
@@ -177,7 +177,13 @@ public sealed partial class ResourceCollectionsControl : UserControl, IDisposabl
             TagResourcesArea.Visibility = showTagArea ? Visibility.Visible : Visibility.Collapsed;
             TagResourcesRow.Height = new GridLength(showTagArea ? 1 : 0, showTagArea ? GridUnitType.Star : GridUnitType.Pixel);
             EmptyHost.Visibility = _records.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyHost.Title = TagMode ? "暂无标签" : "此分组暂无收藏"; EmptyHost.Description = TagMode ? "新建标签后，可绑定选中资源。" : "可从文件列表选择资源后添加。";
+            EmptyHost.Title = TagMode ? "暂无标签" : filter switch
+            {
+                "*" => "暂无收藏",
+                "" => "暂无未分组收藏",
+                _ => "此分组暂无收藏",
+            };
+            EmptyHost.Description = TagMode ? "新建标签后，可绑定选中资源。" : "选中文件或文件夹后可添加收藏。";
             RenderTagResources();
             ApplyPurpose();
         }

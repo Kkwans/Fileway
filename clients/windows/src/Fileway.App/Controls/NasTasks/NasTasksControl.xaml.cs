@@ -163,10 +163,17 @@ public sealed partial class NasTasksControl : UserControl, IDisposable
             ListHeaderTime.Text = _historyMode ? "时间" : "创建时间";
             EmptyState.IconName = _historyMode ? "clipboard" : "file-code";
             EmptyState.Visibility = count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            EmptyState.Title = Busy ? "正在读取服务器记录" : !Active ? "连接后查看 文件任务" :
-                _historyMode ? "暂无任务操作记录" : "暂无匹配的文件任务";
-            EmptyState.Description = _historyMode ? "这里保留任务提交与操作确认。结果未知时可选择记录进行核实。" :
-                "服务器接受复制或移动请求后会建立任务。可调整状态筛选或刷新查看。";
+            var hasFilter = StatusFilter.SelectedIndex > 0 || TypeFilter.SelectedIndex > 0 || ArchivedFilter.IsChecked == true;
+            var hasLoaded = _historyMode ? _controller.HasLoadedOperations : _controller.HasLoaded;
+            (EmptyState.Title, EmptyState.Description) = (Busy, Active, hasLoaded, _historyMode, hasFilter) switch
+            {
+                (true, _, _, _, _) => ("正在读取服务器记录", ""),
+                (_, false, _, _, _) => ("尚未连接服务器", "连接后可查看当前账号的文件任务。"),
+                (_, _, false, _, _) => ("尚未读取任务记录", "可刷新后重试。"),
+                (_, _, _, true, _) => ("暂无任务操作记录", "任务操作会记录在这里，结果未确认时可核实。"),
+                (_, _, _, _, true) => ("暂无匹配的文件任务", "调整筛选条件，或刷新任务。"),
+                _ => ("暂无文件任务", "从文件列表发起复制或移动后，任务会显示在这里。"),
+            };
             LoadedText.Text = _historyMode
                 ? _controller.HasLoadedOperations ? $"当前账号 · 已加载 {_operations.Count.ToString(CultureInfo.CurrentCulture)} 条任务操作记录" : "尚未读取操作记录"
                 : _controller.HasLoaded ? $"当前筛选 · 已加载 {_tasks.Count.ToString(CultureInfo.CurrentCulture)} / {_controller.Total.ToString(CultureInfo.CurrentCulture)} 条服务器任务" : "尚未读取服务器任务";
