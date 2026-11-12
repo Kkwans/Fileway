@@ -37,6 +37,7 @@
     <Content Include="Assets\StoreLogo.png" />
     <Content Include="Assets\AppIcon.ico" />
     <Content Include="Assets\Lucide\**\*" />
+    <Content Include="Assets\CodePreview\**\*" />
     <Content Include="Assets\Wide310x150Logo.scale-200.png" />
     <Content Update="Assets\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
@@ -85,6 +86,8 @@
     <None Include="$(FilewayMediaRuntimeRoot)\runtime-lock.json" Link="media\runtime-lock.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayMediaRuntimeRoot)\runtime-lock.json')" />
     <None Include="$(FilewayMediaRuntimeRoot)\binary-provenance.json" Link="media\binary-provenance.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayMediaRuntimeRoot)\binary-provenance.json')" />
     <None Include="$(FilewayMediaRuntimeRoot)\licenses\**\*" Link="media\licenses\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(FilewayArtifactsRoot)\code-preview\ace\*.js" Link="Assets\CodePreview\ace\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(FilewayArtifactsRoot)\code-preview\ace\LICENSE" Link="licenses\Ace-BSD-3-Clause.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayArtifactsRoot)\code-preview\ace\LICENSE')" />
     <None Include="..\..\licenses\**\*" Link="licenses\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <None Include="..\..\LICENSE" Link="licenses\Fileway-GPL-3.0.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>

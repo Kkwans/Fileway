@@ -1,0 +1,39 @@
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+html {
+  background: #fff;
+}
+
+html[data-dark="true"] {
+  background: #1d1f21;
+}
+
+#source.ace_editor {
+  position: absolute;
+  inset: 8px 0 0;
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+#source .ace_gutter {
+  border-right: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+}
+
+#source .ace_gutter-cell {
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-dark="false"] #source .ace_comment,
+html[data-dark="false"] #source .ace_gutter {
+  color: #5a6370;
+}
+
+#source .ace_scrollbar {
+  scrollbar-color: color-mix(in srgb, currentColor 38%, transparent) transparent;
+}

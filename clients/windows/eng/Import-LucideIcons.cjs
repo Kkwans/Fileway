@@ -19,6 +19,7 @@ const names = {
   'gauge':'gauge','list-video':'list-video','maximize':'maximize','minimize':'minimize','minus':'minus',
   'audio-lines':'audio-lines','picture-in-picture':'picture-in-picture','square':'square','type':'type',
   'volume-1':'volume-1','volume-2':'volume-2','volume-x':'volume-x',
+  'text-wrap':'text-wrap','table-2':'table-2',
 };
 const base = `https://raw.githubusercontent.com/lucide-icons/lucide/${commit}`;
 const root = path.resolve(__dirname, '../src/Fileway.App/Assets/Lucide');

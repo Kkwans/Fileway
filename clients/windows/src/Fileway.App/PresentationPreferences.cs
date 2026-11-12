@@ -62,6 +62,13 @@ internal static class PresentationPreferences
     }
     internal static int ControlsHideSeconds { get => ReadSeconds("ControlsHideSeconds"); set => WriteValue("ControlsHideSeconds", Math.Clamp(value, 2, 30)); }
     internal static int ToastSeconds { get => ReadSeconds("ToastSeconds"); set => WriteValue("ToastSeconds", Math.Clamp(value, 2, 30)); }
+    internal static bool CodeSyntaxHighlighting { get => ReadCodeOption(nameof(CodeSyntaxHighlighting)); set => WriteValue(nameof(CodeSyntaxHighlighting), value ? 1 : 0); }
+    internal static bool CodeLineNumbers { get => ReadCodeOption(nameof(CodeLineNumbers)); set => WriteValue(nameof(CodeLineNumbers), value ? 1 : 0); }
+    private static bool ReadCodeOption(string name)
+    {
+        try { return ReadValue(name, 1) == 1; }
+        catch (Exception) { return true; }
+    }
     internal const int MinimumImageThumbnailHeight = 56;
     internal const int DefaultImageThumbnailHeight = 82;
     internal const int MaximumImageThumbnailHeight = 120;

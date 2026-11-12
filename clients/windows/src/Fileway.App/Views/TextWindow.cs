@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.System;
@@ -70,6 +71,11 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private readonly Button _editButton;
     private readonly Button _saveButton;
     private readonly Button _discardButton;
+    private readonly Button? _codeOptions;
+    private readonly string? _codeLanguage;
+    private CodePreview? _codePreview;
+    private MenuFlyout? _codeMenu;
+    private bool _codeMenuOpen;
     private readonly Grid _root;
     private readonly Grid _windowRoot;
     private bool _editing;
@@ -106,6 +112,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _isMarkdown = extension is ".md" or ".markdown";
         _isTable = extension is ".csv" or ".tsv";
         _sourceLabel = SourceLabel(extension);
+        _codeLanguage = CodePreview.LanguageFor(extension);
         _titleBar.SetViewerCaption();
         _titleBar.Caption = resource.DisplayName;
         Title = resource.DisplayName + " · " + AppBranding.DisplayName;
@@ -129,25 +136,23 @@ public sealed class TextWindow : Window, IAsyncDisposable
             HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center,
         };
 
-        _renderButton = TextAction("源码", "切换渲染与源码", ToggleRendered);
-        _tableButton = TextAction("纯文本", "切换表格与纯文本", ToggleTable);
+        _renderButton = ViewerAction("file-code", "查看源码", ToggleRendered);
+        _tableButton = ViewerAction("article", "查看纯文本", ToggleTable);
         _wrapButton = new ToggleButton
         {
-            Content = "换行", Style = SurfaceGeometry.Style("FwSegmentedChoiceStyle"),
-            Height = 32, MinHeight = 32, Padding = new Thickness(12, 0, 12, 0), CornerRadius = new CornerRadius(10),
+            Style = SurfaceGeometry.Style("FwSegmentedChoiceStyle"),
+            Width = 34, Height = 32, MinHeight = 32, Padding = new Thickness(0), CornerRadius = new CornerRadius(10),
         };
-        ToolTipService.SetToolTip(_wrapButton, "自动换行");
-        AutomationProperties.SetName(_wrapButton, "自动换行");
+        SetViewerActionIcon(_wrapButton, "text-wrap", "自动换行");
         AutomationProperties.SetAutomationId(_wrapButton, "WrapTextToggle");
-        _wrapButton.Checked += (_, _) => _text.TextWrapping = TextWrapping.Wrap;
-        _wrapButton.Unchecked += (_, _) => _text.TextWrapping = TextWrapping.NoWrap;
+        _wrapButton.Checked += (_, _) => { _text.TextWrapping = TextWrapping.Wrap; RefreshCodePreview(); };
+        _wrapButton.Unchecked += (_, _) => { _text.TextWrapping = TextWrapping.NoWrap; RefreshCodePreview(); };
         _wrapButton.IsChecked = extension == ".txt";
-        _copyButton = TextAction("复制", "复制全文", CopyAll);
-        _editButton = TextAction("编辑", "编辑文本", EnterEditMode);
-        _saveButton = new Button { Content = "保存", Style = (Style)Application.Current.Resources["FwPrimaryButtonStyle"], Height = 32, MinHeight = 32, Padding = new Thickness(16, 0, 16, 0), Visibility = Visibility.Collapsed };
-        _discardButton = new Button { Content = "放弃", Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"], Height = 32, MinHeight = 32, Padding = new Thickness(14, 0, 14, 0), Visibility = Visibility.Collapsed };
-        _saveButton.Click += (_, _) => _ = SaveAsync();
-        _discardButton.Click += (_, _) => DiscardEdit();
+        _copyButton = ViewerAction("copy", "复制全文", CopyAll);
+        _editButton = ViewerAction("pencil-simple", "编辑文本", EnterEditMode);
+        _saveButton = ViewerAction("floppy-disk", "保存修改", () => _ = SaveAsync(), "FwPrimaryButtonStyle");
+        _discardButton = ViewerAction("x", "放弃修改", DiscardEdit);
+        AutomationProperties.SetAutomationId(_copyButton, "CopyTextButton");
         AutomationProperties.SetAutomationId(_editButton, "EditTextButton");
         AutomationProperties.SetAutomationId(_saveButton, "SaveTextButton");
         AutomationProperties.SetAutomationId(_discardButton, "DiscardTextButton");
@@ -164,6 +169,11 @@ public sealed class TextWindow : Window, IAsyncDisposable
         actions.Children.Add(_discardButton);
         actions.Children.Add(_saveButton);
         actions.Children.Add(_editButton);
+        if (_codeLanguage is not null)
+        {
+            _codeOptions = BuildCodeOptions();
+            actions.Children.Add(_codeOptions);
+        }
 
         var toolbarGrid = new Grid { Padding = new Thickness(20, 6, 16, 6), MinHeight = 46, ColumnSpacing = 12 };
         toolbarGrid.ColumnDefinitions.Add(new ColumnDefinition());
@@ -254,6 +264,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         {
             _closed = true;
             FloatingNotice.Detach(_toast);
+            _codePreview?.Dispose();
             _lifetime.Cancel();
             _chrome.Dispose();
             _lifetime.Dispose();
@@ -275,6 +286,11 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private void FocusContent()
     {
         if (_closed || _editing) return;
+        if (_codePreview is { IsReady: true, View.Visibility: Visibility.Visible } preview)
+        {
+            preview.Focus();
+            return;
+        }
         // Left alone, WinUI gives a new window keyboard focus to the first caption button,
         // so Enter/Space would minimise the reader before the content was ever reachable.
         // The root holds focus instead: focusing the read-only editor draws the TextBox
@@ -293,7 +309,8 @@ public sealed class TextWindow : Window, IAsyncDisposable
         if (_editing) return;
         if (args.Key == VirtualKey.Escape)
         {
-            Close();
+            if (_codeMenuOpen) _codeMenu?.Hide();
+            else Close();
             args.Handled = true;
             return;
         }
@@ -349,18 +366,30 @@ public sealed class TextWindow : Window, IAsyncDisposable
         }
     }
 
-    private static Button TextAction(string text, string tooltip, Action click)
+    private static Button ViewerAction(string icon, string label, Action? click = null, string style = "FwSecondaryButtonStyle")
     {
         var button = new Button
         {
-            Content = new TextBlock { Text = text, FontSize = 13 },
-            Style = (Style)Application.Current.Resources["FwSecondaryButtonStyle"],
-            Height = 32, MinHeight = 32, Padding = new Thickness(12, 0, 12, 0),
+            Style = SurfaceGeometry.Style(style),
+            Width = 34, Height = 32, MinHeight = 32, Padding = new Thickness(0),
         };
-        ToolTipService.SetToolTip(button, tooltip);
-        AutomationProperties.SetName(button, tooltip);
-        button.Click += (_, _) => click();
+        SetViewerActionIcon(button, icon, label);
+        if (click is not null) button.Click += (_, _) => click();
         return button;
+    }
+
+    private static void SetViewerActionIcon(ContentControl control, string icon, string label)
+    {
+        if (control.Content is LucideActionIcon existing) existing.IconName = icon;
+        else
+        {
+            var glyph = LucideIcon.Action(icon);
+            glyph.Width = glyph.Height = 16;
+            glyph.SetBinding(IconElement.ForegroundProperty, new Binding { Source = control, Path = new PropertyPath(nameof(Control.Foreground)) });
+            control.Content = glyph;
+        }
+        ToolTipService.SetToolTip(control, label);
+        AutomationProperties.SetName(control, label);
     }
 
     private static string SourceLabel(string extension) => extension switch
@@ -394,7 +423,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
     public ValueTask DisposeAsync()
     {
         // The Closed handler owns teardown; this covers an explicit dispose before closing.
-        if (!_closed) { _closed = true; _lifetime.Cancel(); _chrome.Dispose(); _lifetime.Dispose(); }
+        if (!_closed) { _closed = true; _codePreview?.Dispose(); _lifetime.Cancel(); _chrome.Dispose(); _lifetime.Dispose(); }
         return ValueTask.CompletedTask;
     }
 
@@ -496,14 +525,20 @@ public sealed class TextWindow : Window, IAsyncDisposable
         var ready = _loaded && !_closed && !_saving && !_confirmingClose;
         var rendered = _renderScroll.Visibility == Visibility.Visible;
         var table = _tableScroll.Visibility == Visibility.Visible;
-        ((TextBlock)_renderButton.Content).Text = rendered ? "源码" : "渲染";
-        ((TextBlock)_tableButton.Content).Text = table ? "纯文本" : "表格";
+        SetViewerActionIcon(_renderButton, rendered ? "file-code" : "book-open", rendered ? "查看源码" : "查看渲染");
+        SetViewerActionIcon(_tableButton, table ? "article" : "table-2", table ? "查看纯文本" : "查看表格");
         _renderButton.Visibility = _isMarkdown && !_editing ? Visibility.Visible : Visibility.Collapsed;
         _renderButton.IsEnabled = ready;
         _tableButton.Visibility = _grid is not null && !_editing ? Visibility.Visible : Visibility.Collapsed;
         _tableButton.IsEnabled = ready;
         _wrapButton.Visibility = !rendered && !table && !_editing ? Visibility.Visible : Visibility.Collapsed;
         _wrapButton.IsEnabled = ready;
+        if (_codeOptions is { } codeOptions)
+        {
+            codeOptions.Visibility = !_editing && _codePreview is { IsReady: true } && _rawText.Length != 0
+                ? Visibility.Visible : Visibility.Collapsed;
+            codeOptions.IsEnabled = ready;
+        }
         _copyButton.Visibility = !_editing ? Visibility.Visible : Visibility.Collapsed;
         _copyButton.IsEnabled = ready;
         _editButton.Visibility = !_editing ? Visibility.Visible : Visibility.Collapsed;
@@ -540,6 +575,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _text.IsReadOnly = false;
         // Editing happens in plain text; rendering/table projections are suspended.
         _textFrame.Visibility = Visibility.Visible;
+        if (_codePreview is { } code) code.View.Visibility = Visibility.Collapsed;
         _renderScroll.Visibility = Visibility.Collapsed;
         _tableScroll.Visibility = Visibility.Collapsed;
         UpdateCommands();
@@ -638,6 +674,8 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _textFrame.Visibility = Visibility.Visible;
             _renderScroll.Visibility = Visibility.Collapsed;
             _tableScroll.Visibility = Visibility.Collapsed;
+            UpdateCodeVisibility();
+            RefreshCodePreview();
             return;
         }
         _textFrame.Visibility = Visibility.Collapsed;
@@ -732,6 +770,8 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _encodingName = content.EncodingName;
             _text.TextChanged += (_, _) => { if (_editing && !_saving) { _dirty = !string.Equals(NormalizeLineEndings(_text.Text), NormalizeLineEndings(_rawText), StringComparison.Ordinal); UpdateCommands(); } };
             _banner.Visibility = Visibility.Collapsed;
+            if (_codeLanguage is { } language && content.Text.Length != 0 && !new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast)
+                StartCodePreview(language);
             ApplyViewMode();
             UpdateCommands();
         }
@@ -747,5 +787,87 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _loading.IsActive = false;
             _loading.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private Button BuildCodeOptions()
+    {
+        var syntax = new ToggleMenuFlyoutItem { Text = "语法着色", IsChecked = PresentationPreferences.CodeSyntaxHighlighting };
+        var numbers = new ToggleMenuFlyoutItem { Text = "显示行号", IsChecked = PresentationPreferences.CodeLineNumbers };
+        AutomationProperties.SetAutomationId(syntax, "CodeSyntaxHighlighting");
+        AutomationProperties.SetAutomationId(numbers, "CodeLineNumbers");
+        bool synchronizing = false;
+        syntax.RegisterPropertyChangedCallback(ToggleMenuFlyoutItem.IsCheckedProperty,
+            (_, _) => { if (!synchronizing) SaveCodeOption(() => PresentationPreferences.CodeSyntaxHighlighting = syntax.IsChecked); });
+        numbers.RegisterPropertyChangedCallback(ToggleMenuFlyoutItem.IsCheckedProperty,
+            (_, _) => { if (!synchronizing) SaveCodeOption(() => PresentationPreferences.CodeLineNumbers = numbers.IsChecked); });
+        var menu = new MenuFlyout();
+        menu.Items.Add(syntax);
+        menu.Items.Add(numbers);
+        menu.Opening += (_, _) =>
+        {
+            _codeMenuOpen = true;
+            synchronizing = true;
+            syntax.IsChecked = PresentationPreferences.CodeSyntaxHighlighting;
+            numbers.IsChecked = PresentationPreferences.CodeLineNumbers;
+            synchronizing = false;
+            RefreshCodePreview();
+        };
+        menu.Closed += (_, _) => _codeMenuOpen = false;
+        _codeMenu = menu;
+        var button = ViewerAction("gear", "代码显示设置");
+        button.Flyout = menu;
+        button.Visibility = Visibility.Collapsed;
+        AutomationProperties.SetAutomationId(button, "CodeDisplayOptions");
+        return button;
+    }
+
+    private void SaveCodeOption(Action save)
+    {
+        try { save(); }
+        catch (Exception) { ShowBanner("代码显示设置未能保存，请重试。", error: true); }
+        RefreshCodePreview();
+    }
+
+    private void StartCodePreview(string language)
+    {
+        var preview = new CodePreview(language);
+        _codePreview = preview;
+        _editor.Children.Insert(1, preview.View);
+        _windowRoot.ActualThemeChanged += (_, _) => RefreshCodePreview();
+        preview.Ready += () =>
+        {
+            if (_closed) return;
+            UpdateCodeVisibility();
+            UpdateCommands();
+            if (!_editing && _root.XamlRoot is { } root && ReferenceEquals(FocusManager.GetFocusedElement(root), _root))
+                preview.Focus();
+        };
+        preview.Failed += () =>
+        {
+            if (_closed || !ReferenceEquals(_codePreview, preview)) return;
+            _codePreview = null;
+            _editor.Children.Remove(preview.View);
+            preview.Dispose();
+            _textFrame.Visibility = Visibility.Visible;
+            UpdateCommands();
+        };
+        preview.CloseRequested += () => { if (!_closed && !_editing) Close(); };
+        _ = preview.InitializeAsync();
+    }
+
+    private void UpdateCodeVisibility()
+    {
+        if (_codePreview is not { } preview) return;
+        var visible = !_editing && _rawText.Length != 0;
+        preview.View.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+        preview.View.IsHitTestVisible = preview.View.IsTabStop = visible && preview.IsReady;
+        preview.View.Opacity = preview.IsReady ? 1 : 0;
+        if (visible && preview.IsReady) _textFrame.Visibility = Visibility.Collapsed;
+    }
+
+    private void RefreshCodePreview()
+    {
+        _codePreview?.SetDocument(_rawText, _windowRoot.ActualTheme == ElementTheme.Dark,
+            PresentationPreferences.CodeSyntaxHighlighting, PresentationPreferences.CodeLineNumbers, _wrapButton.IsChecked == true);
     }
 }
