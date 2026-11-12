@@ -68,7 +68,6 @@ public sealed partial class RecentAccessControl : UserControl, IDisposable
         RecentRefreshButton.IsEnabled = !_controller.IsLoading;
         RecentError.IsOpen = _controller.Error is not null;
         RecentError.Message = _controller.Error;
-        RecentErrorPanel.Visibility = _controller.Error is not null ? Visibility.Visible : Visibility.Collapsed;
         RecentHeaders.Visibility = _rows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         RecentEmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RecentEmptyState.Title = _controller.IsLoading ? "正在读取最近访问" : _controller.Error is not null ? "记录暂不可用" : "暂无最近访问";
