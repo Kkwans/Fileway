@@ -225,19 +225,11 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                 val hasTabs = PanelTabs.any { it.first == category }
                 val browser = page == TvPlayerPage.EXTERNAL || page == TvPlayerPage.LOCAL_SUBTITLE
                 val panelWidth = (maxWidth - horizontal * 2).coerceAtLeast(0.dp)
-                val speedPage = page == TvPlayerPage.SPEED
-                val bodyWidth = if (speedPage) panelWidth.coerceAtMost(560.dp) else panelWidth
-                val keyboardEditor = speedPage && WindowInsets.ime.getBottom(LocalDensity.current) > 0
+                val keyboardEditor = page == TvPlayerPage.SPEED && WindowInsets.ime.getBottom(LocalDensity.current) > 0
                 val panelBottom = if (keyboardEditor) 4.dp else if (page == TvPlayerPage.QUEUE) bottom + 16.dp else bottom
                 val heightFraction = if (browser) .43f else if (page == TvPlayerPage.QUEUE) .28f else .39f
-                val desiredHeight = when {
-                    keyboardEditor -> 72.dp
-                    speedPage && bodyWidth - 32.dp >= TvSpeedPresetRowMinWidth -> 136.dp
-                    speedPage -> 186.dp
-                    else -> (maxHeight * heightFraction).coerceIn(144.dp, 300.dp)
-                }
-                val headerSpace = if (keyboardEditor) 0.dp else 56.dp
-                val panelHeight = desiredHeight.coerceAtMost((maxHeight - panelBottom - headerSpace).coerceAtLeast(0.dp))
+                val panelHeight = (if (keyboardEditor) 92.dp else (maxHeight * heightFraction).coerceIn(144.dp, 300.dp))
+                    .coerceAtMost((maxHeight - panelBottom - 56.dp).coerceAtLeast(0.dp))
                 val dismiss by rememberUpdatedState(if (child) ({ onBack("dialog-outside") }) else onClose)
                 Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { dismiss() } })
                 if (page == TvPlayerPage.QUEUE) {
@@ -330,7 +322,7 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                                 else -> 7.dp
                             }
                             Row(
-                                Modifier.width(bodyWidth).height(panelHeight)
+                                Modifier.width(panelWidth).height(panelHeight)
                                     .then(if (page == TvPlayerPage.QUEUE) Modifier else Modifier.background(PanelSurface, TvShape)
                                         .border(1.dp, Color.White.copy(alpha = .09f), TvShape))
                                     .pointerInput(Unit) { detectTapGestures { } }

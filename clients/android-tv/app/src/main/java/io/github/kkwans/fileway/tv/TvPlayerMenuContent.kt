@@ -18,6 +18,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -289,24 +290,22 @@ internal fun tvPlayerSettingsRows(
     }
 }
 
-internal val TvSpeedPresetRowMinWidth = 480.dp
-
 @Composable
 private fun TvSpeedEditor(
     presets: List<TvPlayerRow.Choice>, rate: Float, focus: TvPlayerPanelFocus, applyRate: (Float) -> Unit,
 ) {
     var value by remember { mutableStateOf(rate.toString()) }
+    var editorFocused by remember { mutableStateOf(false) }
     val editor = remember { FocusRequester() }
     val apply = remember { FocusRequester() }
     val keyboardVisible = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: presets.firstOrNull()?.key
     val parsed = parsePlaybackRate(value)
     BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
-        val columns = if (maxWidth >= TvSpeedPresetRowMinWidth) 6 else 3
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (!keyboardVisible) {
-                val lines = presets.chunked(columns)
+        val sideBySide = maxWidth >= 560.dp
+        @Composable fun presetGrid() {
+            val lines = presets.chunked(3)
+            Column(Modifier.widthIn(max = 376.dp).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 lines.forEachIndexed { index, line ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         line.forEach { preset ->
@@ -314,27 +313,58 @@ private fun TvSpeedEditor(
                                 focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
                                     if (index == 0) up = focus.header
                                     if (index == lines.lastIndex) down = editor
+                                    if (sideBySide && preset == line.last()) right = editor
                                 }))
                         }
                     }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.padding(end = 6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        }
+        @Composable fun customEditor() {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("自定义速度", style = tvTextStyle(16, 22, FontWeight.Medium))
                     Text("0.1–5×", style = tvTextStyle(13, 18), color = LocalTvSurfaces.current.secondaryText)
                 }
-                TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
-                    focus.target("custom-speed", preferred == "custom-speed",
-                        Modifier.width(116.dp).focusRequester(editor).focusProperties {
-                            if (parsed != null) right = apply
-                        }),
-                    options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline,
-                    showLabel = false)
-                TvButton("应用", { parsed?.let(applyRate) },
-                    focus.target("apply-speed", preferred == "apply-speed",
-                        Modifier.widthIn(min = 76.dp).focusRequester(apply).focusProperties { left = editor }),
-                    enabled = parsed != null)
+                Row(
+                    Modifier.tvRemoteKeys { event ->
+                        event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
+                            editorFocused && !keyboardVisible && parsed != null && apply.requestFocus(FocusDirection.Enter)
+                    },
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
+                        focus.target("custom-speed", preferred == "custom-speed",
+                            Modifier.width(116.dp).focusRequester(editor).onFocusChanged { editorFocused = it.hasFocus }),
+                        options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline,
+                        showLabel = false)
+                    TvButton("应用", { parsed?.let(applyRate) },
+                        focus.target("apply-speed", preferred == "apply-speed",
+                            Modifier.widthIn(min = 76.dp).focusRequester(apply).focusProperties { left = editor }),
+                        enabled = parsed != null)
+                }
+            }
+        }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.Center) {
+            if (sideBySide) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    if (!keyboardVisible) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("预设倍速", style = tvTextStyle(16, 22, FontWeight.Medium))
+                            presetGrid()
+                        }
+                        Box(Modifier.width(1.dp).height(132.dp).background(Color.White.copy(alpha = .12f)))
+                    }
+                    Box(if (keyboardVisible) Modifier else Modifier.weight(.78f)) { customEditor() }
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (!keyboardVisible) presetGrid()
+                    customEditor()
+                }
             }
         }
     }
