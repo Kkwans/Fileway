@@ -65,7 +65,7 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private readonly TextBlock _bannerText;
     private readonly Button _renderButton;
     private readonly Button _tableButton;
-    private readonly Button _wrapButton;
+    private readonly ToggleButton _wrapButton;
     private readonly Button _copyButton;
     private readonly Button _editButton;
     private readonly Button _saveButton;
@@ -79,8 +79,9 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private bool _confirmingClose;
     private long _contentLength;
     private Fileway.Core.Contracts.TextEditExpectation? _expectation;
-    private bool _isMarkdown;
-    private bool _isTable;
+    private readonly bool _isMarkdown;
+    private readonly bool _isTable;
+    private readonly string _sourceLabel;
     private string _encodingName = "UTF-8";
     private CsvGridParser.Grid? _grid;
     private string _rawText = "";
@@ -89,7 +90,6 @@ public sealed class TextWindow : Window, IAsyncDisposable
     private bool _showTable = true;
     private bool _closed;
     private bool _started;
-    private bool _wrapped;
     private ElementTheme _theme = ElementTheme.Default;
     private readonly InfoBar _toast = new()
     {
@@ -102,6 +102,10 @@ public sealed class TextWindow : Window, IAsyncDisposable
     {
         _service = service;
         _resource = resource;
+        var extension = Path.GetExtension(resource.DisplayName).ToLowerInvariant();
+        _isMarkdown = extension is ".md" or ".markdown";
+        _isTable = extension is ".csv" or ".tsv";
+        _sourceLabel = SourceLabel(extension);
         Title = _titleBar.Caption = resource.DisplayName + " · " + AppBranding.DisplayName;
         AppWindow.SetIcon(Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico"));
         AppWindow.Resize(new Windows.Graphics.SizeInt32(1080, 800));
@@ -125,7 +129,17 @@ public sealed class TextWindow : Window, IAsyncDisposable
 
         _renderButton = TextAction("源码", "切换渲染与源码", ToggleRendered);
         _tableButton = TextAction("纯文本", "切换表格与纯文本", ToggleTable);
-        _wrapButton = TextAction("换行", "切换自动换行", ToggleWrap);
+        _wrapButton = new ToggleButton
+        {
+            Content = "换行", Style = SurfaceGeometry.Style("FwSegmentedChoiceStyle"),
+            Height = 32, MinHeight = 32, Padding = new Thickness(12, 0, 12, 0), CornerRadius = new CornerRadius(10),
+        };
+        ToolTipService.SetToolTip(_wrapButton, "自动换行");
+        AutomationProperties.SetName(_wrapButton, "自动换行");
+        AutomationProperties.SetAutomationId(_wrapButton, "WrapTextToggle");
+        _wrapButton.Checked += (_, _) => _text.TextWrapping = TextWrapping.Wrap;
+        _wrapButton.Unchecked += (_, _) => _text.TextWrapping = TextWrapping.NoWrap;
+        _wrapButton.IsChecked = extension == ".txt";
         _copyButton = TextAction("复制", "复制全文", CopyAll);
         _editButton = TextAction("编辑", "编辑文本", EnterEditMode);
         _saveButton = new Button { Content = "保存", Style = (Style)Application.Current.Resources["FwPrimaryButtonStyle"], Height = 32, MinHeight = 32, Padding = new Thickness(16, 0, 16, 0), Visibility = Visibility.Collapsed };
@@ -347,6 +361,34 @@ public sealed class TextWindow : Window, IAsyncDisposable
         return button;
     }
 
+    private static string SourceLabel(string extension) => extension switch
+    {
+        ".json" => "JSON",
+        ".xml" => "XML",
+        ".yaml" or ".yml" => "YAML",
+        ".toml" => "TOML",
+        ".ini" => "INI",
+        ".log" => "日志",
+        ".cs" => "C# 源码",
+        ".py" => "Python 源码",
+        ".go" => "Go 源码",
+        ".js" => "JavaScript 源码",
+        ".ts" => "TypeScript 源码",
+        ".c" => "C 源码",
+        ".cpp" or ".hpp" => "C++ 源码",
+        ".h" => "C / C++ 头文件",
+        ".java" => "Java 源码",
+        ".kt" => "Kotlin 源码",
+        ".rs" => "Rust 源码",
+        ".ps1" => "PowerShell 脚本",
+        ".sh" => "Shell 脚本",
+        ".bat" or ".cmd" => "批处理脚本",
+        ".sql" => "SQL",
+        ".html" or ".htm" => "HTML 源码",
+        ".css" => "CSS 源码",
+        _ => "纯文本",
+    };
+
     public ValueTask DisposeAsync()
     {
         // The Closed handler owns teardown; this covers an explicit dispose before closing.
@@ -419,13 +461,6 @@ public sealed class TextWindow : Window, IAsyncDisposable
         UpdateCommands();
     }
 
-    private void ToggleWrap()
-    {
-        _wrapped = !_wrapped;
-        _text.TextWrapping = _wrapped ? TextWrapping.Wrap : TextWrapping.NoWrap;
-        UpdateCommands();
-    }
-
     private async Task ConfirmDiscardAndCloseAsync()
     {
         _confirmingClose = true;
@@ -461,7 +496,6 @@ public sealed class TextWindow : Window, IAsyncDisposable
         var table = _tableScroll.Visibility == Visibility.Visible;
         ((TextBlock)_renderButton.Content).Text = rendered ? "源码" : "渲染";
         ((TextBlock)_tableButton.Content).Text = table ? "纯文本" : "表格";
-        ((TextBlock)_wrapButton.Content).Text = _wrapped ? "不换行" : "换行";
         _renderButton.Visibility = _isMarkdown && !_editing ? Visibility.Visible : Visibility.Collapsed;
         _renderButton.IsEnabled = ready;
         _tableButton.Visibility = _grid is not null && !_editing ? Visibility.Visible : Visibility.Collapsed;
@@ -478,9 +512,9 @@ public sealed class TextWindow : Window, IAsyncDisposable
         _discardButton.IsEnabled = ready;
         if (!_loaded) return;
 
-        var view = rendered ? "Markdown 渲染视图" : table ? "表格视图" : _isMarkdown ? "源码视图" : _isTable ? "纯文本视图" : "纯文本";
+        var view = rendered ? "Markdown 渲染视图" : table ? "表格视图" : _isMarkdown ? "源码视图" : _isTable ? "纯文本视图" : _sourceLabel;
         if (_editing) view = _dirty ? "编辑中 · 未保存" : "编辑中";
-        _mode.Text = view + (_wrapped && !rendered && !table ? " · 自动换行" : "");
+        _mode.Text = view;
         var access = _editing ? "" : _expectation is null ? " · 只读" : " · 可编辑";
         var summary = $"{_encodingName} · {DownloadPresentationPolicy.FormatBytes(_contentLength)}{access}";
         if (_summary.Text != summary)
@@ -687,10 +721,6 @@ public sealed class TextWindow : Window, IAsyncDisposable
             _text.Text = content.Text;
             _contentLength = content.DeclaredLength;
             _loaded = true;
-            _isMarkdown = _resource.DisplayName.EndsWith(".md", StringComparison.OrdinalIgnoreCase) ||
-                _resource.DisplayName.EndsWith(".markdown", StringComparison.OrdinalIgnoreCase);
-            _isTable = !_isMarkdown && (_resource.DisplayName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase) ||
-                _resource.DisplayName.EndsWith(".tsv", StringComparison.OrdinalIgnoreCase));
             if (_isTable)
             {
                 char delimiter = CsvGridParser.DetectDelimiter(content.Text, _resource.DisplayName);
