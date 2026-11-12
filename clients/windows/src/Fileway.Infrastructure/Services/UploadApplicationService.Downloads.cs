@@ -92,14 +92,11 @@ public sealed partial class UploadApplicationService
             // Conditional-first: servers that advertise conditionalDownloadV1 return versioned
             // metadata, which the fresh (legacy) reader rejects; version pinning is also what
             // makes this task durable-resumable later.
-            var sources = _downloads!.Sources;
-            var metadata = await (sources is IConditionalDownloadSourceProvider conditional && conditional.CanUseConditionalDownload(source)
-                ? conditional.PrepareConditionalDownloadAsync(source, cancellationToken)
-                : sources.PrepareDownloadAsync(source, cancellationToken)).ConfigureAwait(false);
+            var metadata = await ReadDownloadPreviewMetadataAsync(binding, source, cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
             if (metadata.IsDirectory || metadata.Size < 0 || metadata.Resource.Account != context.Account ||
                 metadata.Resource.WirePath != source.WirePath) throw DownloadSafe(ErrorCode.InvalidRequest);
-            var settings = await StorageAsync(token => _downloads.StorageSettings.ReadAsync(token), cancellationToken).ConfigureAwait(false);
+            var settings = await StorageAsync(token => _downloads!.StorageSettings.ReadAsync(token), cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
             var preparedSource = source with { DisplayName = metadata.Resource.DisplayName, DisplayPath = metadata.Resource.DisplayPath };
             string confirmedName = requestedLeaf ?? preparedSource.DisplayName;
@@ -118,8 +115,29 @@ public sealed partial class UploadApplicationService
             }
             return preview;
         }
-        catch (Exception error) { throw NormalizeDownload(error); }
+        catch (Exception error) { throw NormalizeDownloadPreparation(error); }
         finally { _commands.Release(); }
+    }
+
+    private async Task<RemoteFile> ReadDownloadPreviewMetadataAsync(Binding binding,
+        RemoteResourceRef source, CancellationToken cancellationToken)
+    {
+        var sources = _downloads!.Sources;
+        try
+        {
+            return await (sources is IConditionalDownloadSourceProvider conditional && conditional.CanUseConditionalDownload(source)
+                ? conditional.PrepareConditionalDownloadAsync(source, cancellationToken)
+                : sources.PrepareDownloadAsync(source, cancellationToken)).ConfigureAwait(false);
+        }
+        catch (FilewayException error) when (error.Error.HttpStatus == 404 &&
+            error.Error.Code is ErrorCode.NetworkUnavailable or ErrorCode.SourceChanged)
+        {
+            // This read prepares a new draft and has no transfer checkpoint to retire.
+            // Active or resumed tasks continue to use the runner's original evidence rules.
+            RequireCurrent(binding);
+            RequireDownloadPermission(binding);
+            throw DownloadSafe(ErrorCode.SourceChanged, 404);
+        }
     }
 
     private static string DownloadLocalName(string? name)
@@ -392,10 +410,7 @@ public sealed partial class UploadApplicationService
             RequireCurrent(binding);
             string relative = TransferTaskValidation.LocalFilePath(settings.Active.DownloadDirectory.TrimEnd('\\') + "\\" +
                 FilewayClientServices.MapWindowsLeafName(root.DisplayName) + "\\" + entry.MappedRelativePath);
-            var sources = _downloads!.Sources;
-            var metadata = await (sources is IConditionalDownloadSourceProvider conditional && conditional.CanUseConditionalDownload(entry.Resource)
-                ? conditional.PrepareConditionalDownloadAsync(entry.Resource, cancellationToken)
-                : sources.PrepareDownloadAsync(entry.Resource, cancellationToken)).ConfigureAwait(false);
+            var metadata = await ReadDownloadPreviewMetadataAsync(binding, entry.Resource, cancellationToken).ConfigureAwait(false);
             RequireCurrent(binding);
             if (metadata.IsDirectory || metadata.Size < 0 || metadata.Resource.Account != context.Account ||
                 metadata.Resource.WirePath != entry.Resource.WirePath) throw DownloadSafe(ErrorCode.InvalidRequest);
@@ -414,7 +429,7 @@ public sealed partial class UploadApplicationService
             }
             return preview;
         }
-        catch (Exception error) { throw NormalizeDownload(error); }
+        catch (Exception error) { throw NormalizeDownloadPreparation(error); }
         finally { _commands.Release(); }
     }
 
@@ -515,6 +530,29 @@ public sealed partial class UploadApplicationService
         }
     }
 
+    private static FilewayException NormalizeDownloadPreparation(Exception error)
+    {
+        var normalized = error switch
+        {
+            System.Net.Http.HttpRequestException { StatusCode: null } => DownloadSafe(ErrorCode.NetworkUnavailable),
+            TimeoutException => DownloadSafe(ErrorCode.Timeout),
+            _ => NormalizeDownload(error),
+        };
+        var info = normalized.Error;
+        var message = info.Code switch
+        {
+            ErrorCode.SourceChanged when info.HttpStatus == 404 => "当前找不到所选源文件。请刷新文件列表后重新选择。",
+            ErrorCode.SourceChanged => "源文件或连接已变化。请刷新文件列表后重新选择。",
+            ErrorCode.NetworkUnavailable or ErrorCode.Timeout => "暂时无法获取下载信息。请检查网络后重试。",
+            ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable => "登录状态不可用。请重新登录后再选择文件。",
+            ErrorCode.LocalStorageUnavailable => "无法读取本地下载设置。请检查保存位置后重试。",
+            ErrorCode.Canceled => "下载准备已取消。",
+            ErrorCode.OutcomeUnknown or ErrorCode.Unknown => "下载准备未完成。请重新选择文件后重试。",
+            _ => info.Message,
+        };
+        return new FilewayException(info with { Message = message });
+    }
+
     private static FilewayException NormalizeDownload(Exception error) => DownloadSafe(error switch
     {
         FilewayException known => known.Error.Code,
@@ -534,7 +572,7 @@ public sealed partial class UploadApplicationService
             ErrorCode.Conflict => "下载任务或同名本地目标存在冲突，不会覆盖已有文件。",
             ErrorCode.LocalStorageUnavailable => "本地下载记录暂不可用，未确认的任务不会重新执行。",
             ErrorCode.Canceled => "下载操作已停止，请查看原任务的本地结果。",
-            ErrorCode.NetworkUnavailable or ErrorCode.Timeout => "下载连接已中断；此切片不续传，请核实并清理原任务后再明确下载。",
+            ErrorCode.NetworkUnavailable or ErrorCode.Timeout => "下载连接已中断。请检查网络后重试。",
             ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable => "登录状态不可用，请重新连接后查看原下载任务。",
             ErrorCode.OutcomeUnknown => "本地下载发布结果尚未确认，请核实原任务，不要重复下载。",
             ErrorCode.Busy => "下载队列已满，或任务正在核实或等待释放，请稍后重试。",
