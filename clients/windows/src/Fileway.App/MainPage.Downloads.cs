@@ -435,7 +435,6 @@ public sealed partial class MainPage
         var dialog = new ContentDialog { Title = "文件下载", Content = new ScrollViewer { Content = view.Content, MaxHeight = 400, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, CloseButtonText = "关闭", DefaultButton = ContentDialogButton.None };
         _downloadDialog = dialog; _downloadDetails = view; _downloadDetailTask = task;
         view.Play.Click += async (_, _) => { if (_downloadDetailTask is { } current) await PlayDownloadAsync(current); };
-        view.OpenLocal.Click += async (_, _) => { if (_downloadDetailTask is { } current) await OpenDownloadLocallyAsync(current); };
         view.Retry.Click += async (_, _) => { if (_downloadDetailTask is { } current) await RetryDownloadAsync(current); };
         dialog.SecondaryButtonClick += (_, click) =>
         {
@@ -454,6 +453,8 @@ public sealed partial class MainPage
                     await RunDownloadControlAsync(current, cancel: true);
                 else if (visibleItem.CanResume)
                     await ToggleDownloadPausedAsync(current);
+                else if (DownloadPolicy.EffectiveStatus(visibleItem) == DownloadStatus.Completed)
+                    await OpenDownloadLocallyAsync(current);
                 else
                     await RunDownloadControlAsync(current, cancel: false);
             }
@@ -477,32 +478,35 @@ public sealed partial class MainPage
             || !_downloadItems.TryGetValue(task, out var item) || !IsCurrentDownloadContext(item.Context)) return;
         view.Name.Text = item.Name; view.Destination.Text = $"保存到：{item.DestinationDisplayPath}";
         view.Stage.Text = DownloadPolicy.Stage(item);
+        var completed = DownloadPolicy.EffectiveStatus(item) == DownloadStatus.Completed;
+        var canOpen = completed && _downloads is IDownloadControlService;
         var progress = DownloadPolicy.Progress(item);
         view.Progress.IsIndeterminate = progress.IsIndeterminate; view.Progress.Value = progress.Value;
-        view.ProgressTrack.Visibility = item.Status == DownloadStatus.Completed ? Visibility.Collapsed : Visibility.Visible;
-        view.Activity.Text = progress.ActivityText; view.Flushed.Text = progress.FlushedText;
-        view.Detail.Text = _downloadErrorMessage ?? DownloadPolicy.Detail(item);
+        view.ProgressTrack.Visibility = completed ? Visibility.Collapsed : Visibility.Visible;
+        view.Activity.Text = completed ? item.Snapshot.TotalBytes is { } size
+            ? $"文件大小 {DownloadPolicy.FormatBytes(size)}" : string.Empty : progress.ActivityText;
+        view.Activity.Visibility = view.Activity.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        view.Flushed.Text = completed ? string.Empty : progress.FlushedText;
+        view.Flushed.Visibility = completed ? Visibility.Collapsed : Visibility.Visible;
+        view.Detail.Text = _downloadErrorMessage ?? (completed ? string.Empty : DownloadPolicy.Detail(item));
+        view.Detail.Visibility = view.Detail.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         view.Play.Visibility = DownloadPolicy.CanPlay(item) && _downloads is IDownloadPlaybackSourceProvider && _playback is not null
             ? Visibility.Visible : Visibility.Collapsed;
-        view.OpenLocal.Visibility = item.Status == DownloadStatus.Completed && item.Snapshot.LocalPublished &&
-            _downloads is IDownloadControlService ? Visibility.Visible : Visibility.Collapsed;
         var cancel = DownloadPolicy.CanCancel(item);
         if (!cancel) view.CancelConfirmation.Visibility = Visibility.Collapsed;
         var confirmingCancel = view.CancelConfirmation.Visibility == Visibility.Visible;
-        view.OpenLocal.IsEnabled = !confirmingCancel && !_downloadOperationBusy;
         view.Play.IsEnabled = !confirmingCancel && !_downloadPlaybackOpening && !_downloadOperationBusy;
         view.Retry.Visibility = DownloadPolicy.CanRetryFresh(item) ? Visibility.Visible : Visibility.Collapsed;
         view.Retry.IsEnabled = !confirmingCancel && !_downloadOperationBusy;
-        view.Actions.Visibility = !confirmingCancel && (view.Play.Visibility == Visibility.Visible ||
-            view.OpenLocal.Visibility == Visibility.Visible || view.Retry.Visibility == Visibility.Visible)
+        view.Actions.Visibility = !confirmingCancel && (view.Play.Visibility == Visibility.Visible || view.Retry.Visibility == Visibility.Visible)
             ? Visibility.Visible : Visibility.Collapsed;
         dialog.SecondaryButtonText = !cancel ? string.Empty : confirmingCancel ? "返回" : "取消下载…";
         dialog.IsSecondaryButtonEnabled = cancel && !_downloadOperationBusy;
         var hadPrimary = !string.IsNullOrEmpty(dialog.PrimaryButtonText);
-        dialog.PrimaryButtonText = confirmingCancel ? "确认取消" : DownloadPolicy.PrimaryLabel(item);
+        dialog.PrimaryButtonText = confirmingCancel ? "确认取消" : canOpen ? "打开文件" : DownloadPolicy.PrimaryLabel(item);
         if (hadPrimary != !string.IsNullOrEmpty(dialog.PrimaryButtonText) && dialog.IsLoaded)
             Controls.DialogOrdering.Reorder(dialog);
-        dialog.IsPrimaryButtonEnabled = !_downloadOperationBusy && (confirmingCancel || DownloadPolicy.CanReconcile(item) ||
+        dialog.IsPrimaryButtonEnabled = !_downloadOperationBusy && (confirmingCancel || canOpen || DownloadPolicy.CanReconcile(item) ||
             item.CanResume && _downloads is IDownloadControlService);
     }
 
@@ -569,26 +573,45 @@ public sealed partial class MainPage
 
     private async Task OpenDownloadLocallyAsync(TransferTaskRef task)
     {
+        const string unavailable = "无法打开已保存的文件。请检查文件是否仍在原位置。";
         if (_downloadOperationBusy || _downloads is not IDownloadControlService service ||
             !_downloadItems.TryGetValue(task, out var item) || !IsCurrentDownloadContext(item.Context) ||
-            item.Status != DownloadStatus.Completed || !item.Snapshot.LocalPublished) return;
+            DownloadPolicy.EffectiveStatus(item) != DownloadStatus.Completed) return;
         _downloadOperationBusy = true;
+        _downloadErrorTitle = _downloadErrorMessage = null;
         try
         {
+            RenderDownloadDetails();
             // The service verifies identity/length/ancestors before this window opens anything.
-            if (await service.VerifyLocalOpenAsync(item.Context, task, _lifetime.Token) is not true) return;
+            var verified = await service.VerifyLocalOpenAsync(item.Context, task, _lifetime.Token);
+            if (!IsCurrentDownloadContext(item.Context)) return;
+            if (!verified)
+            {
+                ShowDownloadError("本地打开未完成", unavailable);
+                return;
+            }
             var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(item.DestinationDisplayPath);
-            _ = await Windows.System.Launcher.LaunchFileAsync(file);
+            if (!IsCurrentDownloadContext(item.Context)) return;
+            var opened = await Windows.System.Launcher.LaunchFileAsync(file);
+            if (!opened && IsCurrentDownloadContext(item.Context))
+                ShowDownloadError("本地打开未完成", "Windows 没有可用的应用来打开此文件。");
         }
-        catch (Exception error) { if (IsCurrentDownloadContext(item.Context)) ShowDownloadError("本地打开未完成", error); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        catch (Exception)
+        {
+            if (IsCurrentDownloadContext(item.Context))
+                ShowDownloadError("本地打开未完成", unavailable);
+        }
         finally { _downloadOperationBusy = false; if (!_disposed) UpdateDownloadContext(); }
     }
 
     private async void DownloadHistory_Click(object sender, RoutedEventArgs args) => await ShowTransferCenterAsync(TransferDirection.Download);
 
-    private void ShowDownloadError(string title, Exception error)
+    private void ShowDownloadError(string title, Exception error) => ShowDownloadError(title, ErrorMessage(error));
+
+    private void ShowDownloadError(string title, string message)
     {
-        _downloadErrorTitle = title; _downloadErrorMessage = ErrorMessage(error);
+        _downloadErrorTitle = title; _downloadErrorMessage = message;
         RenderDownloadNotice(); RenderDownloadDetails();
     }
 
@@ -598,8 +621,8 @@ public sealed partial class MainPage
             <StackPanel xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Spacing="16" MinWidth="320" MaxWidth="440">
               <StackPanel Spacing="4"><TextBlock x:Name="Name" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/><TextBlock x:Name="Destination" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel>
               <Border Padding="16" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1"><StackPanel Spacing="8"><TextBlock x:Name="Stage" FontWeight="SemiBold" TextWrapping="Wrap"/><Border x:Name="ProgressTrack" Height="6" CornerRadius="3" Background="{ThemeResource FwStrokeBrush}"><ProgressBar x:Name="Progress" Minimum="0" Maximum="100" Height="4" VerticalAlignment="Center" Background="Transparent" CornerRadius="2" AutomationProperties.Name="下载接收活动进度，完成还需校验与保存"/></Border><TextBlock x:Name="Activity" FontSize="12" TextWrapping="Wrap"/><TextBlock x:Name="Flushed" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/></StackPanel></Border>
-              <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-              <StackPanel x:Name="Actions" Orientation="Horizontal" Spacing="8" Visibility="Collapsed"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/><Button x:Name="OpenLocal" Content="打开文件" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="用系统默认应用打开已下载的文件" ToolTipService.ToolTip="先核实本地文件身份，再交给系统默认应用打开；不会改动 NAS 原文件。"/><Button x:Name="Retry" Content="重新下载（新任务）" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="重新下载并创建新任务"/></StackPanel>
+              <TextBlock x:Name="Detail" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.LiveSetting="Polite"/>
+              <StackPanel x:Name="Actions" Orientation="Horizontal" Spacing="8" Visibility="Collapsed"><Button x:Name="Play" Content="边下边播" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="播放正在下载的视频" ToolTipService.ToolTip="读取已下载内容；未下载片段需要等待，部分视频需取得更多数据才能开始。"/><Button x:Name="Retry" Content="重新下载（新任务）" HorizontalAlignment="Left" Style="{StaticResource FwSecondaryButtonStyle}" Visibility="Collapsed" AutomationProperties.Name="重新下载并创建新任务"/></StackPanel>
               <Border x:Name="CancelConfirmation" Visibility="Collapsed" Padding="12" CornerRadius="10" Background="{ThemeResource FwSurfaceBrush}" BorderThickness="1" BorderBrush="{ThemeResource FwStrokeBrush}"><TextBlock Text="确认取消当前下载？只会清理本任务拥有的未发布临时文件，已经保存的文件会保留。" TextWrapping="Wrap"/></Border>
             </StackPanel>
             """);
@@ -608,7 +631,7 @@ public sealed partial class MainPage
             var resources = Application.Current.Resources;
             if (resources["FwSecondaryButtonStyle"] is Style secondary)
             {
-                Play.Style = secondary; OpenLocal.Style = secondary; Retry.Style = secondary;
+                Play.Style = secondary; Retry.Style = secondary;
             }
         }
         public TextBlock Name => (TextBlock)Content.FindName("Name");
@@ -621,7 +644,6 @@ public sealed partial class MainPage
         public TextBlock Detail => (TextBlock)Content.FindName("Detail");
         public StackPanel Actions => (StackPanel)Content.FindName("Actions");
         public Button Play => (Button)Content.FindName("Play");
-        public Button OpenLocal => (Button)Content.FindName("OpenLocal");
         public Button Retry => (Button)Content.FindName("Retry");
         public Border CancelConfirmation => (Border)Content.FindName("CancelConfirmation");
     }
