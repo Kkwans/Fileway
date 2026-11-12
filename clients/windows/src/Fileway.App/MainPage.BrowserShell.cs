@@ -100,21 +100,21 @@ public sealed partial class MainPage
         Grid.SetColumnSpan(Sidebar, _sidebarOverlay ? 2 : 1);
         Sidebar.Visibility = !_sidebarOverlay || _sidebarOpen ? Visibility.Visible : Visibility.Collapsed;
         SidebarOverlayBackground.Visibility = _sidebarOverlay ? Visibility.Visible : Visibility.Collapsed;
-        MyFilesLabel.Visibility = RecentAccessLabel.Visibility = TransferCenterLabel.Visibility = NasTasksLabel.Visibility = TrashPageLabel.Visibility =
-            ConnectionLabel.Visibility = SidebarConnectionActionLabel.Visibility = SidebarCollections.Visibility = rail ? Visibility.Collapsed : Visibility.Visible;
-        SettingsLabel.Visibility = rail ? Visibility.Collapsed : Visibility.Visible;
-        foreach (var button in new[] { MyFilesButton, RecentAccessButton, TransferCenterButton, NasTasksButton, TrashPageButton, ConnectionButton })
+        SidebarNavigationScroll.Padding = rail ? new Thickness(0) : new Thickness(0, 0, 12, 0);
+        var labelVisibility = rail ? Visibility.Collapsed : Visibility.Visible;
+        ConnectionLabel.Visibility = SidebarCollections.Visibility = labelVisibility;
+        foreach (var (button, label, tip) in new (Button Button, TextBlock Label, string Tip)[]
         {
-            button.HorizontalContentAlignment = rail ? HorizontalAlignment.Center : HorizontalAlignment.Left;
-            button.Padding = rail ? new Thickness(0) : new Thickness(12, 0, 12, 0);
-        }
-        foreach (var (button, tip) in new (Button Button, string Tip)[]
-        {
-            (MyFilesButton, "我的文件"), (RecentAccessButton, "最近访问"), (TransferCenterButton, "传输中心"),
-            (NasTasksButton, "文件任务"), (StorageToolsButton, "存储工具"), (TrashPageButton, "回收站"),
-            (ConnectionButton, SidebarConnectionActionLabel.Text), (LocalServerButton, "本地服务端"), (SettingsButton, "设置"),
+            (MyFilesButton, MyFilesLabel, "我的文件"), (RecentAccessButton, RecentAccessLabel, "最近访问"),
+            (TransferCenterButton, TransferCenterLabel, "传输中心"), (NasTasksButton, NasTasksLabel, "文件任务"),
+            (StorageToolsButton, StorageToolsLabel, "存储工具"), (TrashPageButton, TrashPageLabel, "回收站"),
+            (ConnectionButton, SidebarConnectionActionLabel, SidebarConnectionActionLabel.Text),
+            (LocalServerButton, LocalServerLabel, "本地服务端"), (SettingsButton, SettingsLabel, "设置"),
         })
         {
+            label.Visibility = labelVisibility;
+            button.HorizontalContentAlignment = rail ? HorizontalAlignment.Center : HorizontalAlignment.Left;
+            button.Padding = rail ? new Thickness(0) : new Thickness(12, 0, 12, 0);
             ToolTipService.SetToolTip(button, rail ? tip : null);
             ToolTipService.SetPlacement(button, rail ? Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Right : Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Top);
         }

@@ -308,7 +308,7 @@ components:
 
 - 只使用仓库内 Lucide 单色 PNG（`Assets/Lucide/light`），尺寸 16/18/20/22/30；颜色继承 `Foreground`。
 - 不再混用 `SymbolIcon`/Segoe 字形；新增图标必须先补 Lucide 资源再使用。
-- 同一个动作在全局使用同一个图标名（下载 `download-simple`、回收站 `trash`、更多 `dots-three`）；不同侧栏入口不得复用同一图标（文件任务 `file-code`、存储工具 `gear`、本地服务端 `server`、连接 `floppy-disk`）。0.8.152 起资源共 41 个（新增 `server`/`activity`/`terminal`/`alert-triangle`/`hard-drive`/`power`），由 `eng/Import-LucideIcons.cjs` 从固定 commit 复现，旧 35 个逐字节不变。
+- 同一个动作在全局使用同一个图标名（下载 `download-simple`、回收站 `trash`、更多 `dots-three`）。侧栏图标对应入口用途（传输中心 `arrow-down-up`、文件任务 `file-code`、存储工具 `hard-drive`、连接 `plug`、本地服务端 `server`、设置 `gear`）。展开时图标与文字左对齐，折叠时图标居中并通过提示与辅助功能名称保留入口名称。资源由 `eng/Import-LucideIcons.cjs` 从固定 commit 复现。
 
 ## Motion
 
