@@ -15,6 +15,7 @@ internal fun remoteFileId(file: ResourceRef): String = MessageDigest.getInstance
 internal fun remoteFileJson(file: ResourceRef, name: String = file.name): JSONObject = JSONObject()
     .put("id", remoteFileId(file)).put("name", name).put("directory", file.directory)
     .put("kind", file.mediaKind()?.name ?: "FILE").put("size", file.size)
+    .put("modified", file.modified.take(48)).put("width", file.previewWidth).put("height", file.previewHeight)
 
 internal fun remoteBrowsePage(files: List<ResourceRef>, offset: Int, count: Int): JSONObject {
     val items = JSONArray()

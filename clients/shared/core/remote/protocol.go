@@ -52,6 +52,9 @@ var operations = map[string]bool{
 	"image.previous": true, "image.setTransform": true,
 	"app.navigate": true, "app.back": true, "app.key": true, "app.list": true,
 	"app.inputText": true, "app.setPreference": true,
+	"browse.list": true, "browse.open": true, "preview.open": true, "preview.read": true,
+	"cache.clear": true, "cache.resume": true, "playback.setRatio": true,
+	"settings.deviceInfo": true, "settings.updates": true,
 	"session.requestGrant": true, "session.adopt": true, "session.cancelSwitch": true,
 }
 
@@ -59,6 +62,11 @@ var operations = map[string]bool{
 // delivered to the requesting connection only, never replayed from receipts.
 func transientSubtitleRead(operation string) bool {
 	return operation == "subtitle.browse.open" || operation == "subtitle.browse.page"
+}
+
+func transientRemoteRead(operation string) bool {
+	return transientSubtitleRead(operation) || operation == "browse.list" ||
+		operation == "preview.open" || operation == "preview.read"
 }
 
 func DecodeCommand(data []byte) (Command, error) {

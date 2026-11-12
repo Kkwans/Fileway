@@ -34,15 +34,15 @@ import java.util.concurrent.atomic.AtomicLong
 class PlaybackStreamCacheTest {
     private val context=InstrumentationRegistry.getInstrumentation().targetContext
     private val budget=128L*1024
-    private val length=2*1024*1024
+    private val length=2L*1024*1024
     private val opened=ConcurrentHashMap.newKeySet<DataSource>()
 
-    private suspend fun fixture(body:suspend(PlaybackStreamCache,RangeServer,AtomicLong)->Unit) {
+    private suspend fun fixture(fileLength: Long = length, body:suspend(PlaybackStreamCache,RangeServer,AtomicLong)->Unit) {
         val name="owned-stream-cache-${System.nanoTime()}"
         val owner=CoroutineScope(SupervisorJob()+Dispatchers.Default)
         val root=File(context.cacheDir,name)
         val cache=PlaybackStreamCache(context,owner,name,name,PlaybackCacheLimits(budget,16L*1024,4L*1024*1024,32L*1024,16L*1024,0,4096))
-        val server=RangeServer(length);val position=AtomicLong()
+        val server=RangeServer(fileLength);val position=AtomicLong()
         try{body(cache,server,position)}finally{
             opened.forEach{runCatching{it.close()}};opened.clear()
             try{
@@ -53,14 +53,16 @@ class PlaybackStreamCacheTest {
             }finally{context.deleteSharedPreferences(name);server.close()}
         }
     }
-    private suspend fun source(cache:PlaybackStreamCache,url:String,position:AtomicLong,account:String="owned-a"):DataSource.Factory {
-        val factory=cache.prepare(account,"owned-source","/owned.bin",url,length.toLong(),null,0,length/1024L,{true},{position.get()})
+    private suspend fun source(cache: PlaybackStreamCache, url: String, position: AtomicLong, account: String = "owned-a",
+        resource: String = "/owned.bin", fileLength: Long = length, estimated: Boolean = false): DataSource.Factory {
+        val factory=cache.prepare(account,"owned-source",resource,url,fileLength,null,0,fileLength/1024L,{true},{position.get()})
         (factory as PlaybackDataSourceFactory).wrapExtractor(object:Extractor {
             override fun sniff(input:ExtractorInput)=true
             override fun init(output:ExtractorOutput){output.seekMap(object:SeekMap {
                 override fun isSeekable()=true
-                override fun getDurationUs()=length/1024L*1000
-                override fun getSeekPoints(timeUs:Long)=SeekMap.SeekPoints(SeekPoint(timeUs,(timeUs/1000*1024).coerceIn(0,length.toLong())))
+                override fun isEstimated() = estimated
+                override fun getDurationUs()=fileLength/1024L*1000
+                override fun getSeekPoints(timeUs:Long)=SeekMap.SeekPoints(SeekPoint(timeUs/1000*1000,(timeUs/1000*1024).coerceIn(0,fileLength)))
             })}
             override fun read(input:ExtractorInput,seekPosition:PositionHolder)=Extractor.RESULT_END_OF_INPUT
             override fun seek(position:Long,timeUs:Long){}
@@ -72,14 +74,83 @@ class PlaybackStreamCacheTest {
         })
         return factory
     }
-    private fun prime(factory:DataSource.Factory,url:String):DataSource {
+    private fun prime(factory:DataSource.Factory,url:String,position: Long = 0):DataSource {
         val data=factory.createDataSource()
         opened+=data
-        try{data.open(DataSpec.Builder().setUri(url).build());assertEquals(1,data.read(ByteArray(1),0,1));return data}
+        try{data.open(DataSpec.Builder().setUri(url).setPosition(position).build());assertEquals(1,data.read(ByteArray(1),0,1));return data}
         catch(failure:Throwable){data.close();opened-=data;throw failure}
     }
     private suspend fun full(cache:PlaybackStreamCache,predicate:(PlaybackCacheState)->Boolean={true})=
         withTimeout(10000){cache.state.first{it.usedBytes==budget&&predicate(it)}}
+
+    @Test fun clearingRetainsActiveReaderAndResumesOnlyOnRequest()=runBlocking { fixture { cache,server,position ->
+        val factory = source(cache,server.url,position)
+        prime(factory,server.url).close()
+        full(cache)
+        val reader = prime(factory,server.url)
+        val cachedRequests = server.requests.get()
+        cache.clear()
+        assertTrue(cache.state.value.prefetchPaused)
+        assertTrue(cache.state.value.clearing)
+        assertEquals(16L * 1024, cache.state.value.usedBytes)
+        val cached = ByteArray(1)
+        assertEquals(1, reader.read(cached, 0, 1))
+        assertEquals(1.toByte(), cached[0])
+        assertEquals(cachedRequests, server.requests.get())
+        reader.close()
+        withTimeout(8000) { cache.state.first { !it.clearing && it.usedBytes == 0L } }
+        assertTrue(cache.state.value.prefetchPaused)
+        val foreground = prime(factory, server.url, position = budget * 2)
+        try {
+            val buffer = ByteArray(8192)
+            assertTrue(foreground.read(buffer, 0, buffer.size) > 0)
+            val streamed = withTimeout(5000) { cache.state.first { it.bytesPerSecond > 0 } }
+            assertTrue(streamed.prefetchPaused)
+            assertEquals(0L, streamed.usedBytes)
+            assertTrue(streamed.ranges.isEmpty())
+        } finally { foreground.close() }
+        cache.resumePrefetch()
+        full(cache) { !it.prefetchPaused }
+    }}
+
+    @Test fun clearingStaysPausedAcrossSameFileReopenAndResumesForAnotherFile() = runBlocking { fixture { cache, server, position ->
+        prime(source(cache,server.url,position),server.url).close()
+        full(cache)
+        cache.clear()
+        val sameFile = source(cache,server.url,position)
+        prime(sameFile,server.url).close()
+        assertTrue(cache.state.value.prefetchPaused)
+        assertNull(withTimeoutOrNull(750) { cache.state.first { !it.prefetchPaused || it.usedBytes > 0 } })
+        val nextFile = source(cache,server.url,position,resource = "/next.bin")
+        prime(nextFile,server.url).close()
+        full(cache) { !it.prefetchPaused }
+    }}
+
+    @Test fun prefetchAndTelemetryUseLongSourceOffsetsBeyondFourGiB() = runBlocking {
+        val start = 5L * 1024 * 1024 * 1024 + 32 * 1024
+        val fileLength = start + length
+        fixture(fileLength) { cache, server, position ->
+            position.set(start / 1024)
+            val factory = source(cache,server.url,position,fileLength = fileLength)
+            prime(factory,server.url,start).close()
+            full(cache) { it.ranges == listOf(CachedPlaybackRange(position.get(), position.get() + budget / 1024)) }
+            assertTrue(server.boundedStarts.contains(start))
+            val before = server.requests.get()
+            val reader = prime(factory,server.url,start)
+            try {
+                val byte = ByteArray(1)
+                assertEquals(1, reader.read(byte, 0, 1))
+                assertEquals(((start + 1) % 251).toByte(), byte[0])
+                assertEquals(before, server.requests.get())
+            } finally { reader.close() }
+        }
+    }
+
+    @Test fun estimatedSeekMapDoesNotClaimPartialTimeCoverage() = runBlocking { fixture { cache,server,position ->
+        val factory = source(cache,server.url,position,estimated = true)
+        prime(factory,server.url).close()
+        assertTrue(full(cache).ranges.isEmpty())
+    }}
 
     @Test fun fullBudgetWaitsThenPlayedBytesRefillAndSeekReorders()=runBlocking {fixture {cache,server,position->
         val factory=source(cache,server.url,position);prime(factory,server.url).close()
@@ -152,10 +223,11 @@ class PlaybackStreamCacheTest {
         cache.stop();assertEquals(0L,cache.state.value.usedBytes)
     }}
 
-    private class RangeServer(private val length:Int):AutoCloseable {
+    private class RangeServer(private val length:Long):AutoCloseable {
         private val listener=ServerSocket(0,8,InetAddress.getByName("127.0.0.1"))
         val url="http://127.0.0.1:${listener.localPort}/owned.bin"
         val requests=AtomicInteger();val blockBounded=AtomicBoolean();val blocked=CountDownLatch(1)
+        val boundedStarts=ConcurrentHashMap.newKeySet<Long>()
         private val running=AtomicBoolean(true)
         private val sockets=ConcurrentHashMap.newKeySet<Socket>()
         private val workers=Executors.newFixedThreadPool(4){Thread(it,"Owned-cache-http").apply{isDaemon=true}}
@@ -170,10 +242,10 @@ class PlaybackStreamCacheTest {
                 while(true){val line=input.readLine()?:return;if(line.isEmpty())break;if(line.startsWith("Range:",true))range=line.substringAfter(':').trim()}
                 requests.incrementAndGet()
                 val playlist="#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:1.0,\nsegment-0.ts\n#EXTINF:1.0,\nsegment-1.ts\n#EXTINF:1.0,\nsegment-2.ts\n#EXT-X-ENDLIST\n".toByteArray()
-                val size=if(path.endsWith(".m3u8"))playlist.size else if(path.endsWith(".ts"))64*1024 else length
+                val size=if(path.endsWith(".m3u8"))playlist.size.toLong() else if(path.endsWith(".ts"))64L*1024 else length
                 val value=range?.removePrefix("bytes=")?.split('-')
-                val start=value?.getOrNull(0)?.toIntOrNull()?:0
-                val end=(value?.getOrNull(1)?.toIntOrNull()?:size-1).coerceAtMost(size-1)
+                val start=value?.getOrNull(0)?.toLongOrNull()?:0L
+                val end=(value?.getOrNull(1)?.toLongOrNull()?:size-1).coerceAtMost(size-1)
                 val output=socket.getOutputStream()
                 if(start>=size){output.write("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */$size\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".toByteArray());output.flush();return}
                 val status=if(range==null)"200 OK"else"206 Partial Content"
@@ -182,14 +254,16 @@ class PlaybackStreamCacheTest {
                 // Foreground CacheDataSource can bound its otherwise open-ended
                 // request using known content length. Stall only prefetch-size
                 // chunks, so this fixture models a stuck background request.
-                if(blockBounded.get()&&value?.getOrNull(1)?.isNotEmpty()==true&&end-start+1<=32*1024){
+                val bounded = value?.getOrNull(1)?.isNotEmpty() == true && end-start+1<=32*1024
+                if (bounded) boundedStarts += start
+                if(blockBounded.get() && bounded){
                     socket.soTimeout=100
                     blocked.countDown()
                     while(running.get())try{if(input.read()<0)return}catch(_:SocketTimeoutException){}
                     return
                 }
                 val buffer=ByteArray(8192);var at=start
-                while(at<=end){val count=minOf(buffer.size,end-at+1);for(i in 0 until count)buffer[i]=if(path.endsWith(".m3u8"))playlist[at+i]else((at+i)%251).toByte();output.write(buffer,0,count);at+=count}
+                while(at<=end){val count=minOf(buffer.size.toLong(),end-at+1).toInt();for(i in 0 until count)buffer[i]=if(path.endsWith(".m3u8"))playlist[(at+i).toInt()]else((at+i)%251).toByte();output.write(buffer,0,count);at+=count}
                 output.flush()
             }}catch(_:IOException){}finally{sockets-=socket}
         }

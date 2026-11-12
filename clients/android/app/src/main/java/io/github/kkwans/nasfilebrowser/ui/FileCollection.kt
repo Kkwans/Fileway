@@ -36,6 +36,7 @@ private val anchorSaver = listSaver<CollectionAnchor, Any>(
 @Composable internal fun <T> FileCollection(entries: List<T>, layout: FileLayout, modifier: Modifier,
     description: String, resetKey: Any?, keyOf: (T) -> String,
     header: @Composable (() -> Unit)? = null, compactGridSize: CompactGridSize = CompactGridSize.MEDIUM,
+    footer: @Composable (() -> Unit)? = null,
     entry: @Composable (T) -> Unit) {
     val holder = rememberSaveableStateHolder()
     // Caller supplies account scope, wire directory/query and filter; length framing prevents collisions.
@@ -95,6 +96,7 @@ private val anchorSaver = listSaver<CollectionAnchor, Any>(
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalItemSpacing = 12.dp) {
                     if (header != null) item(key = "collection-header", span = StaggeredGridItemSpan.FullLine) { header() }
                     items(entries, key = { "entry:${keyOf(it)}" }) { entry(it) }
+                    if (footer != null) item(key = "collection-footer", span = StaggeredGridItemSpan.FullLine) { footer() }
                 }
             }
             FileLayout.COVER, FileLayout.COMPACT -> BoxWithConstraints(area) {
@@ -107,12 +109,14 @@ private val anchorSaver = listSaver<CollectionAnchor, Any>(
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (header != null) item(key = "collection-header", span = { GridItemSpan(maxLineSpan) }) { header() }
                     items(entries, key = { "entry:${keyOf(it)}" }) { entry(it) }
+                    if (footer != null) item(key = "collection-footer", span = { GridItemSpan(maxLineSpan) }) { footer() }
                 }
             }
             FileLayout.LIST, FileLayout.DETAIL -> LazyColumn(area, state = list, contentPadding = padding,
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (header != null) item(key = "collection-header") { header() }
                 items(entries, key = { "entry:${keyOf(it)}" }) { entry(it) }
+                if (footer != null) item(key = "collection-footer") { footer() }
             }
         }
     }

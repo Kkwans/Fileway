@@ -22,6 +22,8 @@ class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
     private data class Write(val key:String,val start:Long,val end:Long,var remaining:Long)
     private val spans=TreeSet<CacheSpan>(compareBy<CacheSpan>{it.key}.thenBy{it.position})
     private val readers=mutableMapOf<Any,Pin>()
+    private val openFiles = mutableMapOf<Any, String>()
+    private val pendingClear = mutableSetOf<CacheSpan>()
     private var bytes=0L
     private var prefix:String?=null
     private var native:NativeWindow?=null
@@ -34,7 +36,7 @@ class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
     override fun requiresCacheSpanTouches()=false
     override fun onCacheInitialized(){}
     override fun onSpanTouched(cache:Cache,old:CacheSpan,new:CacheSpan){onSpanRemoved(cache,old);onSpanAdded(cache,new)}
-    override fun onSpanRemoved(cache:Cache,span:CacheSpan){if(spans.remove(span))bytes-=span.length}
+    override fun onSpanRemoved(cache:Cache,span:CacheSpan){if(spans.remove(span))bytes-=span.length;pendingClear.remove(span)}
     override fun onSpanAdded(cache:Cache,span:CacheSpan){
         if(spans.add(span)) {
             bytes+=span.length
@@ -68,7 +70,34 @@ class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
         require(position>=0&&length>0)
         readers[token]=Pin(key,position,add(position,length))
     }
-    fun unpin(cache:Cache,token:Any)=synchronized(cache){readers.remove(token);evict(cache,0,null)}
+    fun unpin(cache: Cache, token: Any) = synchronized(cache) {
+        if (readers.remove(token) != null) trimAfterUnpin(cache)
+    }
+
+    fun pinFile(cache: Cache, token: Any, path: String) = synchronized(cache) {
+        openFiles[token] = path
+    }
+
+    fun unpinFile(cache: Cache, token: Any) = synchronized(cache) {
+        if (openFiles.remove(token) != null) trimAfterUnpin(cache)
+    }
+
+    private fun trimAfterUnpin(cache: Cache) {
+        finishClear(cache)
+        evict(cache,0,null)
+    }
+
+    fun clearUnpinned(cache: Cache) = synchronized(cache) {
+        check(write == null)
+        pendingClear.addAll(spans)
+        finishClear(cache)
+    }
+
+    fun isClearing(cache: Cache) = synchronized(cache) { pendingClear.isNotEmpty() }
+
+    private fun finishClear(cache: Cache) {
+        pendingClear.filterNot(::pinned).forEach(cache::removeSpan)
+    }
 
     /** Returns a possibly shorter final chunk. Zero performs no network request. */
     fun beginWrite(cache:Cache,key:String,position:Long,requested:Long):Long=synchronized(cache){
@@ -90,7 +119,8 @@ class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
         evict(cache,0,null)
     }
 
-    private fun pinned(span:CacheSpan)=readers.values.any{it.key==span.key&&it.start<add(span.position,span.length)&&it.end>span.position}
+    private fun pinned(span: CacheSpan) = span.file?.absolutePath?.let(openFiles::containsValue) == true ||
+        readers.values.any { it.key == span.key && it.start < add(span.position, span.length) && it.end > span.position }
     private fun belongs(span:CacheSpan)=prefix?.let{span.key.startsWith(it)}==true
     private fun played(span:CacheSpan):Boolean {
         if(!belongs(span)||span.key in permanent)return false

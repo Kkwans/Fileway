@@ -39,13 +39,14 @@ import java.util.Locale
 
 /** Shared file card for directory and verified search results. */
 @OptIn(ExperimentalLayoutApi::class)
-@Composable internal fun FileEntry(model: ClientModel, file: ResourceRef, layout: FileLayout, enabled: Boolean,
+@Composable internal fun FileEntry(model: ClientModel?, file: ResourceRef, layout: FileLayout, enabled: Boolean,
     open: () -> Unit, details: () -> Unit, location: String? = null, metadata: @Composable (() -> Unit)? = null,
     selected: Boolean? = null, compactGridSize: CompactGridSize = CompactGridSize.MEDIUM,
-    onSelect: (() -> Unit)? = null, singleTapOpen: Boolean = false) {
+    onSelect: (() -> Unit)? = null, singleTapOpen: Boolean = false,
+    remoteArtwork: (@Composable (Modifier, ContentScale, Boolean) -> Unit)? = null) {
     val colors = FilewayTheme.colors
-    val tags by model.tags.state.collectAsStateWithLifecycle()
-    val associated = if (file.downloadId.isNotEmpty()) emptyList() else tags.items.filter { collectionPath(file.path) in it.paths }
+    val tags = model?.tags?.state?.collectAsStateWithLifecycle()?.value
+    val associated = if (file.downloadId.isNotEmpty()) emptyList() else tags?.items.orEmpty().filter { collectionPath(file.path) in it.paths }
     val action = if (selected != null) Modifier.toggleable(selected, enabled = enabled, role = Role.Checkbox) { open() }
         else Modifier.combinedClickable(enabled = enabled, role = Role.Button, onClick = if (singleTapOpen) open else details,
             onDoubleClick = if (singleTapOpen) null else open,
@@ -53,7 +54,10 @@ import java.util.Locale
             .semantics { if (!singleTapOpen) customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("打开") { open(); true }) }
     val centered = layout == FileLayout.COVER || layout == FileLayout.COMPACT
     @Composable fun artwork(modifier: Modifier) {
-        if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) {
+        if (remoteArtwork != null && file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO, MediaKind.AUDIO)) {
+            remoteArtwork(modifier, if (layout == FileLayout.UNBOUNDED) ContentScale.Fit else ContentScale.Crop,
+                layout == FileLayout.UNBOUNDED)
+        } else if (model != null && file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) {
             // Preview failures are signalled by the existing lease component; black media remains media.
             MaterialTheme(colorScheme = colors) {
                 MediaThumbnail(model, file, modifier,

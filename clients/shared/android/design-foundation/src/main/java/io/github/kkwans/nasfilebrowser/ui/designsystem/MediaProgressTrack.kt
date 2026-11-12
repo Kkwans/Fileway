@@ -20,6 +20,7 @@ fun DrawScope.drawMediaProgressTrack(
     thickness: Dp = 3.dp,
     thumbRadius: Dp = 0.dp,
     yOffset: Dp = 0.dp,
+    bufferedFrom: Float = 0f,
 ) {
     if (size.width <= 0 || size.height <= 0) return
     fun fraction(value: Float) = if (value.isFinite()) value.coerceIn(0f, 1f) else 0f
@@ -32,7 +33,7 @@ fun DrawScope.drawMediaProgressTrack(
     segment(0f, 1f, trackColor)
     downloaded?.let { segment(0f, it, downloadedColor) }
     cachedRanges.forEach { (start, end) -> segment(start, end, downloadedColor) }
-    buffered?.let { segment(0f, it, bufferedColor) }
+    buffered?.let { segment(bufferedFrom, it, bufferedColor) }
     segment(0f, progress, progressColor)
     if (thumbRadius > 0.dp) drawCircle(progressColor, thumbRadius.toPx(), Offset(size.width * fraction(progress), y))
 }

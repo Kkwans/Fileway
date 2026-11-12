@@ -189,6 +189,20 @@ class TvControlModel(application:Application):AndroidViewModel(application){
     }
     fun work(action:suspend ()->Unit){val expected=revision;viewModelScope.launch{runAction(expected,action)}}
     fun command(operation:String,payload:JSONObject=JSONObject())=work{send(operation,payload)}
+    internal suspend fun remoteRequest(expected: RemoteSnapshot, operation: String, payload: JSONObject,
+        mediaBound: Boolean = false): JSONObject {
+        val result = client.execute(operation, payload, expected, mediaBound)
+        if (!result.completed) {
+            if (result.uncertain) throw TvCommandUnconfirmed()
+            error(result.payload?.optString("message").orEmpty().ifBlank { "电视未执行操作" })
+        }
+        if (operation in setOf("browse.list", "preview.open", "preview.read", "settings.deviceInfo")) {
+            val actual = connection.value.snapshot
+            check(actual?.connectionId == expected.connectionId && actual.sessionEpoch == expected.sessionEpoch &&
+                (!mediaBound || actual.mediaEpoch == expected.mediaEpoch)) { "TV 登录或播放来源已变化" }
+        }
+        return result.payload ?: JSONObject()
+    }
     private fun checkSnapshot(expected:RemoteSnapshot) {
         val actual=connection.value.snapshot
         check(actual?.connectionId==expected.connectionId&&actual.sessionEpoch==expected.sessionEpoch&&actual.mediaEpoch==expected.mediaEpoch){"TV 播放或登录来源已变化，请重新打开面板"}

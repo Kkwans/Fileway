@@ -41,6 +41,8 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
     private val lifecycle = Mutex()
     private val commands = Mutex()
     private val publishing=Mutex()
+    private var publishIntervalMs = 1000L
+    private var publishedScope: Triple<Long, Long, Long>? = null
     private val invitations=Mutex()
     private val pairingSaves=Mutex()
     private var running: Job? = null
@@ -114,7 +116,7 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
                     // request, so an unpaired installation remains usable by remote.
                     publish()
                     coroutineScope {
-                        launch { while (isActive) { delay(1000); publish() } }
+                        launch { while (isActive) { delay(publishIntervalMs); publish() } }
                         while (isActive) {
                             val event = call("remote_wait") as JSONObject
                             when (event.optString("type")) {
@@ -257,15 +259,23 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
             status = "REJECTED"; code = "ACTION_FAILED"
             payload = JSONObject().put("message", error.message ?: "操作未完成")
         }
-        publish()
+        publish(scopeOnly = operation in setOf("browse.list", "preview.open", "preview.read",
+            "subtitle.browse.open", "subtitle.browse.page", "settings.deviceInfo", "app.list"))
         val result = JSONObject().put("type", "command.result").put("commandId", command.getString("commandId"))
             .put("status", status).put("code", code).put("revision", revision)
         payload?.let { result.put("payload", it) }
         call("remote_reply", JSONObject().put("remoteConnectionId", connection).put("remoteControllerId", controller).put("remoteResult", result))
     }
-    suspend fun publish() =publishing.withLock {
+    suspend fun publish(scopeOnly: Boolean = false) =publishing.withLock {
         if (handle == null) return@withLock
-        call("remote_publish", JSONObject().put("remoteState", snapshot().put("revision", ++revision)))
+        val state = snapshot()
+        val scope = Triple(state.getLong("sessionEpoch"), state.getLong("mediaEpoch"),
+            state.optJSONObject("content")?.optLong("subtitleStorageRevision") ?: 0L)
+        if (scopeOnly && scope == publishedScope) return@withLock
+        state.put("revision", ++revision)
+        publishIntervalMs = if (state.optString("scene") == "VIDEO") 500L else 1000L
+        call("remote_publish", JSONObject().put("remoteState", state))
+        publishedScope = scope
     }
     suspend fun authorized(command:JSONObject):Boolean{
         val controller=command.getString("controllerId")

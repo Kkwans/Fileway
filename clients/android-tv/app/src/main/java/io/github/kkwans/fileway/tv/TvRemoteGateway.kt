@@ -8,6 +8,8 @@ import io.github.kkwans.fileway.remote.*
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -15,6 +17,7 @@ import java.security.MessageDigest
 /** Runs on Main and shares the model/player's public actions with touch and
  * D-pad UI. LAN clients never get to choose a URL, token, lease or filesystem. */
 class TvRemoteGateway(private val model:TvModel,context:Context){
+    private val browser = TvRemoteBrowse(model)
     private val handoff=TvMediaHandoff(model)
     private val authorization=DeviceAuthorization(context)
     private val subtitleBrowser = TvRemoteSubtitleBrowser(
@@ -131,10 +134,20 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         val cache=model.media.cache.state.value
         content.put("cache",JSONObject().put("limitBytes",cache.limitBytes).put("usedBytes",cache.usedBytes)
             .put("bytesPerSecond",cache.bytesPerSecond).put("error",cache.error?:JSONObject.NULL)
+            .put("clearing",cache.clearing || cache.releasing).put("prefetchPaused",cache.prefetchPaused)
+            .put("minMiB",TvVideoCache.MIN_MIB).put("maxMiB",TvVideoCache.MAX_MIB)
             .put("ranges",JSONArray(cache.ranges.take(40).map{JSONObject().put("startMs",it.startMs).put("endMs",it.endMs)})))
+        content.getJSONObject("preferences").put("decoder", model.media.playbackPreferences.videoDecodePolicy.value.name)
+        val updates = model.updates.state.value
+        content.put("updates", JSONObject().put("phase", updates.phase.name).put("received", updates.received)
+            .put("total", updates.total ?: JSONObject.NULL).put("message", updates.message ?: JSONObject.NULL)
+            .put("offers", JSONArray(updates.offers.take(8).map {
+                JSONObject().put("id", it.id).put("version", it.manifest.versionName)
+            })))
         content.put("playback",JSONObject().put("playing",player.playing).put("positionMs",model.media.sourcePosition()).put("durationMs",media.sourceDurationMs)
             .put("positionLocalMs",player.positionMs).put("sourceOffsetMs",media.sourceOffsetMs).put("sdrActive",media.compatible)
             .put("bufferedMs",player.bufferedPositionMs+media.sourceOffsetMs).put("volume",player.volume).put("rate",player.rate).put("seekable",model.media.canSeek)
+            .put("ratio",model.media.ratioIndex.value)
             .put("seeking",player.seeking).put("seekError",player.seekError).put("buffering",player.buffering).put("preparing",media.busy)
             .put("firstFrameRendered",player.firstFrameRendered).put("audioDecoder",player.audioDecoder.take(120)).put("subtitleLoading",player.subtitleLoading||media.subtitleLoading).put("waitingForBuffer",player.waitingForBuffer)
             .put("subtitleLoadDetail", media.subtitleLoadDetail.takeIf { media.subtitleLoading })
@@ -147,9 +160,18 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             .put("sourceSubtitles",JSONArray(media.sourceText.takeIf{media.sourceSubtitles}.orEmpty().take(16).map{JSONObject().put("id",it.index).put("title",it.title.take(120)).put("language",it.language.take(40))}))
             .put("sidecars",JSONArray(media.sidecars.take(8).map(::fileJson))).put("selectedAudio",if(media.compatible)media.selectedSourceAudio?:-1 else player.selectedAudio)
             .put("selectedSubtitle",player.selectedSubtitle).put("selectedSourceSubtitle",media.selectedSourceSubtitle))
-        media.queue?.let{q->content.put("queue",JSONObject().put("index",q.index).put("count",q.items.size).put("items",JSONArray(q.items.take(8).map(::fileJson))))}
+        media.queue?.let { q ->
+            val queue = JSONObject().put("index", q.index).put("count", q.items.size)
+                .put("items", JSONArray(q.items.take(8).map(::fileJson)))
+            if (scene == "IMAGE") queue.put("imageWindow", JSONArray(
+                (maxOf(0, q.index - 1)..minOf(q.items.lastIndex, q.index + 1)).map { index ->
+                    fileJson(q.items[index]).put("index", index)
+                }))
+            content.put("queue", queue)
+        }
         handoff.snapshot()?.let{content.put("handoff",it)}
         val capabilities = JSONObject().put("navigation",true).put("input",true).put("deviceAuth",true).put("media",true).put("nativeHandoff",1).put("mediaPanels",1).put("fileDetailsKey",1).put("recentAccessPage",1)
+            .put("fileBrowse", 1).put("mediaPreview", 1).put("cacheControl", 1).put("settingsControl", 1)
         if (scene == "VIDEO" && subtitleBrowser.available) capabilities.put("subtitleBrowseServer", 1)
         if (scene == "VIDEO" && subtitleBrowser.available) capabilities.put("subtitleBrowseServerCursor", 1)
         if (scene == "VIDEO" && subtitleBrowser.serverUpgradeRequired) capabilities.put("subtitleBrowseServerReason", "SERVER_UPGRADE_REQUIRED")
@@ -160,6 +182,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
     suspend fun execute(command:JSONObject):JSONObject{
         val operation=command.getString("operation");val p=command.getJSONObject("payload")
         if (operation.startsWith("subtitle.browse.")) return subtitleBrowser.execute(operation, command, p)
+        if (operation.startsWith("browse.") || operation.startsWith("preview.")) return browser.execute(operation, command, p)
         check(command.getLong("sessionEpoch")==model.sessionEpoch){"TV账号或服务器已变化，请刷新"}
         if(operation.startsWith("playback.")||operation.startsWith("subtitle.")||operation.startsWith("audio.")||operation.startsWith("queue.")||operation.startsWith("image.")){
             check(command.getLong("mediaEpoch")==model.media.controlEpoch){"播放内容已变化，请刷新"}
@@ -191,7 +214,8 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
                 "seekStepSeconds"->{val value=p.getInt("value");require(value in 3..30);model.setSeekStep(value)}
                 "controlsTimeoutSeconds"->{val value=p.getInt("value");require(value in 2..30);model.setControlsTimeout(value)}
                 "detailsHoldMillis"->{val value=p.getInt("value");require(value in 500..2000);model.setDetailsHold(value)}
-                "cacheMiB"->{val limit=p.getLong("value");require(limit in 64..65536);model.media.cache.setLimit(limit*1048576)}
+                "cacheMiB"->model.media.cache.setLimitConfirmed(p.getLong("value"))
+                "decoder"->model.media.setVideoDecodePolicy(VideoDecodePolicy.valueOf(p.getString("value")))
                 else->error("设置不支持")
             }
             "media.open","image.open"->when {p.has("cancelHandoff")->return handoff.cancel(command,p.getString("cancelHandoff"));p.has("handoff")->return handoff.open(command,p);else->model.open(find(p.getString("id")),files())}
@@ -203,6 +227,20 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             "playback.setRate"->{val rate=p.getDouble("rate").toFloat();require(rate.isFinite()&&rate in .1f..5f);player.rate(rate)}
             "playback.setVolume"->{val volume=p.getInt("volume");require(volume in 0..100);player.volume(volume)}
             "playback.setHdrMode"->model.media.switchMode(TvHdrMode.valueOf(p.getString("mode")))
+            "playback.setRatio"->model.media.setRatio(p.getInt("index"))
+            "cache.clear"->{ require(p.getBoolean("confirmed")); model.media.cache.clear() }
+            "cache.resume"->model.media.cache.resumePrefetch()
+            "settings.deviceInfo"->return JSONObject().put("details", withContext(Dispatchers.IO) {
+                tvDeviceInfo(model.getApplication()).take(4096)
+            })
+            "settings.updates"->when(p.getString("action")) {
+                "check"->model.updates.check()
+                "download"->model.updates.download(model.updates.state.value.offers.firstOrNull {
+                    it.id == p.getString("id")
+                } ?: error("更新列表已变化，请重新检查"))
+                "cancel"->model.updates.cancelDownload()
+                else->error("请在 TV 上确认系统安装")
+            }
             "audio.select"->{val id=p.getInt("id");if(p.optBoolean("source")){check(model.media.state.value.compatible&&model.media.state.value.sourceAudio.any{it.index==id}){"音轨已变化"};model.media.selectSourceAudio(id)}else{check(id==-1||player.state.value.audio.any{it.id==id}){"音轨已变化"};model.media.selectAudio(id)}}
             "subtitle.disable"->model.media.subtitlesOff()
             "subtitle.select"->{val id=p.getInt("id");if(p.optBoolean("source")){check(model.media.state.value.sourceText.any{it.index==id});model.media.selectSourceSubtitle(id)}else{check(model.media.subtitleTrackPublished(id)&&player.state.value.subtitles.any{it.id==id});model.media.selectPlayerSubtitle(id)}}

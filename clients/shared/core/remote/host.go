@@ -54,16 +54,18 @@ type pairPending struct {
 	done       chan bool
 }
 type commandEntry struct {
-	digest     string
-	controller string
-	connection string
-	transient  bool
-	session    uint64
-	media      uint64
-	storage    uint64
-	result     Result
-	expires    time.Time
-	timer      *time.Timer
+	digest       string
+	controller   string
+	connection   string
+	transient    bool
+	subtitleRead bool
+	mediaRead    bool
+	session      uint64
+	media        uint64
+	storage      uint64
+	result       Result
+	expires      time.Time
+	timer        *time.Timer
 }
 type peer struct {
 	id, controller string
@@ -293,8 +295,9 @@ func (h *Host) Reply(connectionID, controllerID string, result Result) error {
 	// Android publishes a fresh state immediately before its reply. Check the
 	// captured scope again while holding the host lock, before any directory
 	// payload can be delivered to a connection that has changed TV source.
-	if entry.transient && (entry.session != h.state.SessionEpoch || entry.media != h.state.MediaEpoch ||
-		entry.storage != subtitleStorageRevision(h.state)) {
+	if entry.transient && (entry.session != h.state.SessionEpoch ||
+		entry.mediaRead && entry.media != h.state.MediaEpoch ||
+		entry.subtitleRead && entry.storage != subtitleStorageRevision(h.state)) {
 		result.Status, result.Code, result.Payload = "REJECTED", "STALE_SCOPE", nil
 	}
 	// Keep the first response for the active requesting socket, but never retain
@@ -308,7 +311,11 @@ func (h *Host) Reply(connectionID, controllerID string, result Result) error {
 			stored.Code = "RESULT_NOT_RETAINED"
 		}
 	}
-	entry.result, entry.expires = stored, time.Now().Add(5*time.Minute)
+	lifetime := 5 * time.Minute
+	if entry.transient && result.Status != "UNKNOWN" {
+		lifetime = 2 * time.Second
+	}
+	entry.result, entry.expires = stored, time.Now().Add(lifetime)
 	if entry.timer != nil {
 		entry.timer.Stop()
 	}
@@ -652,15 +659,26 @@ func (h *Host) acceptCommand(active *peer, command Command) error {
 		h.mu.Unlock()
 		return ErrClosed
 	}
-	now, pendingCount := time.Now(), 0
+	now := time.Now()
+	pendingCount, pendingReads, retainedWrites, retainedReads := 0, 0, 0, 0
 	for id, entry := range h.commands {
 		if now.After(entry.expires) {
 			if entry.timer != nil {
 				entry.timer.Stop()
 			}
 			delete(h.commands, id)
-		} else if entry.result.Status == "ACCEPTED" {
-			pendingCount++
+		} else {
+			if entry.transient {
+				retainedReads++
+			} else {
+				retainedWrites++
+			}
+			if entry.result.Status == "ACCEPTED" {
+				pendingCount++
+				if entry.transient {
+					pendingReads++
+				}
+			}
 		}
 	}
 	if command.Operation == "device.commandStatus" {
@@ -690,13 +708,23 @@ func (h *Host) acceptCommand(active *peer, command Command) error {
 		h.mu.Unlock()
 		return h.send(active, result)
 	}
-	if pendingCount >= MaxPendingCommands || len(h.commands) >= 160 {
+	read := transientRemoteRead(command.Operation)
+	if pendingCount >= MaxPendingCommands ||
+		read && (retainedReads >= 64 || pendingReads >= 8) || !read && retainedWrites >= 160 {
 		h.mu.Unlock()
 		return h.send(active, Result{Type: "command.result", CommandID: command.CommandID, Status: "REJECTED", Code: "DEVICE_BUSY"})
 	}
 	result := Result{Type: "command.result", CommandID: command.CommandID, Status: "ACCEPTED"}
+	mediaRead := transientSubtitleRead(command.Operation)
+	if command.Operation == "preview.open" || command.Operation == "preview.read" {
+		var scope struct {
+			BrowseID string `json:"browseId"`
+		}
+		mediaRead = json.Unmarshal(command.Payload, &scope) != nil || scope.BrowseID == ""
+	}
 	entry := &commandEntry{digest: commandDigest(command), controller: active.controller, connection: active.id,
-		transient: transientSubtitleRead(command.Operation), session: command.SessionEpoch, media: command.MediaEpoch,
+		transient: read, subtitleRead: transientSubtitleRead(command.Operation), mediaRead: mediaRead,
+		session: command.SessionEpoch, media: command.MediaEpoch,
 		storage: subtitleStorageRevision(h.state),
 		result:  result, expires: now.Add(5 * time.Minute)}
 	h.commands[key] = entry

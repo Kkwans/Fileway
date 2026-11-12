@@ -1001,7 +1001,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
-@Composable internal fun PlayerSlider(value: Float, maximum: Float, label: String, enabled: Boolean, change: (Float) -> Unit, finish: () -> Unit = {}, description: String = "${value.toInt()}%", downloadedValue: Float? = null, modifier: Modifier = Modifier, bufferedValue: Float? = null, mediaSurface: Boolean = true, minimum: Float = 0f, visualTrackOffset: Dp = 0.dp) {
+@Composable internal fun PlayerSlider(value: Float, maximum: Float, label: String, enabled: Boolean, change: (Float) -> Unit, finish: () -> Unit = {}, description: String = "${value.toInt()}%", downloadedValue: Float? = null, modifier: Modifier = Modifier, bufferedValue: Float? = null, mediaSurface: Boolean = true, minimum: Float = 0f, visualTrackOffset: Dp = 0.dp,
+    cachedRanges: List<Pair<Float, Float>> = emptyList(), bufferedStartValue: Float = minimum) {
     // Preserve Material's drag and keyboard handling. Export one named range
     // with meaningful time/volume state, rather than split label/range nodes
     // and the default raw millisecond number. Accessibility uses the same
@@ -1036,6 +1037,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                 downloadedColor = accent.copy(alpha = .35f),
                 buffered = bufferedValue?.let { (it - minimum) / span },
                 bufferedColor = secondary.copy(alpha = .8f),
+                cachedRanges = cachedRanges,
+                bufferedFrom = (bufferedStartValue - minimum) / span,
                 yOffset = visualTrackOffset,
             )
         } })

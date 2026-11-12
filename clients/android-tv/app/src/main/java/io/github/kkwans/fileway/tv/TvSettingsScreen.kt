@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.*
 import io.github.kkwans.nasfilebrowser.data.VideoDecodePolicy
@@ -57,6 +58,32 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
     val body=remember { FocusRequester() }
     val navigation=remember { TvSettingsSection.entries.associateWith { FocusRequester() } }
     val scope=rememberCoroutineScope()
+    var clearConfirm by remember { mutableStateOf(false) }
+    var cacheError by remember { mutableStateOf<String?>(null) }
+    fun cacheOperation(action: suspend () -> Unit) {
+        scope.launch {
+            cacheError = null
+            try { action() }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { cacheError = failure.message ?: "TV 缓存操作未完成" }
+        }
+    }
+    LaunchedEffect(cache.limitBytes) { cacheInput = (cache.limitBytes / TvVideoCache.MIB).toString() }
+    if (clearConfirm) Dialog(onDismissRequest = { clearConfirm = false }) {
+        Surface(shape = TvShape) {
+            Column(Modifier.widthIn(max = 440.dp).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("清理视频缓存？", style = MaterialTheme.typography.titleLarge)
+                Text("已用 " + tvSize(cache.usedBytes) + "。当前播放继续，后台预缓冲暂停。")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TvButton("取消", { clearConfirm = false })
+                    TvButton("清理", {
+                        clearConfirm = false
+                        cacheOperation { model.media.cache.clear() }
+                    })
+                }
+            }
+        }
+    }
     var updatesOpen by rememberSaveable { mutableStateOf(false) }
     var returnToUpdates by remember { mutableStateOf(false) }
     if (updatesOpen) {
@@ -153,13 +180,23 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                     item { TvSectionTitle("视频预缓冲") }
                     item { Text("已使用 ${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}",style=MaterialTheme.typography.bodyLarge) }
                     item { Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                        listOf(512,1024,2048,4096).forEach { mib -> TvButton(if(mib<1024)"512 MB" else "${mib/1024} GB",{
-                            model.media.cache.setLimit(mib*1048576L);cacheInput=mib.toString()
+                        listOf(500,1024,2048,4096).forEach { mib -> TvButton(if(mib<1024)"500 MB" else "${mib/1024} GB",{
+                            cacheOperation { model.media.cache.setLimitConfirmed(mib.toLong()) }
                         },Modifier.weight(1f),selected=cache.limitBytes==mib*1048576L) }
                     } }
                     item { TvField("自定义容量（MB）",cacheInput,{cacheInput=it},options=KeyboardOptions(keyboardType=KeyboardType.Number)) }
-                    item { TvButton("应用容量",{cacheInput.toLongOrNull()?.takeIf { it in 64..65536 }?.let { model.media.cache.setLimit(it*1048576) }},enabled=cacheInput.toLongOrNull()?.let { it in 64L..65536L }==true) }
-                    cache.feedback?.let { message -> item {
+                    item { TvButton("应用容量",{cacheInput.toLongOrNull()?.takeIf { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }?.let { mib ->
+                        cacheOperation { model.media.cache.setLimitConfirmed(mib) }
+                    }},enabled=cacheInput.toLongOrNull()?.let { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }==true) }
+                    item {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            TvButton("清理视频缓存", { clearConfirm = true }, enabled = !cache.clearing)
+                            if (cache.prefetchPaused) TvButton("恢复预缓冲", {
+                                cacheOperation { model.media.cache.resumePrefetch() }
+                            })
+                        }
+                    }
+                    (cacheError ?: cache.feedback)?.let { message -> item {
                         Text(message, style = MaterialTheme.typography.bodyMedium,
                             color = if (cache.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     } }

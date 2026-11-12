@@ -349,6 +349,7 @@ internal fun tvPlayerSafeInset(dimension: Dp, safePercent: Int, minimum: Dp) =
                 drawMediaProgressTrack(progress,
                     Color.White.copy(alpha = .36f), FilewayPalette.darkAccent,
                     buffered = if (duration > 0) buffered.toFloat() / duration else null,
+                    bufferedFrom = if (duration > 0) position.toFloat() / duration else 0f,
                     bufferedColor = Color.White.copy(alpha = .68f),
                     cachedRanges = ranges, downloadedColor = FilewayPalette.darkAccent.copy(alpha = .5f),
                     thickness = thickness,

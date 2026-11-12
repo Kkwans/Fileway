@@ -180,6 +180,9 @@ func TestCompanionPairControlAndReconnect(t *testing.T) {
 		{"subtitle.browse.open", "COMPLETED", `{"items":[{"name":"owned-caption.srt"}]}`},
 		{"subtitle.browse.page", "COMPLETED", `{"items":[{"name":"owned-caption.srt"}]}`},
 		{"subtitle.browse.page", "REJECTED", `{"message":"owned-caption.srt is unavailable"}`},
+		{"browse.list", "COMPLETED", `{"files":[{"name":"owned-video.mp4"}]}`},
+		{"preview.open", "COMPLETED", `{"previewId":"owned-preview","data":"AA=="}`},
+		{"preview.read", "COMPLETED", `{"data":"AA=="}`},
 	} {
 		browseID, _ := randomID()
 		directoryCommands = append(directoryCommands, browseID)

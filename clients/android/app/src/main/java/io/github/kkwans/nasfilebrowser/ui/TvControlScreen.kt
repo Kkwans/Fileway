@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,7 +58,6 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import org.json.JSONObject
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun TvControlScreen(phone:ClientModel,onClose:()->Unit,controlModel:TvControlModel?=null){
@@ -69,6 +69,10 @@ import kotlin.math.roundToInt
     val notice by model.notice.collectAsStateWithLifecycle()
     val busy by model.busy.collectAsStateWithLifecycle()
     val moreFiles by model.moreFiles.collectAsStateWithLifecycle()
+    val browse = remember(connection.snapshot?.connectionId, connection.snapshot?.sessionEpoch) { TvBrowseState() }
+    val browsePresentation = key(connection.snapshot?.connectionId, connection.snapshot?.sessionEpoch) {
+        rememberSaveableStateHolder()
+    }
     val context=LocalContext.current
     val scope=rememberCoroutineScope()
     var permitted by remember{mutableStateOf(Build.VERSION.SDK_INT<37||context.checkSelfPermission(Manifest.permission.ACCESS_LOCAL_NETWORK)==PackageManager.PERMISSION_GRANTED)}
@@ -118,6 +122,8 @@ import kotlin.math.roundToInt
             BoxWithConstraints(Modifier.fillMaxSize().systemBarsPadding()
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).imePadding()) {
             val landscape = maxWidth >= 560.dp && maxWidth > maxHeight * 1.35f
+            val portraitPad = (maxHeight * .38f).coerceIn(192.dp, 304.dp)
+                .coerceAtMost((maxWidth - 36.dp).coerceAtLeast(144.dp))
             val hasRail = landscape && !scanning && connection.phase == RemotePhase.CONNECTED && connection.snapshot != null
             Column(Modifier.fillMaxSize()) {
                 if (hasRail) TvPhoneLandscapeHeader(tvConnectionSubtitle(connection), ::closeControl, { devicesOpen = true })
@@ -132,8 +138,20 @@ import kotlin.math.roundToInt
                     val snapshot=connection.snapshot
                     if(connection.phase==RemotePhase.CONNECTED&&snapshot!=null){
                         val pager=rememberFilewayPager(sections.indexOf(section).coerceAtLeast(0),sections.size){index->section=sections[index];selectedTab=true}
-                        TvPhonePages(pager, sections, landscape, Modifier.weight(1f)) { page, compactHeight ->
+                        TvPhonePages(pager, sections, landscape, Modifier.weight(1f),
+                            swipeTabs = snapshot.scene != "IMAGE" || section != "播放") { page, compactHeight ->
                             val currentSection=sections[page]
+                            if (currentSection == "文件" && snapshot.capabilities.optInt("fileBrowse") > 0 &&
+                                snapshot.content.optBoolean("connected")) {
+                                browsePresentation.SaveableStateProvider(snapshot.connectionId + "/" + snapshot.sessionEpoch) {
+                                    TvRemoteFiles(model, snapshot, browse)
+                                }
+                                return@TvPhonePages
+                            }
+                            if (currentSection == "设置") {
+                                TvRemoteSettings(model, phone, snapshot, busy, connection.device?.name ?: "TV")
+                                return@TvPhonePages
+                            }
                             val compactRemote=currentSection=="遥控"&&compactHeight
                             val centerRemote = currentSection == "遥控" && landscape
                             val gap = if (compactRemote) 8.dp else 12.dp
@@ -146,7 +164,17 @@ import kotlin.math.roundToInt
                                     val mediaName=snapshot.content.optJSONObject("media")?.optString("name")?.takeIf{it.isNotBlank()&&it!="null"}
                                     val playing=snapshot.content.optJSONObject("playback")?.opt("playing") as? Boolean
                                     val hasQuickPlayback=snapshot.scene in setOf("VIDEO","AUDIO")&&mediaName!=null&&playing!=null
-                                    item{BoxWithConstraints(Modifier.widthIn(max = if (landscape) 576.dp else Dp.Unspecified).fillMaxWidth()){
+                                    if (!landscape && !compactRemote && !showLogin) item {
+                                        TvPhoneNavigationShortcuts(model) {
+                                            target = "search"
+                                            inputOpen = true
+                                        }
+                                    }
+                                    item { BoxWithConstraints(
+                                        Modifier.widthIn(max = if (landscape) 576.dp else Dp.Unspecified).fillMaxWidth()
+                                            .then(if (!landscape && !compactRemote) Modifier.fillParentMaxHeight(.82f) else Modifier),
+                                        contentAlignment = if (landscape) Alignment.Center else Alignment.BottomCenter,
+                                    ) {
                                         val labelSize = MaterialTheme.typography.labelLarge.fontSize
                                         val actionWidth = with(LocalDensity.current) { labelSize.toDp() * 2 + 16.dp }.coerceAtLeast(48.dp)
                                         val padSize = if (compactHeight) 168.dp else 192.dp
@@ -163,24 +191,23 @@ import kotlin.math.roundToInt
                                                 }
                                             }
                                         }else{
-                                            Column{
+                                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)){
+                                                TvPhoneDpad(model,compact=compactRemote, diameter=portraitPad,
+                                                    detailsKey=snapshot.scene=="BROWSE"&&snapshot.capabilities.optInt("fileDetailsKey",0)>0)
+                                                TvPhoneRemoteActions(model){inputOpen=true}
                                                 if(showLogin){
                                                     TvPhoneLoginAction(phone,model,busy)
-                                                    Spacer(Modifier.height(if(compactRemote)8.dp else 12.dp))
                                                 }
                                                 if(hasQuickPlayback){
                                                     TvPhoneQuickPlayback(model,snapshot,requireNotNull(mediaName),requireNotNull(playing),{section="播放";selectedTab=true})
-                                                    Spacer(Modifier.height(8.dp))
                                                 }
-                                                TvPhoneDpad(model,compact=compactRemote,
-                                                    detailsKey=snapshot.scene=="BROWSE"&&snapshot.capabilities.optInt("fileDetailsKey",0)>0)
-                                                Spacer(Modifier.height(8.dp))
-                                                TvPhoneRemoteActions(model){inputOpen=true}
                                             }
                                         }
                                     }}
                                 }
                                 "文件"->{
+                                    item { Text("此 TV 版本的目录浏览会同步切换 TV 页面",
+                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                                     item{FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){
                                         val routes=listOf("FILES" to "文件","VIDEO" to "视频","MUSIC" to "音乐","IMAGES" to "图片","FAVORITES" to "收藏","RECENT" to "最近播放")+
                                             if(snapshot.capabilities.optInt("recentAccessPage",0)>0)listOf("RECENT_ACCESS" to "最近访问")else emptyList()
@@ -195,69 +222,19 @@ import kotlin.math.roundToInt
                                 "播放"->item{key(snapshot.connectionId,snapshot.sessionEpoch,snapshot.mediaEpoch){
                                     TvPhoneMediaControls(model, snapshot, compact = landscape && compactHeight) { section = "文件"; selectedTab = true }
                                 }}
-                                "设置"->{
-                                    item{
-                                        val source=phone.tvAuthorizationContext()
-                                        SettingsGroup("账号与连接"){
-                                            snapshot.content.optJSONObject("session")?.let{session->
-                                                val details=listOf(session.optString("username"),session.optString("origin")).filter{it.isNotBlank()&&it!="null"}.joinToString(" · ")
-                                                if(details.isNotBlank())Column(Modifier.padding(horizontal=16.dp,vertical=12.dp)){
-                                                    Text("TV 当前登录",style=MaterialTheme.typography.bodyMedium)
-                                                    Text(details,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                                                }
-                                            }
-                                            SettingsAction("将手机当前账号用于 TV",if(busy)"正在授权…"else if(source==null)"请先在手机登录服务器"else"在 TV 上独立登录",R.drawable.ic_person,enabled=!busy&&source!=null,navigation=false){model.authorize(phone,source)}
-                                            SettingsAction("连接另一部手机","在 TV 上打开连接入口",R.drawable.ic_person){model.command("device.enablePairing")}
-                                        }
-                                    }
-                                    val prefs=snapshot.content.optJSONObject("preferences")?:JSONObject()
-                                    if(prefs.has("seekStepSeconds")||prefs.has("controlsTimeoutSeconds"))item{
-                                        SettingsGroup("播放"){
-                                            if(prefs.has("seekStepSeconds"))Column(Modifier.padding(horizontal=16.dp,vertical=8.dp)){
-                                                var step by remember(snapshot.connectionId){mutableStateOf<Float?>(null)}
-                                                val value=step?:prefs.optInt("seekStepSeconds",10).coerceIn(3,30).toFloat()
-                                                Text("快进 / 后退 ${value.toInt()} 秒",style=MaterialTheme.typography.bodyMedium)
-                                                Slider(value,onValueChange={step=it},onValueChangeFinished={step?.let{model.command("app.setPreference",JSONObject().put("key","seekStepSeconds").put("value",it.toInt()))};step=null},valueRange=3f..30f,steps=26)
-                                            }
-                                            if(prefs.has("controlsTimeoutSeconds"))Column(Modifier.padding(horizontal=16.dp,vertical=8.dp)){
-                                                var timeout by remember(snapshot.connectionId){mutableStateOf<Float?>(null)}
-                                                val value=timeout?:prefs.optInt("controlsTimeoutSeconds",5).coerceIn(2,30).toFloat()
-                                                Text("播放控件自动隐藏 ${value.toInt()} 秒",style=MaterialTheme.typography.bodyMedium)
-                                                Slider(value,onValueChange={timeout=it},onValueChangeFinished={timeout?.let{model.command("app.setPreference",JSONObject().put("key","controlsTimeoutSeconds").put("value",it.toInt()))};timeout=null},valueRange=2f..30f,steps=27)
-                                            }
-                                        }
-                                    }
-                                    if(prefs.has("detailsHoldMillis"))item{
-                                        SettingsGroup("遥控操作"){
-                                            Column(Modifier.padding(horizontal=16.dp,vertical=8.dp)){
-                                                var hold by remember(snapshot.connectionId){mutableStateOf<Float?>(null)}
-                                                val value=hold?:prefs.optInt("detailsHoldMillis",1000).coerceIn(500,2000)/1000f
-                                                Text("TV 遥控器查看详情长按 ${value} 秒",style=MaterialTheme.typography.bodyMedium)
-                                                Slider(value,onValueChange={hold=it},onValueChangeFinished={
-                                                    hold?.let{model.command("app.setPreference",JSONObject().put("key","detailsHoldMillis").put("value",(it*4).roundToInt()*250))};hold=null
-                                                },valueRange=.5f..2f,steps=5)
-                                            }
-                                        }
-                                    }
-                                    if(listOf("dark","clockAlways","speedAlways","gridColumns").any(prefs::has))item{
-                                        SettingsGroup("显示"){
-                                            if(prefs.has("dark"))TvPhoneToggle("深色外观",prefs.optBoolean("dark")){model.command("app.setPreference",JSONObject().put("key","dark").put("value",it))}
-                                            if(prefs.has("clockAlways"))TvPhoneToggle("常驻北京时间",prefs.optBoolean("clockAlways")){model.command("app.setPreference",JSONObject().put("key","clockAlways").put("value",it))}
-                                            if(prefs.has("speedAlways"))TvPhoneToggle("常驻缓冲速度",prefs.optBoolean("speedAlways")){model.command("app.setPreference",JSONObject().put("key","speedAlways").put("value",it))}
-                                            if(prefs.has("gridColumns"))Column(Modifier.padding(horizontal=16.dp,vertical=8.dp)){
-                                                Text("文件列数",style=MaterialTheme.typography.bodyMedium)
-                                                FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)){(2..6).forEach{n->FilterChip(selected=prefs.optInt("gridColumns")==n,onClick={model.command("app.setPreference",JSONObject().put("key","gridColumns").put("value",n))},label={Text("$n 列")},shape=RoundedCornerShape(12.dp))}}
-                                            }
-                                        }
-                                    }
-                                }
                             }
                             snapshot.content.optString("error").takeIf{it!="null"&&it.isNotBlank()}?.let{message->item{Text(message,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)}}
                             }
                         }
                     }else{
                         LazyColumn(Modifier.fillMaxWidth().weight(1f),contentPadding=PaddingValues(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
-                            if(connection.device!=null)item{TvPhoneTargetState(connection,model)}
+                            if(connection.device!=null) {
+                                item{TvPhoneTargetState(connection,model)}
+                                if (!landscape) item {
+                                    TvPhoneDpad(model, diameter=portraitPad, enabled=false)
+                                    TvPhoneRemoteActions(model, enabled=false) {}
+                                }
+                            }
                             else {
                                 item{Text("选择 TV",style=MaterialTheme.typography.titleMedium)}
                                 tvDeviceChoices(paired,discovery,model,permitted,
@@ -318,7 +295,7 @@ private val TvPhoneRailDivider = 1.dp
 
 @Composable
 private fun TvPhonePages(
-    pager: PagerState, sections: List<String>, landscape: Boolean, modifier: Modifier,
+    pager: PagerState, sections: List<String>, landscape: Boolean, modifier: Modifier, swipeTabs: Boolean,
     page: @Composable (Int, Boolean) -> Unit,
 ) {
     Column(modifier.fillMaxWidth()) {
@@ -350,7 +327,7 @@ private fun TvPhonePages(
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxHeight()) {
                 val compactHeight = maxHeight < 360.dp
-                HorizontalPager(pager, Modifier.fillMaxSize()) { index -> page(index, compactHeight) }
+                HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = swipeTabs) { index -> page(index, compactHeight) }
             }
         }
     }
@@ -484,13 +461,23 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
     }
 }
 
-@Composable private fun TvPhoneRemoteActions(model:TvControlModel,onKeyboard:()->Unit){
+@Composable private fun TvPhoneNavigationShortcuts(model: TvControlModel, onSearch: () -> Unit) {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+            FilewayTextButton(onClick = { model.command("app.navigate", JSONObject().put("route", "FILES")) }) { Text("TV 文件") }
+            FilewayTextButton(onClick = onSearch) { Text("TV 搜索") }
+            FilewayTextButton(onClick = { model.command("app.navigate", JSONObject().put("route", "SETTINGS")) }) { Text("TV 设置") }
+        }
+    }
+}
+
+@Composable private fun TvPhoneRemoteActions(model:TvControlModel,enabled:Boolean=true,onKeyboard:()->Unit){
     Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
         val target=Modifier.weight(1f).heightIn(min=48.dp)
         val padding=PaddingValues(horizontal=8.dp)
-        FilewayOutlinedButton(onClick={model.command("app.back")},target,contentPadding=padding){Text("返回")}
-        FilewayOutlinedButton(onClick={model.command("app.navigate",JSONObject().put("route","HOME"))},target,contentPadding=padding){Text("首页")}
-        FilewayOutlinedButton(onClick=onKeyboard,target,contentPadding=padding){Text("键盘")}
+        FilewayOutlinedButton(onClick={model.command("app.back")},target,enabled=enabled,contentPadding=padding){Text("返回")}
+        FilewayOutlinedButton(onClick={model.command("app.navigate",JSONObject().put("route","HOME"))},target,enabled=enabled,contentPadding=padding){Text("首页")}
+        FilewayOutlinedButton(onClick=onKeyboard,target,enabled=enabled,contentPadding=padding){Text("键盘")}
     }
 }
 
@@ -538,45 +525,47 @@ private fun TvPhoneLandscapeAction(label: String, icon: Int, modifier: Modifier,
     }
 }
 
-@Composable private fun TvPhoneDpad(model:TvControlModel,modifier:Modifier=Modifier,compact:Boolean=false,detailsKey:Boolean=false,landscape:Boolean=false){
-    val side = when { landscape && compact -> 56.dp; landscape -> 64.dp; compact -> 48.dp; else -> 72.dp }
+@Composable private fun TvPhoneDpad(model:TvControlModel,modifier:Modifier=Modifier,compact:Boolean=false,
+    detailsKey:Boolean=false,landscape:Boolean=false,diameter:Dp?=null,enabled:Boolean=true){
+    val side = diameter?.div(3) ?: when { landscape && compact -> 56.dp; landscape -> 64.dp; compact -> 48.dp; else -> 72.dp }
     Box(modifier.fillMaxWidth().padding(vertical=if(compact)0.dp else 8.dp),contentAlignment=Alignment.Center){
         Surface(Modifier.size(side*3),shape=CircleShape,color=MaterialTheme.colorScheme.surface,
             border = if (landscape) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null){
             Column(horizontalAlignment=Alignment.CenterHorizontally){
-                FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","up"))},Modifier.size(side)){FilewayIcon(R.drawable.ic_expand_less,"上")}
+                FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","up"))},Modifier.size(side),enabled=enabled){FilewayIcon(R.drawable.ic_expand_less,"上")}
                 Row(verticalAlignment=Alignment.CenterVertically){
-                    FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","left"))},Modifier.size(side)){
+                    FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","left"))},Modifier.size(side),enabled=enabled){
                         FilewayIcon(R.drawable.ic_expand_more,"左",Modifier.rotate(90f))
                     }
                     Box(Modifier.size(side),contentAlignment=Alignment.Center){
                         TvPhoneConfirmKey(compact, detailsKey,
                             onConfirm={model.command("app.key",JSONObject().put("key","ok"))},
-                            onDetails={model.command("app.key",JSONObject().put("key","details"))}, iconOnly=landscape)
+                            onDetails={model.command("app.key",JSONObject().put("key","details"))}, iconOnly=landscape,enabled=enabled)
                     }
-                    FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","right"))},Modifier.size(side)){
+                    FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","right"))},Modifier.size(side),enabled=enabled){
                         FilewayIcon(R.drawable.ic_expand_more,"右",Modifier.rotate(-90f))
                     }
                 }
-                FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","down"))},Modifier.size(side)){FilewayIcon(R.drawable.ic_expand_more,"下")}
+                FilewayIconButton(onClick={model.command("app.key",JSONObject().put("key","down"))},Modifier.size(side),enabled=enabled){FilewayIcon(R.drawable.ic_expand_more,"下")}
             }
         }
     }
 }
 
-@Composable internal fun TvPhoneConfirmKey(compact:Boolean,detailsKey:Boolean,onConfirm:()->Unit,onDetails:()->Unit,iconOnly:Boolean=false){
+@Composable internal fun TvPhoneConfirmKey(compact:Boolean,detailsKey:Boolean,onConfirm:()->Unit,onDetails:()->Unit,
+    iconOnly:Boolean=false,enabled:Boolean=true){
     val size=if(compact)48.dp else 64.dp
     val content: @Composable () -> Unit = {
         if (iconOnly) FilewayIcon(R.drawable.ic_check, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onPrimary)
         else Text("确定",modifier=Modifier.clearAndSetSemantics{},style=MaterialTheme.typography.labelMedium,
             color=MaterialTheme.colorScheme.onPrimary,maxLines=1,softWrap=false)
     }
-    if(detailsKey) Box(Modifier.size(size).clip(CircleShape)
+    if(detailsKey && enabled) Box(Modifier.size(size).clip(CircleShape)
         .background(MaterialTheme.colorScheme.primary)
         .combinedClickable(role=Role.Button,onLongClickLabel="查看详情",onClick=onConfirm,onLongClick=onDetails)
         .semantics{contentDescription="确认"},contentAlignment=Alignment.Center){
         content()
-    } else FilledIconButton(onClick=onConfirm,Modifier.size(size).semantics{contentDescription="确认"}){
+    } else FilledIconButton(onClick=onConfirm,Modifier.size(size).semantics{contentDescription="确认"},enabled=enabled){
         content()
     }
 }

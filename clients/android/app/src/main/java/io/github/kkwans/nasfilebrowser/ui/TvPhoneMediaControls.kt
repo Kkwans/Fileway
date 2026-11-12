@@ -1,6 +1,8 @@
 package io.github.kkwans.nasfilebrowser.ui
 
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +15,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -31,8 +35,8 @@ import io.github.kkwans.nasfilebrowser.data.TextSubtitleArea
 import io.github.kkwans.nasfilebrowser.data.parsePlaybackRate
 import io.github.kkwans.nasfilebrowser.data.parseSubtitleDelayMillis
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
-import io.github.kkwans.nasfilebrowser.ui.designsystem.drawMediaProgressTrack
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.collectLatest
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
@@ -49,11 +53,13 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
     val owner="${snapshot.connectionId}/${snapshot.sessionEpoch}/${snapshot.mediaEpoch}"
     var panel by remember(owner){mutableStateOf<RemoteMediaPanel?>(null)}
     val player=snapshot.content.optJSONObject("playback")?:JSONObject()
+    val cache = snapshot.content.optJSONObject("cache")
     val queue=snapshot.content.optJSONObject("queue")?:JSONObject()
     val index=queue.optInt("index",-1);val count=queue.optInt("count",0)
     fun send(operation:String,payload:JSONObject=JSONObject())=model.commandFor(snapshot,operation,payload)
     if(snapshot.scene !in setOf("VIDEO","AUDIO","IMAGE")) {
-        Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 24.dp), horizontalAlignment=Alignment.CenterHorizontally,
+            verticalArrangement=Arrangement.spacedBy(12.dp)) {
             Text("TV 当前没有打开媒体",style=MaterialTheme.typography.titleMedium)
             FilewayOutlinedButton(onClick=onBrowse){Text("浏览 TV 文件")}
         };return
@@ -62,8 +68,16 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
     val transportWidth = if (compactTransport) 480.dp else Dp.Unspecified
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (compactTransport) 4.dp else 12.dp)) {
         val mediaName=snapshot.content.optJSONObject("media")?.optString("name")?.takeIf{it.isNotBlank()&&it!="null"}?:"TV 媒体"
+        val mediaId = snapshot.content.optJSONObject("media")?.optString("id").orEmpty()
         val mediaLabel=when(snapshot.scene){"VIDEO"->"视频";"AUDIO"->"音乐";else->"图片"}
         val mediaIcon=when(snapshot.scene){"VIDEO"->Art.drawable.fileway_ic_video;"AUDIO"->Art.drawable.fileway_ic_audio;else->Art.drawable.fileway_ic_image}
+        if (!compactTransport && mediaId.isNotEmpty() && snapshot.capabilities.optInt("mediaPreview") > 0) {
+            if (snapshot.scene == "IMAGE") TvRemoteImagePager(model, snapshot, queue, mediaId, mediaName)
+            else TvRemoteArtwork(model, snapshot, mediaId, mediaName,
+                Modifier.align(Alignment.CenterHorizontally).widthIn(max = if (snapshot.scene == "AUDIO") 224.dp else 460.dp)
+                    .fillMaxWidth().aspectRatio(if (snapshot.scene == "AUDIO") 1f else 16f / 9f).clip(RoundedCornerShape(12.dp)),
+                contentRevision = snapshot.content.optJSONObject("media")?.optString("modified").orEmpty())
+        }
         Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
             Surface(Modifier.size(if (compactTransport) 40.dp else 48.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface){
                 Box(contentAlignment=Alignment.Center){FilewayIcon(mediaIcon,null,Modifier.size(24.dp),tint=MaterialTheme.colorScheme.primary)}
@@ -104,6 +118,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
             val knownDuration=player.optLong("durationMs").coerceAtLeast(0)
             val duration=knownDuration.coerceAtLeast(1)
             val position=player.optLong("positionMs").coerceAtLeast(0).let{if(knownDuration>0)it.coerceAtMost(duration)else it}
+            val cached = if (knownDuration > 0) remoteCacheRanges(cache, duration) else emptyList()
             var preview by remember(owner){mutableStateOf<Float?>(null)}
             var requested by remember(owner){mutableStateOf<Long?>(null)}
             LaunchedEffect(position,player.optBoolean("seeking"),player.optBoolean("preparing"),player.optString("seekError"),requested){
@@ -120,6 +135,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                         preview = null
                     }, modifier = modifier,
                     bufferedValue = if (knownDuration > 0) player.optLong("bufferedMs").toFloat().coerceIn(0f, duration.toFloat()) else null,
+                    cachedRanges = cached, bufferedStartValue = position.toFloat(),
                     mediaSurface = false, description = "${tvRemoteTime(shown.toLong())} / ${if (knownDuration > 0) tvRemoteTime(duration) else "时长未知"}")
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -158,7 +174,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                 Text(if (index >= 0) "队列 · ${index + 1} / $count" else "队列 · $count 项")
             }
         }
-        if(snapshot.scene=="VIDEO")snapshot.content.optJSONObject("cache")?.let{RemoteCacheStatus(it,player.optLong("durationMs").coerceAtLeast(0))}
+        if(snapshot.scene=="VIDEO")cache?.let{RemoteCacheStatus(it)}
     }
     val selectedSource = panel?.subtitleSource
     val canBrowseSubtitles = selectedSource?.supportedBy(snapshot.capabilities) ?: true
@@ -179,6 +195,42 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
     }
 }
 
+@Composable private fun TvRemoteImagePager(model: TvControlModel, snapshot: RemoteSnapshot,
+    queue: JSONObject, mediaId: String, mediaName: String) {
+    val current = queue.optInt("index", 0)
+    val window = queue.optJSONArray("imageWindow")
+    val rows = if (window != null) (0 until window.length()).map(window::getJSONObject) else listOf(
+        JSONObject().put("id", mediaId).put("name", mediaName).put("index", current))
+    val center = rows.indexOfFirst { it.getInt("index") == current }.coerceAtLeast(0)
+    val pager = rememberPagerState(center) { rows.size }
+    var sending by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(pager, center) {
+        snapshotFlow { pager.settledPage }.collectLatest { page ->
+            if (page == center) return@collectLatest
+            sending = true
+            error = null
+            try {
+                model.remoteRequest(snapshot, "image.selectIndex",
+                    JSONObject().put("index", rows[page].getInt("index")), mediaBound = true)
+                // The surrounding playback scope is replaced when TV confirms its new media epoch.
+                delay(2500)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) { error = failure.message ?: "TV 未切换图片" }
+            finally { sending = false }
+            pager.scrollToPage(center)
+        }
+    }
+    HorizontalPager(pager, modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).aspectRatio(4f / 3f)
+        .clip(RoundedCornerShape(12.dp)).background(Color.Black), userScrollEnabled = !sending,
+        beyondViewportPageCount = 1) { page ->
+        val row = rows[page]
+        TvRemoteArtwork(model, snapshot, row.getString("id"), row.getString("name"), Modifier.fillMaxSize(),
+            contentRevision = row.optString("modified"))
+    }
+    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+}
+
 @Composable private fun RemoteMediaAction(label:String,icon:Int,onClick:()->Unit) {
     FilewayTextButton(onClick=onClick){Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(4.dp)){FilewayIcon(icon,null,Modifier.size(24.dp));Text(label,style=MaterialTheme.typography.labelMedium)}}
 }
@@ -195,32 +247,35 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
         color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
-@Composable private fun RemoteCacheStatus(cache:JSONObject,duration:Long){
-    val ranges=cache.optJSONArray("ranges")?.let{values->
-        (0 until values.length()).mapNotNull{index->values.optJSONObject(index)?.let{range->
-            val start=range.optLong("startMs",-1);val end=range.optLong("endMs",-1)
-            if(start>=0&&end>start&&duration>0&&start<duration)start to end.coerceAtMost(duration)else null
-        }}
-    }.orEmpty()
-    val error=cache.optString("error").takeIf{it.isNotBlank()&&it!="null"}
-    val bytes=cache.optLong("usedBytes",-1)
-    val limit=cache.optLong("limitBytes",-1)
-    val speed=cache.optLong("bytesPerSecond",-1)
-    if(ranges.isNotEmpty()||error!=null||bytes>=0&&limit>0){
-        Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)){
-            if(bytes>=0&&limit>0)Text("TV 缓存 ${readableSize(bytes)} / ${readableSize(limit)}"+(if(speed>0)" · ${readableSize(speed)}/s"else""),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            if(ranges.isNotEmpty()){
-                Text("TV 报告的缓存时间段",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                val description=ranges.joinToString("，"){(start,end)->"${tvRemoteTime(start)} 至 ${tvRemoteTime(end)}"}
-                val track=MaterialTheme.colorScheme.onSurface.copy(alpha=.18f)
-                val cached=MaterialTheme.colorScheme.primary.copy(alpha=.55f)
-                Canvas(Modifier.fillMaxWidth().height(8.dp).semantics{contentDescription="TV 已缓存时间段";stateDescription=description}){
-                    drawMediaProgressTrack(0f,track,cached,cachedRanges=ranges.map{(start,end)->start.toFloat()/duration to end.toFloat()/duration},downloadedColor=cached,thickness=3.dp,thumbRadius=0.dp)
-                }
-            }
-            error?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.error)}
-        }
+private fun remoteCacheRanges(cache: JSONObject?, duration: Long): List<Pair<Float, Float>> {
+    val rows = cache?.optJSONArray("ranges") ?: return emptyList()
+    return (0 until rows.length()).mapNotNull { index ->
+        val range = rows.optJSONObject(index) ?: return@mapNotNull null
+        val start = range.optLong("startMs", -1)
+        val end = range.optLong("endMs", -1)
+        if (start < 0 || end <= start || start >= duration) null
+        else (start.toDouble() / duration).toFloat() to (end.coerceAtMost(duration).toDouble() / duration).toFloat()
     }
+}
+
+internal fun tvRemoteSpeed(bytes: Long): String = if (bytes >= 1_048_576)
+    String.format(Locale.ROOT, "%.1f MB/s", bytes / 1_048_576.0)
+else "${bytes.coerceAtLeast(0) / 1024} KB/s"
+
+@Composable private fun RemoteCacheStatus(cache: JSONObject) {
+    val bytes = cache.optLong("usedBytes", -1)
+    val limit = cache.optLong("limitBytes", -1)
+    if (bytes >= 0 && limit > 0) {
+        val rate = if (cache.has("bytesPerSecond")) " · " + tvRemoteSpeed(cache.optLong("bytesPerSecond")) else ""
+        Text("TV 缓存 ${readableSize(bytes)} / ${readableSize(limit)}$rate",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+    val feedback = cache.optString("error").takeIf { it.isNotBlank() && it != "null" } ?: when {
+        cache.optBoolean("clearing") -> "正在清理 TV 缓存"
+        cache.optBoolean("prefetchPaused") -> "TV 后台预缓冲已暂停"
+        else -> null
+    }
+    feedback?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
 }
 
 @Composable private fun RemoteMediaSheet(model:TvControlModel,snapshot:RemoteSnapshot,panel:RemoteMediaPanel,onClose:()->Unit) {
@@ -261,6 +316,13 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                     item{var volume by remember{mutableStateOf<Float?>(null)};PlayerSlider(volume?:player.optInt("volume").toFloat(),100f,"TV 应用音量",true,{volume=it},finish={volume?.let{send("playback.setVolume",JSONObject().put("volume",it.toInt()))};volume=null},mediaSurface=false)}
                     item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FilewayOutlinedButton(onClick={send("playback.setVolume",JSONObject().put("volume",(player.optInt("volume")-1).coerceAtLeast(0)))}){Text("−1%")};FilewayOutlinedButton(onClick={send("playback.setVolume",JSONObject().put("volume",(player.optInt("volume")+1).coerceAtMost(100)))}){Text("+1%")}}}
                     if(snapshot.scene=="VIDEO") {
+                        if (player.has("ratio")) {
+                            item { Text("画面比例", style = MaterialTheme.typography.titleSmall) }
+                            items(listOf("适合屏幕", "拉伸", "裁切").withIndex().toList()) { (index, title) ->
+                                FilewaySelectionRow(title, selected = player.optInt("ratio") == index,
+                                    onClick = { send("playback.setRatio", JSONObject().put("index", index)) })
+                            }
+                        }
                         item{Text("动态范围",Modifier.padding(top=12.dp),style=MaterialTheme.typography.titleSmall)}
                         items(listOf("AUTO" to "自动","NATIVE" to "原生 HDR","SDR" to "SDR 兼容")){(mode,title)->FilewaySelectionRow(title,selected=player.optString("hdrMode")==mode,enabled=mode!="SDR"||player.optBoolean("sdrAvailable"),onClick={send("playback.setHdrMode",JSONObject().put("mode",mode));onClose()})}
                     }
