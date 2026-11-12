@@ -1273,6 +1273,15 @@
     </Setter>
   </Style>
 
+  <Style x:Key="FwSearchPopupSurfaceStyle" TargetType="Border">
+    <Setter Property="Width" Value="480" />
+    <Setter Property="Padding" Value="12" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
+  </Style>
+
   <Style x:Key="FwTextBoxStyle" TargetType="TextBox">
     <Setter Property="CornerRadius" Value="10" />
     <Setter Property="MinHeight" Value="36" />
@@ -1306,6 +1315,8 @@
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
     <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="TextAlignment" Value="Left" />
   </Style>
   <Style x:Key="LayoutChoiceStyle" TargetType="ToggleButton">
    <Setter Property="HorizontalAlignment" Value="Stretch"/>

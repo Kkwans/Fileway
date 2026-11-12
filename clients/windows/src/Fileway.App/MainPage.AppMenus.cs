@@ -110,8 +110,8 @@ public sealed partial class MainPage
             : TrashPane.Visibility == Visibility.Visible ? "回收站"
             : TransfersPanel.Visibility == Visibility.Visible ? "传输中心" : CollectionsPanel.Visibility == Visibility.Visible ? "收藏与标签"
             : _currentPane == MainPane.ServerUsers ? "用户管理" : SettingsPane.Visibility == Visibility.Visible ? "设置" : "我的文件";
-        SearchBox.Visibility = browser ? Visibility.Visible : Visibility.Collapsed;
-        SearchBox.IsEnabled = BrowserCommands.IsEnabled = browser;
+        BrowserSearchButton.IsEnabled = BrowserCommands.IsEnabled = browser;
+        if (!browser) BrowserSearchPopup.IsOpen = false;
         SetSidebarCurrent(MyFilesButton, browser);
         SetSidebarCurrent(RecentAccessButton, !connectionView && RecentPane.Visibility == Visibility.Visible);
         SetSidebarCurrent(TransferCenterButton, !connectionView && TransfersPanel.Visibility == Visibility.Visible);

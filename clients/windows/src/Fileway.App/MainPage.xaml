@@ -162,7 +162,7 @@
    <MenuBarItem Style="{StaticResource ApplicationMenuItemStyle}" Title="工具" AccessKey="T">
     <MenuFlyoutItem Text="外观与交互…" Click="PresentationSettings_Click"/><MenuFlyoutItem Text="打开方式…" Click="OpenWithSettings_Click"/><ToggleMenuFlyoutItem x:Name="MenuCloseToTrayItem" Text="关闭窗口后保留在托盘" IsChecked="True" Click="CloseToTray_Click"/>
     <MenuFlyoutSeparator/>
-    <MenuFlyoutItem x:Name="MenuServerSearchItem" Text="搜索文件…" Click="ServerSearch_Click" KeyboardAcceleratorTextOverride="Ctrl+F" IsEnabled="False"/>
+    <MenuFlyoutItem x:Name="MenuServerSearchItem" Text="搜索文件…" Click="ServerSearch_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuRecentItem" Text="最近访问" Click="RecentAccess_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuTransfersItem" Text="传输中心" Click="TransferCenter_Click" IsEnabled="False"/>
     <MenuFlyoutItem x:Name="MenuNasTasksItem" Text="文件任务" Click="NasTasks_Click" IsEnabled="False"/>
@@ -198,7 +198,35 @@
     </Border>
     <TextBlock x:Name="WorkspaceTitle" Text="连接服务器" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Visibility="Collapsed" TextTrimming="CharacterEllipsis"/>
    </Grid>
-   <AutoSuggestBox x:Name="SearchBox" Grid.Column="2" Width="240" Height="40" MinHeight="40" Style="{StaticResource FilewaySearchBoxStyle}" VerticalAlignment="Center" PlaceholderText="筛选 · Enter 搜索" QueryIcon="Find" TextChanged="Search_Changed" QuerySubmitted="Search_QuerySubmitted" AutomationProperties.Name="输入筛选当前列表，按 Enter 搜索当前目录及子目录" ToolTipService.ToolTip="输入筛选已加载的列表；Enter 或搜索按钮查询当前目录及子目录 (Ctrl+F)"/>
+   <Button x:Name="BrowserSearchButton" Grid.Column="2" Style="{StaticResource BrowserToolbarButtonStyle}"
+           Click="BrowserSearch_Click" AutomationProperties.Name="筛选与搜索文件" ToolTipService.ToolTip="筛选与搜索文件 (Ctrl+F)">
+    <Grid Width="24" Height="24">
+     <ui:LucideIcon IconName="magnifying-glass" Width="18" Height="18"/>
+     <Ellipse x:Name="BrowserFilterIndicator" Visibility="Collapsed" Width="6" Height="6"
+              HorizontalAlignment="Right" VerticalAlignment="Top" Fill="{ThemeResource AccentFillColorDefaultBrush}"/>
+    </Grid>
+   </Button>
+   <Popup x:Name="BrowserSearchPopup" PlacementTarget="{x:Bind BrowserToolbar}" DesiredPlacement="Bottom" VerticalOffset="4"
+          IsLightDismissEnabled="True" LightDismissOverlayMode="Off" Opened="BrowserSearch_Opened" Closed="BrowserSearch_Closed">
+    <Border x:Name="BrowserSearchSurface" Style="{StaticResource FwSearchPopupSurfaceStyle}"
+            PreviewKeyDown="BrowserSearchSurface_PreviewKeyDown" AutomationProperties.AutomationId="BrowserSearchSurface">
+     <Grid RowSpacing="8" ColumnSpacing="8">
+      <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <AutoSuggestBox x:Name="SearchBox" Height="36" MinHeight="36" Style="{StaticResource FilewaySearchBoxStyle}"
+                      PlaceholderText="输入文件名" TextChanged="Search_Changed" QuerySubmitted="Search_QuerySubmitted"
+                      AutomationProperties.Name="输入筛选当前列表，按 Enter 搜索当前目录及子目录">
+       <AutoSuggestBox.QueryIcon><ui:LucideActionIcon IconName="magnifying-glass"/></AutoSuggestBox.QueryIcon>
+      </AutoSuggestBox>
+      <Button Grid.Column="1" Style="{StaticResource FwIconButtonStyle}" Click="CloseBrowserSearch_Click"
+              AutomationProperties.Name="关闭文件搜索" ToolTipService.ToolTip="关闭 (Esc)">
+       <ui:LucideIcon IconName="x" Width="16" Height="16"/>
+      </Button>
+      <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Margin="2,0,2,1" Style="{StaticResource FwCaptionTextStyle}"
+                 Text="输入即筛选当前列表  ·  Enter 搜索含子目录" TextWrapping="Wrap"/>
+     </Grid>
+    </Border>
+   </Popup>
   </Grid>
   <Grid x:Name="Sidebar" Grid.RowSpan="2" Padding="12,16,12,12" Background="Transparent" Canvas.ZIndex="3">
    <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -230,7 +258,7 @@
   <Grid>
   <Grid x:Name="Workspace" Visibility="Collapsed" Padding="16,0,16,0" RowSpacing="0" SizeChanged="Workspace_SizeChanged" AutomationProperties.AutomationId="Workspace">
    <Grid.RowDefinitions><RowDefinition Height="44"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="28"/></Grid.RowDefinitions>
-   <Grid>
+   <Grid x:Name="BrowserToolbar">
    <ContentControl x:Name="BrowserCommands" Height="44" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Center" IsTabStop="False">
     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
      <DropDownButton x:Name="SortBox" Style="{StaticResource FilewaySelectorButtonStyle}" Content="名称 ↑" Width="140" Height="36" AutomationProperties.Name="文件排序"><DropDownButton.Flyout><Flyout Placement="BottomEdgeAlignedLeft"><StackPanel Spacing="4"><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="排序" Margin="12,4,0,8"/>

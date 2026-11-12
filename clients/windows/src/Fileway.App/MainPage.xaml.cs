@@ -6,6 +6,7 @@ using Fileway.App.Views;
 using Fileway.App.Branding;
 using Fileway.App.Controls.Browser;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
@@ -959,7 +960,16 @@ public sealed partial class MainPage : Page, IDisposable
     }
     private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); SetConnectionView(true); FocusConnectionForm(); }
     private void DismissConnection_Click(object sender, RoutedEventArgs e) => SetConnectionView(false);
-    private void Search_Changed(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) { if (FileList is not null) ApplyFilter(); }
+    private void Search_Changed(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (FileList is null) return;
+        var filtering = !string.IsNullOrWhiteSpace(sender.Text);
+        BrowserFilterIndicator.Visibility = filtering ? Visibility.Visible : Visibility.Collapsed;
+        var label = filtering ? "筛选与搜索文件（已筛选）" : "筛选与搜索文件";
+        AutomationProperties.SetName(BrowserSearchButton, label);
+        ToolTipService.SetToolTip(BrowserSearchButton, label + " (Ctrl+F)");
+        ApplyFilter();
+    }
     private void Sort_Click(object sender, RoutedEventArgs args)
     {
         if (_applyingPreferences || FileList is null || sender is not ToggleButton { Tag: string tag }) return;

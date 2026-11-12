@@ -40,6 +40,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
     public SearchResultsControl()
     {
         InitializeComponent();
+        SurfaceStyles.AttachPopup(QueryPopup, QuerySurface, SearchHeader);
         SearchRecords.ItemsSource = _rows;
         _controller.Changed += Controller_Changed;
         QueryBox.TextCompositionStarted += (_, _) => { ++_compositionRevision; _queryComposing = true; UpdateCommands(); };
@@ -76,7 +77,11 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         QueueRender();
     });
 
-    public Task SearchAsync(string query, SearchScope scope) => OnUiAsync(() => SearchCoreAsync(query, scope, copyToDraft: true));
+    public Task SearchAsync(string query, SearchScope scope) => OnUiAsync(() =>
+    {
+        EditSearchButton.Focus(FocusState.Keyboard);
+        return SearchCoreAsync(query, scope, copyToDraft: true);
+    });
 
     public Task RefreshAsync() => OnUiAsync(() =>
     {
@@ -88,13 +93,21 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
 
     public void FocusQuery() => OnUi(() =>
     {
+        if (Visibility != Visibility.Visible) return;
         _viewActive = true;
-        QueryBox.Focus(FocusState.Keyboard); QueryBox.SelectAll();
+        if (QueryPopup.IsOpen) FocusQueryInput();
+        else QueryPopup.IsOpen = true;
         QueueRender();
     });
 
+    private void FocusQueryInput()
+    {
+        if (!_disposed && QueryPopup.IsOpen && QueryBox.Focus(FocusState.Keyboard)) QueryBox.SelectAll();
+    }
+
     public void SuspendView() => OnUi(() =>
     {
+        QueryPopup.IsOpen = false;
         _viewActive = false; _suspended = true;
         ++_compositionRevision; _queryComposing = false;
         ++_viewRevision; ++_handoffRevision;
@@ -200,7 +213,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
             : status is { } emptyStatus ? (emptyStatus.Title, emptyStatus.Description)
             : state.End?.Reason == SearchEndReason.Completed ? ("没有找到匹配项", _submittedSearch?.Scope == SearchScope.Current
                 ? "可调整搜索条件，或选择含子目录后重新搜索。" : "可调整搜索条件后重新搜索。")
-            : ("搜索服务器文件", "输入条件并选择范围，然后开始搜索。");
+            : ("搜索服务器文件", "选择「修改条件」或按 Ctrl+F 开始搜索。");
 
         SearchCount.Text = items.Count > _rows.Count ? $"已显示 {_rows.Count} / 已收到 {items.Count} 项"
             : state.End?.Reason == SearchEndReason.Completed ? $"{items.Count} 项结果" : $"已收到 {items.Count} 项";
@@ -302,8 +315,12 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         return completion.Task;
     }
 
-    private Task SubmitQueryAsync() => DraftScope is { } scope
-        ? SearchCoreAsync(QueryBox.Text, scope) : Task.CompletedTask;
+    private Task SubmitQueryAsync()
+    {
+        if (!SearchButton.IsEnabled || DraftScope is not { } scope) return Task.CompletedTask;
+        QueryPopup.IsOpen = false;
+        return SearchCoreAsync(QueryBox.Text, scope);
+    }
 
     private void CancelSearch()
     {
@@ -319,6 +336,20 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         catch (Exception) { _presentationError = "暂时无法返回文件，请重试。"; QueueRender(); }
     }
     private async void Search_Click(object sender, RoutedEventArgs args) => await SubmitQueryAsync();
+    private void EditSearch_Click(object sender, RoutedEventArgs args) => FocusQuery();
+    private void QueryPopup_Opened(object sender, object args) => DispatcherQueue.TryEnqueue(FocusQueryInput);
+    private void CloseQuery_Click(object sender, RoutedEventArgs args) => QueryPopup.IsOpen = false;
+    private void QuerySurface_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key != VirtualKey.Escape || _queryComposing) return;
+        args.Handled = true;
+        QueryPopup.IsOpen = false;
+    }
+
+    private void QuerySurface_KeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (_queryComposing && args.Key == VirtualKey.Escape) args.Handled = true;
+    }
     private async void Retry_Click(object sender, RoutedEventArgs args) => await RefreshAsync();
     private void Cancel_Click(object sender, RoutedEventArgs args) => CancelSearch();
     private async void Open_Click(object sender, RoutedEventArgs args) => await OpenSelectedAsync();
@@ -383,7 +414,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
     }
     private void Panel_KeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (args.Handled || _queryComposing || args.Key != VirtualKey.Escape) return;
+        if (args.Handled || _queryComposing || QueryPopup.IsOpen || args.Key != VirtualKey.Escape) return;
         args.Handled = true;
         if (_controller.IsSearching || _controller.IsOpening) CancelSearch();
         else Close_Click(this, new RoutedEventArgs());
@@ -392,6 +423,7 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
     {
         if (sender is Grid grid) grid.Padding = new Thickness(args.NewSize.Width < 560 ? 12 : 20, 12,
             args.NewSize.Width < 560 ? 12 : 20, 12);
+        QuerySurface.MaxWidth = Math.Max(0, args.NewSize.Width - 40);
     }
 
     private void OnUi(Action action)
@@ -424,7 +456,13 @@ public sealed partial class SearchResultsControl : UserControl, IDisposable
         _disposed = true;
         _controller.Changed -= Controller_Changed;
         _controller.Dispose(); _openResourceAsync = null;
-        if (DispatcherQueue.HasThreadAccess) _rows.Clear();
-        else DispatcherQueue.TryEnqueue(() => _rows.Clear());
+        if (DispatcherQueue.HasThreadAccess) ClearView();
+        else DispatcherQueue.TryEnqueue(ClearView);
+
+        void ClearView()
+        {
+            QueryPopup.IsOpen = false;
+            _rows.Clear();
+        }
     }
 }

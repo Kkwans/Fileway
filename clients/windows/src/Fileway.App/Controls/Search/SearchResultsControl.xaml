@@ -4,21 +4,32 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:search="using:Fileway.App.Controls.Search">
  <Grid Padding="20,12,20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged" KeyDown="Panel_KeyDown">
-  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-  <ui:FwPageHeader x:Name="SearchHeader" Title="搜索文件" Subtitle="按名称搜索当前目录及子目录">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+  <ui:FwPageHeader x:Name="SearchHeader" Title="搜索文件">
    <ui:FwPageHeader.Actions>
     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+     <Button x:Name="EditSearchButton" Content="修改条件" Click="EditSearch_Click" Style="{StaticResource FwSecondaryButtonStyle}"
+             AutomationProperties.Name="修改搜索条件" ToolTipService.ToolTip="修改搜索条件 (Ctrl+F)"/>
      <Button x:Name="OpenSelectedButton" Content="打开" IsEnabled="False" Click="Open_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="核对并打开选中结果 (Enter)" AutomationProperties.Name="打开选中的搜索结果"/>
      <Button Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开搜索，返回文件"/>
     </StackPanel>
    </ui:FwPageHeader.Actions>
   </ui:FwPageHeader>
-  <Grid Grid.Row="1" ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-   <TextBox x:Name="QueryBox" MinWidth="120" Height="36" MaxLength="8192" PlaceholderText="输入文件名或搜索条件" TextChanged="Query_Changed" KeyDown="Query_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="服务器搜索条件，按 Enter 开始搜索"/>
-   <ui:ChoiceBox x:Name="ScopeBox" Grid.Column="1" Width="120" SelectedIndex="1" SelectionChanged="Scope_Changed" AutomationProperties.Name="服务器搜索范围"><ComboBoxItem Content="当前目录"/><ComboBoxItem Content="含子目录"/></ui:ChoiceBox>
-   <Button x:Name="SearchButton" Grid.Column="2" Content="搜索" Height="36" Click="Search_Click" IsEnabled="False" Style="{StaticResource FwPrimaryButtonStyle}" AutomationProperties.Name="开始服务器搜索" ToolTipService.ToolTip="在服务器搜索指定范围 (Enter)"/>
-  </Grid>
-  <Grid Grid.Row="2">
+  <Popup x:Name="QueryPopup" PlacementTarget="{x:Bind SearchHeader}" DesiredPlacement="Bottom"
+         IsLightDismissEnabled="True" LightDismissOverlayMode="Off" Opened="QueryPopup_Opened">
+   <Border x:Name="QuerySurface" Style="{StaticResource FwSearchPopupSurfaceStyle}" PreviewKeyDown="QuerySurface_PreviewKeyDown" KeyDown="QuerySurface_KeyDown"
+           AutomationProperties.AutomationId="ServerSearchSurface">
+    <Grid ColumnSpacing="8">
+     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <TextBox x:Name="QueryBox" MinWidth="0" Height="36" MaxLength="8192" PlaceholderText="输入文件名或搜索条件" TextChanged="Query_Changed" KeyDown="Query_KeyDown" Style="{StaticResource FwTextBoxStyle}" AutomationProperties.Name="服务器搜索条件，按 Enter 开始搜索"/>
+     <ui:ChoiceBox x:Name="ScopeBox" Grid.Column="1" Width="120" Height="36" SelectedIndex="1" SelectionChanged="Scope_Changed" AutomationProperties.Name="服务器搜索范围"><ComboBoxItem Content="当前目录"/><ComboBoxItem Content="含子目录"/></ui:ChoiceBox>
+     <Button x:Name="SearchButton" Grid.Column="2" Content="搜索" Height="36" Click="Search_Click" IsEnabled="False" Style="{StaticResource FwPrimaryButtonStyle}" AutomationProperties.Name="开始服务器搜索" ToolTipService.ToolTip="在服务器搜索指定范围 (Enter)"/>
+     <Button Grid.Column="3" Style="{StaticResource FwIconButtonStyle}" Click="CloseQuery_Click"
+             AutomationProperties.Name="关闭搜索条件" ToolTipService.ToolTip="关闭 (Esc)"><ui:LucideIcon IconName="x" Width="16" Height="16"/></Button>
+    </Grid>
+   </Border>
+  </Popup>
+  <Grid Grid.Row="1">
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
    <Grid x:Name="SearchSummaryBar" Visibility="Collapsed" Margin="0,0,0,8" ColumnSpacing="12">
     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -58,7 +69,7 @@
      </DataTemplate>
     </ListView.ItemTemplate>
    </ListView>
-   <ui:FwEmptyState x:Name="SearchEmptyState" Grid.Row="2" Grid.RowSpan="2" IconName="magnifying-glass" Title="搜索服务器文件" Description="输入条件并选择范围，然后开始搜索。"/>
+   <ui:FwEmptyState x:Name="SearchEmptyState" Grid.Row="2" Grid.RowSpan="2" IconName="magnifying-glass" Title="搜索服务器文件" Description="选择「修改条件」或按 Ctrl+F 开始搜索。"/>
   </Grid>
  </Grid>
 </UserControl>

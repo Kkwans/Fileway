@@ -33,7 +33,7 @@ public sealed partial class MainPage
     private void InitializeBrowserShell()
     {
         _sidebarCollapsed = UiPreferences.LoadSidebarCollapsed();
-        SearchBox.Loaded += (_, _) => Controls.SurfaceStyles.AttachSelectorPopup(SearchBox);
+        SurfaceStyles.AttachPopup(BrowserSearchPopup, BrowserSearchSurface, NavigationHeader);
         AddNavigationAccelerators(this);
         KeyDown += Overlay_KeyDown;
         UpdateSidebarLayout();
@@ -74,10 +74,10 @@ public sealed partial class MainPage
 
     private void Shell_SizeChanged(object sender, SizeChangedEventArgs args)
     {
-        if (Sidebar is null || SearchBox is null) return;
+        if (Sidebar is null) return;
         var overlay = args.NewSize.Width < 960;
         if (_sidebarOverlay != overlay) { _sidebarOverlay = overlay; _sidebarOpen = false; }
-        SearchBox.Width = args.NewSize.Width < 1000 ? 180 : 240;
+        BrowserSearchSurface.MaxWidth = Math.Max(0, args.NewSize.Width - 32);
         UpdateSidebarLayout();
     }
 

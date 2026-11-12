@@ -16,9 +16,9 @@ public sealed partial class KeyboardShortcutsContent : UserControl
             ("Alt + Up", "打开上一级目录"),
             ("Ctrl + L", "编辑原始路径"),
             ("F5", "刷新当前视图"),
-            ("Ctrl + F", "搜索当前目录与子目录"),
+            ("Ctrl + F", "打开文件搜索浮层"),
             ("Ctrl + B", "展开或折叠导航侧栏"),
-            ("Escape", "取消路径编辑，或关闭详情/临时侧栏"));
+            ("Escape", "关闭当前浮层，或取消路径编辑"));
         AddGroup("文件与选择",
             ("Enter", "打开选中的文件或文件夹"),
             ("Ctrl + A", "全选当前文件"),

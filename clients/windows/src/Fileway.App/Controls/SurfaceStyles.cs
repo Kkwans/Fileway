@@ -75,7 +75,7 @@ public static class SurfaceStyles
 
     internal static void Attach(FlyoutBase flyout) => Apply(flyout);
 
-    private static T? FindDescendant<T>(DependencyObject root, string name) where T : FrameworkElement
+    internal static T? FindDescendant<T>(DependencyObject root, string name) where T : FrameworkElement
     {
         if (root is T candidate && candidate.Name == name) return candidate;
         var count = VisualTreeHelper.GetChildrenCount(root);
