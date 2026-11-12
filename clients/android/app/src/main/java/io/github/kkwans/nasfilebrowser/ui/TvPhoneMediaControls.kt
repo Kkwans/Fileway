@@ -59,7 +59,8 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
         };return
     }
     val compactTransport = compact && snapshot.scene != "IMAGE"
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (compactTransport) 6.dp else 12.dp)) {
+    val transportWidth = if (compactTransport) 480.dp else Dp.Unspecified
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (compactTransport) 4.dp else 12.dp)) {
         val mediaName=snapshot.content.optJSONObject("media")?.optString("name")?.takeIf{it.isNotBlank()&&it!="null"}?:"TV 媒体"
         val mediaLabel=when(snapshot.scene){"VIDEO"->"视频";"AUDIO"->"音乐";else->"图片"}
         val mediaIcon=when(snapshot.scene){"VIDEO"->Art.drawable.fileway_ic_video;"AUDIO"->Art.drawable.fileway_ic_audio;else->Art.drawable.fileway_ic_image}
@@ -129,7 +130,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
             }
             if (!compactTransport) timeline(Modifier)
             val controls = Modifier.align(Alignment.CenterHorizontally)
-                .widthIn(max = if (compactTransport) 480.dp else Dp.Unspecified).fillMaxWidth()
+                .widthIn(max = transportWidth).fillMaxWidth()
             Row(controls,horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
                 FilewayIconButton(onClick={send("queue.previous")},enabled=index>0){FilewayIcon(Art.drawable.fileway_ic_skip_previous,"上一项")}
                 val step=snapshot.content.optJSONObject("preferences")?.optInt("seekStepSeconds",10)?.coerceIn(3,30)?:10
@@ -147,7 +148,16 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                 RemoteMediaAction("设置",Art.drawable.fileway_ic_settings){panel=RemoteMediaPanel.OPTIONS}
             }
         }
-        if(count>0)FilewayOutlinedButton(onClick={panel=RemoteMediaPanel.QUEUE},modifier=Modifier.fillMaxWidth()){FilewayIcon(Art.drawable.fileway_ic_playlist_play,null,Modifier.size(22.dp));Spacer(Modifier.width(8.dp));Text(if(index>=0)"队列 · ${index+1} / $count"else"队列 · $count 项")}
+        if (count > 0) {
+            FilewayOutlinedButton(
+                onClick = { panel = RemoteMediaPanel.QUEUE },
+                modifier = Modifier.align(Alignment.CenterHorizontally).widthIn(max = transportWidth).fillMaxWidth(),
+            ) {
+                FilewayIcon(Art.drawable.fileway_ic_playlist_play, null, Modifier.size(22.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(if (index >= 0) "队列 · ${index + 1} / $count" else "队列 · $count 项")
+            }
+        }
         if(snapshot.scene=="VIDEO")snapshot.content.optJSONObject("cache")?.let{RemoteCacheStatus(it,player.optLong("durationMs").coerceAtLeast(0))}
     }
     val selectedSource = panel?.subtitleSource
@@ -342,7 +352,7 @@ private fun RemoteSubtitleSheet(
                         }, mediaSurface = false)
                     }
                     if (hasSidecars && canBrowseServer) item(key = "sidecar-shortcut") {
-                        FilewayTextButton(onClick = { onPanel(RemoteMediaPanel.SIDECARS) }) { Text("同目录外挂") }
+                        FilewayTextButton(onClick = { onPanel(RemoteMediaPanel.SIDECARS) }) { Text("选择同目录字幕") }
                     }
                     if (!canBrowseServer) item(key = "server-subtitle-upgrade") {
                         RemoteSubtitleNote("要从其他目录添加字幕，请更新电视端和当前连接的服务器。")
@@ -354,7 +364,7 @@ private fun RemoteSubtitleSheet(
                             send("subtitle.select", JSONObject().put("id", track.id).put("source", track.source))
                         }
                     }
-                    subtitleListStatus(trackChoices, "电视没有可用的字幕轨道")
+                    subtitleListStatus(trackChoices, "当前没有已加载的字幕轨道")
                 }
             }
             RemoteMediaPanel.SIDECARS -> {
