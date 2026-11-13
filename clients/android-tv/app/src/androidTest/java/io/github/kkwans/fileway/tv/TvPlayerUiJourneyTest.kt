@@ -601,7 +601,7 @@ class TvPlayerUiJourneyTest {
             touch("倍速 1.0×")
             waitVisible("播放速度")
             waitFocus("1.0×")
-            assertNull("quick speed does not offer custom input", node("自定义速度（0.1–5）"))
+            assertNull("quick speed only offers presets", node("微调倍速"))
             capture("quick-speed.png")
             assertTrue(device.pressDPadDown()); waitFocus("1.25×")
             assertTrue(device.pressDPadCenter())
@@ -621,22 +621,15 @@ class TvPlayerUiJourneyTest {
             waitVisible("播放速度")
             waitFocus("1.0×")
             capture("full-speed-selected.png")
-            moveUntil("自定义速度（0.1–5）", "down", 12)
-            waitFocus("自定义速度（0.1–5）")
-            val speedField = bounds("自定义速度（0.1–5）")
-            val applySpeed = bounds("应用")
-            val density = instrumentation.targetContext.resources.displayMetrics.density
-            assertTrue("Apply must keep its full touch target", applySpeed.height() >= (48 * density).toInt())
-            assertTrue("Apply stays beside the input", applySpeed.left >= speedField.right)
+            moveUntil("微调倍速", "down", 12)
+            waitFocus("微调倍速")
+            assertTrue(device.pressDPadRight())
+            waitFor("single right press applies one hundredth immediately") { abs(tv.media.player.state.value.rate - 1.01f) < .001f }
+            assertTrue(device.pressDPadLeft())
+            waitFor("single left press restores the rate") { abs(tv.media.player.state.value.rate - 1f) < .001f }
+            waitFocus("微调倍速")
             capture("full-speed.png")
-            observeWindows("custom-before-back")
             assertTrue(device.pressBack())
-            SystemClock.sleep(200)
-            observeWindows("custom-after-back")
-            if (node("自定义速度（0.1–5）", actionable = true)?.isFocused == true) {
-                checks += "first Back with the custom input focused retained the popup; input-method state recorded"
-                assertTrue(device.pressBack())
-            }
             waitFocus("播放速度")
             assertTrue(device.pressBack()); waitFocus("设置")
             assertTrue(device.pressDPadRight()); waitFocus("列表")
