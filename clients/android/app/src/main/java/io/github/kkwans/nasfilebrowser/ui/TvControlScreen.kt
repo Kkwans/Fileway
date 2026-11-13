@@ -32,6 +32,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -518,20 +520,31 @@ private fun TvPhoneVolumeRocker(model: TvControlModel, snapshot: RemoteSnapshot?
             adjustTvPhoneVolume(model, snapshot, volume, limit, delta)
         }
     }
-    Surface(shape = RoundedCornerShape(24.dp), color = colors.surfaceContainerLow,
-        border = BorderStroke(1.dp, colors.outlineVariant)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            FilewayIconButton({ change(-5) }, Modifier.size(48.dp).semantics { contentDescription = "降低 TV 音量 5%" },
-                enabled = enabled && volume != null && volume > 0) {
-                Text("−", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {})
-            }
-            Text(volume?.let { "$it%" } ?: "音量", Modifier.widthIn(min = 64.dp).padding(horizontal = 6.dp),
-                style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant, maxLines = 1,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            FilewayIconButton({ change(5) }, Modifier.size(48.dp).semantics { contentDescription = "提高 TV 音量 5%" },
-                enabled = enabled && volume != null && volume < limit) {
-                FilewayIcon(Art.drawable.fileway_ic_add, null, Modifier.size(23.dp))
-            }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        TvPhoneVolumeKey(increase = false, enabled = enabled && volume != null && volume > 0) { change(-5) }
+        Column(Modifier.widthIn(min = 76.dp).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("音量", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1)
+            Text(volume?.let { "$it%" } ?: "—",
+                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+                color = if (enabled) colors.onSurface else colors.onSurfaceVariant, maxLines = 1)
+        }
+        TvPhoneVolumeKey(increase = true, enabled = enabled && volume != null && volume < limit) { change(5) }
+    }
+}
+
+@Composable
+private fun TvPhoneVolumeKey(increase: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val description = if (increase) "提高 TV 音量 5%" else "降低 TV 音量 5%"
+    val tint = if (enabled) colors.onSecondaryContainer else colors.onSurfaceVariant.copy(alpha = .50f)
+    FilewayIconButton(onClick, Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
+        .background(if (enabled) colors.secondaryContainer else colors.surfaceContainerLow)
+        .semantics { contentDescription = description }, enabled = enabled) {
+        Canvas(Modifier.size(18.dp)) {
+            val radius = 6.dp.toPx()
+            val stroke = 1.8.dp.toPx()
+            drawLine(tint, center - Offset(radius, 0f), center + Offset(radius, 0f), stroke, StrokeCap.Round)
+            if (increase) drawLine(tint, center - Offset(0f, radius), center + Offset(0f, radius), stroke, StrokeCap.Round)
         }
     }
 }

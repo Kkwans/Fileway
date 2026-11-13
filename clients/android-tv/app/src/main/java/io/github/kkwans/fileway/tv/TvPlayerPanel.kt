@@ -588,18 +588,7 @@ private object FullRowVisibility : BringIntoViewSpec {
     }
     val span = range.endInclusive - range.start
     val trackInset = 10.dp
-    Row(
-        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(
-            Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(label, style = tvTextStyle(18, 26))
-            Text(format(shown), style = tvTextStyle(16, 22), color = Color.White.copy(alpha = .82f))
-        }
-        val trackWidth = if (expandTrack) Modifier.weight(2.6f) else Modifier.weight(.65f, fill = false).width(176.dp)
+    @Composable fun Track(trackWidth: Modifier) {
         Canvas(
             modifier.then(trackWidth).height(48.dp)
                 .onFocusChanged { focused = it.isFocused; if (!focused) stopRepeat() }
@@ -675,6 +664,28 @@ private object FullRowVisibility : BringIntoViewSpec {
         ) {
             drawMediaProgressTrack((shown - range.start) / span, Color.White.copy(alpha = .22f), FilewayPalette.darkAccent,
                 thickness = if (focused) 4.dp else 3.dp, thumbRadius = if (focused || dragging) 6.dp else 4.dp)
+        }
+    }
+    if (expandTrack) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Box(Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(horizontal = trackInset)) {
+                val edgeStyle = tvTextStyle(14, 20).copy(color = Color.White.copy(alpha = .75f))
+                Text(format(range.start), Modifier.align(Alignment.CenterStart), style = edgeStyle)
+                Text(format(range.endInclusive), Modifier.align(Alignment.CenterEnd), style = edgeStyle)
+                Text(format(shown), Modifier.align(Alignment.Center),
+                    style = tvTextStyle(19, 26, FontWeight.Medium).copy(fontFeatureSettings = "tnum"), color = Color.White)
+            }
+            Track(Modifier.fillMaxWidth())
+        }
+    } else {
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = tvTextStyle(18, 26))
+                Text(format(shown), style = tvTextStyle(16, 22), color = Color.White.copy(alpha = .82f))
+            }
+            Track(Modifier.weight(.65f, fill = false).width(176.dp))
         }
     }
 }
