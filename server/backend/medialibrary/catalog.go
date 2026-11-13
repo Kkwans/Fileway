@@ -53,6 +53,21 @@ type CatalogFileLink struct {
 }
 
 func (store *Store) CreateCatalogItem(ctx context.Context, actor uint, libraryID string, input NewCatalogItem) (*CatalogItem, error) {
+	var item *CatalogItem
+	err := store.WithTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		item, err = createCatalogItemTx(ctx, tx, actor, libraryID, input)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return item, nil
+}
+
+// createCatalogItemTx is shared by interactive creation and the scanner so a
+// new unmatched item can commit together with its source observation.
+func createCatalogItemTx(ctx context.Context, tx *sql.Tx, actor uint, libraryID string, input NewCatalogItem) (*CatalogItem, error) {
 	if !catalogKind(input.Kind) {
 		return nil, fmt.Errorf("%w: catalog kind", ErrInvalid)
 	}
@@ -60,34 +75,30 @@ func (store *Store) CreateCatalogItem(ctx context.Context, actor uint, libraryID
 	if err != nil {
 		return nil, err
 	}
-	var item *CatalogItem
-	err = store.WithTx(ctx, func(tx *sql.Tx) error {
-		if _, err := editableCatalogLibrary(ctx, tx, actor, libraryID); err != nil {
-			return err
+	if _, err := editableCatalogLibrary(ctx, tx, actor, libraryID); err != nil {
+		return nil, err
+	}
+	if input.ParentID != "" {
+		var parentID string
+		if err := tx.QueryRowContext(ctx, "SELECT id FROM library_item WHERE library_id = ? AND id = ?", libraryID, input.ParentID).Scan(&parentID); errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		} else if err != nil {
+			return nil, err
 		}
-		if input.ParentID != "" {
-			var parentID string
-			if err := tx.QueryRowContext(ctx, "SELECT id FROM library_item WHERE library_id = ? AND id = ?", libraryID, input.ParentID).Scan(&parentID); errors.Is(err, sql.ErrNoRows) {
-				return ErrNotFound
-			} else if err != nil {
-				return err
-			}
-		}
-		id, err := randomID("item_")
-		if err != nil {
-			return err
-		}
-		item = &CatalogItem{ID: id, LibraryID: libraryID, Kind: input.Kind, ParentID: input.ParentID, Title: title, Revision: 1, CreatedAt: time.Now().UnixMilli()}
-		var parent any
-		if input.ParentID != "" {
-			parent = input.ParentID
-		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO library_item(id, library_id, kind, parent_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)", id, libraryID, input.Kind, parent, title, item.CreatedAt); err != nil {
-			return err
-		}
-		return publishCatalogChange(ctx, tx, actor, libraryID, "catalog.item.created", catalogChange{ItemID: item.ID, Revision: item.Revision})
-	})
+	}
+	id, err := randomID("item_")
 	if err != nil {
+		return nil, err
+	}
+	item := &CatalogItem{ID: id, LibraryID: libraryID, Kind: input.Kind, ParentID: input.ParentID, Title: title, Revision: 1, CreatedAt: time.Now().UnixMilli()}
+	var parent any
+	if input.ParentID != "" {
+		parent = input.ParentID
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO library_item(id, library_id, kind, parent_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)", id, libraryID, input.Kind, parent, title, item.CreatedAt); err != nil {
+		return nil, err
+	}
+	if err := publishCatalogChange(ctx, tx, actor, libraryID, "catalog.item.created", catalogChange{ItemID: item.ID, Revision: item.Revision}); err != nil {
 		return nil, err
 	}
 	return item, nil
@@ -101,72 +112,83 @@ func (store *Store) CreateCatalogItem(ctx context.Context, actor uint, libraryID
 func (store *Store) AttachCatalogFile(ctx context.Context, actor uint, libraryID, itemID string, expectedRevision int64, sourceFileID string) (*CatalogFileLink, error) {
 	var link *CatalogFileLink
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
-		library, err := editableCatalogLibrary(ctx, tx, actor, libraryID)
-		if err != nil {
-			return err
-		}
-		var revision int64
-		var kind string
-		if err := tx.QueryRowContext(ctx, "SELECT revision, kind FROM library_item WHERE library_id = ? AND id = ?", libraryID, itemID).Scan(&revision, &kind); errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		} else if err != nil {
-			return err
-		}
-		if revision != expectedRevision || expectedRevision < 1 {
-			return ErrRevisionConflict
-		}
-		if kind != "movie" && kind != "episode" && kind != "video" {
-			return fmt.Errorf("%w: only playable catalog items can have files", ErrInvalid)
-		}
-		var allowed string
-		if err := tx.QueryRowContext(ctx, `SELECT f.id FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id JOIN source s ON s.id = f.source_id
-WHERE lf.library_id = ? AND f.id = ? AND s.owner_user_id = ? AND s.kind = 'local'`, libraryID, sourceFileID, library.OwnerUserID).Scan(&allowed); errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		} else if err != nil {
-			return err
-		}
-		link = &CatalogFileLink{LibraryID: libraryID, ItemID: itemID, SourceFileID: sourceFileID, ItemRevision: revision}
-		err = tx.QueryRowContext(ctx, `SELECT e.id, v.id FROM edition e JOIN variant v ON v.edition_id = e.id AND v.library_id = e.library_id
-WHERE e.library_id = ? AND e.item_id = ? AND v.source_file_id = ? ORDER BY e.id, v.id LIMIT 1`, libraryID, itemID, sourceFileID).Scan(&link.EditionID, &link.VariantID)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		err = tx.QueryRowContext(ctx, "SELECT id FROM edition WHERE library_id = ? AND item_id = ? AND is_default = 1", libraryID, itemID).Scan(&link.EditionID)
-		if errors.Is(err, sql.ErrNoRows) {
-			link.EditionID, err = randomID("edition_")
-			if err != nil {
-				return err
-			}
-			_, err = tx.ExecContext(ctx, "INSERT INTO edition(id, library_id, item_id, name, is_default) VALUES (?, ?, ?, '', 1)", link.EditionID, libraryID, itemID)
-		}
-		if err != nil {
-			return err
-		}
-		link.VariantID, err = randomID("variant_")
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, "INSERT INTO variant(id, library_id, edition_id, source_file_id) VALUES (?, ?, ?, ?)", link.VariantID, libraryID, link.EditionID, sourceFileID); err != nil {
-			return err
-		}
-		result, err := tx.ExecContext(ctx, "UPDATE library_item SET revision = revision + 1 WHERE library_id = ? AND id = ? AND revision = ?", libraryID, itemID, expectedRevision)
-		if err != nil {
-			return err
-		}
-		count, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if count != 1 {
-			return ErrRevisionConflict
-		}
-		link.ItemRevision++
-		return publishCatalogChange(ctx, tx, actor, libraryID, "catalog.item.file.attached", catalogChange{SourceFileID: sourceFileID, ItemID: itemID, Revision: link.ItemRevision})
+		var err error
+		link, err = attachCatalogFileTx(ctx, tx, actor, libraryID, itemID, expectedRevision, sourceFileID)
+		return err
 	})
 	if err != nil {
+		return nil, err
+	}
+	return link, nil
+}
+
+// attachCatalogFileTx preserves the same library and revision checks for scans
+// and interactive calls; it never treats the association as file authorization.
+func attachCatalogFileTx(ctx context.Context, tx *sql.Tx, actor uint, libraryID, itemID string, expectedRevision int64, sourceFileID string) (*CatalogFileLink, error) {
+	library, err := editableCatalogLibrary(ctx, tx, actor, libraryID)
+	if err != nil {
+		return nil, err
+	}
+	var revision int64
+	var kind string
+	if err := tx.QueryRowContext(ctx, "SELECT revision, kind FROM library_item WHERE library_id = ? AND id = ?", libraryID, itemID).Scan(&revision, &kind); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if revision != expectedRevision || expectedRevision < 1 {
+		return nil, ErrRevisionConflict
+	}
+	if kind != "movie" && kind != "episode" && kind != "video" {
+		return nil, fmt.Errorf("%w: only playable catalog items can have files", ErrInvalid)
+	}
+	var allowed string
+	if err := tx.QueryRowContext(ctx, `SELECT f.id FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id JOIN source s ON s.id = f.source_id
+WHERE lf.library_id = ? AND f.id = ? AND s.owner_user_id = ? AND s.kind = 'local'`, libraryID, sourceFileID, library.OwnerUserID).Scan(&allowed); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	link := &CatalogFileLink{LibraryID: libraryID, ItemID: itemID, SourceFileID: sourceFileID, ItemRevision: revision}
+	err = tx.QueryRowContext(ctx, `SELECT e.id, v.id FROM edition e JOIN variant v ON v.edition_id = e.id AND v.library_id = e.library_id
+WHERE e.library_id = ? AND e.item_id = ? AND v.source_file_id = ? ORDER BY e.id, v.id LIMIT 1`, libraryID, itemID, sourceFileID).Scan(&link.EditionID, &link.VariantID)
+	if err == nil {
+		return link, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	err = tx.QueryRowContext(ctx, "SELECT id FROM edition WHERE library_id = ? AND item_id = ? AND is_default = 1", libraryID, itemID).Scan(&link.EditionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		link.EditionID, err = randomID("edition_")
+		if err != nil {
+			return nil, err
+		}
+		_, err = tx.ExecContext(ctx, "INSERT INTO edition(id, library_id, item_id, name, is_default) VALUES (?, ?, ?, '', 1)", link.EditionID, libraryID, itemID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	link.VariantID, err = randomID("variant_")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO variant(id, library_id, edition_id, source_file_id) VALUES (?, ?, ?, ?)", link.VariantID, libraryID, link.EditionID, sourceFileID); err != nil {
+		return nil, err
+	}
+	result, err := tx.ExecContext(ctx, "UPDATE library_item SET revision = revision + 1 WHERE library_id = ? AND id = ? AND revision = ?", libraryID, itemID, expectedRevision)
+	if err != nil {
+		return nil, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if count != 1 {
+		return nil, ErrRevisionConflict
+	}
+	link.ItemRevision++
+	if err := publishCatalogChange(ctx, tx, actor, libraryID, "catalog.item.file.attached", catalogChange{SourceFileID: sourceFileID, ItemID: itemID, Revision: link.ItemRevision}); err != nil {
 		return nil, err
 	}
 	return link, nil

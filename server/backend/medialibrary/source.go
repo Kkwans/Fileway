@@ -57,6 +57,10 @@ type SourceFile struct {
 	Revision      int64
 	ObservedAt    int64
 	MissingSince  *int64
+	// A legacy or path-only key is not proof of continuity. In particular,
+	// playback must not inherit progress from these identity epochs implicitly.
+	IdentityKind  string
+	IdentityEpoch int64
 }
 
 // FileObservation keeps stable object identity separate from a replaceable
@@ -196,11 +200,11 @@ func (store *Store) GetSourceFile(ctx context.Context, actor uint, sourceID stri
 	return scanSourceFile(store.db.QueryRowContext(ctx, sourceFileSelection+` JOIN source s ON s.id = f.source_id WHERE f.source_id = ? AND f.object_key = ? AND s.owner_user_id = ? AND s.kind = 'local'`, sourceID, objectKey, actor))
 }
 
-const sourceFileSelection = `SELECT f.id, f.source_id, f.object_key, f.locator, f.source_version, f.size_bytes, f.revision, f.observed_at, f.missing_since FROM source_file f`
+const sourceFileSelection = `SELECT f.id, f.source_id, f.object_key, f.locator, f.source_version, f.size_bytes, f.revision, f.observed_at, f.missing_since, f.identity_kind, f.identity_epoch FROM source_file f`
 
 func scanSourceFile(row rowScanner) (*SourceFile, error) {
 	file := &SourceFile{}
-	err := row.Scan(&file.ID, &file.SourceID, &file.ObjectKey, &file.Locator, &file.SourceVersion, &file.SizeBytes, &file.Revision, &file.ObservedAt, &file.MissingSince)
+	err := row.Scan(&file.ID, &file.SourceID, &file.ObjectKey, &file.Locator, &file.SourceVersion, &file.SizeBytes, &file.Revision, &file.ObservedAt, &file.MissingSince, &file.IdentityKind, &file.IdentityEpoch)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -214,115 +218,145 @@ func scanSourceFile(row rowScanner) (*SourceFile, error) {
 // local-source adapter. The live actor must own both library and connection.
 // Metadata editors cannot inject file observations or expand a library's roots.
 func (store *Store) ObserveSourceFile(ctx context.Context, actor uint, binding SourceBindingRef, input FileObservation) (*SourceFile, error) {
-	if len(input.ObjectKey) == 0 || len(input.Locator) == 0 || input.SourceVersion == "" || input.ExpectedRevision < 0 || (input.SizeBytes != nil && *input.SizeBytes < 0) {
-		return nil, fmt.Errorf("%w: invalid file observation", ErrInvalid)
-	}
 	var file *SourceFile
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
-		library, err := activeCatalogLibrary(ctx, tx, actor, binding.LibraryID)
-		if err != nil {
-			return err
-		}
-		if library.OwnerUserID != actor {
-			return ErrForbidden
-		}
-		source, err := ownedLocalSource(ctx, tx, actor, binding.SourceID)
-		if err != nil {
-			return err
-		}
-		var bindingRevision int64
-		if err := tx.QueryRowContext(ctx, "SELECT revision FROM library_source WHERE library_id = ? AND source_id = ? AND root_locator = ?", binding.LibraryID, binding.SourceID, binding.RootLocator).Scan(&bindingRevision); errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		} else if err != nil {
-			return err
-		}
-		if binding.BindingRevision != bindingRevision || binding.AuthorizationRevision != source.AuthorizationRevision {
-			return ErrRevisionConflict
-		}
-		file, err = scanSourceFile(tx.QueryRowContext(ctx, sourceFileSelection+" WHERE f.source_id = ? AND f.object_key = ?", binding.SourceID, input.ObjectKey))
-		if err != nil && !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		newFile := errors.Is(err, ErrNotFound)
-		if (newFile && input.ExpectedRevision != 0) || (!newFile && file.Revision != input.ExpectedRevision) {
-			return ErrRevisionConflict
-		}
-		now := time.Now().UnixMilli()
-		changed := newFile
-		if newFile {
-			id, err := randomID("file_")
-			if err != nil {
-				return err
-			}
-			file = &SourceFile{ID: id, SourceID: binding.SourceID, Revision: 1}
-		} else {
-			now = max(now, file.ObservedAt)
-			changed = !bytes.Equal(file.Locator, input.Locator) || file.SourceVersion != input.SourceVersion || !sameOptionalSize(file.SizeBytes, input.SizeBytes) || file.MissingSince != nil
-			if changed {
-				file.Revision++
-			}
-		}
-		file.ObjectKey, file.Locator = bytes.Clone(input.ObjectKey), bytes.Clone(input.Locator)
-		file.SourceVersion, file.ObservedAt, file.MissingSince = input.SourceVersion, now, nil
-		file.SizeBytes = nil
-		if input.SizeBytes != nil {
-			size := *input.SizeBytes
-			file.SizeBytes = &size
-		}
-		if newFile {
-			_, err = tx.ExecContext(ctx, `INSERT INTO source_file(id, source_id, object_key, locator, source_version, size_bytes, observed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, file.ID, file.SourceID, file.ObjectKey, file.Locator, file.SourceVersion, file.SizeBytes, now)
-		} else {
-			_, err = tx.ExecContext(ctx, `UPDATE source_file SET locator = ?, source_version = ?, size_bytes = ?, revision = ?, observed_at = ?, missing_since = NULL WHERE id = ?`, file.Locator, file.SourceVersion, file.SizeBytes, file.Revision, now, file.ID)
-		}
-		if err != nil {
-			return err
-		}
-		var oldRoot []byte
-		err = tx.QueryRowContext(ctx, "SELECT root_locator FROM library_file WHERE library_id = ? AND source_file_id = ?", binding.LibraryID, file.ID).Scan(&oldRoot)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		associationChanged := errors.Is(err, sql.ErrNoRows) || !bytes.Equal(oldRoot, binding.RootLocator)
-		if _, err := tx.ExecContext(ctx, `INSERT INTO library_file(library_id, source_file_id, source_id, root_locator, observed_at) VALUES (?, ?, ?, ?, ?)
-ON CONFLICT(library_id, source_file_id) DO UPDATE SET root_locator = excluded.root_locator, observed_at = excluded.observed_at`, binding.LibraryID, file.ID, binding.SourceID, binding.RootLocator, now); err != nil {
-			return err
-		}
-		if !changed && !associationChanged {
-			return nil
-		}
-		libraries := []string{binding.LibraryID}
-		if changed {
-			rows, err := tx.QueryContext(ctx, "SELECT library_id FROM library_file WHERE source_file_id = ? ORDER BY library_id", file.ID)
-			if err != nil {
-				return err
-			}
-			libraries = nil
-			for rows.Next() {
-				var id string
-				if err := rows.Scan(&id); err != nil {
-					_ = rows.Close()
-					return err
-				}
-				libraries = append(libraries, id)
-			}
-			readErr := rows.Err()
-			closeErr := rows.Close()
-			if readErr != nil {
-				return readErr
-			}
-			if closeErr != nil {
-				return closeErr
-			}
-		}
-		for _, libraryID := range libraries {
-			if err := publishCatalogChange(ctx, tx, actor, libraryID, "catalog.file.observed", catalogChange{SourceID: file.SourceID, SourceFileID: file.ID, Revision: file.Revision}); err != nil {
-				return err
-			}
-		}
-		return nil
+		var err error
+		file, err = observeSourceFileTx(ctx, tx, actor, binding, input, "", false)
+		return err
 	})
 	if err != nil {
 		return nil, err
+	}
+	return file, nil
+}
+
+// validateSourceBinding checks stored catalog revisions only. The caller must
+// separately revalidate the source owner's live authority and safe open rules.
+func validateSourceBinding(ctx context.Context, reader schemaReader, actor uint, binding SourceBindingRef) (*LibrarySource, error) {
+	library, err := activeCatalogLibrary(ctx, reader, actor, binding.LibraryID)
+	if err != nil {
+		return nil, err
+	}
+	if library.OwnerUserID != actor {
+		return nil, ErrForbidden
+	}
+	source, err := ownedLocalSource(ctx, reader, actor, binding.SourceID)
+	if err != nil {
+		return nil, err
+	}
+	var revision int64
+	if err := reader.QueryRowContext(ctx, "SELECT revision FROM library_source WHERE library_id = ? AND source_id = ? AND root_locator = ?", binding.LibraryID, binding.SourceID, binding.RootLocator).Scan(&revision); errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if binding.BindingRevision != revision || binding.AuthorizationRevision != source.AuthorizationRevision {
+		return nil, ErrRevisionConflict
+	}
+	return &LibrarySource{LibraryID: library.ID, Source: *source, RootLocator: bytes.Clone(binding.RootLocator), Revision: revision, LibraryRevision: library.Revision}, nil
+}
+
+func observeSourceFileTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBindingRef, input FileObservation, identityKind string, forceNewEpoch bool) (*SourceFile, error) {
+	if len(input.ObjectKey) == 0 || len(input.Locator) == 0 || input.SourceVersion == "" || input.ExpectedRevision < 0 || (input.SizeBytes != nil && *input.SizeBytes < 0) {
+		return nil, fmt.Errorf("%w: invalid file observation", ErrInvalid)
+	}
+	if identityKind != "" && identityKind != "native" && identityKind != "path_unverified" {
+		return nil, fmt.Errorf("%w: invalid source identity evidence", ErrInvalid)
+	}
+	if _, err := validateSourceBinding(ctx, tx, actor, binding); err != nil {
+		return nil, err
+	}
+	file, err := scanSourceFile(tx.QueryRowContext(ctx, sourceFileSelection+" WHERE f.source_id = ? AND f.object_key = ?", binding.SourceID, input.ObjectKey))
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	newFile := errors.Is(err, ErrNotFound)
+	if (newFile && input.ExpectedRevision != 0) || (!newFile && file.Revision != input.ExpectedRevision) {
+		return nil, ErrRevisionConflict
+	}
+	now := time.Now().UnixMilli()
+	changed := newFile
+	if newFile {
+		id, err := randomID("file_")
+		if err != nil {
+			return nil, err
+		}
+		kind := identityKind
+		if kind == "" {
+			kind = "legacy_unverified"
+		}
+		file = &SourceFile{ID: id, SourceID: binding.SourceID, Revision: 1, IdentityKind: kind, IdentityEpoch: 1}
+	} else {
+		now = max(now, file.ObservedAt)
+		identityChanged := identityKind != "" && file.IdentityKind != identityKind
+		if identityChanged {
+			file.IdentityKind = identityKind
+		}
+		if identityChanged || forceNewEpoch {
+			file.IdentityEpoch++
+		}
+		changed = !bytes.Equal(file.Locator, input.Locator) || file.SourceVersion != input.SourceVersion || !sameOptionalSize(file.SizeBytes, input.SizeBytes) || file.MissingSince != nil || identityChanged || forceNewEpoch
+		if changed {
+			file.Revision++
+		}
+	}
+	file.ObjectKey, file.Locator = bytes.Clone(input.ObjectKey), bytes.Clone(input.Locator)
+	file.SourceVersion, file.ObservedAt, file.MissingSince = input.SourceVersion, now, nil
+	file.SizeBytes = nil
+	if input.SizeBytes != nil {
+		size := *input.SizeBytes
+		file.SizeBytes = &size
+	}
+	if newFile {
+		_, err = tx.ExecContext(ctx, `INSERT INTO source_file(id, source_id, object_key, locator, source_version, size_bytes, observed_at, identity_kind, identity_epoch) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, file.ID, file.SourceID, file.ObjectKey, file.Locator, file.SourceVersion, file.SizeBytes, now, file.IdentityKind, file.IdentityEpoch)
+	} else {
+		_, err = tx.ExecContext(ctx, `UPDATE source_file SET locator = ?, source_version = ?, size_bytes = ?, revision = ?, observed_at = ?, missing_since = NULL, identity_kind = ?, identity_epoch = ? WHERE id = ?`, file.Locator, file.SourceVersion, file.SizeBytes, file.Revision, now, file.IdentityKind, file.IdentityEpoch, file.ID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	var oldLocator []byte
+	var oldMissing *int64
+	err = tx.QueryRowContext(ctx, "SELECT locator, missing_since FROM library_file WHERE library_id = ? AND source_id = ? AND root_locator = ? AND source_file_id = ?", binding.LibraryID, binding.SourceID, binding.RootLocator, file.ID).Scan(&oldLocator, &oldMissing)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	associationChanged := errors.Is(err, sql.ErrNoRows) || !bytes.Equal(oldLocator, input.Locator) || oldMissing != nil
+	if _, err := tx.ExecContext(ctx, `INSERT INTO library_file(library_id, source_file_id, source_id, root_locator, locator, observed_at) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT(library_id, source_id, root_locator, source_file_id) DO UPDATE SET locator = excluded.locator, observed_at = excluded.observed_at, missing_since = NULL`, binding.LibraryID, file.ID, binding.SourceID, binding.RootLocator, input.Locator, now); err != nil {
+		return nil, err
+	}
+	if !changed && !associationChanged {
+		return file, nil
+	}
+	libraries := []string{binding.LibraryID}
+	if changed {
+		rows, err := tx.QueryContext(ctx, "SELECT DISTINCT library_id FROM library_file WHERE source_file_id = ? ORDER BY library_id", file.ID)
+		if err != nil {
+			return nil, err
+		}
+		libraries = nil
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				_ = rows.Close()
+				return nil, err
+			}
+			libraries = append(libraries, id)
+		}
+		readErr := rows.Err()
+		closeErr := rows.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+	}
+	for _, libraryID := range libraries {
+		if err := publishCatalogChange(ctx, tx, actor, libraryID, "catalog.file.observed", catalogChange{SourceID: file.SourceID, SourceFileID: file.ID, Revision: file.Revision}); err != nil {
+			return nil, err
+		}
 	}
 	return file, nil
 }

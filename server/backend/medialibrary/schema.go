@@ -165,3 +165,76 @@ CREATE INDEX library_file_source ON library_file(source_file_id, library_id);
 ALTER TABLE edition ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0, 1));
 CREATE UNIQUE INDEX edition_default_item ON edition(library_id, item_id) WHERE is_default = 1;
 `
+
+// Preserve each root's observation and locator independently. The v3 locator
+// copied below is only a historical hint: every future open must revalidate
+// the current owner's authority and the exact binding before reading bytes.
+const schemaV4 = `
+ALTER TABLE source_file ADD COLUMN identity_kind TEXT NOT NULL DEFAULT 'legacy_unverified'
+    CHECK(identity_kind IN ('legacy_unverified', 'native', 'path_unverified'));
+ALTER TABLE source_file ADD COLUMN identity_epoch INTEGER NOT NULL DEFAULT 1 CHECK(identity_epoch > 0);
+
+CREATE UNIQUE INDEX job_library_identity ON job(id, library_id);
+CREATE TABLE scan_job (
+    job_id TEXT PRIMARY KEY NOT NULL,
+    library_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    root_locator BLOB NOT NULL CHECK(length(root_locator) > 0),
+    binding_revision INTEGER NOT NULL CHECK(binding_revision > 0),
+    authorization_revision INTEGER NOT NULL CHECK(authorization_revision > 0),
+    rules_revision INTEGER NOT NULL CHECK(rules_revision > 0),
+    operation_id TEXT NOT NULL CHECK(length(operation_id) > 0),
+    active INTEGER NOT NULL CHECK(active IN (0, 1)),
+    last_digest BLOB,
+    last_result_json TEXT CHECK(last_result_json IS NULL OR json_valid(last_result_json)),
+    UNIQUE(library_id, operation_id),
+    FOREIGN KEY(job_id, library_id) REFERENCES job(id, library_id),
+    FOREIGN KEY(library_id, source_id, root_locator) REFERENCES library_source(library_id, source_id, root_locator)
+) STRICT;
+CREATE UNIQUE INDEX scan_job_active_binding ON scan_job(library_id, source_id, root_locator) WHERE active = 1;
+
+CREATE TABLE library_file_v4 (
+    library_id TEXT NOT NULL,
+    source_file_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    root_locator BLOB NOT NULL,
+    locator BLOB NOT NULL CHECK(length(locator) > 0),
+    observed_at INTEGER NOT NULL CHECK(observed_at >= 0),
+    last_seen_job_id TEXT REFERENCES job(id),
+    last_seen_generation INTEGER CHECK(last_seen_generation > 0),
+    missing_since INTEGER CHECK(missing_since >= 0),
+    PRIMARY KEY(library_id, source_id, root_locator, source_file_id),
+    FOREIGN KEY(library_id, source_id, root_locator) REFERENCES library_source(library_id, source_id, root_locator),
+    FOREIGN KEY(source_id, source_file_id) REFERENCES source_file(source_id, id),
+    CHECK((last_seen_job_id IS NULL) = (last_seen_generation IS NULL))
+) STRICT;
+INSERT INTO library_file_v4(library_id, source_file_id, source_id, root_locator, locator, observed_at)
+SELECT lf.library_id, lf.source_file_id, lf.source_id, lf.root_locator,
+       (SELECT sf.locator FROM source_file sf WHERE sf.id = lf.source_file_id AND sf.source_id = lf.source_id), lf.observed_at
+FROM library_file lf;
+DROP TABLE library_file;
+ALTER TABLE library_file_v4 RENAME TO library_file;
+CREATE INDEX library_file_source ON library_file(source_file_id, library_id);
+CREATE INDEX library_file_binding_missing ON library_file(library_id, source_id, root_locator, source_file_id) WHERE missing_since IS NULL;
+
+-- A verified absence is staged for exactly one attempt. Nothing becomes
+-- missing until all candidates are rechecked and the job completes.
+CREATE TABLE scan_missing_candidate (
+    job_id TEXT NOT NULL REFERENCES scan_job(job_id),
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    source_file_id TEXT NOT NULL REFERENCES source_file(id),
+    file_revision INTEGER NOT NULL CHECK(file_revision > 0),
+    locator BLOB NOT NULL CHECK(length(locator) > 0),
+    seen_job_id TEXT,
+    seen_generation INTEGER,
+    PRIMARY KEY(job_id, generation, source_file_id),
+    CHECK((seen_job_id IS NULL) = (seen_generation IS NULL))
+) STRICT;
+CREATE TABLE scan_nfo_status (
+    job_id TEXT NOT NULL REFERENCES scan_job(job_id),
+    generation INTEGER NOT NULL CHECK(generation > 0),
+    source_file_id TEXT NOT NULL REFERENCES source_file(id),
+    status TEXT NOT NULL CHECK(status IN ('missing', 'parsed', 'invalid', 'unavailable', 'changed')),
+    PRIMARY KEY(job_id, generation, source_file_id)
+) STRICT;
+`
