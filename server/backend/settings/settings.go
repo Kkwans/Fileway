@@ -63,6 +63,9 @@ type Server struct {
 	ImageResolutionCal    bool   `json:"imageResolutionCalculation"`
 	AuthHook              string `json:"authHook"`
 	TokenExpirationTime   string `json:"tokenExpirationTime"`
+	// DisableMediaLibrarySharing is an instance policy, independent of the
+	// legacy file-sharing permission. Startup configuration sets it.
+	DisableMediaLibrarySharing bool `json:"-"`
 }
 
 // Clean cleans any variables that might need cleaning.

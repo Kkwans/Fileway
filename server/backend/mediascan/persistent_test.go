@@ -17,6 +17,7 @@ import (
 type persistentFixture struct {
 	*scanFixture
 	store *medialibrary.Store
+	coord *medialibrary.ScanCoordinator
 	count int
 }
 
@@ -49,6 +50,15 @@ func newPersistentFixture(t *testing.T) *persistentFixture {
 			t.Error(err)
 		}
 	})
+	f.coord, err = store.AcquireScanCoordinator(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := f.coord.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	library, err := store.CreateLibrary(t.Context(), 7, "Fixture")
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +84,7 @@ func (f *persistentFixture) claim(t *testing.T) medialibrary.ScanLease {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := f.store.ClaimScan(t.Context(), 7, job.ID, job.Generation)
+	lease, err := f.coord.ClaimScan(t.Context(), 7, job.ID, job.Generation)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +110,7 @@ func TestPersistentLocalScanJourneyIsRepeatable(t *testing.T) {
 	f.write(t, "nested/b.mkv", "video B")
 	f.write(t, "nested/b.nfo", "<movie><title>")
 	lease := f.claim(t)
-	result, err := Run(t.Context(), 7, f.store, lease, f.ownerResolve, Options{ReadBatch: 1})
+	result, err := Run(t.Context(), 7, f.store, f.coord, lease, f.ownerResolve, Options{ReadBatch: 1})
 	if err != nil || result.Observed != 2 || result.NFOFailed != 1 {
 		t.Fatalf("initial run: result=%+v err=%v", result, err)
 	}
@@ -119,7 +129,7 @@ func TestPersistentLocalScanJourneyIsRepeatable(t *testing.T) {
 		t.Fatalf("catalog: %+v", items)
 	}
 	repeat := f.claim(t)
-	result, err = Run(t.Context(), 7, f.store, repeat, f.ownerResolve, Options{})
+	result, err = Run(t.Context(), 7, f.store, f.coord, repeat, f.ownerResolve, Options{})
 	if err != nil || result.Observed != 2 {
 		t.Fatalf("repeat: result=%+v err=%v", result, err)
 	}
@@ -156,7 +166,7 @@ func TestPersistentLocalScanRevocationAndCancellationDoNotComplete(t *testing.T)
 				}
 				return f.ownerResolve(ctx, owner, ref)
 			}
-			result, err := Run(ctx, 7, f.store, lease, resolve, Options{ReadBatch: 1})
+			result, err := Run(ctx, 7, f.store, f.coord, lease, resolve, Options{ReadBatch: 1})
 			wantErr, wantStatus := error(fs.ErrPermission), "failed"
 			if mode == "cancel" {
 				wantErr, wantStatus = context.Canceled, "interrupted"
@@ -170,11 +180,11 @@ func TestPersistentLocalScanRevocationAndCancellationDoNotComplete(t *testing.T)
 				t.Fatalf("job=%+v err=%v", job, getErr)
 			}
 			if mode == "cancel" {
-				resumed, err := f.store.ClaimScan(t.Context(), 7, job.ID, job.Generation)
+				resumed, err := f.coord.ClaimScan(t.Context(), 7, job.ID, job.Generation)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if _, err := Run(t.Context(), 7, f.store, *resumed, f.ownerResolve, Options{}); err != nil {
+				if _, err := Run(t.Context(), 7, f.store, f.coord, *resumed, f.ownerResolve, Options{}); err != nil {
 					t.Fatal(err)
 				}
 				after := f.catalog(t)
@@ -195,7 +205,7 @@ func TestPersistentScanPublishesMissingOnlyAfterSuccessfulReconciliation(t *test
 	f.write(t, "kept.mp4", "A")
 	f.write(t, "removed.mp4", "B")
 	initial := f.claim(t)
-	if _, err := Run(t.Context(), 7, f.store, initial, f.ownerResolve, Options{}); err != nil {
+	if _, err := Run(t.Context(), 7, f.store, f.coord, initial, f.ownerResolve, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Remove(filepath.Join(f.root, "media", "removed.mp4")); err != nil {
@@ -214,7 +224,7 @@ func TestPersistentScanPublishesMissingOnlyAfterSuccessfulReconciliation(t *test
 		}
 		return f.ownerResolve(ctx, owner, ref)
 	}
-	if _, err := Run(t.Context(), 7, f.store, lease, resolve, Options{}); !errors.Is(err, fs.ErrPermission) {
+	if _, err := Run(t.Context(), 7, f.store, f.coord, lease, resolve, Options{}); !errors.Is(err, fs.ErrPermission) {
 		t.Fatalf("final authority revocation: %v", err)
 	}
 	staged, missing := fixtureMissingCounts(t, f.store, lease.JobID)
@@ -226,7 +236,7 @@ func TestPersistentScanPublishesMissingOnlyAfterSuccessfulReconciliation(t *test
 		t.Fatalf("failed job: %+v %v", job, err)
 	}
 	completed := f.claim(t)
-	if _, err := Run(t.Context(), 7, f.store, completed, f.ownerResolve, Options{}); err != nil {
+	if _, err := Run(t.Context(), 7, f.store, f.coord, completed, f.ownerResolve, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	staged, missing = fixtureMissingCounts(t, f.store, completed.JobID)
@@ -254,7 +264,7 @@ func TestPersistentScanExternalCancellationFencesOldLease(t *testing.T) {
 		}
 		return f.ownerResolve(ctx, owner, ref)
 	}
-	result, err := Run(t.Context(), 7, f.store, lease, resolve, Options{ReadBatch: 1})
+	result, err := Run(t.Context(), 7, f.store, f.coord, lease, resolve, Options{ReadBatch: 1})
 	if !errors.Is(err, medialibrary.ErrScanState) || result.Observed != 1 || !canceled || len(f.catalog(t)) != 1 {
 		t.Fatalf("cancellation fence: result=%+v canceled=%t err=%v", result, canceled, err)
 	}
@@ -276,7 +286,7 @@ func TestPersistentScanEarlyCancellationOrArchivedBindingTerminatesLease(t *test
 			} else if _, err := f.store.ArchiveLibrary(ctx, 7, f.binding.LibraryID, f.binding.LibraryRevision); err != nil {
 				t.Fatal(err)
 			}
-			_, err := Run(ctx, 7, f.store, lease, f.ownerResolve, Options{})
+			_, err := Run(ctx, 7, f.store, f.coord, lease, f.ownerResolve, Options{})
 			wantErr, wantStatus := error(context.Canceled), "interrupted"
 			if mode == "archive" {
 				wantErr, wantStatus = medialibrary.ErrArchived, "failed"
@@ -298,11 +308,11 @@ func TestPersistentScanRejectsUnavailableRulesRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := f.store.ClaimScan(t.Context(), 7, job.ID, job.Generation)
+	lease, err := f.coord.ClaimScan(t.Context(), 7, job.ID, job.Generation)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Run(t.Context(), 7, f.store, *lease, f.ownerResolve, Options{}); !errors.Is(err, ErrScanRulesUnavailable) {
+	if _, err := Run(t.Context(), 7, f.store, f.coord, *lease, f.ownerResolve, Options{}); !errors.Is(err, ErrScanRulesUnavailable) {
 		t.Fatalf("unexpected rules accepted: %v", err)
 	}
 	job, err = f.store.GetScan(t.Context(), 7, job.ID)
@@ -333,7 +343,7 @@ func TestPersistentScanFinishesAfterDurableCheckpointAdvances(t *testing.T) {
 			cp := job.Checkpoint
 			cp.Sequence++
 			cp.Processed++
-			_, err = f.store.CommitScanObservation(ctx, owner, lease, medialibrary.ScanObservation{
+			_, err = f.coord.CommitScanObservation(ctx, owner, lease, medialibrary.ScanObservation{
 				ObjectKey: file.ObjectKey, Identity: file.IdentityKind, Locator: file.Locator, ExpectedRevision: file.Revision,
 				SourceVersion: file.SourceVersion, SizeBytes: *file.SizeBytes, InitialTitle: "A", NFOStatus: string(NFOMissing),
 			}, cp)
@@ -345,12 +355,54 @@ func TestPersistentScanFinishesAfterDurableCheckpointAdvances(t *testing.T) {
 		}
 		return f.ownerResolve(ctx, owner, ref)
 	}
-	if _, err := Run(t.Context(), 7, f.store, lease, resolve, Options{ReadBatch: 1}); !errors.Is(err, fs.ErrPermission) {
+	if _, err := Run(t.Context(), 7, f.store, f.coord, lease, resolve, Options{ReadBatch: 1}); !errors.Is(err, fs.ErrPermission) {
 		t.Fatalf("injected failure: %v", err)
 	}
 	job, err := f.store.GetScan(t.Context(), 7, lease.JobID)
 	if err != nil || !injected || job.Status != "failed" || job.Checkpoint.Sequence != 2 {
 		t.Fatalf("advanced checkpoint left lease running: injected=%t job=%+v err=%v", injected, job, err)
+	}
+}
+
+func TestPersistentScanDoesNotWriteTerminalStateAfterCoordinatorLoss(t *testing.T) {
+	f := newPersistentFixture(t)
+	f.write(t, "a.mp4", "A")
+	f.write(t, "b.mp4", "B")
+	lease := f.claim(t)
+	released := false
+	resolve := func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+		job, err := f.store.GetScan(ctx, owner, lease.JobID)
+		if err != nil {
+			return mediasource.LocalAuthority{}, err
+		}
+		if job.Checkpoint.Processed > 0 && !released {
+			if err := f.coord.Release(); err != nil {
+				return mediasource.LocalAuthority{}, err
+			}
+			released = true
+			return mediasource.LocalAuthority{}, fs.ErrPermission
+		}
+		return f.ownerResolve(ctx, owner, ref)
+	}
+	_, err := Run(t.Context(), 7, f.store, f.coord, lease, resolve, Options{ReadBatch: 1})
+	if !released || !errors.Is(err, medialibrary.ErrCoordinatorUnavailable) {
+		t.Fatalf("coordinator loss: released=%t err=%v", released, err)
+	}
+	job, err := f.store.GetScan(t.Context(), 7, lease.JobID)
+	if err != nil || job.Status != "running" || job.Generation != lease.Generation {
+		t.Fatalf("lost coordinator wrote terminal state: %+v %v", job, err)
+	}
+	newCoordinator, err := f.store.AcquireScanCoordinator(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = newCoordinator.Close() })
+	if _, err := newCoordinator.InterruptRunningScans(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	job, err = f.store.GetScan(t.Context(), 7, lease.JobID)
+	if err != nil || job.Status != "interrupted" || job.Generation <= lease.Generation {
+		t.Fatalf("new coordinator could not recover: %+v %v", job, err)
 	}
 }
 
@@ -382,7 +434,7 @@ func TestPersistentScanRejectsStaleCrossBindingObservation(t *testing.T) {
 		t.Skip("fixture filesystem does not expose native object evidence")
 	}
 	initial := f.claim(t)
-	if _, err := Run(t.Context(), 7, f.store, initial, f.ownerResolve, Options{}); err != nil {
+	if _, err := Run(t.Context(), 7, f.store, f.coord, initial, f.ownerResolve, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	secondBinding, err := f.store.BindLocalSource(t.Context(), 7, f.binding.LibraryID, f.binding.LibraryRevision, f.binding.Source.ID, []byte("/media/nested"))
@@ -394,12 +446,12 @@ func TestPersistentScanRejectsStaleCrossBindingObservation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := f.store.ClaimScan(t.Context(), 7, otherJob.ID, otherJob.Generation)
+	other, err := f.coord.ClaimScan(t.Context(), 7, otherJob.ID, otherJob.Generation)
 	if err != nil {
 		t.Fatal(err)
 	}
 	checkpoint := medialibrary.ScanCheckpoint{Version: 1, Phase: "enumerate"}
-	sink := &racingSink{persistentSink: &persistentSink{store: f.store, actor: 7, lease: first, checkpoint: &checkpoint}}
+	sink := &racingSink{persistentSink: &persistentSink{coord: f.coord, actor: 7, lease: first, checkpoint: &checkpoint}}
 	var competingLocator []byte
 	sink.afterLookup = func(ctx context.Context, observedKey []byte, revision int64) error {
 		file, err := f.store.GetSourceFile(ctx, 7, first.Binding.SourceID, key)
@@ -411,7 +463,7 @@ func TestPersistentScanRejectsStaleCrossBindingObservation(t *testing.T) {
 			competingLocator = []byte("/media/nested/b.mp4")
 		}
 		cp := medialibrary.ScanCheckpoint{Version: 1, Sequence: 1, Processed: 1, LastObjectKey: observedKey, Phase: "enumerate"}
-		_, err = f.store.CommitScanObservation(ctx, 7, *other, medialibrary.ScanObservation{
+		_, err = f.coord.CommitScanObservation(ctx, 7, *other, medialibrary.ScanObservation{
 			ObjectKey: observedKey, Identity: string(IdentityNative), Locator: competingLocator, ExpectedRevision: revision,
 			SourceVersion: fmt.Sprintf("v1:%d:%d", info.Size(), info.ModTime().UnixNano()), SizeBytes: info.Size(), InitialTitle: "competing", NFOStatus: string(NFOMissing),
 		}, cp)

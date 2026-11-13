@@ -35,7 +35,7 @@ func mediaLibraryRead(fn handleFunc) handleFunc {
 }
 
 var mediaLibraryListHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
-	options := medialibrary.LibraryListOptions{AfterID: r.URL.Query().Get("cursor")}
+	options := medialibrary.LibraryListOptions{AfterID: r.URL.Query().Get("cursor"), OnlyOwned: mediaSharingDisabled(d)}
 	if len(options.AfterID) > 128 {
 		return http.StatusBadRequest, fmt.Errorf("媒体库分页参数无效")
 	}
@@ -71,8 +71,21 @@ var mediaLibraryGetHandler = mediaLibraryRead(func(w http.ResponseWriter, r *htt
 	if err != nil {
 		return mediaLibraryError(err)
 	}
+	if !mediaLibraryAccessAllowed(d, value) {
+		return http.StatusNotFound, fmt.Errorf("媒体库不存在或不可访问")
+	}
 	return renderJSON(w, r, librarySummary(value))
 })
+
+// The same live instance policy must be checked for any future shared-catalog,
+// playback and artwork route, in addition to member and source authorization.
+func mediaSharingDisabled(d *data) bool {
+	return d.server == nil || d.server.DisableMediaLibrarySharing
+}
+
+func mediaLibraryAccessAllowed(d *data, library *medialibrary.Library) bool {
+	return library != nil && d.user != nil && (library.OwnerUserID == d.user.ID || !mediaSharingDisabled(d))
+}
 
 func mediaLibraryError(err error) (int, error) {
 	switch {

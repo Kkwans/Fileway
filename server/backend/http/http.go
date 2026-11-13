@@ -1,8 +1,11 @@
 package fbhttp
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"os"
 
@@ -10,6 +13,8 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/Kkwans/nas-file-browser/backend/hls"
+	"github.com/Kkwans/nas-file-browser/backend/mediascan"
+	"github.com/Kkwans/nas-file-browser/backend/mediasource"
 	"github.com/Kkwans/nas-file-browser/backend/settings"
 	"github.com/Kkwans/nas-file-browser/backend/storage"
 	"github.com/Kkwans/nas-file-browser/backend/tasks"
@@ -29,11 +34,12 @@ type archiveCacheHandler struct {
 	http.Handler
 	cache         *archivefs.EntryCache
 	subtitlePages *subtitlePages
+	mediaScans    *mediascan.Scheduler
 }
 
 func (handler *archiveCacheHandler) Close() error {
 	handler.subtitlePages.close()
-	return handler.cache.Close()
+	return errors.Join(handler.mediaScans.Close(), handler.cache.Close())
 }
 
 func NewHandler(
@@ -63,6 +69,21 @@ func NewHandler(
 
 	if err := store.Trash.RecoverSizes(); err != nil {
 		return nil, err
+	}
+	entryCache, err := archivefs.NewEntryCache(archivefs.EntryCacheConfig{WorkDir: os.TempDir()})
+	if err != nil {
+		return nil, err
+	}
+	var mediaScans *mediascan.Scheduler
+	if store.MediaLibrary != nil {
+		mediaScans, err = mediascan.NewScheduler(context.Background(), store.MediaLibrary, func(ctx context.Context, owner uint, configurationRef string) (mediasource.LocalAuthority, error) {
+			return resolveLocalMediaConnection(ctx, store, server, owner, configurationRef)
+		})
+		if err != nil {
+			// The catalog may be in use by another process. Do not fence its jobs,
+			// leak the catalog path, or disable the existing file service.
+			log.Print("Media scan service unavailable")
+		}
 	}
 
 	r := mux.NewRouter()
@@ -96,7 +117,19 @@ func NewHandler(
 	api.Handle("/renew", monkey(renewHandler(), ""))
 	api.Handle("/instance", monkey(deviceInstanceHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries", monkey(mediaLibraryListHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries", monkey(mediaLibraryCreateHandler, "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}", monkey(mediaLibraryGetHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}", monkey(mediaLibraryChangeHandler("update"), "")).Methods("PATCH")
+	api.Handle("/media-library/v1/libraries/{id}/archive", monkey(mediaLibraryChangeHandler("archive"), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/restore", monkey(mediaLibraryChangeHandler("restore"), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/members/{userId:[0-9]+}", monkey(mediaLibraryMemberHandler(true), "")).Methods("PUT")
+	api.Handle("/media-library/v1/libraries/{id}/members/{userId:[0-9]+}", monkey(mediaLibraryMemberHandler(false), "")).Methods("DELETE")
+	api.Handle("/media-library/v1/libraries/{id}/sources", monkey(mediaLibrarySourcesHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}/sources/local", monkey(mediaLibraryCreateSourceHandler, "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/scans", monkey(mediaScanCreateHandler(mediaScans), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}", monkey(mediaScanManagement(mediaScanGetHandler), "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/cancel", monkey(mediaScanCancelHandler(mediaScans), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/retry", monkey(mediaScanRetryHandler(mediaScans), "")).Methods("POST")
 	api.Handle("/device-auth/instance-proof", monkey(devicePublic(deviceProofHandler), "")).Methods("POST")
 	api.Handle("/device-auth/requests", monkey(devicePublic(deviceRequestHandler), "")).Methods("POST")
 	api.Handle("/device-auth/requests/{id}/approve", monkey(deviceApproveHandler, "")).Methods("POST")
@@ -155,10 +188,6 @@ func NewHandler(
 	api.Handle("/analysis/storage/{id}", monkey(storageAnalysisResultHandler, "")).Methods("GET")
 	api.Handle("/analysis/{id}", monkey(analysisResultHandler, "")).Methods("GET")
 	api.Handle("/archives/entries", monkey(archiveEntriesHandler, "")).Methods("GET")
-	entryCache, err := archivefs.NewEntryCache(archivefs.EntryCacheConfig{WorkDir: os.TempDir()})
-	if err != nil {
-		return nil, err
-	}
 	api.Handle("/archives/open", monkey(archiveEntryPrepareHandler(entryCache), "")).Methods("POST")
 	api.Handle("/archives/open/{id}/content", monkey(archiveEntryContentHandler(entryCache), "")).Methods("GET", "HEAD")
 	api.Handle("/archives/open/{id}", monkey(archiveEntryStatusHandler(entryCache), "")).Methods("GET")
@@ -248,5 +277,5 @@ func NewHandler(
 	public.PathPrefix("/dl").Handler(monkey(publicDlHandler, "/api/public/dl/")).Methods("GET")
 	public.PathPrefix("/share").Handler(monkey(publicShareHandler, "/api/public/share/")).Methods("GET")
 
-	return &archiveCacheHandler{Handler: stripPrefix(server.BaseURL, r), cache: entryCache, subtitlePages: subtitlePages}, nil
+	return &archiveCacheHandler{Handler: stripPrefix(server.BaseURL, r), cache: entryCache, subtitlePages: subtitlePages, mediaScans: mediaScans}, nil
 }
