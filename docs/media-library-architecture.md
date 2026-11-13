@@ -62,3 +62,19 @@ Archive preserves metadata and viewing state until explicit cleanup. Backups
 coordinate SQLite, bbolt projection watermarks and user-owned artwork. Rollback
 disables the new feature and preserves catalog data; it does not delete the catalog
 or replace application signing identities.
+
+## Runtime catalog placement
+
+The server option `mediaLibraryDatabase` is initially disabled when empty. When
+configured it selects an absolute local file in a dedicated `.fileway-media`
+directory. Only this reserved directory is created; its parent must exist. CLI
+account/configuration commands do not open the catalog. Initialization failure
+leaves ordinary file service available and logs a fixed, non-sensitive message.
+
+The reserved namespace stays inaccessible to file APIs even while the feature is
+disabled. An enabled catalog retains native directory identity protection through
+server shutdown, including failed initialization. Public byte readers additionally
+inspect the opened file identity to reject database/WAL/SHM/journal aliases after
+path checks. These privacy checks supplement, rather than replace, user scope and
+rule authorization. Native platform and filesystem limitations are validated in
+the deployment gates; a Windows-only test result is not Linux runtime evidence.

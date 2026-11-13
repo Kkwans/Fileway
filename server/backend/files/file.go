@@ -263,7 +263,7 @@ func (i *FileInfo) ChecksumContext(ctx context.Context, algo string) (err error)
 		i.Checksums = map[string]string{}
 	}
 
-	reader, err := i.Fs.Open(i.Path)
+	reader, err := OpenPublicResource(i.Fs, i.Path)
 	if err != nil {
 		return err
 	}
@@ -387,8 +387,12 @@ func (i *FileInfo) detectType(modify, saveContent, readHeader bool, calcImgRes b
 		}
 
 		if saveContent {
-			afs := &afero.Afero{Fs: i.Fs}
-			content, err := afs.ReadFile(i.Path)
+			reader, err := OpenPublicResource(i.Fs, i.Path)
+			if err != nil {
+				return err
+			}
+			defer reader.Close()
+			content, err := io.ReadAll(reader)
 			if err != nil {
 				return err
 			}
@@ -404,7 +408,7 @@ func (i *FileInfo) detectType(modify, saveContent, readHeader bool, calcImgRes b
 }
 
 func calculateImageResolution(fSys afero.Fs, filePath string) (*ImageResolution, error) {
-	file, err := fSys.Open(filePath)
+	file, err := OpenPublicResource(fSys, filePath)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +430,7 @@ func calculateImageResolution(fSys afero.Fs, filePath string) (*ImageResolution,
 }
 
 func (i *FileInfo) readFirstBytes() []byte {
-	reader, err := i.Fs.Open(i.Path)
+	reader, err := OpenPublicResource(i.Fs, i.Path)
 	if err != nil {
 		log.Print(err)
 		i.Type = "blob"

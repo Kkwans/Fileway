@@ -200,13 +200,13 @@ func getFiles(d *data, path, commonPath string, strict ...bool) ([]archives.File
 			FileInfo:      info,
 			NameInArchive: nameInArchive,
 			Open: func() (fs.File, error) {
-				return d.user.Fs.Open(path)
+				return files.OpenPublicResource(d.user.Fs, path)
 			},
 		})
 	}
 
 	if info.IsDir() {
-		f, err := d.user.Fs.Open(path)
+		f, err := files.OpenPublicResource(d.user.Fs, path)
 		if err != nil {
 			return nil, err
 		}
@@ -371,7 +371,7 @@ func (reader *zipSourceReader) Read(data []byte) (int, error) {
 }
 
 func rawFileHandler(w http.ResponseWriter, r *http.Request, file *files.FileInfo) (int, error) {
-	fd, err := file.Fs.Open(file.Path)
+	fd, err := files.OpenPublicResource(file.Fs, file.Path)
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}

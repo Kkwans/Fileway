@@ -246,7 +246,7 @@ func handleContainedImagePreview(
 				generated, generateErr = ffmpegImage.createContained(ctx, file)
 			}
 			if generateErr != nil || len(generated) == 0 {
-				fd, openErr := file.Fs.Open(file.Path)
+				fd, openErr := files.OpenPublicResource(file.Fs, file.Path)
 				if openErr != nil {
 					return nil, openErr
 				}
@@ -404,7 +404,7 @@ func createImagePreview(
 
 func createPreview(ctx context.Context, imgSvc ImgService, fileCache FileCache,
 	file *files.FileInfo, previewSize PreviewSize) ([]byte, error) {
-	fd, err := file.Fs.Open(file.Path)
+	fd, err := files.OpenPublicResource(file.Fs, file.Path)
 	if err != nil {
 		return nil, err
 	}

@@ -79,7 +79,7 @@ var resourceGetHandler = withUser(func(w http.ResponseWriter, r *http.Request, d
 			return renderJSON(w, r, file)
 		}
 
-		f, err := d.user.Fs.Open(r.URL.Path)
+		f, err := files.OpenPublicResource(d.user.Fs, r.URL.Path)
 		if err != nil {
 			return errToStatus(err), err
 		}

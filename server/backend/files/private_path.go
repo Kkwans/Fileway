@@ -2,11 +2,11 @@ package files
 
 import "github.com/spf13/afero"
 
-// IsPrivateResourcePath keeps upload/transaction parts inaccessible even when
-// Windows resolves a current filesystem path through an existing short alias.
-// Non-Windows filenames retain the original lexical/raw-byte contract.
+// IsPrivateResourcePath keeps upload parts and private media state inaccessible,
+// including current native aliases. Ordinary non-Windows filenames retain their
+// lexical/raw-byte contract.
 func IsPrivateResourcePath(filesystem afero.Fs, name string) bool {
-	if IsUploadPartPath(name) {
+	if IsUploadPartPath(name) || isPrivateMediaResourcePath(filesystem, name) {
 		return true
 	}
 	return resolvedPrivateResourcePath(filesystem, name)

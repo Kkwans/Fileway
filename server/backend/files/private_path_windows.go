@@ -68,7 +68,7 @@ func resolvedPrivateResourcePath(filesystem afero.Fs, name string) bool {
 			if err != nil || written == 0 || written >= uint32(len(buffer)) {
 				return true
 			}
-			if IsUploadPartPath(windows.UTF16ToString(buffer)) {
+			if IsUploadPartPath(windows.UTF16ToString(buffer)) || isPrivateMediaNativePath(windows.UTF16ToString(buffer)) {
 				return true
 			}
 			// A reparse/junction alias can name the same private ancestor without
@@ -83,7 +83,7 @@ func resolvedPrivateResourcePath(filesystem afero.Fs, name string) bool {
 			if finalErr != nil || closeErr != nil || size == 0 || size >= uint32(len(final)) {
 				return true
 			}
-			return IsUploadPartPath(windows.UTF16ToString(final))
+			return IsUploadPartPath(windows.UTF16ToString(final)) || isPrivateMediaNativePath(windows.UTF16ToString(final))
 		}
 		if err == nil {
 			return true
