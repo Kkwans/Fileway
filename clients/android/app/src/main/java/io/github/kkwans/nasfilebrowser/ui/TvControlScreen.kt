@@ -510,7 +510,7 @@ private fun TvPhoneVolumeRocker(model: TvControlModel, snapshot: RemoteSnapshot?
     val limit = snapshot?.capabilities?.optInt("volumeMax", 100)?.coerceIn(100, 200) ?: 100
     val volume = player?.optInt("volume", -1)?.takeIf { it in 0..limit }
     val enabled = connected && player != null && !player.optBoolean("preparing") &&
-        snapshot?.scene in setOf("VIDEO", "AUDIO")
+        snapshot.scene in setOf("VIDEO", "AUDIO")
     fun change(delta: Int) {
         if (snapshot != null && volume != null) {
             view.tvDirectionHaptic()
@@ -906,6 +906,7 @@ private fun View.tvBackHaptic() {
             if (insetSurface) {
                 BoxWithConstraints(Modifier.fillMaxSize().padding(6.dp)) {
                     val keySize = (maxWidth / 4).coerceIn(48.dp, 60.dp)
+                    val compactConfirm = compact || maxWidth < 224.dp
                     FilewayIconButton({ direction("up") }, Modifier.align(Alignment.TopCenter).size(keySize), enabled = enabled) {
                         FilewayIcon(R.drawable.ic_expand_less, "上", Modifier.size(28.dp))
                     }
@@ -919,7 +920,7 @@ private fun View.tvBackHaptic() {
                         FilewayIcon(R.drawable.ic_expand_more, "下", Modifier.size(28.dp))
                     }
                     Box(Modifier.align(Alignment.Center)) {
-                        TvPhoneConfirmKey(compact || maxWidth < 224.dp, detailsKey,
+                        TvPhoneConfirmKey(compactConfirm, detailsKey,
                             onConfirm = { model.command("app.key", JSONObject().put("key", "ok")) },
                             onDetails = { model.command("app.key", JSONObject().put("key", "details")) }, enabled = enabled)
                     }
