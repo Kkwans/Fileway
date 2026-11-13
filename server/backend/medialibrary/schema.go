@@ -145,3 +145,23 @@ ALTER TABLE library_member ADD COLUMN revoked_at INTEGER CHECK(revoked_at >= cre
 CREATE INDEX library_active_owner ON library(owner_user_id, id) WHERE archived_at IS NULL;
 CREATE INDEX library_member_active ON library_member(user_id, library_id) WHERE revoked_at IS NULL;
 `
+
+// A source file is not part of every library owned by the same user. Record the
+// exact binding under which it was observed before permitting item association.
+const schemaV3 = `
+ALTER TABLE source_file ADD COLUMN revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0);
+CREATE UNIQUE INDEX source_file_source_identity ON source_file(source_id, id);
+CREATE TABLE library_file (
+    library_id TEXT NOT NULL,
+    source_file_id TEXT NOT NULL,
+    source_id TEXT NOT NULL,
+    root_locator BLOB NOT NULL,
+    observed_at INTEGER NOT NULL CHECK(observed_at >= 0),
+    PRIMARY KEY(library_id, source_file_id),
+    FOREIGN KEY(library_id, source_id, root_locator) REFERENCES library_source(library_id, source_id, root_locator),
+    FOREIGN KEY(source_id, source_file_id) REFERENCES source_file(source_id, id)
+) STRICT;
+CREATE INDEX library_file_source ON library_file(source_file_id, library_id);
+ALTER TABLE edition ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0 CHECK(is_default IN (0, 1));
+CREATE UNIQUE INDEX edition_default_item ON edition(library_id, item_id) WHERE is_default = 1;
+`

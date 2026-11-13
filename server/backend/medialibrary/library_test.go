@@ -328,7 +328,7 @@ func TestVersionOneCatalogUpgradePreservesRecordsAndGrants(t *testing.T) {
 		t.Fatal(count, err)
 	}
 	version, err := inspectSchema(t.Context(), store.db)
-	if err != nil || version != 2 {
+	if err != nil || version != SchemaVersion {
 		t.Fatal(version, err)
 	}
 }
