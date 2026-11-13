@@ -309,7 +309,7 @@ var fileTransferTaskHandler = func(runtime *tasks.Runtime) handleFunc {
 			}
 			// Only explicit keep-both COPY may resolve its own source to a new
 			// suffix below. MOVE and source overwrite must never pass this gate.
-			if from == "/" || to == "/" || (from == to && !(request.Action == "copy" && item.Rename)) {
+			if from == "/" || to == "/" || (from == to && (request.Action != "copy" || !item.Rename)) {
 				return http.StatusBadRequest, fmt.Errorf("第 %d 项的源和目标路径无效", index+1)
 			}
 			if err := checkParent(from, to); err != nil {

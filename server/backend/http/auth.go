@@ -116,7 +116,7 @@ func withUser(fn handleFunc) handleFunc {
 		var tk authToken
 		p := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
 		token, err := request.ParseFromRequest(r, &extractor{}, keyFunc, request.WithClaims(&tk), request.WithParser(p))
-		if (err != nil || !token.Valid) && !(token != nil && token.Header["kid"] == nil && renewableErr(err, d)) {
+		if (err != nil || !token.Valid) && (token == nil || token.Header["kid"] != nil || !renewableErr(err, d)) {
 			return http.StatusUnauthorized, fmt.Errorf("未授权，请重新登录")
 		}
 		if tk.DeviceSession != "" || token.Header["kid"] == "fileway.device.v1" {

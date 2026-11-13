@@ -42,12 +42,12 @@ func TestSourceAssetStreamReadsBeforeCompleteAndSharesProducer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.Close()
+	defer func() { _ = first.Close() }()
 	second, err := service.openStream(ctx, key, 100, run)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	value := make([]byte, 5)
 	if _, err := io.ReadFull(first, value); err != nil || string(value) != "early" {
 		t.Fatalf("early prefix: %q / %v", value, err)
@@ -88,7 +88,7 @@ func TestSourceAssetStreamLastReaderCancelsAndFailureCannotPublish(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer reader.Close()
+			defer func() { _ = reader.Close() }()
 			<-started
 			flight := reader.flight
 			if failure {
@@ -122,7 +122,7 @@ func TestSourceAssetStreamPinsCompletedFileUntilReaderCloses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 	<-reader.flight.done
 	name := filepath.Join(service.directory, key)
 	old := time.Now().Add(-48 * time.Hour)
@@ -154,7 +154,7 @@ func TestSourceAssetStreamFramesHeartbeatIntegrityAndFailure(t *testing.T) {
 	for _, badSource := range []bool{false, true} {
 		t.Run(map[bool]string{false: "complete", true: "changed"}[badSource], func(t *testing.T) {
 			input, output := io.Pipe()
-			defer input.Close()
+			defer func() { _ = input.Close() }()
 			done := make(chan struct{})
 			var validations atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +166,7 @@ func TestSourceAssetStreamFramesHeartbeatIntegrityAndFailure(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer response.Body.Close()
+			defer func() { _ = response.Body.Close() }()
 			decoder := json.NewDecoder(response.Body)
 			var frame sourceAssetFrame
 			if err := decoder.Decode(&frame); err != nil || frame.Type != "start" || frame.Identity != "owned-identity" {
@@ -223,7 +223,7 @@ func TestSourceAssetStreamASSKeepsStylesAndStartsBeforeCompletion(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	decoder := json.NewDecoder(response.Body)
 	var frame sourceAssetFrame
 	if err := decoder.Decode(&frame); err != nil || frame.Type != "start" || frame.Format != "ass" || frame.Identity != "owned-ass" {

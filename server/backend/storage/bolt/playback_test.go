@@ -51,7 +51,7 @@ func TestPlaybackClearIncludesMoreThanRecentPageAndKeepsOtherOwner(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	storage := playback.NewStorage(playbackBackend{db: db})
 	for i := 0; i < 105; i++ {
 		if _, err := storage.Save(7, fmt.Sprintf("/%d.mp4", i), "identity", 0, 1); err != nil {

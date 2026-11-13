@@ -40,7 +40,7 @@ func TestWindowsSubtitlePagesScopeAndRange(t *testing.T) {
 	if output, err := exec.Command("cmd.exe", "/C", "mklink", "/J", junction, outside).CombinedOutput(); err != nil {
 		t.Fatalf("create owned junction fixture: %s: %v", output, err)
 	}
-	defer os.Remove(junction)
+	defer func() { _ = os.Remove(junction) }()
 	service := newSubtitlePages()
 	t.Cleanup(service.close)
 	request := func(path string) *httptest.ResponseRecorder {

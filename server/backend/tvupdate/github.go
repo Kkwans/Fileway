@@ -240,7 +240,7 @@ func (source *githubSource) readAsset(ctx context.Context, asset githubAsset, li
 	if failure != nil {
 		return nil, failure
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	payload, err := readBounded(response.Body, asset.Size)
 	if err != nil && !errors.Is(err, errResponseTooLarge) {
 		return nil, unavailable

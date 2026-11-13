@@ -397,7 +397,7 @@ func (s *Service) ServeContent(w http.ResponseWriter, r *http.Request, owner Own
 	}
 	controller := http.NewResponseController(w)
 	if controller.SetWriteDeadline(time.Now().Add(15*time.Minute)) == nil {
-		defer controller.SetWriteDeadline(time.Time{})
+		defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
 	}
 	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
 	w.Header().Set("ETag", `"`+digest+`"`)
@@ -683,7 +683,7 @@ func (s *Service) cacheArtifact(ctx context.Context, d *download) *Failure {
 	if failure != nil {
 		return failure
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.ContentLength >= 0 && response.ContentLength != c.manifest.Size {
 		return badArtifact
 	}

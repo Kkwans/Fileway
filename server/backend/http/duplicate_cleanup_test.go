@@ -9,6 +9,8 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	goruntime "runtime"
+	"syscall"
 	"testing"
 	"time"
 
@@ -155,6 +157,9 @@ func TestDuplicateCleanupRejectsUntrustedStaleAndUnsafeSelections(t *testing.T) 
 		base := afero.FullBaseFsPath(filesystem.(*afero.BasePathFs), "/scan/a.txt")
 		linked := afero.FullBaseFsPath(filesystem.(*afero.BasePathFs), "/scan/link.txt")
 		if err := os.Symlink(base, linked); err != nil {
+			if goruntime.GOOS == "windows" && errors.Is(err, syscall.Errno(1314)) {
+				t.Skip("native symbolic-link fixture requires Windows privilege; this security case remains unverified on this host")
+			}
 			t.Fatal(err)
 		}
 		reportTask, group := saveCleanupReport(t, h, owner, []string{"/scan/a.txt", "/scan/link.txt"})

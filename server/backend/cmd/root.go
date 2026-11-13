@@ -315,7 +315,7 @@ user created with the credentials from options "username" and "password".`,
 			if discoveryErr != nil {
 				log.Printf("LAN discovery unavailable: %v", discoveryErr)
 			} else {
-				defer advertisement.Close()
+				defer func() { _ = advertisement.Close() }()
 			}
 		}
 		log.Println("Listening on", listener.Addr().String())

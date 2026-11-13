@@ -36,7 +36,7 @@ func TestWindowsSubtitleScopeRejectsJunctionsAndAlternateNames(t *testing.T) {
 	if output, err := exec.Command("cmd.exe", "/C", "mklink", "/J", junction, outside).CombinedOutput(); err != nil {
 		t.Fatalf("could not create junction fixture: %s %v", output, err)
 	}
-	defer os.Remove(junction)
+	defer func() { _ = os.Remove(junction) }()
 	for _, filesystem := range []afero.Fs{afero.NewBasePathFs(afero.NewOsFs(), owned), NewScopedDriveFs(WindowsPathToVirtual(owned))} {
 		opened, err := OpenSubtitleResource(filesystem, root, "/长名字 %+.srt", false, true)
 		if err != nil {
@@ -58,7 +58,7 @@ func TestWindowsSubtitleScopeRejectsJunctionsAndAlternateNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer directory.Close()
+	defer func() { _ = directory.Close() }()
 	if directory.Changed() {
 		t.Fatal("new directory watch was already dirty")
 	}
@@ -76,7 +76,7 @@ func TestWindowsSubtitleScopeRejectsJunctionsAndAlternateNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer global.Close()
+	defer func() { _ = global.Close() }()
 	entries, err := global.ReadDir(26)
 	if err != nil || len(entries) == 0 || !entries[0].IsDir() {
 		t.Fatalf("drive root entries: %v %v", entries, err)

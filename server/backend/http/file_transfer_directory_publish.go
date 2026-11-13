@@ -489,7 +489,7 @@ func (p *directoryPublisher) owned() error {
 	if err != nil {
 		return err
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	names, err := dir.Readdirnames(4)
 	if err != nil && err != io.EOF {
 		return err
@@ -794,7 +794,7 @@ func (p *directoryPublisher) finish() error {
 			}
 		}
 		alreadyRemoving := p.j.Phase == "sourceRemoveIntent"
-		if !p.matches(p.j.SourceID, from) && !(alreadyRemoving && p.absent(from)) {
+		if !p.matches(p.j.SourceID, from) && (!alreadyRemoving || !p.absent(from)) {
 			return errDirectoryRecovery
 		}
 		if err := p.stage("sourceRemoveIntent"); err != nil {

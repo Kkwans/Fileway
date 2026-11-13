@@ -201,7 +201,8 @@ func subtitleOpaque(value string, minLength, maxLength int) bool {
 		return false
 	}
 	for _, char := range value {
-		if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-' || char == '_') {
+		allowed := char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '-' || char == '_'
+		if !allowed {
 			return false
 		}
 	}
@@ -263,7 +264,7 @@ func checkSubtitleDirectory(d *data, raw, want string) error {
 	if err != nil {
 		return err
 	}
-	defer current.Close()
+	defer func() { _ = current.Close() }()
 	_, stamp, err := current.State()
 	if err == nil && stamp != want {
 		return errSubtitlePageChanged
@@ -421,7 +422,7 @@ func (scan *subtitleScan) row(d *data, parent string, entry fs.DirEntry) (*subti
 	if err != nil {
 		return nil, err
 	}
-	defer resource.Close()
+	defer func() { _ = resource.Close() }()
 	info, stamp, err := resource.State()
 	if err != nil {
 		return nil, err
@@ -542,7 +543,7 @@ func (s *subtitlePages) serveSubtitleFile(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		return subtitleResourceError(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, stamp, err := file.State()
 	if err != nil {
 		return subtitleResourceError(err)

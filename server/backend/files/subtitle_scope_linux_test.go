@@ -68,7 +68,7 @@ func TestSubtitleScopeRejectsLinksAndHoldsTheAuthorizedFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer opened.Close()
+	defer func() { _ = opened.Close() }()
 	if err := os.Rename(file, file+".old"); err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestSubtitleScopeNotificationLossInvalidatesScan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer dir.Close()
+	defer func() { _ = dir.Close() }()
 	watch, err := newSubtitleLinuxWatch(int(dir.Fd()))
 	if err != nil {
 		t.Fatal(err)
@@ -105,14 +105,15 @@ func TestSubtitleScopeNotificationLossInvalidatesScan(t *testing.T) {
 	if _, err := unix.InotifyRmWatch(watch.fd, uint32(wd)); err != nil {
 		t.Fatal(err)
 	}
-	if !watch.changed() || !watch.changed() {
+	firstChange, repeatedChange := watch.changed(), watch.changed()
+	if !firstChange || !repeatedChange {
 		t.Fatal("kernel watch removal must permanently invalidate the scan")
 	}
 	var pipe [2]int
 	if err := unix.Pipe2(pipe[:], unix.O_CLOEXEC|unix.O_NONBLOCK); err != nil {
 		t.Fatal(err)
 	}
-	defer unix.Close(pipe[1])
+	defer func() { _ = unix.Close(pipe[1]) }()
 	overflow := &subtitleLinuxWatch{fd: pipe[0]}
 	defer overflow.close()
 	var event [unix.SizeofInotifyEvent]byte
@@ -121,7 +122,8 @@ func TestSubtitleScopeNotificationLossInvalidatesScan(t *testing.T) {
 	if _, err := unix.Write(pipe[1], event[:]); err != nil {
 		t.Fatal(err)
 	}
-	if !overflow.changed() || !overflow.changed() {
+	firstOverflow, repeatedOverflow := overflow.changed(), overflow.changed()
+	if !firstOverflow || !repeatedOverflow {
 		t.Fatal("overflow without named entries must permanently invalidate the scan")
 	}
 	for _, kind := range []int64{unix.NFS_SUPER_MAGIC, unix.FUSE_SUPER_MAGIC, unix.OVERLAYFS_SUPER_MAGIC, unix.V9FS_MAGIC} {

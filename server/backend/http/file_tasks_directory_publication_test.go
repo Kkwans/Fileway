@@ -562,7 +562,7 @@ func TestDirectoryPublicationWindowsCleanupFailureRetainsBackupForRetry(t *testi
 	if handle == nil {
 		t.Fatal("native cleanup lock not acquired")
 	}
-	defer handle.Close()
+	defer func() { _ = handle.Close() }()
 	if err == nil {
 		t.Fatalf("Windows locked cleanup falsely completed: %s", result)
 	}
@@ -666,7 +666,7 @@ func TestDirectoryPublicationPendingJournalPreventsBatchArchiveAndCrossScopeWrit
 	if err := os.MkdirAll(filepath.Join(otherRoot, "source"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(otherRoot)
+	defer func() { _ = os.RemoveAll(otherRoot) }()
 	independent := &users.User{Username: "independent", Password: "fixture-only", Scope: otherRoot, Perm: shared.Perm}
 	if err := f.h.storage.Users.Save(independent); err != nil {
 		t.Fatal(err)

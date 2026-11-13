@@ -484,7 +484,8 @@ func (p *nameParser) parseYears() {
 			continue
 		}
 		raw := p.stem[match[0]:match[1]]
-		if !(strings.HasPrefix(raw, "(") && strings.HasSuffix(raw, ")") || strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]") || strings.HasPrefix(raw, "（") && strings.HasSuffix(raw, "）") || strings.HasPrefix(raw, "【") && strings.HasSuffix(raw, "】")) {
+		paired := strings.HasPrefix(raw, "(") && strings.HasSuffix(raw, ")") || strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]") || strings.HasPrefix(raw, "（") && strings.HasSuffix(raw, "）") || strings.HasPrefix(raw, "【") && strings.HasSuffix(raw, "】")
+		if !paired {
 			continue
 		}
 		year, _ := strconv.Atoi(p.stem[match[2]:match[3]])

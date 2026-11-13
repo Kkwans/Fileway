@@ -37,7 +37,7 @@ func TestOwnedLANAdvertisementRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	publisher, err := Start(listener, Options{BasePath: "/owned"})
 	if err != nil {
 		t.Fatal(err)

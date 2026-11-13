@@ -32,7 +32,8 @@ func allowDeviceTVUpdate(method, path string) bool {
 	}
 	id, child, nested := strings.Cut(remainder, "/")
 	if len(id) != 32 || strings.IndexFunc(id, func(r rune) bool {
-		return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_')
+		allowed := r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_'
+		return !allowed
 	}) != -1 {
 		return false
 	}

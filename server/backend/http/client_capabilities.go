@@ -42,7 +42,7 @@ func subtitleCapabilityAvailable(d *data) bool {
 	if err != nil {
 		return false
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	_, _, err = root.State()
 	return err == nil
 }

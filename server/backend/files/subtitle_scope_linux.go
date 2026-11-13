@@ -50,7 +50,7 @@ func openSubtitleResource(filesystem afero.Fs, serverRoot, name string, director
 	if err != nil {
 		return nil, err
 	}
-	defer unix.Close(rootFD)
+	defer func() { _ = unix.Close(rootFD) }()
 	how := subtitleOpenHow
 	if directory && readData {
 		how.Flags = unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC

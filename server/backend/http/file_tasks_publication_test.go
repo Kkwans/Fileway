@@ -137,7 +137,7 @@ func TestFileTransferPublicationWindowsLockedTargetPreservesBothFiles(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer handle.Close()
+	defer func() { _ = handle.Close() }()
 	encoded, err := fileTransferRunner(d, task, args)(context.Background(), func(tasks.Progress) error { return nil })
 	assertPublicationFailedWithoutCheckpoint(t, encoded, err, nil)
 	assertWireOwned(t, d.user.Fs, map[string]string{"/source.txt": "owned-new-content", "/target.txt": "owned-old-target"})

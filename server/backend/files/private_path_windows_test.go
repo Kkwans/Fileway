@@ -16,7 +16,7 @@ func TestWindowsPrivateResourceUsesCurrentPhysicalRootAndExistingAncestors(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(root)
+	defer func() { _ = os.RemoveAll(root) }()
 	private := UploadPartPrefix + strings.Repeat("a", 32) + ".part"
 	part := filepath.Join(root, private)
 	if err := os.MkdirAll(filepath.Join(part, "old"), 0o700); err != nil {
