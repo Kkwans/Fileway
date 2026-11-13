@@ -55,10 +55,52 @@ type Document struct {
 // Values (including year/season/episode) remain text until domain validation.
 // watched, playcount, resume, lastplayed and userrating are never imported.
 type Item struct {
-	Kind        Kind                `json:"kind"`
-	Fields      map[string][]string `json:"fields"`
-	ExternalIDs []ExternalID        `json:"externalIds,omitempty"`
-	Ratings     []Rating            `json:"ratings,omitempty"`
+	Kind        Kind                    `json:"kind"`
+	Fields      map[string][]string     `json:"fields"`
+	ExternalIDs []ExternalID            `json:"externalIds,omitempty"`
+	Ratings     []Rating                `json:"ratings,omitempty"`
+	Credits     []Credit                `json:"credits,omitempty"`
+	Artwork     []ArtworkDeclaration    `json:"artwork,omitempty"`
+	Collections []CollectionDeclaration `json:"collections,omitempty"`
+}
+
+// Credit is an unverified local credit statement, not a resolved person. Kind
+// is actor, director or writer; Tag retains distinctions such as credits/writer.
+// Fields retain field presence, duplicate names/roles and raw order values.
+// Input order is retained, without sorting or guessing identities from names.
+type Credit struct {
+	Kind        string               `json:"kind"`
+	Tag         string               `json:"tag"`
+	Attributes  map[string]string    `json:"attributes,omitempty"`
+	Fields      map[string][]string  `json:"fields"`
+	ExternalIDs []ExternalID         `json:"externalIds,omitempty"`
+	Artwork     []ArtworkDeclaration `json:"artwork,omitempty"`
+}
+
+// ArtworkDeclaration is only source text. Reference and attributes such as
+// preview may be local paths, URLs, invalid or empty strings. Nothing here is
+// resolved, fetched, validated for access or safe to pass to an image loader.
+// A downstream source resolver must authorize every reference independently.
+// Role is empty for absent/unknown semantics; Tag, Container and Attributes
+// preserve the original declaration, including unknown aspect values.
+type ArtworkDeclaration struct {
+	Tag                 string            `json:"tag"`
+	Container           string            `json:"container,omitempty"`
+	Role                string            `json:"role,omitempty"`
+	Reference           string            `json:"reference"`
+	Attributes          map[string]string `json:"attributes,omitempty"`
+	ContainerAttributes map[string]string `json:"containerAttributes,omitempty"`
+}
+
+// CollectionDeclaration retains a set/collection statement without creating
+// relationships or merging equal names. A separate item collectionnumber is
+// retained in Item.Fields and is not assigned to an arbitrary collection.
+type CollectionDeclaration struct {
+	Tag         string               `json:"tag"`
+	Attributes  map[string]string    `json:"attributes,omitempty"`
+	Fields      map[string][]string  `json:"fields"`
+	ExternalIDs []ExternalID         `json:"externalIds,omitempty"`
+	Artwork     []ArtworkDeclaration `json:"artwork,omitempty"`
 }
 
 // ExternalID retains conflicting and repeated identities for the caller to
@@ -217,26 +259,32 @@ func (e *element) children() []*element {
 	return children
 }
 
+func (e *element) hasElementChildren() bool {
+	for _, part := range e.parts {
+		if part.child != nil {
+			return true
+		}
+	}
+	return false
+}
+
 func parseItem(root *element) Item {
 	item := Item{Kind: Kind(root.name.Local), Fields: make(map[string][]string)}
 	for _, child := range root.children() {
 		tag := child.name.Local
 		switch tag {
 		case "uniqueid", "id", "imdbid", "imdb_id", "tmdbid", "tvdbid", "doubanid":
-			provider := strings.ToLower(strings.TrimSpace(child.attrs["type"]))
-			switch tag {
-			case "imdbid", "imdb_id":
-				provider = "imdb"
-			case "tmdbid":
-				provider = "tmdb"
-			case "tvdbid":
-				provider = "tvdb"
-			case "doubanid":
-				provider = "douban"
+			item.ExternalIDs = append(item.ExternalIDs, parseExternalID(child))
+		case "actor", "director", "writer", "credits":
+			item.Credits = append(item.Credits, parseCredit(child))
+			if tag != "actor" && !child.hasElementChildren() {
+				// Keep the existing scalar field contract for ordinary names.
+				item.Fields[tag] = append(item.Fields[tag], child.text())
 			}
-			item.ExternalIDs = append(item.ExternalIDs, ExternalID{
-				Provider: provider, Value: child.text(), Default: parseBoolean(child.attrs["default"]), Tag: tag,
-			})
+		case "thumb", "fanart", "art":
+			item.Artwork = append(item.Artwork, parseArtwork(child, "")...)
+		case "set", "collection":
+			item.Collections = append(item.Collections, parseCollection(child))
 		case "ratings":
 			for _, rating := range child.children() {
 				if rating.name.Local == "rating" {
@@ -261,10 +309,137 @@ func descriptiveField(tag string) bool {
 		"year", "premiered", "aired", "releasedate", "season", "episode",
 		"seasonnumber", "showtitle", "displayseason", "displayepisode",
 		"runtime", "mpaa", "country", "genre", "tag", "studio", "director",
-		"credits", "writer", "status":
+		"credits", "writer", "status", "collectionnumber":
 		return true
 	default:
 		return false
+	}
+}
+
+func parseExternalID(node *element) ExternalID {
+	provider := strings.ToLower(strings.TrimSpace(node.attrs["type"]))
+	switch node.name.Local {
+	case "imdbid", "imdb_id":
+		provider = "imdb"
+	case "tmdbid":
+		provider = "tmdb"
+	case "tvdbid":
+		provider = "tvdb"
+	case "doubanid":
+		provider = "douban"
+	}
+	return ExternalID{Provider: provider, Value: node.text(), Default: parseBoolean(node.attrs["default"]), Tag: node.name.Local}
+}
+
+func parseCredit(node *element) Credit {
+	credit := Credit{Kind: node.name.Local, Tag: node.name.Local, Attributes: node.attrs, Fields: make(map[string][]string)}
+	if credit.Kind == "credits" {
+		credit.Kind = "writer"
+	}
+	if !node.hasElementChildren() {
+		// Empty actors do not declare a name; empty scalar crew fields do.
+		if node.name.Local != "actor" || node.text() != "" {
+			credit.Fields["name"] = []string{node.text()}
+		}
+		return credit
+	}
+	parseNamedDeclaration(node, credit.Fields, &credit.ExternalIDs, &credit.Artwork)
+	return credit
+}
+
+func parseCollection(node *element) CollectionDeclaration {
+	collection := CollectionDeclaration{Tag: node.name.Local, Attributes: node.attrs, Fields: make(map[string][]string)}
+	if !node.hasElementChildren() {
+		collection.Fields["name"] = []string{node.text()}
+		return collection
+	}
+	parseNamedDeclaration(node, collection.Fields, &collection.ExternalIDs, &collection.Artwork)
+	return collection
+}
+
+// Preserve unknown scalar extensions as evidence; do not reinterpret their
+// names as provider IDs. User state remains excluded at these nesting levels.
+func parseNamedDeclaration(node *element, fields map[string][]string, ids *[]ExternalID, artwork *[]ArtworkDeclaration) {
+	for _, child := range node.children() {
+		switch child.name.Local {
+		case "uniqueid", "id", "imdbid", "imdb_id", "tmdbid", "tvdbid", "doubanid":
+			*ids = append(*ids, parseExternalID(child))
+		case "thumb", "fanart", "art":
+			*artwork = append(*artwork, parseArtwork(child, node.name.Local)...)
+		case "watched", "playcount", "resume", "lastplayed", "userrating":
+			continue
+		default:
+			if !child.hasElementChildren() {
+				fields[child.name.Local] = append(fields[child.name.Local], child.text())
+			}
+		}
+	}
+}
+
+func parseArtwork(node *element, container string) []ArtworkDeclaration {
+	children := node.children()
+	if node.name.Local == "art" {
+		if !node.hasElementChildren() {
+			return []ArtworkDeclaration{artworkDeclaration(node, container)}
+		}
+		var artwork []ArtworkDeclaration
+		for _, child := range children {
+			switch child.name.Local {
+			case "watched", "playcount", "resume", "lastplayed", "userrating":
+				continue
+			}
+			declarations := parseArtwork(child, "art")
+			for index := range declarations {
+				if declarations[index].Container == "art" {
+					declarations[index].ContainerAttributes = node.attrs
+				}
+			}
+			artwork = append(artwork, declarations...)
+		}
+		return artwork
+	}
+	if node.name.Local == "fanart" && node.hasElementChildren() {
+		var artwork []ArtworkDeclaration
+		for _, child := range children {
+			if child.name.Local == "thumb" && !child.hasElementChildren() {
+				declaration := artworkDeclaration(child, "fanart")
+				declaration.ContainerAttributes = node.attrs
+				artwork = append(artwork, declaration)
+			}
+		}
+		return artwork
+	}
+	if node.hasElementChildren() {
+		// Structured extensions are not executable references or URLs.
+		return nil
+	}
+	return []ArtworkDeclaration{artworkDeclaration(node, container)}
+}
+
+func artworkDeclaration(node *element, container string) ArtworkDeclaration {
+	declaration := ArtworkDeclaration{Tag: node.name.Local, Container: container, Reference: node.text(), Attributes: node.attrs}
+	if aspect, exists := node.attrs["aspect"]; exists {
+		declaration.Role = artworkRole(aspect)
+	} else if node.name.Local != "thumb" {
+		declaration.Role = artworkRole(node.name.Local)
+	} else if container == "fanart" {
+		declaration.Role = "backdrop"
+	} else if container == "actor" || container == "director" || container == "writer" || container == "credits" {
+		declaration.Role = "person"
+	}
+	return declaration
+}
+
+func artworkRole(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "poster", "banner", "landscape", "thumb", "discart", "clearart", "keyart":
+		return strings.ToLower(strings.TrimSpace(raw))
+	case "fanart", "backdrop":
+		return "backdrop"
+	case "clearlogo", "logo":
+		return "logo"
+	default:
+		return ""
 	}
 }
 
