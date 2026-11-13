@@ -19,7 +19,6 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -44,6 +43,7 @@ import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.player.*
 import kotlinx.coroutines.*
+import java.util.Locale
 import kotlinx.coroutines.flow.first
 
 /** The settings panel and its compact child share the same live labels and values. */
@@ -162,7 +162,7 @@ internal fun tvPlayerSettingsRows(
         TvPlayerPage.SPEED -> listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).map { rate ->
             choice("rate/$rate", "${rate}×", kotlin.math.abs(player.rate - rate) < .001f) {
                 model.media.player.rate(rate)
-                onBack()
+                if (quick) onBack()
             }
         }
         TvPlayerPage.HDR -> TvHdrMode.entries.map { mode ->
@@ -192,7 +192,6 @@ internal fun tvPlayerSettingsRows(
             TvPlayerChoiceList(rows, focus, Modifier.weight(1f, fill = false))
         } else TvSpeedEditor(rows.filterIsInstance<TvPlayerRow.Choice>(), player.rate, focus) { rate ->
             model.media.player.rate(rate)
-            onBack()
         }
         TvPlayerPage.QUEUE -> {
             if (rows.isEmpty()) TvPlayerMessage("播放列表为空", focus)
@@ -295,71 +294,29 @@ internal fun tvPlayerSettingsRows(
 private fun TvSpeedEditor(
     presets: List<TvPlayerRow.Choice>, rate: Float, focus: TvPlayerPanelFocus, applyRate: (Float) -> Unit,
 ) {
-    var value by remember { mutableStateOf(rate.toString()) }
-    var editorFocused by remember { mutableStateOf(false) }
-    val editor = remember { FocusRequester() }
-    val apply = remember { FocusRequester() }
-    val keyboardVisible = WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
-    val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: presets.firstOrNull()?.key
-    val parsed = parsePlaybackRate(value)
-    BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
-        val wide = maxWidth >= 640.dp
-        @Composable fun presetGrid() {
-            val lines = presets.chunked(if (wide) 6 else 3)
-            Column(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .24f), TvShape).padding(4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                lines.forEachIndexed { index, line ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        line.forEach { preset ->
-                            TvSpeedPreset(preset,
-                                focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
-                                    if (index == 0) up = focus.header
-                                    if (index == lines.lastIndex) down = editor
-                                }))
-                        }
+    val slider = remember { FocusRequester() }
+    val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: "custom-speed"
+    BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+        val columns = if (maxWidth >= 480.dp) 6 else 3
+        val lines = presets.chunked(columns)
+        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            lines.forEachIndexed { index, line ->
+                Row(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .22f), TvShape).padding(3.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    line.forEach { preset ->
+                        TvSpeedPreset(preset,
+                            focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
+                                if (index == 0) up = focus.header
+                                if (index == lines.lastIndex) down = slider
+                            }))
                     }
                 }
             }
-        }
-        @Composable fun customEditor() {
-            Row(
-                Modifier.fillMaxWidth().tvRemoteKeys { event ->
-                    event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
-                        editorFocused && !keyboardVisible && parsed != null && apply.requestFocus(FocusDirection.Enter)
-                },
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
-                    focus.target("custom-speed", preferred == "custom-speed",
-                        Modifier.width(96.dp).focusRequester(editor).onFocusChanged { editorFocused = it.hasFocus }),
-                    options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline,
-                    showLabel = false)
-                Text("×", style = tvTextStyle(18, 22), color = LocalTvSurfaces.current.secondaryText)
-                TvButton("应用", { parsed?.let(applyRate) },
-                    focus.target("apply-speed", preferred == "apply-speed",
-                        Modifier.widthIn(min = 68.dp).focusRequester(apply).focusProperties { left = editor }),
-                    enabled = parsed != null)
-            }
-        }
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center) {
-            Column(Modifier.widthIn(max = 672.dp).fillMaxWidth().padding(horizontal = 10.dp)
-                .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (!keyboardVisible) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("预设", Modifier.width(112.dp), style = tvTextStyle(16, 22, FontWeight.Medium))
-                        Box(Modifier.weight(1f)) { presetGrid() }
-                    }
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.width(112.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("自定义", style = tvTextStyle(16, 22, FontWeight.Medium))
-                        Text("0.1–5×", style = tvTextStyle(13, 18), color = LocalTvSurfaces.current.secondaryText)
-                    }
-                    Box(Modifier.weight(1f)) { customEditor() }
-                }
-            }
+            TvPlayerRange("微调倍速", rate, .1f..5f, .01f,
+                { String.format(Locale.ROOT, "%.2f×", it) },
+                focus.target("custom-speed", preferred == "custom-speed", Modifier.focusRequester(slider)),
+                expandTrack = true, accelerate = true, onCommit = applyRate)
         }
     }
 }

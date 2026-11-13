@@ -69,6 +69,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 import io.github.kkwans.nasfilebrowser.ui.designsystem.drawMediaProgressTrack
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlin.math.roundToInt
 
 internal enum class TvPlayerPage(val title: String) {
     SETTINGS("播放设置"), AUDIO("音轨"), SUBTITLE("字幕"), SUBTITLE_ADJUST("字幕调整"),
@@ -545,7 +546,7 @@ private object FullRowVisibility : BringIntoViewSpec {
 /** Same real range for pointer and D-pad. A drag commits only on release. */
 @Composable internal fun TvPlayerRange(
     label: String, value: Float, range: ClosedFloatingPointRange<Float>, step: Float, format: (Float) -> String,
-    modifier: Modifier = Modifier, onCommit: (Float) -> Unit,
+    modifier: Modifier = Modifier, expandTrack: Boolean = false, accelerate: Boolean = false, onCommit: (Float) -> Unit,
 ) {
     var preview by remember { mutableStateOf<Float?>(null) }
     var focused by remember { mutableStateOf(false) }
@@ -561,8 +562,13 @@ private object FullRowVisibility : BringIntoViewSpec {
             if (!dragging) preview = null
         }
     }
-    fun set(next: Float) {
+    fun snap(next: Float): Float {
         val bounded = next.coerceIn(range)
+        return if (accelerate) (range.start + ((bounded - range.start) / step).roundToInt() * step).coerceIn(range)
+        else bounded
+    }
+    fun set(next: Float) {
+        val bounded = snap(next)
         preview = bounded
         commit(bounded)
     }
@@ -578,8 +584,9 @@ private object FullRowVisibility : BringIntoViewSpec {
             Text(label, style = tvTextStyle(18, 26))
             Text(format(shown), style = tvTextStyle(16, 22), color = Color.White.copy(alpha = .82f))
         }
+        val trackWidth = if (expandTrack) Modifier.weight(2.6f) else Modifier.weight(.65f, fill = false).width(176.dp)
         Canvas(
-            modifier.weight(.65f, fill = false).width(176.dp).height(48.dp)
+            modifier.then(trackWidth).height(48.dp)
                 .onFocusChanged { focused = it.isFocused }
                 .background(if (focused) Color.White.copy(alpha = .10f) else Color.Transparent, TvShape)
                 .border(2.dp, if (focused) PanelOutline else Color.Transparent, TvShape)
@@ -593,23 +600,35 @@ private object FullRowVisibility : BringIntoViewSpec {
                         onDragStart = { dragging = true },
                         onHorizontalDrag = { change, _ ->
                             change.consume()
-                            preview = range.start + span * (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                            preview = snap(range.start + span * (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
                         },
-                        onDragEnd = { dragging = false; preview?.let(commit) },
+                        onDragEnd = { dragging = false; preview?.let(::set) },
                         onDragCancel = { dragging = false; preview = null },
                     )
                 }
                 .tvRemoteKeys { event ->
-                    when (event.nativeKeyEvent.keyCode) {
-                        KeyEvent.KEYCODE_DPAD_LEFT -> { set(shown - step); true }
-                        KeyEvent.KEYCODE_DPAD_RIGHT -> { set(shown + step); true }
-                        else -> false
+                    val key = event.nativeKeyEvent
+                    val direction = when (key.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> -1
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> 1
+                        else -> 0
                     }
+                    if (direction != 0) {
+                        val held = if (accelerate && key.repeatCount > 0) key.eventTime - key.downTime else 0L
+                        val multiplier = when {
+                            held >= 1_800 -> 10
+                            held >= 700 -> 5
+                            else -> 1
+                        }
+                        set((preview ?: value) + direction * step * multiplier)
+                    }
+                    direction != 0
                 }
                 .semantics {
                     contentDescription = label
                     stateDescription = format(shown)
-                    progressBarRangeInfo = ProgressBarRangeInfo(shown, range)
+                    progressBarRangeInfo = ProgressBarRangeInfo(shown, range,
+                        steps = if (accelerate) ((span / step).roundToInt() - 1).coerceAtLeast(0) else 0)
                     setProgress { target -> if (target.isFinite()) { set(target); true } else false }
                 }
                 .focusable().padding(horizontal = 10.dp),
