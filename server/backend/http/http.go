@@ -95,6 +95,8 @@ func NewHandler(
 	api.Handle("/signup", monkey(signupHandler, ""))
 	api.Handle("/renew", monkey(renewHandler(), ""))
 	api.Handle("/instance", monkey(deviceInstanceHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries", monkey(mediaLibraryListHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}", monkey(mediaLibraryGetHandler, "")).Methods("GET")
 	api.Handle("/device-auth/instance-proof", monkey(devicePublic(deviceProofHandler), "")).Methods("POST")
 	api.Handle("/device-auth/requests", monkey(devicePublic(deviceRequestHandler), "")).Methods("POST")
 	api.Handle("/device-auth/requests/{id}/approve", monkey(deviceApproveHandler, "")).Methods("POST")
