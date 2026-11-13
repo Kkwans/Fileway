@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<movie>
+  <title>测试电影：同名与重制</title>
+  <originaltitle>Fixture Movie</originaltitle>
+  <plot><![CDATA[纯测试简介；不是可执行的 <script>。]]></plot>
+  <tagline></tagline>
+  <year>2024</year>
+  <genre>剧情</genre>
+  <genre>纪录片</genre>
+  <uniqueid type="tmdb" default="true">12345</uniqueid>
+  <uniqueid type="imdb" default="false">tt0000123</uniqueid>
+  <doubanid>1234567</doubanid>
+  <id>ambiguous-legacy-id</id>
+  <ratings>
+    <rating name="douban" max="10" default="true"><value>8.6</value><votes>12,345</votes></rating>
+    <rating name="imdb" max="10"><value>8.2</value></rating>
+    <rating name="tomatometerallcritics" max="100"><value>83</value><votes>209</votes></rating>
+    <rating name="tomatometerallaudience" max="100"><value>91</value><votes>1,000</votes></rating>
+    <rating name="tomatometeravgcritics" max="10"><value>7.8</value><votes/></rating>
+    <rating name="RottenTomatoes"><value>90</value></rating>
+    <rating name="CustomReviewer" max="5"><value>4.5</value><votes>3</votes></rating>
+  </ratings>
+  <watched>true</watched><playcount>7</playcount><lastplayed>2024-01-01</lastplayed>
+  <resume><position>1200</position><total>6000</total></resume><userrating>9</userrating>
+</movie>

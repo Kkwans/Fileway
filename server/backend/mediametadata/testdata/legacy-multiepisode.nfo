@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<episodedetails><title>第一集</title><season>1</season><episode>1</episode></episodedetails>
+<!-- Kodi 21 and earlier: one file may contain multiple episode roots. -->
+<episodedetails><title>第二集</title><season>1</season><episode>2</episode></episodedetails>
