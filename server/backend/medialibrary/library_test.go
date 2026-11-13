@@ -10,6 +10,37 @@ import (
 	"time"
 )
 
+func TestOnlyOwnedLibrariesAreFilteredBeforePagination(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	ownA := createLibrary(t, store, 7, "Own A")
+	ownB := createLibrary(t, store, 7, "Own B")
+	shared := createLibrary(t, store, 8, "Shared")
+	if _, err := store.GrantMember(ctx, 8, shared.ID, shared.Revision, 7, RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	wanted := map[string]bool{ownA.ID: true, ownB.ID: true}
+	cursor := ""
+	for len(wanted) > 0 {
+		page, err := store.ListLibraries(ctx, 7, LibraryListOptions{OnlyOwned: true, Limit: 1, AfterID: cursor})
+		if err != nil || len(page.Items) != 1 || !wanted[page.Items[0].ID] {
+			t.Fatal(page, err)
+		}
+		delete(wanted, page.Items[0].ID)
+		cursor = page.NextCursor
+		if len(wanted) > 0 && cursor == "" {
+			t.Fatal("owner-only page ended early")
+		}
+	}
+	if cursor != "" {
+		t.Fatal("owner-only page exposed an extra row")
+	}
+	page, err := store.ListLibraries(ctx, 7, LibraryListOptions{Limit: 10})
+	if err != nil || len(page.Items) != 3 {
+		t.Fatal(page, err)
+	}
+}
+
 func createLibrary(t *testing.T, store *Store, owner uint, name string) *Library {
 	t.Helper()
 	library, err := store.CreateLibrary(t.Context(), owner, name)
@@ -314,7 +345,11 @@ func TestVersionOneCatalogUpgradePreservesRecordsAndGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	old, err := store.GetLibrary(t.Context(), 8, "old")
 	if err != nil || old.Name != "Films" || old.Revision != 1 || old.ArchivedAt != nil {
 		t.Fatal(old, err)

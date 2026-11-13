@@ -46,7 +46,11 @@ func TestOpenReopensCatalogAndEscapesFilesystemPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	var owner, members, version int
 	if err := store.db.QueryRow("SELECT owner_user_id FROM library WHERE id = 'private'").Scan(&owner); err != nil || owner != 7 {
 		t.Fatal(owner, err)
@@ -111,7 +115,11 @@ func TestConnectionsEnforceForeignKeysAndBoundedWALPolicy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer connection.Close()
+		defer func() {
+			if err := connection.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
 		var journal string
 		if err := connection.QueryRowContext(t.Context(), "PRAGMA journal_mode").Scan(&journal); err != nil || journal != "wal" {
 			t.Fatal(journal, err)
@@ -231,7 +239,11 @@ func TestMigrationFailureRollsBackDDLAndVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	store := &Store{db: db}
 	err = store.WithTx(t.Context(), func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(t.Context(), schemaV1); err != nil {

@@ -21,11 +21,17 @@ type LocalSource struct {
 }
 
 type LibrarySource struct {
+	ID              string
 	LibraryID       string
 	Source          LocalSource
 	RootLocator     []byte
 	Revision        int64
 	LibraryRevision int64
+}
+
+type LibrarySourcePage struct {
+	Items      []LibrarySource
+	NextCursor string
 }
 
 // SourceBindingRef is a catalog consistency token, NOT a permission token.
@@ -79,33 +85,38 @@ type FileObservation struct {
 // one transaction. It must be called only AFTER the outer source authority has
 // authorized this root for the actor. No media is read or probed by this method.
 func (store *Store) CreateLocalSource(ctx context.Context, actor uint, libraryID string, expectedRevision int64, configurationRef string, root []byte) (*LibrarySource, error) {
-	if strings.TrimSpace(configurationRef) == "" || len(root) == 0 {
-		return nil, fmt.Errorf("%w: source configuration reference and root are required", ErrInvalid)
-	}
 	var binding *LibrarySource
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
-		library, err := ownedLibrary(ctx, tx, actor, libraryID, expectedRevision)
-		if err != nil {
-			return err
-		}
-		if library.ArchivedAt != nil {
-			return ErrArchived
-		}
-		id, err := randomID("src_")
-		if err != nil {
-			return err
-		}
-		source := LocalSource{ID: id, OwnerUserID: actor, ConfigurationRef: configurationRef, AuthorizationRevision: 1, CreatedAt: time.Now().UnixMilli()}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO source(id, owner_user_id, kind, configuration_ref, created_at) VALUES (?, ?, 'local', ?, ?)`, id, actor, configurationRef, source.CreatedAt); err != nil {
-			return err
-		}
-		binding, err = bindLocalSource(ctx, tx, actor, library, source, root)
+		var err error
+		binding, err = createLocalSourceTx(ctx, tx, actor, libraryID, expectedRevision, configurationRef, root)
 		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return binding, nil
+}
+
+func createLocalSourceTx(ctx context.Context, tx *sql.Tx, actor uint, libraryID string, expectedRevision int64, configurationRef string, root []byte) (*LibrarySource, error) {
+	if strings.TrimSpace(configurationRef) == "" || len(root) == 0 {
+		return nil, fmt.Errorf("%w: source configuration reference and root are required", ErrInvalid)
+	}
+	library, err := ownedLibrary(ctx, tx, actor, libraryID, expectedRevision)
+	if err != nil {
+		return nil, err
+	}
+	if library.ArchivedAt != nil {
+		return nil, ErrArchived
+	}
+	id, err := randomID("src_")
+	if err != nil {
+		return nil, err
+	}
+	source := LocalSource{ID: id, OwnerUserID: actor, ConfigurationRef: configurationRef, AuthorizationRevision: 1, CreatedAt: time.Now().UnixMilli()}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO source(id, owner_user_id, kind, configuration_ref, created_at) VALUES (?, ?, 'local', ?, ?)`, id, actor, configurationRef, source.CreatedAt); err != nil {
+		return nil, err
+	}
+	return bindLocalSource(ctx, tx, actor, library, source, root)
 }
 
 // BindLocalSource reuses only a connection owned by the library owner. A grant
@@ -141,14 +152,18 @@ func bindLocalSource(ctx context.Context, tx *sql.Tx, actor uint, library *Libra
 		return nil, ErrForbidden
 	}
 	binding := &LibrarySource{LibraryID: library.ID, Source: source, RootLocator: bytes.Clone(root), LibraryRevision: library.Revision}
-	err := tx.QueryRowContext(ctx, "SELECT revision FROM library_source WHERE library_id = ? AND source_id = ? AND root_locator = ?", library.ID, source.ID, root).Scan(&binding.Revision)
+	err := tx.QueryRowContext(ctx, "SELECT binding_id, revision FROM library_source WHERE library_id = ? AND source_id = ? AND root_locator = ?", library.ID, source.ID, root).Scan(&binding.ID, &binding.Revision)
 	if err == nil {
 		return binding, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, "INSERT INTO library_source(library_id, source_id, root_locator) VALUES (?, ?, ?)", library.ID, source.ID, root); err != nil {
+	binding.ID, err = randomID("bind_")
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "INSERT INTO library_source(library_id, source_id, root_locator, binding_id) VALUES (?, ?, ?, ?)", library.ID, source.ID, root, binding.ID); err != nil {
 		return nil, err
 	}
 	if err := updateLibrary(ctx, tx, library); err != nil {
@@ -180,9 +195,9 @@ func (store *Store) GetLibrarySource(ctx context.Context, actor uint, libraryID,
 		return nil, ErrForbidden
 	}
 	binding := &LibrarySource{LibraryID: libraryID}
-	err := store.db.QueryRowContext(ctx, `SELECT s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, l.revision
+	err := store.db.QueryRowContext(ctx, `SELECT ls.binding_id, s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, l.revision
 FROM library_source ls JOIN library l ON l.id = ls.library_id JOIN source s ON s.id = ls.source_id
-WHERE ls.library_id = ? AND ls.source_id = ? AND ls.root_locator = ? AND l.owner_user_id = ? AND s.owner_user_id = ? AND s.kind = 'local'`, libraryID, sourceID, root, actor, actor).Scan(&binding.Source.ID, &binding.Source.OwnerUserID, &binding.Source.ConfigurationRef, &binding.Source.AuthorizationRevision, &binding.Source.CreatedAt, &binding.RootLocator, &binding.Revision, &binding.LibraryRevision)
+WHERE ls.library_id = ? AND ls.source_id = ? AND ls.root_locator = ? AND l.owner_user_id = ? AND s.owner_user_id = ? AND s.kind = 'local'`, libraryID, sourceID, root, actor, actor).Scan(&binding.ID, &binding.Source.ID, &binding.Source.OwnerUserID, &binding.Source.ConfigurationRef, &binding.Source.AuthorizationRevision, &binding.Source.CreatedAt, &binding.RootLocator, &binding.Revision, &binding.LibraryRevision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -190,6 +205,73 @@ WHERE ls.library_id = ? AND ls.source_id = ? AND ls.root_locator = ? AND l.owner
 		return nil, err
 	}
 	return binding, nil
+}
+
+const bindingSelection = `SELECT ls.binding_id, ls.library_id, s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, l.revision
+FROM library_source ls JOIN library l ON l.id = ls.library_id JOIN source s ON s.id = ls.source_id`
+
+func scanLibrarySource(row rowScanner) (*LibrarySource, error) {
+	binding := &LibrarySource{}
+	err := row.Scan(&binding.ID, &binding.LibraryID, &binding.Source.ID, &binding.Source.OwnerUserID, &binding.Source.ConfigurationRef, &binding.Source.AuthorizationRevision, &binding.Source.CreatedAt, &binding.RootLocator, &binding.Revision, &binding.LibraryRevision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return binding, nil
+}
+
+// GetLibrarySourceByID reloads a binding only for its owning account. The
+// opaque ID never grants authority to open the root or exposes it to viewers.
+func (store *Store) GetLibrarySourceByID(ctx context.Context, actor uint, bindingID string) (*LibrarySource, error) {
+	if actor == 0 {
+		return nil, ErrForbidden
+	}
+	return scanLibrarySource(store.db.QueryRowContext(ctx, bindingSelection+" WHERE ls.binding_id = ? AND l.owner_user_id = ? AND s.owner_user_id = ? AND s.kind = 'local'", bindingID, actor, actor))
+}
+
+// ListLibrarySources is owner-only; callers must redact root/configuration
+// references from client DTOs unless a separate product contract permits them.
+func (store *Store) ListLibrarySources(ctx context.Context, actor uint, libraryID, afterID string, limit int) (*LibrarySourcePage, error) {
+	if actor == 0 {
+		return nil, ErrForbidden
+	}
+	if limit == 0 {
+		limit = 50
+	}
+	if limit < 1 || limit > 100 {
+		return nil, fmt.Errorf("%w: source page limit", ErrInvalid)
+	}
+	var owner uint
+	err := store.db.QueryRowContext(ctx, "SELECT owner_user_id FROM library WHERE id = ? AND owner_user_id = ?", libraryID, actor).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	rows, err := store.db.QueryContext(ctx, bindingSelection+" WHERE ls.library_id = ? AND l.owner_user_id = ? AND s.owner_user_id = ? AND s.kind = 'local' AND ls.binding_id > ? ORDER BY ls.binding_id LIMIT ?", libraryID, actor, actor, afterID, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	page := &LibrarySourcePage{Items: make([]LibrarySource, 0, limit)}
+	for rows.Next() {
+		binding, err := scanLibrarySource(rows)
+		if err != nil {
+			return nil, err
+		}
+		if len(page.Items) == limit {
+			page.NextCursor = page.Items[len(page.Items)-1].ID
+			break
+		}
+		page.Items = append(page.Items, *binding)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return page, nil
 }
 
 // GetSourceFile is an owner-only lookup for optimistic scan updates. It does not
@@ -246,7 +328,8 @@ func validateSourceBinding(ctx context.Context, reader schemaReader, actor uint,
 		return nil, err
 	}
 	var revision int64
-	if err := reader.QueryRowContext(ctx, "SELECT revision FROM library_source WHERE library_id = ? AND source_id = ? AND root_locator = ?", binding.LibraryID, binding.SourceID, binding.RootLocator).Scan(&revision); errors.Is(err, sql.ErrNoRows) {
+	var bindingID string
+	if err := reader.QueryRowContext(ctx, "SELECT binding_id, revision FROM library_source WHERE library_id = ? AND source_id = ? AND root_locator = ?", binding.LibraryID, binding.SourceID, binding.RootLocator).Scan(&bindingID, &revision); errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, err
@@ -254,7 +337,7 @@ func validateSourceBinding(ctx context.Context, reader schemaReader, actor uint,
 	if binding.BindingRevision != revision || binding.AuthorizationRevision != source.AuthorizationRevision {
 		return nil, ErrRevisionConflict
 	}
-	return &LibrarySource{LibraryID: library.ID, Source: *source, RootLocator: bytes.Clone(binding.RootLocator), Revision: revision, LibraryRevision: library.Revision}, nil
+	return &LibrarySource{ID: bindingID, LibraryID: library.ID, Source: *source, RootLocator: bytes.Clone(binding.RootLocator), Revision: revision, LibraryRevision: library.Revision}, nil
 }
 
 func observeSourceFileTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBindingRef, input FileObservation, identityKind string, forceNewEpoch bool) (*SourceFile, error) {
@@ -378,4 +461,50 @@ ON CONFLICT(library_id, source_id, root_locator, source_file_id) DO UPDATE SET l
 
 func sameOptionalSize(left, right *int64) bool {
 	return (left == nil && right == nil) || (left != nil && right != nil && *left == *right)
+}
+
+func migrateBindingIDs(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, schemaV5BeforeIDs); err != nil {
+		return err
+	}
+	type key struct {
+		library, source string
+		root            []byte
+	}
+	for {
+		rows, err := tx.QueryContext(ctx, "SELECT library_id, source_id, root_locator FROM library_source WHERE binding_id IS NULL ORDER BY library_id, source_id, root_locator LIMIT 100")
+		if err != nil {
+			return err
+		}
+		keys := make([]key, 0, 100)
+		for rows.Next() {
+			var item key
+			if err := rows.Scan(&item.library, &item.source, &item.root); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			keys = append(keys, item)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		for _, item := range keys {
+			id, err := randomID("bind_")
+			if err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE library_source SET binding_id = ? WHERE library_id = ? AND source_id = ? AND root_locator = ? AND binding_id IS NULL", id, item.library, item.source, item.root); err != nil {
+				return err
+			}
+		}
+		if len(keys) < 100 {
+			break
+		}
+	}
+	_, err := tx.ExecContext(ctx, schemaV5AfterIDs)
+	return err
 }

@@ -12,12 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
 
 const (
-	SchemaVersion  = 4
+	SchemaVersion  = 5
 	applicationID  = 0x46574d43 // FWMC; do not migrate an unrelated SQLite database.
 	maxConnections = 4
 	busyTimeoutMS  = 5000
@@ -31,7 +32,12 @@ var (
 // Store is an instance-local catalog. Its file and WAL must be on reliable local
 // storage, never an SMB/NFS share. Media files themselves may be remote.
 type Store struct {
-	db *sql.DB
+	db          *sql.DB
+	identity    *catalogIdentity
+	mu          sync.Mutex
+	coordinator *ScanCoordinator
+	closed      bool
+	closeErr    error
 }
 
 // Open opens or initializes a catalog at a filesystem path. The parent directory
@@ -50,28 +56,42 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve media catalog path: %w", err)
 	}
-	if strings.HasPrefix(absolute, `\\`) || strings.HasPrefix(absolute, "//") {
+	if (strings.HasPrefix(absolute, `\\`) || strings.HasPrefix(absolute, "//")) && !strings.HasPrefix(strings.ToLower(absolute), `\\?\volume{`) {
 		return nil, errors.New("media catalog requires local storage")
 	}
-	if err := inspectExisting(ctx, absolute); err != nil {
+	// Serialize local registrations and retain the creation descriptor. A
+	// second Store in this process must never close an extra descriptor while
+	// another SQLite connection holds process-scoped POSIX locks.
+	catalogIdentities.Lock()
+	file, createErr := os.OpenFile(absolute, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
+	if createErr != nil && !errors.Is(createErr, os.ErrExist) {
+		catalogIdentities.Unlock()
+		return nil, fmt.Errorf("create media catalog: %w", createErr)
+	}
+	identity, err := registerCatalogIdentity(absolute, file)
+	if err != nil && file != nil {
+		_ = file.Close()
+	}
+	catalogIdentities.Unlock()
+	if err != nil {
+		return nil, fmt.Errorf("identify media catalog: %w", err)
+	}
+	keepIdentity := false
+	defer func() {
+		if !keepIdentity {
+			_ = releaseCatalogIdentity(identity)
+		}
+	}()
+	if err := inspectExisting(ctx, identity.canonical); err != nil {
 		return nil, err
 	}
-	// Set restrictive permissions at creation, before SQLite opens the file.
-	file, err := os.OpenFile(absolute, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0600)
-	if err == nil {
-		if err := file.Close(); err != nil {
-			return nil, fmt.Errorf("close new media catalog: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrExist) {
-		return nil, fmt.Errorf("create media catalog: %w", err)
-	}
-	db, err := sql.Open("sqlite", databaseURL(absolute, "rw"))
+	db, err := sql.Open("sqlite", databaseURL(identity.canonical, "rw"))
 	if err != nil {
 		return nil, fmt.Errorf("open media catalog: %w", err)
 	}
 	db.SetMaxOpenConns(maxConnections)
 	db.SetMaxIdleConns(maxConnections)
-	store := &Store{db: db}
+	store := &Store{db: db, identity: identity}
 	if err := store.migrate(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -85,22 +105,53 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("media catalog WAL unavailable: %s", journalMode)
 	}
+	if err := validateCatalogIdentity(identity); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	keepIdentity = true
 	return store, nil
 }
 
-func (store *Store) Close() error { return store.db.Close() }
+func (store *Store) Close() error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.closed {
+		return store.closeErr
+	}
+	if store.coordinator != nil {
+		return ErrCoordinatorActive
+	}
+	store.closed = true
+	store.closeErr = store.db.Close()
+	// On close failure keep the identity handle for the rest of the process:
+	// releasing it while a SQLite descriptor may be active is not safe.
+	if store.closeErr == nil {
+		store.closeErr = releaseCatalogIdentity(store.identity)
+	}
+	return store.closeErr
+}
 
 // WithTx commits a domain change and its durable outbox/checkpoint together.
 // The callback must use this transaction, not re-enter Store, and must not send
 // external notifications or perform network I/O. A callback error or panic rolls
 // back all changes. Consumers publish committed outbox entries separately.
 func (store *Store) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
+	if err := validateTransactionAuthority(ctx, store); err != nil {
+		return err
+	}
 	tx, err := store.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := validateTransactionAuthority(ctx, store); err != nil {
+		return err
+	}
 	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := validateTransactionAuthority(ctx, store); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -200,6 +251,11 @@ func (store *Store) migrate(ctx context.Context) error {
 		if version < 4 {
 			if _, err := tx.ExecContext(ctx, schemaV4); err != nil {
 				return fmt.Errorf("upgrade media catalog to schema 4: %w", err)
+			}
+		}
+		if version < 5 {
+			if err := migrateBindingIDs(ctx, tx); err != nil {
+				return fmt.Errorf("upgrade media catalog to schema 5: %w", err)
 			}
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d; PRAGMA user_version = %d", applicationID, SchemaVersion)); err != nil {

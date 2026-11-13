@@ -15,11 +15,31 @@ func testScan(t *testing.T, store *Store, binding *LibrarySource, operation stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease, err := store.ClaimScan(t.Context(), binding.Source.OwnerUserID, job.ID, job.Generation)
+	lease, err := testCoordinator(t, store).ClaimScan(t.Context(), binding.Source.OwnerUserID, job.ID, job.Generation)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return job, lease
+}
+
+func testCoordinator(t *testing.T, store *Store) *ScanCoordinator {
+	t.Helper()
+	store.mu.Lock()
+	active := store.coordinator
+	store.mu.Unlock()
+	if active != nil {
+		return active
+	}
+	c, err := store.AcquireScanCoordinator(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := c.Release(); err != nil {
+			t.Error(err)
+		}
+	})
+	return c
 }
 
 func testObservation(key, locator string) ScanObservation {
@@ -134,6 +154,9 @@ func TestScanRecoveryResetsTraversalAndPreservesCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := testCoordinator(t, store).Release(); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -141,8 +164,13 @@ func TestScanRecoveryResetsTraversalAndPreservesCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
-	if n, err := store.InterruptRunningScans(t.Context()); err != nil || n != 1 {
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	coordinator := testCoordinator(t, store)
+	if n, err := coordinator.InterruptRunningScans(t.Context()); err != nil || n != 1 {
 		t.Fatal(n, err)
 	}
 	interrupted, err := store.GetScan(t.Context(), 7, job.ID)
@@ -152,7 +180,7 @@ func TestScanRecoveryResetsTraversalAndPreservesCatalog(t *testing.T) {
 	if _, err := store.CommitScanObservation(t.Context(), 7, *oldLease, input, testCheckpoint(input, 1, 1)); !errors.Is(err, ErrScanState) {
 		t.Fatal(err)
 	}
-	lease, err := store.ClaimScan(t.Context(), 7, job.ID, interrupted.Generation)
+	lease, err := coordinator.ClaimScan(t.Context(), 7, job.ID, interrupted.Generation)
 	if err != nil || lease.Generation != interrupted.Generation+1 {
 		t.Fatal(lease, err)
 	}
@@ -528,7 +556,11 @@ INSERT INTO library_file(library_id,source_file_id,source_id,root_locator,observ
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	file, err := store.GetSourceFile(t.Context(), 7, "disk", []byte{0xfe})
 	if err != nil || file.ID != "file" || file.IdentityKind != "legacy_unverified" || file.IdentityEpoch != 1 || file.MissingSince == nil || *file.MissingSince != 2 {
 		t.Fatal(file, err)
@@ -569,7 +601,11 @@ INSERT INTO library_file(library_id,source_file_id,source_id,root_locator,observ
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	var version, count int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
 		t.Fatal(version, err)

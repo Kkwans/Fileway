@@ -19,6 +19,16 @@ var (
 	ErrScanState  = errors.New("media scan state or lease is no longer current")
 )
 
+const (
+	ScanErrorOwnerUnavailable     = "owner_unavailable"
+	ScanErrorPermissionDenied     = "permission_denied"
+	ScanErrorRootUnavailable      = "root_unavailable"
+	ScanErrorUnsupportedRules     = "unsupported_rules"
+	ScanErrorSchedulerUnavailable = "scheduler_unavailable"
+	ScanErrorSourceChanged        = "source_changed"
+	ScanErrorScanFailed           = "scan_failed"
+)
+
 // SourceBindingRef is a consistency token, not live filesystem authority.
 // Every scan, resume, batch and finalization also requires the source adapter
 // to resolve the owner's current authority and perform safe opens.
@@ -41,6 +51,7 @@ type ScanJob struct {
 	LibraryID     string
 	OwnerUserID   uint
 	Status        string
+	ErrorCode     string
 	Generation    int64
 	Attempt       int64
 	RulesRevision int64
@@ -88,6 +99,7 @@ type ScanMissingPage struct {
 type ScanFinish struct {
 	Status           string // completed, failed or interrupted
 	ExpectedSequence int64
+	ErrorCode        string // optional safe code for failed; never a raw error
 }
 
 type ScanPage struct {
@@ -126,7 +138,7 @@ AND n.status IN ('invalid', 'unavailable', 'changed') AND n.source_file_id > ? O
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	page := &ScanNFOIssuePage{Items: make([]ScanNFOIssue, 0, limit)}
 	for rows.Next() {
 		var issue ScanNFOIssue
@@ -160,7 +172,7 @@ type scanRecord struct {
 }
 
 const scanSelection = `SELECT j.id, j.library_id, j.owner_user_id, j.status, j.generation, j.attempt, j.checkpoint_json, j.created_at, j.updated_at,
-sj.source_id, sj.root_locator, sj.binding_revision, sj.authorization_revision, sj.rules_revision, sj.operation_id, sj.active, sj.last_digest, sj.last_result_json
+sj.source_id, sj.root_locator, sj.binding_revision, sj.authorization_revision, sj.rules_revision, sj.operation_id, sj.active, sj.last_digest, sj.last_result_json, sj.error_code
 FROM job j JOIN scan_job sj ON sj.job_id = j.id AND sj.library_id = j.library_id`
 
 func readScan(row rowScanner) (*scanRecord, error) {
@@ -168,7 +180,7 @@ func readScan(row rowScanner) (*scanRecord, error) {
 	var checkpoint string
 	var active int
 	err := row.Scan(&r.ID, &r.LibraryID, &r.OwnerUserID, &r.Status, &r.Generation, &r.Attempt, &checkpoint, &r.CreatedAt, &r.UpdatedAt,
-		&r.Binding.SourceID, &r.Binding.RootLocator, &r.Binding.BindingRevision, &r.Binding.AuthorizationRevision, &r.RulesRevision, &r.operationID, &active, &r.lastDigest, &r.lastResult)
+		&r.Binding.SourceID, &r.Binding.RootLocator, &r.Binding.BindingRevision, &r.Binding.AuthorizationRevision, &r.RulesRevision, &r.operationID, &active, &r.lastDigest, &r.lastResult, &r.ErrorCode)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -237,10 +249,11 @@ func publishScanChange(ctx context.Context, tx *sql.Tx, actor uint, job *scanRec
 		JobID       string `json:"jobId"`
 		Generation  int64  `json:"generation"`
 		Status      string `json:"status"`
+		ErrorCode   string `json:"errorCode,omitempty"`
 		Phase       string `json:"phase"`
 		Sequence    int64  `json:"sequence"`
 		Processed   int64  `json:"processed"`
-	}{actor, job.LibraryID, job.ID, job.Generation, job.Status, job.Checkpoint.Phase, job.Checkpoint.Sequence, job.Checkpoint.Processed})
+	}{actor, job.LibraryID, job.ID, job.Generation, job.Status, job.ErrorCode, job.Checkpoint.Phase, job.Checkpoint.Sequence, job.Checkpoint.Processed})
 	if err != nil {
 		return err
 	}
@@ -304,51 +317,9 @@ func (store *Store) EnqueueScan(ctx context.Context, actor uint, binding SourceB
 	}
 	var result *ScanJob
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
-		if _, err := validateSourceBinding(ctx, tx, actor, binding); err != nil {
-			return err
-		}
-		existing, err := readScan(tx.QueryRowContext(ctx, scanSelection+" WHERE sj.library_id = ? AND sj.operation_id = ?", binding.LibraryID, operationID))
-		if err == nil {
-			if existing.OwnerUserID != actor || !sameBinding(existing.Binding, binding) || existing.RulesRevision != rulesRevision {
-				return ErrRevisionConflict
-			}
-			result = &existing.ScanJob
-			return nil
-		}
-		if !errors.Is(err, ErrNotFound) {
-			return err
-		}
-		var active int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM scan_job WHERE library_id = ? AND source_id = ? AND root_locator = ? AND active = 1", binding.LibraryID, binding.SourceID, binding.RootLocator).Scan(&active); err != nil {
-			return err
-		}
-		if active != 0 {
-			return ErrScanActive
-		}
-		id, err := randomID("job_")
-		if err != nil {
-			return err
-		}
-		now := time.Now().UnixMilli()
-		cp := initialCheckpoint()
-		encoded, err := json.Marshal(cp)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO job(id, library_id, owner_user_id, kind, status, generation, checkpoint_json, created_at, updated_at)
-VALUES (?, ?, ?, 'library.scan', 'queued', 1, ?, ?, ?)`, id, binding.LibraryID, actor, string(encoded), now, now); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO scan_job(job_id, library_id, source_id, root_locator, binding_revision, authorization_revision, rules_revision, operation_id, active)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`, id, binding.LibraryID, binding.SourceID, binding.RootLocator, binding.BindingRevision, binding.AuthorizationRevision, rulesRevision, operationID); err != nil {
-			return err
-		}
-		r := &scanRecord{ScanJob: ScanJob{ID: id, LibraryID: binding.LibraryID, OwnerUserID: actor, Status: "queued", Generation: 1, RulesRevision: rulesRevision, Binding: binding, Checkpoint: cp, CreatedAt: now, UpdatedAt: now}, operationID: operationID, active: true}
-		if err := publishScanChange(ctx, tx, actor, r, "media.scan.queued"); err != nil {
-			return err
-		}
-		result = &r.ScanJob
-		return nil
+		var err error
+		result, err = enqueueScanTx(ctx, tx, actor, binding, operationID, rulesRevision)
+		return err
 	})
 	if err != nil {
 		return nil, err
@@ -356,10 +327,59 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`, id, binding.LibraryID, binding.SourceID, bi
 	return result, nil
 }
 
+func enqueueScanTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBindingRef, operationID string, rulesRevision int64) (*ScanJob, error) {
+	if !validOperationID(operationID) || rulesRevision < 1 {
+		return nil, fmt.Errorf("%w: scan operation or rules revision", ErrInvalid)
+	}
+	if _, err := validateSourceBinding(ctx, tx, actor, binding); err != nil {
+		return nil, err
+	}
+	existing, err := readScan(tx.QueryRowContext(ctx, scanSelection+" WHERE sj.library_id = ? AND sj.operation_id = ?", binding.LibraryID, operationID))
+	if err == nil {
+		if existing.OwnerUserID != actor || !sameBinding(existing.Binding, binding) || existing.RulesRevision != rulesRevision {
+			return nil, ErrRevisionConflict
+		}
+		return &existing.ScanJob, nil
+	}
+	if !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	var active int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM scan_job WHERE library_id = ? AND source_id = ? AND root_locator = ? AND active = 1", binding.LibraryID, binding.SourceID, binding.RootLocator).Scan(&active); err != nil {
+		return nil, err
+	}
+	if active != 0 {
+		return nil, ErrScanActive
+	}
+	id, err := randomID("job_")
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now().UnixMilli()
+	cp := initialCheckpoint()
+	encoded, err := json.Marshal(cp)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO job(id, library_id, owner_user_id, kind, status, generation, checkpoint_json, created_at, updated_at)
+VALUES (?, ?, ?, 'library.scan', 'queued', 1, ?, ?, ?)`, id, binding.LibraryID, actor, string(encoded), now, now); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO scan_job(job_id, library_id, source_id, root_locator, binding_revision, authorization_revision, rules_revision, operation_id, active)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`, id, binding.LibraryID, binding.SourceID, binding.RootLocator, binding.BindingRevision, binding.AuthorizationRevision, rulesRevision, operationID); err != nil {
+		return nil, err
+	}
+	r := &scanRecord{ScanJob: ScanJob{ID: id, LibraryID: binding.LibraryID, OwnerUserID: actor, Status: "queued", Generation: 1, RulesRevision: rulesRevision, Binding: binding, Checkpoint: cp, CreatedAt: now, UpdatedAt: now}, operationID: operationID, active: true}
+	if err := publishScanChange(ctx, tx, actor, r, "media.scan.queued"); err != nil {
+		return nil, err
+	}
+	return &r.ScanJob, nil
+}
+
 // ClaimScan must be called after live source authorization. Recovery always
 // starts at the root with a new generation; a checkpoint is not a directory
 // cursor and an old callback can never write into the new generation.
-func (store *Store) ClaimScan(ctx context.Context, actor uint, jobID string, expectedGeneration int64) (*ScanLease, error) {
+func (store *Store) claimScan(ctx context.Context, actor uint, jobID string, expectedGeneration int64) (*ScanLease, error) {
 	var lease *ScanLease
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
 		r, err := getScan(ctx, tx, actor, jobID)
@@ -411,7 +431,7 @@ func (store *Store) ListRecoverableScans(ctx context.Context, actor uint, afterI
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	page := &ScanPage{Items: make([]ScanJob, 0, limit)}
 	for rows.Next() {
 		r, err := readScan(rows)
@@ -433,9 +453,12 @@ func (store *Store) ListRecoverableScans(ctx context.Context, actor uint, afterI
 // InterruptRunningScans is a startup-only recovery step. Call it only after
 // excluding any concurrently active scheduler for this catalog. It touches no
 // generic jobs and preserves prior checkpoints for inspection until reclaimed.
-func (store *Store) InterruptRunningScans(ctx context.Context) (int, error) {
+func (store *Store) interruptRunningScans(ctx context.Context, validate func(context.Context) error) (int, error) {
 	count := 0
 	for {
+		if err := validate(ctx); err != nil {
+			return count, err
+		}
 		batchCount := 0
 		err := store.WithTx(ctx, func(tx *sql.Tx) error {
 			rows, err := tx.QueryContext(ctx, scanSelection+" WHERE sj.active = 1 AND j.status = 'running' ORDER BY j.id LIMIT 100")
@@ -484,31 +507,36 @@ func (store *Store) InterruptRunningScans(ctx context.Context) (int, error) {
 func (store *Store) CancelScan(ctx context.Context, actor uint, jobID string, expectedGeneration int64) (*ScanJob, error) {
 	var result *ScanJob
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
-		r, err := getScan(ctx, tx, actor, jobID)
-		if err != nil {
-			return err
-		}
-		if !r.active || r.Generation != expectedGeneration || (r.Status != "queued" && r.Status != "running" && r.Status != "interrupted") {
-			return ErrScanState
-		}
-		r.Status, r.Generation, r.active = "canceled", r.Generation+1, false
-		r.UpdatedAt = max(time.Now().UnixMilli(), r.UpdatedAt)
-		if _, err := tx.ExecContext(ctx, "UPDATE job SET status = ?, generation = ?, updated_at = ? WHERE id = ?", r.Status, r.Generation, r.UpdatedAt, r.ID); err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, "UPDATE scan_job SET active = 0 WHERE job_id = ?", r.ID); err != nil {
-			return err
-		}
-		if err := publishScanChange(ctx, tx, actor, r, "media.scan.canceled"); err != nil {
-			return err
-		}
-		result = &r.ScanJob
-		return nil
+		var err error
+		result, err = cancelScanTx(ctx, tx, actor, jobID, expectedGeneration)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+func cancelScanTx(ctx context.Context, tx *sql.Tx, actor uint, jobID string, expectedGeneration int64) (*ScanJob, error) {
+	r, err := getScan(ctx, tx, actor, jobID)
+	if err != nil {
+		return nil, err
+	}
+	if !r.active || r.Generation != expectedGeneration || (r.Status != "queued" && r.Status != "running" && r.Status != "interrupted") {
+		return nil, ErrScanState
+	}
+	r.Status, r.Generation, r.active = "canceled", r.Generation+1, false
+	r.UpdatedAt = max(time.Now().UnixMilli(), r.UpdatedAt)
+	if _, err := tx.ExecContext(ctx, "UPDATE job SET status = ?, generation = ?, updated_at = ? WHERE id = ?", r.Status, r.Generation, r.UpdatedAt, r.ID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE scan_job SET active = 0 WHERE job_id = ?", r.ID); err != nil {
+		return nil, err
+	}
+	if err := publishScanChange(ctx, tx, actor, r, "media.scan.canceled"); err != nil {
+		return nil, err
+	}
+	return &r.ScanJob, nil
 }
 
 // CommitScanObservation writes file evidence, a first unmatched item when no
@@ -566,7 +594,8 @@ WHERE f.source_id = ? AND f.object_key = ?`, r.LibraryID, r.Binding.SourceID, r.
 		if revision != input.ExpectedRevision {
 			return ErrRevisionConflict
 		}
-		forceEpoch := exists && input.Identity == "path_unverified" && !(seenJob.Valid && seenJob.String == r.ID && seenGeneration.Valid && seenGeneration.Int64 == r.Generation)
+		sameGeneration := seenJob.Valid && seenJob.String == r.ID && seenGeneration.Valid && seenGeneration.Int64 == r.Generation
+		forceEpoch := exists && input.Identity == "path_unverified" && !sameGeneration
 		size := input.SizeBytes
 		file, err := observeSourceFileTx(ctx, tx, actor, r.Binding, FileObservation{ObjectKey: input.ObjectKey, Locator: input.Locator, SourceVersion: input.SourceVersion, SizeBytes: &size, ExpectedRevision: input.ExpectedRevision}, input.Identity, forceEpoch)
 		if err != nil {
@@ -665,7 +694,7 @@ FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	page := &ScanMissingPage{Items: make([]ScanMissingCandidate, 0, limit)}
 	for rows.Next() {
 		var c ScanMissingCandidate
@@ -816,6 +845,9 @@ func (store *Store) FinishScan(ctx context.Context, actor uint, lease ScanLease,
 	if finish.Status != "completed" && finish.Status != "failed" && finish.Status != "interrupted" {
 		return nil, fmt.Errorf("%w: scan finish status", ErrInvalid)
 	}
+	if (finish.Status != "failed" && finish.ErrorCode != "") || (finish.ErrorCode != "" && !validScanErrorCode(finish.ErrorCode)) {
+		return nil, fmt.Errorf("%w: scan error code", ErrInvalid)
+	}
 	var result *ScanJob
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
 		r, err := requireScanLease(ctx, tx, actor, lease, finish.Status == "completed")
@@ -847,7 +879,7 @@ AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_g
 				return err
 			}
 		}
-		r.Status = finish.Status
+		r.Status, r.ErrorCode = finish.Status, finish.ErrorCode
 		if finish.Status == "interrupted" {
 			r.Generation++
 		} else {
@@ -858,7 +890,7 @@ AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_g
 			return err
 		}
 		if !r.active {
-			if _, err := tx.ExecContext(ctx, "UPDATE scan_job SET active = 0 WHERE job_id = ?", r.ID); err != nil {
+			if _, err := tx.ExecContext(ctx, "UPDATE scan_job SET active = 0, error_code = ? WHERE job_id = ?", r.ErrorCode, r.ID); err != nil {
 				return err
 			}
 		}

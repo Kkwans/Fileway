@@ -344,7 +344,11 @@ INSERT INTO source_file(id,source_id,object_key,locator,source_version,observed_
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() {
+		if err := store.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	file, err := store.GetSourceFile(t.Context(), 7, "disk", []byte{0xff})
 	if err != nil || file.ID != "file" || file.Revision != 1 || !bytes.Equal(file.Locator, []byte{'/', 0xff}) {
 		t.Fatal(file, err)

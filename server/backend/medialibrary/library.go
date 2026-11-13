@@ -60,6 +60,8 @@ type LibraryListOptions struct {
 	Limit    int
 	AfterID  string
 	Archived bool
+	// OnlyOwned enforces the live server sharing policy before pagination.
+	OnlyOwned bool
 }
 
 type LibraryPage struct {
@@ -72,6 +74,19 @@ type LibraryPage struct {
 // database or administrator sharing policy. Library membership alone is never
 // sufficient authority for source enumeration, playback, download or writing.
 func (store *Store) CreateLibrary(ctx context.Context, actor uint, name string) (*Library, error) {
+	var library *Library
+	err := store.WithTx(ctx, func(tx *sql.Tx) error {
+		var err error
+		library, err = createLibraryTx(ctx, tx, actor, name)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return library, nil
+}
+
+func createLibraryTx(ctx context.Context, tx *sql.Tx, actor uint, name string) (*Library, error) {
 	if actor == 0 {
 		return nil, ErrForbidden
 	}
@@ -85,13 +100,10 @@ func (store *Store) CreateLibrary(ctx context.Context, actor uint, name string) 
 	}
 	now := time.Now().UnixMilli()
 	library := &Library{ID: id, OwnerUserID: actor, Name: name, Revision: 1, CreatedAt: now, UpdatedAt: now, Role: RoleOwner}
-	err = store.WithTx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO library(id, owner_user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, id, actor, name, now, now); err != nil {
-			return err
-		}
-		return publishLibraryChange(ctx, tx, library, actor, "library.created", nil)
-	})
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO library(id, owner_user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, id, actor, name, now, now); err != nil {
+		return nil, err
+	}
+	if err := publishLibraryChange(ctx, tx, library, actor, "library.created", nil); err != nil {
 		return nil, err
 	}
 	return library, nil
@@ -128,11 +140,11 @@ func (store *Store) ListLibraries(ctx context.Context, actor uint, options Libra
 	}
 	// Direct read query, not WithTx/BEGIN IMMEDIATE: browsing must not acquire
 	// SQLite's writer lock while a scan or another catalog update is running.
-	rows, err := store.db.QueryContext(ctx, librarySelection+" WHERE "+libraryVisibility+" AND "+archiveFilter+" AND l.id > ? ORDER BY l.id LIMIT ?", actor, actor, actor, options.AfterID, options.Limit+1)
+	rows, err := store.db.QueryContext(ctx, librarySelection+" WHERE "+libraryVisibility+" AND (? = 0 OR l.owner_user_id = ?) AND "+archiveFilter+" AND l.id > ? ORDER BY l.id LIMIT ?", actor, actor, actor, options.OnlyOwned, actor, options.AfterID, options.Limit+1)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	page := &LibraryPage{Items: make([]Library, 0, options.Limit)}
 	for rows.Next() {
 		library, err := scanLibrary(rows)
@@ -156,7 +168,11 @@ func (store *Store) UpdateLibrary(ctx context.Context, actor uint, id, name stri
 	if err != nil {
 		return nil, err
 	}
-	return store.changeLibrary(ctx, actor, id, expectedRevision, "library.updated", func(library *Library) (bool, error) {
+	return store.changeLibrary(ctx, actor, id, expectedRevision, "library.updated", updateLibraryAction(name))
+}
+
+func updateLibraryAction(name string) func(*Library) (bool, error) {
+	return func(library *Library) (bool, error) {
 		if library.ArchivedAt != nil {
 			return false, ErrArchived
 		}
@@ -165,48 +181,63 @@ func (store *Store) UpdateLibrary(ctx context.Context, actor uint, id, name stri
 		}
 		library.Name = name
 		return true, nil
-	})
+	}
 }
 
 func (store *Store) ArchiveLibrary(ctx context.Context, actor uint, id string, expectedRevision int64) (*Library, error) {
-	return store.changeLibrary(ctx, actor, id, expectedRevision, "library.archived", func(library *Library) (bool, error) {
-		if library.ArchivedAt != nil {
-			return false, nil
-		}
-		now := max(time.Now().UnixMilli(), library.UpdatedAt)
-		library.ArchivedAt = &now
-		return true, nil
-	})
+	return store.changeLibrary(ctx, actor, id, expectedRevision, "library.archived", archiveLibraryAction)
+}
+
+func archiveLibraryAction(library *Library) (bool, error) {
+	if library.ArchivedAt != nil {
+		return false, nil
+	}
+	now := max(time.Now().UnixMilli(), library.UpdatedAt)
+	library.ArchivedAt = &now
+	return true, nil
 }
 
 func (store *Store) RestoreLibrary(ctx context.Context, actor uint, id string, expectedRevision int64) (*Library, error) {
-	return store.changeLibrary(ctx, actor, id, expectedRevision, "library.restored", func(library *Library) (bool, error) {
-		if library.ArchivedAt == nil {
-			return false, nil
-		}
-		library.ArchivedAt = nil
-		return true, nil
-	})
+	return store.changeLibrary(ctx, actor, id, expectedRevision, "library.restored", restoreLibraryAction)
+}
+
+func restoreLibraryAction(library *Library) (bool, error) {
+	if library.ArchivedAt == nil {
+		return false, nil
+	}
+	library.ArchivedAt = nil
+	return true, nil
 }
 
 func (store *Store) changeLibrary(ctx context.Context, actor uint, id string, expectedRevision int64, event string, change func(*Library) (bool, error)) (*Library, error) {
 	var library *Library
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		library, err = ownedLibrary(ctx, tx, actor, id, expectedRevision)
-		if err != nil {
-			return err
-		}
-		changed, err := change(library)
-		if err != nil || !changed {
-			return err
-		}
-		if err := updateLibrary(ctx, tx, library); err != nil {
-			return err
-		}
-		return publishLibraryChange(ctx, tx, library, actor, event, nil)
+		library, err = changeLibraryTx(ctx, tx, actor, id, expectedRevision, event, change)
+		return err
 	})
 	if err != nil {
+		return nil, err
+	}
+	return library, nil
+}
+
+func changeLibraryTx(ctx context.Context, tx *sql.Tx, actor uint, id string, expectedRevision int64, event string, change func(*Library) (bool, error)) (*Library, error) {
+	library, err := ownedLibrary(ctx, tx, actor, id, expectedRevision)
+	if err != nil {
+		return nil, err
+	}
+	changed, err := change(library)
+	if err != nil {
+		return nil, err
+	}
+	if !changed {
+		return library, nil
+	}
+	if err := updateLibrary(ctx, tx, library); err != nil {
+		return nil, err
+	}
+	if err := publishLibraryChange(ctx, tx, library, actor, event, nil); err != nil {
 		return nil, err
 	}
 	return library, nil
@@ -229,51 +260,63 @@ func (store *Store) changeMember(ctx context.Context, actor uint, id string, exp
 	}
 	var grant *MemberGrant
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
-		library, err := ownedLibrary(ctx, tx, actor, id, expectedRevision)
-		if err != nil {
-			return err
-		}
-		if library.ArchivedAt != nil && !revoke {
-			return ErrArchived
-		}
-		grant = &MemberGrant{LibraryID: id, UserID: recipient, LibraryRevision: library.Revision}
-		err = tx.QueryRowContext(ctx, "SELECT role, revision, created_at, revoked_at FROM library_member WHERE library_id = ? AND user_id = ?", id, recipient).Scan(&grant.Role, &grant.Revision, &grant.CreatedAt, &grant.RevokedAt)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		if errors.Is(err, sql.ErrNoRows) && revoke {
-			return ErrNotFound
-		}
-		if err == nil && ((revoke && grant.RevokedAt != nil) || (!revoke && grant.RevokedAt == nil && grant.Role == role)) {
-			return nil
-		}
-		now := max(time.Now().UnixMilli(), library.UpdatedAt, grant.CreatedAt)
-		if errors.Is(err, sql.ErrNoRows) {
-			grant.Role, grant.Revision, grant.CreatedAt = role, 1, now
-			_, err = tx.ExecContext(ctx, "INSERT INTO library_member(library_id, user_id, role, created_at) VALUES (?, ?, ?, ?)", id, recipient, role, now)
-		} else {
-			grant.Revision++
-			if revoke {
-				grant.RevokedAt = &now
-			} else {
-				grant.Role, grant.RevokedAt = role, nil
-			}
-			_, err = tx.ExecContext(ctx, "UPDATE library_member SET role = ?, revision = ?, revoked_at = ? WHERE library_id = ? AND user_id = ?", grant.Role, grant.Revision, grant.RevokedAt, id, recipient)
-		}
-		if err != nil {
-			return err
-		}
-		if err := updateLibrary(ctx, tx, library); err != nil {
-			return err
-		}
-		grant.LibraryRevision = library.Revision
-		event := "library.member.granted"
-		if revoke {
-			event = "library.member.revoked"
-		}
-		return publishLibraryChange(ctx, tx, library, actor, event, grant)
+		var err error
+		grant, err = changeMemberTx(ctx, tx, actor, id, expectedRevision, recipient, role, revoke)
+		return err
 	})
 	if err != nil {
+		return nil, err
+	}
+	return grant, nil
+}
+
+func changeMemberTx(ctx context.Context, tx *sql.Tx, actor uint, id string, expectedRevision int64, recipient uint, role MemberRole, revoke bool) (*MemberGrant, error) {
+	if recipient == 0 || recipient == actor || (!revoke && role != RoleViewer && role != RoleEditor) {
+		return nil, fmt.Errorf("%w: member account or role", ErrInvalid)
+	}
+	library, err := ownedLibrary(ctx, tx, actor, id, expectedRevision)
+	if err != nil {
+		return nil, err
+	}
+	if library.ArchivedAt != nil && !revoke {
+		return nil, ErrArchived
+	}
+	grant := &MemberGrant{LibraryID: id, UserID: recipient, LibraryRevision: library.Revision}
+	err = tx.QueryRowContext(ctx, "SELECT role, revision, created_at, revoked_at FROM library_member WHERE library_id = ? AND user_id = ?", id, recipient).Scan(&grant.Role, &grant.Revision, &grant.CreatedAt, &grant.RevokedAt)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	if errors.Is(err, sql.ErrNoRows) && revoke {
+		return nil, ErrNotFound
+	}
+	if err == nil && ((revoke && grant.RevokedAt != nil) || (!revoke && grant.RevokedAt == nil && grant.Role == role)) {
+		return grant, nil
+	}
+	now := max(time.Now().UnixMilli(), library.UpdatedAt, grant.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		grant.Role, grant.Revision, grant.CreatedAt = role, 1, now
+		_, err = tx.ExecContext(ctx, "INSERT INTO library_member(library_id, user_id, role, created_at) VALUES (?, ?, ?, ?)", id, recipient, role, now)
+	} else {
+		grant.Revision++
+		if revoke {
+			grant.RevokedAt = &now
+		} else {
+			grant.Role, grant.RevokedAt = role, nil
+		}
+		_, err = tx.ExecContext(ctx, "UPDATE library_member SET role = ?, revision = ?, revoked_at = ? WHERE library_id = ? AND user_id = ?", grant.Role, grant.Revision, grant.RevokedAt, id, recipient)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := updateLibrary(ctx, tx, library); err != nil {
+		return nil, err
+	}
+	grant.LibraryRevision = library.Revision
+	event := "library.member.granted"
+	if revoke {
+		event = "library.member.revoked"
+	}
+	if err := publishLibraryChange(ctx, tx, library, actor, event, grant); err != nil {
 		return nil, err
 	}
 	return grant, nil

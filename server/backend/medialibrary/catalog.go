@@ -233,7 +233,7 @@ ORDER BY i.id LIMIT ?`, actor, libraryID, actor, options.AfterID, options.Kind, 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	page := &CatalogPage{Items: make([]CatalogItem, 0, options.Limit)}
 	for rows.Next() {
 		item, err := scanCatalogItem(rows)

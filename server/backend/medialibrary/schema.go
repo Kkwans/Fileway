@@ -238,3 +238,31 @@ CREATE TABLE scan_nfo_status (
     PRIMARY KEY(job_id, generation, source_file_id)
 ) STRICT;
 `
+
+// v5 retains the composite binding key and all dependent foreign keys. IDs are
+// filled by the Go migration using crypto/rand before the unique index and
+// enforcement triggers are installed, so existing bindings keep their roots.
+const schemaV5BeforeIDs = `
+ALTER TABLE library_source ADD COLUMN binding_id TEXT;
+ALTER TABLE scan_job ADD COLUMN error_code TEXT NOT NULL DEFAULT ''
+    CHECK(error_code IN ('', 'owner_unavailable', 'permission_denied', 'root_unavailable', 'unsupported_rules', 'scheduler_unavailable', 'source_changed', 'scan_failed'));
+`
+
+const schemaV5AfterIDs = `
+CREATE UNIQUE INDEX library_source_binding_id ON library_source(binding_id);
+CREATE TRIGGER library_source_binding_id_insert BEFORE INSERT ON library_source
+WHEN NEW.binding_id IS NULL OR length(NEW.binding_id) = 0
+BEGIN SELECT RAISE(ABORT, 'binding ID required'); END;
+CREATE TRIGGER library_source_binding_id_immutable BEFORE UPDATE OF binding_id ON library_source
+WHEN NEW.binding_id IS NULL OR NEW.binding_id != OLD.binding_id
+BEGIN SELECT RAISE(ABORT, 'binding ID is immutable'); END;
+CREATE TABLE operation_receipt (
+    actor_user_id INTEGER NOT NULL CHECK(actor_user_id > 0),
+    kind TEXT NOT NULL CHECK(length(kind) > 0),
+    operation_id TEXT NOT NULL CHECK(length(operation_id) > 0),
+    input_digest BLOB NOT NULL CHECK(length(input_digest) = 32),
+    result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+    created_at INTEGER NOT NULL CHECK(created_at >= 0),
+    PRIMARY KEY(actor_user_id, kind, operation_id)
+) STRICT;
+`
