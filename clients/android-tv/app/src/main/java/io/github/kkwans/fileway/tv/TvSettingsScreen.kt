@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
@@ -28,6 +29,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -46,7 +49,8 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
     ACCOUNT("登录信息",Art.drawable.fileway_ic_person),
 }
 
-@Composable fun TvSettingsScreen(model: TvModel) {
+@Composable
+internal fun TvSettingsScreen(model: TvModel, onBack: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     val controllers by remember(model) { model.remote.store.dao.controllers() }.collectAsStateWithLifecycle(initialValue=emptyList())
     val cache by model.media.cache.state.collectAsStateWithLifecycle()
@@ -110,17 +114,27 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
     }
     // DenseListItem adds 12dp on each side and two 8dp gaps. Allow 2dp for rounding.
     val measuredWidth = labelWidth + maxOf(ListItemDefaults.IconSizeDense, TvOptionIconSize) + 42.dp
-    Row(Modifier.fillMaxSize(),horizontalArrangement=Arrangement.spacedBy(20.dp)) {
-        LazyColumn(Modifier.width(measuredWidth),state=settingsNavigation,verticalArrangement=Arrangement.spacedBy(4.dp)) {
-            items(TvSettingsSection.entries,key={it.name}) { category ->
-                TvOptionRow(category.title,{
-                    if (category == TvSettingsSection.UPDATES) updatesOpen = true
-                    else {
-                        section=category
-                        scope.launch { withFrameNanos {};body.requestFocus() }
-                    }
-                },Modifier.focusRequester(navigation.getValue(category)).focusProperties { right=body },
-                    icon=category.icon,selected=section==category,showSelection=false,dense=true)
+    Row(
+        Modifier.fillMaxSize().focusRestorer(navigation.getValue(TvSettingsSection.INTERFACE)).focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        Column(Modifier.width(measuredWidth), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            TvOptionRow(
+                "设置", onBack,
+                Modifier.focusProperties { right = body }.semantics { contentDescription = "返回浏览" },
+                icon = Art.drawable.fileway_ic_arrow_back, showSelection = false, dense = true,
+            )
+            LazyColumn(state = settingsNavigation, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                items(TvSettingsSection.entries,key={it.name}) { category ->
+                    TvOptionRow(category.title,{
+                        if (category == TvSettingsSection.UPDATES) updatesOpen = true
+                        else {
+                            section=category
+                            scope.launch { withFrameNanos {};body.requestFocus() }
+                        }
+                    },Modifier.focusRequester(navigation.getValue(category)).focusProperties { right=body },
+                        icon=category.icon,selected=section==category,showSelection=false,dense=true)
+                }
             }
         }
         key(section) {
@@ -131,7 +145,7 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
         }.focusProperties { canFocus=interactive }.focusable() else Modifier
         LazyColumn(Modifier.weight(1f).fillMaxHeight().focusRequester(body)
             .focusProperties { left=navigation.getValue(section) }.focusGroup().then(reading),state=list,
-            verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(bottom=12.dp)) {
+            verticalArrangement=Arrangement.spacedBy(10.dp),contentPadding=PaddingValues(top=10.dp,bottom=12.dp)) {
             when(section) {
                 TvSettingsSection.INTERFACE -> {
                     item { TvSectionTitle("主题") }

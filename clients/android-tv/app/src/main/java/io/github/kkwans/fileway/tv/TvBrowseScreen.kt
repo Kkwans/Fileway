@@ -100,6 +100,7 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
     var optionsOpen by remember { mutableStateOf(false) }
     var restoreRequest by remember { mutableIntStateOf(0) }
     val atHome = !state.search && state.route == TvRoute.HOME
+    val inSettings = !state.search && state.route == TvRoute.SETTINGS
     var homeEngaged by remember(model.anchorKey(), state.search) { mutableStateOf(false) }
     val canBrowse = state.route in browseRoutes
     val globalSearch = !canBrowse
@@ -159,7 +160,7 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
             details = null
             locationOpen = false
             optionsOpen = false
-        } else if (!state.search && state.route == TvRoute.SETTINGS) {
+        } else if (inSettings) {
             withFrameNanos {}
             if (canRestore && !bodyFocus.requestFocus()) destinationFocus.requestFocus()
         }
@@ -199,7 +200,7 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
                         TvToolbarAction("浏览选项", Art.drawable.fileway_ic_more_actions, { optionsOpen = true },
                             Modifier.focusRequester(optionsFocus))
                     }
-                    if (!atHome) {
+                    if (!atHome && !inSettings) {
                         TvBrowseHeader(
                             state, files.size, hasParent, locationFocus, destinationFocus,
                             onBack = { backFromPage() },
@@ -241,7 +242,7 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
                                 onDetails = { file, candidates -> details = file; detailCandidates = candidates },
                                 selectRoute = selectRoute, userEngaged = homeEngaged,
                             )
-                            !state.search && state.route == TvRoute.SETTINGS -> TvSettingsScreen(model)
+                            inSettings -> TvSettingsScreen(model, onBack = { backFromPage() })
                             else -> key(model.anchorKey(), state.search, state.grid, state.gridColumns, state.sortAscending) {
                                 TvFiles(model, state, files,
                                     busy = loading,
@@ -569,7 +570,6 @@ private fun TvBrowseHeader(
     val hasLocation = hasParent || state.search && state.searchBasePath != "/"
     val parent = if (state.search) state.searchBasePath else state.path.substringBeforeLast('/').ifBlank { "/" }
     val records = state.route == TvRoute.RECENT || state.route == TvRoute.RECENT_ACCESS
-    val settings = state.route == TvRoute.SETTINGS && !state.search
     val hasCount = state.search || directory || state.route == TvRoute.FAVORITES || records
     @Composable fun location(modifier: Modifier = Modifier) {
         TvBrowseAction(
@@ -590,8 +590,7 @@ private fun TvBrowseHeader(
         val wide = maxWidth >= 620.dp
         Column {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (settings) 12.dp else 4.dp)) {
-                if (settings) TvToolbarAction("返回浏览", Art.drawable.fileway_ic_arrow_back, onBack)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (wide && hasLocation) location(Modifier.widthIn(max = 180.dp))
@@ -605,7 +604,7 @@ private fun TvBrowseHeader(
                     Text("$count 项", Modifier.padding(horizontal = 6.dp), style = MaterialTheme.typography.bodySmall,
                         color = surfaces.secondaryText)
                 }
-                if (!settings) pageTools()
+                pageTools()
             }
             if (!wide && hasCount) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
