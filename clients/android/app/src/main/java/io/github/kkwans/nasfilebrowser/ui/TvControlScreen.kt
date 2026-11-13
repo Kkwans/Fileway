@@ -356,13 +356,14 @@ private fun TvPhonePortraitRemote(
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
                             TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onBrowse, onPlayback)
-                            Row(Modifier.fillMaxWidth().then(if (compact) Modifier else Modifier.weight(1f)),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                                    val availableHeight = if (compact) 240.dp else (maxHeight - 16.dp).coerceAtLeast(0.dp)
-                                    TvPhoneDpad(model, diameter = minOf(padSize, maxWidth, availableHeight), compact = compact,
-                                        detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
-                                }
+                            val compactPad = (maxHeight - (268 + 90 * (fontScale - 1)).dp).coerceIn(184.dp, 240.dp)
+                            BoxWithConstraints(Modifier.fillMaxWidth().then(if (compact) Modifier else Modifier.weight(1f)),
+                                contentAlignment = Alignment.Center) {
+                                val availableHeight = if (compact) compactPad else (maxHeight - 16.dp).coerceAtLeast(0.dp)
+                                TvPhoneDpad(model, diameter = minOf(padSize, maxWidth, availableHeight), compact = compact,
+                                    detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
+                            }
+                            Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
                                 TvPhoneVolumeRocker(model, snapshot ?: recentSnapshot, snapshot != null)
                             }
                             HorizontalDivider(Modifier.padding(top = 8.dp, bottom = 4.dp),
@@ -519,16 +520,17 @@ private fun TvPhoneVolumeRocker(model: TvControlModel, snapshot: RemoteSnapshot?
     }
     Surface(shape = RoundedCornerShape(24.dp), color = colors.surfaceContainerLow,
         border = BorderStroke(1.dp, colors.outlineVariant)) {
-        Column(Modifier.widthIn(min = 52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            FilewayIconButton({ change(5) }, Modifier.size(48.dp).semantics { contentDescription = "提高 TV 音量 5%" },
-                enabled = enabled && volume != null && volume < limit) {
-                FilewayIcon(Art.drawable.fileway_ic_add, null, Modifier.size(23.dp))
-            }
-            Text(volume?.let { "$it%" } ?: "音量", Modifier.padding(horizontal = 4.dp),
-                style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1)
+        Row(verticalAlignment = Alignment.CenterVertically) {
             FilewayIconButton({ change(-5) }, Modifier.size(48.dp).semantics { contentDescription = "降低 TV 音量 5%" },
                 enabled = enabled && volume != null && volume > 0) {
                 Text("−", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {})
+            }
+            Text(volume?.let { "$it%" } ?: "音量", Modifier.widthIn(min = 64.dp).padding(horizontal = 6.dp),
+                style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant, maxLines = 1,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            FilewayIconButton({ change(5) }, Modifier.size(48.dp).semantics { contentDescription = "提高 TV 音量 5%" },
+                enabled = enabled && volume != null && volume < limit) {
+                FilewayIcon(Art.drawable.fileway_ic_add, null, Modifier.size(23.dp))
             }
         }
     }

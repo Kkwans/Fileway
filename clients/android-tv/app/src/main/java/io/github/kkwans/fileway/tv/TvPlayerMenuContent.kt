@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -302,14 +303,15 @@ private fun TvSpeedEditor(
     val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: presets.firstOrNull()?.key
     val parsed = parsePlaybackRate(value)
     BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
-        val wide = maxWidth >= 600.dp
+        val wide = maxWidth >= 640.dp
         @Composable fun presetGrid() {
             val lines = presets.chunked(if (wide) 6 else 3)
-            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .24f), TvShape).padding(4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 lines.forEachIndexed { index, line ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         line.forEach { preset ->
-                            TvPlayerPanelButton(preset.title, preset.selected, preset.action,
+                            TvSpeedPreset(preset,
                                 focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
                                     if (index == 0) up = focus.header
                                     if (index == lines.lastIndex) down = editor
@@ -325,18 +327,15 @@ private fun TvSpeedEditor(
                     event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
                         editorFocused && !keyboardVisible && parsed != null && apply.requestFocus(FocusDirection.Enter)
                 },
-                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.padding(end = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("自定义速度", style = tvTextStyle(16, 22, FontWeight.Medium))
-                    Text("0.1–5×", style = tvTextStyle(13, 18), color = LocalTvSurfaces.current.secondaryText)
-                }
                 TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
                     focus.target("custom-speed", preferred == "custom-speed",
                         Modifier.width(96.dp).focusRequester(editor).onFocusChanged { editorFocused = it.hasFocus }),
                     options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline,
                     showLabel = false)
+                Text("×", style = tvTextStyle(18, 22), color = LocalTvSurfaces.current.secondaryText)
                 TvButton("应用", { parsed?.let(applyRate) },
                     focus.target("apply-speed", preferred == "apply-speed",
                         Modifier.widthIn(min = 68.dp).focusRequester(apply).focusProperties { left = editor }),
@@ -345,14 +344,45 @@ private fun TvSpeedEditor(
         }
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center) {
-            Column(Modifier.widthIn(max = 740.dp).fillMaxWidth().padding(horizontal = 8.dp)
-                .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.widthIn(max = 672.dp).fillMaxWidth().padding(horizontal = 10.dp)
+                .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (!keyboardVisible) {
-                    presetGrid()
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = .13f)))
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("预设", Modifier.width(112.dp), style = tvTextStyle(16, 22, FontWeight.Medium))
+                        Box(Modifier.weight(1f)) { presetGrid() }
+                    }
                 }
-                customEditor()
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.width(112.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("自定义", style = tvTextStyle(16, 22, FontWeight.Medium))
+                        Text("0.1–5×", style = tvTextStyle(13, 18), color = LocalTvSurfaces.current.secondaryText)
+                    }
+                    Box(Modifier.weight(1f)) { customEditor() }
+                }
             }
+        }
+    }
+}
+
+@Composable private fun TvSpeedPreset(preset: TvPlayerRow.Choice, modifier: Modifier) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val shape = RoundedCornerShape(8.dp)
+    Button(onClick = preset.action, interactionSource = interaction,
+        modifier = modifier.heightIn(min = 48.dp).border(1.25.dp, if (focused) PanelOutline else Color.Transparent, shape)
+            .tvTouch(preset.action, interaction = interaction).semantics { selected = preset.selected },
+        contentPadding = PaddingValues(horizontal = 4.dp),
+        shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
+        border = ButtonDefaults.border(focusedBorder = Border.None),
+        colors = ButtonDefaults.colors(
+            containerColor = if (preset.selected) Color.White.copy(alpha = .18f) else Color.Transparent,
+            contentColor = if (preset.selected) Color.White else Color.White.copy(alpha = .82f),
+            focusedContainerColor = PanelFocus, focusedContentColor = Color.White,
+        ),
+    ) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(preset.title, style = tvTextStyle(16, 22, if (preset.selected) FontWeight.Medium else FontWeight.Normal),
+                maxLines = 1, textAlign = TextAlign.Center)
         }
     }
 }
