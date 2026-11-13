@@ -208,13 +208,7 @@ internal sealed class FramelessWindowChrome : IDisposable
     private void UpdateMaximized()
     {
         if (_disposed) return;
-        var maximized = IsZoomed(_handle);
-        _titleBar.SetMaximized(maximized);
-        var dpi = GetDpiForWindow(_handle);
-        // Keep the top notice below both native sizing paths at fractional scale.
-        _titleBar.TopResizeInset = maximized || dpi == 0 ? 0
-            : Math.Max(1, Math.Max(GetSystemMetricsForDpi(32, dpi), GetSystemMetricsForDpi(33, dpi)) +
-                GetSystemMetricsForDpi(92, dpi)) * 96d / dpi;
+        _titleBar.SetMaximized(IsZoomed(_handle));
     }
 
     private void RefreshWindowState()

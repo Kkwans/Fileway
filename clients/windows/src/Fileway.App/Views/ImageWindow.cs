@@ -116,7 +116,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         AutomationProperties.SetName(_image, "图片");
 
         BuildChrome();
-        Func<RemoteResourceRef, CancellationToken, Task<ImageSource?>>? thumbnailLoader =
+        Func<RemoteResourceRef, CancellationToken, Task<ImagePlaylist.Thumbnail?>>? thumbnailLoader =
             _service is IThumbnailContentService ? LoadPlaylistThumbnailAsync : null;
         _viewer.SetPlaylist(_resources, thumbnailLoader);
         _viewer.ImageSelected += (_, index) => _ = NavigateAsync(index);
@@ -179,7 +179,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         return layer;
     }
 
-    private async Task<ImageSource?> LoadPlaylistThumbnailAsync(RemoteResourceRef resource, CancellationToken token)
+    private async Task<ImagePlaylist.Thumbnail?> LoadPlaylistThumbnailAsync(RemoteResourceRef resource, CancellationToken token)
     {
         if (_service is not IThumbnailContentService thumbnails) return null;
         using var bitmap = await Task.Run(() => BrowserThumbnailController.DecodeAsync(thumbnails, resource, token), token);
@@ -187,7 +187,7 @@ public sealed class ImageWindow : Window, IAsyncDisposable
         var source = new SoftwareBitmapSource();
         await source.SetBitmapAsync(bitmap);
         token.ThrowIfCancellationRequested();
-        return source;
+        return new ImagePlaylist.Thumbnail(source, (double)bitmap.PixelWidth / bitmap.PixelHeight);
     }
 
     private void UpdateCaption(RemoteResourceRef resource)

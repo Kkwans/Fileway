@@ -156,7 +156,7 @@ internal sealed class ViewerChrome : Grid, IDisposable
     }
 
     internal void SetPlaylist(IReadOnlyList<RemoteResourceRef> resources,
-        Func<RemoteResourceRef, CancellationToken, Task<ImageSource?>>? loadThumbnail)
+        Func<RemoteResourceRef, CancellationToken, Task<ImagePlaylist.Thumbnail?>>? loadThumbnail)
     {
         _playlistAvailable = resources.Count > 1;
         _playlistToggle.Visibility = _playlistAvailable ? Visibility.Visible : Visibility.Collapsed;

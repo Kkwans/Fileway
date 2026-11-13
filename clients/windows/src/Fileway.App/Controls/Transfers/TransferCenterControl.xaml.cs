@@ -4,7 +4,6 @@ using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Windows.Foundation;
 using Windows.System;
 
 namespace Fileway.App.Controls.Transfers;
@@ -23,32 +22,6 @@ public sealed partial class TransferCenterControl : UserControl, IDisposable
     public event EventHandler<TransferTaskRef>? PauseRequested;
     public event EventHandler<TransferTaskRef>? RemoveRequested;
     public TransferDirection Direction => _direction;
-    internal FrameworkElement NoticeHeaderAnchor => HistoryHeader;
-
-    internal double? FindUnoccupiedNoticeTop(FrameworkElement layer, double minimumTop, double height)
-    {
-        if (!Records.IsLoaded || Records.XamlRoot != layer.XamlRoot || Records.ItemsPanelRoot is not ItemsStackPanel panel)
-            return null;
-
-        var viewport = Records.TransformToVisual(layer).TransformBounds(new Rect(0, 0, Records.ActualWidth, Records.ActualHeight));
-        var top = Math.Max(minimumTop, viewport.Top);
-        if (Records.Items.Count != 0)
-        {
-            if (Records.ContainerFromIndex(panel.LastVisibleIndex) is not FrameworkElement last) return null;
-            var occupied = last.TransformToVisual(layer).TransformBounds(new Rect(0, 0, last.ActualWidth, last.ActualHeight));
-            top = Math.Max(top, occupied.Bottom + 6);
-        }
-        return top + height <= viewport.Bottom - 8 ? top : null;
-    }
-
-    internal bool IsRecordFullyVisible(TransferTaskRef task)
-    {
-        var row = _rows?.FirstOrDefault(item => !item.IsBatchHeader && item.Task == task);
-        if (row is null || Records.ContainerFromItem(row) is not FrameworkElement container || container.ActualHeight <= 0)
-            return false;
-        var bounds = container.TransformToVisual(Records).TransformBounds(new Rect(0, 0, container.ActualWidth, container.ActualHeight));
-        return bounds.Top >= 0 && bounds.Bottom <= Records.ActualHeight;
-    }
 
     public TransferCenterControl()
     {

@@ -43,7 +43,6 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
     private bool _ownerVisible;
     private bool? _windowVisible;
     private bool? _materialHighContrast;
-    private readonly PlayerBackdropState _backdropActivity = new();
     private (int Width, int Height, int Top, int Bottom)? _materialRegion;
     private RectInt32? _windowBounds;
 
@@ -74,8 +73,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             EnableHostBackdrop();
             UpdateBackdropFactory();
             Content = _controls;
-            if (!NativePlayerAcrylicBackdrop.IsSupported || !_policySettings.AdvancedEffectsEnabled || _policyAccessibility.HighContrast)
-                SystemBackdrop = new WinUIEx.TransparentTintBackdrop();
+            SystemBackdrop = new WinUIEx.TransparentTintBackdrop();
             EnableHostBackdrop();
             if (AppWindow.Presenter is OverlappedPresenter presenter)
             {
@@ -481,7 +479,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             NativeVideoWindow.ShowWindow(_window, 0);
             return;
         }
-        // The native region bounds acrylic to the chrome bars; popups live in their
+        // The native region bounds the translucent gradients to the chrome bars; popups live in their
         // own owned HWNDs and are never clipped by the owner's region.
         if (UpdateMaterialRegion()) NativeVideoWindow.ShowWindow(_window, 4);
         var highContrast = _policyAccessibility.HighContrast;
@@ -507,7 +505,7 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
         {
             if (region != 0) NativePlayerOverlay.DeleteObject(region);
             if (footer != 0) NativePlayerOverlay.DeleteObject(footer);
-            NativeVideoWindow.ShowWindow(_window, 0); // Fail closed: no full-movie material.
+            NativeVideoWindow.ShowWindow(_window, 0);
             return false;
         }
         try
@@ -520,7 +518,6 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             }
             region = 0; // A successful SetWindowRgn transfers ownership to USER32.
             _materialRegion = regionKey;
-            SystemBackdrop ??= new NativePlayerAcrylicBackdrop(_backdropActivity);
             return true;
         }
         finally
@@ -612,7 +609,6 @@ internal sealed class PlayerOverlayWindow : Window, IDisposable
             current = NativeVideoWindow.GetWindow(root == 0 ? current : root, 4); // GW_OWNER.
         }
         if (!active) _controls.CloseTransportToolTips();
-        _backdropActivity.Update(active, _controls.ActualTheme);
         UpdateMaterialVisibility();
     }
 

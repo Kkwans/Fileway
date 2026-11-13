@@ -53,6 +53,10 @@ public sealed partial class MainPage : Page, IDisposable
     private readonly List<RemoteFile> _items = [];
     private readonly BrowserRows _rows = new();
     private readonly UISettings _browserTextSettings = new();
+    private readonly TextBlock _unboundedNameMeasure = new() { FontSize = 13.5, TextWrapping = TextWrapping.Wrap };
+    private (double Width, double Scale, int Revision) _unboundedMeasureKey;
+    private int _unboundedRowsRevision;
+    private double _unboundedNameHeight;
     private RemoteFile[]? _sortedItems;
     private (FileSortField Field, bool Descending) _sortedOrder;
     private readonly HashSet<ImageWindow> _imageWindows = [];
@@ -737,6 +741,11 @@ public sealed partial class MainPage : Page, IDisposable
                         _rows.Add(new FileRow(matching[index], _browserPreferences));
             }
             finally { _changingView = false; }
+            if (_browserPreferences.ViewMode == BrowserViewMode.WindowsIcons)
+            {
+                ++_unboundedRowsRevision;
+                QueueGridMetricsUpdate();
+            }
         }
         UpdateSelection();
         if (LoadingRing.IsActive) return;
@@ -828,9 +837,17 @@ public sealed partial class MainPage : Page, IDisposable
             }
             else if (row.IsMedia && _playback is not null)
             {
-                SetNotice(row.IsAudio ? "正在打开音频" : "正在打开视频", row.Name, InfoBarSeverity.Informational);
-                await _playback.OpenAsync(new PlaybackOpenRequest(new RemotePlaybackInput(row.File.Resource)), _lifetime.Token);
-                if (CurrentOpen()) Notice.IsOpen = false;
+                var openingTitle = row.IsAudio ? "正在打开音频" : "正在打开视频";
+                SetNotice(openingTitle, string.Empty, InfoBarSeverity.Informational);
+                try
+                {
+                    await _playback.OpenAsync(new PlaybackOpenRequest(new RemotePlaybackInput(row.File.Resource)), _lifetime.Token);
+                }
+                finally
+                {
+                    if (CurrentOpen() && Notice.Title == openingTitle && string.IsNullOrEmpty(Notice.Message))
+                        Notice.IsOpen = false;
+                }
             }
             else if (IsPdf(row) && _fileBytes is { } pdfBytes)
             {
@@ -1117,7 +1134,14 @@ public sealed partial class MainPage : Page, IDisposable
             var grid = mode != BrowserViewMode.Details;
             FileGrid.Visibility = grid ? Visibility.Visible : Visibility.Collapsed;
             FileList.Visibility = ListHeader.Visibility = grid ? Visibility.Collapsed : Visibility.Visible;
-            FileGrid.ItemTemplate = (DataTemplate)Resources[mode == BrowserViewMode.CompactList ? "BrowserCompactListTemplate" : "BrowserGridTemplate"];
+            FileGrid.ItemTemplate = (DataTemplate)Resources[mode switch
+            {
+                BrowserViewMode.CompactList => "BrowserCompactListTemplate",
+                BrowserViewMode.WindowsIcons => "BrowserUnboundedGridTemplate",
+                _ => "BrowserGridTemplate",
+            }];
+            FileGrid.ItemContainerStyle = (Style)Resources[mode == BrowserViewMode.WindowsIcons
+                ? "BrowserUnboundedGridItemStyle" : "BrowserGridItemStyle"];
             MosaicViewItem.IsChecked = mode == BrowserViewMode.Mosaic; CompactGridViewItem.IsChecked = mode == BrowserViewMode.CompactGrid; WindowsIconsViewItem.IsChecked = mode == BrowserViewMode.WindowsIcons; DetailsViewItem.IsChecked = mode == BrowserViewMode.Details; CompactListViewItem.IsChecked = mode == BrowserViewMode.CompactList;
             IconSizesMenu.Visibility = mode is BrowserViewMode.CompactGrid or BrowserViewMode.WindowsIcons ? Visibility.Visible : Visibility.Collapsed;
             var size = mode == BrowserViewMode.WindowsIcons ? _browserPreferences.WindowsIconSize : _browserPreferences.CompactGridSize;
@@ -1189,7 +1213,28 @@ public sealed partial class MainPage : Page, IDisposable
             BrowserViewMode.Mosaic => (216d, 56d),
             _ => (visual + 96, 40d),
         };
-        panel.ItemHeight = height + Math.Ceiling((textScale - 1) * textHeight);
+        panel.ItemHeight = mode == BrowserViewMode.WindowsIcons
+            ? visual + 48 + MeasureUnboundedNameHeight(panel.ItemWidth, textScale)
+            : height + Math.Ceiling((textScale - 1) * textHeight);
+    }
+
+    private double MeasureUnboundedNameHeight(double itemWidth, double textScale)
+    {
+        var key = (Math.Max(1, Math.Floor(itemWidth) - 40), textScale, _unboundedRowsRevision);
+        if (_unboundedMeasureKey == key) return _unboundedNameHeight;
+        // Reserve both the container and template insets when measuring wrapped names.
+        _unboundedNameMeasure.FontSize = 13.5 * textScale;
+        _unboundedNameMeasure.IsTextScaleFactorEnabled = false;
+        var available = new Windows.Foundation.Size(key.Item1, double.PositiveInfinity);
+        double height = 20 * textScale;
+        foreach (var row in _rows)
+        {
+            _unboundedNameMeasure.Text = row.Name;
+            _unboundedNameMeasure.Measure(available);
+            height = Math.Max(height, _unboundedNameMeasure.DesiredSize.Height);
+        }
+        _unboundedMeasureKey = key;
+        return _unboundedNameHeight = Math.Ceiling(height);
     }
     private void RebuildPresentation() => ApplyFilter(rebuild: true);
 

@@ -120,57 +120,17 @@ public sealed partial class MainPage
             else layer.LayoutUpdated -= CompactNoticeLayoutUpdated;
             _observingCompactNoticeLayout = observe;
         }
-        if (notice is null || layer.ActualWidth <= 24 || layer.ActualHeight <= 0)
-        {
-            titleBar.SetNoticeInteractiveRegion(null);
-            return;
-        }
+        if (notice is null || layer.ActualWidth <= 24 || layer.ActualHeight <= 0) return;
 
         const double sideInset = 12;
         var maxWidth = Math.Min(400, layer.ActualWidth - 2 * sideInset);
         if (notice.MaxWidth != maxWidth) notice.MaxWidth = maxWidth;
         notice.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = notice.DesiredSize;
-        var titlePosition = titleBar.FindNoticePosition(layer, size);
-        var fallbackTop = 0d;
-        if (titlePosition is null)
-        {
-            fallbackTop = CompactNoticeFallbackTop(layer, titleBar);
-            if (TransfersPanel.Visibility == Visibility.Visible)
-            {
-                if (TransfersPanel.FindUnoccupiedNoticeTop(layer, fallbackTop, size.Height) is { } clearTop)
-                    fallbackTop = clearTop;
-                else if (notice == DownloadNotice && DownloadDetailsButton.Tag is DownloadNoticeLink { Task: { } task }
-                    && TransfersPanel.IsRecordFullyVisible(task))
-                {
-                    // The current record already exposes the state and opens its details.
-                    notice.IsOpen = false;
-                    titleBar.SetNoticeInteractiveRegion(null);
-                    return;
-                }
-            }
-        }
-        var position = titlePosition ?? new Point(Math.Max(sideInset, layer.ActualWidth - size.Width - sideInset),
-            fallbackTop);
+        var position = new Point(Math.Max(sideInset, layer.ActualWidth - size.Width - sideInset),
+            titleBar.ActualHeight + 8);
         if (Canvas.GetLeft(notice) != position.X) Canvas.SetLeft(notice, position.X);
         if (Canvas.GetTop(notice) != position.Y) Canvas.SetTop(notice, position.Y);
-        titleBar.SetNoticeInteractiveRegion(titlePosition is not null ? notice : null);
-    }
-
-    private double CompactNoticeFallbackTop(Canvas layer, WindowTitleBar titleBar)
-    {
-        var top = titleBar.ActualHeight + 8;
-        FrameworkElement? anchor = null;
-        var anchorY = 0d;
-        if (Workspace.Visibility == Visibility.Visible) anchor = BrowserBody;
-        else if (TransfersPanel.Visibility == Visibility.Visible)
-        {
-            anchor = TransfersPanel.NoticeHeaderAnchor;
-            anchorY = anchor.ActualHeight;
-        }
-        if (anchor is { IsLoaded: true } && anchor.XamlRoot == layer.XamlRoot)
-            top = Math.Max(top, anchor.TransformToVisual(layer).TransformPoint(new Point(0, anchorY)).Y + 6);
-        return top;
     }
 
     private static void ResetToast(InfoBar bar) => Controls.FloatingNotice.Reset(bar);
@@ -181,7 +141,6 @@ public sealed partial class MainPage
 
         if (_compactNoticeLayer is { } layer && _observingCompactNoticeLayout)
             layer.LayoutUpdated -= CompactNoticeLayoutUpdated;
-        _applicationTitleBar?.SetNoticeInteractiveRegion(null);
         Controls.FloatingNotice.Detach(LoginNotice);
         foreach (var (bar, layout) in _noticeLayouts)
         {

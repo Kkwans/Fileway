@@ -9,7 +9,8 @@
    <Setter Property="Background" Value="{ThemeResource FwSoftChoiceFillBrush}"/>
    <Setter Property="Foreground" Value="{ThemeResource FwSoftChoiceTextBrush}"/>
    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}"/>
-   <Setter Property="Height" Value="Auto"/><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="8,0"/>
+   <Setter Property="Height" Value="Auto"/><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="10,4"/>
+   <Setter Property="CornerRadius" Value="7"/>
   </Style>
   <!-- InfoBar drives these visual states and wires the CloseButton template part. -->
   <ControlTemplate x:Key="CompactNoticeTemplate" TargetType="InfoBar">
@@ -63,7 +64,7 @@
       </VisualState>
      </VisualStateGroup>
     </VisualStateManager.VisualStateGroups>
-    <Grid Padding="8,0,1,0">
+    <Grid Padding="12,7,7,7" ColumnSpacing="8">
      <Grid.ColumnDefinitions>
       <ColumnDefinition Width="Auto"/>
       <ColumnDefinition Width="*"/>
@@ -79,11 +80,11 @@
      </Grid>
      <Viewbox x:Name="UserIconBox" Width="14" Height="14" VerticalAlignment="Center" Visibility="Collapsed"
               Child="{Binding RelativeSource={RelativeSource TemplatedParent}, Path=TemplateSettings.IconElement}"/>
-     <TextBlock x:Name="Title" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" Text="{TemplateBinding Title}"
+     <TextBlock x:Name="Title" Grid.Column="1" VerticalAlignment="Center" Text="{TemplateBinding Title}"
                 Foreground="{ThemeResource InfoBarTitleForeground}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"/>
-     <ContentPresenter Grid.Column="2" Margin="6,0,0,0" VerticalAlignment="Center" Content="{TemplateBinding ActionButton}"/>
+     <ContentPresenter Grid.Column="2" VerticalAlignment="Center" Content="{TemplateBinding ActionButton}"/>
      <Button x:Name="CloseButton" Grid.Column="3" Width="26" Height="28" MinWidth="0" MinHeight="0"
-             Margin="2,0,0,0" Padding="0" VerticalAlignment="Center" HorizontalContentAlignment="Center"
+             Padding="0" VerticalAlignment="Center" HorizontalContentAlignment="Center"
              AutomationProperties.AutomationId="CompactNoticeClose" AutomationProperties.Name="关闭通知"
              VerticalContentAlignment="Center" Background="{ThemeResource AppBarButtonBackground}"
              BorderBrush="{ThemeResource AppBarButtonBorderBrush}" Style="{TemplateBinding CloseButtonStyle}"
@@ -105,6 +106,23 @@
    <Grid Grid.Row="1" MinHeight="40"><TextBlock Text="{x:Bind Name}" FontSize="13.5" TextAlignment="Center" HorizontalAlignment="Stretch" VerticalAlignment="Center" TextWrapping="Wrap" MaxLines="2" LineHeight="20" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Name}"/></Grid>
    <StackPanel Grid.Row="2" Spacing="2" Visibility="{x:Bind GridMetadataVisibility}"><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind Summary}" TextAlignment="Center" TextTrimming="CharacterEllipsis"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind Modified}" TextAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Modified}"/></StackPanel>
   </Grid></DataTemplate>
+  <DataTemplate x:Key="BrowserUnboundedGridTemplate" x:DataType="local:FileRow">
+   <StackPanel Padding="10" Spacing="8" HorizontalAlignment="Stretch" VerticalAlignment="Top">
+    <Grid Width="{x:Bind VisualSize}" Height="{x:Bind VisualSize}" HorizontalAlignment="Center">
+     <ui:LucideIcon x:Name="ThumbnailIcon" IconName="{x:Bind IconName}" Foreground="{ThemeResource FwTextSecondaryBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsHitTestVisible="False"/>
+     <Image x:Name="ThumbnailImage" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/>
+    </Grid>
+    <TextBlock Text="{x:Bind Name}" FontSize="13.5" TextAlignment="Center" TextWrapping="Wrap"
+               AutomationProperties.AutomationId="UnboundedFileName"/>
+   </StackPanel>
+  </DataTemplate>
+  <Style x:Key="BrowserGridItemStyle" TargetType="GridViewItem" BasedOn="{StaticResource FwGridViewItemStyle}">
+   <Setter Property="VerticalContentAlignment" Value="Stretch"/>
+  </Style>
+  <Style x:Key="BrowserUnboundedGridItemStyle" TargetType="GridViewItem" BasedOn="{StaticResource BrowserGridItemStyle}">
+   <Setter Property="Background" Value="Transparent"/>
+   <Setter Property="BorderThickness" Value="0"/>
+  </Style>
   <DataTemplate x:Key="BrowserCompactListTemplate" x:DataType="local:FileRow"><Grid Padding="8,4" ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
    <Grid Width="32" Height="32"><ui:LucideIcon x:Name="ThumbnailIcon" IconName="{x:Bind IconName}" Foreground="{ThemeResource FwTextSecondaryBrush}" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsHitTestVisible="False"/><Image x:Name="ThumbnailImage" Stretch="Uniform" Visibility="Collapsed" IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw"/></Grid>
    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2"><TextBlock Text="{x:Bind Name}" TextTrimming="CharacterEllipsis"/><TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="{x:Bind Metadata}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind Metadata}"/></StackPanel>
@@ -203,7 +221,7 @@
               HorizontalAlignment="Right" VerticalAlignment="Top" Fill="{ThemeResource AccentFillColorDefaultBrush}"/>
     </Grid>
    </Button>
-   <Popup x:Name="BrowserSearchPopup" PlacementTarget="{x:Bind BrowserToolbar}" DesiredPlacement="Bottom" VerticalOffset="4"
+   <Popup x:Name="BrowserSearchPopup" PlacementTarget="{x:Bind BrowserSearchButton}" DesiredPlacement="BottomEdgeAlignedRight" VerticalOffset="8"
           IsLightDismissEnabled="True" LightDismissOverlayMode="Off" Opened="BrowserSearch_Opened" Closed="BrowserSearch_Closed">
     <Border x:Name="BrowserSearchSurface" Style="{StaticResource FwSearchPopupSurfaceStyle}"
             PreviewKeyDown="BrowserSearchSurface_PreviewKeyDown" AutomationProperties.AutomationId="BrowserSearchSurface">
@@ -315,7 +333,7 @@
      </Grid></DataTemplate></ListView.ItemTemplate>
     </ListView>
     <GridView x:Name="FileGrid" Grid.Row="1" Visibility="Collapsed" CanDragItems="True" DragItemsStarting="FileItems_DragItemsStarting" DragItemsCompleted="FileItems_DragItemsCompleted" AllowDrop="True" DragOver="FileItems_DragOver" Drop="FileItems_Drop" SelectionMode="Extended" DoubleTapped="FileList_DoubleTapped" PreviewKeyDown="FileList_PreviewKeyDown" KeyDown="FileList_KeyDown" RightTapped="FileResource_RightTapped" SelectionChanged="FileList_SelectionChanged" AutomationProperties.Name="文件网格" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Auto" ItemTemplate="{StaticResource BrowserGridTemplate}">
-     <GridView.ItemContainerStyle><Style TargetType="GridViewItem" BasedOn="{StaticResource FwGridViewItemStyle}"><Setter Property="VerticalContentAlignment" Value="Stretch"/></Style></GridView.ItemContainerStyle>
+     <GridView.ItemContainerStyle><StaticResource ResourceKey="BrowserGridItemStyle"/></GridView.ItemContainerStyle>
      <GridView.ItemsPanel><ItemsPanelTemplate><ItemsWrapGrid Orientation="Horizontal" ItemWidth="176" ItemHeight="160"/></ItemsPanelTemplate></GridView.ItemsPanel>
     </GridView>
     <ui:FwEmptyState x:Name="EmptyState" Grid.RowSpan="2" IconName="folder" Title="你的文件，在这里相遇" Description="连接服务器后即可浏览文件、打开图片和播放视频。">

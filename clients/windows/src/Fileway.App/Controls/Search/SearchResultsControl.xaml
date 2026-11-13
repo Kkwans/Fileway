@@ -15,7 +15,7 @@
     </StackPanel>
    </ui:FwPageHeader.Actions>
   </ui:FwPageHeader>
-  <Popup x:Name="QueryPopup" PlacementTarget="{x:Bind SearchHeader}" DesiredPlacement="Bottom"
+  <Popup x:Name="QueryPopup" PlacementTarget="{x:Bind EditSearchButton}" DesiredPlacement="BottomEdgeAlignedRight" VerticalOffset="8"
          IsLightDismissEnabled="True" LightDismissOverlayMode="Off" Opened="QueryPopup_Opened">
    <Border x:Name="QuerySurface" Style="{StaticResource FwSearchPopupSurfaceStyle}" PreviewKeyDown="QuerySurface_PreviewKeyDown" KeyDown="QuerySurface_KeyDown"
            AutomationProperties.AutomationId="ServerSearchSurface">

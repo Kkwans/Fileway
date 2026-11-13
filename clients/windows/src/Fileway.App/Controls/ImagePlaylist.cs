@@ -18,14 +18,16 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
     private readonly Dictionary<SelectorItem, Tile> _tiles = [];
     private readonly long _visibilityCallback;
     private List<Entry> _entries = [];
-    private Func<RemoteResourceRef, CancellationToken, Task<ImageSource?>>? _loadThumbnail;
+    internal sealed record Thumbnail(ImageSource Source, double AspectRatio);
+    private const double PlaceholderAspectRatio = 1.38;
+    private Func<RemoteResourceRef, CancellationToken, Task<Thumbnail?>>? _loadThumbnail;
     private ScrollViewer? _scroll;
     private int _currentIndex = -1;
     private int _firstVisible = -1;
     private int _lastVisible = -1;
     private int _activeLoads;
     private int _thumbnailHeight = PresentationPreferences.DefaultImageThumbnailHeight;
-    private double ThumbnailWidth => Math.Round(_thumbnailHeight * 1.38);
+    private double _totalAspectRatio;
     private bool _settingSelection;
     private bool _scrollToSelection;
     private bool _waitingForTemplate;
@@ -64,8 +66,9 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
               <ListView.ItemContainerStyle>
                 <Style TargetType="ListViewItem">
                   <Setter Property="Margin" Value="2,0" />
-                  <Setter Property="Padding" Value="3" />
-                  <Setter Property="CornerRadius" Value="9" />
+                  <Setter Property="Padding" Value="0" />
+                  <Setter Property="MinWidth" Value="0" />
+                  <Setter Property="CornerRadius" Value="6" />
                   <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                   <Setter Property="VerticalContentAlignment" Value="Stretch" />
                   <Setter Property="UseSystemFocusVisuals" Value="True" />
@@ -73,17 +76,15 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
               </ListView.ItemContainerStyle>
               <ListView.ItemTemplate>
                 <DataTemplate>
-                  <Grid HorizontalAlignment="Center" VerticalAlignment="Center"
+                  <Grid HorizontalAlignment="Center" VerticalAlignment="Center" CornerRadius="6"
                         IsHitTestVisible="False" AutomationProperties.AccessibilityView="Raw">
-                    <Border Background="{ThemeResource FwSurfaceRaisedBrush}" BorderBrush="{ThemeResource FwStrokeBrush}"
-                            BorderThickness="1" CornerRadius="7">
+                    <Border CornerRadius="6">
                       <BitmapIcon x:Name="Fallback" UriSource="ms-appx:///Assets/Lucide/light/image.png" Width="19" Height="19"
                                   Foreground="{ThemeResource FwTextSecondaryBrush}" />
                     </Border>
-                    <Image x:Name="Preview" Margin="3" Stretch="Uniform"
-                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                    <Image x:Name="Preview" Stretch="Fill" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                     <Border x:Name="Selection" BorderBrush="{ThemeResource FwPrimaryButtonBackgroundBrush}"
-                            BorderThickness="1.5" CornerRadius="7" Visibility="Collapsed" />
+                            BorderThickness="2" CornerRadius="6" Visibility="Collapsed" />
                   </Grid>
                 </DataTemplate>
               </ListView.ItemTemplate>
@@ -113,26 +114,28 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
 
     private void UpdateListSize()
     {
-        _list.Height = _thumbnailHeight + 18;
-        MaxWidth = Math.Min(720, 24 + _entries.Count * (ThumbnailWidth + 12));
+        _list.Height = _thumbnailHeight + 8;
+        MaxWidth = Math.Min(720, 12 + _totalAspectRatio * _thumbnailHeight + _entries.Count * 8);
     }
 
     private void SizeTile(Tile tile)
     {
-        tile.Container.Width = ThumbnailWidth + 8;
-        tile.Container.Height = _thumbnailHeight + 8;
+        var width = Math.Max(1, _thumbnailHeight * tile.Entry.AspectRatio);
+        tile.Container.Width = width;
+        tile.Container.Height = _thumbnailHeight;
         if (tile.Template is not { } template) return;
-        template.Width = ThumbnailWidth;
+        template.Width = width;
         template.Height = _thumbnailHeight;
     }
 
     internal void SetItems(IReadOnlyList<RemoteResourceRef> resources,
-        Func<RemoteResourceRef, CancellationToken, Task<ImageSource?>>? loadThumbnail = null)
+        Func<RemoteResourceRef, CancellationToken, Task<Thumbnail?>>? loadThumbnail = null)
     {
         if (_disposed) return;
         ClearTiles();
         _loadThumbnail = loadThumbnail;
         _entries = resources.Select((resource, index) => new Entry(resource, index)).ToList();
+        _totalAspectRatio = _entries.Count * PlaceholderAspectRatio;
         UpdateListSize();
         _currentIndex = -1;
         _scrollToSelection = false;
@@ -276,7 +279,7 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
     }
 
     private async Task LoadThumbnailAsync(Tile tile, CancellationTokenSource request,
-        Func<RemoteResourceRef, CancellationToken, Task<ImageSource?>> load)
+        Func<RemoteResourceRef, CancellationToken, Task<Thumbnail?>> load)
     {
         try
         {
@@ -287,7 +290,11 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
                 tile.Attempted = false;
                 return;
             }
-            tile.Preview!.Source = source;
+            _totalAspectRatio += source.AspectRatio - tile.Entry.AspectRatio;
+            tile.Entry.AspectRatio = source.AspectRatio;
+            SizeTile(tile);
+            UpdateListSize();
+            tile.Preview!.Source = source.Source;
             tile.Fallback!.Visibility = Visibility.Collapsed;
         }
         catch (OperationCanceledException) { }
@@ -379,6 +386,7 @@ internal sealed class ImagePlaylist : UserControl, IDisposable
     {
         public RemoteResourceRef Resource { get; } = resource;
         public int Index { get; } = index;
+        public double AspectRatio { get; set; } = PlaceholderAspectRatio;
     }
 
     private sealed class Tile(SelectorItem container, Entry entry)

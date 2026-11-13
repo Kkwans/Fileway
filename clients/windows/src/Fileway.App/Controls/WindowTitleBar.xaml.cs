@@ -4,7 +4,6 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
-using Windows.Foundation;
 
 namespace Fileway.App.Controls;
 
@@ -32,10 +31,7 @@ public sealed partial class WindowTitleBar : UserControl
 
     public FrameworkElement DragRegion => DragSurface;
     public FrameworkElement MaximizeButtonElement => MaximizeButton;
-    private IReadOnlyList<FrameworkElement> _menuInteractiveRegions = [];
-    private FrameworkElement? _noticeInteractiveRegion;
     public IReadOnlyList<FrameworkElement> InteractiveRegions { get; private set; } = [];
-    internal double TopResizeInset { get; set; }
     public double MinimumWindowWidth { get; private set; }
     public double MinimumWindowHeight { get; private set; }
 
@@ -81,37 +77,7 @@ public sealed partial class WindowTitleBar : UserControl
         ToolTipService.SetToolTip(DragSurface, null);
         NavigationPresenter.Content = content;
         NavigationPresenter.Visibility = Visibility.Visible;
-        _menuInteractiveRegions = interactiveRegions;
         InteractiveRegions = interactiveRegions;
-    }
-
-    internal void SetNoticeInteractiveRegion(FrameworkElement? notice)
-    {
-        if (ReferenceEquals(_noticeInteractiveRegion, notice)) return;
-        _noticeInteractiveRegion = notice;
-        InteractiveRegions = notice is null ? _menuInteractiveRegions : [.. _menuInteractiveRegions, notice];
-    }
-
-    internal Point? FindNoticePosition(FrameworkElement layer, Size size)
-    {
-        if (!IsLoaded || Visibility != Visibility.Visible || _menuInteractiveRegions.Count == 0) return null;
-        const double gap = 8;
-        const double dragWidth = 48;
-        var menuRight = _menuInteractiveRegions.Where(element => element.Visibility == Visibility.Visible)
-            .Select(element => element.TransformToVisual(layer).TransformBounds(
-                new Rect(0, 0, element.ActualWidth, element.ActualHeight)).Right).DefaultIfEmpty(0).Max();
-        var minimize = MinimizeButton.TransformToVisual(layer).TransformBounds(
-            new Rect(0, 0, MinimizeButton.ActualWidth, MinimizeButton.ActualHeight));
-        var left = menuRight + gap;
-        var right = minimize.Left - gap;
-        var top = minimize.Top + TopResizeInset;
-        if (size.Width + dragWidth > right - left || size.Height > minimize.Bottom - top) return null;
-
-        var center = (layer.ActualWidth - size.Width) / 2;
-        var fitsAtCenter = center >= left && center + size.Width <= right &&
-            (center - left >= dragWidth || right - center - size.Width >= dragWidth);
-        var x = fitsAtCenter ? center : right - size.Width;
-        return new Point(x, top + (minimize.Bottom - top - size.Height) / 2);
     }
 
     public event EventHandler? MinimizeRequested;

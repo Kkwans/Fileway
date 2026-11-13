@@ -6,6 +6,8 @@
 
   <ResourceDictionary.ThemeDictionaries>
     <ResourceDictionary x:Key="Default">
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#FF8B9DB4" />
+      <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
       <SolidColorBrush x:Key="FileContentSurfaceBrush" Color="#FF1B1D21"/>
       <SolidColorBrush x:Key="FileContentEdgeBrush" Color="#18FFFFFF"/>
       <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#354356" />
@@ -29,7 +31,6 @@
       <Color x:Key="FwShellCoolColor">#FF1F252D</Color>
       <Color x:Key="FwShellCustomBaseColor">#FF181818</Color>
       <Color x:Key="FwVideoMatteColor">#FF000000</Color>
-      <Color x:Key="FwPlayerNativeTintColor">#FF101012</Color>
       <Color x:Key="FwOwnedPanelFallbackColor">#FF2C2C2C</Color>
       <Color x:Key="FwShellCustomDefaultColor">#FF808080</Color>
       <SolidColorBrush x:Key="FwSoftChoiceFillBrush" Color="#FF3D444F"/>
@@ -74,6 +75,8 @@
       <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
     </ResourceDictionary>
     <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#FF627890" />
+      <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
       <SolidColorBrush x:Key="FileContentSurfaceBrush" Color="#FFFFFFFF"/>
       <SolidColorBrush x:Key="FileContentEdgeBrush" Color="#10000000"/>
       <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E7EDF5" />
@@ -97,7 +100,6 @@
       <Color x:Key="FwShellCoolColor">#FFE6EBF0</Color>
       <Color x:Key="FwShellCustomBaseColor">#FFE1E1E1</Color>
       <Color x:Key="FwVideoMatteColor">#FF000000</Color>
-      <Color x:Key="FwPlayerNativeTintColor">#FF101012</Color>
       <Color x:Key="FwOwnedPanelFallbackColor">#FFF8F8F8</Color>
       <Color x:Key="FwShellCustomDefaultColor">#FF808080</Color>
       <SolidColorBrush x:Key="FwSoftChoiceFillBrush" Color="#FFE5E9EF"/>
@@ -988,6 +990,7 @@
 
   <Style x:Key="FwGridViewItemStyle" TargetType="GridViewItem">
     <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+    <Setter Property="BorderThickness" Value="{ThemeResource FwItemBorderThickness}" />
     <Setter Property="CornerRadius" Value="12" />
     <Setter Property="Padding" Value="6" />
     <Setter Property="Margin" Value="4" />
@@ -1089,7 +1092,7 @@
                               HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                               VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                               AutomationProperties.AccessibilityView="Raw" />
-            <Border x:Name="CardBorder" BorderThickness="{ThemeResource FwItemBorderThickness}"
+            <Border x:Name="CardBorder" BorderThickness="{TemplateBinding BorderThickness}"
                     BorderBrush="{ThemeResource FwStrokeBrush}"
                     CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
             <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
@@ -1278,8 +1281,8 @@
 
   <Style x:Key="FwSearchPopupSurfaceStyle" TargetType="Border">
     <Setter Property="Width" Value="480" />
-    <Setter Property="Padding" Value="12" />
-    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="10" />
+    <Setter Property="CornerRadius" Value="10" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
     <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
