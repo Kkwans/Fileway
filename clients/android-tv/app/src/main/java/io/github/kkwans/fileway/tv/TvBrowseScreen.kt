@@ -569,6 +569,7 @@ private fun TvBrowseHeader(
     val hasLocation = hasParent || state.search && state.searchBasePath != "/"
     val parent = if (state.search) state.searchBasePath else state.path.substringBeforeLast('/').ifBlank { "/" }
     val records = state.route == TvRoute.RECENT || state.route == TvRoute.RECENT_ACCESS
+    val settings = state.route == TvRoute.SETTINGS && !state.search
     val hasCount = state.search || directory || state.route == TvRoute.FAVORITES || records
     @Composable fun location(modifier: Modifier = Modifier) {
         TvBrowseAction(
@@ -589,7 +590,8 @@ private fun TvBrowseHeader(
         val wide = maxWidth >= 620.dp
         Column {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                horizontalArrangement = Arrangement.spacedBy(if (settings) 12.dp else 4.dp)) {
+                if (settings) TvToolbarAction("返回浏览", Art.drawable.fileway_ic_arrow_back, onBack)
                 Text(title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge,
                     maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (wide && hasLocation) location(Modifier.widthIn(max = 180.dp))
@@ -603,9 +605,7 @@ private fun TvBrowseHeader(
                     Text("$count 项", Modifier.padding(horizontal = 6.dp), style = MaterialTheme.typography.bodySmall,
                         color = surfaces.secondaryText)
                 }
-                if (state.route == TvRoute.SETTINGS && !state.search) {
-                    TvToolbarAction("返回浏览", Art.drawable.fileway_ic_arrow_back, onBack)
-                } else pageTools()
+                if (!settings) pageTools()
             }
             if (!wide && hasCount) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
