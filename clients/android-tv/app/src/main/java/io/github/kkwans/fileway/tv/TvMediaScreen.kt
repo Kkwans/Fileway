@@ -5,10 +5,12 @@ import androidx.media3.common.C
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -17,6 +19,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
@@ -25,6 +28,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -333,11 +337,8 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                     delta < 0 -> "快退 ${-delta} 秒"
                     else -> "播放位置"
                 }
-                TvPlayerFeedback(
-                    if (delta < 0) Art.drawable.fileway_ic_skip_back else Art.drawable.fileway_ic_skip_forward,
-                    direction, "${tvTime(target)} / ${tvTime(state.sourceDurationMs)}",
-                    Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
-                )
+                val top = with(LocalDensity.current) { (stageHeight * .15f).toDp() }
+                TvSeekFeedback(delta, direction, tvTime(target), Modifier.align(Alignment.TopCenter).offset(y = top))
             }
         }
         if(exitPrompt)Text("再按一次返回退出播放",Modifier.align(Alignment.BottomCenter).padding(bottom=28.dp).background(PlayerFeedbackSurface.copy(alpha=.94f),TvShape).padding(horizontal=20.dp,vertical=12.dp),style=MaterialTheme.typography.bodyLarge,color=Color.White)
@@ -377,6 +378,23 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                 onBrowserBack = { browserBack = it },
             )
         }
+    }
+}
+
+@Composable
+private fun TvSeekFeedback(delta: Long, direction: String, target: String, modifier: Modifier) {
+    val shadow = Shadow(Color.Black.copy(alpha = .85f), Offset(0f, 1f), blurRadius = 4f)
+    Row(modifier.background(Color.Black.copy(alpha = .52f), CircleShape)
+        .border(1.dp, Color.White.copy(alpha = .20f), CircleShape)
+        .padding(horizontal = 16.dp, vertical = 9.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (delta != 0L) {
+            val icon = if (delta < 0) Art.drawable.fileway_ic_skip_back else Art.drawable.fileway_ic_skip_forward
+            Icon(androidx.compose.ui.res.painterResource(icon), null, Modifier.size(18.dp), tint = Color.White)
+        }
+        Text(direction, style = tvTextStyle(15, 20, FontWeight.Medium).copy(shadow = shadow), color = Color.White)
+        Box(Modifier.width(1.dp).height(13.dp).background(Color.White.copy(alpha = .35f)))
+        Text(target, style = tvTextStyle(15, 20).copy(shadow = shadow), color = Color.White.copy(alpha = .9f))
     }
 }
 

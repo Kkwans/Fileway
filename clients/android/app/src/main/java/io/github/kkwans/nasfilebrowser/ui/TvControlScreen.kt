@@ -356,15 +356,14 @@ private fun TvPhonePortraitRemote(
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
                             TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onBrowse, onPlayback)
-                            if (compact) {
-                                TvPhoneDpad(model, diameter = padSize.coerceAtMost(240.dp),
-                                    detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
-                            } else {
-                                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                                    val fittedPad = padSize.coerceAtMost((maxHeight - 16.dp).coerceAtLeast(0.dp))
-                                    TvPhoneDpad(model, diameter = fittedPad, detailsKey = detailsKey,
-                                        enabled = snapshot != null, insetSurface = true)
+                            Row(Modifier.fillMaxWidth().then(if (compact) Modifier else Modifier.weight(1f)),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                                    val availableHeight = if (compact) 240.dp else (maxHeight - 16.dp).coerceAtLeast(0.dp)
+                                    TvPhoneDpad(model, diameter = minOf(padSize, maxWidth, availableHeight), compact = compact,
+                                        detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
                                 }
+                                TvPhoneVolumeRocker(model, snapshot ?: recentSnapshot, snapshot != null)
                             }
                             HorizontalDivider(Modifier.padding(top = 8.dp, bottom = 4.dp),
                                 color = MaterialTheme.colorScheme.outlineVariant)
@@ -392,8 +391,6 @@ private fun TvPhonePortraitMedia(
     val name = media?.optString("name")?.takeIf { it.isNotBlank() && it != "null" }
     val playing = player?.optBoolean("playing") == true
     val ready = connected && player != null && !player.optBoolean("preparing")
-    val volumeLimit = snapshot.capabilities.optInt("volumeMax", 100).coerceIn(100, 200)
-    val volume = player?.optInt("volume", -1)?.takeIf { it in 0..volumeLimit }
     val view = LocalView.current
     var recentPage by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, active) {
         mutableStateOf<TvBrowsePage?>(null)
@@ -501,11 +498,46 @@ private fun TvPhonePortraitMedia(
                     FilewayIcon(icon, description, Modifier.size(22.dp))
                 }
             }
-            if (active && volume != null) {
-                TvPhoneVolumeKeys(model, snapshot, volume, volumeLimit, ready)
+        }
+    }
+}
+
+@Composable
+private fun TvPhoneVolumeRocker(model: TvControlModel, snapshot: RemoteSnapshot?, connected: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    val view = LocalView.current
+    val player = snapshot?.content?.optJSONObject("playback")
+    val limit = snapshot?.capabilities?.optInt("volumeMax", 100)?.coerceIn(100, 200) ?: 100
+    val volume = player?.optInt("volume", -1)?.takeIf { it in 0..limit }
+    val enabled = connected && player != null && !player.optBoolean("preparing") &&
+        snapshot?.scene in setOf("VIDEO", "AUDIO")
+    fun change(delta: Int) {
+        if (snapshot != null && volume != null) {
+            view.tvDirectionHaptic()
+            adjustTvPhoneVolume(model, snapshot, volume, limit, delta)
+        }
+    }
+    Surface(shape = RoundedCornerShape(24.dp), color = colors.surfaceContainerLow,
+        border = BorderStroke(1.dp, colors.outlineVariant)) {
+        Column(Modifier.widthIn(min = 52.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            FilewayIconButton({ change(5) }, Modifier.size(48.dp).semantics { contentDescription = "提高 TV 音量 5%" },
+                enabled = enabled && volume != null && volume < limit) {
+                FilewayIcon(Art.drawable.fileway_ic_add, null, Modifier.size(23.dp))
+            }
+            Text(volume?.let { "$it%" } ?: "音量", Modifier.padding(horizontal = 4.dp),
+                style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1)
+            FilewayIconButton({ change(-5) }, Modifier.size(48.dp).semantics { contentDescription = "降低 TV 音量 5%" },
+                enabled = enabled && volume != null && volume > 0) {
+                Text("−", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {})
             }
         }
     }
+}
+
+private fun adjustTvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volume: Int, limit: Int, delta: Int) {
+    val payload = if (snapshot.capabilities.has("volumeMax")) JSONObject().put("delta", delta)
+    else JSONObject().put("volume", (volume + delta).coerceIn(0, limit))
+    model.commandFor(snapshot, "playback.setVolume", payload)
 }
 
 @Composable
@@ -514,9 +546,7 @@ internal fun TvPhoneVolumeKeys(model: TvControlModel, snapshot: RemoteSnapshot, 
     val view = LocalView.current
     fun change(delta: Int) {
         view.tvDirectionHaptic()
-        val payload = if (snapshot.capabilities.has("volumeMax")) JSONObject().put("delta", delta)
-        else JSONObject().put("volume", (volume + delta).coerceIn(0, limit))
-        model.commandFor(snapshot, "playback.setVolume", payload)
+        adjustTvPhoneVolume(model, snapshot, volume, limit, delta)
     }
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text("音量", Modifier.padding(start = 2.dp).weight(1f), style = MaterialTheme.typography.labelMedium,
@@ -873,7 +903,28 @@ private fun View.tvBackHaptic() {
         Surface(Modifier.size(side*3),shape=CircleShape,
             color=if(insetSurface) MaterialTheme.colorScheme.surfaceContainerLow else MaterialTheme.colorScheme.surface,
             border = if (landscape || insetSurface) BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant) else null){
-            Column(horizontalAlignment=Alignment.CenterHorizontally){
+            if (insetSurface) {
+                BoxWithConstraints(Modifier.fillMaxSize().padding(6.dp)) {
+                    val keySize = (maxWidth / 4).coerceIn(48.dp, 60.dp)
+                    FilewayIconButton({ direction("up") }, Modifier.align(Alignment.TopCenter).size(keySize), enabled = enabled) {
+                        FilewayIcon(R.drawable.ic_expand_less, "上", Modifier.size(28.dp))
+                    }
+                    FilewayIconButton({ direction("left") }, Modifier.align(Alignment.CenterStart).size(keySize), enabled = enabled) {
+                        FilewayIcon(R.drawable.ic_expand_more, "左", Modifier.size(28.dp).rotate(90f))
+                    }
+                    FilewayIconButton({ direction("right") }, Modifier.align(Alignment.CenterEnd).size(keySize), enabled = enabled) {
+                        FilewayIcon(R.drawable.ic_expand_more, "右", Modifier.size(28.dp).rotate(-90f))
+                    }
+                    FilewayIconButton({ direction("down") }, Modifier.align(Alignment.BottomCenter).size(keySize), enabled = enabled) {
+                        FilewayIcon(R.drawable.ic_expand_more, "下", Modifier.size(28.dp))
+                    }
+                    Box(Modifier.align(Alignment.Center)) {
+                        TvPhoneConfirmKey(compact || maxWidth < 224.dp, detailsKey,
+                            onConfirm = { model.command("app.key", JSONObject().put("key", "ok")) },
+                            onDetails = { model.command("app.key", JSONObject().put("key", "details")) }, enabled = enabled)
+                    }
+                }
+            } else Column(horizontalAlignment=Alignment.CenterHorizontally){
                 FilewayIconButton(onClick={direction("up")},Modifier.size(side),enabled=enabled){FilewayIcon(R.drawable.ic_expand_less,"上",Modifier.size(28.dp))}
                 Row(verticalAlignment=Alignment.CenterVertically){
                     FilewayIconButton(onClick={direction("left")},Modifier.size(side),enabled=enabled){
