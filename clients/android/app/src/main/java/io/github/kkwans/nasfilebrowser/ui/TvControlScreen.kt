@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -61,6 +62,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import org.json.JSONObject
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -150,6 +152,14 @@ import kotlin.math.roundToInt
                                 TvPhonePortraitRemote(phone, model, connection, snapshot, busy, portraitPad,
                                     onSearch = { target = "search"; inputOpen = true },
                                     onKeyboard = { inputOpen = true },
+                                    onBrowse = {
+                                        if (!browse.busy && browse.category != "FILES") {
+                                            browse.category = "FILES"
+                                            browse.pages = emptyList()
+                                            browse.error = null
+                                        }
+                                        section = "文件"; selectedTab = true
+                                    },
                                     onPlayback = { section = "播放"; selectedTab = true })
                                 return@TvPhonePages
                             }
@@ -307,6 +317,7 @@ private fun TvPhonePortraitRemote(
     diameter: Dp,
     onSearch: () -> Unit,
     onKeyboard: () -> Unit,
+    onBrowse: () -> Unit,
     onPlayback: () -> Unit,
 ) {
     val detailsKey = snapshot?.scene == "BROWSE" && snapshot.capabilities.optInt("fileDetailsKey") > 0
@@ -344,7 +355,7 @@ private fun TvPhonePortraitRemote(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
-                            TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onPlayback)
+                            TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onBrowse, onPlayback)
                             if (compact) {
                                 TvPhoneDpad(model, diameter = padSize.coerceAtMost(240.dp),
                                     detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
@@ -371,21 +382,131 @@ private fun TvPhonePortraitMedia(
     model: TvControlModel,
     snapshot: RemoteSnapshot?,
     connected: Boolean,
+    onBrowse: () -> Unit,
     onPlayback: () -> Unit,
 ) {
-    if (snapshot == null || (snapshot.scene != "VIDEO" && snapshot.scene != "AUDIO")) return
-    val player = snapshot.content.optJSONObject("playback") ?: return
-    val name = snapshot.content.optJSONObject("media")?.optString("name")
-        ?.takeIf { it.isNotBlank() && it != "null" } ?: return
-    val isPlaying = player.opt("playing") as? Boolean ?: return
-    val ready = connected && !player.optBoolean("preparing")
-    Column(Modifier.fillMaxWidth()) {
-        TvPhoneQuickPlayback(model, snapshot, name, isPlaying, onPlayback,
-            modifier = Modifier.heightIn(min = 64.dp), compact = true, showProgress = true, enabled = ready)
-        player.optInt("volume", -1).takeIf { it in 0..100 }?.let { volume ->
-            TvPhoneVolume(model, snapshot, volume, ready)
+    if (snapshot == null || snapshot.scene == "LOGIN") return
+    val active = snapshot.scene == "VIDEO" || snapshot.scene == "AUDIO"
+    val media = snapshot.content.optJSONObject("media")
+    val player = snapshot.content.optJSONObject("playback")
+    val name = media?.optString("name")?.takeIf { it.isNotBlank() && it != "null" }
+    val playing = player?.optBoolean("playing") == true
+    val ready = connected && player != null && !player.optBoolean("preparing")
+    val volume = player?.optInt("volume", -1)?.takeIf { it in 0..100 }
+    val view = LocalView.current
+    var recentPage by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, active) {
+        mutableStateOf<TvBrowsePage?>(null)
+    }
+    var opening by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch) { mutableStateOf(false) }
+    var volumeOpen by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, connected) { mutableStateOf(false) }
+    LaunchedEffect(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, active, connected) {
+        if (!active && connected && snapshot.capabilities.optInt("fileBrowse") > 0) {
+            try {
+                recentPage = TvBrowsePage.decode(model.remoteRequest(snapshot, "browse.list", JSONObject().put("category", "RECENT")))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                recentPage = null
+            }
         }
-        HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+    }
+    val recent = recentPage?.rows?.firstOrNull { it.mediaKind() in setOf(MediaKind.VIDEO, MediaKind.AUDIO) }
+    val artworkId = if (active) media?.optString("id").orEmpty() else recent?.wirePath.orEmpty()
+    val title = if (active) name ?: "TV 媒体" else recent?.name ?: "从电视文件选片"
+    val duration = if (active) player?.optLong("durationMs") ?: 0L else 0L
+    val position = player?.optLong("positionMs")?.coerceIn(0L, duration.coerceAtLeast(0L)) ?: 0L
+    val activate: () -> Unit = {
+        when {
+            active -> onPlayback()
+            recent == null -> onBrowse()
+            !opening -> {
+                opening = true
+                model.work {
+                    try {
+                        val payload = JSONObject().put("browseId", recentPage?.id).put("id", recent.wirePath)
+                        model.remoteRequest(snapshot, "browse.open", payload, mediaBound = true)
+                    } finally {
+                        opening = false
+                    }
+                }
+            }
+        }
+    }
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).heightIn(min = 54.dp).clip(RoundedCornerShape(8.dp))
+                    .clickable(enabled = connected && !opening, role = Role.Button, onClick = activate),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val artwork = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp))
+                    if (artworkId.isNotBlank() && snapshot.capabilities.optInt("mediaPreview") > 0) {
+                        TvRemoteArtwork(model, snapshot, artworkId, title, artwork, scale = ContentScale.Crop,
+                            browseId = recentPage?.id.takeUnless { active },
+                            contentRevision = if (active) media?.optString("modified").orEmpty() else recent?.modified.orEmpty())
+                    } else {
+                        Box(artwork.background(MaterialTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
+                            FilewayIcon(if (active) Art.drawable.fileway_ic_video else Art.drawable.fileway_ic_folder,
+                                null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val subtitle = when {
+                            opening || active && player?.optBoolean("preparing") == true -> "正在准备"
+                            active && duration > 0 -> "${tvRemoteTime(position)} / ${tvRemoteTime(duration)}"
+                            active && playing -> "正在播放"
+                            active -> "已暂停"
+                            recent != null -> "继续播放"
+                            else -> "在 TV 上打开"
+                        }
+                        Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                if (active && volume != null) {
+                    FilewayIconButton(onClick = { volumeOpen = true }, modifier = Modifier.size(48.dp), enabled = ready) {
+                        FilewayIcon(Art.drawable.fileway_ic_volume_up, "TV 应用音量", Modifier.size(21.dp))
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
+                FilledIconButton(
+                    onClick = {
+                        if (active) {
+                            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                            model.commandFor(snapshot, if (playing) "playback.pause" else "playback.play")
+                        } else activate()
+                    },
+                    enabled = if (active) ready else connected && !opening,
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    val icon = when {
+                        active && playing -> Art.drawable.fileway_ic_pause
+                        active || recent != null -> Art.drawable.fileway_ic_play_arrow
+                        else -> R.drawable.ic_arrow_forward
+                    }
+                    val description = when {
+                        active && playing -> "暂停 TV 播放"
+                        active -> "播放 TV 媒体"
+                        recent != null -> "在 TV 继续播放"
+                        else -> "浏览 TV 文件"
+                    }
+                    FilewayIcon(icon, description, Modifier.size(22.dp))
+                }
+            }
+            if (active && duration > 0L) {
+                val fraction = (position.toDouble() / duration).toFloat()
+                Box(Modifier.fillMaxWidth().height(3.dp).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)) {
+                    Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+                }
+            }
+        }
+    }
+    if (active && ready && volumeOpen && volume != null) {
+        FileOperationSheet("TV 应用音量", onDismiss = { volumeOpen = false }) {
+            TvPhoneVolume(model, snapshot, volume, enabled = true)
+        }
     }
 }
 
@@ -777,8 +898,8 @@ private fun View.tvBackHaptic() {
     iconOnly:Boolean=false,enabled:Boolean=true){
     val size = when {
         iconOnly -> if (compact) 48.dp else 64.dp
-        compact -> 64.dp
-        else -> 84.dp
+        compact -> 72.dp
+        else -> 96.dp
     }
     val view = LocalView.current
     val confirm = { view.tvConfirmHaptic(); onConfirm() }
