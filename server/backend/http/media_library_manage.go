@@ -1,15 +1,16 @@
 package fbhttp
 
 import (
-	"context"
+	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"strconv"
 
 	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
-	"github.com/Kkwans/nas-file-browser/backend/mediasource"
 	"github.com/gorilla/mux"
 )
 
@@ -169,24 +170,68 @@ var mediaLibraryCreateSourceHandler = mediaScanManagement(func(w http.ResponseWr
 	if !d.Check(root) {
 		return http.StatusForbidden, fmt.Errorf("没有来源目录权限")
 	}
-	local, err := mediasource.NewLocal(root, func(ctx context.Context) (mediasource.LocalAuthority, error) {
-		return resolveLocalMediaConnection(ctx, d.store, d.server, d.user.ID, localMediaWorkspaceConfiguration)
-	})
+	proof, err := captureMediaBindingProof(r.Context(), d.store, d.server, d.user.ID, localMediaWorkspaceConfiguration, []byte(root))
 	if err != nil {
 		return mediaScanError(err)
 	}
-	handle, err := local.Open(r.Context(), "", true)
+	ack, err := d.store.MediaLibrary.CreateAttestedLocalSourceWithOperation(r.Context(), d.user.ID, library.ID, body.ExpectedRevision, body.OperationID, localMediaWorkspaceConfiguration, []byte(root), *proof)
 	if err != nil {
 		return mediaScanError(err)
 	}
-	if err := handle.Close(); err != nil {
-		return mediaScanError(err)
-	}
-	binding, err := d.store.MediaLibrary.CreateLocalSourceWithOperation(r.Context(), d.user.ID, library.ID, body.ExpectedRevision, body.OperationID, localMediaWorkspaceConfiguration, []byte(root))
+	binding, err := d.store.MediaLibrary.GetLibrarySourceByID(r.Context(), d.user.ID, ack.BindingID)
 	if err != nil {
 		return mediaScanError(err)
 	}
+	_, state, err := resolveAttestedMediaConnection(r.Context(), d.store, d.server, d.user.ID, binding.Source.ConfigurationRef, binding.RootLocator, binding.Proof)
+	if err != nil || state != mediascan.BindingAvailable {
+		if err == nil {
+			err = fs.ErrNotExist
+		}
+		return mediaScanError(err)
+	}
+	// An idempotent replay uses the original acknowledgement, not the binding's
+	// possibly newer revision; current authority was independently rechecked.
+	binding.Revision, binding.LibraryRevision, binding.Source.AuthorizationRevision = ack.BindingRevision, ack.LibraryRevision, ack.AuthorizationRevision
 	return renderJSONStatus(w, sourceSummary(binding), http.StatusCreated)
+})
+
+var mediaLibraryAttestSourceHandler = mediaScanManagement(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	var body mediaLibrarySourceBody
+	if decodeMediaScanBody(w, r, &body) != nil || !validScanID(body.OperationID) || body.ExpectedRevision < 1 || body.WireRoot == "" {
+		return http.StatusBadRequest, fmt.Errorf("来源确认参数无效")
+	}
+	root, err := decodeResourceWirePath(body.WireRoot)
+	if err != nil {
+		return http.StatusBadRequest, fmt.Errorf("来源路径无效")
+	}
+	binding, err := d.store.MediaLibrary.GetLibrarySourceByID(r.Context(), d.user.ID, mux.Vars(r)["bindingId"])
+	if err != nil {
+		return mediaScanError(err)
+	}
+	if binding.LibraryID != mux.Vars(r)["id"] || !bytes.Equal(binding.RootLocator, []byte(root)) || !d.Check(root) {
+		return http.StatusForbidden, fmt.Errorf("没有来源目录权限")
+	}
+	proof, err := captureMediaBindingProof(r.Context(), d.store, d.server, d.user.ID, binding.Source.ConfigurationRef, binding.RootLocator)
+	if err != nil {
+		return mediaScanError(err)
+	}
+	ack, err := d.store.MediaLibrary.AttestSourceBindingWithOperation(r.Context(), d.user.ID, binding.ID, body.ExpectedRevision, body.OperationID, *proof)
+	if err != nil {
+		return mediaScanError(err)
+	}
+	current, err := d.store.MediaLibrary.GetLibrarySourceByID(r.Context(), d.user.ID, binding.ID)
+	if err != nil {
+		return mediaScanError(err)
+	}
+	_, state, err := resolveAttestedMediaConnection(r.Context(), d.store, d.server, d.user.ID, current.Source.ConfigurationRef, current.RootLocator, current.Proof)
+	if err != nil || state != mediascan.BindingAvailable {
+		if err == nil {
+			err = fs.ErrNotExist
+		}
+		return mediaScanError(err)
+	}
+	current.Revision, current.LibraryRevision, current.Source.AuthorizationRevision = ack.BindingRevision, ack.LibraryRevision, ack.AuthorizationRevision
+	return renderJSON(w, r, sourceSummary(current))
 })
 
 var mediaLibrarySourcesHandler = mediaScanManagement(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
@@ -210,11 +255,18 @@ var mediaLibrarySourcesHandler = mediaScanManagement(func(w http.ResponseWriter,
 	}
 	items := make([]mediaLibrarySourceSummary, 0, len(page.Items))
 	for i := range page.Items {
-		summary := sourceSummary(&page.Items[i])
-		if _, err := mediascan.CheckBinding(r.Context(), d.store.MediaLibrary, d.user.ID, page.Items[i].Ref(), mediaScanResolver(d)); err != nil {
-			// Retain a manageable source row without revealing a root that is no
-			// longer within the owner's current scope or cannot be safely opened.
+		entry := &page.Items[i]
+		summary := sourceSummary(entry)
+		_, state, err := resolveAttestedMediaConnection(r.Context(), d.store, d.server, d.user.ID, entry.Source.ConfigurationRef, entry.RootLocator, entry.Proof)
+		switch {
+		case errors.Is(err, mediascan.ErrBindingUnverified):
+			summary.WireRoot, summary.DisplayRoot, summary.Access = "", "", "unverified"
+		case errors.Is(err, mediascan.ErrBindingChanged):
+			summary.WireRoot, summary.DisplayRoot, summary.Access = "", "", "rebind_required"
+		case err != nil:
 			summary.WireRoot, summary.DisplayRoot, summary.Access = "", "", "unavailable"
+		case state == mediascan.BindingOffline:
+			summary.Access = "offline"
 		}
 		items = append(items, summary)
 	}

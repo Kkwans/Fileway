@@ -5,6 +5,7 @@ package mediascan
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -62,7 +63,7 @@ type Observation struct {
 	SourceVersion    string
 	SizeBytes        int64
 	InitialTitle     string
-	NFO              *mediametadata.Document
+	NFO              *medialibrary.MetadataObservation
 	NFOStatus        NFOStatus
 }
 
@@ -100,7 +101,7 @@ type Result struct {
 // objects missing. Missing candidates require separate live revalidation.
 func ScanLocal(ctx context.Context, actor uint, binding *medialibrary.LibrarySource, resolve mediasource.ResolveLocalAuthority, sink Sink, options Options) (Result, error) {
 	var result Result
-	if binding == nil || actor == 0 || actor != binding.Source.OwnerUserID || binding.LibraryID == "" || binding.Source.ID == "" || binding.Revision < 1 || binding.Source.AuthorizationRevision < 1 || sink == nil {
+	if binding == nil || actor == 0 || actor != binding.Source.OwnerUserID || binding.ID == "" || binding.ProofEpoch < 1 || binding.LibraryID == "" || binding.Source.ID == "" || binding.Revision < 1 || binding.Source.AuthorizationRevision < 1 || sink == nil {
 		return result, fs.ErrInvalid
 	}
 	options, err := normalizeOptions(options)
@@ -257,7 +258,7 @@ func (w *walker) video(ctx context.Context, locator, name string) (resultErr err
 		return fs.ErrPermission
 	}
 	abs := absoluteLocator(w.binding.RootLocator, locator)
-	key, identity := objectKey(file.File, abs)
+	key, identity := objectKey(file.File, w.binding.BindingID, w.binding.ProofEpoch, abs)
 	expectedRevision, err := w.sink.LookupRevision(ctx, key)
 	if err != nil {
 		return err
@@ -313,11 +314,24 @@ func (w *walker) video(ctx context.Context, locator, name string) (resultErr err
 	return nil
 }
 
-func (w *walker) readNFO(ctx context.Context, video string) (*mediametadata.Document, NFOStatus) {
+func (w *walker) readNFO(ctx context.Context, video string) (*medialibrary.MetadataObservation, NFOStatus) {
 	ext := path.Ext(video)
 	base := strings.TrimSuffix(video, ext)
-	for _, suffix := range []string{".nfo", ".NFO"} {
-		resource, err := w.source.Open(ctx, base+suffix, false)
+	directory := path.Dir(video)
+	if directory == "." {
+		directory = ""
+	}
+	movieBase := appendLocator(directory, "movie")
+	type candidate struct {
+		locator        string
+		directoryLevel bool
+	}
+	candidates := []candidate{{base + ".nfo", strings.EqualFold(path.Base(base), "movie")}, {base + ".NFO", strings.EqualFold(path.Base(base), "movie")}}
+	if base != movieBase {
+		candidates = append(candidates, candidate{movieBase + ".nfo", true}, candidate{movieBase + ".NFO", true})
+	}
+	for _, candidate := range candidates {
+		resource, err := w.source.Open(ctx, candidate.locator, false)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -329,13 +343,14 @@ func (w *walker) readNFO(ctx context.Context, video string) (*mediametadata.Docu
 			_ = resource.Close()
 			return nil, NFOUnavailable
 		}
-		document, parseErr := mediametadata.ParseNFO(contextReader{ctx: ctx, reader: resource.File}, mediametadata.Limits{})
+		digest := sha256.New()
+		document, parseErr := mediametadata.ParseNFO(contextReader{ctx: ctx, reader: io.TeeReader(resource.File, digest)}, mediametadata.Limits{})
 		heldAfter, after, stateErr := resource.State()
 		if stateErr != nil {
 			_ = resource.Close()
 			return nil, NFOUnavailable
 		}
-		current, openErr := w.source.Open(ctx, base+suffix, false)
+		current, openErr := w.source.Open(ctx, candidate.locator, false)
 		if openErr != nil {
 			_ = resource.Close()
 			if errors.Is(openErr, fs.ErrNotExist) {
@@ -354,9 +369,80 @@ func (w *walker) readNFO(ctx context.Context, video string) (*mediametadata.Docu
 		if parseErr != nil {
 			return nil, NFOInvalid
 		}
-		return document, NFOParsed
+		ambiguous := false
+		if candidate.directoryLevel {
+			ambiguous, err = w.ambiguousMovieDirectory(ctx, directory, path.Base(video))
+			if err != nil {
+				return nil, NFOChanged
+			}
+		}
+		confirmed, err := w.source.Open(ctx, candidate.locator, false)
+		if err != nil {
+			return nil, NFOChanged
+		}
+		finalInfo, finalStamp, finalErr := confirmed.State()
+		finalClose := confirmed.Close()
+		if finalErr != nil || finalClose != nil || finalInfo == nil || !os.SameFile(info, finalInfo) || finalStamp != stamp || files.IsPrivateMediaFile(finalInfo) {
+			return nil, NFOChanged
+		}
+		return &medialibrary.MetadataObservation{SourceKey: absoluteLocator(w.binding.RootLocator, candidate.locator), Digest: digest.Sum(nil), ParserVersion: 1, Document: *document, AssociationAmbiguous: ambiguous}, NFOParsed
 	}
 	return nil, NFOMissing
+}
+
+// A shared movie.nfo describes a directory, not evidence that all files in it
+// are one work. Count only to two with bounded directory pages; the Store keeps
+// an ambiguous association as a candidate without projecting its fields.
+func (w *walker) ambiguousMovieDirectory(ctx context.Context, locator, expectedName string) (ambiguous bool, resultErr error) {
+	directory, err := w.source.Open(ctx, locator, true)
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if err := directory.Close(); resultErr == nil && err != nil {
+			resultErr = err
+		}
+	}()
+	info, stamp, err := directory.State()
+	if err != nil {
+		return false, err
+	}
+	count := 0
+	found := false
+	for {
+		if err := w.checkDirectory(ctx, locator, directory, info, stamp); err != nil {
+			return false, err
+		}
+		entries, readErr := directory.ReadDir(w.options.ReadBatch)
+		if len(entries) == 0 && readErr == nil {
+			return false, io.ErrNoProgress
+		}
+		for _, entry := range entries {
+			if entry.Type()&os.ModeSymlink != 0 || entry.IsDir() || !entry.Type().IsRegular() || !videoName(entry.Name()) {
+				continue
+			}
+			count++
+			found = found || entry.Name() == expectedName
+			if count >= 2 {
+				if err := w.checkDirectory(ctx, locator, directory, info, stamp); err != nil {
+					return false, err
+				}
+				return true, nil
+			}
+		}
+		if readErr != nil {
+			if !errors.Is(readErr, io.EOF) {
+				return false, readErr
+			}
+			if err := w.checkDirectory(ctx, locator, directory, info, stamp); err != nil {
+				return false, err
+			}
+			if !found {
+				return false, ErrDirectoryChanged
+			}
+			return false, nil
+		}
+	}
 }
 
 type contextReader struct {
@@ -411,9 +497,9 @@ func displayTitle(name string) string {
 	if name == "" {
 		return "Untitled video"
 	}
-	runes := []rune(name)
-	if len(runes) > 200 {
-		name = string(runes[:200])
-	}
 	return name
 }
+
+// DisplayFilename supplies a presentation-only fallback for an authorized
+// video's basename. The caller must never pass a parent path as a filename.
+func DisplayFilename(name string) string { return displayTitle(name) }

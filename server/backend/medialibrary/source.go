@@ -27,6 +27,26 @@ type LibrarySource struct {
 	RootLocator     []byte
 	Revision        int64
 	LibraryRevision int64
+	ProofEpoch      int64
+	Proof           *BindingProof `json:"-"`
+}
+
+// BindingProof is private source-owner evidence, not an authorization grant or
+// playback identity. MappingDigest derives from the live owner/root mapping;
+// RootIdentity is obtained only from the safely opened bound root.
+type BindingProof struct {
+	Version          int
+	MappingDigest    []byte `json:"-"`
+	RootIdentityKind string
+	RootIdentity     []byte `json:"-"`
+	AttestedAt       int64
+}
+
+func validateBindingProof(proof BindingProof) error {
+	if proof.Version != 1 || len(proof.MappingDigest) != 32 || proof.RootIdentityKind != "native" || len(proof.RootIdentity) == 0 || len(proof.RootIdentity) > 1024 || proof.AttestedAt < 0 {
+		return fmt.Errorf("%w: binding proof", ErrInvalid)
+	}
+	return nil
 }
 
 type LibrarySourcePage struct {
@@ -40,6 +60,8 @@ type LibrarySourcePage struct {
 // must be safely opened under that root. These opaque bytes are never interpreted
 // here as a trusted native path, nor is a string-prefix check treated as security.
 type SourceBindingRef struct {
+	BindingID             string
+	ProofEpoch            int64
 	LibraryID             string
 	SourceID              string
 	RootLocator           []byte
@@ -48,7 +70,7 @@ type SourceBindingRef struct {
 }
 
 func (binding *LibrarySource) Ref() SourceBindingRef {
-	return SourceBindingRef{LibraryID: binding.LibraryID, SourceID: binding.Source.ID,
+	return SourceBindingRef{BindingID: binding.ID, ProofEpoch: binding.ProofEpoch, LibraryID: binding.LibraryID, SourceID: binding.Source.ID,
 		RootLocator: bytes.Clone(binding.RootLocator), BindingRevision: binding.Revision,
 		AuthorizationRevision: binding.Source.AuthorizationRevision}
 }
@@ -152,11 +174,11 @@ func bindLocalSource(ctx context.Context, tx *sql.Tx, actor uint, library *Libra
 		return nil, ErrForbidden
 	}
 	binding := &LibrarySource{LibraryID: library.ID, Source: source, RootLocator: bytes.Clone(root), LibraryRevision: library.Revision}
-	err := tx.QueryRowContext(ctx, "SELECT binding_id, revision FROM library_source WHERE library_id = ? AND source_id = ? AND root_locator = ?", library.ID, source.ID, root).Scan(&binding.ID, &binding.Revision)
+	existing, err := scanLibrarySource(tx.QueryRowContext(ctx, bindingSelection+" WHERE ls.library_id=? AND ls.source_id=? AND ls.root_locator=?", library.ID, source.ID, root))
 	if err == nil {
-		return binding, nil
+		return existing, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
+	if !errors.Is(err, ErrNotFound) {
 		return nil, err
 	}
 	binding.ID, err = randomID("bind_")
@@ -194,30 +216,32 @@ func (store *Store) GetLibrarySource(ctx context.Context, actor uint, libraryID,
 	if actor == 0 {
 		return nil, ErrForbidden
 	}
-	binding := &LibrarySource{LibraryID: libraryID}
-	err := store.db.QueryRowContext(ctx, `SELECT ls.binding_id, s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, l.revision
-FROM library_source ls JOIN library l ON l.id = ls.library_id JOIN source s ON s.id = ls.source_id
-WHERE ls.library_id = ? AND ls.source_id = ? AND ls.root_locator = ? AND l.owner_user_id = ? AND s.owner_user_id = ? AND s.kind = 'local'`, libraryID, sourceID, root, actor, actor).Scan(&binding.ID, &binding.Source.ID, &binding.Source.OwnerUserID, &binding.Source.ConfigurationRef, &binding.Source.AuthorizationRevision, &binding.Source.CreatedAt, &binding.RootLocator, &binding.Revision, &binding.LibraryRevision)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	return binding, nil
+	return scanLibrarySource(store.db.QueryRowContext(ctx, bindingSelection+` WHERE ls.library_id = ? AND ls.source_id = ? AND ls.root_locator = ? AND l.owner_user_id = ? AND s.owner_user_id = ? AND s.kind = 'local'`, libraryID, sourceID, root, actor, actor))
 }
 
-const bindingSelection = `SELECT ls.binding_id, ls.library_id, s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, l.revision
+const bindingSelection = `SELECT ls.binding_id, ls.library_id, s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, l.revision,ls.proof_epoch,ls.proof_version,ls.mapping_digest,ls.root_identity_kind,ls.root_identity,ls.attested_at
 FROM library_source ls JOIN library l ON l.id = ls.library_id JOIN source s ON s.id = ls.source_id`
 
 func scanLibrarySource(row rowScanner) (*LibrarySource, error) {
 	binding := &LibrarySource{}
-	err := row.Scan(&binding.ID, &binding.LibraryID, &binding.Source.ID, &binding.Source.OwnerUserID, &binding.Source.ConfigurationRef, &binding.Source.AuthorizationRevision, &binding.Source.CreatedAt, &binding.RootLocator, &binding.Revision, &binding.LibraryRevision)
+	var proof BindingProof
+	var attested sql.NullInt64
+	err := row.Scan(&binding.ID, &binding.LibraryID, &binding.Source.ID, &binding.Source.OwnerUserID, &binding.Source.ConfigurationRef, &binding.Source.AuthorizationRevision, &binding.Source.CreatedAt, &binding.RootLocator, &binding.Revision, &binding.LibraryRevision, &binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &attested)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
+	}
+	if proof.Version != 0 {
+		if !attested.Valid {
+			return nil, fmt.Errorf("%w: incomplete binding proof", ErrInvalid)
+		}
+		proof.AttestedAt = attested.Int64
+		if err := validateBindingProof(proof); err != nil {
+			return nil, err
+		}
+		binding.Proof = &proof
 	}
 	return binding, nil
 }
@@ -327,17 +351,14 @@ func validateSourceBinding(ctx context.Context, reader schemaReader, actor uint,
 	if err != nil {
 		return nil, err
 	}
-	var revision int64
-	var bindingID string
-	if err := reader.QueryRowContext(ctx, "SELECT binding_id, revision FROM library_source WHERE library_id = ? AND source_id = ? AND root_locator = ?", binding.LibraryID, binding.SourceID, binding.RootLocator).Scan(&bindingID, &revision); errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	} else if err != nil {
+	current, err := scanLibrarySource(reader.QueryRowContext(ctx, bindingSelection+" WHERE ls.library_id=? AND ls.source_id=? AND ls.root_locator=?", binding.LibraryID, binding.SourceID, binding.RootLocator))
+	if err != nil {
 		return nil, err
 	}
-	if binding.BindingRevision != revision || binding.AuthorizationRevision != source.AuthorizationRevision {
+	if binding.BindingID != current.ID || binding.ProofEpoch != current.ProofEpoch || binding.BindingRevision != current.Revision || binding.AuthorizationRevision != source.AuthorizationRevision {
 		return nil, ErrRevisionConflict
 	}
-	return &LibrarySource{ID: bindingID, LibraryID: library.ID, Source: *source, RootLocator: bytes.Clone(binding.RootLocator), Revision: revision, LibraryRevision: library.Revision}, nil
+	return current, nil
 }
 
 func observeSourceFileTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBindingRef, input FileObservation, identityKind string, forceNewEpoch bool) (*SourceFile, error) {
@@ -415,13 +436,14 @@ FROM library_file WHERE source_file_id = ?`, file.ID).Scan(&known, &live); err !
 	}
 	var oldLocator []byte
 	var oldMissing *int64
-	err = tx.QueryRowContext(ctx, "SELECT locator, missing_since FROM library_file WHERE library_id = ? AND source_id = ? AND root_locator = ? AND source_file_id = ?", binding.LibraryID, binding.SourceID, binding.RootLocator, file.ID).Scan(&oldLocator, &oldMissing)
+	var oldEpoch int64
+	err = tx.QueryRowContext(ctx, "SELECT locator, missing_since,binding_epoch FROM library_file WHERE library_id = ? AND source_id = ? AND root_locator = ? AND source_file_id = ?", binding.LibraryID, binding.SourceID, binding.RootLocator, file.ID).Scan(&oldLocator, &oldMissing, &oldEpoch)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
-	associationChanged := errors.Is(err, sql.ErrNoRows) || !bytes.Equal(oldLocator, input.Locator) || oldMissing != nil
-	if _, err := tx.ExecContext(ctx, `INSERT INTO library_file(library_id, source_file_id, source_id, root_locator, locator, observed_at) VALUES (?, ?, ?, ?, ?, ?)
-ON CONFLICT(library_id, source_id, root_locator, source_file_id) DO UPDATE SET locator = excluded.locator, observed_at = excluded.observed_at, missing_since = NULL`, binding.LibraryID, file.ID, binding.SourceID, binding.RootLocator, input.Locator, now); err != nil {
+	associationChanged := errors.Is(err, sql.ErrNoRows) || !bytes.Equal(oldLocator, input.Locator) || oldMissing != nil || oldEpoch != binding.ProofEpoch
+	if _, err := tx.ExecContext(ctx, `INSERT INTO library_file(library_id, source_file_id, source_id, root_locator, locator, observed_at,binding_epoch) VALUES (?, ?, ?, ?, ?, ?,?)
+ON CONFLICT(library_id, source_id, root_locator, source_file_id) DO UPDATE SET locator = excluded.locator, observed_at = excluded.observed_at, missing_since = NULL,binding_epoch=excluded.binding_epoch`, binding.LibraryID, file.ID, binding.SourceID, binding.RootLocator, input.Locator, now, binding.ProofEpoch); err != nil {
 		return nil, err
 	}
 	if !changed && !associationChanged {

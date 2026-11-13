@@ -105,15 +105,37 @@ and, when accessible to its owner, `wireRoot` and `displayRoot`.
 
 `GET /libraries/{id}/sources` returns owner-only `{items, nextCursor?}` with
 `limit` 1–100 (default 50) and an optional `cursor`. Each source is rechecked
-against current owner authority. An unavailable source retains its ID and
-revisions, has `access: "unavailable"`, and omits root paths. Source lists for
+against current owner authority and the previously attested workspace/root
+identity. `access` is `available`, `offline`, `unverified`, `rebind_required`,
+or `unavailable`; unverified, changed or denied mappings omit root paths.
+Previously attested roots that are genuinely offline retain their records.
+Source lists for
 an archived library return 409 until its owner restores it. No source response
 includes credentials or a configuration reference.
 
+`POST /libraries/{id}/sources/{bindingId}/attest` is an explicit owner action
+with `operationId`, the binding's `expectedRevision`, and a user-selected
+`wireRoot` matching that binding. It safely opens the current directory and
+records a new proof epoch atomically. An old proof or different workspace is
+never silently adopted; old-epoch source observations and NFO projections are
+not automatically inherited. A retry with the same operation ID returns the
+original acknowledgement without advancing the epoch again.
+
+The server itself may use Linux `/` or Windows `computer` as its workspace root.
+A physical Linux or ordinary scoped filesystem `/` can be selected as a source.
+The Windows virtual computer `/` is a chooser, not one physical volume; choose
+an actual drive or directory, such as `/C` or `/D/Movies`, as the binding root.
+
 ## Scan jobs
 
+`GET /scan-support` returns `localRulesRevision`, `available`, and, if not
+available, `reason` (`not_enabled` or `coordinator_unavailable`). This describes
+only local scanning, not access to a particular root or the full media library.
+Clients should fetch the rule revision rather than hardcode it. Jobs created
+under unsupported older rules cannot resume under new rules; create a new scan.
+
 `POST /libraries/{id}/scans` accepts `bindingId`, `operationId`, the binding's
-`expectedRevision`, and `rulesRevision`. The current local rules revision is 1.
+`expectedRevision`, and `rulesRevision`. The current local rules revision is 2.
 The binding, owner and root are reloaded from the catalog; the request cannot
 supply a source root. A 202 response is the queued acknowledgement, not a
 completed scan. The server uses a bounded worker pool and reauthorizes the owner
@@ -140,6 +162,68 @@ denied, canceled or incomplete runs do not mark unobserved entries missing.
 The source files remain read-only. This first scanner supports only filesystems
 accepted by the native safe opener; support for a NAS/network mount must be
 verified separately.
+
+## Items and local metadata
+
+`GET /libraries/{id}/items` returns `{items, nextCursor?}` with `limit` 1–100
+(default 50) and an optional opaque item-ID `cursor`. Library membership and
+the instance sharing policy are checked for the actual viewer. The source
+owner's current account, source binding and file rules are checked separately;
+viewers do not acquire the owner's general file permissions. Filtering occurs
+before deciding whether a next visible page exists, and no count of hidden
+sources is returned.
+
+Each item summary includes `id`, `libraryId`, `kind`, optional `parentId`,
+`title`, `revision`, `createdAt`, `sourceState` and `metadataState`.
+`sourceState` is `available`, `offline`, `changed`, or `unverified`;
+`unverified` cannot establish source or playback continuity. `metadataState`
+is `none`, `available`, `offline`, or `restricted`. A previously attested
+binding with unchanged workspace mapping can retain and display offline data;
+a changed or unverified mapping cannot authorize old data. If a video remains
+accessible but a supporting NFO
+is no longer authorized, the item remains visible: that NFO's fields, ratings,
+people, artwork and external IDs are removed, independently authorized manual
+fields remain, and an unavailable title falls back to the authorized video's
+display filename without its parent path. An item with no currently authorized
+video source is hidden.
+
+`GET /libraries/{id}/items/{itemId}` returns `{item, metadataRevision, fields,
+credits, ratings, artwork, externalIds, issues, candidates}`. Each authorized
+candidate contains a safe `code` and `sourceKinds` indicating the NFO root types;
+raw evidence and paths remain private. Fields retain their values,
+source, lock, explicit-clear state and revision. Ratings retain provider,
+metric, scale and count semantics. Artwork contains only an opaque declaration
+ID, role and status: its original path or URL is never a client fetch target.
+The current implementation discovers same-name NFOs and `movie.nfo`; an
+ambiguous directory-level association is retained as a candidate rather than
+automatically applied. Independent `tvshow.nfo` and `season.nfo` directory
+inputs and series hierarchy matching remain pending.
+
+Credits, ratings, artwork, external IDs and candidates each contain at most 20
+authorized entries in the initial detail. Their respective optional cursors are
+`creditsNextCursor`, `ratingsNextCursor`, `artworkNextCursor`,
+`externalIdsNextCursor`, and `issuesNextCursor`. Fetch additional pages from
+`GET /libraries/{id}/items/{itemId}/{credits|ratings|artwork|external-ids|issues}`
+using `limit` 1–100, optional `cursor`, and `revision` equal to the item revision
+from the detail. `revision` is required when a cursor is supplied; a changed
+revision returns 409. Responses contain
+`items`, optional `nextCursor`, and the current `revision`; authorization is
+reapplied before pagination and hidden inputs are never counted.
+
+An owner or explicitly authorized editor may call
+`PATCH /libraries/{id}/items/{itemId}/metadata` with `operationId`, `expectedRevision`
+(the current item revision), and `fields`. A field patch can set `values`,
+`clear`, `reset`, and/or `locked` within the documented validation rules.
+An existing field whose source is currently restricted cannot be overwritten
+blindly; another independently visible manual field can still be edited.
+An explicit clear is a locked value, not a missing value; reset removes that
+clear and permits a subsequent scan to apply source data. The NFO file is never
+modified. A viewer cannot edit. `POST .../metadata/undo` takes `operationId`,
+`expectedRevision`, and `targetRevision` from the metadata change to undo.
+Later conflicting edits return 409 rather than overwrite the user's work; undo
+is unavailable while any metadata source for the item is restricted.
+Both mutations return a receipt `{itemId, revision, metadataRevision}`; fetch
+the current detail separately. Their receipts and edits commit atomically.
 
 ## Failures and compatibility
 

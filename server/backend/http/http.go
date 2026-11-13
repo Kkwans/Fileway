@@ -13,6 +13,7 @@ import (
 	"github.com/gorilla/mux"
 
 	"github.com/Kkwans/nas-file-browser/backend/hls"
+	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
 	"github.com/Kkwans/nas-file-browser/backend/mediasource"
 	"github.com/Kkwans/nas-file-browser/backend/settings"
@@ -76,8 +77,9 @@ func NewHandler(
 	}
 	var mediaScans *mediascan.Scheduler
 	if store.MediaLibrary != nil {
-		mediaScans, err = mediascan.NewScheduler(context.Background(), store.MediaLibrary, func(ctx context.Context, owner uint, configurationRef string) (mediasource.LocalAuthority, error) {
-			return resolveLocalMediaConnection(ctx, store, server, owner, configurationRef)
+		mediaScans, err = mediascan.NewScheduler(context.Background(), store.MediaLibrary, func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+			authority, _, err := resolveAttestedMediaConnection(ctx, store, server, binding.Source.OwnerUserID, binding.Source.ConfigurationRef, binding.RootLocator, binding.Proof)
+			return authority, err
 		})
 		if err != nil {
 			// The catalog may be in use by another process. Do not fence its jobs,
@@ -116,6 +118,7 @@ func NewHandler(
 	api.Handle("/signup", monkey(signupHandler, ""))
 	api.Handle("/renew", monkey(renewHandler(), ""))
 	api.Handle("/instance", monkey(deviceInstanceHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/scan-support", monkey(mediaScanSupportHandler(mediaScans), "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries", monkey(mediaLibraryListHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries", monkey(mediaLibraryCreateHandler, "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}", monkey(mediaLibraryGetHandler, "")).Methods("GET")
@@ -126,6 +129,14 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/members/{userId:[0-9]+}", monkey(mediaLibraryMemberHandler(false), "")).Methods("DELETE")
 	api.Handle("/media-library/v1/libraries/{id}/sources", monkey(mediaLibrarySourcesHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/sources/local", monkey(mediaLibraryCreateSourceHandler, "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/sources/{bindingId}/attest", monkey(mediaLibraryAttestSourceHandler, "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/items", monkey(mediaItemsListHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}", monkey(mediaItemGetHandler, "")).Methods("GET")
+	for _, kind := range []string{"credits", "ratings", "artwork", "external-ids", "issues"} {
+		api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/"+kind, monkey(mediaItemCollectionHandler(kind), "")).Methods("GET")
+	}
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/metadata", monkey(mediaMetadataChangeHandler(false), "")).Methods("PATCH")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/metadata/undo", monkey(mediaMetadataChangeHandler(true), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/scans", monkey(mediaScanCreateHandler(mediaScans), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}", monkey(mediaScanManagement(mediaScanGetHandler), "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/cancel", monkey(mediaScanCancelHandler(mediaScans), "")).Methods("POST")

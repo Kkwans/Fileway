@@ -266,3 +266,148 @@ CREATE TABLE operation_receipt (
     PRIMARY KEY(actor_user_id, kind, operation_id)
 ) STRICT;
 `
+
+// Metadata inputs and revision records are retained as evidence. Active flags
+// change the projected view without deleting prior declarations or assets.
+const schemaV6 = `
+ALTER TABLE library_source ADD COLUMN proof_version INTEGER NOT NULL DEFAULT 0 CHECK(proof_version IN (0,1));
+ALTER TABLE library_source ADD COLUMN proof_epoch INTEGER NOT NULL DEFAULT 0 CHECK(proof_epoch >= 0);
+ALTER TABLE library_source ADD COLUMN mapping_digest BLOB;
+ALTER TABLE library_source ADD COLUMN root_identity_kind TEXT NOT NULL DEFAULT '' CHECK(root_identity_kind IN ('','native'));
+ALTER TABLE library_source ADD COLUMN root_identity BLOB;
+ALTER TABLE library_source ADD COLUMN attested_at INTEGER CHECK(attested_at >= 0);
+ALTER TABLE library_file ADD COLUMN binding_epoch INTEGER NOT NULL DEFAULT 0 CHECK(binding_epoch >= 0);
+ALTER TABLE scan_job ADD COLUMN binding_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE scan_job ADD COLUMN binding_epoch INTEGER NOT NULL DEFAULT 0 CHECK(binding_epoch >= 0);
+UPDATE scan_job SET binding_id=(SELECT binding_id FROM library_source ls WHERE ls.library_id=scan_job.library_id AND ls.source_id=scan_job.source_id AND ls.root_locator=scan_job.root_locator);
+CREATE TRIGGER binding_proof_insert BEFORE INSERT ON library_source
+WHEN COALESCE(((NEW.proof_version=0 AND NEW.proof_epoch=0 AND NEW.mapping_digest IS NULL AND NEW.root_identity_kind='' AND NEW.root_identity IS NULL AND NEW.attested_at IS NULL)
+OR (NEW.proof_version=1 AND NEW.proof_epoch>0 AND length(NEW.mapping_digest)=32 AND NEW.root_identity_kind='native' AND length(NEW.root_identity) BETWEEN 1 AND 1024 AND NEW.attested_at IS NOT NULL)),0)=0
+BEGIN SELECT RAISE(ABORT, 'invalid binding proof'); END;
+CREATE TRIGGER binding_proof_update BEFORE UPDATE OF proof_version,proof_epoch,mapping_digest,root_identity_kind,root_identity,attested_at ON library_source
+WHEN COALESCE(((NEW.proof_version=0 AND NEW.proof_epoch=0 AND NEW.mapping_digest IS NULL AND NEW.root_identity_kind='' AND NEW.root_identity IS NULL AND NEW.attested_at IS NULL)
+OR (NEW.proof_version=1 AND NEW.proof_epoch>0 AND length(NEW.mapping_digest)=32 AND NEW.root_identity_kind='native' AND length(NEW.root_identity) BETWEEN 1 AND 1024 AND NEW.attested_at IS NOT NULL)),0)=0
+BEGIN SELECT RAISE(ABORT, 'invalid binding proof'); END;
+CREATE TRIGGER binding_proof_fence BEFORE UPDATE OF proof_version,proof_epoch,mapping_digest,root_identity_kind,root_identity,attested_at ON library_source
+WHEN (OLD.proof_version=1 AND NEW.proof_version!=1) OR (NEW.proof_version=1 AND (NEW.proof_epoch!=OLD.proof_epoch+1 OR NEW.revision!=OLD.revision+1))
+BEGIN SELECT RAISE(ABORT, 'binding proof requires a new epoch and revision'); END;
+CREATE TABLE metadata_input (
+    id TEXT PRIMARY KEY NOT NULL,
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    binding_id TEXT NOT NULL REFERENCES library_source(binding_id),
+    binding_epoch INTEGER NOT NULL CHECK(binding_epoch >= 0),
+    source_type TEXT NOT NULL CHECK(source_type IN ('nfo', 'online')),
+    source_key BLOB NOT NULL CHECK(length(source_key) > 0),
+    digest BLOB NOT NULL CHECK(length(digest) = 32),
+    parser_version INTEGER NOT NULL CHECK(parser_version > 0),
+    association_ambiguous INTEGER NOT NULL CHECK(association_ambiguous IN (0,1)),
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)),
+    status TEXT NOT NULL CHECK(status IN ('applied', 'candidate')),
+    issue_code TEXT NOT NULL DEFAULT '',
+    is_current INTEGER NOT NULL CHECK(is_current IN (0,1)),
+    projection_stale INTEGER NOT NULL DEFAULT 0 CHECK(projection_stale IN (0,1)),
+    created_at INTEGER NOT NULL CHECK(created_at >= 0),
+    FOREIGN KEY(library_id, item_id) REFERENCES library_item(library_id, id)
+) STRICT;
+CREATE UNIQUE INDEX metadata_input_current ON metadata_input(library_id,item_id,binding_id,binding_epoch,source_type,source_key) WHERE is_current = 1;
+CREATE INDEX metadata_input_item ON metadata_input(library_id,item_id,is_current,id);
+
+CREATE TABLE item_field (
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    field TEXT NOT NULL CHECK(length(field) > 0),
+    value_json TEXT NOT NULL CHECK(json_valid(value_json)),
+    source TEXT NOT NULL CHECK(source IN ('legacy', 'filename', 'online', 'nfo', 'manual')),
+    source_key BLOB,
+    input_id TEXT REFERENCES metadata_input(id),
+    source_binding_id TEXT REFERENCES library_source(binding_id),
+    source_binding_epoch INTEGER NOT NULL DEFAULT 0 CHECK(source_binding_epoch >= 0),
+    locked INTEGER NOT NULL CHECK(locked IN (0,1)),
+    explicit_clear INTEGER NOT NULL CHECK(explicit_clear IN (0,1)),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    PRIMARY KEY(library_id,item_id,field),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+INSERT INTO item_field(library_id,item_id,field,value_json,source,locked,explicit_clear,revision)
+SELECT library_id,id,'title',json_array(title),'legacy',1,0,revision FROM library_item;
+
+CREATE TABLE library_person (
+    id TEXT PRIMARY KEY NOT NULL,
+    library_id TEXT NOT NULL REFERENCES library(id),
+    name TEXT NOT NULL,
+    declaration_source BLOB,
+    declaration_hash BLOB,
+    UNIQUE(library_id,id),
+    UNIQUE(library_id,declaration_source,declaration_hash)
+) STRICT;
+CREATE TABLE person_external_id (
+    library_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+    PRIMARY KEY(library_id,provider,external_id),
+    FOREIGN KEY(library_id,person_id) REFERENCES library_person(library_id,id)
+) STRICT;
+CREATE TABLE item_credit (
+    id TEXT PRIMARY KEY NOT NULL,
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    role TEXT NOT NULL,
+    roles_json TEXT NOT NULL CHECK(json_valid(roles_json)),
+    position INTEGER NOT NULL CHECK(position >= 0),
+    source_key BLOB NOT NULL,
+    input_id TEXT NOT NULL REFERENCES metadata_input(id),
+    active INTEGER NOT NULL CHECK(active IN (0,1)),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id),
+    FOREIGN KEY(library_id,person_id) REFERENCES library_person(library_id,id)
+) STRICT;
+CREATE INDEX item_credit_active ON item_credit(library_id,item_id,active,position,id);
+
+CREATE TABLE rating_observation (
+    id TEXT PRIMARY KEY NOT NULL,
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    source_key BLOB NOT NULL,
+    input_id TEXT NOT NULL REFERENCES metadata_input(id),
+    scope TEXT NOT NULL,
+    rating_json TEXT NOT NULL CHECK(json_valid(rating_json)),
+    position INTEGER NOT NULL CHECK(position >= 0),
+    active INTEGER NOT NULL CHECK(active IN (0,1)),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE INDEX rating_observation_active ON rating_observation(library_id,item_id,active,position,id);
+
+CREATE TABLE artwork_declaration (
+    id TEXT PRIMARY KEY NOT NULL,
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    binding_id TEXT NOT NULL REFERENCES library_source(binding_id),
+    source_key BLOB NOT NULL,
+    input_id TEXT NOT NULL REFERENCES metadata_input(id),
+    private_ref BLOB,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('declared', 'remote_unavailable', 'invalid')),
+    position INTEGER NOT NULL CHECK(position >= 0),
+    active INTEGER NOT NULL CHECK(active IN (0,1)),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE INDEX artwork_declaration_active ON artwork_declaration(library_id,item_id,active,position,id);
+
+CREATE TABLE item_external_id (
+    id TEXT PRIMARY KEY NOT NULL,
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    entity_kind TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    source_key BLOB NOT NULL,
+    input_id TEXT NOT NULL REFERENCES metadata_input(id),
+    active INTEGER NOT NULL CHECK(active IN (0,1)),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE INDEX item_external_id_active ON item_external_id(library_id,item_id,provider,entity_kind,active);
+`

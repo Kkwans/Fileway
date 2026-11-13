@@ -8,9 +8,9 @@ import (
 
 // A path-only identity is deliberately tagged, so downstream code cannot treat
 // an equal locator as proof that the underlying object or timeline is unchanged.
-func objectKey(file *os.File, locator []byte) ([]byte, IdentityKind) {
+func objectKey(file *os.File, bindingID string, epoch int64, locator []byte) ([]byte, IdentityKind) {
 	if key, ok := nativeObjectKey(file); ok {
 		return key, IdentityNative
 	}
-	return medialibrary.UnverifiedPathObjectKey(locator), IdentityPathUnverified
+	return medialibrary.UnverifiedPathObjectKey(bindingID, epoch, locator), IdentityPathUnverified
 }

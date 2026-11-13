@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 type CatalogItem struct {
@@ -21,9 +24,11 @@ type CatalogItem struct {
 }
 
 type NewCatalogItem struct {
-	Kind     string
-	ParentID string
-	Title    string
+	Kind           string
+	ParentID       string
+	Title          string
+	initialSource  string
+	initialBinding *SourceBindingRef
 }
 
 type CatalogListOptions struct {
@@ -71,7 +76,7 @@ func createCatalogItemTx(ctx context.Context, tx *sql.Tx, actor uint, libraryID 
 	if !catalogKind(input.Kind) {
 		return nil, fmt.Errorf("%w: catalog kind", ErrInvalid)
 	}
-	title, err := libraryName(input.Title)
+	title, err := catalogTitle(input.Title)
 	if err != nil {
 		return nil, err
 	}
@@ -98,10 +103,38 @@ func createCatalogItemTx(ctx context.Context, tx *sql.Tx, actor uint, libraryID 
 	if _, err := tx.ExecContext(ctx, "INSERT INTO library_item(id, library_id, kind, parent_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)", id, libraryID, input.Kind, parent, title, item.CreatedAt); err != nil {
 		return nil, err
 	}
+	source, locked := "manual", 1
+	var bindingID any
+	var bindingEpoch int64
+	if input.initialSource == "filename" {
+		source, locked = "filename", 0
+		if input.initialBinding == nil {
+			return nil, fmt.Errorf("%w: filename binding", ErrInvalid)
+		}
+		bindingID, bindingEpoch = input.initialBinding.BindingID, input.initialBinding.ProofEpoch
+	}
+	titleJSON, err := json.Marshal([]string{title})
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO item_field(library_id,item_id,field,value_json,source,source_binding_id,source_binding_epoch,locked,explicit_clear,revision) VALUES (?, ?, 'title', ?, ?,?,?, ?, 0, 1)`, libraryID, id, string(titleJSON), source, bindingID, bindingEpoch, locked); err != nil {
+		return nil, err
+	}
 	if err := publishCatalogChange(ctx, tx, actor, libraryID, "catalog.item.created", catalogChange{ItemID: item.ID, Revision: item.Revision}); err != nil {
 		return nil, err
 	}
 	return item, nil
+}
+
+func catalogTitle(value string) (string, error) {
+	if !utf8.ValidString(value) {
+		return "", fmt.Errorf("%w: title must be valid UTF-8", ErrInvalid)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" || utf8.RuneCountInString(value) > 1024 || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return "", fmt.Errorf("%w: title must contain 1 to 1024 characters without controls", ErrInvalid)
+	}
+	return value, nil
 }
 
 // AttachCatalogFile can only use a file previously observed under this library's
@@ -144,7 +177,8 @@ func attachCatalogFileTx(ctx context.Context, tx *sql.Tx, actor uint, libraryID,
 	}
 	var allowed string
 	if err := tx.QueryRowContext(ctx, `SELECT f.id FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id JOIN source s ON s.id = f.source_id
-WHERE lf.library_id = ? AND f.id = ? AND s.owner_user_id = ? AND s.kind = 'local'`, libraryID, sourceFileID, library.OwnerUserID).Scan(&allowed); errors.Is(err, sql.ErrNoRows) {
+JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator
+WHERE lf.library_id = ? AND f.id = ? AND s.owner_user_id = ? AND s.kind = 'local' AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0`, libraryID, sourceFileID, library.OwnerUserID).Scan(&allowed); errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, err
@@ -194,9 +228,11 @@ WHERE e.library_id = ? AND e.item_id = ? AND v.source_file_id = ? ORDER BY e.id,
 	return link, nil
 }
 
-const catalogSelection = `SELECT i.id, i.library_id, i.kind, COALESCE(i.parent_id, ''), i.title, i.revision, i.created_at,
+const catalogSelection = `SELECT i.id, i.library_id, i.kind, COALESCE(i.parent_id, ''),
+COALESCE((SELECT CASE WHEN f.explicit_clear=1 THEN '' ELSE json_extract(f.value_json,'$[0]') END FROM item_field f WHERE f.library_id=i.library_id AND f.item_id=i.id AND f.field='title' AND f.source!='legacy' AND (f.source!='filename' OR EXISTS(SELECT 1 FROM library_source fb WHERE fb.binding_id=f.source_binding_id AND fb.library_id=f.library_id AND fb.proof_epoch=f.source_binding_epoch AND fb.proof_epoch>0)) AND (f.input_id IS NULL OR EXISTS(SELECT 1 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=f.input_id AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0))),'') AS title, i.revision, i.created_at,
 (SELECT count(DISTINCT v.source_file_id) FROM edition e JOIN variant v ON v.edition_id = e.id AND v.library_id = e.library_id
  JOIN library_file lf ON lf.library_id = v.library_id AND lf.source_file_id = v.source_file_id
+ JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0
  WHERE e.library_id = i.library_id AND e.item_id = i.id)
 FROM library_item i JOIN library l ON l.id = i.library_id
 LEFT JOIN library_member m ON m.library_id = l.id AND m.user_id = ? AND m.revoked_at IS NULL`
@@ -228,6 +264,7 @@ func (store *Store) ListCatalogItems(ctx context.Context, actor uint, libraryID 
 AND (? = '' OR i.kind = ?) AND (? = '' OR i.parent_id = ?)
 AND (? = '' OR EXISTS (SELECT 1 FROM edition fe JOIN variant fv ON fv.edition_id = fe.id AND fv.library_id = fe.library_id
 JOIN library_file lf ON lf.library_id = fv.library_id AND lf.source_file_id = fv.source_file_id
+JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0
 WHERE fe.library_id = i.library_id AND fe.item_id = i.id AND fv.source_file_id = ?))
 ORDER BY i.id LIMIT ?`, actor, libraryID, actor, options.AfterID, options.Kind, options.Kind, options.ParentID, options.ParentID, options.SourceFileID, options.SourceFileID, options.Limit+1)
 	if err != nil {

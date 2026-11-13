@@ -31,11 +31,14 @@ func CheckBinding(ctx context.Context, store *medialibrary.Store, actor uint, re
 	if err != nil {
 		return nil, err
 	}
-	if binding.Source.OwnerUserID != actor || binding.Revision != ref.BindingRevision || binding.Source.AuthorizationRevision != ref.AuthorizationRevision || !bytes.Equal(binding.RootLocator, ref.RootLocator) {
+	if binding.ID != ref.BindingID || binding.ProofEpoch != ref.ProofEpoch || binding.Source.OwnerUserID != actor || binding.Revision != ref.BindingRevision || binding.Source.AuthorizationRevision != ref.AuthorizationRevision || !bytes.Equal(binding.RootLocator, ref.RootLocator) {
 		return nil, medialibrary.ErrRevisionConflict
 	}
+	if binding.Proof == nil || binding.ProofEpoch < 1 {
+		return nil, ErrBindingUnverified
+	}
 	source, err := mediasource.NewLocal(string(binding.RootLocator), func(ctx context.Context) (mediasource.LocalAuthority, error) {
-		return resolve(ctx, actor, binding.Source.ConfigurationRef)
+		return resolve(ctx, binding)
 	})
 	if err != nil {
 		return nil, err

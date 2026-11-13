@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 )
 
 var (
@@ -72,6 +75,17 @@ type ScanObservation struct {
 	ExpectedRevision int64
 	InitialTitle     string
 	NFOStatus        string
+	NFO              *MetadataObservation
+}
+
+// MetadataObservation is source evidence from a safely opened sidecar. Its
+// locator and digest are private and never appear in client-facing DTOs.
+type MetadataObservation struct {
+	SourceKey            []byte
+	Digest               []byte
+	ParserVersion        int
+	AssociationAmbiguous bool
+	Document             mediametadata.Document
 }
 
 type ScanCommit struct {
@@ -159,8 +173,18 @@ AND n.status IN ('invalid', 'unavailable', 'changed') AND n.source_file_id > ? O
 
 // UnverifiedPathObjectKey preserves opaque path bytes and separates path-only
 // identities from native identities; equality does not prove continuity.
-func UnverifiedPathObjectKey(locator []byte) []byte {
-	return append([]byte("fileway/local/path-unverified/v1\x00"), locator...)
+func UnverifiedPathObjectKey(bindingID string, epoch int64, locator []byte) []byte {
+	key := append([]byte(nil), []byte("fileway/local/path-unverified/v2\x00")...)
+	var length [4]byte
+	binary.BigEndian.PutUint32(length[:], uint32(len(bindingID)))
+	key = append(key, length[:]...)
+	key = append(key, bindingID...)
+	var generation [8]byte
+	binary.BigEndian.PutUint64(generation[:], uint64(epoch))
+	key = append(key, generation[:]...)
+	binary.BigEndian.PutUint32(length[:], uint32(len(locator)))
+	key = append(key, length[:]...)
+	return append(key, locator...)
 }
 
 type scanRecord struct {
@@ -172,7 +196,7 @@ type scanRecord struct {
 }
 
 const scanSelection = `SELECT j.id, j.library_id, j.owner_user_id, j.status, j.generation, j.attempt, j.checkpoint_json, j.created_at, j.updated_at,
-sj.source_id, sj.root_locator, sj.binding_revision, sj.authorization_revision, sj.rules_revision, sj.operation_id, sj.active, sj.last_digest, sj.last_result_json, sj.error_code
+sj.source_id, sj.root_locator, sj.binding_revision, sj.authorization_revision, sj.rules_revision, sj.operation_id, sj.active, sj.last_digest, sj.last_result_json, sj.error_code,sj.binding_id,sj.binding_epoch
 FROM job j JOIN scan_job sj ON sj.job_id = j.id AND sj.library_id = j.library_id`
 
 func readScan(row rowScanner) (*scanRecord, error) {
@@ -180,7 +204,7 @@ func readScan(row rowScanner) (*scanRecord, error) {
 	var checkpoint string
 	var active int
 	err := row.Scan(&r.ID, &r.LibraryID, &r.OwnerUserID, &r.Status, &r.Generation, &r.Attempt, &checkpoint, &r.CreatedAt, &r.UpdatedAt,
-		&r.Binding.SourceID, &r.Binding.RootLocator, &r.Binding.BindingRevision, &r.Binding.AuthorizationRevision, &r.RulesRevision, &r.operationID, &active, &r.lastDigest, &r.lastResult, &r.ErrorCode)
+		&r.Binding.SourceID, &r.Binding.RootLocator, &r.Binding.BindingRevision, &r.Binding.AuthorizationRevision, &r.RulesRevision, &r.operationID, &active, &r.lastDigest, &r.lastResult, &r.ErrorCode, &r.Binding.BindingID, &r.Binding.ProofEpoch)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -213,11 +237,11 @@ func (store *Store) GetScan(ctx context.Context, actor uint, jobID string) (*Sca
 }
 
 func sameBinding(a, b SourceBindingRef) bool {
-	return a.LibraryID == b.LibraryID && a.SourceID == b.SourceID && bytes.Equal(a.RootLocator, b.RootLocator) && a.BindingRevision == b.BindingRevision && a.AuthorizationRevision == b.AuthorizationRevision
+	return a.BindingID == b.BindingID && a.ProofEpoch == b.ProofEpoch && a.LibraryID == b.LibraryID && a.SourceID == b.SourceID && bytes.Equal(a.RootLocator, b.RootLocator) && a.BindingRevision == b.BindingRevision && a.AuthorizationRevision == b.AuthorizationRevision
 }
 
 func validCheckpoint(c ScanCheckpoint) bool {
-	return c.Version == 1 && c.Sequence >= 0 && c.Processed >= 0 && len(c.LastObjectKey) <= 8192 && (c.Phase == "enumerate" || c.Phase == "reconcile" || c.Phase == "ready")
+	return c.Version == 1 && c.Sequence >= 0 && c.Processed >= 0 && len(c.LastObjectKey) <= 16384 && (c.Phase == "enumerate" || c.Phase == "reconcile" || c.Phase == "ready")
 }
 
 func initialCheckpoint() ScanCheckpoint { return ScanCheckpoint{Version: 1, Phase: "enumerate"} }
@@ -365,8 +389,8 @@ func enqueueScanTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBi
 VALUES (?, ?, ?, 'library.scan', 'queued', 1, ?, ?, ?)`, id, binding.LibraryID, actor, string(encoded), now, now); err != nil {
 		return nil, err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO scan_job(job_id, library_id, source_id, root_locator, binding_revision, authorization_revision, rules_revision, operation_id, active)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`, id, binding.LibraryID, binding.SourceID, binding.RootLocator, binding.BindingRevision, binding.AuthorizationRevision, rulesRevision, operationID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO scan_job(job_id, library_id, source_id, root_locator, binding_revision, authorization_revision, rules_revision, operation_id, active,binding_id,binding_epoch)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1,?,?)`, id, binding.LibraryID, binding.SourceID, binding.RootLocator, binding.BindingRevision, binding.AuthorizationRevision, rulesRevision, operationID, binding.BindingID, binding.ProofEpoch); err != nil {
 		return nil, err
 	}
 	r := &scanRecord{ScanJob: ScanJob{ID: id, LibraryID: binding.LibraryID, OwnerUserID: actor, Status: "queued", Generation: 1, RulesRevision: rulesRevision, Binding: binding, Checkpoint: cp, CreatedAt: now, UpdatedAt: now}, operationID: operationID, active: true}
@@ -543,14 +567,17 @@ func cancelScanTx(ctx context.Context, tx *sql.Tx, actor uint, jobID string, exp
 // mapping exists, the checkpoint and outbox under one SQLite write lock.
 // Only the last identical sequence may be replayed; it returns the same IDs.
 func (store *Store) CommitScanObservation(ctx context.Context, actor uint, lease ScanLease, input ScanObservation, checkpoint ScanCheckpoint) (*ScanCommit, error) {
-	if len(input.ObjectKey) == 0 || len(input.ObjectKey) > 8192 || len(input.Locator) == 0 || len(input.Locator) > 8192 || input.SourceVersion == "" || len(input.SourceVersion) > 1024 || input.SizeBytes < 0 || input.ExpectedRevision < 0 || (input.Identity != "native" && input.Identity != "path_unverified") {
+	if len(input.ObjectKey) == 0 || len(input.ObjectKey) > 16384 || len(input.Locator) == 0 || len(input.Locator) > 8192 || input.SourceVersion == "" || len(input.SourceVersion) > 1024 || input.SizeBytes < 0 || input.ExpectedRevision < 0 || (input.Identity != "native" && input.Identity != "path_unverified") {
 		return nil, fmt.Errorf("%w: scan observation", ErrInvalid)
 	}
-	if input.Identity == "path_unverified" && !bytes.Equal(input.ObjectKey, UnverifiedPathObjectKey(input.Locator)) {
+	if input.Identity == "path_unverified" && !bytes.Equal(input.ObjectKey, UnverifiedPathObjectKey(lease.Binding.BindingID, lease.Binding.ProofEpoch, input.Locator)) {
 		return nil, fmt.Errorf("%w: unverified identity must contain the full locator", ErrInvalid)
 	}
 	if input.NFOStatus != "missing" && input.NFOStatus != "parsed" && input.NFOStatus != "invalid" && input.NFOStatus != "unavailable" && input.NFOStatus != "changed" {
 		return nil, fmt.Errorf("%w: NFO status", ErrInvalid)
+	}
+	if (input.NFOStatus == "parsed") != (input.NFO != nil) {
+		return nil, fmt.Errorf("%w: NFO status and evidence", ErrInvalid)
 	}
 	if !validCheckpoint(checkpoint) || checkpoint.Phase != "enumerate" || !bytes.Equal(checkpoint.LastObjectKey, input.ObjectKey) {
 		return nil, fmt.Errorf("%w: observation checkpoint", ErrInvalid)
@@ -585,8 +612,8 @@ func (store *Store) CommitScanObservation(ctx context.Context, actor uint, lease
 		var seenJob sql.NullString
 		var seenGeneration sql.NullInt64
 		err = tx.QueryRowContext(ctx, `SELECT f.revision, lf.last_seen_job_id, lf.last_seen_generation FROM source_file f
-LEFT JOIN library_file lf ON lf.source_file_id = f.id AND lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ?
-WHERE f.source_id = ? AND f.object_key = ?`, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.Binding.SourceID, input.ObjectKey).Scan(&revision, &seenJob, &seenGeneration)
+LEFT JOIN library_file lf ON lf.source_file_id = f.id AND lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.binding_epoch=?
+WHERE f.source_id = ? AND f.object_key = ?`, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.Binding.ProofEpoch, r.Binding.SourceID, input.ObjectKey).Scan(&revision, &seenJob, &seenGeneration)
 		exists := err == nil
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
@@ -618,7 +645,7 @@ ELSE excluded.status END`, r.ID, r.Generation, file.ID, input.NFOStatus); err !=
 		err = tx.QueryRowContext(ctx, `SELECT e.item_id FROM variant v JOIN edition e ON e.id = v.edition_id AND e.library_id = v.library_id
 WHERE v.library_id = ? AND v.source_file_id = ? ORDER BY e.item_id, v.id LIMIT 1`, r.LibraryID, file.ID).Scan(&itemID)
 		if errors.Is(err, sql.ErrNoRows) {
-			item, err := createCatalogItemTx(ctx, tx, actor, r.LibraryID, NewCatalogItem{Kind: "video", Title: input.InitialTitle})
+			item, err := createCatalogItemTx(ctx, tx, actor, r.LibraryID, NewCatalogItem{Kind: "video", Title: input.InitialTitle, initialSource: "filename", initialBinding: &r.Binding})
 			if err != nil {
 				return err
 			}
@@ -628,6 +655,14 @@ WHERE v.library_id = ? AND v.source_file_id = ? ORDER BY e.item_id, v.id LIMIT 1
 			itemID = item.ID
 		} else if err != nil {
 			return err
+		}
+		if err := applyFilenameObservationTx(ctx, tx, actor, r.Binding, itemID, input.InitialTitle); err != nil {
+			return err
+		}
+		if input.NFO != nil {
+			if err := applyNFOObservationTx(ctx, tx, actor, r.Binding, itemID, *input.NFO); err != nil {
+				return err
+			}
 		}
 		result = &ScanCommit{SourceFileID: file.ID, ItemID: itemID, FileRevision: file.Revision, IdentityEpoch: file.IdentityEpoch}
 		if err := saveScanCheckpoint(ctx, tx, r, checkpoint, digest, result); err != nil {
@@ -669,7 +704,8 @@ func (store *Store) CompleteScanEnumeration(ctx context.Context, actor uint, lea
 
 // A valid staged candidate still names the exact file revision, locator and
 // previously observed generation that were checked for safe absence.
-const unstagedMissing = `lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.missing_since IS NULL
+const unstagedMissing = `lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.missing_since IS NULL AND lf.binding_epoch>0
+AND lf.binding_epoch=(SELECT ls.proof_epoch FROM library_source ls WHERE ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator)
 AND NOT (lf.last_seen_job_id IS ? AND lf.last_seen_generation IS ?)
 AND NOT EXISTS (SELECT 1 FROM scan_missing_candidate c WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id
  AND c.file_revision = f.revision AND c.locator = lf.locator AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`
@@ -771,7 +807,7 @@ func (store *Store) CommitScanMissing(ctx context.Context, actor uint, lease Sca
 			var missing sql.NullInt64
 			err := tx.QueryRowContext(ctx, `SELECT lf.locator, f.revision, lf.last_seen_job_id, lf.last_seen_generation, lf.missing_since
 FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id
-WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.source_file_id = ?`, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, c.SourceFileID).Scan(&locator, &revision, &seenJob, &seenGeneration, &missing)
+WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.source_file_id = ? AND lf.binding_epoch=? AND lf.binding_epoch>0`, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, c.SourceFileID, r.Binding.ProofEpoch).Scan(&locator, &revision, &seenJob, &seenGeneration, &missing)
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrRevisionConflict
 			}
@@ -871,10 +907,11 @@ func (store *Store) FinishScan(ctx context.Context, actor uint, lease ScanLease,
 			now := time.Now().UnixMilli()
 			_, err = tx.ExecContext(ctx, `UPDATE library_file AS lf SET missing_since = ?
 WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.missing_since IS NULL
+AND lf.binding_epoch=? AND lf.binding_epoch>0
 AND NOT (lf.last_seen_job_id IS ? AND lf.last_seen_generation IS ?)
 AND EXISTS (SELECT 1 FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
 WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id AND c.file_revision = f.revision AND c.locator = lf.locator
-AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`, now, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.ID, r.Generation, r.ID, r.Generation)
+AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`, now, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.Binding.ProofEpoch, r.ID, r.Generation, r.ID, r.Generation)
 			if err != nil {
 				return err
 			}

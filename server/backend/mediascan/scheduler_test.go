@@ -13,6 +13,27 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/mediasource"
 )
 
+func createSchedulerSource(t *testing.T, fixture *scanFixture, store *medialibrary.Store, libraryID string, revision int64, configuration, root, operation string) *medialibrary.LibrarySource {
+	t.Helper()
+	authority, err := fixture.resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := CaptureLocalBindingProof(t.Context(), 7, configuration, []byte(root), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ack, err := store.CreateAttestedLocalSourceWithOperation(t.Context(), 7, libraryID, revision, operation, configuration, []byte(root), *proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := store.GetLibrarySourceByID(t.Context(), 7, ack.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return binding
+}
+
 func TestSchedulerExclusiveLeaseShutdownAndRecovery(t *testing.T) {
 	fixture := newScanFixture(t)
 	fixture.write(t, "film.mp4", "fixture video")
@@ -26,10 +47,7 @@ func TestSchedulerExclusiveLeaseShutdownAndRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := store.CreateLocalSource(t.Context(), 7, library.ID, library.Revision, "fixture", []byte("/media"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	binding := createSchedulerSource(t, fixture, store, library.ID, library.Revision, "fixture", "/media", "source-fixture")
 	otherStore, err := medialibrary.Open(t.Context(), database)
 	if err != nil {
 		t.Fatal(err)
@@ -42,7 +60,8 @@ func TestSchedulerExclusiveLeaseShutdownAndRecovery(t *testing.T) {
 	jobID := job.ID
 	entered := make(chan struct{})
 	var enteredOnce sync.Once
-	resolve := func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+	resolve := func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		owner, ref := binding.Source.OwnerUserID, binding.Source.ConfigurationRef
 		if owner != 7 || ref != "fixture" {
 			return mediasource.LocalAuthority{}, fs.ErrPermission
 		}
@@ -81,8 +100,8 @@ func TestSchedulerExclusiveLeaseShutdownAndRecovery(t *testing.T) {
 	if err != nil || interrupted.Status != "interrupted" {
 		t.Fatalf("shutdown status=%+v err=%v", interrupted, err)
 	}
-	resume, err := NewScheduler(t.Context(), otherStore, func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
-		if owner != 7 || ref != "fixture" {
+	resume, err := NewScheduler(t.Context(), otherStore, func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		if binding.Source.OwnerUserID != 7 || binding.Source.ConfigurationRef != "fixture" {
 			return mediasource.LocalAuthority{}, fs.ErrPermission
 		}
 		return fixture.resolve(ctx)
@@ -102,6 +121,7 @@ func TestSchedulerExclusiveLeaseShutdownAndRecovery(t *testing.T) {
 }
 
 func TestSchedulerFailsPendingJobWhenAuthorityIsRevoked(t *testing.T) {
+	fixture := newScanFixture(t)
 	store, err := medialibrary.Open(t.Context(), filepath.Join(t.TempDir(), "catalog.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -111,15 +131,12 @@ func TestSchedulerFailsPendingJobWhenAuthorityIsRevoked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding, err := store.CreateLocalSource(t.Context(), 7, library.ID, library.Revision, "fixture", []byte("/media"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	binding := createSchedulerSource(t, fixture, store, library.ID, library.Revision, "fixture", "/media", "source-fixture")
 	job, err := store.EnqueueScan(t.Context(), 7, binding.Ref(), "revoked-fixture", LocalRulesRevision)
 	if err != nil {
 		t.Fatal(err)
 	}
-	scheduler, err := NewScheduler(t.Context(), store, func(context.Context, uint, string) (mediasource.LocalAuthority, error) {
+	scheduler, err := NewScheduler(t.Context(), store, func(context.Context, *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
 		return mediasource.LocalAuthority{}, fs.ErrPermission
 	})
 	if err != nil {
@@ -145,14 +162,8 @@ func TestSchedulerCancelOneJobKeepsOtherWorkersRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	slow, err := store.CreateLocalSource(t.Context(), 7, library.ID, library.Revision, "slow", []byte("/media"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	fast, err := store.CreateLocalSource(t.Context(), 7, library.ID, slow.LibraryRevision, "fast", []byte("/media/fast"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	slow := createSchedulerSource(t, fixture, store, library.ID, library.Revision, "slow", "/media", "source-slow")
+	fast := createSchedulerSource(t, fixture, store, library.ID, slow.LibraryRevision, "fast", "/media/fast", "source-fast")
 	slowJob, err := store.EnqueueScan(t.Context(), 7, slow.Ref(), "slow-operation", LocalRulesRevision)
 	if err != nil {
 		t.Fatal(err)
@@ -163,7 +174,8 @@ func TestSchedulerCancelOneJobKeepsOtherWorkersRunning(t *testing.T) {
 	}
 	entered := make(chan struct{})
 	var once sync.Once
-	scheduler, err := NewScheduler(t.Context(), store, func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+	scheduler, err := NewScheduler(t.Context(), store, func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		owner, ref := binding.Source.OwnerUserID, binding.Source.ConfigurationRef
 		if ref == "slow" {
 			job, err := store.GetScan(ctx, owner, slowJob.ID)
 			if err != nil {

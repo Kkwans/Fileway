@@ -1,13 +1,11 @@
 package mediascan
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"strings"
 
 	"github.com/Kkwans/nas-file-browser/backend/files"
@@ -20,17 +18,9 @@ var ErrCandidateUncertain = errors.New("media scan cannot establish candidate ab
 // directory, a device, or an object rejected by the safe opener. Those cases
 // must not be turned into a missing result. Every lookup rechecks live scope.
 func (w *walker) missingCandidate(ctx context.Context, absolute []byte) (bool, error) {
-	root := w.binding.RootLocator
-	prefix := append([]byte(nil), root...)
-	if !bytes.Equal(root, []byte("/")) {
-		prefix = append(prefix, '/')
-	}
-	if !bytes.HasPrefix(absolute, prefix) || len(absolute) == len(prefix) {
-		return false, fs.ErrPermission
-	}
-	relative := string(absolute[len(prefix):])
-	if relative == "" || path.Clean(relative) != relative || relative == ".." || strings.HasPrefix(relative, "../") || strings.HasPrefix(relative, "/") {
-		return false, fs.ErrInvalid
+	relative, err := relativeLocalLocator(w.binding.RootLocator, absolute)
+	if err != nil {
+		return false, err
 	}
 	resource, err := w.source.Open(ctx, relative, false)
 	if err == nil {

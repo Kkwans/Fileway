@@ -30,3 +30,5 @@ func nativeObjectKey(file *os.File) ([]byte, bool) {
 	}
 	return []byte(fmt.Sprintf("fileway/local/windows/v1:%d:%x:%d", id.volume, id.file, basic.created)), true
 }
+
+func nativeDirectoryKey(file *os.File) ([]byte, bool) { return nativeObjectKey(file) }

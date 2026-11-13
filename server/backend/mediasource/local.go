@@ -17,10 +17,11 @@ import (
 // LocalAuthority is resolved afresh for every open. Never capture a long-lived
 // user Fs or permission snapshot in a source connection.
 type LocalAuthority struct {
-	FS         afero.Fs
-	ServerRoot string
-	CanRead    bool
-	Check      func(string) bool
+	FS             afero.Fs
+	ServerRoot     string
+	WorkspaceScope []byte // from the same live account snapshot as FS and Check
+	CanRead        bool
+	Check          func(string) bool
 }
 
 type ResolveLocalAuthority func(context.Context) (LocalAuthority, error)

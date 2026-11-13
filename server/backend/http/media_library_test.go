@@ -18,6 +18,9 @@ func TestMediaLibraryHTTPReadsArePrivateAndOptional(t *testing.T) {
 	if r := h.request(t, owner.ID, mediaLibraryListHandler, http.MethodGet, url, nil, nil); r.Code != 503 {
 		t.Fatalf("disabled: %d", r.Code)
 	}
+	if r := h.request(t, owner.ID, mediaScanSupportHandler(nil), http.MethodGet, "/api/media-library/v1/scan-support", nil, nil); r.Code != 200 || !strings.Contains(r.Body.String(), `"reason":"not_enabled"`) {
+		t.Fatalf("disabled scan support: %d %s", r.Code, r.Body)
+	}
 	catalog, err := medialibrary.Open(t.Context(), filepath.Join(t.TempDir(), "catalog.db"))
 	if err != nil {
 		t.Fatal(err)

@@ -17,7 +17,20 @@ func createBoundSource(t *testing.T, store *Store, library *Library) *LibrarySou
 	if err != nil {
 		t.Fatal(err)
 	}
-	return binding
+	return testAttestBinding(t, store, binding)
+}
+
+func testAttestBinding(t *testing.T, store *Store, binding *LibrarySource) *LibrarySource {
+	t.Helper()
+	proof := BindingProof{Version: 1, MappingDigest: bytes.Repeat([]byte{42}, 32), RootIdentityKind: "native", RootIdentity: []byte(binding.ID)}
+	if _, err := store.AttestSourceBindingWithOperation(t.Context(), binding.Source.OwnerUserID, binding.ID, binding.Revision, "test-attest-"+binding.ID, proof); err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.GetLibrarySourceByID(t.Context(), binding.Source.OwnerUserID, binding.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return current
 }
 
 func observeFile(t *testing.T, store *Store, binding *LibrarySource, key string) *SourceFile {
@@ -155,6 +168,7 @@ func TestFileAssociationsRequireObservationInTheExactLibrary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	secondBinding = testAttestBinding(t, store, secondBinding)
 	if _, err := store.AttachCatalogFile(ctx, 7, two.ID, item.ID, 1, file.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}

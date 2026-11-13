@@ -264,17 +264,19 @@ func (s *Scheduler) run(candidate medialibrary.ScanJob) {
 		s.failPending(ctx, *job, medialibrary.ScanErrorUnsupportedRules)
 		return
 	}
-	resolve := func(ctx context.Context, owner uint, configurationRef string) (mediasource.LocalAuthority, error) {
+	resolve := func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
 		if err := s.Ready(ctx); err != nil {
 			return mediasource.LocalAuthority{}, err
 		}
-		return s.resolve(ctx, owner, configurationRef)
+		return s.resolve(ctx, binding)
 	}
 	if _, err := CheckBinding(ctx, s.store, job.OwnerUserID, job.Binding, resolve); err != nil {
 		if ctx.Err() != nil {
 			return
 		}
 		switch {
+		case errors.Is(err, ErrBindingUnverified), errors.Is(err, ErrBindingChanged):
+			s.failPending(ctx, *job, medialibrary.ScanErrorSourceChanged)
 		case errors.Is(err, fs.ErrPermission), errors.Is(err, medialibrary.ErrForbidden), errors.Is(err, medialibrary.ErrArchived), errors.Is(err, medialibrary.ErrRevisionConflict):
 			s.failPending(ctx, *job, medialibrary.ScanErrorPermissionDenied)
 		case errors.Is(err, fs.ErrNotExist), errors.Is(err, medialibrary.ErrNotFound), errors.Is(err, files.ErrSubtitleScopeUnavailable):

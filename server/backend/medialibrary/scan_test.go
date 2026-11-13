@@ -205,6 +205,7 @@ func TestScanMissingIsStagedUntilAtomicCompletionAndBoundToRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	other = testAttestBinding(t, store, other)
 	if _, err := store.ObserveSourceFile(t.Context(), 7, other.Ref(), FileObservation{ObjectKey: file.ObjectKey, Locator: []byte("/videos/other/one.mkv"), SourceVersion: file.SourceVersion, ExpectedRevision: file.Revision}); err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +275,7 @@ func TestPathIdentityEpochAndExistingMapping(t *testing.T) {
 	binding := createBoundSource(t, store, library)
 	input := testObservation("unused", "/videos/one.mkv")
 	input.Identity = "path_unverified"
-	input.ObjectKey = UnverifiedPathObjectKey(input.Locator)
+	input.ObjectKey = UnverifiedPathObjectKey(binding.ID, binding.ProofEpoch, input.Locator)
 	file, err := store.ObserveSourceFile(t.Context(), 7, binding.Ref(), FileObservation{ObjectKey: input.ObjectKey, Locator: input.Locator, SourceVersion: input.SourceVersion, SizeBytes: &input.SizeBytes})
 	if err != nil {
 		t.Fatal(err)
@@ -404,7 +405,7 @@ func TestScanRejectsOlderObservationAfterConcurrentSourceUpdate(t *testing.T) {
 	}
 }
 
-func TestScanKeepsAnNFOIssueWhenAHardlinkHasACleanSidecar(t *testing.T) {
+func TestScanKeepsAnNFOIssueWhenAHardlinkHasNoSidecar(t *testing.T) {
 	store := openTestStore(t)
 	library := createLibrary(t, store, 7, "Films")
 	binding := createBoundSource(t, store, library)
@@ -415,7 +416,7 @@ func TestScanKeepsAnNFOIssueWhenAHardlinkHasACleanSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.ExpectedRevision = first.FileRevision
-	input.Locator, input.NFOStatus = []byte("/videos/other.mkv"), "parsed"
+	input.Locator, input.NFOStatus = []byte("/videos/other.mkv"), "missing"
 	second, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 2, 2))
 	if err != nil {
 		t.Fatal(err)
@@ -466,6 +467,7 @@ func TestNativeIdentityEpochAdvancesOnlyAfterEveryBindingWasMissing(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	other = testAttestBinding(t, store, other)
 	input := testObservation("native-file-number", "/videos/one.mkv")
 	_, lease := testScan(t, store, root, "native-initial-root")
 	first, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))

@@ -63,18 +63,38 @@ func newPersistentFixture(t *testing.T) *persistentFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.binding, err = store.CreateLocalSource(t.Context(), 7, library.ID, library.Revision, "fixture-config", []byte("/media"))
+	authority, err := f.resolve(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
+	proof, err := CaptureLocalBindingProof(t.Context(), 7, "fixture-config", []byte("/media"), authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ack, err := store.CreateAttestedLocalSourceWithOperation(t.Context(), 7, library.ID, library.Revision, "fixture-source", "fixture-config", []byte("/media"), *proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.binding, err = store.GetLibrarySourceByID(t.Context(), 7, ack.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.calls = 0
 	return f
 }
 
-func (f *persistentFixture) ownerResolve(ctx context.Context, owner uint, configurationRef string) (mediasource.LocalAuthority, error) {
-	if owner != 7 || configurationRef != "fixture-config" {
+func (f *persistentFixture) ownerResolve(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+	if binding.Source.OwnerUserID != 7 || binding.Source.ConfigurationRef != "fixture-config" {
 		return mediasource.LocalAuthority{}, fs.ErrPermission
 	}
-	return f.resolve(ctx)
+	authority, err := f.resolve(ctx)
+	if err != nil {
+		return mediasource.LocalAuthority{}, err
+	}
+	if _, err := VerifyLocalBindingProof(ctx, 7, "fixture-config", binding.RootLocator, authority, binding.Proof); err != nil {
+		return mediasource.LocalAuthority{}, err
+	}
+	return authority, nil
 }
 
 func (f *persistentFixture) claim(t *testing.T) medialibrary.ScanLease {
@@ -152,7 +172,8 @@ func TestPersistentLocalScanRevocationAndCancellationDoNotComplete(t *testing.T)
 			lease := f.claim(t)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			resolve := func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+			resolve := func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+				owner := binding.Source.OwnerUserID
 				job, err := f.store.GetScan(ctx, owner, lease.JobID)
 				if err != nil {
 					return mediasource.LocalAuthority{}, err
@@ -164,7 +185,7 @@ func TestPersistentLocalScanRevocationAndCancellationDoNotComplete(t *testing.T)
 					}
 					return mediasource.LocalAuthority{}, fs.ErrPermission
 				}
-				return f.ownerResolve(ctx, owner, ref)
+				return f.ownerResolve(ctx, binding)
 			}
 			result, err := Run(ctx, 7, f.store, f.coord, lease, resolve, Options{ReadBatch: 1})
 			wantErr, wantStatus := error(fs.ErrPermission), "failed"
@@ -214,7 +235,8 @@ func TestPersistentScanPublishesMissingOnlyAfterSuccessfulReconciliation(t *test
 	lease := f.claim(t)
 	// Revocation immediately before final publication occurs after the missing
 	// candidate has been safely checked and staged, but must not publish it.
-	resolve := func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+	resolve := func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		owner := binding.Source.OwnerUserID
 		job, err := f.store.GetScan(ctx, owner, lease.JobID)
 		if err != nil {
 			return mediasource.LocalAuthority{}, err
@@ -222,7 +244,7 @@ func TestPersistentScanPublishesMissingOnlyAfterSuccessfulReconciliation(t *test
 		if job.Checkpoint.Phase == "ready" {
 			return mediasource.LocalAuthority{}, fs.ErrPermission
 		}
-		return f.ownerResolve(ctx, owner, ref)
+		return f.ownerResolve(ctx, binding)
 	}
 	if _, err := Run(t.Context(), 7, f.store, f.coord, lease, resolve, Options{}); !errors.Is(err, fs.ErrPermission) {
 		t.Fatalf("final authority revocation: %v", err)
@@ -251,7 +273,8 @@ func TestPersistentScanExternalCancellationFencesOldLease(t *testing.T) {
 	f.write(t, "b.mp4", "B")
 	lease := f.claim(t)
 	canceled := false
-	resolve := func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+	resolve := func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		owner := binding.Source.OwnerUserID
 		job, err := f.store.GetScan(ctx, owner, lease.JobID)
 		if err != nil {
 			return mediasource.LocalAuthority{}, err
@@ -262,7 +285,7 @@ func TestPersistentScanExternalCancellationFencesOldLease(t *testing.T) {
 			}
 			canceled = true
 		}
-		return f.ownerResolve(ctx, owner, ref)
+		return f.ownerResolve(ctx, binding)
 	}
 	result, err := Run(t.Context(), 7, f.store, f.coord, lease, resolve, Options{ReadBatch: 1})
 	if !errors.Is(err, medialibrary.ErrScanState) || result.Observed != 1 || !canceled || len(f.catalog(t)) != 1 {
@@ -327,7 +350,8 @@ func TestPersistentScanFinishesAfterDurableCheckpointAdvances(t *testing.T) {
 	f.write(t, "b.mp4", "B")
 	lease := f.claim(t)
 	injected := false
-	resolve := func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+	resolve := func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		owner := binding.Source.OwnerUserID
 		job, err := f.store.GetScan(ctx, owner, lease.JobID)
 		if err != nil {
 			return mediasource.LocalAuthority{}, err
@@ -353,7 +377,7 @@ func TestPersistentScanFinishesAfterDurableCheckpointAdvances(t *testing.T) {
 			injected = true
 			return mediasource.LocalAuthority{}, fs.ErrPermission
 		}
-		return f.ownerResolve(ctx, owner, ref)
+		return f.ownerResolve(ctx, binding)
 	}
 	if _, err := Run(t.Context(), 7, f.store, f.coord, lease, resolve, Options{ReadBatch: 1}); !errors.Is(err, fs.ErrPermission) {
 		t.Fatalf("injected failure: %v", err)
@@ -370,7 +394,8 @@ func TestPersistentScanDoesNotWriteTerminalStateAfterCoordinatorLoss(t *testing.
 	f.write(t, "b.mp4", "B")
 	lease := f.claim(t)
 	released := false
-	resolve := func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+	resolve := func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		owner := binding.Source.OwnerUserID
 		job, err := f.store.GetScan(ctx, owner, lease.JobID)
 		if err != nil {
 			return mediasource.LocalAuthority{}, err
@@ -382,7 +407,7 @@ func TestPersistentScanDoesNotWriteTerminalStateAfterCoordinatorLoss(t *testing.
 			released = true
 			return mediasource.LocalAuthority{}, fs.ErrPermission
 		}
-		return f.ownerResolve(ctx, owner, ref)
+		return f.ownerResolve(ctx, binding)
 	}
 	_, err := Run(t.Context(), 7, f.store, f.coord, lease, resolve, Options{ReadBatch: 1})
 	if !released || !errors.Is(err, medialibrary.ErrCoordinatorUnavailable) {
@@ -438,6 +463,21 @@ func TestPersistentScanRejectsStaleCrossBindingObservation(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondBinding, err := f.store.BindLocalSource(t.Context(), 7, f.binding.LibraryID, f.binding.LibraryRevision, f.binding.Source.ID, []byte("/media/nested"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := f.resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof, err := CaptureLocalBindingProof(t.Context(), 7, "fixture-config", secondBinding.RootLocator, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.AttestSourceBindingWithOperation(t.Context(), 7, secondBinding.ID, secondBinding.Revision, "attest-second", *proof); err != nil {
+		t.Fatal(err)
+	}
+	secondBinding, err = f.store.GetLibrarySourceByID(t.Context(), 7, secondBinding.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

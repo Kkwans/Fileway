@@ -56,6 +56,31 @@ type mediaScanSummary struct {
 	UpdatedAt     int64  `json:"updatedAt"`
 }
 
+// This advertises only the local scan contract and coordinator state, never
+// the unfinished media-library/playback capability or permission to any root.
+func mediaScanSupportHandler(scheduler scanScheduler) handleFunc {
+	return withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+		w.Header().Set("Cache-Control", "no-store")
+		if d.deviceSession != "" {
+			return http.StatusForbidden, fmt.Errorf("设备凭据不能管理扫描")
+		}
+		result := struct {
+			LocalRulesRevision int64  `json:"localRulesRevision"`
+			Available          bool   `json:"available"`
+			Reason             string `json:"reason,omitempty"`
+		}{LocalRulesRevision: mediascan.LocalRulesRevision}
+		switch {
+		case d.store.MediaLibrary == nil:
+			result.Reason = "not_enabled"
+		case scheduler == nil || scheduler.Ready(r.Context()) != nil:
+			result.Reason = "coordinator_unavailable"
+		default:
+			result.Available = true
+		}
+		return renderJSON(w, r, result)
+	})
+}
+
 // Do not expose source locators, native object keys, configuration references,
 // or a checkpoint's LastObjectKey through a task response.
 func scanSummary(job *medialibrary.ScanJob) mediaScanSummary {
@@ -94,8 +119,9 @@ func validScanID(id string) bool {
 }
 
 func mediaScanResolver(d *data) mediascan.ResolveOwnerAuthority {
-	return func(ctx context.Context, owner uint, configurationRef string) (mediasource.LocalAuthority, error) {
-		return resolveLocalMediaConnection(ctx, d.store, d.server, owner, configurationRef)
+	return func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		authority, _, err := resolveAttestedMediaConnection(ctx, d.store, d.server, binding.Source.OwnerUserID, binding.Source.ConfigurationRef, binding.RootLocator, binding.Proof)
+		return authority, err
 	}
 }
 
@@ -220,6 +246,10 @@ func mediaScanError(err error) (int, error) {
 		return http.StatusForbidden, fmt.Errorf("没有来源扫描权限")
 	case errors.Is(err, medialibrary.ErrInvalid), errors.Is(err, fs.ErrInvalid):
 		return http.StatusBadRequest, fmt.Errorf("扫描参数无效")
+	case errors.Is(err, mediascan.ErrBindingRootSelection):
+		return http.StatusBadRequest, fmt.Errorf("请选择具体磁盘或目录")
+	case errors.Is(err, mediascan.ErrBindingUnverified), errors.Is(err, mediascan.ErrBindingChanged):
+		return http.StatusConflict, fmt.Errorf("来源需要重新确认")
 	case errors.Is(err, medialibrary.ErrRevisionConflict), errors.Is(err, medialibrary.ErrScanState), errors.Is(err, medialibrary.ErrScanActive), errors.Is(err, medialibrary.ErrArchived):
 		return http.StatusConflict, fmt.Errorf("扫描状态已变化，请重新读取")
 	case errors.Is(err, medialibrary.ErrCoordinatorUnavailable), errors.Is(err, fs.ErrClosed):

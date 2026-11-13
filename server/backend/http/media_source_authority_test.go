@@ -22,6 +22,9 @@ func TestLocalMediaAuthorityReloadsOwnerAndRulesWithoutViewerImpersonation(t *te
 	if authority.FS != h.fs[owner.ID] || authority.FS == h.fs[viewer.ID] {
 		t.Fatal("wrong filesystem principal")
 	}
+	if string(authority.WorkspaceScope) != owner.Scope {
+		t.Fatal("workspace scope did not come from the owner filesystem snapshot")
+	}
 	fresh, err := h.storage.Users.Get(h.server.Root, owner.ID)
 	if err != nil {
 		t.Fatal(err)

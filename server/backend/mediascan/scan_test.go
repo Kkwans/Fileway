@@ -3,11 +3,13 @@ package mediascan
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -47,7 +49,7 @@ func newScanFixture(t *testing.T) *scanFixture {
 		t.Fatal(err)
 	}
 	return &scanFixture{root: root, allowed: true, binding: &medialibrary.LibrarySource{
-		LibraryID: "library", Source: medialibrary.LocalSource{ID: "source", OwnerUserID: 7, AuthorizationRevision: 1}, RootLocator: []byte("/media"), Revision: 1,
+		ID: "binding", ProofEpoch: 1, LibraryID: "library", Source: medialibrary.LocalSource{ID: "source", OwnerUserID: 7, AuthorizationRevision: 1}, RootLocator: []byte("/media"), Revision: 1,
 	}}
 }
 
@@ -56,7 +58,7 @@ func (f *scanFixture) resolve(context.Context) (mediasource.LocalAuthority, erro
 	defer f.mu.Unlock()
 	f.calls++
 	return mediasource.LocalAuthority{
-		FS: afero.NewBasePathFs(afero.NewOsFs(), f.root), ServerRoot: f.root, CanRead: f.allowed,
+		FS: afero.NewBasePathFs(afero.NewOsFs(), f.root), ServerRoot: f.root, WorkspaceScope: []byte("/fixture-owner"), CanRead: f.allowed,
 		Check: func(string) bool { return true },
 	}, nil
 }
@@ -100,8 +102,12 @@ func TestScanLocalEnumeratesBoundedPagesAndRecordsNFOErrorsPerItem(t *testing.T)
 		}
 	}
 	good := found["/media/folder/good.mp4"]
-	if good.NFOStatus != NFOParsed || good.NFO == nil || len(good.NFO.Items) != 1 || good.NFO.Items[0].Fields["title"][0] != "Local title" {
+	if good.NFOStatus != NFOParsed || good.NFO == nil || len(good.NFO.Document.Items) != 1 || good.NFO.Document.Items[0].Fields["title"][0] != "Local title" {
 		t.Fatalf("good sidecar: %+v", good)
+	}
+	digest := sha256.Sum256([]byte("<movie><title>Local title</title></movie>"))
+	if !bytes.Equal(good.NFO.SourceKey, []byte("/media/folder/good.nfo")) || !bytes.Equal(good.NFO.Digest, digest[:]) || good.NFO.ParserVersion != 1 || good.NFO.AssociationAmbiguous {
+		t.Fatalf("sidecar evidence: %+v", good.NFO)
 	}
 	bad := found["/media/folder/bad.MKV"]
 	if bad.NFOStatus != NFOInvalid || bad.NFO != nil {
@@ -109,6 +115,46 @@ func TestScanLocalEnumeratesBoundedPagesAndRecordsNFOErrorsPerItem(t *testing.T)
 	}
 	if f.calls < result.Observed*2 {
 		t.Fatalf("source authority was not resolved for each file: %d", f.calls)
+	}
+}
+
+func TestScanLocalDirectoryNFOUsesConservativeAssociation(t *testing.T) {
+	f := newScanFixture(t)
+	f.write(t, "single/film.mkv", "video")
+	f.write(t, "single/movie.nfo", "<movie><title>Single</title></movie>")
+	f.write(t, "multiple/a.mkv", "video")
+	f.write(t, "multiple/b.mkv", "video")
+	f.write(t, "multiple/movie.mp4", "video")
+	f.write(t, "multiple/movie.nfo", "<movie><title>Shared</title></movie>")
+	f.write(t, "multiple/a.nfo", "<movie><title>Exact</title></movie>")
+	sink := &observationSink{}
+	if _, err := ScanLocal(t.Context(), 7, f.binding, f.resolve, sink, Options{ReadBatch: 1}); err != nil {
+		t.Fatal(err)
+	}
+	observed := map[string]Observation{}
+	for _, item := range sink.observations {
+		observed[string(item.Locator)] = item
+	}
+	for _, tc := range []struct {
+		locator, source, title string
+		ambiguous              bool
+	}{
+		{"/media/single/film.mkv", "/media/single/movie.nfo", "Single", false},
+		{"/media/multiple/a.mkv", "/media/multiple/a.nfo", "Exact", false},
+		{"/media/multiple/b.mkv", "/media/multiple/movie.nfo", "Shared", true},
+		{"/media/multiple/movie.mp4", "/media/multiple/movie.nfo", "Shared", true},
+	} {
+		item := observed[tc.locator]
+		if item.NFO == nil || item.NFOStatus != NFOParsed || string(item.NFO.SourceKey) != tc.source || item.NFO.Document.Items[0].Fields["title"][0] != tc.title || item.NFO.AssociationAmbiguous != tc.ambiguous {
+			t.Fatalf("%s: %+v", tc.locator, item.NFO)
+		}
+	}
+}
+
+func TestDisplayTitleKeepsFullLongFilename(t *testing.T) {
+	name := strings.Repeat("片", 220)
+	if got := displayTitle(name + ".mkv"); got != name {
+		t.Fatalf("long title truncated: runes=%d", len([]rune(got)))
 	}
 }
 

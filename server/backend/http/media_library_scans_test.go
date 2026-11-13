@@ -168,6 +168,14 @@ func (f *mediaScanHTTPFixture) waitJob(t *testing.T, libraryID, jobID string, ac
 
 func TestMediaLibraryHTTPRealScanJourneyAndOwnerBoundary(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
+	support := f.call(t, f.owner.ID, http.MethodGet, "/api/media-library/v1/scan-support", nil)
+	var supportValue struct {
+		Available          bool  `json:"available"`
+		LocalRulesRevision int64 `json:"localRulesRevision"`
+	}
+	if support.Code != http.StatusOK || json.Unmarshal(support.Body.Bytes(), &supportValue) != nil || !supportValue.Available || supportValue.LocalRulesRevision != mediascan.LocalRulesRevision || support.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("scan support: %d %s", support.Code, support.Body)
+	}
 	for name, content := range map[string]string{"a.mp4": "video A", "b.mkv": "video B", "b.nfo": "<movie><title>"} {
 		if err := os.WriteFile(filepath.Join(f.root, "films", name), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -295,6 +303,7 @@ func TestMediaLibraryHTTPRejectsDeviceManagementCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, target := range []struct{ method, path string }{
+		{http.MethodGet, "/api/media-library/v1/scan-support"},
 		{http.MethodPost, "/api/media-library/v1/libraries"},
 		{http.MethodGet, "/api/media-library/v1/libraries/owned/sources"},
 		{http.MethodPost, "/api/media-library/v1/libraries/owned/sources/local"},
@@ -533,6 +542,13 @@ func TestMediaLibraryHTTPSecondHandlerCannotFenceCoordinator(t *testing.T) {
 	otherRouter.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "/health", nil))
 	if health.Code != http.StatusOK {
 		t.Fatalf("existing service disabled by scan lock: %d", health.Code)
+	}
+	supportReq := httptest.NewRequest(http.MethodGet, "/api/media-library/v1/scan-support", nil)
+	supportReq.Header.Set("X-Auth", signedTrashHTTPToken(t, f.owner.ID))
+	support := httptest.NewRecorder()
+	otherRouter.ServeHTTP(support, supportReq)
+	if support.Code != http.StatusOK || !strings.Contains(support.Body.String(), `"reason":"coordinator_unavailable"`) {
+		t.Fatalf("non-coordinator support: %d %s", support.Code, support.Body)
 	}
 	request := httptest.NewRequest(http.MethodPost, base+"/"+queued.ID+"/cancel", strings.NewReader(`{"operationId":"other-cancel","expectedGeneration":1}`))
 	request.Header.Set("X-Auth", signedTrashHTTPToken(t, f.owner.ID))

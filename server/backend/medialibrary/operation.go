@@ -72,6 +72,9 @@ type sourceReceipt struct {
 	SourceCreatedAt       int64
 	Revision              int64
 	LibraryRevision       int64
+	ProofVersion          int
+	ProofEpoch            int64
+	AttestedAt            int64
 }
 
 func (store *Store) CreateLocalSourceWithOperation(ctx context.Context, actor uint, libraryID string, expectedRevision int64, operationID, configurationRef string, root []byte) (*LibrarySource, error) {
@@ -86,7 +89,7 @@ func (store *Store) CreateLocalSourceWithOperation(ctx context.Context, actor ui
 		if err != nil {
 			return sourceReceipt{}, err
 		}
-		return sourceReceipt{binding.ID, binding.LibraryID, binding.Source.ID, binding.Source.AuthorizationRevision, binding.Source.CreatedAt, binding.Revision, binding.LibraryRevision}, nil
+		return sourceReceipt{ID: binding.ID, LibraryID: binding.LibraryID, SourceID: binding.Source.ID, AuthorizationRevision: binding.Source.AuthorizationRevision, SourceCreatedAt: binding.Source.CreatedAt, Revision: binding.Revision, LibraryRevision: binding.LibraryRevision}, nil
 	})
 	if err != nil {
 		return nil, err
