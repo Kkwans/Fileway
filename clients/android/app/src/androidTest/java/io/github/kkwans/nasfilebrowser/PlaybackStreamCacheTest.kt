@@ -37,11 +37,12 @@ class PlaybackStreamCacheTest {
     private val length=2L*1024*1024
     private val opened=ConcurrentHashMap.newKeySet<DataSource>()
 
-    private suspend fun fixture(fileLength: Long = length, body:suspend(PlaybackStreamCache,RangeServer,AtomicLong)->Unit) {
+    private suspend fun fixture(fileLength: Long = length, retention: PlaybackCacheRetention? = null,
+        body:suspend(PlaybackStreamCache,RangeServer,AtomicLong)->Unit) {
         val name="owned-stream-cache-${System.nanoTime()}"
         val owner=CoroutineScope(SupervisorJob()+Dispatchers.Default)
         val root=File(context.cacheDir,name)
-        val cache=PlaybackStreamCache(context,owner,name,name,PlaybackCacheLimits(budget,16L*1024,4L*1024*1024,32L*1024,16L*1024,0,4096))
+        val cache=PlaybackStreamCache(context,owner,name,name,PlaybackCacheLimits(budget,16L*1024,4L*1024*1024,32L*1024,16L*1024,0,4096,retention))
         val server=RangeServer(fileLength);val position=AtomicLong()
         try{body(cache,server,position)}finally{
             opened.forEach{runCatching{it.close()}};opened.clear()
@@ -50,7 +51,7 @@ class PlaybackStreamCacheTest {
                 withTimeout(10000){while(SimpleCache.isCacheFolderLocked(root))delay(20)}
                 val database=StandaloneDatabaseProvider(context)
                 try{SimpleCache.delete(root,database)}finally{database.close()}
-            }finally{context.deleteSharedPreferences(name);server.close()}
+            }finally{context.deleteSharedPreferences(name);context.deleteSharedPreferences("$name-retired");server.close()}
         }
     }
     private suspend fun source(cache: PlaybackStreamCache, url: String, position: AtomicLong, account: String = "owned-a",
@@ -82,6 +83,22 @@ class PlaybackStreamCacheTest {
     }
     private suspend fun full(cache:PlaybackStreamCache,predicate:(PlaybackCacheState)->Boolean={true})=
         withTimeout(10000){cache.state.first{it.usedBytes==budget&&predicate(it)}}
+
+    @Test fun exitedCacheCanBeReopenedAndExpiresWhenRetentionIsDisabled()=runBlocking {
+        fixture(retention=PlaybackCacheRetention(2,30)) { cache,server,position ->
+            prime(source(cache,server.url,position),server.url).close()
+            full(cache)
+            cache.stop()
+            assertEquals(budget,cache.state.value.usedBytes)
+            val requests = server.requests.get()
+            prime(source(cache,server.url,position),server.url).close()
+            assertEquals(requests,server.requests.get())
+            cache.stop()
+            cache.setRetentionConfirmed(exitMinutes=0)
+            assertEquals(PlaybackCacheRetention(2,0),cache.state.value.retention)
+            assertEquals(0L,cache.state.value.usedBytes)
+        }
+    }
 
     @Test fun clearingRetainsActiveReaderAndResumesOnlyOnRequest()=runBlocking { fixture { cache,server,position ->
         val factory = source(cache,server.url,position)
