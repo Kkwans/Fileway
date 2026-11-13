@@ -52,7 +52,7 @@ type ScanJob struct {
 
 type ScanObservation struct {
 	ObjectKey     []byte
-	Identity      string // native or path_unverified
+	Identity      string // native or path_unverified; neither proves timeline continuity
 	Locator       []byte // original full workspace locator
 	SourceVersion string // existing v1:size:mtime marker, never a content hash
 	SizeBytes     int64

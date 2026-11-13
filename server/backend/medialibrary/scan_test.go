@@ -376,6 +376,128 @@ func TestScanRejectsOlderObservationAfterConcurrentSourceUpdate(t *testing.T) {
 	}
 }
 
+func TestScanKeepsAnNFOIssueWhenAHardlinkHasACleanSidecar(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Films")
+	binding := createBoundSource(t, store, library)
+	job, lease := testScan(t, store, binding, "hardlink-issue")
+	input := testObservation("same-native-file", "/videos/one.mkv")
+	first, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.ExpectedRevision = first.FileRevision
+	input.Locator, input.NFOStatus = []byte("/videos/other.mkv"), "parsed"
+	second, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 2, 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := store.ListScanNFOIssues(t.Context(), 7, job.ID, lease.Generation, "", 10)
+	if err != nil || len(issues.Items) != 1 || issues.Items[0].Status != "invalid" {
+		t.Fatal(issues, err)
+	}
+	finishEmptyReconcile(t, store, 7, *lease, 2)
+	job, lease = testScan(t, store, binding, "hardlink-next")
+	input.ExpectedRevision = second.FileRevision
+	if _, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1)); err != nil {
+		t.Fatal(err)
+	}
+	issues, err = store.ListScanNFOIssues(t.Context(), 7, job.ID, lease.Generation, "", 10)
+	if err != nil || len(issues.Items) != 0 {
+		t.Fatal(issues, err)
+	}
+}
+
+func markTestBindingMissing(t *testing.T, store *Store, binding *LibrarySource, operation string) {
+	t.Helper()
+	_, lease := testScan(t, store, binding, operation)
+	if err := store.CompleteScanEnumeration(t.Context(), 7, *lease, 0); err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.ListScanMissingCandidates(t.Context(), 7, *lease, "", 10)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatal(page, err)
+	}
+	cp := ScanCheckpoint{Version: 1, Sequence: 1, Phase: "reconcile"}
+	if err := store.CommitScanMissing(t.Context(), 7, *lease, page.Items, cp); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteScanReconciliation(t.Context(), 7, *lease, cp.Sequence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishScan(t.Context(), 7, *lease, ScanFinish{Status: "completed", ExpectedSequence: cp.Sequence}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNativeIdentityEpochAdvancesOnlyAfterEveryBindingWasMissing(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Films")
+	root := createBoundSource(t, store, library)
+	other, err := store.BindLocalSource(t.Context(), 7, library.ID, root.LibraryRevision, root.Source.ID, []byte("/videos/other"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := testObservation("native-file-number", "/videos/one.mkv")
+	_, lease := testScan(t, store, root, "native-initial-root")
+	first, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
+	if err != nil || first.IdentityEpoch != 1 {
+		t.Fatal(first, err)
+	}
+	finishEmptyReconcile(t, store, 7, *lease, 1)
+	_, lease = testScan(t, store, other, "native-initial-other")
+	input.ExpectedRevision, input.Locator = first.FileRevision, []byte("/videos/other/one.mkv")
+	second, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
+	if err != nil || second.IdentityEpoch != first.IdentityEpoch || second.SourceFileID != first.SourceFileID || second.ItemID != first.ItemID {
+		t.Fatal(second, err)
+	}
+	finishEmptyReconcile(t, store, 7, *lease, 1)
+
+	// A missing root does not invalidate the shared native object while a
+	// second binding still survives. Exercise the public observation helper.
+	markTestBindingMissing(t, store, root, "one-root-missing")
+	current, err := store.GetSourceFile(t.Context(), 7, root.Source.ID, input.ObjectKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := store.ObserveSourceFile(t.Context(), 7, root.Ref(), FileObservation{
+		ObjectKey: input.ObjectKey, Locator: []byte("/videos/one.mkv"), SourceVersion: input.SourceVersion,
+		SizeBytes: &input.SizeBytes, ExpectedRevision: current.Revision,
+	})
+	if err != nil || restored.IdentityEpoch != first.IdentityEpoch {
+		t.Fatal(restored, err)
+	}
+
+	// Once every binding has a completed missing confirmation, reappearance in
+	// a later scan advances both the identity epoch and the file revision even
+	// if the native number, locator, size and modification marker are unchanged.
+	markTestBindingMissing(t, store, root, "all-missing-root")
+	markTestBindingMissing(t, store, other, "all-missing-other")
+	before, err := store.GetSourceFile(t.Context(), 7, root.Source.ID, input.ObjectKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, lease = testScan(t, store, root, "native-reappeared")
+	input.ExpectedRevision, input.Locator = before.Revision, []byte("/videos/one.mkv")
+	reappeared, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
+	if err != nil || reappeared.IdentityEpoch != before.IdentityEpoch+1 || reappeared.FileRevision != before.Revision+1 || reappeared.ItemID != first.ItemID {
+		t.Fatal(before, reappeared, err)
+	}
+	if tableCount(t, store, "source_file") != 1 || tableCount(t, store, "library_item") != 1 || tableCount(t, store, "variant") != 1 {
+		t.Fatal("catalog associations changed")
+	}
+	var rootMissing, otherMissing int
+	if err := store.db.QueryRow("SELECT count(*) FROM library_file WHERE root_locator = ? AND missing_since IS NOT NULL", root.RootLocator).Scan(&rootMissing); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRow("SELECT count(*) FROM library_file WHERE root_locator = ? AND missing_since IS NOT NULL", other.RootLocator).Scan(&otherMissing); err != nil {
+		t.Fatal(err)
+	}
+	if rootMissing != 0 || otherMissing != 1 {
+		t.Fatal(rootMissing, otherMissing)
+	}
+}
+
 func TestVersionThreeMigrationPreservesBindingAndOpaqueLocator(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "v3.db")
 	db, err := sql.Open("sqlite", databaseURL(path, "rwc"))
@@ -459,36 +581,3 @@ INSERT INTO library_file(library_id,source_file_id,source_id,root_locator,observ
 		t.Fatal(count, err)
 	}
 }
-
-func TestScanKeepsAnNFOIssueWhenAHardlinkHasACleanSidecar(t *testing.T) {
-	store := openTestStore(t)
-	library := createLibrary(t, store, 7, "Films")
-	binding := createBoundSource(t, store, library)
-	job, lease := testScan(t, store, binding, "hardlink-issue")
-	input := testObservation("same-native-file", "/videos/one.mkv")
-	first, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
-	if err != nil {
-		t.Fatal(err)
-	}
-	input.ExpectedRevision = first.FileRevision
-	input.Locator, input.NFOStatus = []byte("/videos/other.mkv"), "parsed"
-	second, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 2, 2))
-	if err != nil {
-		t.Fatal(err)
-	}
-	issues, err := store.ListScanNFOIssues(t.Context(), 7, job.ID, lease.Generation, "", 10)
-	if err != nil || len(issues.Items) != 1 || issues.Items[0].Status != "invalid" {
-		t.Fatal(issues, err)
-	}
-	finishEmptyReconcile(t, store, 7, *lease, 2)
-	job, lease = testScan(t, store, binding, "hardlink-next")
-	input.ExpectedRevision = second.FileRevision
-	if _, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1)); err != nil {
-		t.Fatal(err)
-	}
-	issues, err = store.ListScanNFOIssues(t.Context(), 7, job.ID, lease.Generation, "", 10)
-	if err != nil || len(issues.Items) != 0 {
-		t.Fatal(issues, err)
-	}
-}
-

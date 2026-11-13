@@ -57,8 +57,9 @@ type SourceFile struct {
 	Revision      int64
 	ObservedAt    int64
 	MissingSince  *int64
-	// A legacy or path-only key is not proof of continuity. In particular,
-	// playback must not inherit progress from these identity epochs implicitly.
+	// Native file IDs are evidence, not an absolute proof of continuity: file
+	// systems can reuse them. Neither a native ID nor v1:size:mtime alone grants
+	// automatic recovery of old progress. Legacy and path-only IDs are weaker.
 	IdentityKind  string
 	IdentityEpoch int64
 }
@@ -288,14 +289,28 @@ func observeSourceFileTx(ctx context.Context, tx *sql.Tx, actor uint, binding So
 		file = &SourceFile{ID: id, SourceID: binding.SourceID, Revision: 1, IdentityKind: kind, IdentityEpoch: 1}
 	} else {
 		now = max(now, file.ObservedAt)
+		// A file number can be recycled after an object disappears. Only reset
+		// the shared identity epoch when at least one binding was known and all
+		// of them were confirmed missing; a live binding may still refer to the
+		// same object. A separate resolver must establish stronger evidence for
+		// resuming a prior timeline even when the epoch is unchanged.
+		nativeRevived := false
+		if file.IdentityKind == "native" && (identityKind == "" || identityKind == "native") {
+			var known, live int
+			if err := tx.QueryRowContext(ctx, `SELECT count(*), COALESCE(sum(CASE WHEN missing_since IS NULL THEN 1 ELSE 0 END), 0)
+FROM library_file WHERE source_file_id = ?`, file.ID).Scan(&known, &live); err != nil {
+				return nil, err
+			}
+			nativeRevived = known > 0 && live == 0
+		}
 		identityChanged := identityKind != "" && file.IdentityKind != identityKind
 		if identityChanged {
 			file.IdentityKind = identityKind
 		}
-		if identityChanged || forceNewEpoch {
+		if identityChanged || forceNewEpoch || nativeRevived {
 			file.IdentityEpoch++
 		}
-		changed = !bytes.Equal(file.Locator, input.Locator) || file.SourceVersion != input.SourceVersion || !sameOptionalSize(file.SizeBytes, input.SizeBytes) || file.MissingSince != nil || identityChanged || forceNewEpoch
+		changed = !bytes.Equal(file.Locator, input.Locator) || file.SourceVersion != input.SourceVersion || !sameOptionalSize(file.SizeBytes, input.SizeBytes) || file.MissingSince != nil || identityChanged || forceNewEpoch || nativeRevived
 		if changed {
 			file.Revision++
 		}
