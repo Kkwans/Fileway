@@ -587,6 +587,7 @@ private object FullRowVisibility : BringIntoViewSpec {
         heldKey = KeyEvent.KEYCODE_UNKNOWN
     }
     val span = range.endInclusive - range.start
+    val trackInset = 10.dp
     Row(
         Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -606,7 +607,9 @@ private object FullRowVisibility : BringIntoViewSpec {
                 .border(2.dp, if (focused) PanelOutline else Color.Transparent, TvShape)
                 .pointerInput(range) {
                     detectTapGestures { point ->
-                        set(range.start + span * (point.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
+                        val inset = trackInset.toPx()
+                        val fraction = ((point.x - inset) / (size.width - 2 * inset).coerceAtLeast(1f)).coerceIn(0f, 1f)
+                        set(range.start + span * fraction)
                     }
                 }
                 .pointerInput(range) {
@@ -614,7 +617,9 @@ private object FullRowVisibility : BringIntoViewSpec {
                         onDragStart = { dragging = true },
                         onHorizontalDrag = { change, _ ->
                             change.consume()
-                            preview = snap(range.start + span * (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
+                            val inset = trackInset.toPx()
+                            val fraction = ((change.position.x - inset) / (size.width - 2 * inset).coerceAtLeast(1f)).coerceIn(0f, 1f)
+                            preview = snap(range.start + span * fraction)
                         },
                         onDragEnd = { dragging = false; preview?.let(commit) },
                         onDragCancel = { dragging = false; preview = null },
@@ -666,7 +671,7 @@ private object FullRowVisibility : BringIntoViewSpec {
                         steps = if (accelerate) ((span / step).roundToInt() - 1).coerceAtLeast(0) else 0)
                     setProgress { target -> if (target.isFinite()) { set(target); true } else false }
                 }
-                .focusable().padding(horizontal = 10.dp),
+                .focusable().padding(horizontal = trackInset),
         ) {
             drawMediaProgressTrack((shown - range.start) / span, Color.White.copy(alpha = .22f), FilewayPalette.darkAccent,
                 thickness = if (focused) 4.dp else 3.dp, thumbRadius = if (focused || dragging) 6.dp else 4.dp)
