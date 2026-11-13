@@ -702,7 +702,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     fun restoreRate(epoch: Long) { if (session.accepts(epoch)) { temporaryRate = null; applyRate(session.preferredRate) } }
     private fun applyVolume(player: ExoPlayer, value: Int) {
         requestedVolume = value.coerceIn(0, maximumVolume)
-        tvGain?.percent = requestedVolume.coerceAtLeast(100)
+        tvGain?.setGain(requestedVolume)
         player.volume = requestedVolume.coerceAtMost(100) / 100f
     }
 

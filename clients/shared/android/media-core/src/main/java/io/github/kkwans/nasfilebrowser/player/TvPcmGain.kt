@@ -9,13 +9,17 @@ import java.nio.ByteBuffer
 /** Always stays in the PCM pipeline so changing gain does not reconfigure playback. */
 @androidx.annotation.OptIn(UnstableApi::class)
 internal class TvPcmGain : BaseAudioProcessor() {
-    @Volatile var percent = 100
+    @Volatile private var gainPercent = 100
+
+    fun setGain(percent: Int) {
+        gainPercent = percent.coerceIn(100, 200)
+    }
 
     override fun onConfigure(inputAudioFormat: AudioFormat): AudioFormat =
         if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) inputAudioFormat else AudioFormat.NOT_SET
 
     override fun queueInput(inputBuffer: ByteBuffer) {
-        val gain = percent
+        val gain = gainPercent
         val output = replaceOutputBuffer(inputBuffer.remaining())
         if (gain == 100) {
             output.put(inputBuffer)

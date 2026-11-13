@@ -39,6 +39,7 @@ import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.player.*
 import kotlinx.coroutines.*
+import kotlin.math.roundToLong
 
 private val PlayerFeedbackSurface = Color(0xFF262626)
 
@@ -326,7 +327,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
         }
         seekFeedback?.let { (from, target) ->
             if (panel == null && !hudVisible && !exitPrompt && !state.busy && player.seekError == null) {
-                val delta = (target - from) / 1000
+                val delta = ((target - from) / 1000.0).roundToLong()
                 val direction = when {
                     delta > 0 -> "快进 ${delta} 秒"
                     delta < 0 -> "快退 ${-delta} 秒"

@@ -467,7 +467,6 @@ private fun TvPhonePortraitMedia(
                             val colors = MaterialTheme.colorScheme
                             val buffered = player?.optLong("bufferedMs")?.toDouble()?.div(duration)?.toFloat()
                             val cached = remoteCacheRanges(snapshot.content.optJSONObject("cache"), duration)
-                                .map { (start, end) -> start / duration to end / duration }
                             Canvas(Modifier.padding(start = 2.dp, end = 2.dp, top = 2.dp).fillMaxWidth().height(3.dp)) {
                                 drawMediaProgressTrack(fraction, colors.outlineVariant, colors.primary,
                                     buffered = buffered, bufferedColor = colors.onSurfaceVariant.copy(alpha = .55f),

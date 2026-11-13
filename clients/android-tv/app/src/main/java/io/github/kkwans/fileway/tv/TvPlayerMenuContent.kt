@@ -149,8 +149,8 @@ internal fun tvPlayerSettingsRows(
             destination(TvPlayerPage.SYNC, "${player.subtitleDelayMs} ms", Art.drawable.fileway_ic_history),
         )
         TvPlayerPage.SUBTITLE_SOURCE -> listOf(
-            destination(TvPlayerPage.EXTERNAL, title = "当前服务器"),
-            destination(TvPlayerPage.LOCAL_SUBTITLE),
+            destination(TvPlayerPage.EXTERNAL, icon = Art.drawable.fileway_ic_server, title = "当前服务器"),
+            destination(TvPlayerPage.LOCAL_SUBTITLE, icon = Art.drawable.fileway_ic_storage),
         )
         TvPlayerPage.FONT -> fonts.options.map { font ->
             choice(font.key, font.label, appearance.fontKey == font.key, supporting = "栖卷 · Aa 0123") {
@@ -264,7 +264,7 @@ internal fun tvPlayerSettingsRows(
                 focus.target("volume", focus.initialKey?.startsWith("header/") != true, Modifier.focusProperties { up = focus.header })) {
                 model.media.player.volume(it.toInt())
             }
-            TvPlayerNote("当前媒体的输出音量")
+            TvPlayerNote(if (player.volume > 100) "已启用音频增益" else "当前媒体的输出音量")
         }
         TvPlayerPage.INFO -> TvPlayerInfo(state, player, cache, focus)
         TvPlayerPage.EXTERNAL -> TvSubtitleFiles(model, state, player, focus, onBrowserBack)
