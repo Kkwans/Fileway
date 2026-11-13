@@ -161,13 +161,17 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
         return try { synchronizeAcknowledgement(result); AccountWriteAcknowledgement(tokenStorageFailed = storageFailed || transportHealth != null) }
         catch (error: Exception) { if (error is CancellationException) throw error; AccountWriteAcknowledgement(tokenStorageFailed = true) }
     }
-    private suspend fun response(method: String, endpoint: String, body: JSONObject? = null, accepted: Set<Int> = setOf(200), statusTextBody: Boolean = false, rawBody: ByteArray? = null): String {
+    private suspend fun response(method: String, endpoint: String, body: JSONObject? = null, accepted: Set<Int> = setOf(200), statusTextBody: Boolean = false, rawBody: ByteArray? = null,
+        onAccepted: (suspend (Int, String?) -> Unit)? = null): String {
         val command = JSONObject().put("op", "request").put("session", id).put("method", method).put("endpoint", endpoint)
         body?.let { command.put("body", it) }
         rawBody?.let { command.put("bodyBase64", Base64.encodeToString(it, Base64.NO_WRAP)) }
         val result = native(command) as JSONObject
         when (result.getInt("status")) {
             in accepted -> {
+                // Observe an HTTP acknowledgement before the next suspension: token
+                // synchronization may be cancelled when the active account changes.
+                onAccepted?.invoke(result.getInt("status"), result.opt("body") as? String)
                 synchronizeAcknowledgement(result)
                 val text = result.getString("body")
                 val expected = when (result.getInt("status")) { 200 -> "200 OK"; 201 -> "201 Created"; 202 -> "202 Accepted"; 204 -> "204 No Content"; else -> null }
@@ -185,6 +189,11 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
     suspend fun action(method: String, endpoint: String, body: JSONObject? = null): JSONObject {
         val text = response(method, endpoint, body, setOf(200, 201, 202, 204), statusTextBody = true)
         return if (text.isBlank()) JSONObject() else JSONObject(text)
+    }
+    /** The hook records the receipt before token synchronization may suspend. */
+    internal suspend fun actionWithAcknowledgement(method: String, endpoint: String, body: JSONObject,
+        onAccepted: suspend (Int, String?) -> Unit) {
+        response(method, endpoint, body, setOf(200, 201, 202, 204), statusTextBody = true, onAccepted = onAccepted)
     }
     suspend fun rawResource(method: String, wire: String, bytes: ByteArray, expectedModified: String? = null, expectedSize: Long? = null): JSONObject {
         require(method in setOf("PUT", "POST") && bytes.size <= 10 * 1024 * 1024)
