@@ -587,13 +587,14 @@ private object FullRowVisibility : BringIntoViewSpec {
         heldKey = KeyEvent.KEYCODE_UNKNOWN
     }
     val span = range.endInclusive - range.start
-    val trackInset = 10.dp
+    val trackInset = if (expandTrack) 12.dp else 10.dp
+    val trackShape = if (expandTrack) RoundedCornerShape(8.dp) else TvShape
     @Composable fun Track(trackWidth: Modifier) {
         Canvas(
             modifier.then(trackWidth).height(48.dp)
                 .onFocusChanged { focused = it.isFocused; if (!focused) stopRepeat() }
-                .background(if (focused) Color.White.copy(alpha = .10f) else Color.Transparent, TvShape)
-                .border(2.dp, if (focused) PanelOutline else Color.Transparent, TvShape)
+                .background(if (focused) Color.White.copy(alpha = .08f) else Color.Transparent, trackShape)
+                .border(if (expandTrack) 1.5.dp else 2.dp, if (focused) PanelOutline else Color.Transparent, trackShape)
                 .pointerInput(range) {
                     detectTapGestures { point ->
                         val inset = trackInset.toPx()
@@ -667,15 +668,16 @@ private object FullRowVisibility : BringIntoViewSpec {
         }
     }
     if (expandTrack) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Box(Modifier.fillMaxWidth().heightIn(min = 28.dp).padding(horizontal = trackInset)) {
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(format(shown), style = tvTextStyle(22, 28, FontWeight.Medium).copy(fontFeatureSettings = "tnum"),
+                color = Color.White)
+            Spacer(Modifier.height(4.dp))
+            Track(Modifier.fillMaxWidth())
+            Box(Modifier.fillMaxWidth().heightIn(min = 20.dp).padding(horizontal = trackInset)) {
                 val edgeStyle = tvTextStyle(14, 20).copy(color = Color.White.copy(alpha = .75f))
                 Text(format(range.start), Modifier.align(Alignment.CenterStart), style = edgeStyle)
                 Text(format(range.endInclusive), Modifier.align(Alignment.CenterEnd), style = edgeStyle)
-                Text(format(shown), Modifier.align(Alignment.Center),
-                    style = tvTextStyle(19, 26, FontWeight.Medium).copy(fontFeatureSettings = "tnum"), color = Color.White)
             }
-            Track(Modifier.fillMaxWidth())
         }
     } else {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),

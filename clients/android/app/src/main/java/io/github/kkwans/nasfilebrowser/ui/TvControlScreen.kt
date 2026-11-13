@@ -520,15 +520,17 @@ private fun TvPhoneVolumeRocker(model: TvControlModel, snapshot: RemoteSnapshot?
             adjustTvPhoneVolume(model, snapshot, volume, limit, delta)
         }
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        TvPhoneVolumeKey(increase = false, enabled = enabled && volume != null && volume > 0) { change(-5) }
-        Column(Modifier.widthIn(min = 76.dp).padding(horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("音量", style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant, maxLines = 1)
-            Text(volume?.let { "$it%" } ?: "—",
-                style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
-                color = if (enabled) colors.onSurface else colors.onSurfaceVariant, maxLines = 1)
+    Surface(shape = CircleShape, color = colors.surfaceContainerLow,
+        border = BorderStroke(1.dp, colors.outlineVariant)) {
+        Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            TvPhoneVolumeKey(increase = false, enabled = enabled && volume != null && volume > 0) { change(-5) }
+            Box(Modifier.widthIn(min = 88.dp).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+                Text(volume?.let { "$it%" } ?: "音量",
+                    style = MaterialTheme.typography.titleSmall.copy(fontFeatureSettings = "tnum"),
+                    color = if (enabled) colors.onSurface else colors.onSurfaceVariant, maxLines = 1)
+            }
+            TvPhoneVolumeKey(increase = true, enabled = enabled && volume != null && volume < limit) { change(5) }
         }
-        TvPhoneVolumeKey(increase = true, enabled = enabled && volume != null && volume < limit) { change(5) }
     }
 }
 
@@ -536,9 +538,8 @@ private fun TvPhoneVolumeRocker(model: TvControlModel, snapshot: RemoteSnapshot?
 private fun TvPhoneVolumeKey(increase: Boolean, enabled: Boolean, onClick: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val description = if (increase) "提高 TV 音量 5%" else "降低 TV 音量 5%"
-    val tint = if (enabled) colors.onSecondaryContainer else colors.onSurfaceVariant.copy(alpha = .50f)
-    FilewayIconButton(onClick, Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
-        .background(if (enabled) colors.secondaryContainer else colors.surfaceContainerLow)
+    val tint = if (enabled) colors.onSurface else colors.onSurfaceVariant.copy(alpha = .50f)
+    FilewayIconButton(onClick, Modifier.width(52.dp).height(48.dp)
         .semantics { contentDescription = description }, enabled = enabled) {
         Canvas(Modifier.size(18.dp)) {
             val radius = 6.dp.toPx()

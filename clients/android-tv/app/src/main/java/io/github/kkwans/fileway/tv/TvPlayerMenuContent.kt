@@ -299,11 +299,10 @@ private fun TvSpeedEditor(
     BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
         val columns = if (maxWidth >= 480.dp) 6 else 3
         val lines = presets.chunked(columns)
-        Column(Modifier.widthIn(max = 640.dp).fillMaxWidth().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
             lines.forEachIndexed { index, line ->
-                Row(Modifier.fillMaxWidth().background(Color.Black.copy(alpha = .22f), TvShape).padding(3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     line.forEach { preset ->
                         TvSpeedPreset(preset,
                             focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
@@ -332,7 +331,7 @@ private fun TvSpeedEditor(
         shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
         border = ButtonDefaults.border(focusedBorder = Border.None),
         colors = ButtonDefaults.colors(
-            containerColor = if (preset.selected) Color.White.copy(alpha = .18f) else Color.Transparent,
+            containerColor = if (preset.selected) Color.White.copy(alpha = .18f) else Color.White.copy(alpha = .055f),
             contentColor = if (preset.selected) Color.White else Color.White.copy(alpha = .82f),
             focusedContainerColor = PanelFocus, focusedContentColor = Color.White,
         ),

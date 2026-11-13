@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -71,25 +72,21 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
         val mediaId = snapshot.content.optJSONObject("media")?.optString("id").orEmpty()
         val mediaLabel=when(snapshot.scene){"VIDEO"->"视频";"AUDIO"->"音乐";else->"图片"}
         val mediaIcon=when(snapshot.scene){"VIDEO"->Art.drawable.fileway_ic_video;"AUDIO"->Art.drawable.fileway_ic_audio;else->Art.drawable.fileway_ic_image}
-        if (!compactTransport && mediaId.isNotEmpty() && snapshot.capabilities.optInt("mediaPreview") > 0) {
-            if (snapshot.scene == "IMAGE") TvRemoteImagePager(model, snapshot, queue, mediaId, mediaName)
-            else TvRemoteArtwork(model, snapshot, mediaId, mediaName,
-                Modifier.align(Alignment.CenterHorizontally).widthIn(max = if (snapshot.scene == "AUDIO") 224.dp else 460.dp)
-                    .fillMaxWidth().aspectRatio(if (snapshot.scene == "AUDIO") 1f else 16f / 9f).clip(RoundedCornerShape(12.dp)),
-                contentRevision = snapshot.content.optJSONObject("media")?.optString("modified").orEmpty())
-        }
-        Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(12.dp)){
-            Surface(Modifier.size(if (compactTransport) 40.dp else 48.dp),shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface){
-                Box(contentAlignment=Alignment.Center){FilewayIcon(mediaIcon,null,Modifier.size(24.dp),tint=MaterialTheme.colorScheme.primary)}
+        val hasPreview = mediaId.isNotEmpty() && snapshot.capabilities.optInt("mediaPreview") > 0
+        val details: @Composable () -> Unit = {
+            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(mediaName, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(), overflow = TextOverflow.Ellipsis, maxLines = 3)
+                Text(mediaLabel, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(2.dp)){
-                Text(mediaName, style = MaterialTheme.typography.titleMedium,
-                    maxLines = if (compactTransport) 1 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
-                if (!compactTransport) Text(mediaLabel,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            if (compactTransport) Box(Modifier.widthIn(max = 176.dp)) { RemotePlaybackStatus(player, maxLines = 2) }
         }
         if(snapshot.scene=="IMAGE") {
+            TvPhoneMediaCard {
+                if (hasPreview) TvRemoteImagePager(model, snapshot, queue, mediaId, mediaName)
+                else TvPhoneMediaPlaceholder(mediaIcon)
+                details()
+            }
             val image=snapshot.content.optJSONObject("image")?:JSONObject()
             val actual=image.optDouble("scale",1.0).toFloat().coerceIn(1f,3f)
             var preview by remember(owner){mutableStateOf<Float?>(null)}
@@ -138,13 +135,37 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                     cachedRanges = cached, bufferedStartValue = position.toFloat(),
                     mediaSurface = false, description = "${tvRemoteTime(shown.toLong())} / ${if (knownDuration > 0) tvRemoteTime(duration) else "时长未知"}")
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val clock: @Composable () -> Unit = {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(tvRemoteTime(shown.toLong()),style=MaterialTheme.typography.bodyMedium)
                 if (compactTransport) timeline(Modifier.weight(1f))
                 else Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { RemotePlaybackStatus(player) }
                 Text(if(knownDuration>0)tvRemoteTime(duration)else"--:--",style=MaterialTheme.typography.bodyMedium)
+                }
             }
-            if (!compactTransport) timeline(Modifier)
+            if (compactTransport) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilewayIcon(mediaIcon, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                    Text(mediaName, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Box(Modifier.widthIn(max = 176.dp)) { RemotePlaybackStatus(player, maxLines = 2) }
+                }
+                clock()
+            } else {
+                TvPhoneMediaCard {
+                    if (hasPreview) TvRemoteArtwork(model, snapshot, mediaId, mediaName,
+                        Modifier.align(Alignment.CenterHorizontally).widthIn(max = if (snapshot.scene == "AUDIO") 224.dp else 460.dp)
+                            .fillMaxWidth().aspectRatio(if (snapshot.scene == "AUDIO") 1f else 16f / 9f).clip(RoundedCornerShape(12.dp)),
+                        contentRevision = snapshot.content.optJSONObject("media")?.optString("modified").orEmpty())
+                    else TvPhoneMediaPlaceholder(mediaIcon)
+                    details()
+                    Column(Modifier.fillMaxWidth()) {
+                        timeline(Modifier.fillMaxWidth())
+                        clock()
+                    }
+                }
+            }
             val controls = Modifier.align(Alignment.CenterHorizontally)
                 .widthIn(max = transportWidth).fillMaxWidth()
             Row(controls,horizontalArrangement=Arrangement.SpaceEvenly,verticalAlignment=Alignment.CenterVertically) {
@@ -192,6 +213,19 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
             }
             else -> RemoteMediaSheet(model, snapshot, selected) { panel = null }
         }
+    }
+}
+
+@Composable private fun TvPhoneMediaCard(content: @Composable ColumnScope.() -> Unit) {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+    }
+}
+
+@Composable private fun TvPhoneMediaPlaceholder(icon: Int) {
+    Box(Modifier.fillMaxWidth().height(64.dp), contentAlignment = Alignment.Center) {
+        FilewayIcon(icon, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
