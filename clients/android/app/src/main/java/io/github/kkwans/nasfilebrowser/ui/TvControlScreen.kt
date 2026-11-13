@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -60,11 +61,10 @@ import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
+import io.github.kkwans.nasfilebrowser.ui.designsystem.drawMediaProgressTrack
 import org.json.JSONObject
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable internal fun TvControlScreen(phone:ClientModel,onClose:()->Unit,controlModel:TvControlModel?=null){
@@ -392,13 +392,13 @@ private fun TvPhonePortraitMedia(
     val name = media?.optString("name")?.takeIf { it.isNotBlank() && it != "null" }
     val playing = player?.optBoolean("playing") == true
     val ready = connected && player != null && !player.optBoolean("preparing")
-    val volume = player?.optInt("volume", -1)?.takeIf { it in 0..100 }
+    val volumeLimit = snapshot.capabilities.optInt("volumeMax", 100).coerceIn(100, 200)
+    val volume = player?.optInt("volume", -1)?.takeIf { it in 0..volumeLimit }
     val view = LocalView.current
     var recentPage by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, active) {
         mutableStateOf<TvBrowsePage?>(null)
     }
     var opening by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch) { mutableStateOf(false) }
-    var volumeOpen by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, connected) { mutableStateOf(false) }
     LaunchedEffect(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, active, connected) {
         if (!active && connected && snapshot.capabilities.optInt("fileBrowse") > 0) {
             try {
@@ -462,11 +462,19 @@ private fun TvPhonePortraitMedia(
                         }
                         Text(subtitle, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-                if (active && volume != null) {
-                    FilewayIconButton(onClick = { volumeOpen = true }, modifier = Modifier.size(48.dp), enabled = ready) {
-                        FilewayIcon(Art.drawable.fileway_ic_volume_up, "TV 应用音量", Modifier.size(21.dp))
+                        if (active && duration > 0L) {
+                            val fraction = (position.toDouble() / duration).toFloat()
+                            val colors = MaterialTheme.colorScheme
+                            val buffered = player?.optLong("bufferedMs")?.toDouble()?.div(duration)?.toFloat()
+                            val cached = remoteCacheRanges(snapshot.content.optJSONObject("cache"), duration)
+                                .map { (start, end) -> start / duration to end / duration }
+                            Canvas(Modifier.padding(start = 2.dp, end = 2.dp, top = 2.dp).fillMaxWidth().height(3.dp)) {
+                                drawMediaProgressTrack(fraction, colors.outlineVariant, colors.primary,
+                                    buffered = buffered, bufferedColor = colors.onSurfaceVariant.copy(alpha = .55f),
+                                    downloadedColor = colors.primary.copy(alpha = .35f), cachedRanges = cached,
+                                    bufferedFrom = fraction)
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.width(4.dp))
@@ -494,48 +502,41 @@ private fun TvPhonePortraitMedia(
                     FilewayIcon(icon, description, Modifier.size(22.dp))
                 }
             }
-            if (active && duration > 0L) {
-                val fraction = (position.toDouble() / duration).toFloat()
-                Box(Modifier.fillMaxWidth().height(3.dp).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)) {
-                    Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
-                }
+            if (active && volume != null) {
+                TvPhoneVolumeKeys(model, snapshot, volume, volumeLimit, ready)
             }
-        }
-    }
-    if (active && ready && volumeOpen && volume != null) {
-        FileOperationSheet("TV 应用音量", onDismiss = { volumeOpen = false }) {
-            TvPhoneVolume(model, snapshot, volume, enabled = true)
         }
     }
 }
 
 @Composable
-private fun TvPhoneVolume(model: TvControlModel, snapshot: RemoteSnapshot, volume: Int, enabled: Boolean) {
-    var draft by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, enabled) { mutableStateOf<Float?>(null) }
-    var pending by remember(snapshot.connectionId, snapshot.sessionEpoch, snapshot.mediaEpoch, enabled) { mutableStateOf<Int?>(null) }
-    LaunchedEffect(volume, pending) { if (volume == pending) pending = null }
-    LaunchedEffect(pending) {
-        if (pending != null) { delay(3500); pending = null }
+internal fun TvPhoneVolumeKeys(model: TvControlModel, snapshot: RemoteSnapshot, volume: Int, limit: Int, enabled: Boolean) {
+    val colors = MaterialTheme.colorScheme
+    val view = LocalView.current
+    fun change(delta: Int) {
+        view.tvDirectionHaptic()
+        val payload = if (snapshot.capabilities.has("volumeMax")) JSONObject().put("delta", delta)
+        else JSONObject().put("volume", (volume + delta).coerceIn(0, limit))
+        model.commandFor(snapshot, "playback.setVolume", payload)
     }
-    val shown = draft ?: (pending ?: volume).toFloat()
-    val valueLabel = "${shown.roundToInt()}%"
-    Column(Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 8.dp)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            FilewayIcon(Art.drawable.fileway_ic_volume_up, null, Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("TV 应用音量", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-            Text(valueLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        PlayerSlider(shown, 100f, "TV 应用音量", enabled, change = { draft = it },
-            description = valueLabel, mediaSurface = false, finish = {
-                draft?.roundToInt()?.let { value ->
-                    pending = value
-                    model.commandFor(snapshot, "playback.setVolume", JSONObject().put("volume", value))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("音量", Modifier.padding(start = 2.dp).weight(1f), style = MaterialTheme.typography.labelMedium,
+            color = colors.onSurfaceVariant)
+        Surface(shape = RoundedCornerShape(12.dp), color = colors.surface,
+            border = BorderStroke(1.dp, colors.outlineVariant)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                FilewayIconButton({ change(-5) }, Modifier.size(48.dp).semantics { contentDescription = "降低 TV 音量 5%" },
+                    enabled = enabled && volume > 0) {
+                    Text("−", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {})
                 }
-                draft = null
-            })
+                Text("$volume%", Modifier.widthIn(min = 56.dp), style = MaterialTheme.typography.labelLarge,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                FilewayIconButton({ change(5) }, Modifier.size(48.dp).semantics { contentDescription = "提高 TV 音量 5%" },
+                    enabled = enabled && volume < limit) {
+                    Text("+", style = MaterialTheme.typography.titleLarge, modifier = Modifier.clearAndSetSemantics {})
+                }
+            }
+        }
     }
 }
 
@@ -898,8 +899,8 @@ private fun View.tvBackHaptic() {
     iconOnly:Boolean=false,enabled:Boolean=true){
     val size = when {
         iconOnly -> if (compact) 48.dp else 64.dp
-        compact -> 72.dp
-        else -> 96.dp
+        compact -> 76.dp
+        else -> 104.dp
     }
     val view = LocalView.current
     val confirm = { view.tvConfirmHaptic(); onConfirm() }

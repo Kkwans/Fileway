@@ -15,6 +15,10 @@ import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.audio.AudioOffloadSupport
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
+import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
@@ -65,7 +69,8 @@ data class PlayerState(
 
 /** Main-thread session facade. Track/rate/subtitle commands never reopen the media or rebind video. */
 @androidx.annotation.OptIn(UnstableApi::class)
-class NativePlayer(context: Context, private val resources: MediaResourcePolicy = MediaResourcePolicy.Phone) {
+class NativePlayer(context: Context, private val resources: MediaResourcePolicy = MediaResourcePolicy.Phone,
+    private val enableTvVolumeBoost: Boolean = false) {
     private val context = context.applicationContext
     private val session = PlaybackSession()
     private val trace = PlaybackTrace(SystemClock::elapsedRealtime, enabled = BuildConfig.DEBUG)
@@ -75,6 +80,9 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
     val state = mutable.asStateFlow()
     var checkpoint: (() -> Unit)? = null
     private var engine: ExoPlayer? = null
+    private var tvGain: TvPcmGain? = null
+    val maximumVolume = if (enableTvVolumeBoost) 200 else 100
+    private var requestedVolume = 100
     private var loadControl: PlaybackLoadControl? = null
     private var viewport: PlayerViewport? = null
     private var layer: MediaSubtitleLayer? = null
@@ -233,7 +241,29 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
                 }
             }
         }
+        val mediaGain = if (enableTvVolumeBoost) TvPcmGain() else null
+        tvGain = mediaGain
         val factory = object : DefaultRenderersFactory(context) {
+            override fun buildAudioSink(context: Context, enableFloatOutput: Boolean,
+                enableAudioOutputPlaybackParams: Boolean): AudioSink? {
+                val gain = mediaGain ?: return super.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParams)
+                val sink = DefaultAudioSink.Builder(context)
+                    .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
+                    .setAudioProcessors(arrayOf(gain))
+                    .build()
+                // TV application volume applies to decoded PCM. Encoded output would bypass it.
+                return object : ForwardingAudioSink(sink) {
+                    override fun getFormatSupport(format: Format): Int =
+                        if (format.sampleMimeType == MimeTypes.AUDIO_RAW) super.getFormatSupport(format)
+                        else AudioSink.SINK_FORMAT_UNSUPPORTED
+
+                    override fun supportsFormat(format: Format): Boolean =
+                        getFormatSupport(format) != AudioSink.SINK_FORMAT_UNSUPPORTED
+
+                    override fun getFormatOffloadSupport(format: Format): AudioOffloadSupport =
+                        AudioOffloadSupport.DEFAULT_UNSUPPORTED
+                }
+            }
             override fun getCodecAdapterFactory() = videoOutputProbe.observe(super.getCodecAdapterFactory())
             override fun buildMiscellaneousRenderers(context: Context, eventHandler: Handler, extensionRendererMode: Int, out: ArrayList<Renderer>) {
                 super.buildMiscellaneousRenderers(context, eventHandler, extensionRendererMode, out)
@@ -269,7 +299,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         player.setVideoFrameMetadataListener { presentationTimeUs, releaseTimeNs, format, mediaFormat ->
             videoOutputProbe.onVideoFrameAboutToBeRendered(presentationTimeUs, releaseTimeNs, format, mediaFormat)
         }
-        restore?.let { player.volume = it.volume.coerceIn(0, 100) / 100f }
+        applyVolume(player, restore?.volume ?: 100)
         if (subtitleDisabled) player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build()
         trace.record(PlaybackTraceAction.ENGINE_READY); trace.record(PlaybackTraceAction.PLAYER_READY)
@@ -440,7 +470,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             nativeSubtitleNeedsSource = previous.selectedSubtitle >= 0 && nativeSubtitleIdentity(previous.selectedSubtitle) != null && !nativeSubtitleCovered(previous.selectedSubtitle),
             audioRenderedBuffers = audioCounters?.renderedOutputBufferCount ?: 0,
             audioSkippedBuffers = audioCounters?.skippedOutputBufferCount ?: 0,
-            width = player.videoSize.width, height = player.videoSize.height, rate = player.playbackParameters.speed, volume = (player.volume * 100).toInt(),
+            width = player.videoSize.width, height = player.videoSize.height, rate = player.playbackParameters.speed, volume = requestedVolume,
             sourceVideoCodec = format?.codecs ?: format?.sampleMimeType ?: "未知",
             sourceDynamicRange = sourceDynamicRange(format?.sampleMimeType, format?.codecs, colors?.colorTransfer),
             sourceColorSpace = when (colors?.colorSpace) {
@@ -670,7 +700,16 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         temporaryRate = value; applyRate(value); return session.generation
     }
     fun restoreRate(epoch: Long) { if (session.accepts(epoch)) { temporaryRate = null; applyRate(session.preferredRate) } }
-    fun volume(value: Int) { engine?.volume = value.coerceIn(0, 100) / 100f; publish() }
+    private fun applyVolume(player: ExoPlayer, value: Int) {
+        requestedVolume = value.coerceIn(0, maximumVolume)
+        tvGain?.percent = requestedVolume.coerceAtLeast(100)
+        player.volume = requestedVolume.coerceAtMost(100) / 100f
+    }
+
+    fun volume(value: Int) {
+        engine?.let { applyVolume(it, value) }
+        publish()
+    }
     fun audio(id: Int) {
         audioSelection.manualChoice()
         pendingRestore?.let { it.audioApplied = true; it.audioUserChoice = true }
@@ -1232,6 +1271,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         handler.removeCallbacks(ticker)
         externalRequest++; cancelExternalImport()
         val previous = engine; engine = null
+        tvGain = null
         previous?.release()
         loadControl = null
         viewport?.subtitles(null); layer?.close(); layer = null

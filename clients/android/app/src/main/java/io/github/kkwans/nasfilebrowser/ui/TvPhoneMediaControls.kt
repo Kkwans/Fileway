@@ -247,7 +247,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
         color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
-private fun remoteCacheRanges(cache: JSONObject?, duration: Long): List<Pair<Float, Float>> {
+internal fun remoteCacheRanges(cache: JSONObject?, duration: Long): List<Pair<Float, Float>> {
     val rows = cache?.optJSONArray("ranges") ?: return emptyList()
     return (0 until rows.length()).mapNotNull { index ->
         val range = rows.optJSONObject(index) ?: return@mapNotNull null
@@ -312,9 +312,12 @@ else "${bytes.coerceAtLeast(0) / 1024} KB/s"
                     }
                 }
                 RemoteMediaPanel.OPTIONS -> {
+                    val volumeLimit = snapshot.capabilities.optInt("volumeMax", 100).coerceIn(100, 200)
                     item{Text("应用音量 ${player.optInt("volume")}%",style=MaterialTheme.typography.titleSmall)}
-                    item{var volume by remember{mutableStateOf<Float?>(null)};PlayerSlider(volume?:player.optInt("volume").toFloat(),100f,"TV 应用音量",true,{volume=it},finish={volume?.let{send("playback.setVolume",JSONObject().put("volume",it.toInt()))};volume=null},mediaSurface=false)}
-                    item{Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FilewayOutlinedButton(onClick={send("playback.setVolume",JSONObject().put("volume",(player.optInt("volume")-1).coerceAtLeast(0)))}){Text("−1%")};FilewayOutlinedButton(onClick={send("playback.setVolume",JSONObject().put("volume",(player.optInt("volume")+1).coerceAtMost(100)))}){Text("+1%")}}}
+                    item{var volume by remember{mutableStateOf<Float?>(null)};PlayerSlider(volume?:player.optInt("volume").toFloat(),volumeLimit.toFloat(),"TV 应用音量",true,{volume=it},finish={volume?.let{send("playback.setVolume",JSONObject().put("volume",it.toInt()))};volume=null},mediaSurface=false)}
+                    item {
+                        TvPhoneVolumeKeys(model, snapshot, player.optInt("volume"), volumeLimit, enabled = true)
+                    }
                     if(snapshot.scene=="VIDEO") {
                         if (player.has("ratio")) {
                             item { Text("画面比例", style = MaterialTheme.typography.titleSmall) }

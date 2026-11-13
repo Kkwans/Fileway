@@ -57,7 +57,7 @@ class TvMediaController(
     private val current: () -> SessionContext?,
 ) {
     internal val cache=TvVideoCache(application,scope)
-    val player = NativePlayer(application, MediaResourcePolicy.LowMemoryTv)
+    val player = NativePlayer(application, MediaResourcePolicy.LowMemoryTv, enableTvVolumeBoost = true)
     val playbackPreferences = PlaybackPreferences(application)
     internal val localSubtitles = TvLocalSubtitleStorage(application)
     private val prefs = application.getSharedPreferences("tv-playback", 0)

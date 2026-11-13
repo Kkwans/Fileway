@@ -172,6 +172,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         handoff.snapshot()?.let{content.put("handoff",it)}
         val capabilities = JSONObject().put("navigation",true).put("input",true).put("deviceAuth",true).put("media",true).put("nativeHandoff",1).put("mediaPanels",1).put("fileDetailsKey",1).put("recentAccessPage",1)
             .put("fileBrowse", 1).put("mediaPreview", 1).put("cacheControl", 1).put("settingsControl", 1)
+            .put("volumeMax", model.media.player.maximumVolume)
         if (scene == "VIDEO" && subtitleBrowser.available) capabilities.put("subtitleBrowseServer", 1)
         if (scene == "VIDEO" && subtitleBrowser.available) capabilities.put("subtitleBrowseServerCursor", 1)
         if (scene == "VIDEO" && subtitleBrowser.serverUpgradeRequired) capabilities.put("subtitleBrowseServerReason", "SERVER_UPGRADE_REQUIRED")
@@ -225,7 +226,14 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             "playback.seekTo"->{check(model.media.canSeek){"视频尚未准备好，请稍后调整进度"};model.media.seek(p.getLong("positionMs"))}
             "playback.seekBy"->{check(model.media.canSeek){"视频尚未准备好，请稍后调整进度"};val delta=p.getLong("deltaMs");require(delta in -3600000..3600000);model.media.seekBy(delta)}
             "playback.setRate"->{val rate=p.getDouble("rate").toFloat();require(rate.isFinite()&&rate in .1f..5f);player.rate(rate)}
-            "playback.setVolume"->{val volume=p.getInt("volume");require(volume in 0..100);player.volume(volume)}
+            "playback.setVolume" -> {
+                val volume = if (p.has("delta")) {
+                    val delta = p.getInt("delta")
+                    require(delta in -100..100)
+                    (player.state.value.volume + delta).coerceIn(0, player.maximumVolume)
+                } else p.getInt("volume").also { require(it in 0..player.maximumVolume) }
+                player.volume(volume)
+            }
             "playback.setHdrMode"->model.media.switchMode(TvHdrMode.valueOf(p.getString("mode")))
             "playback.setRatio"->model.media.setRatio(p.getInt("index"))
             "cache.clear"->{ require(p.getBoolean("confirmed")); model.media.cache.clear() }

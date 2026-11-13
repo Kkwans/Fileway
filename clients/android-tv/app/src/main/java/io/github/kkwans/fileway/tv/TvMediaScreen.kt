@@ -74,6 +74,8 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
     var controlsHeight by remember{mutableFloatStateOf(0f)}
     var pulse by remember { mutableIntStateOf(0) }
     var seekTarget by remember(mediaEpoch) { mutableStateOf<Long?>(null) }
+    var seekStart by remember(mediaEpoch) { mutableStateOf<Long?>(null) }
+    var seekFeedback by remember(mediaEpoch) { mutableStateOf<Pair<Long, Long>?>(null) }
     var seekPulse by remember { mutableIntStateOf(0) }
     val resize by model.media.ratioIndex.collectAsStateWithLifecycle()
     val stage = remember { FocusRequester() }
@@ -180,8 +182,25 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
         }
     }
     LaunchedEffect(player.seekError) { if(player.seekError!=null)controls=true }
-    LaunchedEffect(mediaEpoch,seekPulse) { val target = seekTarget; if(target != null) { delay(350); model.media.seek(target); seekTarget = null } }
-    val requestSeek: (Long) -> Unit = { delta -> seekTarget = ((seekTarget ?: model.media.sourcePosition()) + delta).coerceIn(0,state.sourceDurationMs.coerceAtLeast(0)); seekPulse++; pulse++ }
+    LaunchedEffect(mediaEpoch, seekPulse) {
+        val target = seekTarget ?: return@LaunchedEffect
+        delay(350)
+        model.media.seek(target)
+        seekTarget = null
+        seekStart = null
+        delay(950)
+        seekFeedback = null
+    }
+    fun queueSeek(target: Long) {
+        if (!model.media.canSeek) return
+        val from = seekStart ?: model.media.sourcePosition().also { seekStart = it }
+        val clamped = target.coerceIn(0L, state.sourceDurationMs.coerceAtLeast(0L))
+        seekTarget = clamped
+        seekFeedback = from to clamped
+        seekPulse++
+        pulse++
+    }
+    val requestSeek: (Long) -> Unit = { delta -> queueSeek((seekTarget ?: model.media.sourcePosition()) + delta) }
     Box(Modifier.fillMaxSize().onSizeChanged{stageHeight=it.height.toFloat().coerceAtLeast(1f)}.background(Color.Black).focusRequester(stage)
         .focusProperties { canFocus = panel == null && !hudVisible }
         .onPreviewKeyEvent { event ->
@@ -261,7 +280,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                 position = seekTarget ?: model.media.sourcePosition(), duration = state.sourceDurationMs,
                 buffered = player.bufferedPositionMs + state.sourceOffsetMs, cachedRanges = cache.ranges, playFocus = play,
                 actions = actions, onToggle = { model.media.player.toggle(); pulse++ }, onSeek = requestSeek,
-                onSeekTo = { target -> seekTarget = target.coerceIn(0, state.sourceDurationMs.coerceAtLeast(0)); seekPulse++; pulse++ },
+                onSeekTo = ::queueSeek,
                 onPrevious = { model.media.navigateQueue(-1) }, onNext = { model.media.navigateQueue(1) },
                 onQuick = { showPanel(it, quick = true) },
                 onQuickAnchor = { page, bounds -> if (quickAnchors[page] != bounds) quickAnchors[page] = bounds },
@@ -277,11 +296,10 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
             showSpeed = !audio && (interfaceState.speedAlways || controls || panel != null),
             bytesPerSecond = cache.bytesPerSecond, safePercent = interfaceState.safePercent,
         )
-        if (panel == null && delayedBusy(state.subtitleLoading || player.subtitleLoading)) {
-            Text(state.subtitleLoadDetail ?: "正在加载字幕…",
-                Modifier.align(Alignment.CenterEnd).padding(32.dp)
-                    .background(PlayerFeedbackSurface.copy(alpha = .94f), TvShape).padding(horizontal = 12.dp, vertical = 8.dp),
-                style = MaterialTheme.typography.bodySmall, color = Color.White)
+        val subtitleLoading = delayedBusy(state.subtitleLoading || player.subtitleLoading)
+        if (panel == null && subtitleLoading) {
+            TvPlayerFeedback(Art.drawable.fileway_ic_subtitles, "正在加载字幕", state.subtitleLoadDetail,
+                Modifier.align(Alignment.TopEnd).padding(top = 66.dp, end = 32.dp))
         }
         (state.subtitleError?:player.seekError?:state.subtitleNotice?:fontNotice?:state.notice?:player.operationError)?.let{notice->
             val inSubtitlePanel=panel==TvPlayerPage.SUBTITLE||panel==TvPlayerPage.EXTERNAL||panel==TvPlayerPage.LOCAL_SUBTITLE
@@ -295,7 +313,9 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                     style=MaterialTheme.typography.bodySmall,color=Color.White,maxLines=2,overflow=TextOverflow.Ellipsis)
             }
         }
-        if(delayedBusy(state.busy||((player.waitingForBuffer||player.seeking)&&player.seekError==null)))Column(Modifier.align(Alignment.Center).background(PlayerFeedbackSurface.copy(alpha=.86f),TvShape).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        val seekingFromHiddenHud = seekFeedback != null && panel == null && !hudVisible
+        if (delayedBusy(state.busy || ((player.waitingForBuffer || player.seeking) && player.seekError == null)) &&
+            (state.busy || !seekingFromHiddenHud)) Column(Modifier.align(Alignment.Center).background(PlayerFeedbackSurface.copy(alpha=.86f),TvShape).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
             Text(if(state.busy)"正在准备播放…" else if(player.seeking)"正在跳转…" else "正在缓冲…",style=MaterialTheme.typography.bodyLarge)
             if(!state.busy&&player.waitingForBuffer)Text("缓冲 ${player.buffering.toInt()}%",style=MaterialTheme.typography.bodySmall,color=Color.White.copy(alpha=.8f))
         }
@@ -304,7 +324,21 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
             Text(state.error?:player.error.orEmpty(),color=MaterialTheme.colorScheme.error)
             Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){TvButton("重试",model.media::retry,Modifier.focusRequester(retry));TvButton("原生播放",{model.media.switchMode(TvHdrMode.NATIVE)});if(state.sdrAvailable)TvButton("SDR 兼容",{model.media.switchMode(TvHdrMode.SDR)});TvButton("返回",model.media::close)}
         }
-        seekTarget?.let{target->if(!controls)Text("跳转到 ${tvTime(target)}",Modifier.align(Alignment.BottomCenter).padding(30.dp).background(PlayerFeedbackSurface.copy(alpha=.94f),TvShape).padding(14.dp),style=MaterialTheme.typography.titleMedium)}
+        seekFeedback?.let { (from, target) ->
+            if (panel == null && !hudVisible && !exitPrompt && !state.busy && player.seekError == null) {
+                val delta = (target - from) / 1000
+                val direction = when {
+                    delta > 0 -> "快进 ${delta} 秒"
+                    delta < 0 -> "快退 ${-delta} 秒"
+                    else -> "播放位置"
+                }
+                TvPlayerFeedback(
+                    if (delta < 0) Art.drawable.fileway_ic_skip_back else Art.drawable.fileway_ic_skip_forward,
+                    direction, "${tvTime(target)} / ${tvTime(state.sourceDurationMs)}",
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp),
+                )
+            }
+        }
         if(exitPrompt)Text("再按一次返回退出播放",Modifier.align(Alignment.BottomCenter).padding(bottom=28.dp).background(PlayerFeedbackSurface.copy(alpha=.94f),TvShape).padding(horizontal=20.dp,vertical=12.dp),style=MaterialTheme.typography.bodyLarge,color=Color.White)
     }
     panel?.let { page ->
@@ -341,6 +375,25 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                 onExit = { traceBack("settings-exit", "exit-player"); model.media.close() },
                 onBrowserBack = { browserBack = it },
             )
+        }
+    }
+}
+
+@Composable
+private fun TvPlayerFeedback(icon: Int, title: String, detail: String?, modifier: Modifier) {
+    Row(
+        modifier.widthIn(max = 320.dp).background(PlayerFeedbackSurface.copy(alpha = .94f), TvShape)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(androidx.compose.ui.res.painterResource(icon), null, Modifier.size(22.dp), tint = Color.White)
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = tvTextStyle(16, 22), color = Color.White, maxLines = 1)
+            detail?.takeIf { it.isNotBlank() && it != title }?.let {
+                Text(it, style = tvTextStyle(13, 18), color = Color.White.copy(alpha = .78f),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

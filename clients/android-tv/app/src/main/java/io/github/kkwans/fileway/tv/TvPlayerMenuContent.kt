@@ -260,7 +260,7 @@ internal fun tvPlayerSettingsRows(
             TvPlayerChoiceRow(choice("reset", "恢复同步", selectable = false) { model.media.player.subtitleDelay(0) }, Modifier)
         }
         TvPlayerPage.VOLUME -> TvPlayerScroll {
-            TvPlayerRange("应用音量", player.volume.toFloat(), 0f..100f, 1f, { "${it.toInt()}%" },
+            TvPlayerRange("应用音量", player.volume.toFloat(), 0f..model.media.player.maximumVolume.toFloat(), 1f, { "${it.toInt()}%" },
                 focus.target("volume", focus.initialKey?.startsWith("header/") != true, Modifier.focusProperties { up = focus.header })) {
                 model.media.player.volume(it.toInt())
             }
@@ -535,9 +535,21 @@ private fun TvSpeedEditor(
 }
 
 @Composable private fun TvSubtitleStatus(state: TvMediaState, player: PlayerState) {
-    if (delayedBusy(state.subtitleLoading || player.subtitleLoading)) TvPlayerNote(state.subtitleLoadDetail ?: "正在加载字幕…")
-    (state.subtitleError ?: player.operationError?.takeIf { it.contains("字幕") })?.let { TvPlayerNote(it, error = true) }
-        ?: (state.subtitleNotice ?: player.subtitleFontNotice)?.let { TvPlayerNote(it) }
+    val loading = delayedBusy(state.subtitleLoading || player.subtitleLoading)
+    val error = state.subtitleError ?: player.operationError?.takeIf { it.contains("字幕") }
+    val message = error ?: if (loading) state.subtitleLoadDetail ?: "正在加载字幕…"
+        else state.subtitleNotice ?: player.subtitleFontNotice
+    if (message != null) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
+            .background(Color.White.copy(alpha = .07f), TvShape).padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource(Art.drawable.fileway_ic_subtitles), null, Modifier.size(18.dp),
+                tint = if (error != null) MaterialTheme.colorScheme.error else LocalTvSurfaces.current.secondaryText)
+            Text(message, Modifier.weight(1f), style = tvTextStyle(14, 20),
+                color = if (error != null) MaterialTheme.colorScheme.error else Color.White,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 @Composable private fun ColumnScope.TvSubtitleFiles(
