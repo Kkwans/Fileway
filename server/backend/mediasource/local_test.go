@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/spf13/afero"
 )
 
@@ -65,5 +66,58 @@ func TestLocalReadsOriginalBytesAndRechecksAuthority(t *testing.T) {
 	cancel()
 	if _, err := source.Open(ctx, "owned.bin", false); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
+	}
+}
+
+func TestOpenedObjectRejectsPrivateCatalogAliasesAndAllowsVirtualRoot(t *testing.T) {
+	root := t.TempDir()
+	privateDir := filepath.Join(root, files.MediaLibraryDirectory)
+	if err := os.Mkdir(privateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	database := filepath.Join(privateDir, "catalog.db")
+	if err := os.WriteFile(database, []byte("catalog"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release, err := files.ProtectMediaLibraryDatabase(database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := release(); err != nil {
+			t.Error(err)
+		}
+	})
+	filesystem := afero.NewBasePathFs(afero.NewOsFs(), root)
+	directory, err := files.OpenSubtitleResource(filesystem, root, "/"+files.MediaLibraryDirectory, true, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkOpenedResource(directory, true); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("private opened directory: %v", err)
+	}
+	if err := directory.Close(); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias.mkv")
+	if err := os.Link(database, alias); err != nil {
+		t.Skipf("fixture filesystem cannot create hard link: %v", err)
+	}
+	file, err := files.OpenSubtitleResource(filesystem, root, "/alias.mkv", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkOpenedResource(file, false); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("private opened file alias: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	virtual := &files.SubtitleResource{}
+	if err := checkOpenedResource(virtual, true); err != nil {
+		t.Fatalf("virtual directory root: %v", err)
+	}
+	if err := checkOpenedResource(virtual, false); !errors.Is(err, fs.ErrInvalid) {
+		t.Fatalf("virtual root is not a regular file: %v", err)
 	}
 }

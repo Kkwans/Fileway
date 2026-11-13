@@ -80,17 +80,34 @@ func (source *Local) Open(ctx context.Context, locator string, directory bool) (
 		_ = resource.Close()
 		return nil, err
 	}
-	if !directory {
-		info, _, err := resource.State()
-		if err != nil || info == nil || !info.Mode().IsRegular() {
-			_ = resource.Close()
-			if err != nil {
-				return nil, err
-			}
-			return nil, errors.New("media source is not a regular file")
-		}
+	if err := checkOpenedResource(resource, directory); err != nil {
+		_ = resource.Close()
+		return nil, err
 	}
 	return resource, nil
+}
+
+// The path policy can race with a rename or hard-link swap. Inspect the actual
+// opened object as well, for both files and directories, before returning it.
+// A nil info is only valid for the explicitly virtual computer directory.
+func checkOpenedResource(resource *files.SubtitleResource, directory bool) error {
+	info, _, err := resource.State()
+	if err != nil {
+		return err
+	}
+	if info == nil {
+		if directory && resource.File == nil {
+			return nil
+		}
+		return fs.ErrInvalid
+	}
+	if files.IsPrivateMediaFile(info) {
+		return fs.ErrPermission
+	}
+	if directory && !info.IsDir() || !directory && !info.Mode().IsRegular() {
+		return errors.New("media source has an unexpected object type")
+	}
+	return nil
 }
 
 func invalidLocalPath(value string) bool {
