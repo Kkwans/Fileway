@@ -184,10 +184,6 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                             cacheOperation { model.media.cache.setLimitConfirmed(mib.toLong()) }
                         },Modifier.weight(1f),selected=cache.limitBytes==mib*1048576L) }
                     } }
-                    item { TvField("自定义容量（MB）",cacheInput,{cacheInput=it},options=KeyboardOptions(keyboardType=KeyboardType.Number)) }
-                    item { TvButton("应用容量",{cacheInput.toLongOrNull()?.takeIf { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }?.let { mib ->
-                        cacheOperation { model.media.cache.setLimitConfirmed(mib) }
-                    }},enabled=cacheInput.toLongOrNull()?.let { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }==true) }
                     cache.retention?.let { retention ->
                         item { TvSectionTitle("保留时间") }
                         item {
@@ -201,6 +197,10 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                             }
                         }
                     }
+                    item { TvField("自定义容量（MB）",cacheInput,{cacheInput=it},options=KeyboardOptions(keyboardType=KeyboardType.Number)) }
+                    item { TvButton("应用容量",{cacheInput.toLongOrNull()?.takeIf { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }?.let { mib ->
+                        cacheOperation { model.media.cache.setLimitConfirmed(mib) }
+                    }},enabled=cacheInput.toLongOrNull()?.let { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }==true) }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TvButton("清理视频缓存", { clearConfirm = true }, enabled = !cache.clearing)
@@ -252,6 +252,7 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
     var input by remember { mutableStateOf(value.toString()) }
     val draft = input.toIntOrNull()?.takeIf { it in 0..maximum }
     val decrease = remember { FocusRequester() }
+    val confirm = remember { FocusRequester() }
     Dialog(onDismissRequest = onDismiss) {
         TvRemoteDialogKeys(onDismiss)
         Surface(shape = TvShape) {
@@ -259,16 +260,18 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(label, style = MaterialTheme.typography.titleLarge)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TvButton("减小", { input = ((draft ?: value) - 1).coerceAtLeast(0).toString() }, Modifier.focusRequester(decrease))
+                    TvButton("减小", { input = ((draft ?: value) - 1).coerceAtLeast(0).toString() },
+                        Modifier.focusRequester(decrease).focusProperties { if (draft != null && draft != value) down = confirm })
                     Text(draft?.let { "$it 分钟" } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    TvButton("增大", { input = ((draft ?: value) + 1).coerceAtMost(maximum).toString() })
+                    TvButton("增大", { input = ((draft ?: value) + 1).coerceAtMost(maximum).toString() },
+                        Modifier.focusProperties { if (draft != null && draft != value) down = confirm })
                 }
                 TvField("分钟（0–$maximum）", input, { input = it.filter(Char::isDigit).take(4) },
                     options = KeyboardOptions(keyboardType = KeyboardType.Number))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
                     TvButton("取消", onDismiss)
-                    TvButton("保存", { draft?.let(save) }, enabled = draft != null && draft != value)
+                    TvButton("保存", { draft?.let(save) }, Modifier.focusRequester(confirm), enabled = draft != null && draft != value)
                 }
             }
         }
