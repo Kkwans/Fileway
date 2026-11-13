@@ -33,7 +33,6 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, lease media
 		return result, fs.ErrInvalid
 	}
 	var checkpoint medialibrary.ScanCheckpoint
-	checkpointKnown := false
 	shouldFinish := true
 	defer func() {
 		if resultErr == nil || !shouldFinish {
@@ -51,20 +50,28 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, lease media
 		if current.Status != "running" || current.Generation != lease.Generation {
 			return // Another lifecycle action has already fenced this lease.
 		}
-		if !checkpointKnown {
-			checkpoint = current.Checkpoint
-		}
 		status := "failed"
 		if ctx.Err() != nil {
 			status = "interrupted"
 		}
-		_, finishErr := store.FinishScan(finishCtx, actor, lease, medialibrary.ScanFinish{Status: status, ExpectedSequence: checkpoint.Sequence})
+		// A canceled/failed commit can have an unknown outcome. Read the durable
+		// checkpoint instead of assuming the in-memory sequence was committed or
+		// rolled back. A later claim always starts over from the root.
+		_, finishErr := store.FinishScan(finishCtx, actor, lease, medialibrary.ScanFinish{Status: status, ExpectedSequence: current.Checkpoint.Sequence})
 		if finishErr == nil {
 			return
 		}
 		current, getErr = store.GetScan(finishCtx, actor, lease.JobID)
-		if getErr == nil && current.Status == "canceled" && current.Generation != lease.Generation {
-			return
+		if getErr == nil {
+			if current.Status != "running" || current.Generation != lease.Generation {
+				return
+			}
+			if errors.Is(finishErr, medialibrary.ErrRevisionConflict) {
+				_, finishErr = store.FinishScan(finishCtx, actor, lease, medialibrary.ScanFinish{Status: status, ExpectedSequence: current.Checkpoint.Sequence})
+				if finishErr == nil {
+					return
+				}
+			}
 		}
 		resultErr = errors.Join(resultErr, finishErr)
 	}()
@@ -84,7 +91,7 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, lease media
 		shouldFinish = false
 		return result, medialibrary.ErrScanState
 	}
-	checkpoint, checkpointKnown = job.Checkpoint, true
+	checkpoint = job.Checkpoint
 	if job.RulesRevision != LocalRulesRevision {
 		return result, ErrScanRulesUnavailable
 	}

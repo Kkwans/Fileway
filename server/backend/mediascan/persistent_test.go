@@ -311,6 +311,49 @@ func TestPersistentScanRejectsUnavailableRulesRevision(t *testing.T) {
 	}
 }
 
+func TestPersistentScanFinishesAfterDurableCheckpointAdvances(t *testing.T) {
+	f := newPersistentFixture(t)
+	f.write(t, "a.mp4", "A")
+	f.write(t, "b.mp4", "B")
+	lease := f.claim(t)
+	injected := false
+	resolve := func(ctx context.Context, owner uint, ref string) (mediasource.LocalAuthority, error) {
+		job, err := f.store.GetScan(ctx, owner, lease.JobID)
+		if err != nil {
+			return mediasource.LocalAuthority{}, err
+		}
+		if job.Checkpoint.Processed == 1 && !injected {
+			file, err := f.store.GetSourceFile(ctx, owner, lease.Binding.SourceID, job.Checkpoint.LastObjectKey)
+			if err != nil {
+				return mediasource.LocalAuthority{}, err
+			}
+			if file.SizeBytes == nil {
+				return mediasource.LocalAuthority{}, fs.ErrInvalid
+			}
+			cp := job.Checkpoint
+			cp.Sequence++
+			cp.Processed++
+			_, err = f.store.CommitScanObservation(ctx, owner, lease, medialibrary.ScanObservation{
+				ObjectKey: file.ObjectKey, Identity: file.IdentityKind, Locator: file.Locator, ExpectedRevision: file.Revision,
+				SourceVersion: file.SourceVersion, SizeBytes: *file.SizeBytes, InitialTitle: "A", NFOStatus: string(NFOMissing),
+			}, cp)
+			if err != nil {
+				return mediasource.LocalAuthority{}, err
+			}
+			injected = true
+			return mediasource.LocalAuthority{}, fs.ErrPermission
+		}
+		return f.ownerResolve(ctx, owner, ref)
+	}
+	if _, err := Run(t.Context(), 7, f.store, lease, resolve, Options{ReadBatch: 1}); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("injected failure: %v", err)
+	}
+	job, err := f.store.GetScan(t.Context(), 7, lease.JobID)
+	if err != nil || !injected || job.Status != "failed" || job.Checkpoint.Sequence != 2 {
+		t.Fatalf("advanced checkpoint left lease running: injected=%t job=%+v err=%v", injected, job, err)
+	}
+}
+
 func TestPersistentScanRejectsStaleCrossBindingObservation(t *testing.T) {
 	f := newPersistentFixture(t)
 	f.write(t, "z.mp4", "shared object")
