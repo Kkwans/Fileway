@@ -350,6 +350,8 @@ class TvRemoteHost(context: Context, private val scope: CoroutineScope,
             serviceName = "Fileway-TV-${device.id.take(8)}"; serviceType = REMOTE_SERVICE_TYPE; port = device.port
             setAttribute("version", "1"); setAttribute("id", device.id); setAttribute("fp", device.fingerprint); setAttribute("name", device.name)
             setAttribute("pairing",device.pairingVersion.toString())
+            // Android DNS-SD can resolve any address on the interface, but the host binds one.
+            setAttribute("addr", device.address)
         }
         app.getSystemService(NsdManager::class.java).registerService(info, NsdManager.PROTOCOL_DNS_SD, listener)
         return listener
