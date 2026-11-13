@@ -150,22 +150,6 @@ import kotlin.math.roundToInt
                                 TvPhonePortraitRemote(phone, model, connection, snapshot, busy, portraitPad,
                                     onSearch = { target = "search"; inputOpen = true },
                                     onKeyboard = { inputOpen = true },
-                                    onBrowse = {
-                                        if (!browse.busy && browse.category != "FILES") {
-                                            browse.category = "FILES"
-                                            browse.pages = emptyList()
-                                            browse.error = null
-                                        }
-                                        section = "文件"; selectedTab = true
-                                    },
-                                    onRecent = {
-                                        if (!browse.busy) {
-                                            browse.category = "RECENT"
-                                            browse.pages = emptyList()
-                                            browse.error = null
-                                            section = "文件"; selectedTab = true
-                                        }
-                                    },
                                     onPlayback = { section = "播放"; selectedTab = true })
                                 return@TvPhonePages
                             }
@@ -323,8 +307,6 @@ private fun TvPhonePortraitRemote(
     diameter: Dp,
     onSearch: () -> Unit,
     onKeyboard: () -> Unit,
-    onBrowse: () -> Unit,
-    onRecent: () -> Unit,
     onPlayback: () -> Unit,
 ) {
     val detailsKey = snapshot?.scene == "BROWSE" && snapshot.capabilities.optInt("fileDetailsKey") > 0
@@ -362,11 +344,9 @@ private fun TvPhonePortraitRemote(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
-                            TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null,
-                                onBrowse, onRecent, onPlayback)
-                            HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                            TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onPlayback)
                             if (compact) {
-                                TvPhoneDpad(model, diameter = padSize.coerceAtMost(224.dp),
+                                TvPhoneDpad(model, diameter = padSize.coerceAtMost(240.dp),
                                     detailsKey = detailsKey, enabled = snapshot != null, insetSurface = true)
                             } else {
                                 BoxWithConstraints(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -391,78 +371,21 @@ private fun TvPhonePortraitMedia(
     model: TvControlModel,
     snapshot: RemoteSnapshot?,
     connected: Boolean,
-    onBrowse: () -> Unit,
-    onRecent: () -> Unit,
     onPlayback: () -> Unit,
 ) {
-    val player = snapshot?.content?.optJSONObject("playback")
-    val name = snapshot?.content?.optJSONObject("media")?.optString("name")
-        ?.takeIf { it.isNotBlank() && it != "null" }
-    val isPlaying = player?.opt("playing") as? Boolean
-    val hasPlayer = snapshot?.scene in setOf("VIDEO", "AUDIO")
-    val canAdjustVolume = connected && hasPlayer && player?.optBoolean("preparing") == false
+    if (snapshot == null || (snapshot.scene != "VIDEO" && snapshot.scene != "AUDIO")) return
+    val player = snapshot.content.optJSONObject("playback") ?: return
+    val name = snapshot.content.optJSONObject("media")?.optString("name")
+        ?.takeIf { it.isNotBlank() && it != "null" } ?: return
+    val isPlaying = player.opt("playing") as? Boolean ?: return
+    val ready = connected && !player.optBoolean("preparing")
     Column(Modifier.fillMaxWidth()) {
-        if (snapshot != null && hasPlayer && name != null && isPlaying != null) {
-            TvPhoneQuickPlayback(model, snapshot, name, isPlaying, onPlayback,
-                modifier = Modifier.heightIn(min = 56.dp), compact = true, showProgress = true, enabled = connected)
-        } else {
-            val showRecent = name == null && (snapshot == null || snapshot.capabilities.optInt("fileBrowse") > 0)
-            val enabled = connected && snapshot?.scene != "LOGIN"
-            val statusStyle = MaterialTheme.typography.bodyMedium
-            val actionStyle = MaterialTheme.typography.labelLarge
-            val colors = MaterialTheme.colorScheme
-            val measurer = rememberTextMeasurer()
-            BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
-                val textButtonPadding = PaddingValues(horizontal = 8.dp)
-                val browseWidth = with(LocalDensity.current) {
-                    measurer.measure("浏览文件", style = actionStyle).size.width.toDp() + 16.dp
-                }
-                val recentWidth = with(LocalDensity.current) {
-                    measurer.measure("最近播放", style = actionStyle).size.width.toDp() + 16.dp
-                }
-                val statusWidth = with(LocalDensity.current) {
-                    measurer.measure("暂无播放", style = statusStyle).size.width.toDp()
-                }
-                val showRecentText = showRecent && maxWidth >= statusWidth + recentWidth + browseWidth + 16.dp
-                val recentSpace = if (!showRecent) 0.dp else if (showRecentText) recentWidth else 48.dp
-                val showStatusIcon = !showRecent || maxWidth >= statusWidth + recentSpace + browseWidth + 40.dp
-                Row(
-                    Modifier.fillMaxWidth().heightIn(min = 56.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (showStatusIcon) {
-                        FilewayIcon(if (name == null) Art.drawable.fileway_ic_play_arrow else Art.drawable.fileway_ic_playlist_play,
-                            null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
-                    }
-                    Text(name ?: if (showRecent && !showRecentText) "暂无播放" else "TV 暂无播放",
-                        Modifier.weight(1f), style = statusStyle,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    if (showRecent) {
-                        if (showRecentText) {
-                            FilewayTextButton(onClick = onRecent, enabled = enabled,
-                                colors = ButtonDefaults.textButtonColors(contentColor = colors.onSurfaceVariant),
-                                contentPadding = textButtonPadding) {
-                                Text("最近播放", maxLines = 1, softWrap = false)
-                            }
-                        } else {
-                            FilewayIconButton(onClick = onRecent, modifier = Modifier.size(48.dp), enabled = enabled) {
-                                FilewayIcon(Art.drawable.fileway_ic_history, "最近播放", Modifier.size(20.dp),
-                                    tint = LocalContentColor.current)
-                            }
-                        }
-                    }
-                    FilewayTextButton(onClick = if (name == null) onBrowse else onPlayback, enabled = enabled,
-                        contentPadding = textButtonPadding) {
-                        Text(if (name == null) "浏览文件" else "查看", maxLines = 1, softWrap = false)
-                    }
-                }
-            }
+        TvPhoneQuickPlayback(model, snapshot, name, isPlaying, onPlayback,
+            modifier = Modifier.heightIn(min = 64.dp), compact = true, showProgress = true, enabled = ready)
+        player.optInt("volume", -1).takeIf { it in 0..100 }?.let { volume ->
+            TvPhoneVolume(model, snapshot, volume, ready)
         }
-        val volume = player?.optInt("volume", -1)?.takeIf { it in 0..100 }
-        if (snapshot != null && hasPlayer && volume != null) {
-            TvPhoneVolume(model, snapshot, volume, canAdjustVolume)
-        }
+        HorizontalDivider(Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
     }
 }
 
@@ -684,11 +607,14 @@ private fun LazyListScope.tvDeviceChoices(paired:List<PairedTv>,discovery:TvDisc
     val playback = snapshot.content.optJSONObject("playback")
     val duration = playback?.optLong("durationMs") ?: 0
     val view = LocalView.current
-    Surface(modifier,shape=RoundedCornerShape(12.dp),color=MaterialTheme.colorScheme.surface){
+    val colors = MaterialTheme.colorScheme
+    Surface(modifier, shape = RoundedCornerShape(12.dp),
+        color = if (showProgress) colors.surfaceContainerLow else colors.surface) {
         Row(Modifier.fillMaxWidth().padding(start=12.dp,end=4.dp),verticalAlignment=Alignment.CenterVertically){
             Box(Modifier.weight(1f).heightIn(min=48.dp).clickable(enabled=enabled,role=Role.Button,onClick=onOpen),contentAlignment=Alignment.CenterStart){
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(name,style=MaterialTheme.typography.bodyMedium,maxLines=if(compact)1 else 2,overflow=TextOverflow.Ellipsis)
+                    Text(name, style = if (showProgress) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+                        maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
                     if (showProgress && playback != null && duration > 0) {
                         val position = playback.optLong("positionMs").coerceIn(0L, duration)
                         val progress = (position.toDouble() / duration).toFloat()
@@ -851,14 +777,14 @@ private fun View.tvBackHaptic() {
     iconOnly:Boolean=false,enabled:Boolean=true){
     val size = when {
         iconOnly -> if (compact) 48.dp else 64.dp
-        compact -> 56.dp
-        else -> 72.dp
+        compact -> 64.dp
+        else -> 84.dp
     }
     val view = LocalView.current
     val confirm = { view.tvConfirmHaptic(); onConfirm() }
     val content: @Composable () -> Unit = {
         if (iconOnly) FilewayIcon(R.drawable.ic_check, null, Modifier.size(24.dp))
-        else Text("确定",modifier=Modifier.clearAndSetSemantics{},style=MaterialTheme.typography.labelMedium,
+        else Text("确定",modifier=Modifier.clearAndSetSemantics{},style=MaterialTheme.typography.labelLarge,
             maxLines=1,softWrap=false)
     }
     if(detailsKey && enabled) Box(Modifier.size(size).clip(CircleShape)
