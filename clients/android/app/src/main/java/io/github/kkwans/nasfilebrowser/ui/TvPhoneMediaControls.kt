@@ -16,8 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
@@ -115,6 +115,9 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
             val knownDuration=player.optLong("durationMs").coerceAtLeast(0)
             val duration=knownDuration.coerceAtLeast(1)
             val position=player.optLong("positionMs").coerceAtLeast(0).let{if(knownDuration>0)it.coerceAtMost(duration)else it}
+            val bufferedThrough = player.optLong("bufferedMs", -1).takeIf {
+                knownDuration > 0 && it > position && !player.optBoolean("seeking") && !player.optBoolean("preparing")
+            }?.coerceAtMost(knownDuration)
             val cached = if (knownDuration > 0) remoteCacheRanges(cache, duration) else emptyList()
             var preview by remember(owner){mutableStateOf<Float?>(null)}
             var requested by remember(owner){mutableStateOf<Long?>(null)}
@@ -131,7 +134,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                         preview?.let { requested = it.toLong(); send("playback.seekTo", JSONObject().put("positionMs", it.toLong())) }
                         preview = null
                     }, modifier = modifier,
-                    bufferedValue = if (knownDuration > 0) player.optLong("bufferedMs").toFloat().coerceIn(0f, duration.toFloat()) else null,
+                    bufferedValue = bufferedThrough?.toFloat(),
                     cachedRanges = cached, bufferedStartValue = position.toFloat(),
                     mediaSurface = false, description = "${tvRemoteTime(shown.toLong())} / ${if (knownDuration > 0) tvRemoteTime(duration) else "时长未知"}")
             }
@@ -152,6 +155,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                     Box(Modifier.widthIn(max = 176.dp)) { RemotePlaybackStatus(player, maxLines = 2) }
                 }
                 clock()
+                if (snapshot.scene == "VIDEO" && cache != null) RemoteCacheStatus(cache, bufferedThrough)
             } else {
                 TvPhoneMediaCard {
                     if (hasPreview) TvRemoteArtwork(model, snapshot, mediaId, mediaName,
@@ -163,6 +167,10 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                     Column(Modifier.fillMaxWidth()) {
                         timeline(Modifier.fillMaxWidth())
                         clock()
+                        if (snapshot.scene == "VIDEO" && cache != null) {
+                            Spacer(Modifier.height(8.dp))
+                            RemoteCacheStatus(cache, bufferedThrough)
+                        }
                     }
                 }
             }
@@ -195,7 +203,6 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                 Text(if (index >= 0) "队列 · ${index + 1} / $count" else "队列 · $count 项")
             }
         }
-        if(snapshot.scene=="VIDEO")cache?.let{RemoteCacheStatus(it)}
     }
     val selectedSource = panel?.subtitleSource
     val canBrowseSubtitles = selectedSource?.supportedBy(snapshot.capabilities) ?: true
@@ -237,6 +244,8 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
         JSONObject().put("id", mediaId).put("name", mediaName).put("index", current))
     val center = rows.indexOfFirst { it.getInt("index") == current }.coerceAtLeast(0)
     val pager = rememberPagerState(center) { rows.size }
+    val visibleId = rows[center].getString("id")
+    var aspect by remember(visibleId) { mutableFloatStateOf(4f / 3f) }
     var sending by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(pager, center) {
@@ -255,12 +264,15 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
             pager.scrollToPage(center)
         }
     }
-    HorizontalPager(pager, modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).aspectRatio(4f / 3f)
-        .clip(RoundedCornerShape(12.dp)).background(Color.Black), userScrollEnabled = !sending,
-        beyondViewportPageCount = 1) { page ->
-        val row = rows[page]
-        TvRemoteArtwork(model, snapshot, row.getString("id"), row.getString("name"), Modifier.fillMaxSize(),
-            contentRevision = row.optString("modified"))
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val height = (maxWidth / aspect).coerceIn(104.dp, 360.dp)
+        HorizontalPager(pager, modifier = Modifier.fillMaxWidth().height(height).clip(RoundedCornerShape(12.dp)),
+            userScrollEnabled = !sending, beyondViewportPageCount = 1) { page ->
+            val row = rows[page]
+            val id = row.getString("id")
+            TvRemoteArtwork(model, snapshot, id, row.getString("name"), Modifier.fillMaxSize(),
+                contentRevision = row.optString("modified"), roundedFit = true, onAspect = if (id == visibleId) {{ aspect = it }} else null)
+        }
     }
     error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 }
@@ -296,20 +308,30 @@ internal fun tvRemoteSpeed(bytes: Long): String = if (bytes >= 1_048_576)
     String.format(Locale.ROOT, "%.1f MB/s", bytes / 1_048_576.0)
 else "${bytes.coerceAtLeast(0) / 1024} KB/s"
 
-@Composable private fun RemoteCacheStatus(cache: JSONObject) {
+@Composable private fun RemoteCacheStatus(cache: JSONObject, bufferedThrough: Long?) {
     val bytes = cache.optLong("usedBytes", -1)
     val limit = cache.optLong("limitBytes", -1)
-    if (bytes >= 0 && limit > 0) {
-        val rate = if (cache.has("bytesPerSecond")) " · " + tvRemoteSpeed(cache.optLong("bytesPerSecond")) else ""
-        Text("TV 缓存 ${readableSize(bytes)} / ${readableSize(limit)}$rate",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
+    val rate = if (cache.has("bytesPerSecond")) tvRemoteSpeed(cache.optLong("bytesPerSecond")) else null
+    val storage = if (bytes >= 0 && limit > 0) "TV 缓存 ${readableSize(bytes)} / ${readableSize(limit)}" else null
     val feedback = cache.optString("error").takeIf { it.isNotBlank() && it != "null" } ?: when {
         cache.optBoolean("clearing") -> "正在清理 TV 缓存"
         cache.optBoolean("prefetchPaused") -> "TV 后台预缓冲已暂停"
         else -> null
     }
-    feedback?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    val buffer = bufferedThrough?.let { "已缓冲至 ${tvRemoteTime(it)}" }
+    if (storage == null && buffer == null && feedback == null && rate == null) return
+    val colors = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(colors.surfaceContainerLow)
+        .padding(horizontal = 8.dp, vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        val live = listOfNotNull(buffer, rate).joinToString("  ·  ")
+        if (live.isNotEmpty()) Text(live, style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+            color = colors.onSurface, textAlign = TextAlign.Center)
+        storage?.let { Text(it, Modifier.clearAndSetSemantics { contentDescription = listOfNotNull(it, rate).joinToString(" · ") },
+            style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, textAlign = TextAlign.Center) }
+        feedback?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center) }
+    }
 }
 
 @Composable private fun RemoteMediaSheet(model:TvControlModel,snapshot:RemoteSnapshot,panel:RemoteMediaPanel,onClose:()->Unit) {

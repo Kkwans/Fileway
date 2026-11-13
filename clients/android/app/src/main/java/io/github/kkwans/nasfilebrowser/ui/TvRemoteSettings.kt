@@ -185,6 +185,15 @@ import kotlin.math.roundToInt
                 FilewayButton(onClick = { draft.toLongOrNull()?.let { save(it) } },
                     enabled = !pending && draft.toLongOrNull()?.let { it in minimum..maximum && it != limit } == true) { Text("应用") }
             }
+            if (cache.has("rewindMinutes") && cache.has("exitMinutes")) {
+                Text("保留时间", style = MaterialTheme.typography.titleSmall)
+                TvRemoteCacheMinutes("回退窗口（分钟）", cache.optInt("rewindMinutes"), 30, pending) {
+                    change("app.setPreference", JSONObject().put("key", "cacheRewindMinutes").put("value", it))
+                }
+                TvRemoteCacheMinutes("退出后保留（分钟）", cache.optInt("exitMinutes"), 1440, pending) {
+                    change("app.setPreference", JSONObject().put("key", "cacheExitMinutes").put("value", it))
+                }
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilewayOutlinedButton(onClick = { confirm = true }, enabled = !pending && !clearing) { Text("清理 TV 缓存") }
                 if (cache.optBoolean("prefetchPaused")) FilewayTextButton(onClick = {
@@ -204,4 +213,17 @@ import kotlin.math.roundToInt
             confirm = false
             change("cache.clear", JSONObject().put("confirmed", true))
         }) { Text("清理") } })
+}
+
+@Composable private fun TvRemoteCacheMinutes(label: String, value: Int, maximum: Int, pending: Boolean, save: (Int) -> Unit) {
+    var input by remember(value) { mutableStateOf(value.toString()) }
+    val minutes = input.toIntOrNull()?.takeIf { it in 0..maximum }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(input, { input = it.filter(Char::isDigit).take(4) }, Modifier.weight(1f),
+            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            label = { Text(label) }, supportingText = { Text("0–$maximum") })
+        FilewayButton(onClick = { minutes?.let(save) }, enabled = !pending && minutes != null && minutes != value) {
+            Text("应用")
+        }
+    }
 }

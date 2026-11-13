@@ -40,15 +40,21 @@ data class PlaybackCacheLimits(
     val fragmentBytes:Long=2L*1024*1024,
     val reserveFreeBytes:Long=128L*1024*1024,
     val readGuardBytes:Long=64L*1024,
+    val retention: PlaybackCacheRetention? = null,
 ) {
     init {
         require(minimumBytes>0&&defaultBytes in minimumBytes..maximumBytes)
         require(chunkBytes>0&&fragmentBytes in 1..minimumBytes&&readGuardBytes>0&&reserveFreeBytes>=0)
     }
 }
+
+data class PlaybackCacheRetention(val rewindMinutes: Int, val exitMinutes: Int) {
+    init { require(rewindMinutes in 0..30 && exitMinutes in 0..1440) }
+}
+
 data class PlaybackCacheState(val limitBytes:Long,val usedBytes:Long=0,val bytesPerSecond:Long=0,
     val ranges:List<CachedPlaybackRange> = emptyList(),val error:String?=null,val releasing:Boolean=false,
-    val clearing:Boolean=false,val prefetchPaused:Boolean=false)
+    val clearing:Boolean=false,val prefetchPaused:Boolean=false,val retention: PlaybackCacheRetention? = null)
 
 /** One bounded writer, independent foreground reads, and per-open-generation
  * ownership. Nothing here owns a player, account, subtitle or UI component. */
@@ -59,8 +65,14 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
 ) {
     private val app=context.applicationContext
     private val prefs=app.getSharedPreferences(preferencesName,0)
+    private val retentionPrefs = app.getSharedPreferences("$preferencesName-retired", 0)
+    private var expiryJob: Job? = null
     private val root=File(app.cacheDir,directoryName)
-    private val mutable=MutableStateFlow(PlaybackCacheState(prefs.getLong("limit",limits.defaultBytes).coerceIn(limits.minimumBytes,limits.maximumBytes)))
+    private val mutable=MutableStateFlow(PlaybackCacheState(prefs.getLong("limit",limits.defaultBytes).coerceIn(limits.minimumBytes,limits.maximumBytes),
+        retention = limits.retention?.let {
+            PlaybackCacheRetention(prefs.getInt("rewindMinutes", it.rewindMinutes).coerceIn(0,30),
+                prefs.getInt("exitMinutes", it.exitMinutes).coerceIn(0,1440))
+        }))
     val state=mutable.asStateFlow()
     // The settings floor limits user input, while low disk space only limits the effective cache.
     private val minimumOperationalBytes = minOf(limits.minimumBytes, 64L * 1024 * 1024)
@@ -101,6 +113,7 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
         val networkBytes=AtomicLong()
         val pendingSeek=AtomicReference<Pair<Long,Long>?>()
         var activatedAtMs = 0L
+        var retiredAtMs = 0L
         @Volatile var retired=false
         var readers=0
         var writers=0
@@ -125,7 +138,8 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
                 created.checkInitialization()
                 // Only this component's root is opened; no settings/fonts or
                 // other cache directories are removed after an interrupted run.
-                created.keys.toList().forEach(created::removeResource)
+                if (limits.retention == null) created.keys.toList().forEach(created::removeResource)
+                else synchronized(lifecycle) { sweepRetainedLocked(created) }
                 disk=created;database=provider;created
             }catch(failure:Exception){runCatching{created.release()};provider.close();throw failure}
         }
@@ -142,7 +156,8 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
         val number=sequence.incrementAndGet()
         val identitySeed="$owner\u0000$identity\u0000$resource\u0000${job?:"native"}"
         val hash=MessageDigest.getInstance("SHA-256").digest(identitySeed.toByteArray()).joinToString(""){"%02x".format(it)}
-        val reading=Reading(number,Media(owner,identity,resource),url,"$hash:${UUID.randomUUID()}:",job!=null,fileBytes,offset,duration,ready,playbackPosition)
+        val prefix = if (limits.retention == null) "$hash:${UUID.randomUUID()}:" else "$hash:"
+        val reading=Reading(number,Media(owner,identity,resource),url,prefix,job!=null,fileBytes,offset,duration,ready,playbackPosition)
         reading.cache=cache
         val meter=object:TransferListener {
             override fun onTransferInitializing(source:DataSource,spec:DataSpec,isNetwork:Boolean){}
@@ -174,6 +189,11 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
                 override fun open(spec:DataSpec):Long {
                     synchronized(lifecycle){
                         if(reading.retired||closing||reading.serial<=stopFence||reading.serial<lastOpened)throw IOException("Playback generation retired")
+                        if (limits.retention != null && !reading.opened.get()) {
+                            // Expired data must not be revived by reopening before the timer runs.
+                            if (readings.values.none { it.prefix == reading.prefix }) sweepRetainedLocked(cache)
+                            retentionPrefs.edit().putLong(reading.prefix, 0).apply()
+                        }
                         synchronized(reading){reading.readers++;registered=true}
                         readings[reading.serial]=reading
                     }
@@ -328,7 +348,10 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
                             nextPlaylistRefresh=SystemClock.elapsedRealtime()+1000
                         }
                         val bounds=reading.parts.filterNot{it.permanent}.groupBy{it.key}.mapValues{(_,items)->CachedPlaybackRange(items.minOf{it.start},items.maxOf{it.end})}
-                        evictor.hlsWindow(reading.cache,reading.offset+position,bounds,reading.parts.filter{it.permanent}.map{it.key}.toSet())
+                        val rewindMs = (mutable.value.retention?.rewindMinutes ?: 0) * 60_000L
+                        val sourcePositionMs = add(reading.offset, position)
+                        val evictBeforeMs = (sourcePositionMs - rewindMs).coerceAtLeast(0)
+                        evictor.hlsWindow(reading.cache,evictBeforeMs,sourcePositionMs,bounds,reading.parts.filter{it.permanent}.map{it.key}.toSet())
                         prefetchHls(reading,position,buffer)
                     }else{
                         if(reading.size<=0){
@@ -337,10 +360,16 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
                             reading.cache.applyContentMetadataMutations(reading.nativeKey,ContentMetadataMutations().also{ContentMetadataMutations.setContentLength(it,reading.size)})
                         }
                         val map=reading.seek.get()?.takeIf{it.isSeekable&&!it.isEstimated}
-                        val seekUs=position.coerceAtMost(Long.MAX_VALUE/1000)*1000
-                        val anchor=map?.getSeekPoints(seekUs)?.first?.position?.coerceIn(0,reading.size)?:0L
+                        fun byteAt(timeMs: Long): Long = map?.getSeekPoints(timeMs.coerceAtMost(Long.MAX_VALUE / 1000) * 1000)
+                            ?.first?.position?.coerceIn(0, reading.size) ?: 0L
+                        val anchor=byteAt(position)
+                        val rewindMs = (mutable.value.retention?.rewindMinutes ?: 0) * 60_000L
+                        val evictBefore = if (rewindMs == 0L) anchor else {
+                            val cutoffMs = position - rewindMs
+                            if (cutoffMs > 0) byteAt(cutoffMs).coerceAtMost(anchor) else 0L
+                        }
                         val end=minOf(reading.size,add(anchor,capacity))
-                        evictor.nativeWindow(reading.cache,reading.nativeKey,anchor,anchor,end)
+                        evictor.nativeWindow(reading.cache,reading.nativeKey,evictBefore,anchor,end)
                         if(end>anchor)prefetch(reading,Uri.parse(reading.url),reading.nativeKey,anchor,end,buffer)else false
                     }
                     failures=0;setError(reading,null)
@@ -492,6 +521,20 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
         }
     }
 
+    suspend fun setRetentionConfirmed(rewindMinutes: Int? = null, exitMinutes: Int? = null) = withContext(Dispatchers.IO) {
+        workerLock.withLock {
+            check(!closing)
+            val current = checkNotNull(mutable.value.retention)
+            val next = PlaybackCacheRetention(rewindMinutes ?: current.rewindMinutes, exitMinutes ?: current.exitMinutes)
+            check(prefs.edit().putInt("rewindMinutes", next.rewindMinutes).putInt("exitMinutes", next.exitMinutes).commit()) {
+                "无法保存缓存保留时间"
+            }
+            mutable.update { it.copy(retention = next) }
+            synchronized(lifecycle) { disk?.let(::sweepRetainedLocked) }
+            disk?.let { refreshTelemetry(it, displayed) }
+        }
+    }
+
     suspend fun clear() = withContext(Dispatchers.IO) {
         workerLock.withLock {
             val cache = storage()
@@ -530,13 +573,58 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
     }
     fun foreground(){foreground=true;scope.launch(Dispatchers.IO){workerLock.withLock{val reading=current;if(!closing&&foreground&&reading!=null&&reading===displayed&&!reading.retired&&worker?.isActive!=true){stopWorker();startWorker(reading)}}}}
 
-    private fun retire(reading:Reading){synchronized(reading){reading.retired=true};scheduleCleanup(reading)}
+    private fun retire(reading:Reading){synchronized(reading){
+        if (!reading.retired) {
+            reading.retired = true
+            reading.retiredAtMs = System.currentTimeMillis()
+        }
+    };scheduleCleanup(reading)}
+
+    /** Runs under lifecycle so open, retirement and expiry share one key owner. */
+    private fun sweepRetainedLocked(cache: SimpleCache) {
+        val retention = mutable.value.retention ?: return
+        val now = System.currentTimeMillis()
+        val grace = retention.exitMinutes * 60_000L
+        val live = readings.values.mapTo(mutableSetOf()) { it.prefix }
+        val present = cache.keys.mapTo(mutableSetOf()) { it.substringBefore(':') + ":" }
+        val records = retentionPrefs.all
+        val expired = present.filterTo(mutableSetOf()) { prefix ->
+            prefix !in live && (records[prefix] as? Long)?.let { it > 0 && now - it < grace } != true
+        }
+        evictor.expirePrefixes(cache, expired)
+        val edits = retentionPrefs.edit()
+        records.keys.filter { it !in live && (it !in present || it in expired) }.forEach(edits::remove)
+        edits.apply()
+        expiryJob?.cancel()
+        val next = present.asSequence().filter { it !in live && it !in expired }
+            .mapNotNull { records[it] as? Long }.minOrNull()
+        expiryJob = next?.takeUnless { closing }?.let { retiredAt ->
+            cleanupScope.launch {
+                delay((retiredAt + grace - now).coerceAtLeast(1L))
+                synchronized(lifecycle) {
+                    expiryJob = null
+                    if (!closing) sweepRetainedLocked(cache)
+                }
+                if (!closing) refreshTelemetry(cache, displayed)
+            }
+        }
+    }
+
     private fun scheduleCleanup(reading:Reading){
         val eligible=synchronized(reading){reading.retired&&reading.readers==0&&reading.writers==0}
         if(!eligible||!reading.cleaning.compareAndSet(false,true))return
         cleanupScope.launch {
             cleanupLock.withLock{
-                try{reading.cache.keys.filter{it.startsWith(reading.prefix)}.forEach(reading.cache::removeResource)}
+                try{
+                    if (limits.retention == null) reading.cache.keys.filter{it.startsWith(reading.prefix)}.forEach(reading.cache::removeResource)
+                    else synchronized(lifecycle) {
+                        readings.remove(reading.serial, reading)
+                        if (readings.values.none { it.prefix == reading.prefix }) {
+                            retentionPrefs.edit().putLong(reading.prefix, reading.retiredAtMs).apply()
+                        }
+                        sweepRetainedLocked(reading.cache)
+                    }
+                }
                 catch(_:Exception){mutable.update{it.copy(error="视频缓存清理未完成，可在设置中重试")}}
                 finally{
                     synchronized(lifecycle) {
@@ -589,8 +677,11 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
             workerLock.withLock {
                 val cache = storage()
                 cleanupLock.withLock {
-                    val live = readings.values.map { it.prefix }
-                    cache.keys.filter { key -> live.none { key.startsWith(it) } }.forEach(cache::removeResource)
+                    if (limits.retention != null) synchronized(lifecycle) { sweepRetainedLocked(cache) }
+                    else {
+                        val live = readings.values.map { it.prefix }
+                        cache.keys.filter { key -> live.none { key.startsWith(it) } }.forEach(cache::removeResource)
+                    }
                 }
                 refreshTelemetry(cache, displayed)
             }
@@ -601,6 +692,7 @@ class PlaybackStreamCache(context:Context,private val scope:CoroutineScope,
         synchronized(lifecycle) {
             if (closing) return
             closing = true
+            expiryJob?.cancel()
         }
         background()
         cleanupScope.launch {

@@ -8,6 +8,8 @@ import android.util.LruCache
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
@@ -179,7 +181,8 @@ private suspend fun reservePreviewCommand() = previewWire.withLock {
 
 @Composable internal fun TvRemoteArtwork(model: TvControlModel, snapshot: RemoteSnapshot, id: String,
     name: String, modifier: Modifier = Modifier, scale: ContentScale = ContentScale.Fit,
-    naturalAspect: Boolean = false, browseId: String? = null, contentRevision: String = "") {
+    naturalAspect: Boolean = false, browseId: String? = null, contentRevision: String = "", roundedFit: Boolean = false,
+    onAspect: ((Float) -> Unit)? = null) {
     val media = snapshot.mediaEpoch.takeIf { browseId == null }
     val cacheKey = listOf(snapshot.connectionId, snapshot.sessionEpoch, id, contentRevision).joinToString("/")
     var bitmap by remember(cacheKey) { mutableStateOf(remoteArtworkCache.get(cacheKey)) }
@@ -221,8 +224,20 @@ private suspend fun reservePreviewCommand() = previewWire.withLock {
         finally { loading = false }
     }
     val image = bitmap
+    LaunchedEffect(image, id) {
+        if (image != null) onAspect?.invoke(image.width.toFloat() / image.height)
+    }
     val box = if (naturalAspect) modifier.aspectRatio(image?.let { it.width.toFloat() / it.height } ?: 4f / 3f) else modifier
-    val frame = if (browseId == null) box.background(MaterialTheme.colorScheme.surfaceContainer)
+    if (roundedFit && image != null) {
+        BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+            val ratio = image.width.toFloat() / image.height
+            val width = minOf(maxWidth, maxHeight * ratio)
+            Image(image.asImageBitmap(), name, Modifier.width(width).aspectRatio(ratio)
+                .clip(RoundedCornerShape(12.dp)), contentScale = ContentScale.Fit)
+        }
+        return
+    }
+    val frame = if (roundedFit) box else if (browseId == null) box.background(MaterialTheme.colorScheme.surfaceContainer)
         else box.fileThumbnailFrame()
     Box(frame, contentAlignment = Alignment.Center) {
         if (image != null) Image(image.asImageBitmap(), name, Modifier.fillMaxSize(), contentScale = scale)

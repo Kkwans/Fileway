@@ -325,9 +325,9 @@ private fun TvSpeedEditor(
     val focused by interaction.collectIsFocusedAsState()
     val shape = RoundedCornerShape(8.dp)
     Button(onClick = preset.action, interactionSource = interaction,
-        modifier = modifier.heightIn(min = 48.dp).border(1.25.dp, if (focused) PanelOutline else Color.Transparent, shape)
+        modifier = modifier.height(48.dp).border(1.5.dp, if (focused) PanelOutline else Color.Transparent, shape)
             .tvTouch(preset.action, interaction = interaction).semantics { selected = preset.selected },
-        contentPadding = PaddingValues(horizontal = 4.dp),
+        contentPadding = PaddingValues(0.dp),
         shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
         border = ButtonDefaults.border(focusedBorder = Border.None),
         colors = ButtonDefaults.colors(
@@ -336,8 +336,8 @@ private fun TvSpeedEditor(
             focusedContainerColor = PanelFocus, focusedContentColor = Color.White,
         ),
     ) {
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(preset.title, style = tvTextStyle(16, 22, if (preset.selected) FontWeight.Medium else FontWeight.Normal),
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(preset.title, style = tvTextStyle(16, 20, FontWeight.Medium).copy(fontFeatureSettings = "tnum"),
                 maxLines = 1, textAlign = TextAlign.Center)
         }
     }

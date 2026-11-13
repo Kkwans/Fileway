@@ -17,7 +17,7 @@ class PlaybackCacheFull:IOException("Playback cache window is full")
  * so span accounting, reservations and reader pins have one lock order. */
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
-    private data class NativeWindow(val key:String,val played:Long,val start:Long,val end:Long)
+    private data class NativeWindow(val key:String,val evictBefore:Long,val start:Long,val end:Long)
     private data class Pin(val key:String,val start:Long,val end:Long)
     private data class Write(val key:String,val start:Long,val end:Long,var remaining:Long)
     private val spans=TreeSet<CacheSpan>(compareBy<CacheSpan>{it.key}.thenBy{it.position})
@@ -29,7 +29,8 @@ class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
     private var native:NativeWindow?=null
     private var segments:Map<String,CachedPlaybackRange> = emptyMap()
     private var permanent:Set<String> = emptySet()
-    private var playedMs=0L
+    private var evictBeforeMs=0L
+    private var hlsStartMs=0L
     private var write:Write?=null
 
     init {require(limit>0)}
@@ -56,15 +57,15 @@ class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
     fun activate(cache:Cache,keyPrefix:String)=synchronized(cache){
         check(write==null){"Previous cache writer has not drained"}
         require(keyPrefix.isNotEmpty())
-        prefix=keyPrefix;native=null;segments=emptyMap();permanent=emptySet();playedMs=0
+        prefix=keyPrefix;native=null;segments=emptyMap();permanent=emptySet();evictBeforeMs=0
         evict(cache,0,null)
     }
-    fun nativeWindow(cache:Cache,key:String,playedByte:Long,start:Long,end:Long)=synchronized(cache){
-        require(start>=0&&end>=start&&playedByte>=0)
-        native=NativeWindow(key,playedByte,start,end);segments=emptyMap();permanent=emptySet()
+    fun nativeWindow(cache:Cache,key:String,evictBefore:Long,start:Long,end:Long)=synchronized(cache){
+        require(start>=0&&end>=start&&evictBefore in 0..start)
+        native=NativeWindow(key,evictBefore,start,end);segments=emptyMap();permanent=emptySet()
     }
-    fun hlsWindow(cache:Cache,positionMs:Long,parts:Map<String,CachedPlaybackRange>,permanentKeys:Set<String>)=synchronized(cache){
-        native=null;playedMs=positionMs.coerceAtLeast(0);segments=parts.toMap();permanent=permanentKeys.toSet()
+    fun hlsWindow(cache:Cache,evictBeforeMs:Long,positionMs:Long,parts:Map<String,CachedPlaybackRange>,permanentKeys:Set<String>)=synchronized(cache){
+        native=null;this.evictBeforeMs=evictBeforeMs.coerceAtLeast(0);hlsStartMs=positionMs;segments=parts.toMap();permanent=permanentKeys.toSet()
     }
     fun pin(cache:Cache,token:Any,key:String,position:Long,length:Long)=synchronized(cache){
         require(position>=0&&length>0)
@@ -91,6 +92,14 @@ class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
         check(write == null)
         pendingClear.addAll(spans)
         finishClear(cache)
+    }
+
+    fun expirePrefixes(cache: Cache, prefixes: Set<String>) = synchronized(cache) {
+        if (prefixes.isEmpty()) return@synchronized
+        pendingClear.addAll(spans.filter { it.key.substringBefore(':') + ":" in prefixes })
+        finishClear(cache)
+        cache.keys.filter { it.substringBefore(':') + ":" in prefixes && cache.getCachedSpans(it).isEmpty() }
+            .forEach(cache::removeResource)
     }
 
     fun isClearing(cache: Cache) = synchronized(cache) { pendingClear.isNotEmpty() }
@@ -124,26 +133,30 @@ class PlaybackCacheEvictor(private var limit:Long):CacheEvictor {
     private fun belongs(span:CacheSpan)=prefix?.let{span.key.startsWith(it)}==true
     private fun played(span:CacheSpan):Boolean {
         if(!belongs(span)||span.key in permanent)return false
-        native?.let{return span.key==it.key&&add(span.position,span.length)<=it.played}
-        return segments[span.key]?.let{it.endMs<=playedMs}==true
+        native?.let{return span.key==it.key&&add(span.position,span.length)<=it.evictBefore}
+        return segments[span.key]?.let{it.endMs<=evictBeforeMs}==true
     }
     private fun abandoned(span:CacheSpan,incomingKey:String?):Boolean {
         if(!belongs(span)||span.key in permanent)return false
-        native?.let{return span.key==it.key&&(span.position>=it.end||add(span.position,span.length)<=it.start)}
+        native?.let{return span.key==it.key&&span.position>=it.end}
         val incoming=incomingKey?.let{segments[it]}?:return false
         return segments[span.key]?.let{it.startMs>incoming.startMs}==true
     }
     private fun evict(cache:Cache,incoming:Long,incomingKey:String?){
         while(bytes+(write?.remaining?:0)+incoming>limit) {
             val eligible=spans.filterNot(::pinned)
-            val candidate=eligible.firstOrNull(::played)
+            val candidate=eligible.filter(::played).minByOrNull{segments[it.key]?.startMs?:it.position}
                 ?:eligible.firstOrNull{!belongs(it)}
                 ?:eligible.filter{abandoned(it,incomingKey)}.maxByOrNull{segments[it.key]?.startMs?:it.position}
                 // Explicit shrinking (or reduced free disk space) may make the
                 // existing unread window larger than the new budget. Trim its
                 // far end, while preserving active readers and HLS init data.
-                ?:eligible.takeIf{incoming==0L&&bytes>limit}?.filter{belongs(it)&&it.key !in permanent}
-                    ?.maxByOrNull{segments[it.key]?.startMs?:it.position}
+                ?:eligible.takeIf{incoming==0L&&bytes>limit}?.filter{belongs(it)&&it.key !in permanent}?.let { active ->
+                    native?.let { window -> active.filter { it.position >= window.start }.maxByOrNull { it.position } }
+                        ?: active.filter { segments[it.key]?.startMs?.let { start -> start >= hlsStartMs } == true }
+                            .maxByOrNull { segments[it.key]?.startMs ?: 0L }
+                        ?: active.minByOrNull { segments[it.key]?.startMs ?: it.position }
+                }
                 ?:break
             cache.removeSpan(candidate)
         }

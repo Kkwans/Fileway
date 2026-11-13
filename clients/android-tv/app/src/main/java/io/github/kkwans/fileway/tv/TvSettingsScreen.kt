@@ -188,6 +188,19 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                     item { TvButton("应用容量",{cacheInput.toLongOrNull()?.takeIf { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }?.let { mib ->
                         cacheOperation { model.media.cache.setLimitConfirmed(mib) }
                     }},enabled=cacheInput.toLongOrNull()?.let { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }==true) }
+                    cache.retention?.let { retention ->
+                        item { TvSectionTitle("保留时间") }
+                        item {
+                            TvCacheMinutesField("回退窗口（分钟）", retention.rewindMinutes, 30) { minutes ->
+                                cacheOperation { model.media.cache.setRetentionConfirmed(rewindMinutes = minutes) }
+                            }
+                        }
+                        item {
+                            TvCacheMinutesField("退出后保留（分钟）", retention.exitMinutes, 1440) { minutes ->
+                                cacheOperation { model.media.cache.setRetentionConfirmed(exitMinutes = minutes) }
+                            }
+                        }
+                    }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TvButton("清理视频缓存", { clearConfirm = true }, enabled = !cache.clearing)
@@ -223,6 +236,16 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
             }
         }
         }
+    }
+}
+
+@Composable private fun TvCacheMinutesField(label: String, value: Int, maximum: Int, save: (Int) -> Unit) {
+    var input by remember(value) { mutableStateOf(value.toString()) }
+    val minutes = input.toIntOrNull()?.takeIf { it in 0..maximum }
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        TvField(label, input, { input = it.filter(Char::isDigit).take(4) }, Modifier.weight(1f),
+            options = KeyboardOptions(keyboardType = KeyboardType.Number))
+        TvButton("应用", { minutes?.let(save) }, enabled = minutes != null && minutes != value)
     }
 }
 

@@ -62,6 +62,36 @@ class TvCacheAndDiscoveryTest {
         assertEquals(128*1024L,cache.cacheSpace)
     }
 
+    @Test fun rewindWindowProtectsRecentlyPlayedBytesUntilCutoffMoves()=ownedCache {cache,evictor,fill->
+        val chunk = 64 * 1024L
+        evictor.nativeWindow(cache,"owned:file",0,0,4*chunk)
+        fill(0);fill(chunk)
+        evictor.nativeWindow(cache,"owned:file",0,2*chunk,4*chunk)
+        assertEquals(0L,evictor.beginWrite(cache,"owned:file",2*chunk,chunk))
+        assertTrue(cache.isCached("owned:file",0,2*chunk))
+        evictor.nativeWindow(cache,"owned:file",chunk,2*chunk,4*chunk)
+        fill(2*chunk)
+        assertFalse(cache.isCached("owned:file",0,chunk))
+        assertTrue(cache.isCached("owned:file",chunk,2*chunk))
+    }
+
+    @Test fun exitedVideoYieldsUnderPressureAndExpiryPreservesPinnedFile()=ownedCache {cache,evictor,fill->
+        val chunk = 64 * 1024L
+        evictor.nativeWindow(cache,"owned:file",0,0,4*chunk)
+        fill(0);fill(chunk)
+        evictor.activate(cache,"new:")
+        assertTrue(cache.isCached("owned:file",0,2*chunk))
+        val pin = Any()
+        evictor.pin(cache,pin,"owned:file",chunk,chunk)
+        assertEquals(chunk,evictor.beginWrite(cache,"new:file",0,chunk))
+        evictor.endWrite(cache)
+        assertFalse(cache.isCached("owned:file",0,chunk))
+        evictor.expirePrefixes(cache,setOf("owned:"))
+        assertTrue(cache.isCached("owned:file",chunk,chunk))
+        evictor.unpin(cache,pin)
+        assertFalse(cache.isCached("owned:file",chunk,chunk))
+    }
+
     @Suppress("DEPRECATION")
     @Test fun api28NsdDiscoversAndResolvesFilewayService()=runBlocking {
         val manager=context.getSystemService(NsdManager::class.java)

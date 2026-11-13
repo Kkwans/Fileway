@@ -135,6 +135,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         content.put("cache",JSONObject().put("limitBytes",cache.limitBytes).put("usedBytes",cache.usedBytes)
             .put("bytesPerSecond",cache.bytesPerSecond).put("error",cache.error?:JSONObject.NULL)
             .put("clearing",cache.clearing || cache.releasing).put("prefetchPaused",cache.prefetchPaused)
+            .put("rewindMinutes",cache.retention?.rewindMinutes).put("exitMinutes",cache.retention?.exitMinutes)
             .put("minMiB",TvVideoCache.MIN_MIB).put("maxMiB",TvVideoCache.MAX_MIB)
             .put("ranges",JSONArray(cache.ranges.take(40).map{JSONObject().put("startMs",it.startMs).put("endMs",it.endMs)})))
         content.getJSONObject("preferences").put("decoder", model.media.playbackPreferences.videoDecodePolicy.value.name)
@@ -216,6 +217,8 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
                 "controlsTimeoutSeconds"->{val value=p.getInt("value");require(value in 2..30);model.setControlsTimeout(value)}
                 "detailsHoldMillis"->{val value=p.getInt("value");require(value in 500..2000);model.setDetailsHold(value)}
                 "cacheMiB"->model.media.cache.setLimitConfirmed(p.getLong("value"))
+                "cacheRewindMinutes"->model.media.cache.setRetentionConfirmed(rewindMinutes=p.getInt("value"))
+                "cacheExitMinutes"->model.media.cache.setRetentionConfirmed(exitMinutes=p.getInt("value"))
                 "decoder"->model.media.setVideoDecodePolicy(VideoDecodePolicy.valueOf(p.getString("value")))
                 else->error("设置不支持")
             }

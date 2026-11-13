@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.media3.datasource.DataSource
 import io.github.kkwans.nasfilebrowser.player.PlaybackStreamCache
 import io.github.kkwans.nasfilebrowser.player.PlaybackCacheLimits
+import io.github.kkwans.nasfilebrowser.player.PlaybackCacheRetention
 import kotlinx.coroutines.CoroutineScope
 
 internal typealias TvCachedRange=io.github.kkwans.nasfilebrowser.player.CachedPlaybackRange
@@ -16,7 +17,8 @@ internal val TvCacheState.feedback: String?
  * source generations and reader-aware cleanup. */
 internal class TvVideoCache(context:Context,scope:CoroutineScope) {
     private val delegate=PlaybackStreamCache(context,scope,directoryName="video-streams",preferencesName="tv-video-cache",
-        limits=PlaybackCacheLimits(minimumBytes=MIN_MIB * MIB, maximumBytes=MAX_MIB * MIB))
+        limits=PlaybackCacheLimits(minimumBytes=MIN_MIB * MIB, maximumBytes=MAX_MIB * MIB,
+            retention=PlaybackCacheRetention(rewindMinutes=2, exitMinutes=30)))
     val state=delegate.state
     suspend fun prepare(owner:String,identity:String,resource:String,url:String,fileBytes:Long,job:String?,offset:Long,duration:Long,
         ready:()->Boolean,playbackPosition:()->Long):DataSource.Factory =
@@ -24,6 +26,8 @@ internal class TvVideoCache(context:Context,scope:CoroutineScope) {
     fun seek(positionMs:Long)=delegate.seek(positionMs)
     fun inspect()=delegate.inspect()
     suspend fun setLimitConfirmed(mib:Long) = delegate.setLimitConfirmed(mib.also { require(it in MIN_MIB..MAX_MIB) } * MIB)
+    suspend fun setRetentionConfirmed(rewindMinutes: Int? = null, exitMinutes: Int? = null) =
+        delegate.setRetentionConfirmed(rewindMinutes, exitMinutes)
     suspend fun clear() = delegate.clear()
     suspend fun resumePrefetch() = delegate.resumePrefetch()
     fun background()=delegate.background()
