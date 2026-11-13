@@ -321,26 +321,26 @@ private fun TvSpeedEditor(
         }
         @Composable fun customEditor() {
             Row(
-                    Modifier.fillMaxWidth().tvRemoteKeys { event ->
-                        event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
-                            editorFocused && !keyboardVisible && parsed != null && apply.requestFocus(FocusDirection.Enter)
-                    },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Modifier.fillMaxWidth().tvRemoteKeys { event ->
+                    event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT &&
+                        editorFocused && !keyboardVisible && parsed != null && apply.requestFocus(FocusDirection.Enter)
+                },
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("自定义速度", style = tvTextStyle(16, 22, FontWeight.Medium))
-                        Text("0.1–5×", style = tvTextStyle(13, 18), color = LocalTvSurfaces.current.secondaryText)
-                    }
-                    TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
-                        focus.target("custom-speed", preferred == "custom-speed",
-                            Modifier.width(96.dp).focusRequester(editor).onFocusChanged { editorFocused = it.hasFocus }),
-                        options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline,
-                        showLabel = false)
-                    TvButton("应用", { parsed?.let(applyRate) },
-                        focus.target("apply-speed", preferred == "apply-speed",
-                            Modifier.widthIn(min = 68.dp).focusRequester(apply).focusProperties { left = editor }),
-                        enabled = parsed != null)
+                Column(Modifier.padding(end = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("自定义速度", style = tvTextStyle(16, 22, FontWeight.Medium))
+                    Text("0.1–5×", style = tvTextStyle(13, 18), color = LocalTvSurfaces.current.secondaryText)
+                }
+                TvField("自定义速度（0.1–5）", value, { value = it.take(12) },
+                    focus.target("custom-speed", preferred == "custom-speed",
+                        Modifier.width(96.dp).focusRequester(editor).onFocusChanged { editorFocused = it.hasFocus }),
+                    options = KeyboardOptions(keyboardType = KeyboardType.Decimal), focusedBorderColor = PanelOutline,
+                    showLabel = false)
+                TvButton("应用", { parsed?.let(applyRate) },
+                    focus.target("apply-speed", preferred == "apply-speed",
+                        Modifier.widthIn(min = 68.dp).focusRequester(apply).focusProperties { left = editor }),
+                    enabled = parsed != null)
             }
         }
         Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally,
