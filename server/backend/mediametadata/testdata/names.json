@@ -1,0 +1,5681 @@
+{
+  "description": "Synthetic, manually specified expected filename-rule corpus. No private filenames or media. Combinations exercise distinct syntax/semantic boundaries; pass counts measure fixture coverage, not real-world recognition accuracy.",
+  "cases": [
+    {
+      "id": "provider_tmdb-001",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "夜航 [tmdb-30001].mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30001"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-002",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "Harbor.Lights {tmdbid=30002}.mp4",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30002"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-003",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "星海_旅人 [TMDB:30003].mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30003"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-004",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "The Last Signal tmdbid-30004.mp4",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30004"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-005",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "墙外 [tmdb-movie-30005].mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "movie",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "movie",
+            "id": "30005"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-006",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "夜航 {tmdb-tv-30006}.mp4",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "tv",
+            "id": "30006"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-007",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "Harbor.Lights [TmDb_movie_30007].mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "movie",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "movie",
+            "id": "30007"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-008",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "星海_旅人 [tmdb.tv.30008].mp4",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "tv",
+            "id": "30008"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-009",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "The Last Signal [tmdbid:30009].mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30009"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-010",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "墙外 {TMDB=30010}.mp4",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30010"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-011",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "夜航 [tmdb-30011].mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30011"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-012",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "Harbor.Lights {tmdbid=30012}.mp4",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30012"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-013",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "星海_旅人 [TMDB:30013].mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30013"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-014",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "The Last Signal tmdbid-30014.mp4",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30014"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-015",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "墙外 [tmdb-movie-30015].mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "movie",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "movie",
+            "id": "30015"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-016",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "夜航 {tmdb-tv-30016}.mp4",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "tv",
+            "id": "30016"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-017",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "Harbor.Lights [TmDb_movie_30017].mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "movie",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "movie",
+            "id": "30017"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-018",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "星海_旅人 [tmdb.tv.30018].mp4",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "tv",
+            "id": "30018"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-019",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "The Last Signal [tmdbid:30019].mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30019"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_tmdb-020",
+      "category": "provider_tmdb",
+      "rationale": "显式ID不同围栏、分隔和实体类型；未带类型不能推成电影",
+      "filename": "墙外 {TMDB=30020}.mp4",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "30020"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-001",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "星海_旅人 [imdb-tt3000000].mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000000"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-002",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "The Last Signal {imdbid=tt30000001}.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000001"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-003",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "墙外 [IMDB:tt3000002].mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000002"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-004",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "夜航 imdbid-tt30000003.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000003"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-005",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "Harbor.Lights [imdb_tt3000004].mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000004"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-006",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "星海_旅人 [imdb-tt30000005].mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000005"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-007",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "The Last Signal {imdbid=tt3000006}.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000006"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-008",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "墙外 [IMDB:tt30000007].mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000007"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-009",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "夜航 imdbid-tt3000008.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000008"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-010",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "Harbor.Lights [imdb_tt30000009].mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000009"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-011",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "星海_旅人 [imdb-tt3000010].mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000010"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-012",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "The Last Signal {imdbid=tt30000011}.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000011"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-013",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "墙外 [IMDB:tt3000012].mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000012"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-014",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "夜航 imdbid-tt30000013.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000013"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-015",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "Harbor.Lights [imdb_tt3000014].mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000014"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-016",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "星海_旅人 [imdb-tt30000015].mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000015"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-017",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "The Last Signal {imdbid=tt3000016}.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000016"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-018",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "墙外 [IMDB:tt30000017].mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000017"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-019",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "夜航 imdbid-tt3000018.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt3000018"
+          }
+        ]
+      }
+    },
+    {
+      "id": "provider_imdb-020",
+      "category": "provider_imdb",
+      "rationale": "七/八位IMDb显式身份；不使用片名数字猜ID",
+      "filename": "Harbor.Lights [imdb_tt30000019].mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "imdb",
+            "id": "tt30000019"
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-001",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "夜航 S01E01.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-002",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "Harbor.Lights s1e2.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-003",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "星海_旅人 [S1.E9].mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 9
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-004",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "The Last Signal S1_E10.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-005",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "墙外 S01E99.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 99
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-006",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "夜航 s1e101.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 101
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-007",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "Harbor.Lights [S1.E999].mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 999
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-008",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "星海_旅人 S1_E1001.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1001
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-009",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "The Last Signal S02E01.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-010",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "墙外 s2e2.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-011",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "夜航 [S2.E9].mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 9
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-012",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "Harbor.Lights S2_E10.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-013",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "星海_旅人 S02E99.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 99
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-014",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "The Last Signal s2e101.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 101
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-015",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "墙外 [S2.E999].mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 999
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-016",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "夜航 S2_E1001.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 1001
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-017",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "Harbor.Lights S03E01.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-018",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "星海_旅人 s3e2.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-019",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "The Last Signal [S3.E9].mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 9
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-020",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "墙外 S3_E10.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-021",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "夜航 S03E99.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 99
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-022",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "Harbor.Lights s3e101.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 101
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-023",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "星海_旅人 [S3.E999].mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 999
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_single-024",
+      "category": "season_single",
+      "rationale": "明确S/E编号，跨位数与点/下划线；不依赖排序位置",
+      "filename": "The Last Signal S3_E1001.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 1001
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_multi-001",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "夜航 S01E01-E03.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          },
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 1,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-002",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "Harbor.Lights S01E01-03.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          },
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 1,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-003",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "夜航 S02E04E06.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 4
+          },
+          {
+            "season": 2,
+            "episode": 6
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-004",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "Harbor.Lights S03E02 E05.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 2
+          },
+          {
+            "season": 3,
+            "episode": 5
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-005",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "夜航 s1e7-e9.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 7
+          },
+          {
+            "season": 1,
+            "episode": 8
+          },
+          {
+            "season": 1,
+            "episode": 9
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-006",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "Harbor.Lights S01E00E01.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 0
+          },
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-007",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "夜航 [S02E09–E11].mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 9
+          },
+          {
+            "season": 2,
+            "episode": 10
+          },
+          {
+            "season": 2,
+            "episode": 11
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-008",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "Harbor.Lights S3.E99-E101.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 99
+          },
+          {
+            "season": 3,
+            "episode": 100
+          },
+          {
+            "season": 3,
+            "episode": 101
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-009",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "Harbor.Lights S01E01-E03.mp4",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          },
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 1,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-010",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "星海_旅人 S01E01-03.mp4",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          },
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 1,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-011",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "Harbor.Lights S02E04E06.mp4",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 4
+          },
+          {
+            "season": 2,
+            "episode": 6
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-012",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "星海_旅人 S03E02 E05.mp4",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 2
+          },
+          {
+            "season": 3,
+            "episode": 5
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-013",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "Harbor.Lights s1e7-e9.mp4",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 7
+          },
+          {
+            "season": 1,
+            "episode": 8
+          },
+          {
+            "season": 1,
+            "episode": 9
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-014",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "星海_旅人 S01E00E01.mp4",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 0
+          },
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-015",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "Harbor.Lights [S02E09–E11].mp4",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 9
+          },
+          {
+            "season": 2,
+            "episode": 10
+          },
+          {
+            "season": 2,
+            "episode": 11
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-016",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "星海_旅人 S3.E99-E101.mp4",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 99
+          },
+          {
+            "season": 3,
+            "episode": 100
+          },
+          {
+            "season": 3,
+            "episode": 101
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-017",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "星海_旅人 S01E01-E03.avi",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          },
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 1,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-018",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "The Last Signal S01E01-03.avi",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          },
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 1,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-019",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "星海_旅人 S02E04E06.avi",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 4
+          },
+          {
+            "season": 2,
+            "episode": 6
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-020",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "The Last Signal S03E02 E05.avi",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 2
+          },
+          {
+            "season": 3,
+            "episode": 5
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-021",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "星海_旅人 s1e7-e9.avi",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 7
+          },
+          {
+            "season": 1,
+            "episode": 8
+          },
+          {
+            "season": 1,
+            "episode": 9
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-022",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "The Last Signal S01E00E01.avi",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 0
+          },
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-023",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "星海_旅人 [S02E09–E11].avi",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 9
+          },
+          {
+            "season": 2,
+            "episode": 10
+          },
+          {
+            "season": 2,
+            "episode": 11
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "season_multi-024",
+      "category": "season_multi",
+      "rationale": "区间与非连续合并集保留编号；无时间切点，不当成可独立跳转的分段",
+      "filename": "The Last Signal S3.E99-E101.avi",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 99
+          },
+          {
+            "season": 3,
+            "episode": 100
+          },
+          {
+            "season": 3,
+            "episode": 101
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "x_notation-001",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "Harbor.Lights 1X01.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-002",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "星海_旅人 01x02.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-003",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "The Last Signal 1x12.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 12
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-004",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "墙外 01X99.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 99
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-005",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "夜航 1x100.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 100
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-006",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "Harbor.Lights 01x1000.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1000
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-007",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "星海_旅人 2X01.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-008",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "The Last Signal 02x02.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-009",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "墙外 2x12.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 12
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-010",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "夜航 02X99.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 99
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-011",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "Harbor.Lights 2x100.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 100
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-012",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "星海_旅人 02x1000.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 1000
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-013",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "The Last Signal 3X01.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-014",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "墙外 03x02.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-015",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "夜航 3x12.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 12
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-016",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "Harbor.Lights 03X99.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 99
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-017",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "星海_旅人 3x100.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 100
+          }
+        ]
+      }
+    },
+    {
+      "id": "x_notation-018",
+      "category": "x_notation",
+      "rationale": "1x02式编号；与四位分辨率尺寸区分",
+      "filename": "The Last Signal 03x1000.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 3,
+            "episode": 1000
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-001",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "夜航 第一季 第零话.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-002",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "Harbor.Lights 第一季第一集.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-003",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "星海_旅人 第一季第两话.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-004",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "The Last Signal 第一季 第十集.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-005",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "墙外 第一季第十二话.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 12
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-006",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "夜航 第一季第二十一集.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 21
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-007",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "Harbor.Lights 第一季 第九十九话.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 99
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-008",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "星海_旅人 第一季第一百零一集.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 101
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-009",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "The Last Signal 第一季第两百零二话.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 202
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-010",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "墙外 第一季 第一千零一集.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1001
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-011",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "夜航 第一季第一〇一话.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 101
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-012",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "Harbor.Lights 第一季第9999集.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 9999
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-013",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "星海_旅人 第2季 第零话.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-014",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "The Last Signal 第2季第一集.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-015",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "墙外 第2季第两话.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-016",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "夜航 第2季 第十集.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-017",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "Harbor.Lights 第2季第十二话.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 12
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-018",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "星海_旅人 第2季第二十一集.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 21
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-019",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "The Last Signal 第2季 第九十九话.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 99
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-020",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "墙外 第2季第一百零一集.mkv",
+      "expected": {
+        "title": "墙外",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 101
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-021",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "夜航 第2季第两百零二话.mkv",
+      "expected": {
+        "title": "夜航",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 202
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-022",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "Harbor.Lights 第2季 第一千零一集.mkv",
+      "expected": {
+        "title": "Harbor Lights",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 1001
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-023",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "星海_旅人 第2季第一〇一话.mkv",
+      "expected": {
+        "title": "星海 旅人",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 101
+          }
+        ]
+      }
+    },
+    {
+      "id": "chinese_numbering-024",
+      "category": "chinese_numbering",
+      "rationale": "中文全写、逐位、阿拉伯混合格式仅在明确季集语法中解析",
+      "filename": "The Last Signal 第2季第9999集.mkv",
+      "expected": {
+        "title": "The Last Signal",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 9999
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-001",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_S00E00.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-002",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_0x1.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-003",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_第零季第2集.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-004",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_s0e3.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 3
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-005",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_S00E04.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 4
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-006",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_0x5.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 5
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-007",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_第零季第6集.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 6
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-008",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_s0e7.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 7
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-009",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_S00E08.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 8
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-010",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_0x9.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 9
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-011",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_第零季第10集.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 10
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-012",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_s0e11.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 11
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-013",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_S00E12.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 12
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-014",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_0x13.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 13
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-015",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_第零季第14集.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 14
+          }
+        ]
+      }
+    },
+    {
+      "id": "season_zero-016",
+      "category": "season_zero",
+      "rationale": "S00与E00均是有效编号；不得以0视作缺失或电影",
+      "filename": "特别剧_s0e15.mkv",
+      "expected": {
+        "title": "特别剧",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 15
+          }
+        ]
+      }
+    },
+    {
+      "id": "year_title_numbers-001",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "1917 (2019).mkv",
+      "expected": {
+        "title": "1917",
+        "typeHint": "unknown",
+        "year": 2019
+      }
+    },
+    {
+      "id": "year_title_numbers-002",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "1984 (1984).mp4",
+      "expected": {
+        "title": "1984",
+        "typeHint": "unknown",
+        "year": 1984
+      }
+    },
+    {
+      "id": "year_title_numbers-003",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "2001 A Space Odyssey (1968).mkv",
+      "expected": {
+        "title": "2001 A Space Odyssey",
+        "typeHint": "unknown",
+        "year": 1968
+      }
+    },
+    {
+      "id": "year_title_numbers-004",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "Blade Runner 2049 (2017).mkv",
+      "expected": {
+        "title": "Blade Runner 2049",
+        "typeHint": "unknown",
+        "year": 2017
+      }
+    },
+    {
+      "id": "year_title_numbers-005",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "2012 (2009).mkv",
+      "expected": {
+        "title": "2012",
+        "typeHint": "unknown",
+        "year": 2009
+      }
+    },
+    {
+      "id": "year_title_numbers-006",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "2046 (2004).mkv",
+      "expected": {
+        "title": "2046",
+        "typeHint": "unknown",
+        "year": 2004
+      }
+    },
+    {
+      "id": "year_title_numbers-007",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "12 Monkeys [1995].mkv",
+      "expected": {
+        "title": "12 Monkeys",
+        "typeHint": "unknown",
+        "year": 1995
+      }
+    },
+    {
+      "id": "year_title_numbers-008",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "The 400 Blows (1959).mkv",
+      "expected": {
+        "title": "The 400 Blows",
+        "typeHint": "unknown",
+        "year": 1959
+      }
+    },
+    {
+      "id": "year_title_numbers-009",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "Apollo 13 (1995).mkv",
+      "expected": {
+        "title": "Apollo 13",
+        "typeHint": "unknown",
+        "year": 1995
+      }
+    },
+    {
+      "id": "year_title_numbers-010",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "28 Days Later (2002).mkv",
+      "expected": {
+        "title": "28 Days Later",
+        "typeHint": "unknown",
+        "year": 2002
+      }
+    },
+    {
+      "id": "year_title_numbers-011",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "007 Skyfall (2012).mkv",
+      "expected": {
+        "title": "007 Skyfall",
+        "typeHint": "unknown",
+        "year": 2012
+      }
+    },
+    {
+      "id": "year_title_numbers-012",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "9 (2009).mkv",
+      "expected": {
+        "title": "9",
+        "typeHint": "unknown",
+        "year": 2009
+      }
+    },
+    {
+      "id": "year_title_numbers-013",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "春日（2024）.mkv",
+      "expected": {
+        "title": "春日",
+        "typeHint": "unknown",
+        "year": 2024
+      }
+    },
+    {
+      "id": "year_title_numbers-014",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "夜行【2023】.mkv",
+      "expected": {
+        "title": "夜行",
+        "typeHint": "unknown",
+        "year": 2023
+      }
+    },
+    {
+      "id": "year_title_numbers-015",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "旧梦 [1895].mkv",
+      "expected": {
+        "title": "旧梦",
+        "typeHint": "unknown",
+        "year": 1895
+      }
+    },
+    {
+      "id": "year_title_numbers-016",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "星际 (2101).mkv",
+      "expected": {
+        "title": "星际",
+        "typeHint": "unknown",
+        "year": 2101
+      }
+    },
+    {
+      "id": "year_title_numbers-017",
+      "category": "year_title_numbers",
+      "rationale": "末尾裸年份仅候选并标歧义；原名供匹配者复核",
+      "filename": "Ocean.Wind.2024.mkv",
+      "expected": {
+        "title": "Ocean Wind",
+        "typeHint": "unknown",
+        "year": 2024,
+        "ambiguities": [
+          "unbracketed_year"
+        ]
+      }
+    },
+    {
+      "id": "year_title_numbers-018",
+      "category": "year_title_numbers",
+      "rationale": "末尾裸年份仅候选并标歧义；原名供匹配者复核",
+      "filename": "白昼_2023.mp4",
+      "expected": {
+        "title": "白昼",
+        "typeHint": "unknown",
+        "year": 2023,
+        "ambiguities": [
+          "unbracketed_year"
+        ]
+      }
+    },
+    {
+      "id": "year_title_numbers-019",
+      "category": "year_title_numbers",
+      "rationale": "末尾裸年份仅候选并标歧义；原名供匹配者复核",
+      "filename": "Harbor 2022.mkv",
+      "expected": {
+        "title": "Harbor",
+        "typeHint": "unknown",
+        "year": 2022,
+        "ambiguities": [
+          "unbracketed_year"
+        ]
+      }
+    },
+    {
+      "id": "year_title_numbers-020",
+      "category": "year_title_numbers",
+      "rationale": "末尾裸年份仅候选并标歧义；原名供匹配者复核",
+      "filename": "2001.A.Space.Odyssey.1968.mkv",
+      "expected": {
+        "title": "2001 A Space Odyssey",
+        "typeHint": "unknown",
+        "year": 1968,
+        "ambiguities": [
+          "unbracketed_year"
+        ]
+      }
+    },
+    {
+      "id": "year_title_numbers-021",
+      "category": "year_title_numbers",
+      "rationale": "末尾裸年份仅候选并标歧义；原名供匹配者复核",
+      "filename": "1917.2019.mkv",
+      "expected": {
+        "title": "1917",
+        "typeHint": "unknown",
+        "year": 2019,
+        "ambiguities": [
+          "unbracketed_year"
+        ]
+      }
+    },
+    {
+      "id": "year_title_numbers-022",
+      "category": "year_title_numbers",
+      "rationale": "末尾裸年份仅候选并标歧义；原名供匹配者复核",
+      "filename": "Blade Runner 2049.mkv",
+      "expected": {
+        "title": "Blade Runner",
+        "typeHint": "unknown",
+        "year": 2049,
+        "ambiguities": [
+          "unbracketed_year"
+        ]
+      }
+    },
+    {
+      "id": "year_title_numbers-023",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "The 1975 Concert.mkv",
+      "expected": {
+        "title": "The 1975 Concert",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "year_title_numbers-024",
+      "category": "year_title_numbers",
+      "rationale": "保留片名中的数字；明确括号年独立于标题年份",
+      "filename": "2024.mkv",
+      "expected": {
+        "title": "2024",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "calendar_dates-001",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目0 2024-02-29.mp4",
+      "expected": {
+        "title": "节目0",
+        "typeHint": "unknown",
+        "dateHint": "2024-02-29",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-002",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目1 2023.12.31.mp4",
+      "expected": {
+        "title": "节目1",
+        "typeHint": "unknown",
+        "dateHint": "2023-12-31",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-003",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目2 2022_01_01.mp4",
+      "expected": {
+        "title": "节目2",
+        "typeHint": "unknown",
+        "dateHint": "2022-01-01",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-004",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目3 20200102.mp4",
+      "expected": {
+        "title": "节目3",
+        "typeHint": "unknown",
+        "dateHint": "2020-01-02",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-005",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目4 2024-11-13期.mp4",
+      "expected": {
+        "title": "节目4",
+        "typeHint": "unknown",
+        "dateHint": "2024-11-13",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-006",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目5 1999.01.01.mp4",
+      "expected": {
+        "title": "节目5",
+        "typeHint": "unknown",
+        "dateHint": "1999-01-01",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-007",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目6 2000-02-29.mp4",
+      "expected": {
+        "title": "节目6",
+        "typeHint": "unknown",
+        "dateHint": "2000-02-29",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-008",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目7 2100-03-01.mp4",
+      "expected": {
+        "title": "节目7",
+        "typeHint": "unknown",
+        "dateHint": "2100-03-01",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-009",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目8 2026_11_14.mp4",
+      "expected": {
+        "title": "节目8",
+        "typeHint": "unknown",
+        "dateHint": "2026-11-14",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-010",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目9 20240229.mp4",
+      "expected": {
+        "title": "节目9",
+        "typeHint": "unknown",
+        "dateHint": "2024-02-29",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-011",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目2024.05.01.mp4",
+      "expected": {
+        "title": "节目",
+        "typeHint": "unknown",
+        "dateHint": "2024-05-01",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-012",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目11 2030-10-10.mp4",
+      "expected": {
+        "title": "节目11",
+        "typeHint": "unknown",
+        "dateHint": "2030-10-10",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-013",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目12 2010.06.07.mp4",
+      "expected": {
+        "title": "节目12",
+        "typeHint": "unknown",
+        "dateHint": "2010-06-07",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-014",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目13 2001_09_10.mp4",
+      "expected": {
+        "title": "节目13",
+        "typeHint": "unknown",
+        "dateHint": "2001-09-10",
+        "ambiguities": [
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-015",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目14 2023-02-29.mp4",
+      "expected": {
+        "title": "节目14",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_date"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-016",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目15 2024-13-01.mp4",
+      "expected": {
+        "title": "节目15",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_date"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-017",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目16 2024_00_01.mp4",
+      "expected": {
+        "title": "节目16",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_date"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-018",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目17 20240431.mp4",
+      "expected": {
+        "title": "节目17",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_date"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-019",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目18 2100-02-29.mp4",
+      "expected": {
+        "title": "节目18",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_date"
+        ]
+      }
+    },
+    {
+      "id": "calendar_dates-020",
+      "category": "calendar_dates",
+      "rationale": "日历合法性独立校验；日期不自动成为首播日或season/episode",
+      "filename": "节目19 2024.12.00.mp4",
+      "expected": {
+        "title": "节目19",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_date"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-001",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "[Fansub] 星海 - 01.mkv",
+      "expected": {
+        "title": "[Fansub] 星海",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          1
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-002",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途1 EP12.mkv",
+      "expected": {
+        "title": "动画旅途1",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          12
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-003",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途2 E99.mkv",
+      "expected": {
+        "title": "动画旅途2",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          99
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-004",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途3 第101集.mkv",
+      "expected": {
+        "title": "动画旅途3",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          101
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-005",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "[Fansub] 星海 - 1001v2.mkv",
+      "expected": {
+        "title": "[Fansub] 星海",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          1001
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-006",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途5 - 01.mkv",
+      "expected": {
+        "title": "动画旅途5",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          1
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-007",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途6 EP12.mkv",
+      "expected": {
+        "title": "动画旅途6",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          12
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-008",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途7 E99.mkv",
+      "expected": {
+        "title": "动画旅途7",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          99
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-009",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "[Fansub] 星海 第101集.mkv",
+      "expected": {
+        "title": "[Fansub] 星海",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          101
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-010",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途9 - 1001v2.mkv",
+      "expected": {
+        "title": "动画旅途9",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          1001
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-011",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途10 - 01.mkv",
+      "expected": {
+        "title": "动画旅途10",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          1
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-012",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途11 EP12.mkv",
+      "expected": {
+        "title": "动画旅途11",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          12
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-013",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "[Fansub] 星海 E99.mkv",
+      "expected": {
+        "title": "[Fansub] 星海",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          99
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-014",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途13 第101集.mkv",
+      "expected": {
+        "title": "动画旅途13",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          101
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-015",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途14 - 1001v2.mkv",
+      "expected": {
+        "title": "动画旅途14",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          1001
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-016",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途15 - 01.mkv",
+      "expected": {
+        "title": "动画旅途15",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          1
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-017",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "[Fansub] 星海 EP12.mkv",
+      "expected": {
+        "title": "[Fansub] 星海",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          12
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-018",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途17 E99.mkv",
+      "expected": {
+        "title": "动画旅途17",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          99
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-019",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途18 第101集.mkv",
+      "expected": {
+        "title": "动画旅途18",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          101
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "absolute_numbering-020",
+      "category": "absolute_numbering",
+      "rationale": "绝对集数须人工/外部顺序映射；不猜S01，字幕组也不自动当权威",
+      "filename": "动画旅途19 - 1001v2.mkv",
+      "expected": {
+        "title": "动画旅途19",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          1001
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-001",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品0 (2020) [Director's Cut].mkv",
+      "expected": {
+        "title": "作品0",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "directors_cut"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-002",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品1 (2020) [Directors.Cut].mkv",
+      "expected": {
+        "title": "作品1",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "directors_cut"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-003",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品2 (2020) [Extended].mkv",
+      "expected": {
+        "title": "作品2",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "extended"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-004",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品3 (2020) [Extended_Cut].mkv",
+      "expected": {
+        "title": "作品3",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "extended"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-005",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品4 (2020) [Theatrical Cut].mkv",
+      "expected": {
+        "title": "作品4",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "theatrical"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-006",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品5 (2020) [Final-Cut].mkv",
+      "expected": {
+        "title": "作品5",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "final_cut"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-007",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品6 (2020) [Unrated].mkv",
+      "expected": {
+        "title": "作品6",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "unrated"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-008",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品7 (2020) [Remastered].mkv",
+      "expected": {
+        "title": "作品7",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "remastered"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-009",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品8 (2020) [导演剪辑版].mkv",
+      "expected": {
+        "title": "作品8",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "directors_cut"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-010",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品9 (2020) [導演剪輯版].mkv",
+      "expected": {
+        "title": "作品9",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "directors_cut"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-011",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品10 (2020) [加长版].mkv",
+      "expected": {
+        "title": "作品10",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "extended"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-012",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品11 (2020) [加長版].mkv",
+      "expected": {
+        "title": "作品11",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "extended"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-013",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品12 (2020) [院线版].mkv",
+      "expected": {
+        "title": "作品12",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "theatrical"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-014",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品13 (2020) [院線版].mkv",
+      "expected": {
+        "title": "作品13",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "theatrical"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-015",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品14 (2020) [未分级版].mkv",
+      "expected": {
+        "title": "作品14",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "unrated"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-016",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品15 (2020) [未分級版].mkv",
+      "expected": {
+        "title": "作品15",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "unrated"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-017",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品16 (2020) [修复版].mkv",
+      "expected": {
+        "title": "作品16",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "remastered"
+        ]
+      }
+    },
+    {
+      "id": "edition_hints-018",
+      "category": "edition_hints",
+      "rationale": "剪辑/修复仅名称线索；不决定时间轴等价性或影片归属",
+      "filename": "作品17 (2020) [修復版].mkv",
+      "expected": {
+        "title": "作品17",
+        "typeHint": "unknown",
+        "year": 2020,
+        "editions": [
+          "remastered"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-001",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事0 CD1.mkv",
+      "expected": {
+        "title": "故事0 CD1",
+        "typeHint": "unknown",
+        "parts": [
+          1
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-002",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事1 cd02.mkv",
+      "expected": {
+        "title": "故事1 cd02",
+        "typeHint": "unknown",
+        "parts": [
+          2
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-003",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事2 Disc 1.mkv",
+      "expected": {
+        "title": "故事2 Disc 1",
+        "typeHint": "unknown",
+        "parts": [
+          1
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-004",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事3 DISC-2.mkv",
+      "expected": {
+        "title": "故事3 DISC-2",
+        "typeHint": "unknown",
+        "parts": [
+          2
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-005",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事4 Part 1.mkv",
+      "expected": {
+        "title": "故事4 Part 1",
+        "typeHint": "unknown",
+        "parts": [
+          1
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-006",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事5 Part II.mkv",
+      "expected": {
+        "title": "故事5 Part II",
+        "typeHint": "unknown",
+        "parts": [
+          2
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-007",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事6 Part III.mkv",
+      "expected": {
+        "title": "故事6 Part III",
+        "typeHint": "unknown",
+        "parts": [
+          3
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-008",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事7 Part IV.mkv",
+      "expected": {
+        "title": "故事7 Part IV",
+        "typeHint": "unknown",
+        "parts": [
+          4
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-009",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事8 Part IX.mkv",
+      "expected": {
+        "title": "故事8 Part IX",
+        "typeHint": "unknown",
+        "parts": [
+          9
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-010",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事9 PART X.mkv",
+      "expected": {
+        "title": "故事9 PART X",
+        "typeHint": "unknown",
+        "parts": [
+          10
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-011",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事10 上部.mkv",
+      "expected": {
+        "title": "故事10 上部",
+        "typeHint": "unknown",
+        "partLabels": [
+          "上部"
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-012",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事11 中部.mkv",
+      "expected": {
+        "title": "故事11 中部",
+        "typeHint": "unknown",
+        "partLabels": [
+          "中部"
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-013",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事12 下部.mkv",
+      "expected": {
+        "title": "故事12 下部",
+        "typeHint": "unknown",
+        "partLabels": [
+          "下部"
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-014",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事13 上集.mkv",
+      "expected": {
+        "title": "故事13 上集",
+        "typeHint": "unknown",
+        "partLabels": [
+          "上集"
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-015",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事14 下集.mkv",
+      "expected": {
+        "title": "故事14 下集",
+        "typeHint": "unknown",
+        "partLabels": [
+          "下集"
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-016",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事15 上篇.mkv",
+      "expected": {
+        "title": "故事15 上篇",
+        "typeHint": "unknown",
+        "partLabels": [
+          "上篇"
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-017",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事16 中篇.mkv",
+      "expected": {
+        "title": "故事16 中篇",
+        "typeHint": "unknown",
+        "partLabels": [
+          "中篇"
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "multipart_labels-018",
+      "category": "multipart_labels",
+      "rationale": "分段和续作标题可能重合；保留标签，不将下部猜成第2或第3段",
+      "filename": "故事17 下篇.mkv",
+      "expected": {
+        "title": "故事17 下篇",
+        "typeHint": "unknown",
+        "partLabels": [
+          "下篇"
+        ],
+        "ambiguities": [
+          "part_requires_confirmation"
+        ]
+      }
+    },
+    {
+      "id": "technical_hints-001",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本0 (2000) [1080p].mkv",
+      "expected": {
+        "title": "媒体样本0",
+        "typeHint": "unknown",
+        "year": 2000,
+        "technicalHints": {
+          "resolution": [
+            "1080p"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-002",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本1 (2001) [1080i].mkv",
+      "expected": {
+        "title": "媒体样本1",
+        "typeHint": "unknown",
+        "year": 2001,
+        "technicalHints": {
+          "resolution": [
+            "1080i"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-003",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本2 (2002) [2160p].mkv",
+      "expected": {
+        "title": "媒体样本2",
+        "typeHint": "unknown",
+        "year": 2002,
+        "technicalHints": {
+          "resolution": [
+            "2160p"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-004",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本3 (2003) [4K].mkv",
+      "expected": {
+        "title": "媒体样本3",
+        "typeHint": "unknown",
+        "year": 2003,
+        "technicalHints": {
+          "resolution": [
+            "4k"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-005",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本4 (2004) [8K].mkv",
+      "expected": {
+        "title": "媒体样本4",
+        "typeHint": "unknown",
+        "year": 2004,
+        "technicalHints": {
+          "resolution": [
+            "8k"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-006",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本5 (2005) [720p].mkv",
+      "expected": {
+        "title": "媒体样本5",
+        "typeHint": "unknown",
+        "year": 2005,
+        "technicalHints": {
+          "resolution": [
+            "720p"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-007",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本6 (2006) [480p].mkv",
+      "expected": {
+        "title": "媒体样本6",
+        "typeHint": "unknown",
+        "year": 2006,
+        "technicalHints": {
+          "resolution": [
+            "480p"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-008",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本7 (2007) [x264].mkv",
+      "expected": {
+        "title": "媒体样本7",
+        "typeHint": "unknown",
+        "year": 2007,
+        "technicalHints": {
+          "video_codec": [
+            "x264"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-009",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本8 (2008) [H.265].mkv",
+      "expected": {
+        "title": "媒体样本8",
+        "typeHint": "unknown",
+        "year": 2008,
+        "technicalHints": {
+          "video_codec": [
+            "h.265"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-010",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本9 (2009) [HEVC].mkv",
+      "expected": {
+        "title": "媒体样本9",
+        "typeHint": "unknown",
+        "year": 2009,
+        "technicalHints": {
+          "video_codec": [
+            "hevc"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-011",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本10 (2010) [AV1].mkv",
+      "expected": {
+        "title": "媒体样本10",
+        "typeHint": "unknown",
+        "year": 2010,
+        "technicalHints": {
+          "video_codec": [
+            "av1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-012",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本11 (2011) [AVC].mkv",
+      "expected": {
+        "title": "媒体样本11",
+        "typeHint": "unknown",
+        "year": 2011,
+        "technicalHints": {
+          "video_codec": [
+            "avc"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-013",
+      "category": "technical_hints",
+      "rationale": "HDR/DV仅文件名声明；不能生成已探测能力、解码能力或输出保证",
+      "filename": "媒体样本12 (2012) [HDR].mkv",
+      "expected": {
+        "title": "媒体样本12",
+        "typeHint": "unknown",
+        "year": 2012,
+        "technicalHints": {
+          "dynamic_range": [
+            "hdr"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-014",
+      "category": "technical_hints",
+      "rationale": "HDR/DV仅文件名声明；不能生成已探测能力、解码能力或输出保证",
+      "filename": "媒体样本13 (2013) [HDR10].mkv",
+      "expected": {
+        "title": "媒体样本13",
+        "typeHint": "unknown",
+        "year": 2013,
+        "technicalHints": {
+          "dynamic_range": [
+            "hdr10"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-015",
+      "category": "technical_hints",
+      "rationale": "HDR/DV仅文件名声明；不能生成已探测能力、解码能力或输出保证",
+      "filename": "媒体样本14 (2014) [HDR10+].mkv",
+      "expected": {
+        "title": "媒体样本14",
+        "typeHint": "unknown",
+        "year": 2014,
+        "technicalHints": {
+          "dynamic_range": [
+            "hdr10+"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-016",
+      "category": "technical_hints",
+      "rationale": "HDR/DV仅文件名声明；不能生成已探测能力、解码能力或输出保证",
+      "filename": "媒体样本15 (2015) [HLG].mkv",
+      "expected": {
+        "title": "媒体样本15",
+        "typeHint": "unknown",
+        "year": 2015,
+        "technicalHints": {
+          "dynamic_range": [
+            "hlg"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-017",
+      "category": "technical_hints",
+      "rationale": "HDR/DV仅文件名声明；不能生成已探测能力、解码能力或输出保证",
+      "filename": "媒体样本16 (2016) [DV].mkv",
+      "expected": {
+        "title": "媒体样本16",
+        "typeHint": "unknown",
+        "year": 2016,
+        "technicalHints": {
+          "dynamic_range": [
+            "dv"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-018",
+      "category": "technical_hints",
+      "rationale": "HDR/DV仅文件名声明；不能生成已探测能力、解码能力或输出保证",
+      "filename": "媒体样本17 (2017) [Dolby.Vision].mkv",
+      "expected": {
+        "title": "媒体样本17",
+        "typeHint": "unknown",
+        "year": 2017,
+        "technicalHints": {
+          "dynamic_range": [
+            "dolby.vision"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-019",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本18 (2018) [WEB-DL].mkv",
+      "expected": {
+        "title": "媒体样本18",
+        "typeHint": "unknown",
+        "year": 2018,
+        "technicalHints": {
+          "source": [
+            "web-dl"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-020",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本19 (2019) [WEBRip].mkv",
+      "expected": {
+        "title": "媒体样本19",
+        "typeHint": "unknown",
+        "year": 2019,
+        "technicalHints": {
+          "source": [
+            "webrip"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-021",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本20 (2000) [BluRay].mkv",
+      "expected": {
+        "title": "媒体样本20",
+        "typeHint": "unknown",
+        "year": 2000,
+        "technicalHints": {
+          "source": [
+            "bluray"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-022",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本21 (2001) [REMUX].mkv",
+      "expected": {
+        "title": "媒体样本21",
+        "typeHint": "unknown",
+        "year": 2001,
+        "technicalHints": {
+          "source": [
+            "remux"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-023",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本22 (2002) [HDTV].mkv",
+      "expected": {
+        "title": "媒体样本22",
+        "typeHint": "unknown",
+        "year": 2002,
+        "technicalHints": {
+          "source": [
+            "hdtv"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-024",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本23 (2003) [AAC].mkv",
+      "expected": {
+        "title": "媒体样本23",
+        "typeHint": "unknown",
+        "year": 2003,
+        "technicalHints": {
+          "audio_codec": [
+            "aac"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-025",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本24 (2004) [DTS-HD.MA].mkv",
+      "expected": {
+        "title": "媒体样本24",
+        "typeHint": "unknown",
+        "year": 2004,
+        "technicalHints": {
+          "audio_codec": [
+            "dts-hd.ma"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-026",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本25 (2005) [TrueHD].mkv",
+      "expected": {
+        "title": "媒体样本25",
+        "typeHint": "unknown",
+        "year": 2005,
+        "technicalHints": {
+          "audio_codec": [
+            "truehd"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-027",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本26 (2006) [DDP5.1].mkv",
+      "expected": {
+        "title": "媒体样本26",
+        "typeHint": "unknown",
+        "year": 2006,
+        "technicalHints": {
+          "audio_codec": [
+            "ddp5.1"
+          ]
+        }
+      }
+    },
+    {
+      "id": "technical_hints-028",
+      "category": "technical_hints",
+      "rationale": "分辨率/编码/来源/音轨仅技术提示，不修改真实探测结果",
+      "filename": "媒体样本27 (2007) [10bit].mkv",
+      "expected": {
+        "title": "媒体样本27",
+        "typeHint": "unknown",
+        "year": 2007,
+        "technicalHints": {
+          "bit_depth": [
+            "10bit"
+          ]
+        }
+      }
+    },
+    {
+      "id": "conflicts-001",
+      "category": "conflicts",
+      "rationale": "相同提供方不同ID保留双方证据，不能先到先得",
+      "filename": "冲突0 [tmdb-100] [tmdb-200].mkv",
+      "expected": {
+        "title": "冲突0",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "100"
+          },
+          {
+            "provider": "tmdb",
+            "id": "200"
+          }
+        ],
+        "ambiguities": [
+          "conflicting_provider_ids"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-002",
+      "category": "conflicts",
+      "rationale": "相同提供方不同ID保留双方证据，不能先到先得",
+      "filename": "冲突1 [tmdb-101] [tmdb-201].mkv",
+      "expected": {
+        "title": "冲突1",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "101"
+          },
+          {
+            "provider": "tmdb",
+            "id": "201"
+          }
+        ],
+        "ambiguities": [
+          "conflicting_provider_ids"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-003",
+      "category": "conflicts",
+      "rationale": "相同提供方不同ID保留双方证据，不能先到先得",
+      "filename": "冲突2 [tmdb-102] [tmdb-202].mkv",
+      "expected": {
+        "title": "冲突2",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "102"
+          },
+          {
+            "provider": "tmdb",
+            "id": "202"
+          }
+        ],
+        "ambiguities": [
+          "conflicting_provider_ids"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-004",
+      "category": "conflicts",
+      "rationale": "相同提供方不同ID保留双方证据，不能先到先得",
+      "filename": "冲突3 [tmdb-103] [tmdb-203].mkv",
+      "expected": {
+        "title": "冲突3",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "103"
+          },
+          {
+            "provider": "tmdb",
+            "id": "203"
+          }
+        ],
+        "ambiguities": [
+          "conflicting_provider_ids"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-005",
+      "category": "conflicts",
+      "rationale": "相同提供方不同ID保留双方证据，不能先到先得",
+      "filename": "冲突4 [tmdb-104] [tmdb-204].mkv",
+      "expected": {
+        "title": "冲突4",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "id": "104"
+          },
+          {
+            "provider": "tmdb",
+            "id": "204"
+          }
+        ],
+        "ambiguities": [
+          "conflicting_provider_ids"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-006",
+      "category": "conflicts",
+      "rationale": "两个明确年份冲突时Year为空，不任选最近年份",
+      "filename": "重制0 (1990) (2020).mkv",
+      "expected": {
+        "title": "重制0",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "conflicting_years"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-007",
+      "category": "conflicts",
+      "rationale": "两个明确年份冲突时Year为空，不任选最近年份",
+      "filename": "重制1 (1991) (2021).mkv",
+      "expected": {
+        "title": "重制1",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "conflicting_years"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-008",
+      "category": "conflicts",
+      "rationale": "两个明确年份冲突时Year为空，不任选最近年份",
+      "filename": "重制2 (1992) (2022).mkv",
+      "expected": {
+        "title": "重制2",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "conflicting_years"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-009",
+      "category": "conflicts",
+      "rationale": "两个明确年份冲突时Year为空，不任选最近年份",
+      "filename": "重制3 (1993) (2023).mkv",
+      "expected": {
+        "title": "重制3",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "conflicting_years"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-010",
+      "category": "conflicts",
+      "rationale": "多季证据保留并要求确认，不能将整文件推成同一季",
+      "filename": "混季0 S01E01 S02E01.mkv",
+      "expected": {
+        "title": "混季0",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          },
+          {
+            "season": 2,
+            "episode": 1
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file",
+          "multiple_seasons"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-011",
+      "category": "conflicts",
+      "rationale": "多季证据保留并要求确认，不能将整文件推成同一季",
+      "filename": "混季1 S01E02 S02E02.mkv",
+      "expected": {
+        "title": "混季1",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 2,
+            "episode": 2
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file",
+          "multiple_seasons"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-012",
+      "category": "conflicts",
+      "rationale": "多季证据保留并要求确认，不能将整文件推成同一季",
+      "filename": "混季2 S01E03 S02E03.mkv",
+      "expected": {
+        "title": "混季2",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 3
+          },
+          {
+            "season": 2,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file",
+          "multiple_seasons"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-013",
+      "category": "conflicts",
+      "rationale": "多季证据保留并要求确认，不能将整文件推成同一季",
+      "filename": "混季3 S01E04 S02E04.mkv",
+      "expected": {
+        "title": "混季3",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 4
+          },
+          {
+            "season": 2,
+            "episode": 4
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file",
+          "multiple_seasons"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-014",
+      "category": "conflicts",
+      "rationale": "显式电影类型与季集模式冲突时TypeHint保持unknown",
+      "filename": "电影剧集0 [tmdb-movie-300] S01E01.mkv",
+      "expected": {
+        "title": "电影剧集0",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "movie",
+            "id": "300"
+          }
+        ],
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ],
+        "ambiguities": [
+          "type_conflict"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-015",
+      "category": "conflicts",
+      "rationale": "显式电影类型与季集模式冲突时TypeHint保持unknown",
+      "filename": "电影剧集1 [tmdb-movie-301] S01E02.mkv",
+      "expected": {
+        "title": "电影剧集1",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "movie",
+            "id": "301"
+          }
+        ],
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 2
+          }
+        ],
+        "ambiguities": [
+          "type_conflict"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-016",
+      "category": "conflicts",
+      "rationale": "显式电影类型与季集模式冲突时TypeHint保持unknown",
+      "filename": "电影剧集2 [tmdb-movie-302] S01E03.mkv",
+      "expected": {
+        "title": "电影剧集2",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "movie",
+            "id": "302"
+          }
+        ],
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "type_conflict"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-017",
+      "category": "conflicts",
+      "rationale": "两个有效日期不同，不能任选为节目日期",
+      "filename": "日期冲突0 2024-01-01 2024-02-01.mkv",
+      "expected": {
+        "title": "日期冲突0",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "conflicting_dates",
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-018",
+      "category": "conflicts",
+      "rationale": "两个有效日期不同，不能任选为节目日期",
+      "filename": "日期冲突1 2024-01-02 2024-02-02.mkv",
+      "expected": {
+        "title": "日期冲突1",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "conflicting_dates",
+          "date_requires_context"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-019",
+      "category": "conflicts",
+      "rationale": "绝对编号与季集编号并存时不自行判为同一集",
+      "filename": "编号冲突0 S01E01 EP100.mkv",
+      "expected": {
+        "title": "编号冲突0",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ],
+        "absoluteEpisodes": [
+          100
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping",
+          "numbering_scheme_conflict"
+        ]
+      }
+    },
+    {
+      "id": "conflicts-020",
+      "category": "conflicts",
+      "rationale": "绝对编号与季集编号并存时不自行判为同一集",
+      "filename": "编号冲突1 S01E02 EP101.mkv",
+      "expected": {
+        "title": "编号冲突1",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 2
+          }
+        ],
+        "absoluteEpisodes": [
+          101
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping",
+          "numbering_scheme_conflict"
+        ]
+      }
+    },
+    {
+      "id": "negative_title_tokens-001",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "1917.mkv",
+      "expected": {
+        "title": "1917",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-002",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "1984.mkv",
+      "expected": {
+        "title": "1984",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-003",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "2012.mkv",
+      "expected": {
+        "title": "2012",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-004",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "2046.mkv",
+      "expected": {
+        "title": "2046",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-005",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "2001 A Space Odyssey.mkv",
+      "expected": {
+        "title": "2001 A Space Odyssey",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-006",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Se7en.mkv",
+      "expected": {
+        "title": "Se7en",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-007",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Ocean's 11.mkv",
+      "expected": {
+        "title": "Ocean's 11",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-008",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "District 9.mkv",
+      "expected": {
+        "title": "District 9",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-009",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Catch 22.mkv",
+      "expected": {
+        "title": "Catch 22",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-010",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Room 1408.mkv",
+      "expected": {
+        "title": "Room 1408",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-011",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Formula 1.mkv",
+      "expected": {
+        "title": "Formula 1",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-012",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Studio 54.mkv",
+      "expected": {
+        "title": "Studio 54",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-013",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Apollo 13.mkv",
+      "expected": {
+        "title": "Apollo 13",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-014",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "The 100.mkv",
+      "expected": {
+        "title": "The 100",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-015",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Fahrenheit 451.mkv",
+      "expected": {
+        "title": "Fahrenheit 451",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-016",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "1920x1080.mkv",
+      "expected": {
+        "title": "1920x1080",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-017",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "Frame 3840x2160.mkv",
+      "expected": {
+        "title": "Frame 3840x2160",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-018",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "XS01E02.mkv",
+      "expected": {
+        "title": "XS01E02",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-019",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "S01E02suffix.mkv",
+      "expected": {
+        "title": "S01E02suffix",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-020",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "STEP01.mkv",
+      "expected": {
+        "title": "STEP01",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-021",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "h264movie.mkv",
+      "expected": {
+        "title": "h264movie",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-022",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "HDRoom.mkv",
+      "expected": {
+        "title": "HDRoom",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-023",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "The DVirtual Story.mkv",
+      "expected": {
+        "title": "The DVirtual Story",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-024",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "WALL-E.mkv",
+      "expected": {
+        "title": "WALL-E",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-025",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "[REC] (2007).mkv",
+      "expected": {
+        "title": "[REC]",
+        "typeHint": "unknown",
+        "year": 2007
+      }
+    },
+    {
+      "id": "negative_title_tokens-026",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "R2D2 Adventure.mkv",
+      "expected": {
+        "title": "R2D2 Adventure",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-027",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "月球100号.mkv",
+      "expected": {
+        "title": "月球100号",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-028",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "第七封印.mkv",
+      "expected": {
+        "title": "第七封印",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-029",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "十二怒汉.mkv",
+      "expected": {
+        "title": "十二怒汉",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "negative_title_tokens-030",
+      "category": "negative_title_tokens",
+      "rationale": "标题数字、单词子串、尺寸和括号片名不能误当季集、编码或上映年份",
+      "filename": "世界第一等.mkv",
+      "expected": {
+        "title": "世界第一等",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-001",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "逆序 S01E09-E02.mkv",
+      "expected": {
+        "title": "逆序",
+        "typeHint": "episode",
+        "ambiguities": [
+          "invalid_episode_range"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-002",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "超大 S01E01-E9999.mkv",
+      "expected": {
+        "title": "超大",
+        "typeHint": "episode",
+        "ambiguities": [
+          "invalid_episode_range"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-003",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "缺季 第12集.mkv",
+      "expected": {
+        "title": "缺季",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          12
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-004",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "长编号 S0001E01.mkv",
+      "expected": {
+        "title": "长编号 S0001E01",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-005",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "长集号 S01E12345.mkv",
+      "expected": {
+        "title": "长集号 S01E12345",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-006",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "未编号 Special.mkv",
+      "expected": {
+        "title": "未编号 Special",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-007",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "未映射 OVA.mkv",
+      "expected": {
+        "title": "未映射 OVA",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "special_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-008",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "未映射 SP.mkv",
+      "expected": {
+        "title": "未映射 SP",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "special_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-009",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "未映射 OAD.mkv",
+      "expected": {
+        "title": "未映射 OAD",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "special_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-010",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "错误年括号 (2024].mkv",
+      "expected": {
+        "title": "错误年括号 (2024]",
+        "typeHint": "unknown"
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-011",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "数字ID [imdb-12345].mkv",
+      "expected": {
+        "title": "数字ID [imdb-12345]",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_provider_id"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-012",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "短ID [imdb-tt123].mkv",
+      "expected": {
+        "title": "短ID [imdb-tt123]",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_provider_id"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-013",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "零ID [tmdb-0].mkv",
+      "expected": {
+        "title": "零ID [tmdb-0]",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_provider_id"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-014",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "异型ID [tmdb-tt1234567].mkv",
+      "expected": {
+        "title": "异型ID [tmdb-tt1234567]",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_provider_id"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-015",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "空分段 CD0.mkv",
+      "expected": {
+        "title": "空分段 CD0",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_part"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-016",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "S00E00.mkv",
+      "expected": {
+        "title": "",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 0,
+            "episode": 0
+          }
+        ],
+        "ambiguities": [
+          "missing_title"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-017",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": ".mkv",
+      "expected": {
+        "title": "",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "missing_title"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-018",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "",
+      "expected": {
+        "title": "",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "missing_title"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-019",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "HDR.mkv",
+      "expected": {
+        "title": "HDR",
+        "typeHint": "unknown",
+        "technicalHints": {
+          "dynamic_range": [
+            "hdr"
+          ]
+        },
+        "ambiguities": [
+          "metadata_or_title"
+        ]
+      }
+    },
+    {
+      "id": "invalid_and_ambiguous-020",
+      "category": "invalid_and_ambiguous",
+      "rationale": "边界/冲突明确保留歧义或拒绝推断，不能产生默认作品匹配",
+      "filename": "Unrated.mkv",
+      "expected": {
+        "title": "Unrated",
+        "typeHint": "unknown",
+        "editions": [
+          "unrated"
+        ],
+        "ambiguities": [
+          "metadata_or_title"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-001",
+      "category": "range_and_integration",
+      "rationale": "重复季编号的同季区间必须包含中间集",
+      "filename": "完整区间 S01E01-S01E03.mkv",
+      "expected": {
+        "title": "完整区间",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          },
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 1,
+            "episode": 3
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-002",
+      "category": "range_and_integration",
+      "rationale": "完整x范围按同季展开",
+      "filename": "完整x区间 2x03-2x05.mkv",
+      "expected": {
+        "title": "完整x区间",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 3
+          },
+          {
+            "season": 2,
+            "episode": 4
+          },
+          {
+            "season": 2,
+            "episode": 5
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-003",
+      "category": "range_and_integration",
+      "rationale": "跨季缺少季长度信息，拒绝猜中间集数",
+      "filename": "跨季区间 S01E01-S02E03.mkv",
+      "expected": {
+        "title": "跨季区间",
+        "typeHint": "episode",
+        "ambiguities": [
+          "cross_season_range",
+          "invalid_episode_range"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-004",
+      "category": "range_and_integration",
+      "rationale": "中文到/第组合支持完整区间",
+      "filename": "中文范围 第一季第二到第四集.mkv",
+      "expected": {
+        "title": "中文范围",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 2
+          },
+          {
+            "season": 1,
+            "episode": 3
+          },
+          {
+            "season": 1,
+            "episode": 4
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-005",
+      "category": "range_and_integration",
+      "rationale": "中文至范围与话编号",
+      "filename": "中文范围2 第2季第十至十二话.mkv",
+      "expected": {
+        "title": "中文范围2",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 2,
+            "episode": 10
+          },
+          {
+            "season": 2,
+            "episode": 11
+          },
+          {
+            "season": 2,
+            "episode": 12
+          }
+        ],
+        "ambiguities": [
+          "combined_episode_file"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-006",
+      "category": "range_and_integration",
+      "rationale": "中文逆序不能展开",
+      "filename": "中文逆序 第一季第九至二集.mkv",
+      "expected": {
+        "title": "中文逆序",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_episode_range"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-007",
+      "category": "range_and_integration",
+      "rationale": "无季区间保留绝对编号并要求映射",
+      "filename": "绝对范围 第十二到十四集.mkv",
+      "expected": {
+        "title": "绝对范围",
+        "typeHint": "unknown",
+        "absoluteEpisodes": [
+          12,
+          13,
+          14
+        ],
+        "ambiguities": [
+          "absolute_episode_requires_mapping"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-008",
+      "category": "range_and_integration",
+      "rationale": "一百一可能是101或110，拒绝补零猜数",
+      "filename": "中文省略 第一季第一百一集.mkv",
+      "expected": {
+        "title": "中文省略",
+        "typeHint": "unknown",
+        "ambiguities": [
+          "invalid_episode_range"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-009",
+      "category": "range_and_integration",
+      "rationale": "多个技术标签只作为文件名提示，不作真实探测",
+      "filename": "完整技术 金色.年华.(2024).2160p.WEB-DL.DV.HDR10+.HEVC.TrueHD.Atmos.10bit.mkv",
+      "expected": {
+        "title": "完整技术 金色 年华",
+        "typeHint": "unknown",
+        "year": 2024,
+        "technicalHints": {
+          "resolution": [
+            "2160p"
+          ],
+          "video_codec": [
+            "hevc"
+          ],
+          "dynamic_range": [
+            "dv",
+            "hdr10+"
+          ],
+          "source": [
+            "web-dl"
+          ],
+          "audio_codec": [
+            "truehd",
+            "atmos"
+          ],
+          "bit_depth": [
+            "10bit"
+          ]
+        }
+      }
+    },
+    {
+      "id": "range_and_integration-010",
+      "category": "range_and_integration",
+      "rationale": "相同数字ID在不同实体空间不等于同作品",
+      "filename": "实体冲突 [tmdb-movie-123] [tmdb-tv-123].mkv",
+      "expected": {
+        "title": "实体冲突",
+        "typeHint": "unknown",
+        "providerIds": [
+          {
+            "provider": "tmdb",
+            "mediaType": "movie",
+            "id": "123"
+          },
+          {
+            "provider": "tmdb",
+            "mediaType": "tv",
+            "id": "123"
+          }
+        ],
+        "ambiguities": [
+          "provider_entity_conflict"
+        ]
+      }
+    },
+    {
+      "id": "range_and_integration-011",
+      "category": "range_and_integration",
+      "rationale": "分辨率前连字符不能被当成到1080集的区间",
+      "filename": "后缀边界 S01E01-1080p.mkv",
+      "expected": {
+        "title": "后缀边界",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ],
+        "technicalHints": {
+          "resolution": [
+            "1080p"
+          ]
+        }
+      }
+    },
+    {
+      "id": "range_and_integration-012",
+      "category": "range_and_integration",
+      "rationale": "重复同一季集证据去重，不生成双集文件",
+      "filename": "相邻证据 S01E01 [1x01].mkv",
+      "expected": {
+        "title": "相邻证据",
+        "typeHint": "episode",
+        "seasonEpisodes": [
+          {
+            "season": 1,
+            "episode": 1
+          }
+        ]
+      }
+    }
+  ]
+}
