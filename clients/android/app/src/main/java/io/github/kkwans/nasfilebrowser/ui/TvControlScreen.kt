@@ -337,6 +337,7 @@ private fun TvPhonePortraitRemote(
         val padSize = minOf(diameter, (deckWidth - 28.dp).coerceAtLeast(0.dp))
         val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
         val compact = maxHeight < (462 + 96 * (fontScale - 1)).dp
+        val compactPad = (maxHeight - (268 + 90 * (fontScale - 1)).dp).coerceIn(184.dp, 240.dp)
         LazyColumn(
             Modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
@@ -356,7 +357,6 @@ private fun TvPhonePortraitRemote(
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp)) {
                             TvPhonePortraitMedia(model, snapshot ?: recentSnapshot, snapshot != null, onBrowse, onPlayback)
-                            val compactPad = (maxHeight - (268 + 90 * (fontScale - 1)).dp).coerceIn(184.dp, 240.dp)
                             BoxWithConstraints(Modifier.fillMaxWidth().then(if (compact) Modifier else Modifier.weight(1f)),
                                 contentAlignment = Alignment.Center) {
                                 val availableHeight = if (compact) compactPad else (maxHeight - 16.dp).coerceAtLeast(0.dp)
