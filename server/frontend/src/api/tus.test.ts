@@ -18,6 +18,7 @@ vi.mock("@/utils/constants", () => ({
   tusEndpoint: "/api/tus",
   tusSettings: { chunkSize: 1024, retryCount: 2 },
 }));
+vi.mock("@/router", () => ({ default: { push: vi.fn() } }));
 vi.mock("@/stores/auth", () => ({
   useAuthStore: () => ({ jwt: "owned.fixture.token" }),
 }));

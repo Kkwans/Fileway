@@ -15,6 +15,7 @@ vi.mock("./utils", () => ({
   removePrefix: (url: string) => url.replace(/^\/files(?=\/|$)/, "") || "/",
   StatusError: class extends Error {},
 }));
+vi.mock("@/router", () => ({ default: { push: vi.fn() } }));
 vi.mock("@/stores/auth", () => ({ useAuthStore: () => mocks.auth }));
 vi.mock("@/stores/favorites", () => ({
   useFavoritesStore: () => ({

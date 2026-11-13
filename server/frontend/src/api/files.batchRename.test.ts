@@ -13,6 +13,7 @@ vi.mock("./utils", () => ({
   removePrefix: vi.fn(),
   StatusError: class StatusError extends Error {},
 }));
+vi.mock("@/router", () => ({ default: { push: vi.fn() } }));
 vi.mock("@/stores/auth", () => ({
   useAuthStore: () => ({ jwt: "owned-fixture" }),
 }));

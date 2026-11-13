@@ -14,6 +14,7 @@ vi.mock("./utils", () => ({
   removePrefix: vi.fn(),
   StatusError: class extends Error {},
 }));
+vi.mock("@/router", () => ({ default: { push: vi.fn() } }));
 vi.mock("@/stores/auth", () => ({ useAuthStore: vi.fn() }));
 vi.mock("@/stores/favorites", () => ({ useFavoritesStore: vi.fn() }));
 vi.mock("@/stores/layout", () => ({ useLayoutStore: vi.fn() }));
