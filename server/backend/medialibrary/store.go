@@ -35,6 +35,8 @@ type Store struct {
 	db          *sql.DB
 	identity    *catalogIdentity
 	mu          sync.Mutex
+	writerOnce  sync.Once
+	writerGate  chan struct{}
 	coordinator *ScanCoordinator
 	closed      bool
 	closeErr    error
@@ -137,6 +139,16 @@ func (store *Store) Close() error {
 // external notifications or perform network I/O. A callback error or panic rolls
 // back all changes. Consumers publish committed outbox entries separately.
 func (store *Store) WithTx(ctx context.Context, fn func(*sql.Tx) error) error {
+	store.writerOnce.Do(func() { store.writerGate = make(chan struct{}, 1) })
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case store.writerGate <- struct{}{}:
+	}
+	defer func() { <-store.writerGate }()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := validateTransactionAuthority(ctx, store); err != nil {
 		return err
 	}
