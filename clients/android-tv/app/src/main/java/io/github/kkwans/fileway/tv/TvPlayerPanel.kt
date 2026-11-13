@@ -5,6 +5,7 @@ package io.github.kkwans.fileway.tv
 // Fileway supplies its own row layout, identity keys, touch input and media callbacks.
 
 import android.graphics.drawable.ColorDrawable
+import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.basicMarquee
@@ -44,6 +45,8 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalView
@@ -69,6 +72,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 import io.github.kkwans.nasfilebrowser.ui.designsystem.drawMediaProgressTrack
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 internal enum class TvPlayerPage(val title: String) {
@@ -552,6 +557,10 @@ private object FullRowVisibility : BringIntoViewSpec {
     var focused by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     val commit by rememberUpdatedState(onCommit)
+    val currentValue by rememberUpdatedState(value)
+    val scope = rememberCoroutineScope()
+    var heldKey by remember { mutableIntStateOf(KeyEvent.KEYCODE_UNKNOWN) }
+    var repeatJob by remember { mutableStateOf<Job?>(null) }
     val shown = preview ?: value
     LaunchedEffect(value) {
         if (!dragging && preview?.let { kotlin.math.abs(it - value) < step / 2 } == true) preview = null
@@ -569,8 +578,14 @@ private object FullRowVisibility : BringIntoViewSpec {
     }
     fun set(next: Float) {
         val bounded = snap(next)
+        if (bounded == (preview ?: currentValue)) return
         preview = bounded
         commit(bounded)
+    }
+    fun stopRepeat() {
+        repeatJob?.cancel()
+        repeatJob = null
+        heldKey = KeyEvent.KEYCODE_UNKNOWN
     }
     val span = range.endInclusive - range.start
     Row(
@@ -587,7 +602,7 @@ private object FullRowVisibility : BringIntoViewSpec {
         val trackWidth = if (expandTrack) Modifier.weight(2.6f) else Modifier.weight(.65f, fill = false).width(176.dp)
         Canvas(
             modifier.then(trackWidth).height(48.dp)
-                .onFocusChanged { focused = it.isFocused }
+                .onFocusChanged { focused = it.isFocused; if (!focused) stopRepeat() }
                 .background(if (focused) Color.White.copy(alpha = .10f) else Color.Transparent, TvShape)
                 .border(2.dp, if (focused) PanelOutline else Color.Transparent, TvShape)
                 .pointerInput(range) {
@@ -602,28 +617,49 @@ private object FullRowVisibility : BringIntoViewSpec {
                             change.consume()
                             preview = snap(range.start + span * (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f))
                         },
-                        onDragEnd = { dragging = false; preview?.let(::set) },
+                        onDragEnd = { dragging = false; preview?.let(commit) },
                         onDragCancel = { dragging = false; preview = null },
                     )
                 }
-                .tvRemoteKeys { event ->
+                .then(if (accelerate) Modifier.onPreviewKeyEvent { event ->
+                    val key = event.nativeKeyEvent
+                    val direction = when (key.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> -1
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> 1
+                        else -> return@onPreviewKeyEvent false
+                    }
+                    if (key.action == KeyEvent.ACTION_UP) {
+                        if (heldKey == key.keyCode) stopRepeat()
+                    } else if (key.action == KeyEvent.ACTION_DOWN && key.repeatCount == 0) {
+                        stopRepeat()
+                        heldKey = key.keyCode
+                        set((preview ?: currentValue) + direction * step)
+                        val started = SystemClock.uptimeMillis()
+                        repeatJob = scope.launch {
+                            delay(380)
+                            while (true) {
+                                val elapsed = SystemClock.uptimeMillis() - started
+                                val multiplier = when {
+                                    elapsed >= 1_800 -> 10
+                                    elapsed >= 700 -> 5
+                                    else -> 1
+                                }
+                                set((preview ?: currentValue) + direction * step * multiplier)
+                                delay(85)
+                            }
+                        }
+                    }
+                    true
+                } else Modifier.tvRemoteKeys { event ->
                     val key = event.nativeKeyEvent
                     val direction = when (key.keyCode) {
                         KeyEvent.KEYCODE_DPAD_LEFT -> -1
                         KeyEvent.KEYCODE_DPAD_RIGHT -> 1
                         else -> 0
                     }
-                    if (direction != 0) {
-                        val held = if (accelerate && key.repeatCount > 0) key.eventTime - key.downTime else 0L
-                        val multiplier = when {
-                            held >= 1_800 -> 10
-                            held >= 700 -> 5
-                            else -> 1
-                        }
-                        set((preview ?: value) + direction * step * multiplier)
-                    }
+                    if (direction != 0) set((preview ?: currentValue) + direction * step)
                     direction != 0
-                }
+                })
                 .semantics {
                     contentDescription = label
                     stateDescription = format(shown)
