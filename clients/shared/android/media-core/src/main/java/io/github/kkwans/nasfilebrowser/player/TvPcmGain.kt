@@ -19,6 +19,8 @@ internal class TvPcmGain : BaseAudioProcessor() {
         if (inputAudioFormat.encoding == C.ENCODING_PCM_16BIT) inputAudioFormat else AudioFormat.NOT_SET
 
     override fun queueInput(inputBuffer: ByteBuffer) {
+        // Media3 also queues its shared empty buffer while draining the pipeline.
+        if (!inputBuffer.hasRemaining()) return
         val gain = gainPercent
         val output = replaceOutputBuffer(inputBuffer.remaining())
         if (gain == 100) {
