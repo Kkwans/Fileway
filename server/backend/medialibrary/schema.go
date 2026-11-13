@@ -136,3 +136,12 @@ CREATE TABLE outbox (
 ) STRICT;
 CREATE INDEX outbox_pending ON outbox(sequence) WHERE published_at IS NULL;
 `
+
+// Archive/revoke retain the catalog and grant history. A regrant increments the
+// existing grant revision rather than recreating revision 1 (lease ABA safety).
+const schemaV2 = `
+ALTER TABLE library ADD COLUMN archived_at INTEGER CHECK(archived_at >= created_at);
+ALTER TABLE library_member ADD COLUMN revoked_at INTEGER CHECK(revoked_at >= created_at);
+CREATE INDEX library_active_owner ON library(owner_user_id, id) WHERE archived_at IS NULL;
+CREATE INDEX library_member_active ON library_member(user_id, library_id) WHERE revoked_at IS NULL;
+`
