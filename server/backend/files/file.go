@@ -391,7 +391,7 @@ func (i *FileInfo) detectType(modify, saveContent, readHeader bool, calcImgRes b
 			if err != nil {
 				return err
 			}
-			defer reader.Close()
+			defer func() { _ = reader.Close() }()
 			content, err := io.ReadAll(reader)
 			if err != nil {
 				return err

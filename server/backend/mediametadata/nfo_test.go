@@ -16,7 +16,7 @@ func fixture(t *testing.T, name string) *Document {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	document, err := ParseNFO(file, Limits{})
 	if err != nil {
 		t.Fatal(err)

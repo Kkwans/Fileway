@@ -137,7 +137,7 @@ func TestPrivateMediaOpenedIdentityRejectsChangedAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer opened.Close()
+	defer func() { _ = opened.Close() }()
 	info, err := opened.Stat()
 	if err != nil || !IsPrivateMediaFile(info) {
 		t.Fatal("opened private object escaped identity guard", err)

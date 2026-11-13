@@ -37,7 +37,7 @@ func TestPublicOpenRejectsPrivateObjectAfterAliasSwap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
+	defer func() { _ = release() }()
 	swapped := &swappedPublicFS{Fs: afero.NewOsFs(), target: db}
 	if file, err := OpenPublicResource(swapped, "public-video.mkv"); !errors.Is(err, fs.ErrPermission) || file != nil {
 		t.Fatalf("private object returned: %v %v", file, err)
