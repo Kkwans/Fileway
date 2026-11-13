@@ -22,18 +22,19 @@ const (
 // In particular, a critic approval rate is not an audience average rating.
 // Issues contain stable codes only, never potentially sensitive source text.
 type Rating struct {
-	RawSource string              `json:"rawSource"`
-	RawScale  *string             `json:"rawScale,omitempty"`
-	Fields    map[string][]string `json:"fields"`
-	Provider  string              `json:"provider,omitempty"`
-	Metric    RatingMetric        `json:"metric"`
-	Audience  string              `json:"audience,omitempty"`
-	Value     *float64            `json:"value"`
-	Scale     *float64            `json:"scale"`
-	Count     *int64              `json:"count"`
-	CountKind string              `json:"countKind,omitempty"`
-	Default   *bool               `json:"default,omitempty"`
-	Issues    []string            `json:"issues,omitempty"`
+	RawSource      string              `json:"rawSource"`
+	RawScale       *string             `json:"rawScale,omitempty"`
+	Fields         map[string][]string `json:"fields"`
+	Provider       string              `json:"provider,omitempty"`
+	Metric         RatingMetric        `json:"metric"`
+	Audience       string              `json:"audience,omitempty"`
+	Value          *float64            `json:"value"`
+	Scale          *float64            `json:"scale"`
+	Count          *int64              `json:"count"`
+	CountKind      string              `json:"countKind,omitempty"`
+	CountPrecision string              `json:"countPrecision,omitempty"`
+	Default        *bool               `json:"default,omitempty"`
+	Issues         []string            `json:"issues,omitempty"`
 }
 
 func parseRating(node *element) Rating {
@@ -67,6 +68,9 @@ func newRating(node *element) Rating {
 			rating.Provider = "tmdb"
 		}
 		rating.Metric, rating.CountKind, defaultScale = UserAverage, "user_votes", 10
+		if rating.Provider == "douban" {
+			rating.CountKind = "user_ratings"
+		}
 	case "tomatometerallcritics":
 		rating.Provider, rating.Metric, rating.Audience = "rottentomatoes", CriticApproval, "all"
 		rating.CountKind, defaultScale = "critic_reviews", 100
@@ -106,8 +110,15 @@ func (rating *Rating) parseNumbers() {
 	if fields := rating.Fields["votes"]; len(fields) > 1 {
 		rating.Issues = append(rating.Issues, "duplicate_count")
 	} else if len(fields) == 1 && fields[0] != "" {
-		if count, ok := exactCount(fields[0]); ok {
+		raw := fields[0]
+		precision := "exact"
+		if strings.HasSuffix(raw, "+") {
+			raw = strings.TrimSuffix(raw, "+")
+			precision = "lower_bound"
+		}
+		if count, ok := exactCount(raw); ok {
 			rating.Count = &count
+			rating.CountPrecision = precision
 		} else {
 			rating.Issues = append(rating.Issues, "invalid_count")
 		}

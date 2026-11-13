@@ -146,7 +146,7 @@ func TestAmbiguousAndInvalidRatings(t *testing.T) {
 		{"out-of-scale", `<rating name="imdb"><value>11</value></rating>`, "invalid_value"},
 		{"empty-scale", `<rating name="imdb" max=""><value>8</value></rating>`, "invalid_scale"},
 		{"zero-scale", `<rating name="imdb" max="0"><value>8</value></rating>`, "invalid_scale"},
-		{"approximate-count", `<rating name="imdb"><votes>1,000+</votes></rating>`, "invalid_count"},
+		{"ambiguous-count", `<rating name="imdb"><votes>~1,000</votes></rating>`, "invalid_count"},
 		{"overflow-count", `<rating name="imdb"><votes>9223372036854775808</votes></rating>`, "invalid_count"},
 		{"bad-grouping", `<rating name="imdb"><votes>1,23</votes></rating>`, "invalid_count"},
 		{"negative-count", `<rating name="imdb"><votes>-1</votes></rating>`, "invalid_count"},
