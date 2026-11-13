@@ -459,3 +459,36 @@ INSERT INTO library_file(library_id,source_file_id,source_id,root_locator,observ
 		t.Fatal(count, err)
 	}
 }
+
+func TestScanKeepsAnNFOIssueWhenAHardlinkHasACleanSidecar(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Films")
+	binding := createBoundSource(t, store, library)
+	job, lease := testScan(t, store, binding, "hardlink-issue")
+	input := testObservation("same-native-file", "/videos/one.mkv")
+	first, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.ExpectedRevision = first.FileRevision
+	input.Locator, input.NFOStatus = []byte("/videos/other.mkv"), "parsed"
+	second, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 2, 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	issues, err := store.ListScanNFOIssues(t.Context(), 7, job.ID, lease.Generation, "", 10)
+	if err != nil || len(issues.Items) != 1 || issues.Items[0].Status != "invalid" {
+		t.Fatal(issues, err)
+	}
+	finishEmptyReconcile(t, store, 7, *lease, 2)
+	job, lease = testScan(t, store, binding, "hardlink-next")
+	input.ExpectedRevision = second.FileRevision
+	if _, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1)); err != nil {
+		t.Fatal(err)
+	}
+	issues, err = store.ListScanNFOIssues(t.Context(), 7, job.ID, lease.Generation, "", 10)
+	if err != nil || len(issues.Items) != 0 {
+		t.Fatal(issues, err)
+	}
+}
+

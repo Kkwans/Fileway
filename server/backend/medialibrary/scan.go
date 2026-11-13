@@ -576,8 +576,13 @@ WHERE f.source_id = ? AND f.object_key = ?`, r.LibraryID, r.Binding.SourceID, r.
 WHERE library_id = ? AND source_id = ? AND root_locator = ? AND source_file_id = ?`, r.ID, r.Generation, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, file.ID); err != nil {
 			return err
 		}
+		// Hard links may expose one native object through multiple paths with
+		// different sidecars. A later clean observation must not erase an issue
+		// found earlier in this attempt; a new generation reevaluates it.
 		if _, err := tx.ExecContext(ctx, `INSERT INTO scan_nfo_status(job_id, generation, source_file_id, status) VALUES (?, ?, ?, ?)
-ON CONFLICT(job_id, generation, source_file_id) DO UPDATE SET status = excluded.status`, r.ID, r.Generation, file.ID, input.NFOStatus); err != nil {
+ON CONFLICT(job_id, generation, source_file_id) DO UPDATE SET status = CASE
+WHEN scan_nfo_status.status IN ('invalid', 'unavailable', 'changed') AND excluded.status IN ('missing', 'parsed') THEN scan_nfo_status.status
+ELSE excluded.status END`, r.ID, r.Generation, file.ID, input.NFOStatus); err != nil {
 			return err
 		}
 		var itemID string
