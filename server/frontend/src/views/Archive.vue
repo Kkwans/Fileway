@@ -43,7 +43,8 @@
           <strong>无法打开压缩包</strong>
           <p>{{ loadError }}</p>
           <small
-            >支持 ZIP、7Z、RAR、TAR、tar.gz、tar.bz2、tar.xz 和 tar.zst；暂不支持密码输入和分卷归档。</small
+            >支持 ZIP、7Z、RAR、TAR、tar.gz、tar.bz2、tar.xz 和
+            tar.zst；暂不支持密码输入和分卷归档。</small
           >
         </div>
         <button
