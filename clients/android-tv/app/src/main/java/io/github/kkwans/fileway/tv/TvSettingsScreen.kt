@@ -191,12 +191,12 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
                     cache.retention?.let { retention ->
                         item { TvSectionTitle("保留时间") }
                         item {
-                            TvCacheMinutesField("回退窗口（分钟）", retention.rewindMinutes, 30) { minutes ->
+                            TvCacheMinutesRow("回退窗口", retention.rewindMinutes, 30) { minutes ->
                                 cacheOperation { model.media.cache.setRetentionConfirmed(rewindMinutes = minutes) }
                             }
                         }
                         item {
-                            TvCacheMinutesField("退出后保留（分钟）", retention.exitMinutes, 1440) { minutes ->
+                            TvCacheMinutesRow("退出后保留", retention.exitMinutes, 1440) { minutes ->
                                 cacheOperation { model.media.cache.setRetentionConfirmed(exitMinutes = minutes) }
                             }
                         }
@@ -239,13 +239,40 @@ private enum class TvSettingsSection(val title:String,val icon:Int) {
     }
 }
 
-@Composable private fun TvCacheMinutesField(label: String, value: Int, maximum: Int, save: (Int) -> Unit) {
-    var input by remember(value) { mutableStateOf(value.toString()) }
-    val minutes = input.toIntOrNull()?.takeIf { it in 0..maximum }
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        TvField(label, input, { input = it.filter(Char::isDigit).take(4) }, Modifier.weight(1f),
-            options = KeyboardOptions(keyboardType = KeyboardType.Number))
-        TvButton("应用", { minutes?.let(save) }, enabled = minutes != null && minutes != value)
+@Composable private fun TvCacheMinutesRow(label: String, value: Int, maximum: Int, save: (Int) -> Unit) {
+    var editing by rememberSaveable { mutableStateOf(false) }
+    TvOptionRow(label, { editing = true }, value = "$value 分钟", destination = true)
+    if (editing) TvCacheMinutesDialog(label, value, maximum, onDismiss = { editing = false }) { minutes ->
+        editing = false
+        save(minutes)
+    }
+}
+
+@Composable private fun TvCacheMinutesDialog(label: String, value: Int, maximum: Int, onDismiss: () -> Unit, save: (Int) -> Unit) {
+    var input by remember { mutableStateOf(value.toString()) }
+    val draft = input.toIntOrNull()?.takeIf { it in 0..maximum }
+    val decrease = remember { FocusRequester() }
+    Dialog(onDismissRequest = onDismiss) {
+        TvRemoteDialogKeys(onDismiss)
+        Surface(shape = TvShape) {
+            Column(Modifier.widthIn(max = 420.dp).fillMaxWidth().padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(label, style = MaterialTheme.typography.titleLarge)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TvButton("减小", { input = ((draft ?: value) - 1).coerceAtLeast(0).toString() }, Modifier.focusRequester(decrease))
+                    Text(draft?.let { "$it 分钟" } ?: "—", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    TvButton("增大", { input = ((draft ?: value) + 1).coerceAtMost(maximum).toString() })
+                }
+                TvField("分钟（0–$maximum）", input, { input = it.filter(Char::isDigit).take(4) },
+                    options = KeyboardOptions(keyboardType = KeyboardType.Number))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
+                    TvButton("取消", onDismiss)
+                    TvButton("保存", { draft?.let(save) }, enabled = draft != null && draft != value)
+                }
+            }
+        }
+        LaunchedEffect(Unit) { withFrameNanos {}; decrease.requestFocus() }
     }
 }
 
