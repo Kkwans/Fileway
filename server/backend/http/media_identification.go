@@ -1,6 +1,7 @@
 package fbhttp
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -26,15 +27,16 @@ type mediaIdentificationFile struct {
 }
 
 type mediaIdentificationResponse struct {
-	Ref               catalogRef                        `json:"ref"`
-	Title             string                            `json:"title"`
-	StructureKind     string                            `json:"structureKind"`
-	MatchState        string                            `json:"matchState"`
-	StructureRevision int64                             `json:"structureRevision"`
-	ItemRevision      int64                             `json:"itemRevision"`
-	ExternalIDs       []medialibrary.MetadataExternalID `json:"externalIds"`
-	ExternalIDsCursor string                            `json:"externalIdsNextCursor,omitempty"`
-	File              *mediaIdentificationFile          `json:"file,omitempty"`
+	Ref                catalogRef                        `json:"ref"`
+	Title              string                            `json:"title"`
+	StructureKind      string                            `json:"structureKind"`
+	MatchState         string                            `json:"matchState"`
+	StructureRevision  int64                             `json:"structureRevision"`
+	ItemRevision       int64                             `json:"itemRevision"`
+	ExternalIDs        []medialibrary.MetadataExternalID `json:"externalIds"`
+	ExternalIDsCursor  string                            `json:"externalIdsNextCursor,omitempty"`
+	File               *mediaIdentificationFile          `json:"file,omitempty"`
+	incompleteEvidence bool
 }
 
 var mediaIdentificationHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
@@ -46,13 +48,15 @@ var mediaIdentificationHandler = mediaLibraryRead(func(w http.ResponseWriter, r 
 })
 
 func mediaIdentification(r *http.Request, d *data) (mediaIdentificationResponse, *catalogView, error) {
-	var result mediaIdentificationResponse
-	ctx := r.Context()
 	library, err := itemLibrary(r, d)
 	if err != nil {
-		return result, nil, err
+		return mediaIdentificationResponse{}, nil, err
 	}
-	itemID := mux.Vars(r)["itemId"]
+	return identifyCatalogItem(r.Context(), d, library, mux.Vars(r)["itemId"])
+}
+
+func identifyCatalogItem(ctx context.Context, d *data, library *medialibrary.Library, itemID string) (mediaIdentificationResponse, *catalogView, error) {
+	var result mediaIdentificationResponse
 	detail, err := d.store.MediaLibrary.GetItemDetail(ctx, d.user.ID, library.ID, itemID)
 	if err != nil {
 		return result, nil, err
@@ -89,6 +93,7 @@ func mediaIdentification(r *http.Request, d *data) (mediaIdentificationResponse,
 		Ref: card.Ref, Title: card.Title, StructureKind: card.StructureKind, MatchState: card.MatchState,
 		StructureRevision: card.structureRevision, ItemRevision: card.Revision,
 		ExternalIDs: ids.Items, ExternalIDsCursor: ids.NextCursor,
+		incompleteEvidence: access.metadataState == "restricted" || access.metadataState == "offline" || access.metadataState == "partial",
 	}
 	// A container's accessible descendant proves visibility. Its filename
 	// cannot supply the container's own candidate query or explicit IDs.

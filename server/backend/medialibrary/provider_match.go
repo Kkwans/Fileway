@@ -13,6 +13,7 @@ import (
 type ProviderMatchRequest struct {
 	LibraryID, ItemID, ConnectionID, Kind       string
 	ExternalID, ItemRevision, StructureRevision int64
+	Automatic                                   bool `json:",omitempty"`
 }
 
 type ProviderMatchDocument struct {
@@ -41,15 +42,24 @@ type ProviderMatch struct {
 
 const providerMatchOperation = "metadata.tmdb.confirm"
 
+func providerMatchReceiptInput(request ProviderMatchRequest) (string, ProviderMatchRequest) {
+	if request.Automatic {
+		request.ExternalID = 0
+		return "metadata.tmdb.fill", request
+	}
+	return providerMatchOperation, request
+}
+
 func (store *Store) ReplayProviderMatch(ctx context.Context, actor uint, operationID string, request ProviderMatchRequest) (*ProviderMatchResult, bool, error) {
 	if _, err := editableCatalogLibrary(ctx, store.db, actor, request.LibraryID); err != nil {
 		return nil, false, err
 	}
-	digest, err := operationDigest(request)
+	operationKind, input := providerMatchReceiptInput(request)
+	digest, err := operationDigest(input)
 	if err != nil {
 		return nil, false, err
 	}
-	return lookupOperation[*ProviderMatchResult](ctx, store.db, actor, providerMatchOperation, operationID, digest)
+	return lookupOperation[*ProviderMatchResult](ctx, store.db, actor, operationKind, operationID, digest)
 }
 
 // ConfirmProviderMatch saves fetched data and a replay receipt together. The
@@ -76,7 +86,8 @@ func (store *Store) ConfirmProviderMatch(ctx context.Context, actor uint, operat
 	if err != nil || len(encoded) > 256<<10 {
 		return nil, ErrInvalid
 	}
-	return providerOperation(ctx, store, actor, providerMatchOperation, operationID, request, func(tx *sql.Tx) error {
+	operationKind, input := providerMatchReceiptInput(request)
+	return providerOperation(ctx, store, actor, operationKind, operationID, input, func(tx *sql.Tx) error {
 		current, _, err := readProviderCredentialForUse(ctx, tx, actor, request.LibraryID, authority.ConnectionID)
 		if err != nil {
 			return err
@@ -102,6 +113,15 @@ WHERE i.library_id=? AND i.id=? AND st.superseded_by IS NULL`, request.LibraryID
 		}
 		if request.Kind != itemKind && (itemKind != "video" || request.Kind != "movie") {
 			return nil, ErrInvalid
+		}
+		if request.Automatic {
+			var existing bool
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM item_provider_match WHERE library_id=? AND item_id=?)`, request.LibraryID, request.ItemID).Scan(&existing); err != nil {
+				return nil, err
+			}
+			if existing {
+				return nil, ErrRevisionConflict
+			}
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO item_provider_match(library_id,item_id,connection_id,provider,entity_kind,external_id,language,document_json,fetched_at,revision)
 VALUES(?,?,?,'tmdb',?,?,?,?,?,?) ON CONFLICT(library_id,item_id) DO UPDATE SET

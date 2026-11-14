@@ -84,6 +84,17 @@ TMDB network routing, with no credentials attached to CDN requests. Detail
 and `/credits` use the preferred complete credit list when available, with the
 other source as a fallback. TMDB continuations are bound to the policy revision.
 
+`POST /libraries/{id}/items/{itemId}/match-fill` runs explicit-ID verification
+for one item. Send `operationId`, `itemRevision`, and `structureRevision`.
+The response distinguishes `matched`, `already_matched`, `local_only`,
+`no_match`, and `needs_review`. The latter two may include a stable reason.
+Fill uses the library's selected connection and preserves an existing match.
+Typed identifiers must agree across the available declarations and the
+provider response. Title and year can guide manual search; they cannot confirm
+identity by themselves. A matched response can be recovered with the same
+operation ID and original revisions. Retriable provider failures keep their
+normal error response. This endpoint does not launch a background scan.
+
 Mutations use `operationId` and optimistic revisions. An exact retry returns the
 original sanitized receipt; a different request with the same operation or a
 stale revision returns 409 `revision_conflict`. A 503
