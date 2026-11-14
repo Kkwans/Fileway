@@ -1,4 +1,4 @@
-# Windows local preview packaging
+# Windows packaging
 
 `../eng/Package-Preview.ps1` consumes an existing self-contained publish directory;
 it does not build, publish, sign, install or launch the application.
@@ -65,6 +65,14 @@ then removes only empty directories. Other versions, extra user files, edited
 shortcuts and downloads are retained. There is no recursive directory deletion.
 The installer does not automatically run the application.
 
-These artifacts are **unsigned local development previews**. The presence of
-license files does not establish redistribution completeness. G5 license review,
-installation acceptance and public-release approval remain separate gates.
+Without public release materials, the artifacts are **unsigned local development
+previews**. The presence of bundled license files does not establish
+redistribution completeness.
+
+For a public stable build, pass `-PublicReleaseMaterials <reviewed-directory>`
+with a numeric version. The directory contains the redistribution README,
+third-party notice index and texts, media source inventory, and the SHA-256
+record for the matching source asset. The packager includes these records under
+`licenses/release` and produces unsigned packages with `RELEASE-README.txt` and
+`RELEASE-PACKAGE.json`. Publish the matching source asset with the binaries.
+Use a short external packaging root so NSIS can read the staged paths.
