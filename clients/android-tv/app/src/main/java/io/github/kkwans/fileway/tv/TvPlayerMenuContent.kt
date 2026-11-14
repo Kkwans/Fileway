@@ -21,6 +21,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -53,6 +54,13 @@ internal fun tvPlayerSettingsRows(
     val audio = state.file?.mediaKind() == MediaKind.AUDIO
     fun destination(target: TvPlayerPage, value: String? = null) = TvPlayerRow.Choice(
         key = target.name, title = target.title, value = value, destination = true, selectable = false,
+        icon = when (target) {
+            TvPlayerPage.SPEED -> Art.drawable.fileway_ic_speed
+            TvPlayerPage.VOLUME -> Art.drawable.fileway_ic_volume_up
+            TvPlayerPage.RATIO -> Art.drawable.fileway_ic_fit_screen
+            TvPlayerPage.HDR -> Art.drawable.fileway_ic_image
+            else -> Art.drawable.fileway_ic_info
+        },
         action = { onNavigate(target) },
     )
     return buildList {
@@ -63,7 +71,7 @@ internal fun tvPlayerSettingsRows(
             add(destination(TvPlayerPage.HDR, state.mode.title))
         }
         add(destination(TvPlayerPage.INFO))
-        add(TvPlayerRow.Choice(key = "exit", title = "退出播放", selectable = false, action = onExit))
+        add(TvPlayerRow.Choice(key = "exit", title = "退出播放", icon = Art.drawable.fileway_ic_logout, selectable = false, action = onExit))
     }
 }
 
@@ -296,26 +304,38 @@ private fun TvSpeedEditor(
 ) {
     val slider = remember { FocusRequester() }
     val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: "custom-speed"
-    BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-        val columns = if (maxWidth >= 480.dp) 6 else 3
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val scaledWidth = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f)
+        val wide = scaledWidth >= 720.dp
+        val columns = if (wide || scaledWidth >= 560.dp) 6 else 3
         val lines = presets.chunked(columns)
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            lines.forEachIndexed { index, line ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    line.forEach { preset ->
-                        TvSpeedPreset(preset,
-                            focus.target(preset.key, preferred == preset.key, Modifier.weight(1f).focusProperties {
-                                if (index == 0) up = focus.header
-                                if (index == lines.lastIndex) down = slider
-                            }))
+        @Composable fun Editor(modifier: Modifier) {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                lines.forEachIndexed { index, line ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        line.forEach { preset ->
+                            TvSpeedPreset(preset, focus.target(preset.key, preferred == preset.key,
+                                Modifier.weight(1f).focusProperties {
+                                    if (index == 0) up = focus.header
+                                    if (index == lines.lastIndex) down = slider
+                                }))
+                        }
                     }
                 }
+                TvPlayerRange("精调", rate, .1f..5f, .01f, { String.format(Locale.ROOT, "%.2f×", it) },
+                    focus.target("custom-speed", preferred == "custom-speed", Modifier.focusRequester(slider)),
+                    expandTrack = true, accelerate = true, onCommit = applyRate)
             }
-            TvPlayerRange("微调倍速", rate, .1f..5f, .01f,
-                { String.format(Locale.ROOT, "%.2f×", it) },
-                focus.target("custom-speed", preferred == "custom-speed", Modifier.focusRequester(slider)),
-                expandTrack = true, accelerate = true, onCommit = applyRate)
+        }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+            if (wide) Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                Column(Modifier.width(208.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("播放速度", style = tvTextStyle(20, 28, FontWeight.Medium))
+                    Text(String.format(Locale.ROOT, "%.2f×", rate), style = tvTextStyle(32, 40, FontWeight.Medium).copy(fontFeatureSettings = "tnum"))
+                    Text("当前速度", style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary)
+                }
+                Editor(Modifier.weight(1f))
+            } else Editor(Modifier.fillMaxWidth())
         }
     }
 }
@@ -323,22 +343,23 @@ private fun TvSpeedEditor(
 @Composable private fun TvSpeedPreset(preset: TvPlayerRow.Choice, modifier: Modifier) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    val shape = RoundedCornerShape(8.dp)
+    val hovered by interaction.collectIsHoveredAsState()
     Button(onClick = preset.action, interactionSource = interaction,
-        modifier = modifier.height(48.dp).border(1.5.dp, if (focused) PanelOutline else Color.Transparent, shape)
-            .tvTouch(preset.action, interaction = interaction).semantics { selected = preset.selected },
-        contentPadding = PaddingValues(0.dp),
-        shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
+        modifier = modifier.heightIn(min = 48.dp).border(2.dp, playerFocusColor(focused), TvShape)
+            .hoverable(interaction).tvTouch(preset.action, interaction = interaction).semantics { selected = preset.selected },
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        shape = ButtonDefaults.shape(TvShape), scale = ButtonDefaults.scale(focusedScale = 1f),
         border = ButtonDefaults.border(focusedBorder = Border.None),
         colors = ButtonDefaults.colors(
-            containerColor = if (preset.selected) Color.White.copy(alpha = .18f) else Color.White.copy(alpha = .055f),
-            contentColor = if (preset.selected) Color.White else Color.White.copy(alpha = .82f),
-            focusedContainerColor = PanelFocus, focusedContentColor = Color.White,
-        ),
-    ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(preset.title, style = tvTextStyle(16, 20, FontWeight.Medium).copy(fontFeatureSettings = "tnum"),
-                maxLines = 1, textAlign = TextAlign.Center)
+            containerColor = if (preset.selected) TvPlayerDesign.selected else if (hovered) TvPlayerDesign.raised else Color.White.copy(alpha = .04f),
+            contentColor = TvPlayerDesign.text, focusedContentColor = TvPlayerDesign.text,
+            focusedContainerColor = if (preset.selected) TvPlayerDesign.selected else PanelFocus)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Text(preset.title, style = tvTextStyle(18, 24, FontWeight.Medium).copy(fontFeatureSettings = "tnum"), maxLines = 1)
+            if (preset.selected) {
+                Spacer(Modifier.width(4.dp))
+                Icon(painterResource(Art.drawable.fileway_ic_check), null, Modifier.size(16.dp), tint = TvPlayerDesign.accent)
+            }
         }
     }
 }
@@ -348,6 +369,29 @@ private fun TvSpeedEditor(
     rows: List<TvPlayerRow.Choice>, focus: TvPlayerPanelFocus,
 ) {
     val items = state.queue?.items.orEmpty()
+    if (items.size == 1 && rows.size == 1) {
+        val row = rows.first()
+        val interaction = remember { MutableInteractionSource() }
+        val focused by interaction.collectIsFocusedAsState()
+        Button(onClick = row.action, interactionSource = interaction,
+            modifier = focus.target(row.key, focus.initialKey?.startsWith("header/") != true,
+                Modifier.widthIn(max = 640.dp).fillMaxWidth().focusProperties { up = focus.header })
+                .border(2.dp, playerFocusColor(focused), TvShape).tvTouch(row.action, interaction = interaction)
+                .semantics { selected = row.selected },
+            shape = ButtonDefaults.shape(TvShape), scale = ButtonDefaults.scale(focusedScale = 1f),
+            border = ButtonDefaults.border(focusedBorder = Border.None), contentPadding = PaddingValues(12.dp),
+            colors = ButtonDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = TvPlayerDesign.raised,
+                contentColor = TvPlayerDesign.text, focusedContentColor = TvPlayerDesign.text)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                TvThumbnail(model, items.first(), Modifier.width(128.dp).height(72.dp), shape = TvShape)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(items.first().name, style = tvTextStyle(20, 28, FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text("${player.phase} · 1 / 1", style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary)
+                }
+            }
+        }
+        return
+    }
     val scroll = rememberLazyListState()
     val preferred = rows.firstOrNull { it.enabled && it.key == focus.initialKey }?.key
         ?: rows.firstOrNull { it.enabled && it.selected }?.key ?: rows.firstOrNull { it.enabled }?.key
@@ -360,8 +404,8 @@ private fun TvSpeedEditor(
         }
     }
     BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-        val gap = 12.dp
-        val cardWidth = ((maxWidth - gap * 4) / 5).coerceIn(128.dp, 168.dp)
+        val gap = 16.dp
+        val cardWidth = ((maxWidth - gap * 3) / 4).coerceIn(168.dp, 240.dp)
         val artworkHeight = cardWidth * (9f / 16f)
         LazyRow(Modifier.fillMaxSize(), state = scroll,
             contentPadding = PaddingValues(vertical = 2.dp),
@@ -374,7 +418,7 @@ private fun TvSpeedEditor(
                         if (index == 0) left = FocusRequester.Cancel
                         if (index == items.lastIndex) right = FocusRequester.Cancel
                     })
-                TvPlayerQueueCard(model, file, index, artworkHeight, row, player.playing, modifier)
+                TvPlayerQueueCard(model, file, index, artworkHeight, row, player.playing, player.phase, modifier)
             }
         }
     }
@@ -382,23 +426,23 @@ private fun TvSpeedEditor(
 
 @Composable private fun TvPlayerQueueCard(
     model: TvModel, file: ResourceRef, index: Int, artworkHeight: androidx.compose.ui.unit.Dp,
-    row: TvPlayerRow.Choice, playing: Boolean, modifier: Modifier = Modifier,
+    row: TvPlayerRow.Choice, playing: Boolean, phase: String, modifier: Modifier = Modifier,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val artworkShape = remember { RoundedCornerShape(8.dp) }
+    val artworkShape = TvShape
     var focused by remember { mutableStateOf(false) }
     Button(onClick = row.action, enabled = row.enabled, interactionSource = interaction,
         modifier = modifier.onFocusChanged { focused = it.isFocused }.hoverable(interaction, enabled = row.enabled)
             .tvTouch(row.action, row.enabled, interaction).semantics {
                 selected = row.selected
-                if (row.selected) stateDescription = if (playing) "正在播放" else "已暂停"
+                if (row.selected) stateDescription = phase
             },
         contentPadding = PaddingValues(0.dp), shape = ButtonDefaults.shape(TvShape),
         scale = ButtonDefaults.scale(focusedScale = 1f), border = ButtonDefaults.border(focusedBorder = Border.None),
         colors = ButtonDefaults.colors(containerColor = Color.Transparent, focusedContainerColor = Color.Transparent,
             pressedContainerColor = Color.Transparent, contentColor = Color.White, focusedContentColor = Color.White)) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.fillMaxWidth().height(artworkHeight).clip(artworkShape)) {
                 TvThumbnail(model, file, Modifier.fillMaxSize(), shape = artworkShape)
                 if (row.selected) Box(Modifier.align(Alignment.Center).size(30.dp).clip(CircleShape)
@@ -411,9 +455,9 @@ private fun TvSpeedEditor(
             }
             Text("${index + 1}. ${file.name}", Modifier.fillMaxWidth().padding(horizontal = 2.dp)
                 .then(if (focused) Modifier.basicMarquee() else Modifier),
-                style = tvTextStyle(16, 22, if (row.selected) FontWeight.Medium else FontWeight.Normal),
-                color = if (focused) Color.White else Color.White.copy(alpha = .84f),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                style = tvTextStyle(18, 26, FontWeight.Medium),
+                color = TvPlayerDesign.text,
+                minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Start)
         }
     }
 }
@@ -421,12 +465,12 @@ private fun TvSpeedEditor(
 @Composable private fun TvPlayerSettings(rows: List<TvPlayerRow.Choice>, focus: TvPlayerPanelFocus) {
     val preferred = focus.initialKey ?: rows.firstOrNull()?.key
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val columns = if (maxWidth >= 450.dp) 2 else 1
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        val columns = if (maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f) >= 640.dp) 2 else 1
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             rows.chunked(columns).forEachIndexed { index, group ->
                 Row(
                     Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalAlignment = Alignment.Top,
                 ) {
                     for (row in group) TvPlayerChoiceRow(
                         row, focus.target(row.key, row.key == preferred,
@@ -447,15 +491,12 @@ private fun TvSpeedEditor(
 }
 
 @Composable private fun TvPlayerMessage(text: String, focus: TvPlayerPanelFocus) {
-    var focused by remember { mutableStateOf(false) }
     Text(
         text,
         focus.target("message", focus.initialKey?.startsWith("header/") != true,
             Modifier.focusProperties { if (focus.hasHeader) up = focus.header })
-            .onFocusChanged { focused = it.isFocused }
-            .border(2.dp, if (focused) Color.White.copy(alpha = .85f) else Color.Transparent, TvShape)
             .focusable().padding(12.dp),
-        style = tvTextStyle(17, 24), color = Color.White.copy(alpha = .8f),
+        style = tvTextStyle(18, 28), color = TvPlayerDesign.secondary,
     )
 }
 
@@ -468,42 +509,64 @@ private fun TvSpeedEditor(
 @Composable private fun TvPlayerInfo(state: TvMediaState, player: PlayerState, cache: TvCacheState, focus: TvPlayerPanelFocus) {
     val scroll = rememberScrollState()
     val scope = rememberCoroutineScope()
-    var focused by remember { mutableStateOf(false) }
-    Column(
-        focus.target("info", focus.initialKey?.startsWith("header/") != true, Modifier.fillMaxSize())
-            .onFocusChanged { focused = it.isFocused }
-            .border(2.dp, if (focused) Color.White.copy(alpha = .85f) else Color.Transparent, TvShape)
-            .tvRemoteKeys { event ->
-                val delta = when (event.nativeKeyEvent.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_DOWN -> 80
-                    KeyEvent.KEYCODE_DPAD_UP -> -80
-                    else -> 0
+    fun readable(value: String?): String = when (value?.trim()?.lowercase(Locale.ROOT)) {
+        null, "" -> "暂无信息"
+        "unknown", "未知" -> "未识别"
+        else -> value.orEmpty()
+    }
+    // A scroll region, not an action button: no giant focus ring around facts.
+    BoxWithConstraints(focus.target("info", focus.initialKey?.startsWith("header/") != true, Modifier.fillMaxSize())
+        .tvRemoteKeys { event ->
+            val delta = when (event.nativeKeyEvent.keyCode) {
+                KeyEvent.KEYCODE_DPAD_DOWN -> 80
+                KeyEvent.KEYCODE_DPAD_UP -> -80
+                else -> 0
+            }
+            when {
+                delta == 0 -> false
+                delta < 0 && !scroll.canScrollBackward -> { focus.header.requestFocus(); true }
+                else -> { scope.launch { scroll.scrollTo((scroll.value + delta).coerceIn(0, scroll.maxValue)) }; true }
+            }
+        }.focusable()) {
+        val twoColumns = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f) >= 640.dp
+        @Composable fun Source(modifier: Modifier) {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("片源与播放", style = tvTextStyle(20, 28, FontWeight.Medium))
+                if (state.file?.mediaKind() == MediaKind.VIDEO) {
+                    TvPlayerInfoField("片源动态范围", readable(state.info?.optString("dynamicRange")))
+                    TvPlayerInfoField("请求模式", state.mode.title)
+                    TvPlayerInfoField("实际路径", if (state.compatible) "SDR 兼容" else "原文件")
+                    TvPlayerInfoField("画面尺寸", if (player.width > 0 && player.height > 0) "${player.width} × ${player.height}" else "暂无信息")
                 }
-                when {
-                    delta == 0 -> false
-                    delta < 0 && !scroll.canScrollBackward -> { focus.header.requestFocus(); true }
-                    else -> { scope.launch { scroll.scrollTo((scroll.value + delta).coerceIn(0, scroll.maxValue)) }; true }
-                }
-            }.focusable().verticalScroll(scroll).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        TvPlayerInfoField("名称",state.file?.name.orEmpty());TvPlayerInfoField("路径",state.file?.path.orEmpty())
-        TvPlayerInfoField("媒体缓存","${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}${cache.feedback?.let{"\n$it"}.orEmpty()}")
-        if(state.file?.mediaKind()==MediaKind.VIDEO) {
-            TvPlayerInfoField("片源动态范围",state.info?.optString("dynamicRange","未知").orEmpty())
-            TvPlayerInfoField("请求模式 / 实际路径","${state.mode.title} / ${if(state.compatible)"SDR 兼容"else"原文件"}")
-            TvPlayerInfoField("解码输出",tvOutputSignal(player));TvPlayerInfoField("视频解码器","${player.videoDecoder}\n${player.videoDecoderKind}")
-            TvPlayerInfoField("画面尺寸","${player.width} × ${player.height}")
+                TvPlayerInfoField("名称", state.file?.name.orEmpty())
+                TvPlayerInfoField("路径", state.file?.path.orEmpty())
+            }
         }
-        TvPlayerInfoField("音频解码器",player.audioDecoder)
-        TvPlayerInfoField("音频输出缓冲","${player.audioRenderedBuffers} / 跳过 ${player.audioSkippedBuffers}")
+        @Composable fun Output(modifier: Modifier) {
+            Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("输出与缓存", style = tvTextStyle(20, 28, FontWeight.Medium))
+                if (state.file?.mediaKind() == MediaKind.VIDEO) {
+                    TvPlayerInfoField("解码输出", tvOutputSignal(player))
+                    TvPlayerInfoField("视频解码器", "${readable(player.videoDecoder)} · ${readable(player.videoDecoderKind)}")
+                }
+                TvPlayerInfoField("音频解码器", readable(player.audioDecoder))
+                TvPlayerInfoField("音频输出缓冲", "${player.audioRenderedBuffers} / 跳过 ${player.audioSkippedBuffers}")
+                TvPlayerInfoField("磁盘缓存 / 上限", "${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}")
+                cache.feedback?.let { Text(it, style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary) }
+            }
+        }
+        Column(Modifier.fillMaxSize().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            if (twoColumns) Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Source(Modifier.weight(1f)); Output(Modifier.weight(1f))
+            } else { Source(Modifier.fillMaxWidth()); Output(Modifier.fillMaxWidth()) }
+        }
     }
 }
 
 @Composable private fun TvPlayerInfoField(title: String, value: String) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = tvTextStyle(16, 22), color = Color.White.copy(alpha = .72f))
-        Text(value, style = MaterialTheme.typography.bodyLarge)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(title, Modifier.width(136.dp), style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary)
+        Text(value, Modifier.weight(1f), style = tvTextStyle(18, 28), color = TvPlayerDesign.text)
     }
 }
 

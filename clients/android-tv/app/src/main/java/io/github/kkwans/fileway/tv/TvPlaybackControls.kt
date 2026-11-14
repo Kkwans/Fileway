@@ -41,13 +41,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import androidx.tv.material3.*
 import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 import io.github.kkwans.nasfilebrowser.ui.designsystem.drawMediaProgressTrack
 
-private val PlaybackScrim = Color(0xFF101010)
-private val PlaybackFocus = Color(0xFF343434)
+private val PlaybackScrim = Color.Black
+private val PlaybackFocus = TvPlayerDesign.raised
 
 /** The phone player's seeker and action groups, adapted to TV focus. */
 @Composable internal fun TvPlaybackControls(
@@ -100,8 +101,8 @@ private val PlaybackFocus = Color(0xFF343434)
         Column(
             Modifier.fillMaxWidth()
                 .background(Brush.verticalGradient(
-                    0f to Color.Transparent, .46f to PlaybackScrim.copy(alpha = .61f),
-                    1f to PlaybackScrim.copy(alpha = .87f),
+                    0f to Color.Transparent, .40f to PlaybackScrim.copy(alpha = .80f),
+                    1f to PlaybackScrim.copy(alpha = .92f),
                 ))
                 .padding(start = inset, end = inset, top = 22.dp, bottom = bottom),
         ) {
@@ -126,7 +127,7 @@ private val PlaybackFocus = Color(0xFF343434)
                             }
                         },
                         leftActions = {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.focusGroup()) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.focusGroup()) {
                                 TvHudAction("设置", Art.drawable.fileway_ic_settings, onSettings,
                                     actionFocus(settingsFocus, FocusRequester.Cancel, queueFocus))
                                 TvHudAction("列表", Art.drawable.fileway_ic_playlist_play, { onQuick(TvPlayerPage.QUEUE) },
@@ -136,7 +137,7 @@ private val PlaybackFocus = Color(0xFF343434)
                             }
                         },
                         transport = {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.focusGroup()) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.focusGroup()) {
                                 TvHudAction("上一项", Art.drawable.fileway_ic_skip_previous, onPrevious,
                                     actionFocus(previousFocus, queueFocus, playFocus), enabled = hasPrevious)
                                 TvHudAction(if (playing) "暂停" else "播放",
@@ -148,11 +149,11 @@ private val PlaybackFocus = Color(0xFF343434)
                             }
                         },
                         rightActions = {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.focusGroup()) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.focusGroup()) {
                                 val pages = buildList {
                                     add(Triple(TvPlayerPage.SPEED, "倍速 ${rate}×", Art.drawable.fileway_ic_speed))
                                     if (!audio) add(Triple(TvPlayerPage.SUBTITLE, "字幕", Art.drawable.fileway_ic_subtitles))
-                                    add(Triple(TvPlayerPage.AUDIO, "音轨", Art.drawable.fileway_ic_audio))
+                                    add(Triple(TvPlayerPage.AUDIO, "音轨", Art.drawable.fileway_ic_audio_track))
                                 }
                                 for ((page, label, icon) in pages) {
                                     val left = when (page) {
@@ -199,12 +200,12 @@ private val PlaybackFocus = Color(0xFF343434)
                 contentPadding = PaddingValues(0.dp),
                 shape = ButtonDefaults.shape(shape),
                 scale = ButtonDefaults.scale(focusedScale = 1f),
-                border = ButtonDefaults.border(focusedBorder = Border(BorderStroke(1.dp, Color.White.copy(alpha = .55f)), shape = shape)),
+                border = ButtonDefaults.border(focusedBorder = Border(BorderStroke(2.dp, TvPlayerDesign.focus), shape = shape)),
                 colors = ButtonDefaults.colors(
                     containerColor = if (primary || active) Color.White.copy(alpha = .10f) else Color.Transparent, contentColor = Color.White,
-                    focusedContainerColor = Color.White.copy(alpha = .19f),
+                    focusedContainerColor = TvPlayerDesign.raised,
                     focusedContentColor = Color.White,
-                    disabledContainerColor = Color.Transparent, disabledContentColor = Color.White.copy(alpha = .36f),
+                    disabledContainerColor = Color.Transparent, disabledContentColor = TvPlayerDesign.muted,
                 ),
             ) {
                 Box(Modifier.fillMaxWidth().heightIn(min = size), contentAlignment = Alignment.Center) {
@@ -212,15 +213,15 @@ private val PlaybackFocus = Color(0xFF343434)
                 }
             }
         }
-        Box(Modifier.height(20.dp).requiredWidth(120.dp), contentAlignment = Alignment.Center) {
-            if (focused) Text(label, style = tvTextStyle(14, 20), color = Color.White, maxLines = 1,
+        Box(Modifier.height(24.dp).requiredWidth(120.dp), contentAlignment = Alignment.Center) {
+            if (focused) Text(label, style = tvTextStyle(16, 24), color = TvPlayerDesign.text, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 internal fun tvPlayerSafeInset(dimension: Dp, safePercent: Int, minimum: Dp) =
-    (dimension * safePercent.coerceIn(0, 8) / 100).coerceAtLeast(minimum)
+    ((dimension.value * safePercent.coerceIn(0, 8) / 400).roundToInt() * 4).dp.coerceAtLeast(minimum)
 
 @Composable internal fun TvPlaybackAction(
     label: String, icon: Int, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
@@ -234,7 +235,7 @@ internal fun tvPlayerSafeInset(dimension: Dp, safePercent: Int, minimum: Dp) =
         contentPadding = if (showLabel) PaddingValues(horizontal = 10.dp, vertical = 4.dp) else PaddingValues(0.dp),
         shape = ButtonDefaults.shape(TvShape), scale = ButtonDefaults.scale(focusedScale = 1f),
         border = ButtonDefaults.border(
-            focusedBorder = Border(BorderStroke(1.dp, Color.White.copy(alpha = .9f)), shape = TvShape),
+            focusedBorder = Border(BorderStroke(2.dp, TvPlayerDesign.focus), shape = TvShape),
         ),
         colors = ButtonDefaults.colors(
             containerColor = Color.Transparent,
@@ -283,7 +284,7 @@ internal fun tvPlayerSafeInset(dimension: Dp, safePercent: Int, minimum: Dp) =
     val seek by rememberUpdatedState(onSeekTo)
     val seekBy by rememberUpdatedState(onSeekBy)
     val shown = preview ?: position
-    val timeStyle = tvTextStyle(15, 20).copy(fontFeatureSettings = "tnum", color = Color.White.copy(alpha = .92f))
+    val timeStyle = tvTextStyle(18, 24).copy(fontFeatureSettings = "tnum", color = TvPlayerDesign.text)
     val measure = rememberTextMeasurer()
     val elapsed = tvTime(shown)
     val total = if (duration > 0) tvTime(duration) else "--:--"
@@ -372,24 +373,23 @@ internal fun tvPlayerSafeInset(dimension: Dp, safePercent: Int, minimum: Dp) =
         }
     }
     if (title == null && !showTime && !showSpeed) return
-    val telemetry = tvTextStyle(15, 20).copy(fontFeatureSettings = "tnum",
-        shadow = Shadow(Color.Black.copy(alpha = .7f), Offset(0f, 1f), 1f))
-    val backdrop = if (title != null) Modifier.background(Brush.verticalGradient(
-        0f to PlaybackScrim.copy(alpha = .72f), 1f to Color.Transparent,
-    )) else Modifier
+    val telemetry = tvTextStyle(18, 24).copy(fontFeatureSettings = "tnum")
+    val backdrop = Modifier.background(Brush.verticalGradient(
+        0f to PlaybackScrim.copy(alpha = .80f), .60f to PlaybackScrim.copy(alpha = .70f), 1f to Color.Transparent,
+    ))
     BoxWithConstraints(Modifier.align(Alignment.TopCenter).fillMaxWidth().then(backdrop)) {
         val horizontal = tvPlayerSafeInset(maxWidth, safePercent, 16.dp)
         val top = tvPlayerSafeInset(maxHeight, safePercent, 12.dp)
         Row(
-            Modifier.fillMaxWidth().padding(start = horizontal, end = horizontal, top = top, bottom = if (title != null) 14.dp else 0.dp),
+            Modifier.fillMaxWidth().padding(start = horizontal, end = horizontal, top = top, bottom = 24.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (showTime) {
-                Text(time, style = telemetry, color = Color.White.copy(alpha = .9f), maxLines = 1)
+                Text(time, Modifier.widthIn(min = 64.dp), style = tvTextStyle(20, 28, FontWeight.Medium).copy(fontFeatureSettings = "tnum"), color = TvPlayerDesign.text, maxLines = 1)
                 if (title != null) Spacer(Modifier.width(16.dp))
             }
             if (title != null) Text(
-                title, Modifier.weight(1f).basicMarquee(), style = tvTextStyle(20, 26, FontWeight.Medium),
+                title, Modifier.weight(1f), style = tvTextStyle(20, 28, FontWeight.Medium),
                 color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
             ) else Spacer(Modifier.weight(1f))
             if (showSpeed) {

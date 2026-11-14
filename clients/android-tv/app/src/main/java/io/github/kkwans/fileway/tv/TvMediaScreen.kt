@@ -5,12 +5,10 @@ import androidx.media3.common.C
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,7 +17,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
@@ -32,6 +29,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.tv.material3.*
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -45,7 +45,7 @@ import io.github.kkwans.nasfilebrowser.player.*
 import kotlinx.coroutines.*
 import kotlin.math.roundToLong
 
-private val PlayerFeedbackSurface = Color(0xFF262626)
+private val PlayerFeedbackSurface = TvPlayerDesign.feedback
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable fun TvMediaScreen(model: TvModel) {
@@ -74,7 +74,6 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
     val focusMemory = remember(model.sessionEpoch, file.mediaKey) { mutableMapOf<TvPlayerPage, String>() }
     var restoring by remember(file.mediaKey) { mutableStateOf(false) }
     var browserBack by remember(model.sessionEpoch, file.mediaKey) { mutableStateOf<(() -> Unit)?>(null) }
-    var capturedBack by remember(file.mediaKey) { mutableStateOf(false) }
     var stageHeight by remember{mutableFloatStateOf(1f)}
     var controlsHeight by remember{mutableFloatStateOf(0f)}
     var pulse by remember { mutableIntStateOf(0) }
@@ -85,6 +84,38 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
     val resize by model.media.ratioIndex.collectAsStateWithLifecycle()
     val stage = remember { FocusRequester() }
     val play = remember { FocusRequester() }
+    val pauseAction = remember { FocusRequester() }
+    var resumePending by remember(mediaEpoch, player.mediaGeneration) { mutableStateOf(false) }
+    val playbackError = state.error ?: player.error
+    val paused = !audio && !state.busy && playbackError == null && !player.ended &&
+        !player.playing && (player.firstFrameRendered || player.durationMs > 0) &&
+        (!model.media.player.playWhenReady || resumePending)
+    LaunchedEffect(player.playing, player.ended, playbackError, model.media.player.wantsPlay) {
+        if (player.playing || player.ended || playbackError != null || !model.media.player.wantsPlay) resumePending = false
+    }
+    fun togglePlayback() {
+        if (resumePending) return
+        if (paused) resumePending = true
+        exitPrompt = false
+        model.media.player.toggle()
+        pulse++
+    }
+    val toggleLatest by rememberUpdatedState(::togglePlayback)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle, mediaEpoch) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) {
+                exitPrompt = false
+                seekTarget = null
+                seekStart = null
+                seekFeedback = null
+                seekPulse++
+                resumePending = false
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(player.mediaGeneration, resize) {
         withFrameNanos {}
         model.media.player.resizeMode(listOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_FILL,
@@ -173,7 +204,14 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
     }
     val playEnabled = !state.busy || player.durationMs > 0
     val hudVisible = controls && (panel == null || quickPanel) && state.error == null && player.error == null
-    LaunchedEffect(hudVisible, panel, state.busy, state.error, player.error) {
+    val busyFeedback = key(mediaEpoch) {
+        delayedPlayerFeedback(state.busy || ((player.waitingForBuffer || player.seeking) && player.seekError == null),
+            player.mediaGeneration, seekPulse)
+    }
+    val centerSeekFeedback = seekFeedback != null && !hudVisible && !state.busy && player.seekError == null
+    val pauseVisible = paused && panel == null && !exitPrompt && !busyFeedback && !centerSeekFeedback
+    val pauseFocusTarget = pauseVisible && !hudVisible
+    LaunchedEffect(hudVisible, panel, state.busy, state.error, player.error, pauseFocusTarget) {
         if (panel != null) return@LaunchedEffect
         withFrameNanos {}
         when {
@@ -183,6 +221,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                 (if (restoring) trigger ?: fallback else fallback).requestFocus()
                 restoring = false
             }
+            pauseVisible -> pauseAction.requestFocus()
             else -> stage.requestFocus()
         }
     }
@@ -193,7 +232,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
         model.media.seek(target)
         seekTarget = null
         seekStart = null
-        delay(950)
+        delay(800)
         seekFeedback = null
     }
     fun queueSeek(target: Long) {
@@ -203,36 +242,22 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
         seekTarget = clamped
         seekFeedback = from to clamped
         seekPulse++
+        exitPrompt = false
         pulse++
     }
     val requestSeek: (Long) -> Unit = { delta -> queueSeek((seekTarget ?: model.media.sourcePosition()) + delta) }
     Box(Modifier.fillMaxSize().onSizeChanged{stageHeight=it.height.toFloat().coerceAtLeast(1f)}.background(Color.Black).focusRequester(stage)
         .focusProperties { canFocus = panel == null && !hudVisible }
-        .onPreviewKeyEvent { event ->
-            val key = event.nativeKeyEvent
-            if (BuildConfig.DEBUG && key.keyCode in listOf(AndroidKey.KEYCODE_DPAD_UP, AndroidKey.KEYCODE_DPAD_DOWN)) {
-                android.util.Log.d("FilewayTvInput", "dpad key=${key.keyCode} action=${key.action} hud=$controls panel=${pages.isNotEmpty()}")
-            }
-            if (BuildConfig.DEBUG && key.keyCode == AndroidKey.KEYCODE_DPAD_CENTER && key.repeatCount == 0) {
-                android.util.Log.d("FilewayTvInput", "center action=${key.action} hud=$controls panel=${pages.isNotEmpty()}")
-            }
-            if (key.keyCode != AndroidKey.KEYCODE_BACK) return@onPreviewKeyEvent false
-            when (event.type) {
-                KeyEventType.KeyDown -> (pages.isEmpty() || capturedBack).also { capturedBack = it }
-                KeyEventType.KeyUp -> {
-                    val handled = capturedBack
-                    capturedBack = false
-                    if (handled && !event.nativeKeyEvent.isCanceled) back("activity-key")
-                    handled
-                }
-                else -> false
-            }
-        }.tvRemoteKeys { event ->
+        // Back has one owner: Activity's dispatcher (also used by the phone remote).
+        // A separate key-up callback here can hide the HUD and then arm exit for the same press.
+        .tvRemoteKeys { event ->
+        if (event.nativeKeyEvent.keyCode == AndroidKey.KEYCODE_BACK) return@tvRemoteKeys false
         run {
             pulse++
+            exitPrompt = false
             when(event.nativeKeyEvent.keyCode) {
-                AndroidKey.KEYCODE_MEDIA_PLAY_PAUSE -> { if(event.nativeKeyEvent.repeatCount==0)model.media.player.toggle(); true }
-                AndroidKey.KEYCODE_MEDIA_PLAY -> { if(!player.playing) model.media.player.toggle(); true }
+                AndroidKey.KEYCODE_MEDIA_PLAY_PAUSE -> { if(event.nativeKeyEvent.repeatCount==0)togglePlayback(); true }
+                AndroidKey.KEYCODE_MEDIA_PLAY -> { if(!model.media.player.playWhenReady) togglePlayback(); true }
                 AndroidKey.KEYCODE_MEDIA_PAUSE -> { model.media.player.pause(); true }
                 AndroidKey.KEYCODE_MEDIA_NEXT -> {model.media.navigateQueue(1);true}
                 AndroidKey.KEYCODE_MEDIA_PREVIOUS -> {model.media.navigateQueue(-1);true}
@@ -247,7 +272,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                         if (event.nativeKeyEvent.repeatCount == 0) {
                             val nativePlayer = model.media.player
                             val before = if (BuildConfig.DEBUG) "${nativePlayer.wantsPlay}/${nativePlayer.state.value.playing}" else null
-                            nativePlayer.toggle()
+                            togglePlayback()
                             if (before != null) android.util.Log.d("FilewayTvInput",
                                 "hidden toggle wantsPlay/playing $before -> ${nativePlayer.wantsPlay}/${nativePlayer.state.value.playing}")
                         }
@@ -257,7 +282,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                 else -> false
             }
         }
-    }.pointerInput(file.mediaKey) {
+    }.pointerInput(mediaEpoch) {
         awaitPointerEventScope {
             while (true) {
                 val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -275,8 +300,8 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
 
             }
         }
-        Box(Modifier.matchParentSize().pointerInput(file.mediaKey) {
-            detectTapGestures(onTap = { controls = !controls; pulse++ }, onDoubleTap = { model.media.player.toggle(); pulse++ })
+        Box(Modifier.matchParentSize().pointerInput(mediaEpoch) {
+            detectTapGestures(onTap = { controls = !controls; exitPrompt = false; pulse++ }, onDoubleTap = { toggleLatest() })
         })
         if (hudVisible) {
             TvPlaybackControls(
@@ -284,7 +309,7 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                 previous = state.queue?.hasPrevious == true, next = state.queue?.hasNext == true,
                 position = seekTarget ?: model.media.sourcePosition(), duration = state.sourceDurationMs,
                 buffered = player.bufferedPositionMs + state.sourceOffsetMs, cachedRanges = cache.ranges, playFocus = play,
-                actions = actions, onToggle = { model.media.player.toggle(); pulse++ }, onSeek = requestSeek,
+                actions = actions, onToggle = ::togglePlayback, onSeek = requestSeek,
                 onSeekTo = ::queueSeek,
                 onPrevious = { model.media.navigateQueue(-1) }, onNext = { model.media.navigateQueue(1) },
                 onQuick = { showPanel(it, quick = true) },
@@ -318,30 +343,41 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
                     style=MaterialTheme.typography.bodySmall,color=Color.White,maxLines=2,overflow=TextOverflow.Ellipsis)
             }
         }
-        val seekingFromHiddenHud = seekFeedback != null && panel == null && !hudVisible
-        if (delayedBusy(state.busy || ((player.waitingForBuffer || player.seeking) && player.seekError == null)) &&
-            (state.busy || !seekingFromHiddenHud)) Column(Modifier.align(Alignment.Center).background(PlayerFeedbackSurface.copy(alpha=.86f),TvShape).padding(horizontal=20.dp,vertical=14.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(8.dp)) {
-            Text(if(state.busy)"正在准备播放…" else if(player.seeking)"正在跳转…" else "正在缓冲…",style=MaterialTheme.typography.bodyLarge)
-            if(!state.busy&&player.waitingForBuffer)Text("缓冲 ${player.buffering.toInt()}%",style=MaterialTheme.typography.bodySmall,color=Color.White.copy(alpha=.8f))
-        }
-        if((player.error!=null||state.error!=null)&&!state.busy)Column(Modifier.align(Alignment.Center).background(PlayerFeedbackSurface.copy(alpha=.97f),TvShape).padding(24.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            LaunchedEffect(state.error,player.error) { withFrameNanos {}; retry.requestFocus() }
-            Text(state.error?:player.error.orEmpty(),color=MaterialTheme.colorScheme.error)
-            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)){TvButton("重试",model.media::retry,Modifier.focusRequester(retry));TvButton("原生播放",{model.media.switchMode(TvHdrMode.NATIVE)});if(state.sdrAvailable)TvButton("SDR 兼容",{model.media.switchMode(TvHdrMode.SDR)});TvButton("返回",model.media::close)}
-        }
-        seekFeedback?.let { (from, target) ->
-            if (panel == null && !hudVisible && !exitPrompt && !state.busy && player.seekError == null) {
-                val delta = ((target - from) / 1000.0).roundToLong()
-                val direction = when {
-                    delta > 0 -> "快进 ${delta} 秒"
-                    delta < 0 -> "快退 ${-delta} 秒"
-                    else -> "播放位置"
-                }
-                val top = with(LocalDensity.current) { (stageHeight * .15f).toDp() }
-                TvSeekFeedback(delta, direction, tvTime(target), Modifier.align(Alignment.TopCenter).offset(y = top))
+        if (playbackError != null && !state.busy) Column(
+            Modifier.align(Alignment.Center).widthIn(max = 720.dp).background(TvPlayerDesign.surface, TvShape).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            LaunchedEffect(playbackError) { withFrameNanos {}; retry.requestFocus() }
+            Text(playbackError, color = MaterialTheme.colorScheme.error, style = tvTextStyle(18, 28))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TvButton("重试", model.media::retry, Modifier.focusRequester(retry))
+                TvButton("原生播放", { model.media.switchMode(TvHdrMode.NATIVE) })
+                if (state.sdrAvailable) TvButton("SDR 兼容", { model.media.switchMode(TvHdrMode.SDR) })
+                TvButton("返回", model.media::close)
             }
         }
-        if(exitPrompt)Text("再按一次返回退出播放",Modifier.align(Alignment.BottomCenter).padding(bottom=28.dp).background(PlayerFeedbackSurface.copy(alpha=.94f),TvShape).padding(horizontal=20.dp,vertical=12.dp),style=MaterialTheme.typography.bodyLarge,color=Color.White)
+        if (panel == null && playbackError == null) {
+            val feedback = seekFeedback
+            when {
+                exitPrompt -> TvPlaybackFeedback("再按一次返回退出播放", Modifier.align(Alignment.Center))
+                busyFeedback -> TvPlaybackFeedback(
+                    if (state.busy) "正在准备播放" else if (player.seeking) "正在跳转" else "正在缓冲",
+                    Modifier.align(Alignment.Center))
+                feedback != null && !hudVisible && !state.busy && player.seekError == null -> {
+                    val (from, target) = feedback
+                    val delta = ((target - from) / 1000.0).roundToLong()
+                    val direction = when {
+                        delta > 0 -> "快进 ${delta} 秒"
+                        delta < 0 -> "快退 ${-delta} 秒"
+                        else -> "播放位置"
+                    }
+                    TvPlaybackFeedback(direction, Modifier.align(Alignment.Center),
+                        icon = if (delta < 0) Art.drawable.fileway_ic_skip_back else Art.drawable.fileway_ic_skip_forward,
+                        detail = tvTime(target))
+                }
+                pauseVisible -> TvPausedPlayback(::togglePlayback, resumePending,
+                    Modifier.align(Alignment.Center).focusRequester(pauseAction))
+            }
+        }
     }
     panel?.let { page ->
         val quickLabels = remember(page, state.queue, state.sourceAudio, state.sourceText, state.sidecars,
@@ -382,39 +418,8 @@ private val PlayerFeedbackSurface = Color(0xFF262626)
 }
 
 @Composable
-private fun TvSeekFeedback(delta: Long, direction: String, target: String, modifier: Modifier) {
-    val shadow = Shadow(Color.Black.copy(alpha = .85f), Offset(0f, 1f), blurRadius = 4f)
-    Row(modifier.background(Color.Black.copy(alpha = .52f), CircleShape)
-        .border(1.dp, Color.White.copy(alpha = .20f), CircleShape)
-        .padding(horizontal = 16.dp, vertical = 9.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        if (delta != 0L) {
-            val icon = if (delta < 0) Art.drawable.fileway_ic_skip_back else Art.drawable.fileway_ic_skip_forward
-            Icon(androidx.compose.ui.res.painterResource(icon), null, Modifier.size(18.dp), tint = Color.White)
-        }
-        Text(direction, style = tvTextStyle(15, 20, FontWeight.Medium).copy(shadow = shadow), color = Color.White)
-        Box(Modifier.width(1.dp).height(13.dp).background(Color.White.copy(alpha = .35f)))
-        Text(target, style = tvTextStyle(15, 20).copy(shadow = shadow), color = Color.White.copy(alpha = .9f))
-    }
-}
-
-@Composable
 private fun TvPlayerFeedback(icon: Int, title: String, detail: String?, modifier: Modifier) {
-    Row(
-        modifier.widthIn(max = 320.dp).background(PlayerFeedbackSurface.copy(alpha = .94f), TvShape)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(androidx.compose.ui.res.painterResource(icon), null, Modifier.size(22.dp), tint = Color.White)
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(title, style = tvTextStyle(16, 22), color = Color.White, maxLines = 1)
-            detail?.takeIf { it.isNotBlank() && it != title }?.let {
-                Text(it, style = tvTextStyle(13, 18), color = Color.White.copy(alpha = .78f),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-        }
-    }
+    TvPlaybackFeedback(title, modifier, icon, detail?.takeIf { it != title })
 }
 
 internal fun tvSeekDelta(event:AndroidKey,stepSeconds:Int):Long {

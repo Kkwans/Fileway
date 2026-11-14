@@ -45,7 +45,7 @@ internal fun TvPlayerMainFrame(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) { leftActions() }
-            Box(Modifier.width(168.dp), contentAlignment = Alignment.Center) { transport() }
+            Box(Modifier.width(184.dp), contentAlignment = Alignment.Center) { transport() }
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) { rightActions() }
         }
     }

@@ -28,7 +28,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
@@ -40,11 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.*
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -65,6 +62,9 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.*
 import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
@@ -127,20 +127,17 @@ internal class TvPlayerPanelFocus(initialKey: String?, val onFocused: (String) -
 private const val PanelBackKey = "header/back"
 private const val PanelCloseKey = "header/close"
 // Static neutral translucency: readable against bright footage without a live blur.
-internal val PanelSurface = Color(0xD61A1B1C)
-internal val PanelFocus = Color.White.copy(alpha = .12f)
-internal val PanelOutline = Color(0xF2F2F5F8)
-private val PanelTabShape = RoundedCornerShape(50)
-
-private fun tvPlayerPanelVerticalInset(height: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
-    if (height >= 160.dp) ((height - 144.dp) / 2).coerceIn(8.dp, 16.dp) else 7.dp
+internal val PanelSurface = TvPlayerDesign.surface
+internal val PanelFocus = TvPlayerDesign.raised
+internal val PanelOutline = TvPlayerDesign.focus
+private val PanelTabShape = TvShape
 
 private val PanelTabs = listOf(
-    TvPlayerPage.QUEUE to "列表",
+    TvPlayerPage.QUEUE to "队列",
     TvPlayerPage.SETTINGS to "设置",
     TvPlayerPage.SPEED to "倍速",
     TvPlayerPage.SUBTITLE to "字幕",
-    TvPlayerPage.AUDIO to "音频",
+    TvPlayerPage.AUDIO to "音轨",
     TvPlayerPage.INFO to "信息",
 )
 private val SubtitleSections = listOf(
@@ -225,152 +222,84 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                         }
                     }
                 } else {
-                val subtitleSection = SubtitleSections.any { it.first == page }
-                val category = if (subtitleSection) TvPlayerPage.SUBTITLE else parentPage
-                val hasTabs = PanelTabs.any { it.first == category }
-                val browser = page == TvPlayerPage.EXTERNAL || page == TvPlayerPage.LOCAL_SUBTITLE
-                val panelWidth = (maxWidth - horizontal * 2).coerceAtLeast(0.dp)
-                val keyboardEditor = page == TvPlayerPage.SPEED && WindowInsets.ime.getBottom(LocalDensity.current) > 0
-                val panelBottom = if (keyboardEditor) 4.dp else if (page == TvPlayerPage.QUEUE) bottom + 16.dp else bottom
-                val heightFraction = if (browser) .43f else if (page == TvPlayerPage.QUEUE) .28f else .39f
-                val panelHeight = (if (keyboardEditor) 92.dp else (maxHeight * heightFraction).coerceIn(144.dp, 300.dp))
-                    .coerceAtMost((maxHeight - panelBottom - 56.dp).coerceAtLeast(0.dp))
-                val dismiss by rememberUpdatedState(if (child) ({ onBack("dialog-outside") }) else onClose)
-                Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { dismiss() } })
-                if (page == TvPlayerPage.QUEUE) {
-                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(panelHeight + panelBottom + 96.dp)
-                        .background(Brush.verticalGradient(0f to Color.Transparent,
-                            .22f to Color.Black.copy(alpha = .42f), .65f to Color.Black.copy(alpha = .66f),
-                            1f to Color.Black.copy(alpha = .80f))))
-                } else if (hasTabs) {
-                    Box(Modifier.align(Alignment.BottomCenter)
-                        .padding(bottom = (panelHeight + panelBottom - 8.dp).coerceAtLeast(0.dp))
-                        .fillMaxWidth().height(80.dp)
-                        .background(Brush.verticalGradient(0f to Color.Transparent,
-                            .40f to Color.Black.copy(alpha = .30f), .65f to Color.Black.copy(alpha = .40f),
-                            1f to Color.Transparent)))
-                }
-                saveable.SaveableStateProvider(page.name) {
-                    val focus = remember(page) { TvPlayerPanelFocus(initialKey, onFocused).apply { hasSection = subtitleSection } }
-                    focus.hasHeader = !keyboardEditor
-                    Column(
-                        Modifier.align(Alignment.BottomStart).padding(start = horizontal, bottom = panelBottom)
-                            .width(panelWidth),
-                        verticalArrangement = Arrangement.spacedBy(if (page == TvPlayerPage.QUEUE) 0.dp else 6.dp),
-                    ) {
-                        if (!keyboardEditor) Row(
-                            Modifier.width(panelWidth).heightIn(min = 48.dp)
-                                .pointerInput(Unit) { detectTapGestures { } },
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (hasTabs && child && !subtitleSection) TvPlaybackAction(
-                                "返回上一页", Art.drawable.fileway_ic_arrow_back, { onBack("dialog-touch") },
-                                focus.target(PanelBackKey, focus.initialKey == PanelBackKey), showLabel = false,
-                            )
-                            if (hasTabs) {
-                                Row(
-                                    Modifier.weight(1f).padding(start = 4.dp).horizontalScroll(rememberScrollState()).focusGroup(),
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    for ((tab, label) in PanelTabs) {
-                                        if (audio && tab == TvPlayerPage.SUBTITLE) continue
-                                        val key = "header/tab/${tab.name}"
-                                        val current = category == tab
-                                        TvPlayerPanelButton(
-                                            label, selected = current, description = tab.title.takeIf { tab == TvPlayerPage.QUEUE || tab == TvPlayerPage.SETTINGS }, pill = true,
-                                            onClick = { if (page == tab) focus.body.requestFocus() else onTab(tab) },
-                                            modifier = focus.target(key, focus.initialKey == key,
-                                                (if (current) Modifier.focusRequester(focus.header) else Modifier)
-                                                    .focusProperties { down = focus.body }),
-                                        )
-                                    }
-                                }
-                            } else {
-                                if (child) TvPlaybackAction(
+                    val subtitleSection = SubtitleSections.any { it.first == page }
+                    val category = if (subtitleSection) TvPlayerPage.SUBTITLE else parentPage
+                    val hasTabs = PanelTabs.any { it.first == category }
+                    val panelWidth = (maxWidth - horizontal * 2).coerceAtLeast(0.dp)
+                    val fontScale = LocalDensity.current.fontScale.coerceAtLeast(1f)
+                    // One group geometry for every tab and child. Only viewport/font changes resize it.
+                    val panelHeight = minOf(272.dp * fontScale, (maxHeight - bottom * 2).coerceAtLeast(0.dp))
+                    val dismiss by rememberUpdatedState(if (child) ({ onBack("dialog-outside") }) else onClose)
+                    Box(Modifier.matchParentSize().pointerInput(Unit) { detectTapGestures { dismiss() } })
+                    Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(panelHeight + bottom + 80.dp)
+                        .background(Brush.verticalGradient(0f to Color.Transparent, .35f to Color.Black.copy(alpha = .22f),
+                            1f to Color.Black.copy(alpha = .62f))))
+                    saveable.SaveableStateProvider(page.name) {
+                        val focus = remember(page) { TvPlayerPanelFocus(initialKey, onFocused).apply { hasSection = subtitleSection } }
+                        Column(Modifier.align(Alignment.BottomStart).padding(start = horizontal, bottom = bottom)
+                            .width(panelWidth).height(panelHeight).clip(TvShape).background(PanelSurface)
+                            .border(1.dp, Color.White.copy(alpha = .08f), TvShape)
+                            .pointerInput(Unit) { detectTapGestures { } }) {
+                            Row(Modifier.fillMaxWidth().height(48.dp * fontScale).padding(horizontal = 24.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                if (child && !subtitleSection) TvPlaybackAction(
                                     "返回上一页", Art.drawable.fileway_ic_arrow_back, { onBack("dialog-touch") },
                                     focus.target(PanelBackKey, focus.initialKey == PanelBackKey,
-                                        Modifier.focusRequester(focus.header).focusProperties {
-                                            down = if (page == TvPlayerPage.APPEARANCE) focus.appearanceScale else focus.body
-                                        }),
-                                    showLabel = false,
-                                )
-                                Text(
-                                    page.title, Modifier.weight(1f).padding(start = if (child) 0.dp else 10.dp),
-                                    style = tvTextStyle(18, 24, FontWeight.Medium), maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                )
+                                        (if (!hasTabs) Modifier.focusRequester(focus.header) else Modifier)
+                                            .focusProperties { down = focus.body }))
+                                if (hasTabs) {
+                                    Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()).focusGroup(),
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        for ((tab, label) in PanelTabs) {
+                                            if (audio && tab == TvPlayerPage.SUBTITLE) continue
+                                            val key = "header/tab/${tab.name}"
+                                            val current = category == tab
+                                            TvPlayerPanelButton(label, current,
+                                                onClick = { if (page == tab) focus.body.requestFocus() else onTab(tab) },
+                                                description = tab.title.takeIf { tab == TvPlayerPage.QUEUE || tab == TvPlayerPage.SETTINGS },
+                                                pill = true,
+                                                modifier = focus.target(key, focus.initialKey == key,
+                                                    (if (current) Modifier.focusRequester(focus.header) else Modifier)
+                                                        .focusProperties { down = focus.body }))
+                                        }
+                                    }
+                                } else Text(page.title, Modifier.weight(1f), style = tvTextStyle(24, 32, FontWeight.Medium),
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                TvPlaybackAction("关闭面板", Art.drawable.fileway_ic_close, onClose,
+                                    focus.target(PanelCloseKey, focus.initialKey == PanelCloseKey,
+                                        (if (!hasTabs && !child) Modifier.focusRequester(focus.header) else Modifier)
+                                            .focusProperties { down = focus.body }))
                             }
-                            if (!hasTabs) TvPlaybackAction(
-                                "关闭面板", Art.drawable.fileway_ic_close, onClose,
-                                focus.target(PanelCloseKey, focus.initialKey == PanelCloseKey,
-                                    (if (!child) Modifier.focusRequester(focus.header) else Modifier)
-                                        .focusProperties { down = focus.body }),
-                                showLabel = false,
-                            )
-                        }
-                        Box(Modifier.fillMaxWidth()) {
-                            // Match the reference's inset group column and long option rows,
-                            // but derive them from the available width for calibrated displays.
-                            val sideWidth = (panelWidth * .13f).coerceIn(104.dp, 112.dp)
-                                .coerceAtMost(panelWidth * .30f)
-                            val structured = subtitleSection || page == TvPlayerPage.AUDIO || page == TvPlayerPage.SETTINGS
-                            // Tabs, queue artwork and the first panel column share a visual left edge.
-                            val leftInset = 12.dp
-                            val rightInset = 12.dp
-                            val columnGap = 12.dp
-                            val verticalInset = when {
-                                page == TvPlayerPage.QUEUE -> 0.dp
-                                keyboardEditor -> 4.dp
-                                structured -> tvPlayerPanelVerticalInset(panelHeight)
-                                else -> 7.dp
-                            }
-                            Row(
-                                Modifier.width(panelWidth).height(panelHeight)
-                                    .then(if (page == TvPlayerPage.QUEUE) Modifier else Modifier.background(PanelSurface, TvShape)
-                                        .border(1.dp, Color.White.copy(alpha = .09f), TvShape))
-                                    .pointerInput(Unit) { detectTapGestures { } }
-                                    .padding(start = leftInset, end = rightInset, top = verticalInset, bottom = verticalInset),
-                                horizontalArrangement = Arrangement.spacedBy(columnGap),
-                                verticalAlignment = Alignment.Top,
-                            ) {
+                            Box(Modifier.padding(horizontal = 24.dp).fillMaxWidth().height(1.dp).background(TvPlayerDesign.divider))
+                            Row(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 24.dp, vertical = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(24.dp), verticalAlignment = Alignment.Top) {
                                 if (subtitleSection) Column(
-                                    Modifier.width(sideWidth).fillMaxHeight().verticalScroll(rememberScrollState()).focusGroup(),
-                                ) {
+                                    Modifier.width(minOf(168.dp * fontScale, panelWidth * .28f)).fillMaxHeight()
+                                        .verticalScroll(rememberScrollState()).focusGroup(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     SubtitleSections.forEachIndexed { index, (section, label) ->
                                         val current = page == section
                                         val enter = { if (current) focus.body.requestFocus() else onSubtitleSection(section) }
                                         val key = tvSubtitleGroupKey(section)
-                                        TvPlayerPanelButton(
-                                            label, selected = current, onClick = { enter() },
+                                        TvPlayerPanelButton(label, current, { enter() },
                                             modifier = focus.target(key, focus.initialKey == key,
-                                                (if (current) Modifier.focusRequester(focus.section) else Modifier)
-                                                    .fillMaxWidth()
+                                                (if (current) Modifier.focusRequester(focus.section) else Modifier).fillMaxWidth()
                                                     .focusProperties { if (index == 0) up = focus.header }
                                                     .tvRemoteKeys { event ->
                                                         if (event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
                                                             enter(); true
                                                         } else false
-                                                    }),
-                                        )
+                                                    }))
                                     }
-                                }
-                                if (page == TvPlayerPage.AUDIO) Box(
-                                    Modifier.width(sideWidth).height(48.dp).padding(horizontal = 14.dp),
-                                    contentAlignment = Alignment.CenterStart,
-                                ) {
-                                    Text("音轨", style = tvTextStyle(16, 22), color = Color.White.copy(alpha = .82f))
                                 }
                                 Column(Modifier.weight(1f).fillMaxHeight().focusRequester(focus.body).focusGroup()) {
                                     if (child && hasTabs && !subtitleSection) Text(page.title,
-                                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = tvTextStyle(16, 22))
+                                        Modifier.padding(bottom = 8.dp), style = tvTextStyle(20, 28, FontWeight.Medium))
                                     content(focus)
                                 }
                             }
                         }
                     }
-                }
                 }
             }
         }
@@ -383,23 +312,22 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
     val density = LocalDensity.current
     val measure = rememberTextMeasurer()
     return remember(label, density, measure) {
-        val width = with(density) { measure.measure(AnnotatedString(label), tvTextStyle(16, 22, FontWeight.SemiBold), maxLines = 1).size.width.toDp() }
-        TvPanelTabMetrics(maxOf(48.dp, width + 16.dp), width)
+        val width = with(density) { measure.measure(AnnotatedString(label), tvTextStyle(18, 24, FontWeight.Medium), maxLines = 1).size.width.toDp() }
+        TvPanelTabMetrics(maxOf(64.dp, width + 24.dp), width)
     }
 }
 
 @Composable private fun TvPlayerTabVisual(
     label: String, selected: Boolean, focused: Boolean, hovered: Boolean, metrics: TvPanelTabMetrics,
 ) {
-    Box(Modifier.fillMaxWidth().height(34.dp).clip(PanelTabShape)
-        .background(if (focused || hovered) Color.White.copy(alpha = .12f) else Color.Transparent)
-        .then(if (focused) Modifier.border(1.dp, Color.White.copy(alpha = .88f), PanelTabShape) else Modifier),
+    Box(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(PanelTabShape)
+        .background(if (hovered && !focused) TvPlayerDesign.raised else Color.Transparent)
+        .then(if (focused) Modifier.border(2.dp, playerFocusColor(focused), PanelTabShape) else Modifier),
         contentAlignment = Alignment.Center) {
-        Text(label, style = tvTextStyle(16, 22, if (selected) FontWeight.SemiBold else FontWeight.Normal)
-            .copy(shadow = Shadow(Color.Black.copy(alpha = .9f), Offset(0f, 1f), 3f)),
-            color = Color.White.copy(alpha = if (selected || focused) 1f else .82f), maxLines = 1)
+        Text(label, style = tvTextStyle(18, 24, FontWeight.Medium),
+            color = if (selected || focused) TvPlayerDesign.text else TvPlayerDesign.secondary, maxLines = 1)
         if (selected) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 1.dp)
-            .width(metrics.labelWidth).height(2.dp).background(Color.White.copy(alpha = .90f), PanelTabShape))
+            .width(metrics.labelWidth).height(2.dp).background(TvPlayerDesign.accent, PanelTabShape))
     }
 }
 
@@ -416,7 +344,7 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
         onClick = onClick, interactionSource = interaction,
         modifier = modifier.then(if (metrics != null) Modifier.width(metrics.width) else Modifier)
             .heightIn(min = 48.dp)
-            .then(if (!pill) Modifier.border(1.25.dp, if (focused) PanelOutline else Color.Transparent, TvShape) else Modifier)
+            .then(if (!pill) Modifier.border(2.dp, playerFocusColor(focused), TvShape) else Modifier)
             .hoverable(interaction).tvTouch(onClick, interaction = interaction).semantics {
             this.selected = selected
             if (description != null) contentDescription = description
@@ -425,16 +353,20 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
         shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
         border = ButtonDefaults.border(focusedBorder = Border.None),
         colors = ButtonDefaults.colors(
-            containerColor = if (selected && !pill) Color.White.copy(alpha = .10f) else if (!pill && hovered) Color.White.copy(alpha = .07f) else Color.Transparent,
+            containerColor = if (selected && !pill) TvPlayerDesign.selected else if (!pill && hovered) TvPlayerDesign.raised else Color.Transparent,
             contentColor = if (selected) Color.White else Color.White.copy(alpha = .82f),
-            focusedContainerColor = if (pill) Color.Transparent else PanelFocus, focusedContentColor = Color.White,
+            focusedContainerColor = if (pill) Color.Transparent else if (selected) TvPlayerDesign.selected else PanelFocus, focusedContentColor = Color.White,
             pressedContainerColor = if (pill) Color.Transparent else PanelFocus,
         ),
     ) {
         if (metrics != null) TvPlayerTabVisual(label, selected, focused, hovered, metrics)
-        else Box(Modifier.fillMaxWidth().heightIn(min = 40.dp), contentAlignment = Alignment.Center) {
-            Text(label, Modifier.fillMaxWidth(), style = tvTextStyle(16, 22, if (selected) FontWeight.Medium else FontWeight.Normal),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        else Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(label, Modifier.weight(1f), style = tvTextStyle(18, 24, FontWeight.Medium),
+                maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Start)
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                if (selected) Icon(painterResource(Art.drawable.fileway_ic_check), null, Modifier.size(20.dp), tint = TvPlayerDesign.accent)
+            }
         }
     }
 }
@@ -483,7 +415,7 @@ private data class TvPanelTabMetrics(val width: Dp, val labelWidth: Dp)
     val fling = if (alignSelectedRow) rememberSnapFlingBehavior(scroll, SnapPosition.Start) else ScrollableDefaults.flingBehavior()
     CompositionLocalProvider(LocalBringIntoViewSpec provides visibility) {
         LazyColumn(modifier.fillMaxWidth(), state = scroll, contentPadding = PaddingValues(0.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp), flingBehavior = fling, content = listContent)
+            verticalArrangement = Arrangement.spacedBy(8.dp), flingBehavior = fling, content = listContent)
     }
 }
 
@@ -499,55 +431,47 @@ private object FullRowVisibility : BringIntoViewSpec {
 
 @Composable internal fun TvPlayerChoiceRow(row: TvPlayerRow.Choice, modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
     val hovered by interaction.collectIsHoveredAsState()
-    var focused by remember { mutableStateOf(false) }
-    Button(
-        onClick = row.action, enabled = row.enabled, interactionSource = interaction,
-        modifier = modifier.fillMaxWidth().heightIn(min = 48.dp)
-            // TV Material's surface border is centred on the bounds and can be
-            // cut by a LazyColumn viewport; draw the whole outline inside instead.
-            .border(1.25.dp, if (focused) PanelOutline else Color.Transparent, TvShape)
-            .onFocusChanged { focused = it.isFocused }
-            .hoverable(interaction, enabled = row.enabled).tvTouch(row.action, row.enabled, interaction).semantics { if (row.selectable) selected = row.selected },
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+    Button(onClick = row.action, enabled = row.enabled, interactionSource = interaction,
+        modifier = modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .border(2.dp, playerFocusColor(focused), TvShape)
+            .hoverable(interaction, enabled = row.enabled).tvTouch(row.action, row.enabled, interaction)
+            .semantics { if (row.selectable) selected = row.selected },
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
         shape = ButtonDefaults.shape(TvShape), scale = ButtonDefaults.scale(focusedScale = 1f),
         border = ButtonDefaults.border(focusedBorder = Border.None),
         colors = ButtonDefaults.colors(
-            containerColor = if (row.selected) Color.White.copy(alpha = .055f) else if (hovered) Color.White.copy(alpha = .07f) else Color.Transparent,
-            contentColor = Color.White, focusedContentColor = Color.White,
-            focusedContainerColor = PanelFocus,
-            disabledContainerColor = Color.Transparent, disabledContentColor = Color.White.copy(alpha = .4f),
-        ),
-    ) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (row.icon != null) Box(Modifier.size(18.dp), contentAlignment = Alignment.Center) {
-                Icon(painterResource(row.icon), null, Modifier.size(18.dp))
-            }
-            Column(Modifier.weight(1f)) {
-                val overflow = if (focused) Modifier.basicMarquee() else Modifier
-                Text(
-                    row.title, overflow, style = tvTextStyle(17, 23, if (row.selected) FontWeight.Medium else FontWeight.Normal),
-                    maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+            containerColor = when { row.selected -> TvPlayerDesign.selected; hovered -> TvPlayerDesign.raised; else -> Color.Transparent },
+            contentColor = TvPlayerDesign.text, focusedContentColor = TvPlayerDesign.text,
+            focusedContainerColor = if (row.selected) TvPlayerDesign.selected else PanelFocus,
+            pressedContainerColor = TvPlayerDesign.raised,
+            disabledContainerColor = Color.Transparent, disabledContentColor = TvPlayerDesign.muted)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (row.icon != null) Icon(painterResource(row.icon), null, Modifier.size(24.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(row.title, style = tvTextStyle(18, 28, FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 row.supporting?.takeIf { it.isNotBlank() }?.let {
-                    Text(it, overflow, style = tvTextStyle(15, 20).copy(fontFamily = row.fontFamily),
-                        color = LocalContentColor.current.copy(alpha = .78f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(it, style = tvTextStyle(16, 24).copy(fontFamily = row.fontFamily),
+                        color = TvPlayerDesign.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
-            row.value?.let {
-                Text(it, Modifier.widthIn(max = 132.dp).then(if (focused) Modifier.basicMarquee() else Modifier), style = tvTextStyle(15, 21), textAlign = TextAlign.End,
-                    color = LocalContentColor.current.copy(alpha = .84f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            row.value?.takeIf { it.isNotBlank() }?.let {
+                Text(it, Modifier.widthIn(max = 132.dp), style = tvTextStyle(18, 24).copy(fontFeatureSettings = "tnum"),
+                    textAlign = TextAlign.End, color = TvPlayerDesign.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            if (row.selectable) Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                if (row.selected) Icon(painterResource(Art.drawable.fileway_ic_check), null, Modifier.size(18.dp), tint = FilewayPalette.darkAccent)
+            Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                when {
+                    row.selectable && row.selected -> Icon(painterResource(Art.drawable.fileway_ic_check), null, Modifier.size(24.dp), tint = TvPlayerDesign.accent)
+                    row.destination -> Icon(painterResource(Art.drawable.fileway_ic_expand_more), null, Modifier.size(24.dp).rotate(-90f), tint = TvPlayerDesign.secondary)
+                }
             }
-            if (row.destination) Icon(painterResource(Art.drawable.fileway_ic_expand_more), null, Modifier.size(18.dp).rotate(-90f))
         }
     }
 }
 
-/** Same real range for pointer and D-pad. A drag commits only on release. */
+/** Pointer and D-pad share the live range; the last value always reaches the existing callback. */
 @Composable internal fun TvPlayerRange(
     label: String, value: Float, range: ClosedFloatingPointRange<Float>, step: Float, format: (Float) -> String,
     modifier: Modifier = Modifier, expandTrack: Boolean = false, accelerate: Boolean = false, onCommit: (Float) -> Unit,
@@ -586,15 +510,23 @@ private object FullRowVisibility : BringIntoViewSpec {
         repeatJob = null
         heldKey = KeyEvent.KEYCODE_UNKNOWN
     }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) { stopRepeat(); dragging = false; preview = null }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer); repeatJob?.cancel() }
+    }
     val span = range.endInclusive - range.start
     val trackInset = if (expandTrack) 12.dp else 10.dp
-    val trackShape = if (expandTrack) RoundedCornerShape(8.dp) else TvShape
+    val trackShape = TvShape
     @Composable fun Track(trackWidth: Modifier) {
         Canvas(
             modifier.then(trackWidth).height(48.dp)
                 .onFocusChanged { focused = it.isFocused; if (!focused) stopRepeat() }
                 .background(if (focused) Color.White.copy(alpha = .08f) else Color.Transparent, trackShape)
-                .border(if (expandTrack) 1.5.dp else 2.dp, if (focused) PanelOutline else Color.Transparent, trackShape)
+                .border(2.dp, playerFocusColor(focused), trackShape)
                 .pointerInput(range) {
                     detectTapGestures { point ->
                         val inset = trackInset.toPx()
@@ -609,7 +541,7 @@ private object FullRowVisibility : BringIntoViewSpec {
                             change.consume()
                             val inset = trackInset.toPx()
                             val fraction = ((change.position.x - inset) / (size.width - 2 * inset).coerceAtLeast(1f)).coerceIn(0f, 1f)
-                            preview = snap(range.start + span * fraction)
+                            set(range.start + span * fraction)
                         },
                         onDragEnd = { dragging = false; preview?.let(commit) },
                         onDragCancel = { dragging = false; preview = null },
@@ -668,15 +600,16 @@ private object FullRowVisibility : BringIntoViewSpec {
         }
     }
     if (expandTrack) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(format(shown), style = tvTextStyle(22, 28, FontWeight.Medium).copy(fontFeatureSettings = "tnum"),
-                color = Color.White)
-            Spacer(Modifier.height(4.dp))
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(label, style = tvTextStyle(18, 28, FontWeight.Medium), color = TvPlayerDesign.text)
+                Text(format(shown), style = tvTextStyle(18, 28, FontWeight.Medium).copy(fontFeatureSettings = "tnum"),
+                    color = TvPlayerDesign.accent)
+            }
             Track(Modifier.fillMaxWidth())
-            Box(Modifier.fillMaxWidth().heightIn(min = 20.dp).padding(horizontal = trackInset)) {
-                val edgeStyle = tvTextStyle(14, 20).copy(color = Color.White.copy(alpha = .75f))
-                Text(format(range.start), Modifier.align(Alignment.CenterStart), style = edgeStyle)
-                Text(format(range.endInclusive), Modifier.align(Alignment.CenterEnd), style = edgeStyle)
+            Row(Modifier.fillMaxWidth().padding(horizontal = trackInset), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(format(range.start), style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary)
+                Text(format(range.endInclusive), style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary)
             }
         }
     } else {

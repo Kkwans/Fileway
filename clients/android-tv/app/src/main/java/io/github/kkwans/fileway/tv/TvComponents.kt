@@ -48,6 +48,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPalette
 
 internal val LocalTvInteractive = staticCompositionLocalOf { true }
 internal val LocalTvCompact = staticCompositionLocalOf { false }
+private val LocalTvMediaTheme = staticCompositionLocalOf { false }
 internal val LocalTvConfirmKeyGuard = staticCompositionLocalOf<TvConfirmKeyGuard?> { null }
 
 internal fun TvConfirmKeyGuard.intercept(event: KeyEvent): Boolean = consume(
@@ -84,6 +85,22 @@ private val TvTypography = Typography(
     labelSmall = tvTextStyle(14, 20, FontWeight.Medium),
 )
 
+// Only the player migrates in this slice; ordinary pages retain their existing metrics.
+private val TvMediaTypography = Typography(
+    displayLarge = tvTextStyle(36, 44, FontWeight.Medium),
+    displayMedium = tvTextStyle(32, 40, FontWeight.Medium),
+    displaySmall = tvTextStyle(28, 36, FontWeight.Medium),
+    headlineLarge = tvTextStyle(28, 36, FontWeight.Medium),
+    headlineMedium = tvTextStyle(24, 32, FontWeight.Medium),
+    headlineSmall = tvTextStyle(24, 32, FontWeight.Medium),
+    titleLarge = tvTextStyle(24, 32, FontWeight.Medium),
+    titleMedium = tvTextStyle(20, 28, FontWeight.Medium),
+    titleSmall = tvTextStyle(18, 28, FontWeight.Medium),
+    bodyLarge = tvTextStyle(18, 28), bodyMedium = tvTextStyle(18, 28), bodySmall = tvTextStyle(16, 24),
+    labelLarge = tvTextStyle(18, 24, FontWeight.Medium), labelMedium = tvTextStyle(16, 24, FontWeight.Medium),
+    labelSmall = tvTextStyle(16, 22, FontWeight.Medium),
+)
+
 @Composable fun TvTheme(dark: Boolean, media: Boolean = false, content: @Composable () -> Unit) {
     // Raised, quiet neutral layers for projection; blue belongs to actions and
     // focus. Video and image canvases retain their own black surface.
@@ -91,9 +108,10 @@ private val TvTypography = Typography(
         primary = FilewayPalette.darkAccent, onPrimary = FilewayPalette.darkCanvas,
         secondary = FilewayPalette.darkAccent, secondaryContainer = Color(0xFF424245),
         onSecondaryContainer = Color(0xFFF0F4FA),
-        background = if (media) FilewayPalette.playerCanvas else Color(0xFF303032),
-        surface = if (media) Color(0xFF202020) else Color(0xFF38383B),
-        onBackground = Color(0xFFF0F4FA), onSurface = Color(0xFFF0F4FA),
+        background = if (media) Color(0xFF111214) else Color(0xFF303032),
+        surface = if (media) TvPlayerDesign.surface else Color(0xFF38383B),
+        onBackground = if (media) TvPlayerDesign.text else Color(0xFFF0F4FA),
+        onSurface = if (media) TvPlayerDesign.text else Color(0xFFF0F4FA),
     ) else lightColorScheme(
         primary = FilewayPalette.blue, onPrimary = Color.White,
         secondary = FilewayPalette.blue, secondaryContainer = Color(0xFFE6EDF8),
@@ -101,10 +119,12 @@ private val TvTypography = Typography(
         background = FilewayPalette.lightCanvas, surface = FilewayPalette.lightSurface,
         onBackground = FilewayPalette.lightText, onSurface = FilewayPalette.lightText,
     )
-    val surfaces = if (dark) TvSurfaceRoles(Color(0xFF28282A), Color(0xFF48484B), Color(0xFFD0D0D2), Color(0xFF66666A))
+    val surfaces = if (media) TvSurfaceRoles(TvPlayerDesign.surface, TvPlayerDesign.raised, TvPlayerDesign.secondary, TvPlayerDesign.outline)
+        else if (dark) TvSurfaceRoles(Color(0xFF28282A), Color(0xFF48484B), Color(0xFFD0D0D2), Color(0xFF66666A))
         else TvSurfaceRoles(Color(0xFFEDF1F6), Color(0xFFE6EDF6), FilewayPalette.lightSecondary, Color(0xFFB2BFCE))
-    MaterialTheme(colorScheme = colors, typography = TvTypography) {
-        CompositionLocalProvider(LocalContentColor provides colors.onBackground, LocalTvSurfaces provides surfaces, content = content)
+    MaterialTheme(colorScheme = colors, typography = if (media) TvMediaTypography else TvTypography) {
+        CompositionLocalProvider(LocalContentColor provides colors.onBackground, LocalTvSurfaces provides surfaces,
+            LocalTvMediaTheme provides media, content = content)
     }
 }
 
@@ -114,10 +134,12 @@ private val TvTypography = Typography(
     var focused by remember { mutableStateOf(false) }
     val shape = TvShape
     val colors = MaterialTheme.colorScheme
+    val media = LocalTvMediaTheme.current
     val interaction = remember { MutableInteractionSource() }
     Button(onClick = onClick, enabled = enabled && interactive, interactionSource = interaction, modifier = modifier.heightIn(min = 48.dp).tvTouch(onClick, enabled && interactive, interaction).focusProperties { canFocus=interactive }.semantics { this.selected = selected }.onFocusChanged { focused = it.isFocused }
-        .border(2.dp, if (focused) colors.primary else Color.Transparent, shape),
+        .border(2.dp, if (focused) { if (media) TvPlayerDesign.focus else colors.primary } else Color.Transparent, shape),
         shape = ButtonDefaults.shape(shape), scale = ButtonDefaults.scale(focusedScale = 1f),
+        border = if (media) ButtonDefaults.border(focusedBorder = Border.None) else ButtonDefaults.border(),
         colors = ButtonDefaults.colors(containerColor = if (selected) colors.primary.copy(alpha = .18f) else colors.surface,
             contentColor = if (selected) colors.primary else colors.onSurface, focusedContainerColor = LocalTvSurfaces.current.raised, focusedContentColor = colors.onSurface),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)) {
