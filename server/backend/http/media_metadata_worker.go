@@ -192,7 +192,11 @@ var mediaMetadataReviewHandler = func(w http.ResponseWriter, r *http.Request, d 
 		return catalogError(w, err)
 	}
 	view := newCatalogView(d)
-	items := make([]medialibrary.MetadataReviewTarget, 0, len(candidates))
+	type reviewRow struct {
+		medialibrary.MetadataReviewTarget
+		Title string `json:"title"`
+	}
+	items := make([]reviewRow, 0, len(candidates))
 	for index, item := range candidates {
 		detail, err := d.store.MediaLibrary.GetCatalogItem(ctx, d.user.ID, library.ID, item.ItemID)
 		if errors.Is(err, medialibrary.ErrNotFound) {
@@ -201,7 +205,7 @@ var mediaMetadataReviewHandler = func(w http.ResponseWriter, r *http.Request, d 
 		if err != nil {
 			return catalogError(w, err)
 		}
-		_, visible, complete, _, err := view.itemAccess(ctx, library, detail, nil)
+		access, visible, complete, _, err := view.itemAccess(ctx, library, detail, nil)
 		if err != nil {
 			return catalogError(w, err)
 		}
@@ -213,7 +217,13 @@ var mediaMetadataReviewHandler = func(w http.ResponseWriter, r *http.Request, d 
 			break
 		}
 		if visible {
-			items = append(items, item)
+			title := access.fallbackTitle
+			if card, cardErr := view.structureCard(ctx, library, item.ItemID, access); cardErr == nil {
+				title = card.Title
+			} else if !errors.Is(cardErr, errCatalogWorkPending) {
+				return catalogError(w, cardErr)
+			}
+			items = append(items, reviewRow{item, title})
 		}
 	}
 	if err := view.revalidateSources(ctx); err != nil {
@@ -224,7 +234,7 @@ var mediaMetadataReviewHandler = func(w http.ResponseWriter, r *http.Request, d 
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	return renderJSON(w, r, struct {
-		Items []medialibrary.MetadataReviewTarget `json:"items"`
-		Next  string                              `json:"nextCursor,omitempty"`
+		Items []reviewRow `json:"items"`
+		Next  string      `json:"nextCursor,omitempty"`
 	}{items, next})
 }

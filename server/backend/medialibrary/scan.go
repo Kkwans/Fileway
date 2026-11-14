@@ -241,6 +241,41 @@ func (store *Store) GetScan(ctx context.Context, actor uint, jobID string) (*Sca
 	return &r.ScanJob, nil
 }
 
+// ListLibraryScans shows the latest scans of an active library to its owner.
+func (store *Store) ListLibraryScans(ctx context.Context, actor uint, libraryID, after string, limit int) (*ScanPage, error) {
+	if actor == 0 || limit < 1 || limit > 100 {
+		return nil, ErrInvalid
+	}
+	library, err := activeCatalogLibrary(ctx, store.db, actor, libraryID)
+	if err != nil {
+		return nil, err
+	}
+	if library.Role != RoleOwner {
+		return nil, ErrNotFound
+	}
+	rows, err := store.db.QueryContext(ctx, scanSelection+` JOIN library l ON l.id=j.library_id AND l.archived_at IS NULL AND l.owner_user_id=?
+WHERE j.library_id=? AND j.owner_user_id=? AND (?='' OR (j.created_at,j.id) < (
+ SELECT a.created_at,a.id FROM job a JOIN scan_job s ON s.job_id=a.id WHERE a.id=? AND a.library_id=j.library_id AND a.owner_user_id=j.owner_user_id
+)) ORDER BY j.created_at DESC,j.id DESC LIMIT ?`, actor, libraryID, actor, after, after, limit+1)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	page := &ScanPage{Items: make([]ScanJob, 0, limit)}
+	for rows.Next() {
+		record, err := readScan(rows)
+		if err != nil {
+			return nil, err
+		}
+		if len(page.Items) == limit {
+			page.NextCursor = page.Items[len(page.Items)-1].ID
+			break
+		}
+		page.Items = append(page.Items, record.ScanJob)
+	}
+	return page, rows.Err()
+}
+
 func sameBinding(a, b SourceBindingRef) bool {
 	return a.BindingID == b.BindingID && a.ProofEpoch == b.ProofEpoch && a.LibraryID == b.LibraryID && a.SourceID == b.SourceID && bytes.Equal(a.RootLocator, b.RootLocator) && a.BindingRevision == b.BindingRevision && a.AuthorizationRevision == b.AuthorizationRevision
 }

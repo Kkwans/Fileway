@@ -177,6 +177,25 @@ func TestMediaScanBatchQueuesSelectedFoldersAndReplays(t *testing.T) {
 		}
 		f.waitJob(t, library.ID, job.ID, "completed")
 	}
+	if response := f.call(t, f.viewer.ID, http.MethodGet, base+"/scans", nil); response.Code != http.StatusNotFound {
+		t.Fatalf("unowned scan history: %d", response.Code)
+	}
+	var history struct {
+		Items      []mediaScanSummary
+		NextCursor string
+	}
+	historyResponse := f.call(t, f.owner.ID, http.MethodGet, base+"/scans?limit=1", nil)
+	if historyResponse.Code != http.StatusOK || json.Unmarshal(historyResponse.Body.Bytes(), &history) != nil ||
+		len(history.Items) != 1 || history.Items[0].Status != "completed" || history.Items[0].SourceLabel == "" || history.NextCursor != history.Items[0].ID {
+		t.Fatalf("history first page: %d %s", historyResponse.Code, historyResponse.Body)
+	}
+	firstID := history.Items[0].ID
+	last := f.call(t, f.owner.ID, http.MethodGet, base+"/scans?limit=1&cursor="+history.NextCursor, nil)
+	history.Items, history.NextCursor = nil, ""
+	if last.Code != http.StatusOK || json.Unmarshal(last.Body.Bytes(), &history) != nil ||
+		len(history.Items) != 1 || history.Items[0].ID == firstID || history.NextCursor != "" {
+		t.Fatalf("history last page: %d %s", last.Code, last.Body)
+	}
 }
 
 func (f *mediaScanHTTPFixture) waitJob(t *testing.T, libraryID, jobID string, accepted ...string) mediaScanSummary {

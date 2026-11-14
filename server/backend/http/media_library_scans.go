@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"path"
 	"strings"
 
 	"github.com/Kkwans/nas-file-browser/backend/files"
@@ -47,6 +48,7 @@ type mediaScanSummary struct {
 	ID            string `json:"id"`
 	LibraryID     string `json:"libraryId"`
 	BindingID     string `json:"bindingId,omitempty"`
+	SourceLabel   string `json:"sourceLabel,omitempty"`
 	Status        string `json:"status"`
 	ErrorCode     string `json:"errorCode,omitempty"`
 	Generation    int64  `json:"generation"`
@@ -215,6 +217,43 @@ func mediaScanGetHandler(w http.ResponseWriter, r *http.Request, d *data) (int, 
 		return mediaScanError(err)
 	}
 	return renderJSON(w, r, scanSummary(job))
+}
+
+func mediaScanListHandler(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	library, err := itemLibrary(r, d)
+	if err != nil {
+		return catalogError(w, err)
+	}
+	limit, err := providerPageLimit(r)
+	after := r.URL.Query().Get("cursor")
+	if err != nil || (after != "" && !validScanID(after)) {
+		return catalogError(w, medialibrary.ErrInvalid)
+	}
+	ctx := r.Context()
+	snapshot, err := beginCatalogSnapshot(ctx, d, library.ID)
+	if err != nil {
+		return catalogError(w, err)
+	}
+	page, err := d.store.MediaLibrary.ListLibraryScans(ctx, d.user.ID, library.ID, after, limit)
+	if err != nil {
+		return catalogError(w, err)
+	}
+	items := make([]mediaScanSummary, 0, len(page.Items))
+	for i := range page.Items {
+		summary := scanSummary(&page.Items[i])
+		// The scan endpoint is owner-only. A basename keeps historical rows
+		// recognizable after the current binding has changed.
+		summary.SourceLabel = path.Base(string(page.Items[i].Binding.RootLocator))
+		items = append(items, summary)
+	}
+	if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
+		return catalogError(w, err)
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	return renderJSON(w, r, struct {
+		Items []mediaScanSummary `json:"items"`
+		Next  string             `json:"nextCursor,omitempty"`
+	}{items, page.NextCursor})
 }
 
 func ownerScan(r *http.Request, d *data) (*medialibrary.ScanJob, error) {

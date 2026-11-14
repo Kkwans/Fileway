@@ -29,6 +29,12 @@ same operation ID and sources returns the original receipt, even if the job
 has completed. The batch uses the existing local scan rules, including
 recursive enumeration and read-only NFO import.
 
+`GET /libraries/{id}/scans` lists the current library owner's recent scans,
+newest first. It accepts `limit` and `cursor`, and returns `items` and
+`nextCursor` when another page is available. Each row includes only its
+folder's basename as `sourceLabel`. This lets another client reopen a scan
+and its TMDB follow-up without the originating device's local state.
+
 ## Explicit personal state
 
 `GET /libraries/{id}/items/{itemId}/user-state` returns the current actor's
