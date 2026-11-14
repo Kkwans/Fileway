@@ -57,7 +57,7 @@ func LoadCredentialVault(name string) (*CredentialVault, error) {
 	if err != nil {
 		return nil, errors.New("provider key could not be opened")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	after, err := file.Stat()
 	if err != nil || !os.SameFile(before, after) || !privateKeyFile(file, after) {
 		return nil, errors.New("provider key file permissions must restrict access")

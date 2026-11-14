@@ -4,6 +4,7 @@ package mediaprovider
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -170,12 +171,9 @@ func validV3Key(value string) bool {
 	if len(value) != 32 {
 		return false
 	}
-	for _, c := range value {
-		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
-			return false
-		}
-	}
-	return true
+	var decoded [16]byte
+	_, err := hex.Decode(decoded[:], []byte(value))
+	return err == nil
 }
 
 func parseRetryAfter(value string, now time.Time) time.Time {

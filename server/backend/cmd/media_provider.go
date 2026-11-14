@@ -52,7 +52,7 @@ func readTMDBHosts(name string) (mediaprovider.TMDBHosts, error) {
 	if err != nil {
 		return mediaprovider.TMDBHosts{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	body, err := io.ReadAll(io.LimitReader(file, 8193))
 	if err != nil {
 		return mediaprovider.TMDBHosts{}, err
