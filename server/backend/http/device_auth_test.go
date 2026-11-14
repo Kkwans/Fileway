@@ -8,11 +8,14 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"github.com/Kkwans/nas-file-browser/backend/deviceauth"
+	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/users"
 	"github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -52,6 +55,21 @@ func TestDeviceJWTMediaScopeRenewAndLegacyRollback(t *testing.T) {
 		res := httptest.NewRecorder()
 		handle(fn, "", h.storage, h.server).ServeHTTP(res, req)
 		return res
+	}
+	// Device-scoped sessions use the same capability route as account sessions.
+	if response := call(clientCapabilitiesHandler, "GET", "/api/client-capabilities", signed); response.Code != http.StatusOK || strings.Contains(response.Body.String(), `"mediaLibraryVersion"`) {
+		t.Fatalf("disabled catalog capability: %d %s", response.Code, response.Body)
+	}
+	catalog, err := medialibrary.Open(t.Context(), filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = catalog.Close() })
+	h.storage.MediaLibrary = catalog
+	response := call(clientCapabilitiesHandler, "GET", "/api/client-capabilities", signed)
+	var capabilities map[string]any
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &capabilities) != nil || capabilities["mediaLibraryVersion"] != float64(1) {
+		t.Fatalf("device catalog capability: %d %s", response.Code, response.Body)
 	}
 	probe := withUser(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 		if d.user.Perm.Admin || d.user.Perm.Execute {

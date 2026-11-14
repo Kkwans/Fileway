@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/Kkwans/nas-file-browser/backend/files"
+	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 )
 
 // Expose only the non-secret policy needed by authenticated native clients.
@@ -15,6 +16,15 @@ func clientCapabilities(tvUpdateVersion int) handleFunc {
 		subtitleVersion := 0
 		if subtitleCapabilityAvailable(d) {
 			subtitleVersion = subtitlePagesVersion
+		}
+		mediaLibraryVersion := 0
+		if catalog := d.store.MediaLibrary; catalog != nil {
+			// Use the same bounded, authorized read as the library-list route so a
+			// closed or otherwise unreadable store is not advertised as available.
+			_, err := catalog.ListLibraries(r.Context(), d.user.ID, medialibrary.LibraryListOptions{Limit: 1, OnlyOwned: mediaSharingDisabled(d)})
+			if err == nil {
+				mediaLibraryVersion = 1
+			}
 		}
 		return renderJSON(w, r, struct {
 			AuthMethod                   string `json:"authMethod"`
@@ -30,7 +40,8 @@ func clientCapabilities(tvUpdateVersion int) handleFunc {
 			SourceASSStreaming           int    `json:"sourceASSStreaming"`
 			TVUpdateProxyVersion         int    `json:"tvUpdateProxyVersion,omitempty"`
 			ResourceSubtitlePagesVersion int    `json:"resourceSubtitlePagesVersion,omitempty"`
-		}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, 1, true, true, true, 1, 1, tvUpdateVersion, subtitleVersion})
+			MediaLibraryVersion          int    `json:"mediaLibraryVersion,omitempty"`
+		}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, 1, true, true, true, 1, 1, tvUpdateVersion, subtitleVersion, mediaLibraryVersion})
 	})
 }
 

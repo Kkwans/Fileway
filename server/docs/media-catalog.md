@@ -6,6 +6,17 @@ context, NFO field, rating and artwork declaration is independently checked
 against the source owner's current permissions and binding proof. Opaque IDs
 are references, not authority to open a file.
 
+## Capability discovery
+
+Authenticated account and device sessions can call `GET /api/client-capabilities`.
+On a successful response, `mediaLibraryVersion: 1` means that the server's media
+catalog accepted a bounded read for the current user. The field is omitted when
+the catalog is disabled or cannot currently be read; an empty catalog still
+advertises version 1. A capability is not a library membership or file access
+grant. Clients must continue to handle authorization and availability errors
+from individual catalog requests, and must not interpret a failed capability
+request as a successful response from an older server.
+
 ## Home and browse
 
 - `GET /home` returns visible libraries, a hero descriptor and independent

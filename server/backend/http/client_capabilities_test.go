@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Kkwans/nas-file-browser/backend/auth"
+	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/users"
 )
 
@@ -52,4 +54,38 @@ func TestClientCapabilitiesRejectsUnauthenticatedRequest(t *testing.T) {
 	if response.Code != http.StatusUnauthorized || strings.Contains(response.Body.String(), "enableExec") {
 		t.Fatalf("unauthenticated capabilities status=%d body=%s", response.Code, response.Body.String())
 	}
+}
+
+func TestClientCapabilitiesMediaLibraryVersionTracksReadableStore(t *testing.T) {
+	h := newTrashHTTPHarness(t, users.User{Username: "member"})
+	member := firstTrashHTTPUser(h)
+	check := func(wantAvailable bool) {
+		t.Helper()
+		response := h.request(t, member.ID, clientCapabilitiesHandler, http.MethodGet, "/api/client-capabilities", nil, nil)
+		var result map[string]any
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil {
+			t.Fatalf("capabilities status=%d body=%s", response.Code, response.Body.String())
+		}
+		version, present := result["mediaLibraryVersion"]
+		if present != wantAvailable || present && version != float64(1) {
+			t.Fatalf("mediaLibraryVersion=%v present=%v, want available=%v", version, present, wantAvailable)
+		}
+		if result["resourceWireOperations"] != true || result["mediaPlaybackVersion"] != float64(1) {
+			t.Fatalf("existing capabilities changed: %#v", result)
+		}
+	}
+	check(false)
+	catalog, err := medialibrary.Open(t.Context(), filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = catalog.Close() })
+	h.storage.MediaLibrary = catalog
+	// An empty catalog is supported, even when sharing is disabled.
+	h.server.DisableMediaLibrarySharing = true
+	check(true)
+	if err := catalog.Close(); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
 }
