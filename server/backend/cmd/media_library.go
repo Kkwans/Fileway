@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/Kkwans/nas-file-browser/backend/diskcache"
 	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/storage"
@@ -51,6 +52,7 @@ func startMediaLibrary(ctx context.Context, store *storage.Storage, database str
 					log.Print("Media library shutdown: catalog close failed")
 				}
 				store.MediaLibrary = nil
+				store.MediaArtworkCache = nil
 			}
 			if err := unprotect(); err != nil {
 				log.Print("Media library shutdown: private directory close failed")
@@ -74,7 +76,27 @@ func startMediaLibrary(ctx context.Context, store *storage.Storage, database str
 		return close
 	}
 	store.MediaLibrary = catalog
+	store.MediaArtworkCache = startCatalogArtworkCache(directory)
 	return close
+}
+
+func startCatalogArtworkCache(directory string) diskcache.Interface {
+	path := filepath.Join(directory, "artwork-cache")
+	if err := os.Mkdir(path, 0700); err != nil && !os.IsExist(err) {
+		log.Print("Media artwork cache unavailable: cannot prepare private directory")
+		return nil
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || !localMediaDirectory(path) {
+		log.Print("Media artwork cache unavailable: requires a local private directory")
+		return nil
+	}
+	cache, err := diskcache.NewBounded(afero.NewOsFs(), path, 512<<20)
+	if err != nil {
+		log.Print("Media artwork cache unavailable: initialization failed")
+		return nil
+	}
+	return cache
 }
 
 func localMediaDirectory(directory string) bool {

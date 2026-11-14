@@ -132,14 +132,13 @@ func ProjectTMDB(document Document) (TMDBProjection, error) {
 		result.Item.Credits = projectTMDBCredits(*credits)
 	}
 	// Reuse the importer's existing path validation, without retaining its URL.
-	images := ImageConfiguration{base: "https://image.tmdb.org/t/p/", sizes: map[ArtworkKind][]string{Poster: {"original"}, Backdrop: {"original"}}}
 	for _, image := range []struct {
 		kind ArtworkKind
 		path string
 		out  *string
 	}{{Poster, source.PosterPath, &result.PosterPath}, {Backdrop, source.BackdropPath, &result.BackdropPath}} {
 		if image.path != "" {
-			if _, err := images.ImageURL(image.kind, "original", image.path); err != nil {
+			if _, err := CatalogArtworkURL(image.kind, image.path); err != nil {
 				return TMDBProjection{}, &Error{Code: InvalidResponse}
 			}
 			*image.out = image.path

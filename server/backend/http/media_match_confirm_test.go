@@ -3,19 +3,37 @@ package fbhttp
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/png"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/Kkwans/nas-file-browser/backend/diskcache"
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
+	"github.com/spf13/afero"
 )
 
 func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "film.mkv", "video")
-	catalogFixtureWrite(t, f, "film.nfo", `<movie><title>Local film</title><originaltitle>Local original</originaltitle></movie>`)
+	catalogFixtureWrite(t, f, "film.nfo", `<movie><title>Local film</title><originaltitle>Local original</originaltitle><thumb aspect="poster">cover.png</thumb></movie>`)
+	var picture bytes.Buffer
+	if err := png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.root, "films", "cover.png"), picture.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cache, err := diskcache.NewBounded(afero.NewOsFs(), t.TempDir(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.h.storage.MediaArtworkCache = cache
 	library, source := f.libraryAndSource(t)
 	scanFixtureLibrary(t, f, library, source, "confirm-fixture-scan")
 	owner := f.owner.ID
@@ -47,13 +65,29 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	}
 	f.h.storage.MediaProviderVault = vault
 	calls := 0
+	imageCalls := 0
 	f.h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "image.tmdb.org" {
+			imageCalls++
+			if r.Header.Get("Authorization") != "" || r.URL.RawQuery != "" {
+				t.Error("provider credentials sent to CDN")
+			}
+			switch r.URL.Path {
+			case "/t/p/w780/backdrop.png":
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(picture.Bytes()))}, nil
+			case "/t/p/w500/example.jpg":
+				return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: http.NoBody}, nil
+			default:
+				t.Errorf("unexpected CDN path: %s", r.URL.Path)
+				return &http.Response{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: http.NoBody}, nil
+			}
+		}
 		calls++
 		if r.URL.Path != "/3/movie/55" || r.URL.Query().Get("append_to_response") != "credits,external_ids" || r.Header.Get("Authorization") != "Bearer fixture-confirm-token" {
 			t.Errorf("unexpected provider route: %s", r.URL.Path)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
-			`{"id":55,"title":"TMDB film","original_title":"Online original","overview":"Online synopsis","poster_path":"/example.jpg","vote_average":7.2,"vote_count":15}`))}, nil
+			`{"id":55,"title":"TMDB film","original_title":"Online original","overview":"Online synopsis","poster_path":"/example.jpg","backdrop_path":"/backdrop.png","vote_average":7.2,"vote_count":15}`))}, nil
 	})}
 	identityResponse := f.call(t, owner, http.MethodGet, base+"/identification", nil)
 	var identity mediaIdentificationResponse
@@ -77,7 +111,9 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	}
 	local := fixtureDetail(t, f, owner, library.ID, itemID)
 	if local.Item.Title != "Local film" || local.Fields["plot"].Source != "online" || local.OnlineMatch == nil || local.OnlineMatch.ExternalID != "55" ||
-		len(local.Ratings) != 1 || local.Ratings[0].Origin != "online" || local.Card == nil || local.Card.MatchState != "provider_confirmed" || local.Card.Artwork != nil {
+		len(local.Ratings) != 1 || local.Ratings[0].Origin != "online" || local.Card == nil || local.Card.MatchState != "provider_confirmed" ||
+		local.Card.Artwork == nil || !strings.HasPrefix(local.Card.Artwork.AssetID, "art_") ||
+		local.Card.Backdrop == nil || !strings.HasPrefix(local.Card.Backdrop.AssetID, "tmdb_backdrop_") || imageCalls != 0 {
 		t.Fatalf("local-first projection: %+v", local)
 	}
 	policy.Mode = medialibrary.MetadataOnlineFirst
@@ -85,8 +121,32 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	online := fixtureDetail(t, f, owner, library.ID, itemID)
-	if online.Item.Title != "TMDB film" || calls != 1 {
+	if online.Item.Title != "TMDB film" || calls != 1 || online.Card.Artwork == nil || !strings.HasPrefix(online.Card.Artwork.AssetID, "tmdb_poster_") {
 		t.Fatalf("online-first projection: %+v", online)
+	}
+	if response := f.call(t, owner, http.MethodGet, online.Card.Artwork.Endpoint, nil); response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/png" || imageCalls != 1 {
+		t.Fatalf("failed online poster did not use NFO fallback: %d", response.Code)
+	}
+	backdrop := online.Card.Backdrop.Endpoint
+	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/png" || imageCalls != 2 {
+		t.Fatalf("initial backdrop: %d", response.Code)
+	}
+	f.h.storage.TMDBHTTPClient = nil
+	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusOK || imageCalls != 2 {
+		t.Fatalf("cached backdrop offline: %d", response.Code)
+	}
+	grant, err := f.store.GrantMember(t.Context(), owner, library.ID, source.LibraryRevision, f.viewer.ID, medialibrary.RoleViewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response := f.call(t, f.viewer.ID, http.MethodGet, backdrop, nil); response.Code != http.StatusOK {
+		t.Fatalf("member cache access: %d", response.Code)
+	}
+	if _, err := f.store.RevokeMember(t.Context(), owner, library.ID, grant.LibraryRevision, f.viewer.ID); err != nil {
+		t.Fatal(err)
+	}
+	if response := f.call(t, f.viewer.ID, http.MethodGet, backdrop, nil); response.Code != http.StatusNotFound {
+		t.Fatalf("revoked member could read cached backdrop: %d", response.Code)
 	}
 	edit := medialibrary.MetadataPatch{Fields: map[string]medialibrary.MetadataFieldPatch{"title": {Values: []string{"Manual title"}}, "plot": {Clear: true}}}
 	if _, err := f.store.ApplyMetadata(t.Context(), owner, library.ID, itemID, online.Item.Revision, "lock-local-edit", edit); err != nil {
@@ -106,5 +166,8 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	offline := fixtureDetail(t, f, owner, library.ID, itemID)
 	if offline.Item.Title != "Manual title" || offline.OnlineMatch != nil || len(offline.Ratings) != 0 || calls != 1 {
 		t.Fatalf("local-only projection: %+v", offline)
+	}
+	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusNotFound || imageCalls != 2 {
+		t.Fatalf("local-only policy exposed cached backdrop: %d", response.Code)
 	}
 }

@@ -31,4 +31,13 @@ copy of the existing vault key. A lost key requires entering the provider
 credentials again. When setting credentials through the API, use a trusted
 Fileway server connection. No shared project API key is distributed.
 
+[Artwork configuration](https://developer.themoviedb.org/docs/image-basics) describes
+the CDN URLs and size variants. Fileway downloads the selected `w500` poster
+or `w780` backdrop when a client first requests it. Sanitized images go to a
+512 MiB bounded, rebuildable `artwork-cache` directory next to the catalog
+database. Cache entries survive restart and remain usable when TMDB is temporarily
+unavailable. Access requires current catalog and source authorization, including
+on a cache hit. Clearing the artwork cache leaves metadata and match decisions
+intact. Keep the catalog parent on local service-owned storage.
+
 [TMDB application authentication](https://developer.themoviedb.org/docs/authentication-application)

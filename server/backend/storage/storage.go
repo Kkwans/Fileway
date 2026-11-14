@@ -5,6 +5,7 @@ import (
 
 	"github.com/Kkwans/nas-file-browser/backend/auth"
 	"github.com/Kkwans/nas-file-browser/backend/deviceauth"
+	"github.com/Kkwans/nas-file-browser/backend/diskcache"
 	"github.com/Kkwans/nas-file-browser/backend/favorites"
 	"github.com/Kkwans/nas-file-browser/backend/history"
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
@@ -26,6 +27,7 @@ import (
 type Storage struct {
 	// MediaLibrary is optional and owned by the HTTP server lifecycle, not CLI commands.
 	MediaLibrary       *medialibrary.Store
+	MediaArtworkCache  diskcache.Interface
 	MediaProviderVault *mediaprovider.CredentialVault
 	TMDBHTTPClient     *http.Client
 	Devices            *deviceauth.Service

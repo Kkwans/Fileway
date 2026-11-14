@@ -39,6 +39,12 @@ func TestMediaLibraryLifecycleKeepsPrivateStateAndCloses(t *testing.T) {
 	if store.MediaLibrary == nil {
 		t.Fatal("catalog did not open on native temporary storage")
 	}
+	if store.MediaArtworkCache == nil {
+		t.Fatal("catalog artwork cache did not open")
+	}
+	if err := store.MediaArtworkCache.Store(t.Context(), "fixture-backdrop", []byte("cached")); err != nil {
+		t.Fatal(err)
+	}
 	catalog := store.MediaLibrary
 	if err := catalog.WithTx(t.Context(), func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(t.Context(), "SELECT 1")
@@ -57,8 +63,19 @@ func TestMediaLibraryLifecycleKeepsPrivateStateAndCloses(t *testing.T) {
 	if store.MediaLibrary != nil {
 		t.Fatal("closed catalog remains attached")
 	}
+	if store.MediaArtworkCache != nil {
+		t.Fatal("closed catalog artwork cache remains attached")
+	}
 	if err := catalog.WithTx(t.Context(), func(*sql.Tx) error { return nil }); err == nil {
 		t.Fatal("closed catalog still accepts transactions")
+	}
+	reopened := &storage.Storage{}
+	t.Cleanup(startMediaLibrary(t.Context(), reopened, database))
+	if reopened.MediaArtworkCache == nil {
+		t.Fatal("artwork cache unavailable after reopen")
+	}
+	if got, found, err := reopened.MediaArtworkCache.Load(t.Context(), "fixture-backdrop"); err != nil || !found || string(got) != "cached" {
+		t.Fatalf("artwork did not survive reopen: %v %v", found, err)
 	}
 }
 

@@ -16,6 +16,20 @@ const (
 	Still    ArtworkKind = "still"
 )
 
+const tmdbImageBase = "https://image.tmdb.org/t/p/"
+
+// CatalogArtworkURL uses standard TMDB sizes for the two catalog placements.
+// The path always comes from a confirmed provider document.
+func CatalogArtworkURL(kind ArtworkKind, filePath string) (string, error) {
+	size := "w500"
+	if kind == Backdrop {
+		size = "w780"
+	} else if kind != Poster {
+		return "", &Error{Code: InvalidRequest}
+	}
+	return tmdbImageURL(tmdbImageBase, size, filePath)
+}
+
 // ImageConfiguration is validated provider configuration, not a caller-defined
 // proxy destination. API credentials must not be attached to its public URLs.
 type ImageConfiguration struct {
@@ -36,7 +50,7 @@ func (client *TMDBClient) Configuration(ctx context.Context) (ImageConfiguration
 	if err := client.get(ctx, "/configuration", nil, &response); err != nil {
 		return ImageConfiguration{}, err
 	}
-	if response.Images.Base != "https://image.tmdb.org/t/p/" {
+	if response.Images.Base != tmdbImageBase {
 		return ImageConfiguration{}, &Error{Code: InvalidResponse}
 	}
 	sizes := map[ArtworkKind][]string{Poster: response.Images.Poster, Backdrop: response.Images.Backdrop, Profile: response.Images.Profile, Still: response.Images.Still}
@@ -68,7 +82,14 @@ func (configuration ImageConfiguration) Sizes(kind ArtworkKind) []string {
 // library client receives a Fileway asset reference after normal asset checks,
 // never this URL or an arbitrary remote URL taken from a local NFO.
 func (configuration ImageConfiguration) ImageURL(kind ArtworkKind, size, filePath string) (string, error) {
-	if configuration.base == "" || !slices.Contains(configuration.sizes[kind], size) || len(filePath) < 2 || len(filePath) > 256 || filePath[0] != '/' {
+	if configuration.base == "" || !slices.Contains(configuration.sizes[kind], size) {
+		return "", &Error{Code: InvalidRequest}
+	}
+	return tmdbImageURL(configuration.base, size, filePath)
+}
+
+func tmdbImageURL(base, size, filePath string) (string, error) {
+	if len(filePath) < 2 || len(filePath) > 256 || filePath[0] != '/' {
 		return "", &Error{Code: InvalidRequest}
 	}
 	name := filePath[1:]
@@ -87,5 +108,5 @@ func (configuration ImageConfiguration) ImageURL(kind ArtworkKind, size, filePat
 	default:
 		return "", &Error{Code: InvalidRequest}
 	}
-	return configuration.base + size + "/" + url.PathEscape(name), nil
+	return base + size + "/" + url.PathEscape(name), nil
 }

@@ -70,9 +70,12 @@ existing series, and does not infer or change episode mappings. Confirmation
 fetches and saves the provider document separately from local inputs. The
 detail and cards apply the library's field order, keeping locked or cleared
 values. `local_only` hides the saved online projection. The detail reports
-`onlineMatch` and the provider rating when present. The server saves poster and
-backdrop references for the artwork stage. Client-visible cached artwork and
-online credit presentation are separate steps.
+`onlineMatch` and the provider rating when present. Cards return posters and
+backdrops separately using existing authenticated `/artwork/{artworkId}` URLs.
+Local-first uses local declarations when present; TMDB-first can use the local
+image if the CDN request fails. Image fetches run on demand through the same
+TMDB network routing, with no credentials attached to CDN requests. Online
+credit presentation is a separate step.
 
 Mutations use `operationId` and optimistic revisions. An exact retry returns the
 original sanitized receipt; a different request with the same operation or a

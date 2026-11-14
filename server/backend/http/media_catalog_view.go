@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
+	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
 )
 
@@ -644,6 +645,14 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 			if card.Artwork != nil && card.Backdrop != nil {
 				break
 			}
+		}
+	}
+	if match := filtered.providerMatch; match != nil {
+		if poster := tmdbCatalogArtwork(library.ID, c.ID, c.Revision, match, mediaprovider.Poster); poster != nil && (match.OnlineFirst || card.Artwork == nil) {
+			card.Artwork = poster
+		}
+		if backdrop := tmdbCatalogArtwork(library.ID, c.ID, c.Revision, match, mediaprovider.Backdrop); backdrop != nil && (match.OnlineFirst || card.Backdrop == nil) {
+			card.Backdrop = backdrop
 		}
 	}
 	best := 99

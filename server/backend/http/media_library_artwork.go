@@ -22,6 +22,7 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
 	"github.com/gorilla/mux"
+	_ "golang.org/x/image/webp"
 )
 
 const mediaArtworkBytes = 8 << 20
@@ -154,9 +155,7 @@ func mediaArtworkLocator(root, nfo, reference []byte) ([]byte, error) {
 }
 
 type artworkAuthorizedReader struct {
-	ctx    context.Context
-	d      *data
-	access *mediaArtworkContext
+	check  func() error
 	reader io.Reader
 }
 
@@ -164,7 +163,7 @@ func (reader *artworkAuthorizedReader) Read(p []byte) (int, error) {
 	if len(p) > mediaReadChunk {
 		p = p[:mediaReadChunk]
 	}
-	if err := reader.access.check(reader.ctx, reader.d); err != nil {
+	if err := reader.check(); err != nil {
 		return 0, err
 	}
 	return reader.reader.Read(p)
@@ -190,7 +189,7 @@ func (out *boundedArtworkWriter) Write(p []byte) (int, error) {
 
 func sanitizedArtwork(raw []byte) ([]byte, string, error) {
 	config, kind, err := image.DecodeConfig(bytes.NewReader(raw))
-	if err != nil || kind != "jpeg" && kind != "png" || config.Width < 1 || config.Height < 1 || config.Width > mediaArtworkDimension || config.Height > mediaArtworkDimension || int64(config.Width)*int64(config.Height) > mediaArtworkPixels {
+	if err != nil || kind != "jpeg" && kind != "png" && kind != "webp" || config.Width < 1 || config.Height < 1 || config.Width > mediaArtworkDimension || config.Height > mediaArtworkDimension || int64(config.Width)*int64(config.Height) > mediaArtworkPixels {
 		return nil, "", fs.ErrInvalid
 	}
 	picture, format, err := image.Decode(bytes.NewReader(raw))
@@ -212,6 +211,7 @@ func sanitizedArtwork(raw []byte) ([]byte, string, error) {
 }
 
 func mediaArtworkHandler(permits chan struct{}) handleFunc {
+	flights := newPreviewCoordinator()
 	return mediaLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 		select {
 		case permits <- struct{}{}:
@@ -226,63 +226,71 @@ func mediaArtworkHandler(permits chan struct{}) handleFunc {
 			return mediaAccessError(err)
 		}
 		itemID, artID := mux.Vars(r)["itemId"], mux.Vars(r)["artworkId"]
-		evidence, err := d.store.MediaLibrary.ResolveArtwork(r.Context(), d.user.ID, library.ID, itemID, artID)
-		if err != nil {
-			return mediaAccessError(err)
+		if strings.HasPrefix(artID, tmdbArtworkPrefix) {
+			return serveTMDBArtwork(w, r, d, library, itemID, artID, flights)
 		}
-		locator, err := mediaArtworkLocator(evidence.Binding.RootLocator, evidence.SourceKey, evidence.Reference)
-		if err != nil {
-			return mediaAccessError(err)
-		}
-		viewer, err := firstPlayableForArtwork(r.Context(), d, library.ID, itemID)
-		if err != nil {
-			return mediaAccessError(err)
-		}
-		access := &mediaArtworkContext{viewer: viewer, evidence: evidence, imageLocator: locator}
-		if err := access.check(r.Context(), d); err != nil {
-			return mediaAccessError(err)
-		}
-		access.nfo, err = openMediaChild(r.Context(), d, evidence.Source, evidence.Binding, evidence.Proof, evidence.SourceKey)
-		if err != nil {
-			return mediaAccessError(err)
-		}
-		defer func() { _ = access.nfo.Close() }()
-		access.nfoInfo, access.nfoStamp, err = access.nfo.State()
-		if err != nil || access.nfoInfo == nil || access.nfoInfo.Size() > mediametadata.DefaultMaxBytes {
-			return mediaAccessError(err)
-		}
-		nfo, err := io.ReadAll(io.LimitReader(&artworkAuthorizedReader{ctx: r.Context(), d: d, access: access, reader: access.nfo.File}, mediametadata.DefaultMaxBytes+1))
-		digest := sha256.Sum256(nfo)
-		if err != nil || int64(len(nfo)) > mediametadata.DefaultMaxBytes || !bytes.Equal(digest[:], evidence.Digest) {
-			return mediaAccessError(err)
-		}
-		access.image, err = openMediaChild(r.Context(), d, evidence.Source, evidence.Binding, evidence.Proof, locator)
-		if err != nil {
-			return mediaAccessError(err)
-		}
-		defer func() { _ = access.image.Close() }()
-		access.imageInfo, access.imageStamp, err = access.image.State()
-		if err != nil || access.imageInfo == nil || access.imageInfo.Size() > mediaArtworkBytes {
-			return mediaAccessError(err)
-		}
-		raw, err := io.ReadAll(io.LimitReader(&artworkAuthorizedReader{ctx: r.Context(), d: d, access: access, reader: access.image.File}, mediaArtworkBytes+1))
-		if err != nil || len(raw) > mediaArtworkBytes {
-			return mediaAccessError(err)
-		}
-		output, contentType, err := sanitizedArtwork(raw)
-		if err != nil {
-			return mediaAccessError(err)
-		}
-		if err := access.check(r.Context(), d); err != nil {
-			return mediaAccessError(err)
-		}
-		sum := sha256.Sum256(output)
-		w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:])+`"`)
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		buffer := bytes.NewReader(output)
-		reader := &artworkAuthorizedReadSeeker{artworkAuthorizedReader: &artworkAuthorizedReader{ctx: r.Context(), d: d, access: access, reader: buffer}, seeker: buffer}
-		http.ServeContent(mediaServeWriter{w}, r, "", access.imageInfo.ModTime(), reader)
-		return 0, nil
+		return serveLocalArtwork(w, r, d, library, itemID, artID)
 	})
+}
+
+func serveLocalArtwork(w http.ResponseWriter, r *http.Request, d *data, library *medialibrary.Library, itemID, artID string) (int, error) {
+	evidence, err := d.store.MediaLibrary.ResolveArtwork(r.Context(), d.user.ID, library.ID, itemID, artID)
+	if err != nil {
+		return mediaAccessError(err)
+	}
+	locator, err := mediaArtworkLocator(evidence.Binding.RootLocator, evidence.SourceKey, evidence.Reference)
+	if err != nil {
+		return mediaAccessError(err)
+	}
+	viewer, err := firstPlayableForArtwork(r.Context(), d, library.ID, itemID)
+	if err != nil {
+		return mediaAccessError(err)
+	}
+	access := &mediaArtworkContext{viewer: viewer, evidence: evidence, imageLocator: locator}
+	check := func() error { return access.check(r.Context(), d) }
+	if err := check(); err != nil {
+		return mediaAccessError(err)
+	}
+	access.nfo, err = openMediaChild(r.Context(), d, evidence.Source, evidence.Binding, evidence.Proof, evidence.SourceKey)
+	if err != nil {
+		return mediaAccessError(err)
+	}
+	defer func() { _ = access.nfo.Close() }()
+	access.nfoInfo, access.nfoStamp, err = access.nfo.State()
+	if err != nil || access.nfoInfo == nil || access.nfoInfo.Size() > mediametadata.DefaultMaxBytes {
+		return mediaAccessError(err)
+	}
+	nfo, err := io.ReadAll(io.LimitReader(&artworkAuthorizedReader{check: check, reader: access.nfo.File}, mediametadata.DefaultMaxBytes+1))
+	digest := sha256.Sum256(nfo)
+	if err != nil || int64(len(nfo)) > mediametadata.DefaultMaxBytes || !bytes.Equal(digest[:], evidence.Digest) {
+		return mediaAccessError(err)
+	}
+	access.image, err = openMediaChild(r.Context(), d, evidence.Source, evidence.Binding, evidence.Proof, locator)
+	if err != nil {
+		return mediaAccessError(err)
+	}
+	defer func() { _ = access.image.Close() }()
+	access.imageInfo, access.imageStamp, err = access.image.State()
+	if err != nil || access.imageInfo == nil || access.imageInfo.Size() > mediaArtworkBytes {
+		return mediaAccessError(err)
+	}
+	raw, err := io.ReadAll(io.LimitReader(&artworkAuthorizedReader{check: check, reader: access.image.File}, mediaArtworkBytes+1))
+	if err != nil || len(raw) > mediaArtworkBytes {
+		return mediaAccessError(err)
+	}
+	output, contentType, err := sanitizedArtwork(raw)
+	if err != nil {
+		return mediaAccessError(err)
+	}
+	if err := check(); err != nil {
+		return mediaAccessError(err)
+	}
+	sum := sha256.Sum256(output)
+	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:])+`"`)
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	buffer := bytes.NewReader(output)
+	reader := &artworkAuthorizedReadSeeker{artworkAuthorizedReader: &artworkAuthorizedReader{check: check, reader: buffer}, seeker: buffer}
+	http.ServeContent(mediaServeWriter{w}, r, "", access.imageInfo.ModTime(), reader)
+	return 0, nil
 }
