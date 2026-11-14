@@ -217,6 +217,51 @@ func TestProviderPolicyGrantAndEditorAuthorization(t *testing.T) {
 	}
 }
 
+func TestMetadataPolicyV11MigratesAndSwitchesPriority(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "provider-policy.db")
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	library := createLibrary(t, store, 7, "Metadata policy")
+	conn := fixtureProvider(t, store, 7, false, "user", "migration-connection")
+	// Recreate the released v11 leaf table without disturbing the connection.
+	_, err = store.db.ExecContext(ctx, `DROP TABLE library_metadata_policy;`+schemaV11[strings.Index(schemaV11, "CREATE TABLE library_metadata_policy"):]+`PRAGMA user_version=11`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := LibraryMetadataPolicy{Mode: MetadataLocalFirst, ConnectionID: conn.ID, Language: "zh-CN", Region: "CN", AllowEditorJobs: true}
+	before, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "v11-local-first", 0, policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	after, err := store.GetLibraryMetadataPolicy(ctx, 7, library.ID)
+	if err != nil || *after != *before {
+		t.Fatalf("v11 policy changed after migration: %+v %v", after, err)
+	}
+	policy.Mode = MetadataOnlineFirst
+	online, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "v12-online-first", before.Revision, policy)
+	if err != nil || online.Mode != MetadataOnlineFirst || online.Revision != before.Revision+1 {
+		t.Fatalf("online-first update: %+v %v", online, err)
+	}
+	authority, err := store.CheckProviderUse(ctx, 7, library.ID, conn.ID)
+	if err != nil || authority.PolicyRevision != online.Revision {
+		t.Fatalf("online-first authority: %+v %v", authority, err)
+	}
+	if _, err = store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "v12-invalid", online.Revision, LibraryMetadataPolicy{Mode: MetadataOnlineFirst}); !errors.Is(err, ErrInvalid) {
+		t.Fatal("online-first without a connection", err)
+	}
+}
+
 func TestProviderConcurrentRevisionAndSchemaMigration(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "catalog.db")
 	store, err := Open(t.Context(), path)

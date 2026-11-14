@@ -1,5 +1,25 @@
 package medialibrary
 
+// Rebuild this leaf table to extend its mode constraint while retaining
+// connection ownership, revisions, and existing policy receipts.
+const schemaV12 = `
+CREATE TABLE library_metadata_policy_v12 (
+    library_id TEXT PRIMARY KEY NOT NULL REFERENCES library(id),
+    mode TEXT NOT NULL CHECK(mode IN ('local_only','local_first_online','online_first')),
+    connection_id TEXT REFERENCES provider_connection(id),
+    language TEXT NOT NULL DEFAULT '',
+    region TEXT NOT NULL DEFAULT '',
+    allow_editor_jobs INTEGER NOT NULL DEFAULT 0 CHECK(allow_editor_jobs IN (0,1)),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+    CHECK(mode = 'local_only' OR connection_id IS NOT NULL)
+) STRICT;
+INSERT INTO library_metadata_policy_v12(library_id,mode,connection_id,language,region,allow_editor_jobs,revision,updated_at)
+SELECT library_id,mode,connection_id,language,region,allow_editor_jobs,revision,updated_at FROM library_metadata_policy;
+DROP TABLE library_metadata_policy;
+ALTER TABLE library_metadata_policy_v12 RENAME TO library_metadata_policy;
+`
+
 // Provider ciphertext is separate from the connection metadata. The vault key
 // is owned by the server runtime and never stored in this database.
 const schemaV11 = `

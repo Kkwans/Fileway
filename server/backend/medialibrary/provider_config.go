@@ -40,6 +40,16 @@ type LibraryMetadataPolicy struct {
 	Revision        int64  `json:"revision"`
 }
 
+const (
+	MetadataLocalOnly   = "local_only"
+	MetadataLocalFirst  = "local_first_online"
+	MetadataOnlineFirst = "online_first"
+)
+
+func (policy LibraryMetadataPolicy) OnlineEnabled() bool {
+	return policy.Mode == MetadataLocalFirst || policy.Mode == MetadataOnlineFirst
+}
+
 // SealedProviderCredential is never a response or operation receipt. The
 // fingerprint must be keyed by the external vault, not a hash of the secret.
 type SealedProviderCredential struct {
@@ -489,7 +499,7 @@ func readLibraryMetadataPolicy(ctx context.Context, reader schemaReader, actor u
 	if actor == 0 {
 		return nil, ErrForbidden
 	}
-	value := &LibraryMetadataPolicy{LibraryID: libraryID, Mode: "local_only"}
+	value := &LibraryMetadataPolicy{LibraryID: libraryID, Mode: MetadataLocalOnly}
 	var mode, connection, language, region sql.NullString
 	var editor, revision sql.NullInt64
 	err := reader.QueryRowContext(ctx, `SELECT p.mode,p.connection_id,p.language,p.region,p.allow_editor_jobs,p.revision
@@ -517,8 +527,8 @@ func (store *Store) GetLibraryMetadataPolicy(ctx context.Context, actor uint, li
 
 func (store *Store) SetLibraryMetadataPolicy(ctx context.Context, actor uint, libraryID, operationID string, expectedRevision int64,
 	policy LibraryMetadataPolicy) (*LibraryMetadataPolicy, error) {
-	if actor == 0 || expectedRevision < 0 || (policy.Mode != "local_only" && policy.Mode != "local_first_online") ||
-		(policy.Mode == "local_first_online" && policy.ConnectionID == "") ||
+	if actor == 0 || expectedRevision < 0 || (policy.Mode != MetadataLocalOnly && !policy.OnlineEnabled()) ||
+		(policy.OnlineEnabled() && policy.ConnectionID == "") ||
 		(policy.ConnectionID != "" && !providerIDPattern.MatchString(policy.ConnectionID)) ||
 		(policy.Language != "" && !providerLanguagePattern.MatchString(policy.Language)) ||
 		(policy.Region != "" && !providerRegionPattern.MatchString(policy.Region)) {
@@ -592,7 +602,7 @@ JOIN library l ON l.id=p.library_id AND l.archived_at IS NULL
 LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
 JOIN provider_connection c ON c.id=? AND c.status='configured'
 JOIN provider_credential secret ON secret.credential_ref=c.credential_ref
-WHERE l.id=? AND p.mode='local_first_online' AND
+WHERE l.id=? AND p.mode IN ('local_first_online','online_first') AND
 ((l.owner_user_id=? AND p.connection_id=c.id) OR (m.role='editor' AND p.allow_editor_jobs=1 AND
 (p.connection_id=c.id OR (c.owner_kind='user' AND c.owner_user_id=?)))) AND
 ((c.owner_kind='user' AND c.owner_user_id=?) OR (c.owner_kind='instance' AND EXISTS(

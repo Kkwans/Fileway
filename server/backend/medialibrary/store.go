@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	SchemaVersion  = 11
+	SchemaVersion  = 12
 	applicationID  = 0x46574d43 // FWMC; do not migrate an unrelated SQLite database.
 	maxConnections = 4
 	busyTimeoutMS  = 5000
@@ -301,6 +301,11 @@ func (store *Store) migrate(ctx context.Context) error {
 		if version < 11 {
 			if _, err := tx.ExecContext(ctx, schemaV11); err != nil {
 				return fmt.Errorf("upgrade media catalog to schema 11: %w", err)
+			}
+		}
+		if version < 12 {
+			if _, err := tx.ExecContext(ctx, schemaV12); err != nil {
+				return fmt.Errorf("upgrade media catalog to schema 12: %w", err)
 			}
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d; PRAGMA user_version = %d", applicationID, SchemaVersion)); err != nil {

@@ -59,7 +59,7 @@ func mediaMatchCandidatesHandler(slots chan struct{}, starts <-chan time.Time) h
 		if err != nil {
 			return catalogError(w, err)
 		}
-		if policy.Mode != "local_first_online" {
+		if !policy.OnlineEnabled() {
 			return writeCatalogError(w, http.StatusUnprocessableEntity, "library_offline_policy", "此媒体库尚未启用在线补全", false)
 		}
 		if d.store.MediaProviderVault == nil || d.store.TMDBHTTPClient == nil {

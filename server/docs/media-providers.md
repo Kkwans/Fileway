@@ -43,9 +43,10 @@ membership in that library or permission to open its files.
 editor. A new library returns `mode: "local_only"`, revision 0, empty locale
 and `allowEditorJobs: false`. Only the owner may `PUT` the policy, with
 `operationId`, `expectedRevision`, `mode`, `connectionId`, `language`, `region`
-and explicit `allowEditorJobs`. `local_first_online` requires an explicitly
-chosen, currently granted connection; no fallback is performed. `local_only`
-never authorizes provider calls. Language is an optional BCP-47-style tag and
+and explicit `allowEditorJobs`. `local_first_online` and `online_first` both
+require an explicitly chosen, currently granted connection. They configure
+local-first or TMDB-first precedence for the metadata projection. Both currently
+authorize candidate lookup. `local_only` makes no provider calls. Language is an optional BCP-47-style tag and
 region is an optional two-letter uppercase code. An editor may use an instance
 connection with a valid grant or their own explicitly selected personal
 connection only when the owner has enabled editor jobs; they cannot use the
