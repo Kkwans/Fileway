@@ -9,7 +9,8 @@ catalog and local NFO paths continue to work when no credential vault exists.
 `candidateSearchAvailable`, `matchConfirmationAvailable` and `networkJobsAvailable`. A connection with
 `status: "configured"` has a sealed credential recorded. Its acceptance by the
 provider is established by an authorized request. `networkJobsAvailable` is
-false until background online jobs are supported. Without a protected vault
+true when the server has a running catalog coordinator and a configured provider
+vault and transport. Without a protected vault
 key, credential writes return 503 `credential_store_unavailable`.
 
 `GET /provider-connections?limit=50&cursor=...` lists the caller's personal
@@ -94,6 +95,23 @@ provider response. Title and year can guide manual search; they cannot confirm
 identity by themselves. A matched response can be recovered with the same
 operation ID and original revisions. Retriable provider failures keep their
 normal error response. This endpoint does not launch a background scan.
+
+When an online-enabled library completes a local scan with an authorized
+connection, Fileway records a follow-up job for that scan's observed items.
+The job fills missing matches using the same explicit-ID rules. It does not
+request provider data for items with only a title and year. Already matched
+items and original media files are left intact. Work is processed one target at
+a time under the catalog coordinator. A committed match and its checkpoint
+recover together after server restart. Retryable provider failures pause the
+job, respect `Retry-After`, and stop after the retry budget is exhausted.
+
+For the library owner, `GET /libraries/{id}/scans/{scanId}/metadata` returns
+status, revision (`generation`), and target counts. A scan without a follow-up
+job returns 404. `DELETE .../metadata?generation=N` cancels active work and
+`POST .../metadata?generation=N` retries a failed or canceled job with the
+current explicitly selected connection. Retry keeps finished targets. The
+paginated `GET .../metadata/review` shows visible, still-unmatched targets
+and reason codes for manual confirmation.
 
 Mutations use `operationId` and optimistic revisions. An exact retry returns the
 original sanitized receipt; a different request with the same operation or a

@@ -23,27 +23,32 @@ const (
 // workers. SQLite is the only persistent queue; the in-memory queue is merely
 // a bounded set of wakeups and may be reconstructed after a process exit.
 type Scheduler struct {
-	store      *medialibrary.Store
-	coord      *medialibrary.ScanCoordinator
-	resolve    ResolveOwnerAuthority
-	ctx        context.Context
-	stop       context.CancelFunc
-	queue      chan medialibrary.ScanJob
-	wake       chan struct{}
-	wg         sync.WaitGroup
-	mu         sync.Mutex
-	closing    bool
-	queued     map[string]context.CancelFunc
-	retries    map[string]int
-	retryAfter map[string]time.Time
-	closeOnce  sync.Once
-	closeErr   error
+	store             *medialibrary.Store
+	coord             *medialibrary.ScanCoordinator
+	resolve           ResolveOwnerAuthority
+	ctx               context.Context
+	stop              context.CancelFunc
+	queue             chan medialibrary.ScanJob
+	wake              chan struct{}
+	wg                sync.WaitGroup
+	mu                sync.Mutex
+	closing           bool
+	queued            map[string]context.CancelFunc
+	retries           map[string]int
+	retryAfter        map[string]time.Time
+	closeOnce         sync.Once
+	closeErr          error
+	hasMetadataWorker bool
+	metadataJobID     string
+	metadataCancel    context.CancelFunc
 }
+
+type RunMetadataJob func(context.Context, *medialibrary.ScanCoordinator, medialibrary.MetadataJob)
 
 // NewScheduler obtains the exclusive catalog coordinator before interrupting
 // any old worker. A second process must fail closed and never fence or recover
 // another scheduler's jobs. The caller must Close before closing the Store.
-func NewScheduler(ctx context.Context, store *medialibrary.Store, resolve ResolveOwnerAuthority) (*Scheduler, error) {
+func NewScheduler(ctx context.Context, store *medialibrary.Store, resolve ResolveOwnerAuthority, metadata ...RunMetadataJob) (*Scheduler, error) {
 	if store == nil || resolve == nil {
 		return nil, fs.ErrInvalid
 	}
@@ -52,6 +57,10 @@ func NewScheduler(ctx context.Context, store *medialibrary.Store, resolve Resolv
 		return nil, err
 	}
 	if _, err := coord.InterruptRunningScans(ctx); err != nil {
+		_ = coord.Close()
+		return nil, err
+	}
+	if err := coord.RecoverMetadataJobs(ctx); err != nil {
 		_ = coord.Close()
 		return nil, err
 	}
@@ -64,8 +73,70 @@ func NewScheduler(ctx context.Context, store *medialibrary.Store, resolve Resolv
 	for range scanWorkers {
 		go s.worker()
 	}
+	if len(metadata) != 0 && metadata[0] != nil {
+		s.hasMetadataWorker = true
+		s.wg.Add(1)
+		go s.metadataWorker(metadata[0])
+	}
 	s.Wake()
 	return s, nil
+}
+
+func (s *Scheduler) MetadataAvailable(ctx context.Context) bool {
+	return s != nil && s.hasMetadataWorker && s.Ready(ctx) == nil
+}
+
+func (s *Scheduler) metadataWorker(run RunMetadataJob) {
+	defer s.wg.Done()
+	ticker := time.NewTicker(scanPollInterval)
+	defer ticker.Stop()
+	for {
+		if err := s.Ready(s.ctx); err != nil {
+			return
+		}
+		job, err := s.coord.ClaimNextMetadataJob(s.ctx)
+		if err == nil {
+			ctx, cancel := context.WithCancel(s.ctx)
+			s.mu.Lock()
+			s.metadataJobID, s.metadataCancel = job.ID, cancel
+			s.mu.Unlock()
+			if s.coord.CheckMetadataJob(ctx, job) == nil {
+				run(ctx, s.coord, job)
+			}
+			cancel()
+			s.mu.Lock()
+			s.metadataJobID, s.metadataCancel = "", nil
+			s.mu.Unlock()
+			continue
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Scheduler) CancelMetadataJob(ctx context.Context, actor uint, libraryID, jobID string, generation int64) error {
+	if err := s.Ready(ctx); err != nil {
+		return err
+	}
+	if err := s.coord.CancelMetadataJob(ctx, actor, libraryID, jobID, generation); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.metadataJobID == jobID {
+		s.metadataCancel()
+	}
+	return nil
+}
+
+func (s *Scheduler) RetryMetadataJob(ctx context.Context, actor uint, job medialibrary.MetadataJob, generation int64) error {
+	if !s.MetadataAvailable(ctx) {
+		return medialibrary.ErrCoordinatorUnavailable
+	}
+	return s.coord.RetryMetadataJob(ctx, actor, job, generation)
 }
 
 // Ready checks both process state and the coordinator's held catalog identity.

@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
+	"github.com/Kkwans/nas-file-browser/backend/mediascan"
 	"github.com/gorilla/mux"
 )
 
@@ -63,22 +64,24 @@ func providerPageLimit(r *http.Request) (int, error) {
 	return limit, nil
 }
 
-var mediaProviderStatusHandler = providerConfig(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
-	if _, err := providerAdmin(d); err != nil {
-		return providerError(w, err)
-	}
-	return renderJSON(w, r, struct {
-		CredentialStoreAvailable   bool `json:"credentialStoreAvailable"`
-		CandidateSearchAvailable   bool `json:"candidateSearchAvailable"`
-		MatchConfirmationAvailable bool `json:"matchConfirmationAvailable"`
-		NetworkJobsAvailable       bool `json:"networkJobsAvailable"`
-	}{
-		CredentialStoreAvailable:   d.store.MediaProviderVault != nil,
-		CandidateSearchAvailable:   d.store.MediaProviderVault != nil && d.store.TMDBHTTPClient != nil,
-		MatchConfirmationAvailable: d.store.MediaProviderVault != nil && d.store.TMDBHTTPClient != nil,
-		NetworkJobsAvailable:       false,
+func mediaProviderStatusHandler(scheduler *mediascan.Scheduler) handleFunc {
+	return providerConfig(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+		if _, err := providerAdmin(d); err != nil {
+			return providerError(w, err)
+		}
+		return renderJSON(w, r, struct {
+			CredentialStoreAvailable   bool `json:"credentialStoreAvailable"`
+			CandidateSearchAvailable   bool `json:"candidateSearchAvailable"`
+			MatchConfirmationAvailable bool `json:"matchConfirmationAvailable"`
+			NetworkJobsAvailable       bool `json:"networkJobsAvailable"`
+		}{
+			CredentialStoreAvailable:   d.store.MediaProviderVault != nil,
+			CandidateSearchAvailable:   d.store.MediaProviderVault != nil && d.store.TMDBHTTPClient != nil,
+			MatchConfirmationAvailable: d.store.MediaProviderVault != nil && d.store.TMDBHTTPClient != nil,
+			NetworkJobsAvailable:       scheduler.MetadataAvailable(r.Context()),
+		})
 	})
-})
+}
 
 type providerConnectionBody struct {
 	OperationID      string `json:"operationId"`

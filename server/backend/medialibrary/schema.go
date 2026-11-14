@@ -1,5 +1,30 @@
 package medialibrary
 
+const schemaV14 = `
+CREATE TABLE metadata_job (
+    job_id TEXT PRIMARY KEY NOT NULL REFERENCES job(id),
+    scan_id TEXT NOT NULL REFERENCES scan_job(job_id),
+    scan_generation INTEGER NOT NULL CHECK(scan_generation>0),
+    connection_id TEXT NOT NULL REFERENCES provider_connection(id),
+    connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+    policy_revision INTEGER NOT NULL CHECK(policy_revision>0),
+    failure_code TEXT NOT NULL DEFAULT '',
+    UNIQUE(scan_id,scan_generation)
+) STRICT;
+CREATE TABLE metadata_job_target (
+    job_id TEXT NOT NULL REFERENCES metadata_job(job_id),
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    outcome TEXT NOT NULL DEFAULT 'pending' CHECK(outcome IN ('pending','matched','already_matched','needs_review','no_match','source_changed','failed')),
+    reason TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(job_id,item_id),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE INDEX metadata_job_target_pending ON metadata_job_target(job_id,item_id) WHERE outcome='pending';
+CREATE INDEX metadata_job_target_review ON metadata_job_target(job_id,item_id) WHERE outcome IN ('needs_review','no_match');
+CREATE INDEX library_file_scan_observation ON library_file(library_id,last_seen_job_id,last_seen_generation,source_file_id) WHERE last_seen_job_id IS NOT NULL;
+`
+
 const schemaV13 = `
 CREATE TABLE item_provider_match (
     library_id TEXT NOT NULL,

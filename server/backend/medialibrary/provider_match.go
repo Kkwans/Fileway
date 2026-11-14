@@ -14,6 +14,7 @@ type ProviderMatchRequest struct {
 	LibraryID, ItemID, ConnectionID, Kind       string
 	ExternalID, ItemRevision, StructureRevision int64
 	Automatic                                   bool `json:",omitempty"`
+	job                                         *MetadataJob
 }
 
 type ProviderMatchDocument struct {
@@ -121,6 +122,21 @@ WHERE i.library_id=? AND i.id=? AND st.superseded_by IS NULL`, request.LibraryID
 			}
 			if existing {
 				return nil, ErrRevisionConflict
+			}
+		}
+		if job := request.job; job != nil {
+			scan, err := getScan(ctx, tx, actor, job.ScanID)
+			if err != nil {
+				return nil, err
+			}
+			if scan.Generation != job.ScanGeneration || scan.Status != "completed" {
+				return nil, ErrRevisionConflict
+			}
+			if _, err := validateSourceBinding(ctx, tx, actor, scan.Binding); err != nil {
+				return nil, err
+			}
+			if err := acknowledgeMetadataJobTarget(ctx, tx, job.ID, job.Generation, job.LibraryID, request.ItemID, "matched", ""); err != nil {
+				return nil, err
 			}
 		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO item_provider_match(library_id,item_id,connection_id,provider,entity_kind,external_id,language,document_json,fetched_at,revision)

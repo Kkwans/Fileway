@@ -44,7 +44,7 @@ func mediaMatchFillHandler(slots chan struct{}, starts <-chan time.Time) handleF
 			w.Header().Set("Retry-After", "1")
 			return writeCatalogError(w, http.StatusTooManyRequests, "provider_busy", "TMDB 请求较多，请稍后再试", true)
 		}
-		result, err := fillCatalogMatch(r.Context(), d, library, mux.Vars(r)["itemId"], body.OperationID, body.ItemRevision, body.StructureRevision, starts)
+		result, err := fillCatalogMatch(r.Context(), d, library, mux.Vars(r)["itemId"], body.OperationID, body.ItemRevision, body.StructureRevision, starts, nil)
 		if err != nil {
 			var providerFailure *mediaprovider.Error
 			if errors.As(err, &providerFailure) {
@@ -61,7 +61,12 @@ func mediaMatchFillHandler(slots chan struct{}, starts <-chan time.Time) handleF
 
 var errProviderResultUnknown = errors.New("provider match outcome not confirmed for request")
 
-func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Library, itemID, operationID string, itemRevision, structureRevision int64, starts <-chan time.Time) (fillMatchResult, error) {
+type metadataFillLease struct {
+	coordinator *medialibrary.ScanCoordinator
+	job         medialibrary.MetadataJob
+}
+
+func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Library, itemID, operationID string, itemRevision, structureRevision int64, starts <-chan time.Time, lease *metadataFillLease) (fillMatchResult, error) {
 	store := d.store.MediaLibrary
 	policy, err := store.GetLibraryMetadataPolicy(ctx, d.user.ID, library.ID)
 	if err != nil {
@@ -119,10 +124,15 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	if err != nil {
 		return fillMatchResult{}, err
 	}
-	if fence.PolicyRevision != policy.Revision {
+	if fence.PolicyRevision != policy.Revision || lease != nil && *fence != lease.job.Authority {
 		return fillMatchResult{}, medialibrary.ErrRevisionConflict
 	}
 	check := func(ctx context.Context) error {
+		if lease != nil {
+			if err := lease.coordinator.CheckMetadataJob(ctx, lease.job); err != nil {
+				return err
+			}
+		}
 		if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
 			return err
 		}
@@ -160,8 +170,13 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 		return fillMatchResult{State: string(decision.State), Reason: decision.Reason}, nil
 	}
 	request.ExternalID = decision.Document.Entity.ID
-	receipt, err := store.ConfirmProviderMatch(ctx, d.user.ID, operationID, request, *fence, decision.Document.Language, decision.Document.FetchedAt.UnixMilli(),
-		medialibrary.ProviderMatchDocument{Item: decision.Projection.Item, PosterPath: decision.Projection.PosterPath, BackdropPath: decision.Projection.BackdropPath})
+	document := medialibrary.ProviderMatchDocument{Item: decision.Projection.Item, PosterPath: decision.Projection.PosterPath, BackdropPath: decision.Projection.BackdropPath}
+	var receipt *medialibrary.ProviderMatchResult
+	if lease == nil {
+		receipt, err = store.ConfirmProviderMatch(ctx, d.user.ID, operationID, request, *fence, decision.Document.Language, decision.Document.FetchedAt.UnixMilli(), document)
+	} else {
+		receipt, err = lease.coordinator.CommitMetadataJobMatch(ctx, lease.job, operationID, request, decision.Document.Language, decision.Document.FetchedAt.UnixMilli(), document)
+	}
 	if err != nil {
 		return fillMatchResult{}, err
 	}

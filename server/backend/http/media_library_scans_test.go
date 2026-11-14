@@ -41,7 +41,7 @@ type mediaScanHTTPFixture struct {
 	router      http.Handler
 }
 
-func newMediaScanHTTPFixture(t *testing.T) *mediaScanHTTPFixture {
+func newMediaScanHTTPFixture(t *testing.T, configure ...func(*trashHTTPHarness)) *mediaScanHTTPFixture {
 	t.Helper()
 	h := newTrashHTTPHarness(t, users.User{Username: "owner", Perm: users.Permissions{Download: true}}, users.User{Username: "viewer", Perm: users.Permissions{Download: true}})
 	owner, viewer := trashHTTPUserByName(t, h, "owner"), trashHTTPUserByName(t, h, "viewer")
@@ -58,6 +58,9 @@ func newMediaScanHTTPFixture(t *testing.T) *mediaScanHTTPFixture {
 		t.Fatal(err)
 	}
 	h.storage.MediaLibrary = store
+	for _, apply := range configure {
+		apply(h)
+	}
 	t.Cleanup(func() {
 		if err := store.Close(); err != nil {
 			t.Error(err)

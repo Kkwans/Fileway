@@ -1002,6 +1002,11 @@ AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_g
 		if err := publishScanChange(ctx, tx, actor, r, "media.scan."+r.Status); err != nil {
 			return err
 		}
+		if r.Status == "completed" {
+			if err := enqueueMetadataJobAfterScan(ctx, tx, r); err != nil {
+				return err
+			}
+		}
 		result = &r.ScanJob
 		return nil
 	})

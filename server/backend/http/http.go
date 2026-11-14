@@ -44,8 +44,9 @@ type archiveCacheHandler struct {
 func (handler *archiveCacheHandler) Close() error {
 	handler.subtitlePages.close()
 	handler.mediaLeases.close()
+	err := handler.mediaScans.Close()
 	handler.providerStarts.Stop()
-	return errors.Join(handler.mediaScans.Close(), handler.cache.Close())
+	return errors.Join(err, handler.cache.Close())
 }
 
 func NewHandler(
@@ -81,11 +82,13 @@ func NewHandler(
 		return nil, err
 	}
 	var mediaScans *mediascan.Scheduler
+	providerStarts := time.NewTicker(500 * time.Millisecond)
+	providerSlots := make(chan struct{}, 2)
 	if store.MediaLibrary != nil {
 		mediaScans, err = mediascan.NewScheduler(context.Background(), store.MediaLibrary, func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
 			authority, _, err := resolveAttestedMediaConnection(ctx, store, server, binding.Source.OwnerUserID, binding.Source.ConfigurationRef, binding.RootLocator, binding.Proof)
 			return authority, err
-		})
+		}, newMetadataWorker(store, server, providerSlots, providerStarts.C))
 		if err != nil {
 			// The catalog may be in use by another process. Do not fence its jobs,
 			// leak the catalog path, or disable the existing file service.
@@ -120,15 +123,13 @@ func NewHandler(
 	subtitlePages := newSubtitlePages()
 	mediaLeases := newMediaPlaybackLeases()
 	artworkPermits := make(chan struct{}, 2)
-	providerStarts := time.NewTicker(500 * time.Millisecond)
-	providerSlots := make(chan struct{}, 2)
 
 	api.Handle("/login", monkey(loginHandler(), ""))
 	api.Handle("/signup", monkey(signupHandler, ""))
 	api.Handle("/renew", monkey(renewHandler(), ""))
 	api.Handle("/instance", monkey(deviceInstanceHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/scan-support", monkey(mediaScanSupportHandler(mediaScans), "")).Methods("GET")
-	api.Handle("/media-library/v1/provider-status", monkey(mediaProviderStatusHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/provider-status", monkey(mediaProviderStatusHandler(mediaScans), "")).Methods("GET")
 	api.Handle("/media-library/v1/provider-connections", monkey(mediaProviderConnectionsHandler, "")).Methods("GET", "POST")
 	api.Handle("/media-library/v1/provider-connections/{connectionId}", monkey(mediaProviderConnectionHandler, "")).Methods("PUT", "DELETE")
 	api.Handle("/media-library/v1/provider-connections/{connectionId}/check", monkey(mediaProviderCheckHandler(providerSlots, providerStarts.C), "")).Methods("POST")
@@ -172,6 +173,8 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/scans", monkey(mediaScanCreateHandler(mediaScans), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/scan-batches", monkey(mediaScanBatchHandler(mediaScans), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}", monkey(mediaScanManagement(mediaScanGetHandler), "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/metadata", monkey(mediaScanManagement(mediaMetadataJobHandler(mediaScans)), "")).Methods("GET", "DELETE", "POST")
+	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/metadata/review", monkey(mediaScanManagement(mediaMetadataReviewHandler), "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/cancel", monkey(mediaScanCancelHandler(mediaScans), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/retry", monkey(mediaScanRetryHandler(mediaScans), "")).Methods("POST")
 	api.Handle("/device-auth/instance-proof", monkey(devicePublic(deviceProofHandler), "")).Methods("POST")
