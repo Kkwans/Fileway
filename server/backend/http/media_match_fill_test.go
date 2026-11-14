@@ -98,6 +98,35 @@ func TestMediaMatchFillRespectsExplicitIdentityAndReplays(t *testing.T) {
 		if detail := fixtureDetail(t, f, owner, library.ID, item.ID); detail.OnlineMatch == nil || detail.Fields["plot"].Values[0] != "Saved automatically" {
 			t.Fatalf("automatic match was not persisted: %+v", detail.OnlineMatch)
 		}
+		var matched mediaIdentificationResponse
+		current := f.call(t, owner, http.MethodGet, base+"/identification", nil)
+		if current.Code != http.StatusOK || json.Unmarshal(current.Body.Bytes(), &matched) != nil || matched.UndoMatchRevision < 1 {
+			t.Fatalf("undo capability: %d %s", current.Code, current.Body)
+		}
+		undo := map[string]any{"operationId": "undo-match", "itemRevision": matched.ItemRevision, "structureRevision": matched.StructureRevision, "matchRevision": matched.UndoMatchRevision}
+		path := base + "/match-confirmation/undo"
+		if rejected := f.call(t, f.viewer.ID, http.MethodPost, path, undo); rejected.Code != http.StatusNotFound {
+			t.Fatalf("unauthorized undo: %d", rejected.Code)
+		}
+		undone := f.call(t, owner, http.MethodPost, path, undo)
+		if undone.Code != http.StatusOK || !strings.Contains(undone.Body.String(), `"restored":false`) {
+			t.Fatalf("undo: %d %s", undone.Code, undone.Body)
+		}
+		if replay := f.call(t, owner, http.MethodPost, path, undo); replay.Code != http.StatusOK || replay.Body.String() != undone.Body.String() {
+			t.Fatalf("undo replay: %d %s", replay.Code, replay.Body)
+		}
+		undo["operationId"] = "stale-undo"
+		if stale := f.call(t, owner, http.MethodPost, path, undo); stale.Code != http.StatusConflict {
+			t.Fatalf("stale undo: %d %s", stale.Code, stale.Body)
+		}
+		detail := fixtureDetail(t, f, owner, library.ID, item.ID)
+		if detail.OnlineMatch != nil || detail.Item.Revision <= matched.ItemRevision {
+			t.Fatalf("undone item: %+v", detail.Item)
+		}
+		input["operationId"], input["itemRevision"] = "fill-after-undo", detail.Item.Revision
+		if fill := f.call(t, owner, http.MethodPost, base+"/match-fill", input); fill.Code != http.StatusOK || !strings.Contains(fill.Body.String(), "manual_review_required") {
+			t.Fatalf("would rematch manually undone item: %d %s", fill.Code, fill.Body)
+		}
 	}
 	if outbound != 1 {
 		t.Fatalf("provider request count: %d", outbound)

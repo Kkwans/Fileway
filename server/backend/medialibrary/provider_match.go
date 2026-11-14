@@ -117,7 +117,9 @@ WHERE i.library_id=? AND i.id=? AND st.superseded_by IS NULL`, request.LibraryID
 		}
 		if request.Automatic {
 			var existing bool
-			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM item_provider_match WHERE library_id=? AND item_id=?)`, request.LibraryID, request.ItemID).Scan(&existing); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+SELECT 1 FROM item_provider_match WHERE library_id=?1 AND item_id=?2
+UNION ALL SELECT 1 FROM provider_match_manual_review WHERE library_id=?1 AND item_id=?2)`, request.LibraryID, request.ItemID).Scan(&existing); err != nil {
 				return nil, err
 			}
 			if existing {
@@ -139,6 +141,9 @@ WHERE i.library_id=? AND i.id=? AND st.superseded_by IS NULL`, request.LibraryID
 				return nil, err
 			}
 		}
+		if err := recordProviderMatchRevision(ctx, tx, request.LibraryID, request.ItemID, revision+1, structureRevision); err != nil {
+			return nil, err
+		}
 		_, err = tx.ExecContext(ctx, `INSERT INTO item_provider_match(library_id,item_id,connection_id,provider,entity_kind,external_id,language,document_json,fetched_at,revision)
 VALUES(?,?,?,'tmdb',?,?,?,?,?,?) ON CONFLICT(library_id,item_id) DO UPDATE SET
 connection_id=excluded.connection_id,entity_kind=excluded.entity_kind,external_id=excluded.external_id,language=excluded.language,
@@ -146,6 +151,11 @@ document_json=excluded.document_json,fetched_at=excluded.fetched_at,revision=exc
 			request.ItemID, authority.ConnectionID, request.Kind, request.ExternalID, language, string(encoded), fetchedAt, revision+1)
 		if err != nil {
 			return nil, err
+		}
+		if !request.Automatic {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM provider_match_manual_review WHERE library_id=? AND item_id=?`, request.LibraryID, request.ItemID); err != nil {
+				return nil, err
+			}
 		}
 		if _, err = tx.ExecContext(ctx, `UPDATE library_item SET revision=revision+1 WHERE library_id=? AND id=?`, request.LibraryID, request.ItemID); err != nil {
 			return nil, err

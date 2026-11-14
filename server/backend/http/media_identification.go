@@ -33,6 +33,7 @@ type mediaIdentificationResponse struct {
 	MatchState         string                            `json:"matchState"`
 	StructureRevision  int64                             `json:"structureRevision"`
 	ItemRevision       int64                             `json:"itemRevision"`
+	UndoMatchRevision  int64                             `json:"undoMatchRevision,omitempty"`
 	ExternalIDs        []medialibrary.MetadataExternalID `json:"externalIds"`
 	ExternalIDsCursor  string                            `json:"externalIdsNextCursor,omitempty"`
 	File               *mediaIdentificationFile          `json:"file,omitempty"`
@@ -40,8 +41,18 @@ type mediaIdentificationResponse struct {
 }
 
 var mediaIdentificationHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
-	result, _, err := mediaIdentification(r, d)
+	result, view, err := mediaIdentification(r, d)
 	if err != nil {
+		return catalogError(w, err)
+	}
+	if d.deviceSession == "" {
+		revision, err := d.store.MediaLibrary.ProviderUndoRevision(r.Context(), d.user.ID, result.Ref.LibraryID, result.Ref.ItemID, result.StructureRevision)
+		if err != nil && !errors.Is(err, medialibrary.ErrNotFound) && !errors.Is(err, medialibrary.ErrForbidden) {
+			return catalogError(w, err)
+		}
+		result.UndoMatchRevision = revision
+	}
+	if err := view.revalidateSources(r.Context()); err != nil {
 		return catalogError(w, err)
 	}
 	return renderJSON(w, r, result)

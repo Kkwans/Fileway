@@ -85,6 +85,15 @@ TMDB network routing, with no credentials attached to CDN requests. Detail
 and `/credits` use the preferred complete credit list when available, with the
 other source as a fallback. TMDB continuations are bound to the policy revision.
 
+When identification includes `undoMatchRevision`, an editor or owner can
+submit `POST .../match-confirmation/undo` with `operationId`, `itemRevision`,
+`structureRevision` and `matchRevision` (the value of `undoMatchRevision`).
+Undo restores the prior TMDB document, or removes the first match and holds
+the item for manual confirmation. Undo makes no provider request. Local data,
+field locks, personal viewing state and edition mappings remain intact.
+The original receipt is replayable. Older pre-undo matches remain readable,
+and an explicit rematch makes their previous document recoverable.
+
 `POST /libraries/{id}/items/{itemId}/match-fill` runs explicit-ID verification
 for one item. Send `operationId`, `itemRevision`, and `structureRevision`.
 The response distinguishes `matched`, `already_matched`, `local_only`,

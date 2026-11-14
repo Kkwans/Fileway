@@ -155,6 +155,7 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/identification", monkey(mediaIdentificationHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-candidates", monkey(mediaMatchCandidatesHandler(providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-confirmation", monkey(mediaMatchConfirmHandler(providerSlots, providerStarts.C), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-confirmation/undo", monkey(mediaMatchUndoHandler, "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-fill", monkey(mediaMatchFillHandler(providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/seasons", monkey(mediaCatalogSeasonsHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/episodes", monkey(mediaCatalogEpisodesHandler, "")).Methods("GET")

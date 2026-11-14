@@ -66,7 +66,8 @@ VALUES(?,?,?,?,?,?)`, id, scan.ID, scan.Generation, authority.ConnectionID, auth
 )
 INSERT INTO metadata_job_target(job_id,library_id,item_id)
 SELECT ?,st.library_id,t.item_id FROM targets t JOIN item_structure st ON st.library_id=? AND st.item_id=t.item_id AND st.superseded_by IS NULL
-WHERE NOT EXISTS (SELECT 1 FROM item_provider_match m WHERE m.library_id=st.library_id AND m.item_id=t.item_id)`,
+WHERE NOT EXISTS (SELECT 1 FROM item_provider_match m WHERE m.library_id=st.library_id AND m.item_id=t.item_id)
+AND NOT EXISTS (SELECT 1 FROM provider_match_manual_review r WHERE r.library_id=st.library_id AND r.item_id=t.item_id)`,
 		scan.Binding.BindingID, scan.LibraryID, scan.ID, scan.Generation, scan.LibraryID, scan.LibraryID, id, scan.LibraryID)
 	if err != nil {
 		return err

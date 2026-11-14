@@ -100,6 +100,13 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	if item.MatchState == "provider_confirmed" {
 		return fillMatchResult{State: "already_matched"}, nil
 	}
+	held, err := store.ProviderMatchRequiresManualReview(ctx, d.user.ID, library.ID, itemID)
+	if err != nil {
+		return fillMatchResult{}, err
+	}
+	if held {
+		return fillMatchResult{State: "needs_review", Reason: "manual_review_required"}, nil
+	}
 	// A leaf with multiple distinct files can have contradictory filename
 	// evidence. Do not auto-confirm from the one chosen for presentation.
 	detail, err := store.GetCatalogItem(ctx, d.user.ID, library.ID, itemID)

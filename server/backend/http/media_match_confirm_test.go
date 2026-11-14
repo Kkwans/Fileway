@@ -186,4 +186,47 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusNotFound || imageCalls != 2 {
 		t.Fatalf("local-only policy exposed cached backdrop: %d", response.Code)
 	}
+	policy.Mode = medialibrary.MetadataOnlineFirst
+	if _, err := f.store.SetLibraryMetadataPolicy(t.Context(), owner, library.ID, "restore-online", 3, policy); err != nil {
+		t.Fatal(err)
+	}
+	identity = mediaIdentificationResponse{}
+	identified := f.call(t, owner, http.MethodGet, base+"/identification", nil)
+	if identified.Code != http.StatusOK || json.Unmarshal(identified.Body.Bytes(), &identity) != nil {
+		t.Fatalf("rematch identification: %d", identified.Code)
+	}
+	f.h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.URL.Path != "/3/movie/56" {
+			t.Error("wrong replacement document route")
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+			`{"id":56,"title":"Replacement film","vote_average":6.1,"vote_count":50}`))}, nil
+	})}
+	body = matchConfirmBody{OperationID: "rematch-selection", Kind: "movie", ExternalID: "56", ItemRevision: identity.ItemRevision, StructureRevision: identity.StructureRevision}
+	if changed := f.call(t, owner, http.MethodPost, base+"/match-confirmation", body); changed.Code != http.StatusOK {
+		t.Fatalf("replacement: %d %s", changed.Code, changed.Body)
+	}
+	if watched := f.call(t, owner, http.MethodPatch, base+"/user-state", map[string]any{
+		"operationId": "watched-after-rematch", "expectedRevision": 0, "manualWatched": true,
+	}); watched.Code != http.StatusOK {
+		t.Fatalf("manual watched fixture: %d %s", watched.Code, watched.Body)
+	}
+	identified = f.call(t, owner, http.MethodGet, base+"/identification", nil)
+	if identified.Code != http.StatusOK || json.Unmarshal(identified.Body.Bytes(), &identity) != nil || identity.UndoMatchRevision < 1 {
+		t.Fatalf("replacement undo capability: %d %s", identified.Code, identified.Body)
+	}
+	undone := f.call(t, owner, http.MethodPost, base+"/match-confirmation/undo", map[string]any{
+		"operationId": "undo-replacement", "itemRevision": identity.ItemRevision,
+		"structureRevision": identity.StructureRevision, "matchRevision": identity.UndoMatchRevision,
+	})
+	if undone.Code != http.StatusOK || !strings.Contains(undone.Body.String(), `"restored":true`) {
+		t.Fatalf("undo replacement: %d %s", undone.Code, undone.Body)
+	}
+	restored := fixtureDetail(t, f, owner, library.ID, itemID)
+	if restored.OnlineMatch == nil || restored.OnlineMatch.ExternalID != "55" || restored.Item.Title != "Manual title" ||
+		!restored.Fields["plot"].ExplicitClear || restored.UserState == nil || restored.UserState.ManualWatched == nil || !*restored.UserState.ManualWatched ||
+		restored.Card.Backdrop == nil || restored.Card.Backdrop.Endpoint == backdrop || calls != 2 {
+		t.Fatalf("restore lost fields, user state, or artwork revision: %+v", restored)
+	}
 }

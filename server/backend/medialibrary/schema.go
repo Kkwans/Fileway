@@ -1,5 +1,23 @@
 package medialibrary
 
+const schemaV15 = `
+CREATE TABLE provider_match_revision (
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    match_revision INTEGER NOT NULL CHECK(match_revision>0),
+    structure_revision INTEGER NOT NULL CHECK(structure_revision>0),
+    previous_json TEXT CHECK(previous_json IS NULL OR json_valid(previous_json)),
+    PRIMARY KEY(library_id,item_id,match_revision),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE TABLE provider_match_manual_review (
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    PRIMARY KEY(library_id,item_id),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+`
+
 const schemaV14 = `
 CREATE TABLE metadata_job (
     job_id TEXT PRIMARY KEY NOT NULL REFERENCES job(id),
