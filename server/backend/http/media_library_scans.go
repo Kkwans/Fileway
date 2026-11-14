@@ -252,7 +252,7 @@ func mediaScanError(err error) (int, error) {
 		return http.StatusConflict, fmt.Errorf("来源需要重新确认")
 	case errors.Is(err, medialibrary.ErrRevisionConflict), errors.Is(err, medialibrary.ErrScanState), errors.Is(err, medialibrary.ErrScanActive), errors.Is(err, medialibrary.ErrArchived):
 		return http.StatusConflict, fmt.Errorf("扫描状态已变化，请重新读取")
-	case errors.Is(err, medialibrary.ErrCoordinatorUnavailable), errors.Is(err, fs.ErrClosed):
+	case errors.Is(err, medialibrary.ErrCoordinatorUnavailable), errors.Is(err, fs.ErrClosed), errors.Is(err, errCatalogWorkPending):
 		return http.StatusServiceUnavailable, fmt.Errorf("扫描服务暂不可用")
 	case errors.Is(err, files.ErrSubtitleScopeUnavailable):
 		return http.StatusServiceUnavailable, fmt.Errorf("来源文件系统暂不支持安全扫描")

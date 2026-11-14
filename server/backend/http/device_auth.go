@@ -36,6 +36,12 @@ func deviceMediaRoute(method, path string, user uint) bool {
 	}
 	if method == http.MethodGet || method == http.MethodHead {
 		if len(parts) >= 3 && parts[0] == "media-library" && parts[1] == "v1" {
+			if parts[2] == "home" && (len(parts) == 3 || len(parts) == 5 && parts[3] == "rows") {
+				return true
+			}
+			if parts[2] == "catalog" && len(parts) == 4 && parts[3] == "items" {
+				return true
+			}
 			if parts[2] == "streams" && len(parts) == 5 && parts[4] == "original" {
 				return true
 			}
@@ -49,7 +55,7 @@ func deviceMediaRoute(method, path string, user uint) bool {
 					}
 					if len(parts) == 7 {
 						switch parts[6] {
-						case "variants", "credits", "ratings", "artwork", "external-ids", "issues":
+						case "variants", "credits", "ratings", "artwork", "external-ids", "issues", "seasons", "episodes", "episode-counts":
 							return true
 						}
 					}

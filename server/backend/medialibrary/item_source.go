@@ -21,8 +21,10 @@ type ItemSourceAccess struct {
 	ObjectKey       []byte           `json:"-"`
 	IdentityKind    string           `json:"-"`
 	IdentityEpoch   int64            `json:"-"`
+	FileRevision    int64            `json:"-"`
 	LocatorRevision int64            `json:"-"`
 	SourceVersion   string           `json:"-"`
+	SizeBytes       *int64           `json:"-"`
 	MissingSince    *int64           `json:"-"`
 }
 
@@ -71,7 +73,7 @@ func (store *Store) ListItemSourceAccess(ctx context.Context, viewer uint, libra
 	}
 	rows, err := store.db.QueryContext(ctx, `SELECT ls.binding_id || ':' || lf.source_file_id AS cursor, lf.source_file_id, ls.binding_id,
 s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, lf.locator, lf.missing_since,
-f.object_key,f.identity_kind,f.identity_epoch,f.source_version,lf.locator_revision
+f.object_key,f.identity_kind,f.identity_epoch,f.source_version,lf.locator_revision,f.size_bytes,f.revision
  ,ls.proof_epoch,ls.proof_version,ls.mapping_digest,ls.root_identity_kind,ls.root_identity,ls.attested_at
 FROM library_file lf JOIN library_source ls ON ls.library_id = lf.library_id AND ls.source_id = lf.source_id AND ls.root_locator = lf.root_locator
 JOIN source s ON s.id = lf.source_id JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id JOIN library l ON l.id = lf.library_id
@@ -90,7 +92,7 @@ AND (ls.binding_id || ':' || lf.source_file_id) > ? ORDER BY cursor LIMIT ?`, vi
 	for rows.Next() {
 		var entry ItemSourceAccess
 		proof := &BindingProof{}
-		err := rows.Scan(&entry.ID, &entry.SourceFileID, &entry.BindingID, &entry.Source.ID, &entry.Source.OwnerUserID, &entry.Source.ConfigurationRef, &entry.Source.AuthorizationRevision, &entry.Source.CreatedAt, &entry.Binding.RootLocator, &entry.Binding.BindingRevision, &entry.Locator, &entry.MissingSince, &entry.ObjectKey, &entry.IdentityKind, &entry.IdentityEpoch, &entry.SourceVersion, &entry.LocatorRevision, &entry.Binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &proof.AttestedAt)
+		err := rows.Scan(&entry.ID, &entry.SourceFileID, &entry.BindingID, &entry.Source.ID, &entry.Source.OwnerUserID, &entry.Source.ConfigurationRef, &entry.Source.AuthorizationRevision, &entry.Source.CreatedAt, &entry.Binding.RootLocator, &entry.Binding.BindingRevision, &entry.Locator, &entry.MissingSince, &entry.ObjectKey, &entry.IdentityKind, &entry.IdentityEpoch, &entry.SourceVersion, &entry.LocatorRevision, &entry.SizeBytes, &entry.FileRevision, &entry.Binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &proof.AttestedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -111,14 +113,19 @@ AND (ls.binding_id || ':' || lf.source_file_id) > ? ORDER BY cursor LIMIT ?`, vi
 // ItemMetadataSourceAccess is private source provenance for authorization and
 // freshness checks, not part of an ItemDetail or any client response.
 type ItemMetadataSourceAccess struct {
-	ID            string           `json:"-"`
-	BindingID     string           `json:"-"`
-	Source        LocalSource      `json:"-"`
-	Binding       SourceBindingRef `json:"-"`
-	Proof         *BindingProof    `json:"-"`
-	SourceKey     []byte           `json:"-"`
-	Digest        []byte           `json:"-"`
-	ParserVersion int              `json:"-"`
+	ID              string           `json:"-"`
+	BindingID       string           `json:"-"`
+	Source          LocalSource      `json:"-"`
+	Binding         SourceBindingRef `json:"-"`
+	Proof           *BindingProof    `json:"-"`
+	SourceKey       []byte           `json:"-"`
+	Digest          []byte           `json:"-"`
+	ParserVersion   int              `json:"-"`
+	Kind            string           `json:"-"`
+	Status          string           `json:"-"`
+	Current         bool             `json:"-"`
+	ContextItemID   string           `json:"-"`
+	ContextRevision int64            `json:"-"`
 }
 
 type ItemMetadataSourceAccessPage struct {
@@ -139,12 +146,12 @@ func (store *Store) ListItemMetadataSourceAccess(ctx context.Context, viewer uin
 	if _, err := activeCatalogLibrary(ctx, store.db, viewer, libraryID); err != nil {
 		return nil, err
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT mi.id,ls.binding_id,s.id,s.owner_user_id,s.configuration_ref,s.authorization_revision,s.created_at,ls.root_locator,ls.revision,mi.source_key,mi.digest,mi.parser_version,ls.proof_epoch,ls.proof_version,ls.mapping_digest,ls.root_identity_kind,ls.root_identity,ls.attested_at
+	rows, err := store.db.QueryContext(ctx, `SELECT mi.id,ls.binding_id,s.id,s.owner_user_id,s.configuration_ref,s.authorization_revision,s.created_at,ls.root_locator,ls.revision,mi.source_key,mi.digest,mi.parser_version,ls.proof_epoch,ls.proof_version,ls.mapping_digest,ls.root_identity_kind,ls.root_identity,ls.attested_at,COALESCE(json_extract(mi.evidence_json,'$.items[0].kind'),''),mi.status,mi.is_current
 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id
 JOIN source s ON s.id=ls.source_id JOIN library l ON l.id=mi.library_id
 LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
 WHERE mi.library_id=? AND mi.item_id=? AND `+libraryVisibility+` AND l.archived_at IS NULL AND s.owner_user_id=l.owner_user_id AND s.kind='local' AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1
-AND ((mi.is_current=1 AND mi.status='candidate') OR EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=mi.library_id AND f.item_id=mi.item_id AND f.input_id=mi.id)
+AND (mi.is_current=1 OR EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=mi.library_id AND f.item_id=mi.item_id AND f.input_id=mi.id)
 OR EXISTS(SELECT 1 FROM item_credit c WHERE c.library_id=mi.library_id AND c.item_id=mi.item_id AND c.input_id=mi.id AND c.active=1)
 OR EXISTS(SELECT 1 FROM rating_observation r WHERE r.library_id=mi.library_id AND r.item_id=mi.item_id AND r.input_id=mi.id AND r.active=1)
 OR EXISTS(SELECT 1 FROM artwork_declaration a WHERE a.library_id=mi.library_id AND a.item_id=mi.item_id AND a.input_id=mi.id AND a.active=1)
@@ -158,7 +165,7 @@ AND mi.id>? ORDER BY mi.id LIMIT ?`, viewer, libraryID, itemID, viewer, afterID,
 	for rows.Next() {
 		var entry ItemMetadataSourceAccess
 		proof := &BindingProof{}
-		if err := rows.Scan(&entry.ID, &entry.BindingID, &entry.Source.ID, &entry.Source.OwnerUserID, &entry.Source.ConfigurationRef, &entry.Source.AuthorizationRevision, &entry.Source.CreatedAt, &entry.Binding.RootLocator, &entry.Binding.BindingRevision, &entry.SourceKey, &entry.Digest, &entry.ParserVersion, &entry.Binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &proof.AttestedAt); err != nil {
+		if err := rows.Scan(&entry.ID, &entry.BindingID, &entry.Source.ID, &entry.Source.OwnerUserID, &entry.Source.ConfigurationRef, &entry.Source.AuthorizationRevision, &entry.Source.CreatedAt, &entry.Binding.RootLocator, &entry.Binding.BindingRevision, &entry.SourceKey, &entry.Digest, &entry.ParserVersion, &entry.Binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &proof.AttestedAt, &entry.Kind, &entry.Status, &entry.Current); err != nil {
 			return nil, err
 		}
 		if len(page.Items) == limit {

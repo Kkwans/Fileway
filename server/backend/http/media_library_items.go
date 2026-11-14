@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path"
 	"strconv"
+	"strings"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
@@ -32,6 +33,8 @@ type mediaItemSummary struct {
 
 type mediaItemDetail struct {
 	Item                  mediaItemSummary                      `json:"item"`
+	Card                  *catalogCard                          `json:"card,omitempty"`
+	PageState             string                                `json:"pageState,omitempty"`
 	MetadataRevision      int64                                 `json:"metadataRevision"`
 	Fields                map[string]medialibrary.MetadataField `json:"fields"`
 	Credits               []medialibrary.MetadataCredit         `json:"credits"`
@@ -53,10 +56,17 @@ type mediaMetadataCandidate struct {
 }
 
 type mediaItemAccess struct {
-	sourceState   mediascan.ReferenceState
-	metadataState string
-	fallbackTitle string
-	allowedInputs map[string]bool
+	sourceState                        mediascan.ReferenceState
+	metadataState                      string
+	fallbackTitle                      string
+	allowedInputs                      map[string]bool
+	size                               *int64
+	extension, sourceFileID, bindingID string
+	proofEpoch                         int64
+	playable                           bool
+	budget                             *catalogBudget
+	budgetExhausted                    bool
+	view                               *catalogView
 }
 
 func itemSummary(item medialibrary.CatalogItem, access mediaItemAccess) mediaItemSummary {
@@ -88,7 +98,11 @@ func itemDetailFields(ctx context.Context, d *data, library *medialibrary.Librar
 		if allowed {
 			fields[name] = field
 		} else {
-			access.metadataState = "restricted"
+			if access.budgetExhausted {
+				access.metadataState = "partial"
+			} else {
+				access.metadataState = "restricted"
+			}
 		}
 	}
 	item := detail.Item
@@ -192,14 +206,34 @@ func metadataInputAllowed(ctx context.Context, d *data, library *medialibrary.Li
 	if allowed, exists := access.allowedInputs[inputID]; exists {
 		return allowed, nil
 	}
+	if access.budget != nil && !access.budget.take() {
+		access.budgetExhausted = true
+		return false, errCatalogWorkPending
+	}
 	entry, err := d.store.MediaLibrary.GetItemMetadataSourceAccess(ctx, d.user.ID, library.ID, itemID, inputID)
 	if err != nil {
 		if errors.Is(err, medialibrary.ErrNotFound) {
+			access.metadataState = "restricted"
 			return false, nil
 		}
 		return false, err
 	}
-	_, allowed, err := metadataSourceAllowed(ctx, d, library, *entry)
+	var state mediascan.ReferenceState
+	var allowed bool
+	if access.view != nil {
+		state, allowed, err = access.view.checkMetadata(ctx, library, *entry)
+	} else {
+		state, allowed, err = metadataSourceAllowed(ctx, d, library, *entry)
+	}
+	if err == nil {
+		if !allowed {
+			access.metadataState = "restricted"
+		} else if state == mediascan.ReferenceOffline && access.metadataState != "restricted" {
+			access.metadataState = "offline"
+		} else if access.metadataState == "none" {
+			access.metadataState = "available"
+		}
+	}
 	if len(access.allowedInputs) < metadataAccessCacheLimit {
 		access.allowedInputs[inputID] = allowed
 	}
@@ -241,6 +275,13 @@ func itemAccess(ctx context.Context, d *data, library *medialibrary.Library, ite
 			if !visible || sourceStateRank(state) < sourceStateRank(access.sourceState) {
 				access.sourceState = state
 				access.fallbackTitle = mediascan.DisplayFilename(path.Base(string(entry.Locator)))
+				access.size = nil
+				if state == mediascan.ReferenceAvailable {
+					access.size = entry.SizeBytes
+				}
+				access.extension = strings.ToLower(strings.TrimPrefix(path.Ext(string(entry.Locator)), "."))
+				access.sourceFileID, access.bindingID, access.proofEpoch = entry.SourceFileID, entry.BindingID, entry.Binding.ProofEpoch
+				access.playable = state == mediascan.ReferenceAvailable || state == mediascan.ReferenceUnverified
 			}
 			visible = true
 		}
@@ -255,16 +296,44 @@ func itemAccess(ctx context.Context, d *data, library *medialibrary.Library, ite
 	if !visible {
 		return access, false, nil
 	}
-	after = ""
+	if err := loadItemMetadataAccess(ctx, d, library, itemID, &access); err != nil {
+		return access, false, err
+	}
+	return access, true, nil
+}
+
+// Source visibility and metadata provenance are independent, including for
+// series/season containers whose visibility was established via descendants.
+func loadItemMetadataAccess(ctx context.Context, d *data, library *medialibrary.Library, itemID string, access *mediaItemAccess) error {
+	if access.allowedInputs == nil {
+		access.allowedInputs = make(map[string]bool)
+	}
+	after := ""
 	for {
-		page, err := d.store.MediaLibrary.ListItemMetadataSourceAccess(ctx, d.user.ID, library.ID, itemID, after, 100)
+		limit := 100
+		if access.budget != nil {
+			if access.budget.remaining <= 0 {
+				return errCatalogWorkPending
+			}
+			limit = min(limit, access.budget.remaining)
+		}
+		page, err := d.store.MediaLibrary.ListItemMetadataSourceAccess(ctx, d.user.ID, library.ID, itemID, after, limit)
 		if err != nil {
-			return access, false, err
+			return err
 		}
 		for _, entry := range page.Items {
-			state, allowed, err := metadataSourceAllowed(ctx, d, library, entry)
+			if access.budget != nil && !access.budget.take() {
+				return errCatalogWorkPending
+			}
+			var state mediascan.ReferenceState
+			var allowed bool
+			if access.view != nil {
+				state, allowed, err = access.view.checkMetadata(ctx, library, entry)
+			} else {
+				state, allowed, err = metadataSourceAllowed(ctx, d, library, entry)
+			}
 			if err != nil {
-				return access, false, err
+				return err
 			}
 			if len(access.allowedInputs) < metadataAccessCacheLimit {
 				access.allowedInputs[entry.ID] = allowed
@@ -283,11 +352,11 @@ func itemAccess(ctx context.Context, d *data, library *medialibrary.Library, ite
 			break
 		}
 		if page.NextCursor == after {
-			return access, false, fs.ErrInvalid
+			return fs.ErrInvalid
 		}
 		after = page.NextCursor
 	}
-	return access, true, nil
+	return nil
 }
 
 func verifyItemRevision(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64) error {
@@ -381,12 +450,36 @@ func visibleItemDetail(r *http.Request, d *data, library *medialibrary.Library, 
 	if err != nil {
 		return nil, mediaItemAccess{}, err
 	}
-	access, visible, err := itemAccess(r.Context(), d, library, itemID)
+	var access mediaItemAccess
+	var visible bool
+	var containerView *catalogView
+	if detail.Item.Kind == "series" || detail.Item.Kind == "season" {
+		view := newCatalogView(d)
+		containerView = view
+		result, ok, complete, _, accessErr := view.itemAccess(r.Context(), library, &detail.Item, nil)
+		if accessErr != nil {
+			return nil, mediaItemAccess{}, accessErr
+		}
+		if !complete {
+			return nil, mediaItemAccess{}, errCatalogWorkPending
+		}
+		access, visible = result.mediaItemAccess, ok
+	} else {
+		access, visible, err = itemAccess(r.Context(), d, library, itemID)
+	}
 	if err != nil {
 		return nil, mediaItemAccess{}, err
 	}
 	if !visible {
 		return nil, mediaItemAccess{}, medialibrary.ErrNotFound
+	}
+	if detail.Item.Kind == "series" || detail.Item.Kind == "season" {
+		if err = loadItemMetadataAccess(r.Context(), d, library, itemID, &access); err != nil {
+			return nil, mediaItemAccess{}, err
+		}
+		if err = containerView.revalidateSources(r.Context()); err != nil {
+			return nil, mediaItemAccess{}, err
+		}
 	}
 	if err := verifyItemRevision(r.Context(), d, library, itemID, detail.Item.Revision); err != nil {
 		return nil, mediaItemAccess{}, err
@@ -399,16 +492,128 @@ var mediaItemGetHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.R
 	if err != nil {
 		return mediaScanError(err)
 	}
-	detail, access, err := visibleItemDetail(r, d, library, mux.Vars(r)["itemId"])
+	itemID := mux.Vars(r)["itemId"]
+	detail, err := d.store.MediaLibrary.GetItemDetail(r.Context(), d.user.ID, library.ID, itemID)
 	if err != nil {
 		return mediaScanError(err)
+	}
+	if detail.Item.Kind != "series" && detail.Item.Kind != "season" {
+		snapshot, err := beginCatalogSnapshot(r.Context(), d, library.ID)
+		if err != nil {
+			return catalogError(w, err)
+		}
+		legacy, access, err := visibleItemDetail(r, d, library, itemID)
+		if err != nil {
+			return mediaScanError(err)
+		}
+		view := newCatalogView(d)
+		access.budget = view.budget
+		access.view = view
+		if err = loadItemMetadataAccess(r.Context(), d, library, itemID, &access); err != nil {
+			return catalogError(w, err)
+		}
+		filtered, err := loadVisibleItemDetail(r.Context(), d, library, legacy, &access)
+		if err != nil {
+			return mediaScanError(err)
+		}
+		card, err := view.structureCard(r.Context(), library, itemID, catalogAccess{mediaItemAccess: access, size: access.size, extension: access.extension, playable: access.playable, sourceFileID: access.sourceFileID, bindingID: access.bindingID, proofEpoch: access.proofEpoch})
+		if err != nil {
+			return catalogError(w, err)
+		}
+		if !card.classificationIncomplete {
+			filtered.Card = &card
+		}
+		filtered.PageState = "ready"
+		if card.classificationIncomplete {
+			filtered.PageState = "partial_metadata"
+		} else if card.Availability == "offline" {
+			filtered.PageState = "offline"
+		} else if card.MetadataState == "restricted" || card.MetadataState == "unmatched" || card.MetadataState == "offline" || card.MetadataState == "partial" {
+			filtered.PageState = "partial_metadata"
+		}
+		if err = verifyItemRevision(r.Context(), d, library, itemID, legacy.Item.Revision); err != nil {
+			return mediaScanError(err)
+		}
+		if err = view.revalidateSources(r.Context()); err != nil {
+			return catalogError(w, err)
+		}
+		if err = verifyCatalogSnapshot(r.Context(), d, snapshot); err != nil {
+			return catalogError(w, err)
+		}
+		return renderJSON(w, r, filtered)
+	}
+	query := fmt.Sprintf("detail:%q:%q", library.ID, itemID)
+	snapshot, err := beginCatalogSnapshot(r.Context(), d, library.ID)
+	if err != nil {
+		return catalogError(w, err)
+	}
+	cursor, err := newCatalogCursor(d, snapshot, query, r.URL.Query().Get("cursor"))
+	if err != nil {
+		return catalogError(w, err)
+	}
+	structure, err := d.store.MediaLibrary.GetItemStructure(r.Context(), d.user.ID, library.ID, itemID)
+	if err != nil {
+		return catalogError(w, err)
+	}
+	if cursor.Pending != nil && (cursor.Pending.ItemID != itemID || cursor.Pending.ItemRevision != detail.Item.Revision || cursor.Pending.StructureRevision != structure.Revision) {
+		return catalogError(w, errCatalogCursorStale)
+	}
+	view := newCatalogView(d)
+	result, visible, complete, pending, err := view.itemAccess(r.Context(), library, &detail.Item, cursor.Pending)
+	if err != nil {
+		return catalogError(w, err)
+	}
+	if !complete {
+		pending.ItemRevision, pending.StructureRevision = detail.Item.Revision, structure.Revision
+		cursor.Pending = pending
+		next, err := encodeCatalogCursor(d.settings.Key, cursor)
+		if err == nil {
+			err = verifyCatalogSnapshot(r.Context(), d, snapshot)
+		}
+		if err != nil {
+			return catalogError(w, err)
+		}
+		return renderJSON(w, r, struct {
+			PageState  string `json:"pageState"`
+			NextCursor string `json:"nextCursor"`
+			HasMore    bool   `json:"hasMore"`
+		}{"partial", next, true})
+	}
+	if !visible {
+		return catalogError(w, medialibrary.ErrNotFound)
+	}
+	access := result.mediaItemAccess
+	if err = loadItemMetadataAccess(r.Context(), d, library, itemID, &access); err != nil {
+		return catalogError(w, err)
 	}
 	filtered, err := loadVisibleItemDetail(r.Context(), d, library, detail, &access)
 	if err != nil {
 		return mediaScanError(err)
 	}
+	result.mediaItemAccess = access
+	card, err := view.structureCard(r.Context(), library, itemID, result)
+	if err != nil {
+		return catalogError(w, err)
+	}
+	if !card.classificationIncomplete {
+		filtered.Card = &card
+	}
+	filtered.PageState = "ready"
+	if card.classificationIncomplete {
+		filtered.PageState = "partial_metadata"
+	} else if card.Availability == "offline" {
+		filtered.PageState = "offline"
+	} else if card.MetadataState == "restricted" || card.MetadataState == "unmatched" || card.MetadataState == "offline" || card.MetadataState == "partial" {
+		filtered.PageState = "partial_metadata"
+	}
 	if err := verifyItemRevision(r.Context(), d, library, detail.Item.ID, detail.Item.Revision); err != nil {
 		return mediaScanError(err)
+	}
+	if err = view.revalidateSources(r.Context()); err != nil {
+		return catalogError(w, err)
+	}
+	if err = verifyCatalogSnapshot(r.Context(), d, snapshot); err != nil {
+		return catalogError(w, err)
 	}
 	return renderJSON(w, r, filtered)
 })

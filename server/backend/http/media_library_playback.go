@@ -267,10 +267,11 @@ func mediaPlaybackResolutionHandler(leases *mediaPlaybackLeases) handleFunc {
 			Resolution                 *string  `json:"resolution"`
 			RangeSupported             bool     `json:"rangeSupported"`
 			URL                        string   `json:"url"`
+			Endpoint                   string   `json:"endpoint"`
 			ExpiresAt                  int64    `json:"expiresAt"`
 		}{evidence.ItemID, evidence.EditionID, evidence.VariantID, evidence.SourceFileID, evidence.FileRevision, evidence.IdentityEpoch, weak, false, true,
 			mediaDisplayName(evidence.Locator), mediaContentType(evidence.Locator), info.Size(), nil, nil, true,
-			d.server.BaseURL + "/api/media-library/v1/streams/" + id + "/original", expiry.UnixMilli()})
+			d.server.BaseURL + "/api/media-library/v1/streams/" + id + "/original", "/api/media-library/v1/streams/" + id + "/original", expiry.UnixMilli()})
 	})
 }
 

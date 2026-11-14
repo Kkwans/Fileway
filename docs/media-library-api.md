@@ -215,10 +215,10 @@ create extra logical episodes; combined files have no invented cut points.
 Ambiguous or conflicting identification remains reviewable with an unmatched
 playback entry. Damaged context does not by itself replace an established identity.
 
-The structure store provides bounded season/episode/mapping queries. HTTP
-projection for containers still requires descendant-source authorization; the
-current direct-file detail route alone does not establish a complete series
-browsing journey. Online provider configuration and metadata jobs are also pending.
+Series and season details use descendant-source authorization, with separate
+checks for each metadata input. See the [catalog API](../server/docs/media-catalog.md)
+for the home, catalog, season, episode and count routes. Online provider
+configuration and metadata jobs are pending.
 Schema 9 preserves existing item IDs for proven first-epoch associations;
 historical relationships whose binding epoch cannot be established remain stored
 as recovery candidates rather than silently inheriting a new source proof.

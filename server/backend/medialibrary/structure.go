@@ -1127,25 +1127,29 @@ type ItemStructure struct {
 }
 
 type StructureSeason struct {
-	SeasonID string
-	Number   int
+	SeasonID                    string
+	Number                      int
+	Revision, StructureRevision int64
 }
 
 type StructureEpisode struct {
 	EpisodeID, SeasonID         string
 	SeasonNumber, EpisodeNumber int
+	Revision, StructureRevision int64
 }
 
 type SeasonStructurePage struct {
-	OrderID    string
-	Items      []StructureSeason
-	NextNumber *int
+	OrderID       string
+	OrderRevision int64
+	Items         []StructureSeason
+	NextNumber    *int
 }
 
 type EpisodeStructurePage struct {
-	OrderID    string
-	Items      []StructureEpisode
-	NextNumber *int
+	OrderID       string
+	OrderRevision int64
+	Items         []StructureEpisode
+	NextNumber    *int
 }
 
 func (store *Store) GetItemStructure(ctx context.Context, actor uint, libraryID, itemID string) (*ItemStructure, error) {
@@ -1187,7 +1191,7 @@ func (store *Store) ListStructureSeasons(ctx context.Context, actor uint, librar
 		return nil, ErrInvalid
 	}
 	page := &SeasonStructurePage{Items: []StructureSeason{}}
-	err := store.db.QueryRowContext(ctx, `SELECT id FROM episode_order WHERE library_id=? AND series_id=? AND scheme='local'`, libraryID, seriesID).Scan(&page.OrderID)
+	err := store.db.QueryRowContext(ctx, `SELECT id,revision FROM episode_order WHERE library_id=? AND series_id=? AND scheme='local'`, libraryID, seriesID).Scan(&page.OrderID, &page.OrderRevision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return page, nil
 	}
@@ -1198,14 +1202,14 @@ func (store *Store) ListStructureSeasons(ctx context.Context, actor uint, librar
 	if after != nil {
 		start = *after
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT sp.season_id,sp.season_number FROM season_position sp JOIN library_item i ON i.library_id=sp.library_id AND i.id=sp.season_id AND i.kind='season' AND i.parent_id=? WHERE sp.library_id=? AND sp.order_id=? AND sp.season_number>? ORDER BY sp.season_number LIMIT ?`, seriesID, libraryID, page.OrderID, start, limit+1)
+	rows, err := store.db.QueryContext(ctx, `SELECT sp.season_id,sp.season_number,i.revision,st.structure_revision FROM season_position sp JOIN library_item i ON i.library_id=sp.library_id AND i.id=sp.season_id AND i.kind='season' AND i.parent_id=? JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id WHERE sp.library_id=? AND sp.order_id=? AND sp.season_number>? ORDER BY sp.season_number LIMIT ?`, seriesID, libraryID, page.OrderID, start, limit+1)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var item StructureSeason
-		if err = rows.Scan(&item.SeasonID, &item.Number); err != nil {
+		if err = rows.Scan(&item.SeasonID, &item.Number, &item.Revision, &item.StructureRevision); err != nil {
 			return nil, err
 		}
 		if len(page.Items) == limit {
@@ -1227,7 +1231,7 @@ func (store *Store) ListStructureEpisodes(ctx context.Context, actor uint, libra
 	}
 	page := &EpisodeStructurePage{Items: []StructureEpisode{}}
 	var seasonNumber int
-	err := store.db.QueryRowContext(ctx, `SELECT eo.id,sp.season_number FROM episode_order eo JOIN season_position sp ON sp.library_id=eo.library_id AND sp.order_id=eo.id JOIN library_item s ON s.library_id=sp.library_id AND s.id=sp.season_id AND s.kind='season' AND s.parent_id=eo.series_id JOIN library_item series ON series.library_id=eo.library_id AND series.id=eo.series_id AND series.kind='series' WHERE eo.library_id=? AND eo.series_id=? AND eo.scheme='local' AND sp.season_id=?`, libraryID, seriesID, seasonID).Scan(&page.OrderID, &seasonNumber)
+	err := store.db.QueryRowContext(ctx, `SELECT eo.id,eo.revision,sp.season_number FROM episode_order eo JOIN season_position sp ON sp.library_id=eo.library_id AND sp.order_id=eo.id JOIN library_item s ON s.library_id=sp.library_id AND s.id=sp.season_id AND s.kind='season' AND s.parent_id=eo.series_id JOIN library_item series ON series.library_id=eo.library_id AND series.id=eo.series_id AND series.kind='series' WHERE eo.library_id=? AND eo.series_id=? AND eo.scheme='local' AND sp.season_id=?`, libraryID, seriesID, seasonID).Scan(&page.OrderID, &page.OrderRevision, &seasonNumber)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1238,14 +1242,14 @@ func (store *Store) ListStructureEpisodes(ctx context.Context, actor uint, libra
 	if after != nil {
 		start = *after
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT ep.episode_id,ep.season_number,ep.episode_number FROM episode_position ep JOIN library_item i ON i.library_id=ep.library_id AND i.id=ep.episode_id AND i.kind='episode' AND i.parent_id=? WHERE ep.library_id=? AND ep.order_id=? AND ep.season_number=? AND ep.episode_number>? ORDER BY ep.episode_number LIMIT ?`, seasonID, libraryID, page.OrderID, seasonNumber, start, limit+1)
+	rows, err := store.db.QueryContext(ctx, `SELECT ep.episode_id,ep.season_number,ep.episode_number,i.revision,st.structure_revision FROM episode_position ep JOIN library_item i ON i.library_id=ep.library_id AND i.id=ep.episode_id AND i.kind='episode' AND i.parent_id=? JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id WHERE ep.library_id=? AND ep.order_id=? AND ep.season_number=? AND ep.episode_number>? ORDER BY ep.episode_number LIMIT ?`, seasonID, libraryID, page.OrderID, seasonNumber, start, limit+1)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		item := StructureEpisode{SeasonID: seasonID}
-		if err = rows.Scan(&item.EpisodeID, &item.SeasonNumber, &item.EpisodeNumber); err != nil {
+		if err = rows.Scan(&item.EpisodeID, &item.SeasonNumber, &item.EpisodeNumber, &item.Revision, &item.StructureRevision); err != nil {
 			return nil, err
 		}
 		if len(page.Items) == limit {
