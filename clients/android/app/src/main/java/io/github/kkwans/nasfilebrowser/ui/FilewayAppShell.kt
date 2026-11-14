@@ -1,7 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,15 +14,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.nasfilebrowser.app.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.data.AppTheme
-import io.github.kkwans.nasfilebrowser.data.BackendKind
-import io.github.kkwans.nasfilebrowser.data.ConnectionMode
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clip
@@ -74,27 +70,13 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                     }
                     Column(Modifier.fillMaxSize()) {
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusIcon(
-                                        io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusAnimation.CONNECTION, state.previewScope,
-                                        Modifier.size(22.dp), play = drawer.isOpen && state.connected)
-                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text("栖卷 · Fileway", style = MaterialTheme.typography.titleMedium)
-                                        Text(if (!state.connected) "尚未连接" else "已连接 · ${if (state.profile?.network == ConnectionMode.TAILNET) "Tailscale" else "本地网络"}",
-                                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                                FilewayGlassSection(Modifier.fillMaxWidth()) {
-                                    Row(Modifier.fillMaxWidth().clickable { navigate { if (state.connected) model.disconnect() else model.showConnection() } }
-                                        .heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        FilewayIcon(R.drawable.ic_server, null, Modifier.size(22.dp))
-                                        Text(if (state.connected) "切换服务器或账号" else "连接服务器", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                        FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(18.dp))
-                                    }
-                                }
+                            FilewayDrawerAccount(state, enabled = !navigating,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+                                navigate { model.tab("settings") }
+                            }
+                            FilewayDrawerItem("连接 TV", Art.drawable.fileway_ic_cast) { navigate(openTvControl) }
+                            if (!state.connected) {
+                                FilewayDrawerItem("连接服务器", R.drawable.ic_server) { navigate(model::showConnection) }
                             }
                             if (state.connected) {
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
@@ -131,7 +113,6 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                             }
                             HorizontalDivider(Modifier.padding(vertical = 8.dp))
                             FilewayDrawerItem("缓存图片管理", R.drawable.ic_image, state.tab == "cache-images") { navigate { model.tab("cache-images") } }
-                            if (!state.connected) FilewayDrawerItem("本机缓存设置", R.drawable.ic_settings) { navigate { model.tab("settings") } }
                             if (state.connected) {
                                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
                                 FilewayDrawerItem("账户设置", R.drawable.ic_person) { navigate { model.tab("account") } }
@@ -142,7 +123,6 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                                 if (state.permissions.execute) FilewayDrawerItem("命令", R.drawable.ic_terminal) { navigate(model::openShell) }
                             }
                             HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                            FilewayDrawerItem("连接 TV", Art.drawable.fileway_ic_cast) { navigate(openTvControl) }
                             FilewayDrawerItem("更新", R.drawable.ic_update) { navigate(model::openUpdates) }
                             FilewayDrawerItem("关于栖卷 · Fileway", R.drawable.ic_info) { about = true }
                         }
