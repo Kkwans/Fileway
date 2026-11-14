@@ -419,7 +419,10 @@ internal fun tvSubtitleGroupKey(page: TvPlayerPage) = "group/${page.name}"
                                         TvPlaybackAction("返回上一页", Art.drawable.fileway_ic_arrow_back,
                                             { onBack("dialog-touch") }, focus.target(PanelBackKey,
                                                 focus.initialKey == PanelBackKey, Modifier.focusRequester(focus.header)
-                                                    .focusProperties { up = tabFocus[category] ?: FocusRequester.Cancel; down = focus.body }))
+                                                    .focusProperties {
+                                                        up = tabFocus[category] ?: FocusRequester.Cancel
+                                                        down = if (page == TvPlayerPage.APPEARANCE) focus.appearanceScale else focus.body
+                                                    }))
                                         Text(page.title, style = tvTextStyle(20, 28, FontWeight.Medium))
                                     }
                                     saveable.SaveableStateProvider(page.name) { content(focus) }
