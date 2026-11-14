@@ -248,7 +248,7 @@ func mediaScanError(err error) (int, error) {
 		return http.StatusBadRequest, fmt.Errorf("扫描参数无效")
 	case errors.Is(err, mediascan.ErrBindingRootSelection):
 		return http.StatusBadRequest, fmt.Errorf("请选择具体磁盘或目录")
-	case errors.Is(err, mediascan.ErrBindingUnverified), errors.Is(err, mediascan.ErrBindingChanged):
+	case errors.Is(err, mediascan.ErrBindingUnverified), errors.Is(err, mediascan.ErrBindingChanged), errors.Is(err, medialibrary.ErrBindingProofUnsupported):
 		return http.StatusConflict, fmt.Errorf("来源需要重新确认")
 	case errors.Is(err, medialibrary.ErrRevisionConflict), errors.Is(err, medialibrary.ErrScanState), errors.Is(err, medialibrary.ErrScanActive), errors.Is(err, medialibrary.ErrArchived):
 		return http.StatusConflict, fmt.Errorf("扫描状态已变化，请重新读取")

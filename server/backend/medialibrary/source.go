@@ -42,6 +42,10 @@ type BindingProof struct {
 	AttestedAt       int64
 }
 
+// ErrBindingProofUnsupported fences legacy consumers until they explicitly
+// implement domain-aware authorization for a v2 binding.
+var ErrBindingProofUnsupported = errors.New("binding proof requires domain-aware access")
+
 func validateBindingProof(proof BindingProof) error {
 	if proof.Version != 1 || len(proof.MappingDigest) != 32 || proof.RootIdentityKind != "native" || len(proof.RootIdentity) == 0 || len(proof.RootIdentity) > 1024 || proof.AttestedAt < 0 {
 		return fmt.Errorf("%w: binding proof", ErrInvalid)
@@ -231,21 +235,29 @@ func (store *Store) GetLibrarySource(ctx context.Context, actor uint, libraryID,
 	return scanLibrarySource(store.db.QueryRowContext(ctx, bindingSelection+` WHERE ls.library_id = ? AND ls.source_id = ? AND ls.root_locator = ? AND l.owner_user_id = ? AND s.owner_user_id = ? AND s.kind = 'local'`, libraryID, sourceID, root, actor, actor))
 }
 
-const bindingSelection = `SELECT ls.binding_id, ls.library_id, s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, l.revision,ls.proof_epoch,ls.proof_version,ls.mapping_digest,ls.root_identity_kind,ls.root_identity,ls.attested_at
+const bindingSelection = `SELECT ls.binding_id, ls.library_id, s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, l.revision,ls.proof_epoch,ls.proof_version,ls.mapping_digest,ls.root_identity_kind,ls.root_identity,ls.attested_at,ls.active_proof_version,ls.v2_mapping_digest,ls.v2_attested_at
 FROM library_source ls JOIN library l ON l.id = ls.library_id JOIN source s ON s.id = ls.source_id`
 
 func scanLibrarySource(row rowScanner) (*LibrarySource, error) {
 	binding := &LibrarySource{}
 	var proof BindingProof
 	var attested sql.NullInt64
-	err := row.Scan(&binding.ID, &binding.LibraryID, &binding.Source.ID, &binding.Source.OwnerUserID, &binding.Source.ConfigurationRef, &binding.Source.AuthorizationRevision, &binding.Source.CreatedAt, &binding.RootLocator, &binding.Revision, &binding.LibraryRevision, &binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &attested)
+	var activeVersion int
+	var v2Digest []byte
+	var v2Attested sql.NullInt64
+	err := row.Scan(&binding.ID, &binding.LibraryID, &binding.Source.ID, &binding.Source.OwnerUserID, &binding.Source.ConfigurationRef, &binding.Source.AuthorizationRevision, &binding.Source.CreatedAt, &binding.RootLocator, &binding.Revision, &binding.LibraryRevision, &binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &attested, &activeVersion, &v2Digest, &v2Attested)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
 		return nil, err
 	}
-	if proof.Version != 0 {
+	switch activeVersion {
+	case 0:
+		if proof.Version != 0 || binding.ProofEpoch != 0 {
+			return nil, fmt.Errorf("%w: inconsistent legacy binding proof", ErrInvalid)
+		}
+	case 1:
 		if !attested.Valid {
 			return nil, fmt.Errorf("%w: incomplete binding proof", ErrInvalid)
 		}
@@ -254,6 +266,16 @@ func scanLibrarySource(row rowScanner) (*LibrarySource, error) {
 			return nil, err
 		}
 		binding.Proof = &proof
+	case 2:
+		if proof.Version != 0 || !v2Attested.Valid || len(v2Digest) != 32 || binding.ProofEpoch < 1 {
+			return nil, fmt.Errorf("%w: incomplete v2 binding proof", ErrInvalid)
+		}
+		binding.Proof = &BindingProof{Version: 2, MappingDigest: bytes.Clone(v2Digest), AttestedAt: v2Attested.Int64}
+		if err := validateV2BindingProof(*binding.Proof); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("%w: unsupported binding proof", ErrInvalid)
 	}
 	return binding, nil
 }
@@ -393,6 +415,9 @@ func validateSourceBinding(ctx context.Context, reader schemaReader, actor uint,
 	}
 	if binding.BindingID != current.ID || binding.ProofEpoch != current.ProofEpoch || binding.BindingRevision != current.Revision || binding.AuthorizationRevision != source.AuthorizationRevision {
 		return nil, ErrRevisionConflict
+	}
+	if current.Proof != nil && current.Proof.Version != 1 {
+		return nil, ErrBindingProofUnsupported
 	}
 	return current, nil
 }

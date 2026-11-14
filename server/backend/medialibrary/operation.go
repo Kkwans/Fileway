@@ -14,6 +14,57 @@ import (
 // operationTx records only a digest and a sanitized acknowledgement, in the
 // same transaction as the domain write. The original request, roots and config
 // references are never persisted in the receipt.
+func operationDigest(input any) ([]byte, error) {
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(encoded)
+	return digest[:], nil
+}
+
+// Source creation and attestation are distinct logical operations even when a
+// client accidentally reuses an ID. Historical exact-kind receipts still win.
+func sourceOperationKind(kind string) bool {
+	return kind == "source.create.local" || kind == "source.binding.attest"
+}
+
+func lookupOperation[T any](ctx context.Context, reader schemaReader, actor uint, kind, operationID string, digest []byte) (T, bool, error) {
+	var result T
+	if actor == 0 {
+		return result, false, ErrForbidden
+	}
+	if !validOperationID(operationID) {
+		return result, false, fmt.Errorf("%w: operation ID", ErrInvalid)
+	}
+	var previousDigest []byte
+	var previousResult string
+	var previousKind string
+	query := `SELECT kind,input_digest,result_json FROM operation_receipt WHERE actor_user_id=? AND operation_id=? AND (kind=? OR kind IN ('source.create.local','source.binding.attest')) ORDER BY (kind=?) DESC LIMIT 1`
+	args := []any{actor, operationID, kind, kind}
+	if sourceOperationKind(kind) {
+		query = `SELECT kind,input_digest,result_json FROM operation_receipt WHERE actor_user_id=? AND operation_id=? ORDER BY (kind=?) DESC LIMIT 1`
+		args = []any{actor, operationID, kind}
+	}
+	err := reader.QueryRowContext(ctx, query, args...).Scan(&previousKind, &previousDigest, &previousResult)
+	if err == nil {
+		if previousKind != kind {
+			return result, false, ErrRevisionConflict
+		}
+		if !bytes.Equal(previousDigest, digest) {
+			return result, false, ErrRevisionConflict
+		}
+		if err := json.Unmarshal([]byte(previousResult), &result); err != nil {
+			return result, false, err
+		}
+		return result, true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return result, false, err
+	}
+	return result, false, nil
+}
+
 func operationTx[T any](ctx context.Context, store *Store, actor uint, kind, operationID string, input any, action func(*sql.Tx) (T, error)) (T, error) {
 	var result T
 	if actor == 0 {
@@ -22,23 +73,23 @@ func operationTx[T any](ctx context.Context, store *Store, actor uint, kind, ope
 	if !validOperationID(operationID) {
 		return result, fmt.Errorf("%w: operation ID", ErrInvalid)
 	}
-	encoded, err := json.Marshal(input)
+	digest, err := operationDigest(input)
 	if err != nil {
 		return result, err
 	}
-	digest := sha256.Sum256(encoded)
-	err = store.WithTx(ctx, func(tx *sql.Tx) error {
-		var previousDigest []byte
-		var previousResult string
-		err := tx.QueryRowContext(ctx, `SELECT input_digest, result_json FROM operation_receipt WHERE actor_user_id = ? AND kind = ? AND operation_id = ?`, actor, kind, operationID).Scan(&previousDigest, &previousResult)
-		if err == nil {
-			if !bytes.Equal(previousDigest, digest[:]) {
-				return ErrRevisionConflict
-			}
-			return json.Unmarshal([]byte(previousResult), &result)
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
+	return operationTxWithDigest(ctx, store, actor, kind, operationID, digest, action)
+}
+
+func operationTxWithDigest[T any](ctx context.Context, store *Store, actor uint, kind, operationID string, digest []byte, action func(*sql.Tx) (T, error)) (T, error) {
+	var result T
+	err := store.WithTx(ctx, func(tx *sql.Tx) error {
+		previous, found, err := lookupOperation[T](ctx, tx, actor, kind, operationID, digest)
+		if err != nil {
 			return err
+		}
+		if found {
+			result = previous
+			return nil
 		}
 		result, err = action(tx)
 		if err != nil {
@@ -48,7 +99,7 @@ func operationTx[T any](ctx context.Context, store *Store, actor uint, kind, ope
 		if err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO operation_receipt(actor_user_id, kind, operation_id, input_digest, result_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`, actor, kind, operationID, digest[:], string(ack), time.Now().UnixMilli())
+		_, err = tx.ExecContext(ctx, `INSERT INTO operation_receipt(actor_user_id, kind, operation_id, input_digest, result_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`, actor, kind, operationID, digest, string(ack), time.Now().UnixMilli())
 		return err
 	})
 	if err != nil {
@@ -56,6 +107,56 @@ func operationTx[T any](ctx context.Context, store *Store, actor uint, kind, ope
 		return zero, err
 	}
 	return result, nil
+}
+
+// A committed receipt is checked before capture so a retry never samples a new
+// source proof. The digest is reused for the transaction's race-closing check;
+// the capture itself stays outside SQLite's writer transaction.
+func sourceMutationOperation(ctx context.Context, store *Store, actor uint, kind, operationID string, input any, prepare func() (func(*sql.Tx) (sourceReceipt, error), error)) (sourceReceipt, error) {
+	var zero sourceReceipt
+	digest, err := operationDigest(input)
+	if err != nil {
+		return zero, err
+	}
+	lookup := func() (sourceReceipt, bool, error) {
+		if err := ctx.Err(); err != nil {
+			return zero, false, err
+		}
+		if err := validateTransactionAuthority(ctx, store); err != nil {
+			return zero, false, err
+		}
+		previous, found, err := lookupOperation[sourceReceipt](ctx, store.db, actor, kind, operationID, digest)
+		if err != nil {
+			return zero, false, err
+		}
+		if found {
+			if err := ctx.Err(); err != nil {
+				return zero, false, err
+			}
+			if err := validateTransactionAuthority(ctx, store); err != nil {
+				return zero, false, err
+			}
+		}
+		return previous, found, nil
+	}
+	previous, found, err := lookup()
+	if err != nil || found {
+		return previous, err
+	}
+	action, err := prepare()
+	if err != nil {
+		// Another request may have committed the same operation while capture
+		// was in flight. Its receipt is authoritative even if capture failed.
+		previous, found, lookupErr := lookup()
+		if lookupErr != nil {
+			return zero, lookupErr
+		}
+		if found {
+			return previous, nil
+		}
+		return zero, err
+	}
+	return operationTxWithDigest(ctx, store, actor, kind, operationID, digest, action)
 }
 
 func (store *Store) CreateLibraryWithOperation(ctx context.Context, actor uint, operationID, name string) (*Library, error) {
@@ -75,16 +176,30 @@ type sourceReceipt struct {
 	ProofVersion          int
 	ProofEpoch            int64
 	AttestedAt            int64
+	DomainID              string `json:",omitempty"`
+	MountEpoch            int64  `json:",omitempty"`
+	DomainRevision        int64  `json:",omitempty"`
+	DomainState           string `json:",omitempty"`
+}
+
+// Keep these field names and ordering identical to the pre-v2 receipt digest.
+// ConfigurationRef is a stable logical source identifier across proof versions;
+// changing an internal resolver must not silently change it on a retry.
+type createSourceOperationInput struct {
+	LibraryID        string
+	ExpectedRevision int64
+	ConfigurationRef string
+	Root             []byte
+}
+
+type attestSourceOperationInput struct {
+	BindingID string
+	Revision  int64
 }
 
 func (store *Store) CreateLocalSourceWithOperation(ctx context.Context, actor uint, libraryID string, expectedRevision int64, operationID, configurationRef string, root []byte) (*LibrarySource, error) {
 	root = bytes.Clone(root)
-	ack, err := operationTx(ctx, store, actor, "source.create.local", operationID, struct {
-		LibraryID        string
-		ExpectedRevision int64
-		ConfigurationRef string
-		Root             []byte
-	}{libraryID, expectedRevision, configurationRef, root}, func(tx *sql.Tx) (sourceReceipt, error) {
+	ack, err := operationTx(ctx, store, actor, "source.create.local", operationID, createSourceOperationInput{libraryID, expectedRevision, configurationRef, root}, func(tx *sql.Tx) (sourceReceipt, error) {
 		binding, err := createLocalSourceTx(ctx, tx, actor, libraryID, expectedRevision, configurationRef, root)
 		if err != nil {
 			return sourceReceipt{}, err

@@ -1,10 +1,9 @@
 package fbhttp
 
 import (
-	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"strconv"
 
@@ -55,6 +54,20 @@ func sourceSummary(source *medialibrary.LibrarySource) mediaLibrarySourceSummary
 	return mediaLibrarySourceSummary{ID: source.ID, SourceID: source.Source.ID, LibraryID: source.LibraryID, Access: "available",
 		WireRoot: files.EncodeWirePath(string(source.RootLocator)), DisplayRoot: files.DisplayPath(string(source.RootLocator)),
 		Revision: source.Revision, LibraryRevision: source.LibraryRevision, AuthorizationRevision: source.Source.AuthorizationRevision}
+}
+
+// A mutation receipt describes the original acknowledgement. Source access is
+// independently checked on every later scan, metadata request and byte read.
+func sourceReceiptSummary(ack *medialibrary.BindingMutationResult, root string) mediaLibrarySourceSummary {
+	summary := sourceSummary(&medialibrary.LibrarySource{ID: ack.BindingID, LibraryID: ack.LibraryID,
+		Source: medialibrary.LocalSource{ID: ack.SourceID, AuthorizationRevision: ack.AuthorizationRevision}, RootLocator: []byte(root),
+		Revision: ack.BindingRevision, LibraryRevision: ack.LibraryRevision})
+	// A pre-proof legacy acknowledgement is not upgraded to an available v1
+	// source, and this route cannot claim support for a v2-only proof.
+	if ack.ProofVersion != 1 {
+		summary.Access = "unverified"
+	}
+	return summary
 }
 
 var mediaLibraryCreateHandler = mediaScanManagement(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
@@ -164,35 +177,17 @@ var mediaLibraryCreateSourceHandler = mediaScanManagement(func(w http.ResponseWr
 	if library.OwnerUserID != d.user.ID || library.Role != medialibrary.RoleOwner {
 		return http.StatusForbidden, fmt.Errorf("没有此媒体库操作权限")
 	}
-	if library.ArchivedAt != nil {
-		return mediaScanError(medialibrary.ErrArchived)
-	}
-	if !d.Check(root) {
-		return http.StatusForbidden, fmt.Errorf("没有来源目录权限")
-	}
-	proof, err := captureMediaBindingProof(r.Context(), d.store, d.server, d.user.ID, localMediaWorkspaceConfiguration, []byte(root))
-	if err != nil {
-		return mediaScanError(err)
-	}
-	ack, err := d.store.MediaLibrary.CreateAttestedLocalSourceWithOperation(r.Context(), d.user.ID, library.ID, body.ExpectedRevision, body.OperationID, localMediaWorkspaceConfiguration, []byte(root), *proof)
-	if err != nil {
-		return mediaScanError(err)
-	}
-	binding, err := d.store.MediaLibrary.GetLibrarySourceByID(r.Context(), d.user.ID, ack.BindingID)
-	if err != nil {
-		return mediaScanError(err)
-	}
-	_, state, err := resolveAttestedMediaConnection(r.Context(), d.store, d.server, d.user.ID, binding.Source.ConfigurationRef, binding.RootLocator, binding.Proof)
-	if err != nil || state != mediascan.BindingAvailable {
-		if err == nil {
-			err = fs.ErrNotExist
+	ack, err := d.store.MediaLibrary.CreateAttestedLocalSourceWithCapture(r.Context(), d.user.ID, library.ID, body.ExpectedRevision, body.OperationID, localMediaWorkspaceConfiguration, []byte(root), func(ctx context.Context) (medialibrary.BindingProof, error) {
+		proof, err := captureMediaBindingProof(ctx, d.store, d.server, d.user.ID, localMediaWorkspaceConfiguration, []byte(root))
+		if err != nil {
+			return medialibrary.BindingProof{}, err
 		}
+		return *proof, nil
+	})
+	if err != nil {
 		return mediaScanError(err)
 	}
-	// An idempotent replay uses the original acknowledgement, not the binding's
-	// possibly newer revision; current authority was independently rechecked.
-	binding.Revision, binding.LibraryRevision, binding.Source.AuthorizationRevision = ack.BindingRevision, ack.LibraryRevision, ack.AuthorizationRevision
-	return renderJSONStatus(w, sourceSummary(binding), http.StatusCreated)
+	return renderJSONStatus(w, sourceReceiptSummary(ack, root), http.StatusCreated)
 })
 
 var mediaLibraryAttestSourceHandler = mediaScanManagement(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
@@ -204,34 +199,17 @@ var mediaLibraryAttestSourceHandler = mediaScanManagement(func(w http.ResponseWr
 	if err != nil {
 		return http.StatusBadRequest, fmt.Errorf("来源路径无效")
 	}
-	binding, err := d.store.MediaLibrary.GetLibrarySourceByID(r.Context(), d.user.ID, mux.Vars(r)["bindingId"])
-	if err != nil {
-		return mediaScanError(err)
-	}
-	if binding.LibraryID != mux.Vars(r)["id"] || !bytes.Equal(binding.RootLocator, []byte(root)) || !d.Check(root) {
-		return http.StatusForbidden, fmt.Errorf("没有来源目录权限")
-	}
-	proof, err := captureMediaBindingProof(r.Context(), d.store, d.server, d.user.ID, binding.Source.ConfigurationRef, binding.RootLocator)
-	if err != nil {
-		return mediaScanError(err)
-	}
-	ack, err := d.store.MediaLibrary.AttestSourceBindingWithOperation(r.Context(), d.user.ID, binding.ID, body.ExpectedRevision, body.OperationID, *proof)
-	if err != nil {
-		return mediaScanError(err)
-	}
-	current, err := d.store.MediaLibrary.GetLibrarySourceByID(r.Context(), d.user.ID, binding.ID)
-	if err != nil {
-		return mediaScanError(err)
-	}
-	_, state, err := resolveAttestedMediaConnection(r.Context(), d.store, d.server, d.user.ID, current.Source.ConfigurationRef, current.RootLocator, current.Proof)
-	if err != nil || state != mediascan.BindingAvailable {
-		if err == nil {
-			err = fs.ErrNotExist
+	ack, err := d.store.MediaLibrary.AttestSourceBindingWithCapture(r.Context(), d.user.ID, mux.Vars(r)["id"], mux.Vars(r)["bindingId"], []byte(root), body.ExpectedRevision, body.OperationID, func(ctx context.Context, binding *medialibrary.LibrarySource) (medialibrary.BindingProof, error) {
+		proof, err := captureMediaBindingProof(ctx, d.store, d.server, d.user.ID, binding.Source.ConfigurationRef, binding.RootLocator)
+		if err != nil {
+			return medialibrary.BindingProof{}, err
 		}
+		return *proof, nil
+	})
+	if err != nil {
 		return mediaScanError(err)
 	}
-	current.Revision, current.LibraryRevision, current.Source.AuthorizationRevision = ack.BindingRevision, ack.LibraryRevision, ack.AuthorizationRevision
-	return renderJSON(w, r, sourceSummary(current))
+	return renderJSON(w, r, sourceReceiptSummary(ack, root))
 })
 
 var mediaLibrarySourcesHandler = mediaScanManagement(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {

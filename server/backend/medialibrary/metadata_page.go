@@ -89,7 +89,7 @@ func queryMetadataPage[T any](ctx context.Context, reader metadataReader, actor 
 }
 
 const metadataPageVisibility = ` JOIN library l ON l.id=x.library_id LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL WHERE x.library_id=? AND x.item_id=? AND ` + libraryVisibility + ` AND l.archived_at IS NULL `
-const metadataPageInput = ` AND EXISTS(SELECT 1 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=x.input_id AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0) `
+const metadataPageInput = ` AND EXISTS(SELECT 1 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=x.input_id AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1) `
 
 func (store *Store) ListItemCredits(ctx context.Context, viewer uint, libraryID, itemID, after string, limit int) (*MetadataCreditPage, error) {
 	query := `SELECT x.id,x.person_id,x.display_name,x.kind,x.role,x.roles_json,x.position,x.input_id FROM item_credit x` + metadataPageVisibility + metadataPageInput + ` AND x.active=1 AND printf('%020d:%s',x.position,x.id)>? ORDER BY x.position,x.id LIMIT ?`
@@ -156,7 +156,7 @@ func (store *Store) ListItemExternalIDs(ctx context.Context, viewer uint, librar
 }
 
 func (store *Store) ListItemMetadataIssues(ctx context.Context, viewer uint, libraryID, itemID, after string, limit int) (*MetadataIssuePage, error) {
-	query := `SELECT x.id,x.issue_code,x.evidence_json FROM metadata_input x` + metadataPageVisibility + ` AND x.is_current=1 AND x.status='candidate' AND x.issue_code!='' AND EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.binding_epoch AND ls.proof_epoch>0) AND x.id>? ORDER BY x.id LIMIT ?`
+	query := `SELECT x.id,x.issue_code,x.evidence_json FROM metadata_input x` + metadataPageVisibility + ` AND x.is_current=1 AND x.status='candidate' AND x.issue_code!='' AND EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.binding_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1) AND x.id>? ORDER BY x.id LIMIT ?`
 	page, err := queryMetadataPage(ctx, store.db, viewer, libraryID, itemID, after, limit, query, func(rows *sql.Rows) (MetadataIssueSource, string, error) {
 		var item MetadataIssueSource
 		var raw string

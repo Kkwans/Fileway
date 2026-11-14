@@ -34,7 +34,7 @@ func (store *Store) GetItemMetadataSourceAccess(ctx context.Context, viewer uint
 	proof := &BindingProof{}
 	err := store.db.QueryRowContext(ctx, `SELECT mi.id,ls.binding_id,s.id,s.owner_user_id,s.configuration_ref,s.authorization_revision,s.created_at,ls.root_locator,ls.revision,mi.source_key,mi.digest,mi.parser_version,ls.proof_epoch,ls.proof_version,ls.mapping_digest,ls.root_identity_kind,ls.root_identity,ls.attested_at
 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id JOIN source s ON s.id=ls.source_id JOIN library l ON l.id=mi.library_id LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
-WHERE mi.library_id=? AND mi.item_id=? AND mi.id=? AND `+libraryVisibility+` AND l.archived_at IS NULL AND s.owner_user_id=l.owner_user_id AND s.kind='local' AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0
+WHERE mi.library_id=? AND mi.item_id=? AND mi.id=? AND `+libraryVisibility+` AND l.archived_at IS NULL AND s.owner_user_id=l.owner_user_id AND s.kind='local' AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1
 AND ((mi.is_current=1 AND mi.status='candidate') OR EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=mi.library_id AND f.item_id=mi.item_id AND f.input_id=mi.id)
 OR EXISTS(SELECT 1 FROM item_credit c WHERE c.library_id=mi.library_id AND c.item_id=mi.item_id AND c.input_id=mi.id AND c.active=1)
 OR EXISTS(SELECT 1 FROM rating_observation r WHERE r.library_id=mi.library_id AND r.item_id=mi.item_id AND r.input_id=mi.id AND r.active=1)
@@ -76,7 +76,7 @@ f.object_key,f.identity_kind,f.identity_epoch,f.source_version,lf.locator_revisi
 FROM library_file lf JOIN library_source ls ON ls.library_id = lf.library_id AND ls.source_id = lf.source_id AND ls.root_locator = lf.root_locator
 JOIN source s ON s.id = lf.source_id JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id JOIN library l ON l.id = lf.library_id
 LEFT JOIN library_member m ON m.library_id = l.id AND m.user_id = ? AND m.revoked_at IS NULL
-WHERE lf.library_id = ? AND `+libraryVisibility+` AND l.archived_at IS NULL AND s.owner_user_id = l.owner_user_id AND s.kind = 'local' AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0
+WHERE lf.library_id = ? AND `+libraryVisibility+` AND l.archived_at IS NULL AND s.owner_user_id = l.owner_user_id AND s.kind = 'local' AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1
 AND EXISTS (SELECT 1 FROM edition e JOIN variant v ON v.library_id = e.library_id AND v.edition_id = e.id
 WHERE e.library_id = lf.library_id AND e.item_id = ? AND v.source_file_id = lf.source_file_id)
 AND (ls.binding_id || ':' || lf.source_file_id) > ? ORDER BY cursor LIMIT ?`, viewer, libraryID, viewer, itemID, afterID, limit+1)
@@ -141,7 +141,7 @@ func (store *Store) ListItemMetadataSourceAccess(ctx context.Context, viewer uin
 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id
 JOIN source s ON s.id=ls.source_id JOIN library l ON l.id=mi.library_id
 LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
-WHERE mi.library_id=? AND mi.item_id=? AND `+libraryVisibility+` AND l.archived_at IS NULL AND s.owner_user_id=l.owner_user_id AND s.kind='local' AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0
+WHERE mi.library_id=? AND mi.item_id=? AND `+libraryVisibility+` AND l.archived_at IS NULL AND s.owner_user_id=l.owner_user_id AND s.kind='local' AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1
 AND ((mi.is_current=1 AND mi.status='candidate') OR EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=mi.library_id AND f.item_id=mi.item_id AND f.input_id=mi.id)
 OR EXISTS(SELECT 1 FROM item_credit c WHERE c.library_id=mi.library_id AND c.item_id=mi.item_id AND c.input_id=mi.id AND c.active=1)
 OR EXISTS(SELECT 1 FROM rating_observation r WHERE r.library_id=mi.library_id AND r.item_id=mi.item_id AND r.input_id=mi.id AND r.active=1)

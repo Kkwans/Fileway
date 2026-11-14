@@ -445,3 +445,70 @@ CREATE TRIGGER artwork_declaration_changed AFTER UPDATE OF library_id,item_id,bi
 WHEN NEW.library_id IS NOT OLD.library_id OR NEW.item_id IS NOT OLD.item_id OR NEW.binding_id IS NOT OLD.binding_id OR NEW.source_key IS NOT OLD.source_key OR NEW.input_id IS NOT OLD.input_id OR NEW.private_ref IS NOT OLD.private_ref OR NEW.role IS NOT OLD.role OR NEW.status IS NOT OLD.status OR NEW.active IS NOT OLD.active
 BEGIN UPDATE artwork_declaration SET declaration_revision=OLD.declaration_revision+1 WHERE id=NEW.id; END;
 `
+
+// v8 keeps v1 proof bytes and their native semantics unchanged. A v2 binding
+// stores its mapping proof separately and clears all legacy proof fields; the
+// active version and shared proof epoch make the two representations exclusive.
+// Existing membership/metadata remains at its original binding epoch.
+const schemaV8 = `
+CREATE INDEX operation_receipt_actor_operation ON operation_receipt(actor_user_id,operation_id);
+CREATE TRIGGER library_source_target_immutable BEFORE UPDATE OF library_id,source_id,root_locator ON library_source
+WHEN NEW.library_id IS NOT OLD.library_id OR NEW.source_id IS NOT OLD.source_id OR NEW.root_locator IS NOT OLD.root_locator
+BEGIN SELECT RAISE(ABORT, 'binding target is immutable'); END;
+ALTER TABLE library_source ADD COLUMN active_proof_version INTEGER NOT NULL DEFAULT 0 CHECK(active_proof_version IN (0,1,2));
+ALTER TABLE library_source ADD COLUMN v2_mapping_digest BLOB;
+ALTER TABLE library_source ADD COLUMN v2_attested_at INTEGER CHECK(v2_attested_at >= 0);
+UPDATE library_source SET active_proof_version=proof_version;
+DROP TRIGGER binding_proof_insert;
+DROP TRIGGER binding_proof_update;
+DROP TRIGGER binding_proof_fence;
+CREATE TRIGGER binding_proof_insert BEFORE INSERT ON library_source
+WHEN COALESCE(((NEW.active_proof_version=0 AND NEW.proof_version=0 AND NEW.proof_epoch=0 AND NEW.mapping_digest IS NULL AND NEW.root_identity_kind='' AND NEW.root_identity IS NULL AND NEW.attested_at IS NULL AND NEW.v2_mapping_digest IS NULL AND NEW.v2_attested_at IS NULL)
+OR (NEW.active_proof_version=1 AND NEW.proof_version=1 AND NEW.proof_epoch>0 AND length(NEW.mapping_digest)=32 AND NEW.root_identity_kind='native' AND length(NEW.root_identity) BETWEEN 1 AND 1024 AND NEW.attested_at IS NOT NULL AND NEW.v2_mapping_digest IS NULL AND NEW.v2_attested_at IS NULL)
+OR (NEW.active_proof_version=2 AND NEW.proof_version=0 AND NEW.proof_epoch>0 AND NEW.mapping_digest IS NULL AND NEW.root_identity_kind='' AND NEW.root_identity IS NULL AND NEW.attested_at IS NULL AND length(NEW.v2_mapping_digest)=32 AND NEW.v2_mapping_digest!=zeroblob(32) AND NEW.v2_attested_at IS NOT NULL)),0)=0
+BEGIN SELECT RAISE(ABORT, 'invalid binding proof'); END;
+CREATE TRIGGER binding_proof_update BEFORE UPDATE OF active_proof_version,proof_version,proof_epoch,mapping_digest,root_identity_kind,root_identity,attested_at,v2_mapping_digest,v2_attested_at ON library_source
+WHEN COALESCE(((NEW.active_proof_version=0 AND NEW.proof_version=0 AND NEW.proof_epoch=0 AND NEW.mapping_digest IS NULL AND NEW.root_identity_kind='' AND NEW.root_identity IS NULL AND NEW.attested_at IS NULL AND NEW.v2_mapping_digest IS NULL AND NEW.v2_attested_at IS NULL)
+OR (NEW.active_proof_version=1 AND NEW.proof_version=1 AND NEW.proof_epoch>0 AND length(NEW.mapping_digest)=32 AND NEW.root_identity_kind='native' AND length(NEW.root_identity) BETWEEN 1 AND 1024 AND NEW.attested_at IS NOT NULL AND NEW.v2_mapping_digest IS NULL AND NEW.v2_attested_at IS NULL)
+OR (NEW.active_proof_version=2 AND NEW.proof_version=0 AND NEW.proof_epoch>0 AND NEW.mapping_digest IS NULL AND NEW.root_identity_kind='' AND NEW.root_identity IS NULL AND NEW.attested_at IS NULL AND length(NEW.v2_mapping_digest)=32 AND NEW.v2_mapping_digest!=zeroblob(32) AND NEW.v2_attested_at IS NOT NULL)),0)=0
+BEGIN SELECT RAISE(ABORT, 'invalid binding proof'); END;
+CREATE TRIGGER binding_proof_fence BEFORE UPDATE OF active_proof_version,proof_version,proof_epoch,mapping_digest,root_identity_kind,root_identity,attested_at,v2_mapping_digest,v2_attested_at ON library_source
+WHEN NEW.active_proof_version NOT IN (1,2) OR NEW.proof_epoch!=OLD.proof_epoch+1 OR NEW.revision!=OLD.revision+1
+BEGIN SELECT RAISE(ABORT, 'binding proof requires a new epoch and revision'); END;
+CREATE TABLE binding_domain (
+    id TEXT PRIMARY KEY NOT NULL CHECK(length(id)>0),
+    binding_id TEXT NOT NULL REFERENCES library_source(binding_id),
+    proof_epoch INTEGER NOT NULL CHECK(proof_epoch>0),
+    relative_prefix BLOB NOT NULL CHECK(length(relative_prefix)<=8192),
+    mapping_digest BLOB NOT NULL CHECK(length(mapping_digest)=32 AND mapping_digest!=zeroblob(32)),
+    root_evidence BLOB CHECK(root_evidence IS NULL OR (length(root_evidence)=32 AND root_evidence!=zeroblob(32))),
+    strong_root_evidence BLOB CHECK(strong_root_evidence IS NULL OR (length(strong_root_evidence)=32 AND strong_root_evidence!=zeroblob(32))),
+    evidence_kind TEXT NOT NULL CHECK(evidence_kind IN ('native_generation','mount_scoped','path_observed')),
+    mount_evidence BLOB CHECK(mount_evidence IS NULL OR (length(mount_evidence)=32 AND mount_evidence!=zeroblob(32))),
+    anchor_digest BLOB NOT NULL CHECK(length(anchor_digest)=32 AND anchor_digest!=zeroblob(32)),
+    mount_epoch INTEGER NOT NULL CHECK(mount_epoch>0),
+    revision INTEGER NOT NULL CHECK(revision>0),
+    state TEXT NOT NULL CHECK(state IN ('available','offline','revalidating','rebind_required')),
+    resume_state TEXT NOT NULL DEFAULT '' CHECK(resume_state IN ('','available','revalidating')),
+    created_at INTEGER NOT NULL CHECK(created_at>=0),
+    updated_at INTEGER NOT NULL CHECK(updated_at>=0),
+    CHECK((state='offline' AND resume_state IN ('available','revalidating')) OR (state!='offline' AND resume_state='')),
+    UNIQUE(binding_id,proof_epoch,relative_prefix)
+) STRICT;
+CREATE TRIGGER binding_domain_insert BEFORE INSERT ON binding_domain
+WHEN NOT EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=NEW.binding_id AND ls.active_proof_version=2 AND ls.proof_epoch=NEW.proof_epoch)
+BEGIN SELECT RAISE(ABORT, 'domain requires current v2 binding'); END;
+CREATE TRIGGER binding_domain_identity BEFORE UPDATE OF id,binding_id,proof_epoch,relative_prefix,mapping_digest,strong_root_evidence ON binding_domain
+WHEN NEW.id IS NOT OLD.id OR NEW.binding_id IS NOT OLD.binding_id OR NEW.proof_epoch IS NOT OLD.proof_epoch OR NEW.relative_prefix IS NOT OLD.relative_prefix OR NEW.mapping_digest IS NOT OLD.mapping_digest OR NEW.strong_root_evidence IS NOT OLD.strong_root_evidence
+BEGIN SELECT RAISE(ABORT, 'domain identity and mapping are immutable'); END;
+CREATE TRIGGER binding_domain_fence BEFORE UPDATE ON binding_domain
+WHEN NEW.revision!=OLD.revision+1 OR NEW.mount_epoch<OLD.mount_epoch OR NEW.mount_epoch>OLD.mount_epoch+1
+OR (OLD.state='rebind_required' AND NEW.state!='rebind_required')
+OR (NEW.mount_epoch=OLD.mount_epoch+1 AND NEW.state!='revalidating')
+OR (NEW.mount_epoch=OLD.mount_epoch AND (NEW.root_evidence IS NOT OLD.root_evidence OR NEW.mount_evidence IS NOT OLD.mount_evidence OR NEW.evidence_kind IS NOT OLD.evidence_kind))
+OR (NEW.mount_epoch=OLD.mount_epoch AND NEW.anchor_digest IS NOT OLD.anchor_digest AND NOT (OLD.evidence_kind='native_generation' AND NEW.evidence_kind='native_generation' AND OLD.strong_root_evidence IS NOT NULL AND OLD.strong_root_evidence IS OLD.root_evidence AND NEW.root_evidence IS OLD.root_evidence AND NEW.mount_evidence IS OLD.mount_evidence))
+OR (OLD.state='revalidating' AND NEW.state='available')
+OR (OLD.state='offline' AND OLD.resume_state='revalidating' AND NEW.state='available')
+OR NOT EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=NEW.binding_id AND ls.active_proof_version=2 AND ls.proof_epoch=NEW.proof_epoch)
+BEGIN SELECT RAISE(ABORT, 'stale domain update'); END;
+`

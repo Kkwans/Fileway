@@ -35,8 +35,8 @@ func readItemDetail(ctx context.Context, reader metadataReader, actor uint, libr
 	}
 	detail := &ItemDetail{Item: *item, Fields: map[string]MetadataField{}, Credits: []MetadataCredit{}, Ratings: []MetadataRating{}, Artwork: []MetadataArtwork{}, ExternalIDs: []MetadataExternalID{}, Issues: []string{}, IssueSources: []MetadataIssueSource{}}
 	visibility := ` JOIN library l ON l.id=x.library_id LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL WHERE x.library_id=? AND x.item_id=? AND ` + libraryVisibility + ` AND l.archived_at IS NULL`
-	validInput := ` AND (x.input_id IS NULL OR EXISTS (SELECT 1 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=x.input_id AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0))`
-	validFieldOrigin := ` AND x.source!='legacy' AND (x.source!='filename' OR EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.source_binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.source_binding_epoch AND ls.proof_epoch>0))`
+	validInput := ` AND (x.input_id IS NULL OR EXISTS (SELECT 1 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=x.input_id AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1))`
+	validFieldOrigin := ` AND x.source!='legacy' AND (x.source!='filename' OR EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.source_binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.source_binding_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1))`
 	args := []any{actor, libraryID, itemID, actor}
 	rows, err := reader.QueryContext(ctx, `SELECT x.field,x.value_json,x.source,x.locked,x.explicit_clear,x.revision,COALESCE(x.input_id,''),COALESCE(x.source_binding_id,''),x.source_binding_epoch FROM item_field x`+visibility+validInput+validFieldOrigin+` ORDER BY x.field`, args...)
 	if err != nil {
@@ -193,7 +193,7 @@ func readItemDetail(ctx context.Context, reader metadataReader, actor uint, libr
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	rows, err = reader.QueryContext(ctx, `SELECT x.issue_code,x.id,x.evidence_json FROM metadata_input x`+visibility+` AND x.is_current=1 AND x.status='candidate' AND x.issue_code!='' AND EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.binding_epoch AND ls.proof_epoch>0) ORDER BY x.id LIMIT 21`, args...)
+	rows, err = reader.QueryContext(ctx, `SELECT x.issue_code,x.id,x.evidence_json FROM metadata_input x`+visibility+` AND x.is_current=1 AND x.status='candidate' AND x.issue_code!='' AND EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.binding_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1) ORDER BY x.id LIMIT 21`, args...)
 	if err != nil {
 		return nil, err
 	}

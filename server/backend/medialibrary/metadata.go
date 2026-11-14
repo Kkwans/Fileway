@@ -299,8 +299,8 @@ ON CONFLICT(library_id,item_id,field) DO UPDATE SET value_json=excluded.value_js
 func checkMetadataFieldBudget(ctx context.Context, tx *sql.Tx, libraryID, itemID string) error {
 	var total int
 	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(sum(length(CAST(f.value_json AS BLOB))),0) FROM item_field f WHERE f.library_id=? AND f.item_id=? AND f.source!='legacy'
-AND (f.source!='filename' OR EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=f.source_binding_id AND ls.library_id=f.library_id AND ls.proof_epoch=f.source_binding_epoch AND ls.proof_epoch>0))
-AND (f.input_id IS NULL OR EXISTS(SELECT 1 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=f.input_id AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0))`, libraryID, itemID).Scan(&total); err != nil {
+AND (f.source!='filename' OR EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=f.source_binding_id AND ls.library_id=f.library_id AND ls.proof_epoch=f.source_binding_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1))
+AND (f.input_id IS NULL OR EXISTS(SELECT 1 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=f.input_id AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1))`, libraryID, itemID).Scan(&total); err != nil {
 		return err
 	}
 	if total > 64<<10 {
@@ -315,12 +315,12 @@ func fieldHasCurrentOrigin(ctx context.Context, tx *sql.Tx, libraryID string, fi
 	}
 	if field.Source == "filename" {
 		var count int
-		err := tx.QueryRowContext(ctx, "SELECT count(*) FROM library_source WHERE binding_id=? AND library_id=? AND proof_epoch=? AND proof_epoch>0", field.BindingID, libraryID, field.BindingEpoch).Scan(&count)
+		err := tx.QueryRowContext(ctx, "SELECT count(*) FROM library_source WHERE binding_id=? AND library_id=? AND proof_epoch=? AND proof_epoch>0 AND active_proof_version=1", field.BindingID, libraryID, field.BindingEpoch).Scan(&count)
 		return count > 0, err
 	}
 	if field.InputID != "" {
 		var count int
-		err := tx.QueryRowContext(ctx, `SELECT count(*) FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=? AND mi.library_id=? AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0`, field.InputID, libraryID).Scan(&count)
+		err := tx.QueryRowContext(ctx, `SELECT count(*) FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=? AND mi.library_id=? AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1`, field.InputID, libraryID).Scan(&count)
 		return count > 0, err
 	}
 	return true, nil
@@ -503,7 +503,7 @@ func applyFilenameObservationTx(ctx context.Context, tx *sql.Tx, actor uint, bin
 		return nil
 	}
 	var currentOrigin int
-	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM library_source WHERE binding_id=? AND library_id=? AND proof_epoch=? AND proof_epoch>0", oldBinding, binding.LibraryID, oldEpoch).Scan(&currentOrigin); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM library_source WHERE binding_id=? AND library_id=? AND proof_epoch=? AND proof_epoch>0 AND active_proof_version=1", oldBinding, binding.LibraryID, oldEpoch).Scan(&currentOrigin); err != nil {
 		return err
 	}
 	if currentOrigin > 0 {

@@ -74,9 +74,17 @@ same operation type returns 409. Update operations also require the current
 `expectedRevision`; scan cancellation and retry use `expectedGeneration`.
 The receipt is committed in the same transaction as the change. Clients should
 read current state after a replay instead of treating an old acknowledgement as
-a fresh status. Source access and current permissions are checked again even on
-replay, so revocation can prevent a repeated request from returning an earlier
-acknowledgement.
+a fresh status. Each endpoint still validates the requesting identity and its
+management contract; an acknowledgement never grants permission to read media.
+
+Source creation and attestation retain their logical operation identity across
+internal proof-version changes. A matching committed operation returns its saved
+acknowledgement without opening the root again or capturing a new proof. The
+original availability and revisions describe that operation's result, not current
+source health. Refresh the source list after recovery. Changed workspaces or
+revoked source permissions still prevent current catalog disclosure, scans and
+playback; replay does not restore them. A source-management operation ID cannot
+be reused for another business operation or payload.
 
 | Method and path | JSON body | Result |
 | --- | --- | --- |
@@ -120,6 +128,12 @@ records a new proof epoch atomically. An old proof or different workspace is
 never silently adopted; old-epoch source observations and NFO projections are
 not automatically inherited. A retry with the same operation ID returns the
 original acknowledgement without advancing the epoch again.
+
+Schema 8 adds internal v2 mapping proofs and mount-domain state while preserving
+the v1 proof contract. Only one proof representation is active. Consumers that
+have not implemented domain validation reject v2 rather than treating leftover
+v1 fields as authorization. These internal primitives do not yet enable v2 source
+creation through HTTP or establish mounted-source scanning/playback support.
 
 The server itself may use Linux `/` or Windows `computer` as its workspace root.
 A physical Linux or ordinary scoped filesystem `/` can be selected as a source.

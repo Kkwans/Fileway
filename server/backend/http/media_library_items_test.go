@@ -1,6 +1,9 @@
 package fbhttp
 
 import (
+	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -9,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
 	"github.com/Kkwans/nas-file-browser/backend/rules"
 	"github.com/spf13/afero"
@@ -338,6 +342,33 @@ func TestMediaLibraryHTTPExplicitRebindDoesNotInheritOldMetadata(t *testing.T) {
 		t.Fatalf("original item: %+v", items)
 	}
 	base := "/api/media-library/v1/libraries/" + library.ID
+	itemBase := base + "/items/" + items[0].ID
+	variantsResponse := f.call(t, f.owner.ID, http.MethodGet, itemBase+"/variants", nil)
+	var variants struct {
+		Items []mediaVariantResponse `json:"items"`
+	}
+	if variantsResponse.Code != http.StatusOK || json.Unmarshal(variantsResponse.Body.Bytes(), &variants) != nil || len(variants.Items) != 1 {
+		t.Fatalf("original variants: %d %s", variantsResponse.Code, variantsResponse.Body)
+	}
+	selected := variants.Items[0]
+	resolutionBody := map[string]any{"editionId": selected.EditionID, "variantId": selected.VariantID, "bindingId": selected.BindingID}
+	resolved := f.call(t, f.owner.ID, http.MethodPost, itemBase+"/playback-resolutions", resolutionBody)
+	var playback struct {
+		URL string `json:"url"`
+	}
+	if resolved.Code != http.StatusOK || json.Unmarshal(resolved.Body.Bytes(), &playback) != nil || playback.URL == "" {
+		t.Fatalf("original playback: %d %s", resolved.Code, resolved.Body)
+	}
+	proofBefore, err := f.store.GetLibrarySourceByID(t.Context(), f.owner.ID, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var domainsBefore int
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		return tx.QueryRowContext(t.Context(), "SELECT count(*) FROM binding_domain WHERE binding_id=?", source.ID).Scan(&domainsBefore)
+	}); err != nil {
+		t.Fatal(err)
+	}
 	manual := f.call(t, f.owner.ID, http.MethodPatch, base+"/items/"+items[0].ID+"/metadata", map[string]any{"operationId": "old-private-note", "expectedRevision": items[0].Revision, "fields": map[string]any{"tagline": map[string]any{"values": []string{"Old private note"}}}})
 	if manual.Code != http.StatusOK {
 		t.Fatalf("manual old data: %d %s", manual.Code, manual.Body)
@@ -359,8 +390,39 @@ func TestMediaLibraryHTTPExplicitRebindDoesNotInheritOldMetadata(t *testing.T) {
 	if hidden, _ := fixtureItems(t, f, f.owner.ID, library.ID, ""); len(hidden) != 0 {
 		t.Fatalf("old workspace items leaked: %+v", hidden)
 	}
-	if replay := f.call(t, f.owner.ID, http.MethodPost, base+"/sources/local", map[string]any{"operationId": "create-source-1", "expectedRevision": library.Revision, "wireRoot": "/films"}); replay.Code != http.StatusConflict {
-		t.Fatalf("create replay silently adopted new workspace: %d %s", replay.Code, replay.Body)
+	replay := f.call(t, f.owner.ID, http.MethodPost, base+"/sources/local", map[string]any{"operationId": "create-source-1", "expectedRevision": library.Revision, "wireRoot": "/films"})
+	var replaySource mediaLibrarySourceSummary
+	if replay.Code != http.StatusCreated || json.Unmarshal(replay.Body.Bytes(), &replaySource) != nil || replaySource != source {
+		t.Fatalf("create receipt not replayed: %d %s", replay.Code, replay.Body)
+	}
+	encodedReplay := f.call(t, f.owner.ID, http.MethodPost, base+"/sources/local", map[string]any{"operationId": "create-source-1", "expectedRevision": library.Revision, "wireRoot": "/f%69lms"})
+	if encodedReplay.Code != http.StatusCreated || encodedReplay.Body.String() != replay.Body.String() {
+		t.Fatalf("equivalent normalized root did not replay: %d %s", encodedReplay.Code, encodedReplay.Body)
+	}
+	if strings.Contains(replay.Body.String(), newWorkspace) || strings.Contains(replay.Body.String(), localMediaWorkspaceConfiguration) {
+		t.Fatalf("receipt exposed current workspace configuration: %s", replay.Body)
+	}
+	if foreign := f.call(t, f.viewer.ID, http.MethodPost, base+"/sources/local", map[string]any{"operationId": "create-source-1", "expectedRevision": library.Revision, "wireRoot": "/films"}); foreign.Code != http.StatusNotFound && foreign.Code != http.StatusForbidden {
+		t.Fatalf("foreign actor recovered owner receipt: %d %s", foreign.Code, foreign.Body)
+	}
+	if hidden, _ := fixtureItems(t, f, f.owner.ID, library.ID, ""); len(hidden) != 0 {
+		t.Fatalf("receipt restored source authority: %+v", hidden)
+	}
+	proofAfter, err := f.store.GetLibrarySourceByID(t.Context(), f.owner.ID, source.ID)
+	if err != nil || proofAfter.ProofEpoch != proofBefore.ProofEpoch || proofAfter.Revision != proofBefore.Revision || proofAfter.Proof == nil || proofBefore.Proof == nil || !bytes.Equal(proofAfter.Proof.MappingDigest, proofBefore.Proof.MappingDigest) || !bytes.Equal(proofAfter.Proof.RootIdentity, proofBefore.Proof.RootIdentity) {
+		t.Fatalf("receipt replaced proof: %+v %v", proofAfter, err)
+	}
+	var domainsAfter int
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		return tx.QueryRowContext(t.Context(), "SELECT count(*) FROM binding_domain WHERE binding_id=?", source.ID).Scan(&domainsAfter)
+	}); err != nil || domainsAfter != domainsBefore {
+		t.Fatalf("receipt changed domains: %d -> %d %v", domainsBefore, domainsAfter, err)
+	}
+	if r := f.call(t, f.owner.ID, http.MethodGet, playback.URL, nil); r.Code != http.StatusNotFound {
+		t.Fatalf("receipt restored old playback lease: %d %s", r.Code, r.Body)
+	}
+	if r := f.call(t, f.owner.ID, http.MethodPost, itemBase+"/playback-resolutions", resolutionBody); r.Code != http.StatusNotFound {
+		t.Fatalf("receipt allowed new playback: %d %s", r.Code, r.Body)
 	}
 	if r := f.call(t, f.owner.ID, http.MethodPost, base+"/scans", map[string]any{"bindingId": source.ID, "operationId": "wrong-workspace", "expectedRevision": source.Revision, "rulesRevision": mediascan.LocalRulesRevision}); r.Code != http.StatusConflict {
 		t.Fatalf("changed workspace scanned without confirmation: %d %s", r.Code, r.Body)
@@ -467,5 +529,79 @@ func TestMediaLibraryHTTPLegacyBindingRequiresExplicitAttestation(t *testing.T) 
 	job := scanFixtureLibrary(t, f, mediaLibrarySummary{ID: library.ID}, source, "after-legacy-attest")
 	if job.Processed != 1 {
 		t.Fatalf("attested legacy scan: %+v", job)
+	}
+}
+
+func TestMediaLibraryHTTPAttestReceiptReplayAfterOwnerAccessRevoked(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	library, source := f.libraryAndSource(t)
+	base := "/api/media-library/v1/libraries/" + library.ID
+	endpoint := base + "/sources/" + source.ID + "/attest"
+	body := map[string]any{"operationId": "attest-lost-response", "expectedRevision": source.Revision, "wireRoot": "/films"}
+	original := f.call(t, f.owner.ID, http.MethodPost, endpoint, body)
+	var acknowledged mediaLibrarySourceSummary
+	if original.Code != http.StatusOK || json.Unmarshal(original.Body.Bytes(), &acknowledged) != nil {
+		t.Fatalf("attest: %d %s", original.Code, original.Body)
+	}
+	before, err := f.store.GetLibrarySourceByID(t.Context(), f.owner.ID, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner, err := f.h.storage.Users.Get(f.h.server.Root, f.owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner.Perm.Download = false
+	if err := f.h.storage.Users.Update(owner, "Perm"); err != nil {
+		t.Fatal(err)
+	}
+	replay := f.call(t, f.owner.ID, http.MethodPost, endpoint, body)
+	if replay.Code != http.StatusOK || replay.Body.String() != original.Body.String() {
+		t.Fatalf("attest receipt after access change: %d %s", replay.Code, replay.Body)
+	}
+	after, err := f.store.GetLibrarySourceByID(t.Context(), f.owner.ID, source.ID)
+	if err != nil || after.ProofEpoch != before.ProofEpoch || after.Revision != before.Revision {
+		t.Fatalf("replay resampled proof: %+v %v", after, err)
+	}
+	if changed := f.call(t, f.owner.ID, http.MethodPost, endpoint, map[string]any{"operationId": "attest-lost-response", "expectedRevision": source.Revision, "wireRoot": "/other"}); changed.Code != http.StatusConflict {
+		t.Fatalf("different root replay: %d %s", changed.Code, changed.Body)
+	}
+	if foreign := f.call(t, f.viewer.ID, http.MethodPost, endpoint, body); foreign.Code != http.StatusNotFound && foreign.Code != http.StatusForbidden {
+		t.Fatalf("foreign receipt: %d %s", foreign.Code, foreign.Body)
+	}
+	if list := f.call(t, f.owner.ID, http.MethodGet, base+"/sources", nil); list.Code != http.StatusOK || !strings.Contains(list.Body.String(), `"access":"unavailable"`) {
+		t.Fatalf("receipt granted current source access: %d %s", list.Code, list.Body)
+	}
+	if scan := f.call(t, f.owner.ID, http.MethodPost, base+"/scans", map[string]any{"bindingId": source.ID, "operationId": "denied-after-receipt", "expectedRevision": acknowledged.Revision, "rulesRevision": mediascan.LocalRulesRevision}); scan.Code != http.StatusForbidden {
+		t.Fatalf("receipt granted scan access: %d %s", scan.Code, scan.Body)
+	}
+}
+
+func TestMediaLibraryHTTPV1ReplayDoesNotPresentV2ProofAsAvailable(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	library, err := f.store.CreateLibrary(t.Context(), f.owner.ID, "Receipt fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof := medialibrary.BindingProof{Version: 2, MappingDigest: bytes.Repeat([]byte{1}, 32)}
+	observation := medialibrary.DomainObservation{MappingDigest: bytes.Repeat([]byte{2}, 32), AnchorDigest: bytes.Repeat([]byte{3}, 32), EvidenceKind: "path_observed"}
+	ack, err := f.store.CreateDomainAttestedLocalSourceWithCapture(t.Context(), f.owner.ID, library.ID, library.Revision, "v2-internal-receipt", localMediaWorkspaceConfiguration, []byte("/films"), func(context.Context) (medialibrary.BindingProof, medialibrary.DomainObservation, error) {
+		return proof, observation, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/media-library/v1/libraries/" + library.ID
+	replay := f.call(t, f.owner.ID, http.MethodPost, base+"/sources/local", map[string]any{"operationId": "v2-internal-receipt", "expectedRevision": library.Revision, "wireRoot": "/films"})
+	var summary mediaLibrarySourceSummary
+	if replay.Code != http.StatusCreated || json.Unmarshal(replay.Body.Bytes(), &summary) != nil || summary.ID != ack.BindingID || summary.Access != "unverified" {
+		t.Fatalf("v2 receipt was upgraded to v1 access: %d %s", replay.Code, replay.Body)
+	}
+	current, err := f.store.GetLibrarySourceByID(t.Context(), f.owner.ID, ack.BindingID)
+	if err != nil || current.Proof == nil || current.Proof.Version != 2 || current.ProofEpoch != ack.ProofEpoch {
+		t.Fatalf("v2 proof changed: %+v %v", current, err)
+	}
+	if scan := f.call(t, f.owner.ID, http.MethodPost, base+"/scans", map[string]any{"bindingId": ack.BindingID, "operationId": "v1-reader-denied", "expectedRevision": ack.BindingRevision, "rulesRevision": mediascan.LocalRulesRevision}); scan.Code != http.StatusConflict {
+		t.Fatalf("v1 scan accepted v2 proof: %d %s", scan.Code, scan.Body)
 	}
 }
