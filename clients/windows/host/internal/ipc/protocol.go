@@ -282,6 +282,10 @@ func commandFor(request Request, coreID string) ([]byte, error) {
 		return nil, nil
 	}
 	if _, hasRawBody := command["bodyBase64"]; hasRawBody {
+		var method string
+		if json.Unmarshal(command["method"], &method) != nil || (method != "PUT" && method != "POST") {
+			return nil, errors.New("raw resource body requires PUT or POST")
+		}
 		if body, hasJSONBody := command["body"]; hasJSONBody {
 			value := bytes.TrimSpace(body)
 			if len(value) != 0 && string(value) != "null" {
