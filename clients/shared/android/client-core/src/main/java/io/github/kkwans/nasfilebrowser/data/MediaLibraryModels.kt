@@ -79,8 +79,16 @@ data class MediaScan(
     val id: String, val libraryId: String, val status: MediaScanStatus, val generation: Long,
     val attempt: Long, val rulesRevision: Long, val phase: MediaScanPhase, val processed: Long,
     val createdAt: Long, val updatedAt: Long, val errorCode: String?, val bindingId: String? = null,
+    val sourceLabel: String? = null,
 )
 data class MediaScanBatch(val libraryId: String, val items: List<MediaScan>)
+
+data class MediaMetadataJob(
+    val status: MediaScanStatus, val generation: Long, val failureCode: String?,
+    val matched: Long, val review: Long, val skipped: Long, val failed: Long, val pending: Long,
+)
+
+data class MediaMetadataReviewItem(val ref: MediaCatalogRef, val title: String, val reason: String)
 
 /** A failure is not a capability declaration. NOT_FOUND can also mean inaccessible. */
 enum class MediaFailureKind { AUTHENTICATION, FORBIDDEN, NOT_FOUND, INVALID, CONFLICT, UNAVAILABLE, SERVER, NETWORK, INVALID_RESPONSE, STORAGE, CURSOR_STALE, CURSOR_EXPIRED, RATE_LIMITED }
@@ -161,15 +169,7 @@ internal fun parseMediaSource(row: JSONObject): MediaLibrarySource {
 }
 
 internal fun parseMediaScan(row: JSONObject): MediaScan {
-    val status = when (row.mediaString("status")) {
-        "queued" -> MediaScanStatus.QUEUED
-        "running" -> MediaScanStatus.RUNNING
-        "completed" -> MediaScanStatus.COMPLETED
-        "failed" -> MediaScanStatus.FAILED
-        "canceled" -> MediaScanStatus.CANCELED
-        "interrupted" -> MediaScanStatus.INTERRUPTED
-        else -> MediaScanStatus.UNKNOWN
-    }
+    val status = parseScanStatus(row.mediaString("status"))
     val phase = when (row.mediaString("phase")) {
         "enumerate" -> MediaScanPhase.ENUMERATE
         "reconcile" -> MediaScanPhase.RECONCILE
@@ -180,7 +180,27 @@ internal fun parseMediaScan(row: JSONObject): MediaScan {
     require(code == null || code.matches(Regex("[a-z0-9_]{1,80}"))) { "扫描错误码无效" }
     return MediaScan(row.mediaId("id"), row.mediaId("libraryId"), status, row.mediaLong("generation", 1),
         row.mediaLong("attempt", 0), row.mediaLong("rulesRevision", 1), phase, row.mediaLong("processed", 0),
-        row.mediaLong("createdAt", 1), row.mediaLong("updatedAt", 1), code, row.optionalMediaString("bindingId")?.also(::requireMediaRouteId))
+        row.mediaLong("createdAt", 1), row.mediaLong("updatedAt", 1), code,
+        row.optionalMediaString("bindingId")?.also(::requireMediaRouteId), row.optionalMediaString("sourceLabel"))
+}
+
+internal fun parseMetadataJob(row: JSONObject) = MediaMetadataJob(
+    parseScanStatus(row.mediaString("status")), row.mediaLong("generation", 1), row.optionalMediaString("failureCode"),
+    row.mediaLong("matched", 0), row.mediaLong("review", 0), row.mediaLong("skipped", 0),
+    row.mediaLong("failed", 0), row.mediaLong("pending", 0),
+)
+
+internal fun parseMetadataReview(row: JSONObject, ref: (String) -> MediaCatalogRef) =
+    MediaMetadataReviewItem(ref(row.mediaId("itemId")), row.optionalMediaString("title").orEmpty(), row.mediaString("reason"))
+
+private fun parseScanStatus(status: String): MediaScanStatus = when (status) {
+    "queued" -> MediaScanStatus.QUEUED
+    "running" -> MediaScanStatus.RUNNING
+    "completed" -> MediaScanStatus.COMPLETED
+    "failed" -> MediaScanStatus.FAILED
+    "canceled" -> MediaScanStatus.CANCELED
+    "interrupted" -> MediaScanStatus.INTERRUPTED
+    else -> MediaScanStatus.UNKNOWN
 }
 
 internal fun parseMediaScanSupport(row: JSONObject): MediaScanSupport {

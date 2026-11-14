@@ -420,6 +420,41 @@ class MediaLibraryRepository(
         } }
     }
 
+    suspend fun listScans(libraryId: String, limit: Int = 20, cursor: String? = null): MediaReadResult<MediaPage<MediaScan>> {
+        requireMediaRouteId(libraryId)
+        val query = pageQuery(limit, cursor, 128)
+        return catalogRead(null) {
+            parsePage(context.api.request("GET", "${libraryEndpoint(libraryId)}/scans?$query"), limit, cursor, 128) {
+                parseMediaScan(it).also { scan -> require(scan.libraryId == libraryId) }
+            }
+        }
+    }
+
+    suspend fun metadataJob(libraryId: String, scanId: String): MediaReadResult<MediaMetadataJob> {
+        val endpoint = scanMetadataEndpoint(libraryId, scanId)
+        return catalogRead(null) { parseMetadataJob(context.api.request("GET", endpoint)) }
+    }
+
+    suspend fun metadataReview(libraryId: String, scanId: String, limit: Int = 20, cursor: String? = null): MediaReadResult<MediaPage<MediaMetadataReviewItem>> {
+        val endpoint = scanMetadataEndpoint(libraryId, scanId)
+        val query = pageQuery(limit, cursor, 128)
+        return catalogRead(null) {
+            parsePage(context.api.request("GET", "$endpoint/review?$query"), limit, cursor, 128) {
+                parseMetadataReview(it) { id -> catalogRef(libraryId, id) }
+            }
+        }
+    }
+
+    /** Generation checks prevent a repeated action from changing a newer job. */
+    suspend fun changeMetadataJob(libraryId: String, scanId: String, generation: Long, cancel: Boolean): MediaReadResult<Unit> {
+        val endpoint = scanMetadataEndpoint(libraryId, scanId)
+        require(generation > 0)
+        return catalogRead(null) {
+            context.api.action(if (cancel) "DELETE" else "POST", "$endpoint?generation=$generation")
+            Unit
+        }
+    }
+
     suspend fun createLibrary(operation: MediaOperation, name: String): MediaWriteResult<MediaLibrarySummary> =
         typedWrite(mutation(operation, MediaMutationKind.CREATE_LIBRARY, body = operationBody(operation).put("name", name)))
 
@@ -639,6 +674,11 @@ private fun revisionBody(operation: MediaOperation, revision: Long) = operationB
 private fun generationBody(operation: MediaOperation, generation: Long) = operationBody(operation).put("expectedGeneration", generation)
 private fun libraryEndpoint(id: String) = "/api/media-library/v1/libraries/$id"
 private fun itemEndpoint(libraryId: String, itemId: String) = "${libraryEndpoint(libraryId)}/items/$itemId"
+private fun scanMetadataEndpoint(libraryId: String, scanId: String): String {
+    requireMediaRouteId(libraryId)
+    requireMediaRouteId(scanId)
+    return "${libraryEndpoint(libraryId)}/scans/$scanId/metadata"
+}
 
 private fun catalogQueryEndpoint(query: MediaCatalogQuery): String = buildString {
     append("/api/media-library/v1/catalog/items?limit=").append(query.limit).append("&sort=").append(query.sort.wire)

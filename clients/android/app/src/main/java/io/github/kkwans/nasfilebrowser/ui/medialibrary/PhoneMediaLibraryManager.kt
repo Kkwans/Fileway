@@ -34,6 +34,7 @@ import kotlin.coroutines.coroutineContext
     onBack: () -> Unit,
     onChanged: () -> Unit,
     onProvider: () -> Unit,
+    onReviewItem: (MediaCatalogRef) -> Unit,
     createInitially: Boolean = false,
 ) {
     val health by session.api.sessionHealth.collectAsState()
@@ -48,6 +49,7 @@ import kotlin.coroutines.coroutineContext
         val scope = rememberCoroutineScope()
         var screen by rememberSaveable { mutableStateOf(if (createInitially) "create" else "libraries") }
         var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+        var historyScanId by rememberSaveable { mutableStateOf<String?>(null) }
         var name by rememberSaveable { mutableStateOf("") }
         // The journal owns the original request; only its opaque operation ID is saved here.
         var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -88,6 +90,7 @@ import kotlin.coroutines.coroutineContext
                 "directory" -> { screen = "library"; browseEntries = emptyList() }
                 "create" -> screen = "libraries"
                 "policy" -> screen = "library"
+                "history" -> { historyScanId = null; screen = "library" }
                 "library" -> { screen = "libraries"; selectedId = null; selected = null }
                 else -> onBack()
             }
@@ -97,6 +100,8 @@ import kotlin.coroutines.coroutineContext
             PhoneMediaPolicySettings(repository, selectedId!!, { screen = "library" }, onProvider) {
                 screen = "library"; notice = "资料优先级已保存。"; onChanged()
             }
+        } else if (screen == "history" && selectedId != null) {
+            PhoneMediaScanHistory(repository, selectedId!!, historyScanId, { historyScanId = it }, ::leave, onReviewItem, onChanged)
         } else {
 
         LaunchedEffect(repository, screen, selectedId, refresh) {
@@ -361,6 +366,13 @@ import kotlin.coroutines.coroutineContext
                     "library" -> {
                         selected?.let { library ->
                             if (library.role == MediaLibraryRole.OWNER) {
+                                item(key = "scan-history") {
+                                    SettingsGroup("扫描与补全") {
+                                        SettingsAction("扫描记录", "查看目录扫描、TMDB 补全和待确认影片", R.drawable.ic_search, enabled = !busy) {
+                                            historyScanId = null; screen = "history"
+                                        }
+                                    }
+                                }
                                 item(key = "metadata-policy") {
                                     SettingsGroup("资料") {
                                         SettingsAction("资料优先级", "本地资料与 TMDB", R.drawable.ic_settings, enabled = !busy && pendingId == null) { screen = "policy" }
@@ -428,6 +440,7 @@ import kotlin.coroutines.coroutineContext
                                 }
                                 scan?.takeIf { it.libraryId == library.id }?.let { value -> item(key = "scan") {
                                     Text("${scanStatusLabel(value.status)} · 已处理 ${value.processed} 项", style = MaterialTheme.typography.bodyMedium)
+                                        TextButton(onClick = { historyScanId = value.id; screen = "history" }) { Text("查看进度") }
                                         when (value.status) {
                                             MediaScanStatus.QUEUED, MediaScanStatus.RUNNING ->
                                                 TextButton(onClick = {
@@ -447,6 +460,7 @@ import kotlin.coroutines.coroutineContext
                                                 Text(sources.firstOrNull { it.id == value.bindingId }?.displayRoot ?: "媒体文件夹", style = MaterialTheme.typography.titleSmall)
                                                 Text("${scanStatusLabel(value.status)} · 已处理 ${value.processed} 项", style = MaterialTheme.typography.bodySmall)
                                             }
+                                            TextButton(onClick = { historyScanId = value.id; screen = "history" }) { Text("进度") }
                                             when (value.status) {
                                                 MediaScanStatus.QUEUED, MediaScanStatus.RUNNING -> TextButton(onClick = {
                                                     submit("cancel") { repository.cancelScan(it, library.id, value.id, value.generation) }

@@ -50,6 +50,8 @@ internal fun PhoneMediaRoute(
     var settings by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var resumePolicy by rememberSaveable(session.owner) { mutableStateOf(false) }
     var reviewing by rememberSaveable(session.owner) { mutableStateOf(false) }
+    var reviewLibraryId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
+    var reviewItemId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var autoAdvance by rememberSaveable(session.owner) { mutableStateOf(true) }
     val grid = rememberLazyGridState()
     val pages = rememberSaveableStateHolder()
@@ -65,7 +67,8 @@ internal fun PhoneMediaRoute(
     LaunchedEffect(route.selectedSeason) { route.selectedSeason?.let { season = it } }
 
     fun back() {
-        if (reviewing) reviewing = false
+        if (reviewItemId != null) { reviewItemId = null; reviewLibraryId = null }
+        else if (reviewing) reviewing = false
         else if (route.sourceRef != null) route.closeSources()
         else { item = null; library = null; season = null }
     }
@@ -77,8 +80,9 @@ internal fun PhoneMediaRoute(
         } else settings = null
     }
 
-    BackHandler(detailId != null || managing || settings != null) {
+    BackHandler(detailId != null || managing || settings != null || reviewItemId != null) {
         if (settings != null) closeSettings()
+        else if (reviewItemId != null) back()
         else if (managing) managing = false else back()
     }
     val action: (PhoneMediaAction) -> Unit = { intent ->
@@ -137,11 +141,18 @@ internal fun PhoneMediaRoute(
                 if (settings == "provider") PhoneMediaProviderSettings(repository, ::closeSettings)
                 else PhoneMediaSettings(::closeSettings, { settings = null; createLibrary = false; managing = true }, { settings = "provider" })
             }
+        } else if (reviewLibraryId != null && reviewItemId != null) {
+            val ref = repository.catalogRef(requireNotNull(reviewLibraryId), requireNotNull(reviewItemId))
+            Column(safe) {
+                PhoneMediaMatchRoute(repository, ref, imageLoader, onBack = ::back, onMatched = { back(); route.refreshHome() })
+            }
         } else if (managing) {
             Column(safe) {
                 pages.SaveableStateProvider("media-manager/${session.owner}") {
                     PhoneMediaLibraryManager(session, repository, { managing = false; settings = "home" }, route::refreshHome,
-                        onProvider = { resumePolicy = true; settings = "provider" }, createInitially = createLibrary)
+                        onProvider = { resumePolicy = true; settings = "provider" },
+                        onReviewItem = { ref -> reviewLibraryId = ref.libraryId; reviewItemId = ref.itemId },
+                        createInitially = createLibrary)
                 }
             }
         } else if (reviewing && detailId != null && libraryId != null) {
