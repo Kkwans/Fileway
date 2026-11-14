@@ -70,6 +70,10 @@ func TestClientCapabilitiesMediaLibraryVersionTracksReadableStore(t *testing.T) 
 		if present != wantAvailable || present && version != float64(1) {
 			t.Fatalf("mediaLibraryVersion=%v present=%v, want available=%v", version, present, wantAvailable)
 		}
+		watch, present := result["catalogWatchProgressV1"]
+		if present != wantAvailable || present && watch != true {
+			t.Fatalf("catalogWatchProgressV1=%v present=%v, want available=%v", watch, present, wantAvailable)
+		}
 		if result["resourceWireOperations"] != true || result["mediaPlaybackVersion"] != float64(1) {
 			t.Fatalf("existing capabilities changed: %#v", result)
 		}

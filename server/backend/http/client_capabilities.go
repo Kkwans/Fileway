@@ -43,7 +43,8 @@ func clientCapabilities(tvUpdateVersion int) handleFunc {
 			TVUpdateProxyVersion         int    `json:"tvUpdateProxyVersion,omitempty"`
 			ResourceSubtitlePagesVersion int    `json:"resourceSubtitlePagesVersion,omitempty"`
 			MediaLibraryVersion          int    `json:"mediaLibraryVersion,omitempty"`
-		}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, true, true, 1, true, true, true, 1, 1, tvUpdateVersion, subtitleVersion, mediaLibraryVersion})
+			CatalogWatchProgressV1       bool   `json:"catalogWatchProgressV1,omitempty"`
+		}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, true, true, 1, true, true, true, 1, 1, tvUpdateVersion, subtitleVersion, mediaLibraryVersion, mediaLibraryVersion > 0})
 	})
 }
 
