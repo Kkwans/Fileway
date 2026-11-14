@@ -217,6 +217,10 @@ class NasSession private constructor(val profile: ServerProfile, val id: String,
         val url = native(JSONObject().put("op", "asset").put("session", id).put("endpoint", endpoint)) as String
         return PreviewLease(url, id) { native(JSONObject().put("op", "revoke").put("url", url)); Unit }
     }
+
+    internal suspend fun closeCatalogPlayback(sessionId: String) {
+        response("DELETE", "/api/media-library/v1/playback-sessions/$sessionId", accepted = setOf(204))
+    }
     suspend fun hlsLease(taskId: String): PreviewLease {
         require(taskId.matches(Regex("[a-f0-9]{64}")))
         token()

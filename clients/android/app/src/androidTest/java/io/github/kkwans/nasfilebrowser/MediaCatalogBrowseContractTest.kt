@@ -8,7 +8,11 @@ import androidx.test.platform.app.InstrumentationRegistry
 import io.github.kkwans.nasfilebrowser.app.SessionContext
 import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -172,6 +176,66 @@ class MediaCatalogBrowseContractTest {
         assertEquals(MediaFailureKind.INVALID_RESPONSE, (repo.resolvePlayback(source) as MediaReadResult.Failure).error.kind)
         assertTrue(seen.any { it.contains("cursor=row+%2B%2F%3D") })
         journal.close()
+    }
+
+    @Test fun playbackRenewsTheSameLeaseAndClosesBothEnds() = runBlocking<Unit> {
+        val profile = ServerProfile(name = "fixture", address = "https://example.invalid/prefix")
+        val stream = "/api/media-library/v1/streams/lease_fixture/original"
+        val serverSession = "/api/media-library/v1/playback-sessions/session_fixture"
+        val localUrl = "http://127.0.0.1:11080/stream/fixture"
+        val now = System.currentTimeMillis()
+        val renewed = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        var renewOperation: String? = null
+        val session = bound(profile) { command ->
+            when (command.getString("op")) {
+                "open" -> "catalog-lease"
+                "token" -> token()
+                "asset" -> localUrl.also { assertEquals(stream, command.getString("endpoint")); events += "asset" }
+                "revoke" -> null.also { assertEquals(localUrl, command.getString("url")); events += "revoke" }
+                "request" -> when (val endpoint = command.getString("endpoint")) {
+                    "$serverSession/renew" -> {
+                        assertEquals("POST", command.getString("method"))
+                        val body = command.getJSONObject("body")
+                        assertEquals(2L, body.getLong("expectedLeaseGeneration"))
+                        val operation = body.getString("operationId")
+                        if (renewOperation == null) {
+                            renewOperation = operation
+                            reply(503)
+                        } else {
+                            assertEquals(renewOperation, operation)
+                            events += "renew"
+                            renewed.complete(Unit)
+                            reply(200, JSONObject().put("sessionId", "session_fixture").put("leaseId", "lease_fixture")
+                                .put("leaseGeneration", 3).put("renewAfter", now + 200_000).put("expiresAt", now + 300_000))
+                        }
+                    }
+                    serverSession -> reply(204).also { assertEquals("DELETE", command.getString("method")); events += "close" }
+                    else -> when {
+                        "/variants?" in endpoint -> reply(200, JSONObject().put("items", JSONArray().put(variant())))
+                        endpoint.endsWith("/playback-resolutions") -> reply(200, resolution().put("renewAfter", now - 1000)
+                            .put("expiresAt", now + 300_000))
+                        else -> reply(404)
+                    }
+                }
+                else -> error("Unknown fixture command")
+            }
+        }
+        val journal = MediaWriteJournal.open(isolatedContext())
+        try {
+            val repo = MediaLibraryRepository(session, { true }, journal)
+            val ref = repo.catalogRef("lib_1", "episode_1")
+            val source = (repo.playbackVariants(ref) as MediaReadResult.Success).value.items.single()
+            val resolution = (repo.resolvePlayback(source) as MediaReadResult.Success).value
+            val lease = repo.openPlaybackLease(resolution)
+            assertEquals(localUrl, lease.url)
+            val maintenance = launch { lease.maintain() }
+            try { withTimeout(12_000) { renewed.await() } }
+            finally { maintenance.cancelAndJoin(); lease.release() }
+            assertEquals(listOf("asset", "renew", "revoke", "close"), events)
+        } finally {
+            journal.close()
+        }
     }
 
     @Test fun unknownStatesScopeAndCursorFailuresDoNotBecomeEmptySuccess() = runBlocking<Unit> {

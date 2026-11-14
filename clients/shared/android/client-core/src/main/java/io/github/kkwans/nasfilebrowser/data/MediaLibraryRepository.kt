@@ -195,6 +195,18 @@ class MediaLibraryRepository(
         return resolution.endpoint?.serviceRelativePath()
     }
 
+    suspend fun openPlaybackLease(resolution: MediaCatalogPlaybackResolution): CatalogPlaybackLease {
+        val endpoint = playbackEndpoint(resolution) ?: error("服务器尚未提供影视原画播放")
+        try {
+            return CatalogPlaybackLease(context.api, context.api.assetLease(endpoint), resolution)
+        } catch (error: Exception) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                resolution.sessionId?.let { closeServerLease(context.api, it) }
+            }
+            throw error
+        }
+    }
+
     private fun catalogContinuation(base: String, cursor: MediaCatalogCursor?, maxBytes: Int = 4096): String {
         val value = cursor?.use(scope, catalogDeviceSession, base)?.let { catalogCursorValue(it, maxBytes) } ?: return base
         return base + (if ('?' in base) "&" else "?") + "cursor=" + URLEncoder.encode(value, "UTF-8")
